@@ -533,8 +533,8 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 ### Layers and the dependency rule (PM-577)
 
-The refactor assigns every server source file to one stable module and one layer.
-Targets and passes describe the final layout, not directories already moved.
+Every server source file belongs to one stable module and one layer (PM-577, PM-649).
+Targets describe the implemented layout; passes record the completed refactor.
 Each module gets one pass: `none` keeps it unchanged; `move` relocates it;
 `split` gives it a narrow plain TypeScript interface; `split-tool` does that and
 adopts the chosen tool (Effect) in the same pass; `delete` removes it.
@@ -569,7 +569,8 @@ other: they communicate through the core. Connectors and runtime reach engine
 capabilities only through ports in `contracts/`. Workspace `@projectman/*`
 packages count as contracts and are accessible to every layer.
 
-The source is [module-map.ts](../apps/server/test/architecture/module-map.ts); only a phase's closing card edits this table (PM-627 in phase 4, PM-645 in phase 5).
+The source is [module-map.ts](../apps/server/test/architecture/module-map.ts).
+The final closure is recorded by PM-649, after PM-627 and PM-645 closed phases 4 and 5.
 
 The kernel and eight core modules are sealed at their final paths (PM-631, PM-637–644).
 The core descriptors live in `test/architecture/modules/core-<module>.ts`, assembled in
@@ -602,7 +603,7 @@ construction order; the factories return the existing classes without changing b
 | `runtime/permissions`                             | Command parsing and execution permission rules.                             |
 | `runtime/watchers`                                | Runtime health, machine sampling, outage, review and cleanup watches.       |
 | `runtime/usage`                                   | Provider quota, plan usage and managed provider keys.                       |
-| `context`                                         | Agent context packs and prompts.                                            |
+| `context`                                         | Agent context packs, prompts and member memory through two factories.       |
 | `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
 | `services/full-tests`                             | Full-test and screenshot-run orchestration.                                 |
 | `services/releases`                               | Release proposals and release roadmap notices.                              |
@@ -632,17 +633,27 @@ passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
 The longest matching path wins; each declared path must exist and appear only once.
 [dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
 enforces the layer rules against all production TypeScript source files.
-Current forbidden module pairs have explicit exceptions with a removal owner.
-This initial baseline may only shrink: slice cards update their own paths and remove
-their own exceptions. Once a slice seals its module, other modules must import its
-target `index.ts`, including when a layer exception still exists.
+There are no dependency exceptions; new ones must not be added. Every module below
+the assembly layer is sealed: cross-module imports use its target `index.ts`.
+The guard test asserts both the empty exception list and complete sealing.
+
+The sealed modules are `contracts`, `db`, `config`, `logging`, `instance`, `kernel`,
+`agent-text`; all eight `core/*` modules; `runtime/admission`, `runtime/sessions`,
+`runtime/delivery`, `runtime/permissions`, `runtime/watchers`, `runtime/usage`, `context`;
+all nine `services/*` modules; `runner`, `worktree`, `engine-host`, `full-test`, `machine`,
+`engine-link`; and `api`, `mcp`, `ws`, `http`, `control`, `auth`.
+Only `assembly` and `entry` remain unsealed in the assembly layer. Other layers cannot
+import them. The `context` facade exposes `createContextPackBuilder` and
+`createMemberMemoryStore`; prompt and formatting helpers remain internal.
 
 No exception has a `core/*` source. The fifteen original pairs are accounted for in
 [the phase 5 closure inventory](refactor-core-closure.md): PM-612 removed one, and
 PM-632–635 removed fourteen. PM-646 removed the four connector exceptions
 (`api/auth/ws → assembly`, `instance → entry`). PM-648 moved composition to
 `assembly.ts` and removed compatibility exports; callers import the owning module.
-Context/MCP sealing and the final closure belong to PM-649.
+PM-649 sealed the remaining ten modules and added the final guard. The `domain/`
+folder is gone, composition exports only its factory and types, and every lower-layer
+module is behind its facade. This completes the module refactor's structural goals (PM-577).
 
 #### Core extension points
 
@@ -1351,6 +1362,8 @@ workers follow the machine's size.
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
   `scripts/engine/{cli,commands}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
+  Entry points import the named exports of `engine-link/index.ts` (PM-649); the
+  implementations above and their machine assumptions remain unchanged.
   `PROJECTMAN_MODE=engine` (`npm run engine -- start`) runs the machine-dependent parts on the Mac
   beside the CLIs and connects outward to the cloud's `/engine/link` with its machine key. There is
   no database, no `/api`, no web app and no control socket; only `index.ts` reads the environment.
@@ -1672,7 +1685,8 @@ assumption or remote-engine RPC.
   to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `index.ts` (`loggerOptions`)
-  (PM-444). Every process logs pino's JSON lines to the terminal and, since PM-444, to
+  (PM-444), exposed through `logging/index.ts` to `index.ts` and
+  `engine-link/engine-audit.ts` (PM-649). Every process logs pino's JSON lines to the terminal and, since PM-444, to
   `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
   mode); the terminal's scrollback alone lost the older lines. The file is appended across starts,
   rotated at 10 MB (`server.log` → `.1` → … `.4`, five files, so about 50 MB at most), mode 0600 in

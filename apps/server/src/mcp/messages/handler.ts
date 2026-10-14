@@ -3,7 +3,7 @@ import { TeamToolError } from '../../contracts';
 import type { ToolCaller } from '../caller';
 import { isOperator, memberOf, messageRoute, sessionWorkItemOf } from '@projectman/shared';
 import type { ProjectConfig, WorkItemRef } from '@projectman/shared';
-import type { MessageToolsHandler } from '../../contracts/team-tools';
+import type { MessageToolsHandler } from '../../contracts';
 import type { SentMessageRecipient, WorkspaceFile } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { Messaging } from '../../core/messages';

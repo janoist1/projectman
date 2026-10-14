@@ -18,7 +18,7 @@ import type {
   QuestionOptionInput,
   Task,
 } from '@projectman/shared';
-import type { InboxToolsHandler } from '../../contracts/team-tools';
+import type { InboxToolsHandler } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 import { ANSWER_OPTION, sponsorOrOwners } from '../../core/inbox';

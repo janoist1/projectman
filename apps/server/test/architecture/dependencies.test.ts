@@ -17,10 +17,15 @@ function sources(folder: string): SourceFile[] {
   });
 }
 
-test('server imports respect the module map and shrinking exception list', () => {
+test('server imports respect the module map without dependency exceptions', () => {
   const violations = checkDependencies(sources(root), MODULES, LAYER_RULES, EXCEPTIONS);
   const report = violations
     .map(({ kind, from, to, detail }) => `${kind}: ${from ?? ''} → ${to ?? ''}: ${detail}`)
     .join('\n');
   expect(violations, report).toEqual([]);
+});
+
+test('has no dependency exceptions and seals every module below the assembly layer', () => {
+  expect(EXCEPTIONS).toEqual([]);
+  expect(MODULES.filter((m) => m.layer !== 'assembly' && !m.sealed).map((m) => m.id)).toEqual([]);
 });

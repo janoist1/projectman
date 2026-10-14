@@ -1,6 +1,6 @@
 import type { ToolContext } from '../../contracts';
 import { type ToolCaller, toToolError } from '../caller';
-import type { AdmissionToolsHandler } from '../../contracts/team-tools';
+import type { AdmissionToolsHandler } from '../../contracts';
 import type { HandoffService } from '../../runtime/admission';
 
 export class AdmissionTools implements AdmissionToolsHandler {

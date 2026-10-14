@@ -18,25 +18,24 @@ import type {
   ScreenshotExecutor,
 } from './contracts';
 import { createLocalEngine } from './engine-host';
-import { createEngineAudit } from './engine-link/engine-audit';
-import { createEngineClient } from './engine-link/engine-client';
-import type { LinkSocketFactory } from './engine-link/engine-client';
 import {
+  createEngineAudit,
+  createEngineClient,
+  createEngineHandlers,
+  createEngineLimit,
+  createEngineStatusWriter,
+  createEngineTransfers,
+  createEngineEventBuffer,
+  ENGINE_RELAY_WAIT_MS,
+  EngineCallError,
   EngineConfigError,
   engineFiles,
   loadEngineConfig,
   readLinkHeaders,
   readSecretFile,
   resolveEngineConfig,
-} from './engine-link/engine-config';
-import { createEngineHandlers } from './engine-link/engine-handlers';
-import { createEngineLimit } from './engine-link/engine-limit';
-import { createEngineStatusWriter } from './engine-link/engine-status';
-import { createEngineTransfers } from './engine-link/engine-transfer';
-import { createEngineEventBuffer } from './engine-link/event-buffer';
-import { ENGINE_RELAY_WAIT_MS } from './engine-link/protocol';
-import { EngineCallError } from './engine-link/rpc';
-import type { EngineEvent, Hello } from './engine-link/protocol';
+} from './engine-link';
+import type { EngineEvent, Hello, LinkSocketFactory } from './engine-link';
 import {
   createFullTestExecutor,
   createScreenshotExecutor,

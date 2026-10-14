@@ -1225,6 +1225,9 @@ workers follow the machine's size.
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
   instances. A synced temporary file is renamed only after the full JSON is written.
+  The shared `contracts/sandbox.ts` `sensitivePaths` app-home list denies the entire `operator-data`
+  root to member file tools and the existing session-policy/provider consumers; no separate
+  provider rule or new permission is added.
   **Remote engine:** storage stays on the server, with no file mount on an engine. Later context/MCP
   services may send filtered prompt data across the existing boundary; this card adds no such API.
 

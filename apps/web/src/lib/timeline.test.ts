@@ -378,6 +378,18 @@ describe('review pins on the timeline (PM-183)', () => {
     );
   });
 
+  it('says a collecting card went on without the gates because its parts closed (PM-647)', () => {
+    expect(
+      describeEvent(move({ partsClosed: { done: ['AC-2', 'AC-4'], cancelled: ['AC-3'] } }), context).text,
+    ).toBe(
+      t('timeline.events.task_stage_changed_parts_closed', {
+        from: 'dev',
+        to: 'review',
+        parts: 'AC-2, AC-4, AC-3',
+      }),
+    );
+  });
+
   it('describes a send-back after a failed full test and the full test results (PM-217)', () => {
     expect(
       describeEvent(move({ testsFailed: { runId: 'ftr_1', branch: 'b', commit: commitA } }), context).text,

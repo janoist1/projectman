@@ -10,6 +10,7 @@ import {
   memberOf,
   mergeRepoOf,
   moveMerge,
+  partsClosedWaiver,
   isOpenTask,
   isTheme,
   noApproverReason,
@@ -24,6 +25,7 @@ import type {
   GateEvaluation,
   GateRequestPayload,
   InboxItem,
+  PartsClosed,
   ProjectConfig,
   RepoConfig,
   Stage,
@@ -120,6 +122,8 @@ export interface MoveOptions {
   pulled?: StagePull;
   /** A person's move despite open prerequisites (PM-204); carried to the `task_stage_changed` event. */
   despitePrerequisites?: boolean;
+  /** The system closes a collecting card with its parts (PM-647): the move is valid only while the waiver holds, and never falls back to the gates. */
+  partsClosed?: true;
   /**
    * Where the card goes in the target column when it is dropped on the board (PM-118). Without it a card
    * that enters another column takes the top of that column; one that stays in its column keeps its place.
@@ -207,7 +211,9 @@ export class TaskMoves {
           this.inbox.get(item.projectKey, item.id).state !== 'open'
         )
           throw conflict('inbox_item_closed', 'the hand-on request is no longer current');
-        const evaluation = evaluateMove(task, config, task.stageId, request.toStageId);
+        const evaluation = this.partsClosedOf(config, task, request.toStageId)
+          ? { unmet: [], approvals: [] }
+          : evaluateMove(task, config, task.stageId, request.toStageId);
         if (evaluation.unmet.length || evaluation.approvals.length) throw gateBlockedError(evaluation);
         this.move(config, task, request.toStageId, actor, effects, { handover, mergeChecked });
       });
@@ -226,7 +232,7 @@ export class TaskMoves {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled'> = {},
+    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed'> = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
     const prepared = await this.prepareMove(config, this.store.get(projectKey, taskKey), stageId);
@@ -256,12 +262,29 @@ export class TaskMoves {
       return { handover: null, mergeChecked: false };
     // The merge is checked only when the move's own gates hold (PM-484): a merge that waits for a gate
     // of the move (a missing approval) would otherwise keep the gate from ever being asked.
+    // A move without the gates (PM-647) has no gate left to wait for, so its merge is checked at once.
+    const waived = this.partsClosedOf(config, task, target.id) !== null;
     let mergeChecked = false;
-    if (this.mergeGate && moveMerge(config, task, task.stageId, target.id).kind === 'due') {
+    if (
+      this.mergeGate &&
+      (waived
+        ? mergeRepoOf(config, task, task.stageId, target.id) !== null
+        : moveMerge(config, task, task.stageId, target.id).kind === 'due')
+    ) {
       await this.mergeGate.checkGate(config, task, target.id);
       mergeChecked = true;
     }
     return { handover: await this.readHandover(config, task, target), mergeChecked };
+  }
+
+  /** The waiver of a move into the done stage (PM-647), from the card's subtasks as they stand now. */
+  private partsClosedOf(config: ProjectConfig, task: Task, targetId: string): PartsClosed | null {
+    return partsClosedWaiver(
+      config,
+      task,
+      this.store.ctx.repos.tasks.children(task.projectKey, task.key),
+      targetId,
+    );
   }
 
   private async readHandover(config: ProjectConfig, task: Task, target: Stage): Promise<Handover | null> {
@@ -354,7 +377,13 @@ export class TaskMoves {
       return { task, moved: false, pendingApproval: [] };
     // Every move path checks the project manager's configured stage-move rights.
     if (actorMoveRefusal(config, actor, task.stageId, target.id)) throw projectManagerMoveRefused();
-    const evaluation = evaluateMove(task, config, task.stageId, target.id);
+    // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
+    const waiver = this.partsClosedOf(config, task, target.id);
+    // The system's automatic close is valid only while the waiver holds: it never falls back to the gates.
+    if (opts.partsClosed && !waiver) return { task, moved: false, pendingApproval: [] };
+    const evaluation: GateEvaluation = waiver
+      ? { unmet: [], approvals: [] }
+      : evaluateMove(task, config, task.stageId, target.id);
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     if (evaluation.approvals.length > 0) {
       const requested = this.requestApproval(
@@ -379,12 +408,13 @@ export class TaskMoves {
     const head = opts.handover?.head;
     const extra: Pick<
       TimelineEventData['task_stage_changed'],
-      'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled'
+      'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled' | 'partsClosed'
     > = {
       ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
       ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
       ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
       ...(opts.pulled ? { pulled: opts.pulled } : {}),
+      ...(waiver ? { partsClosed: waiver } : {}),
     };
     const board: BoardPlace = { placement: opts.placement, reranked: [] };
     return {
@@ -735,7 +765,7 @@ export class TaskMoves {
     actor: Actor,
     extra: Pick<
       TimelineEventData['task_stage_changed'],
-      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled'
+      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled' | 'partsClosed'
     >,
     effects: Effect[],
     pin?: SourceHead,

@@ -40,8 +40,14 @@ export function visibleTimelineEvent(
   messageParticipants: (id: string) => { from: string; to: string[] } | null,
 ): TimelineEvent {
   // Why a card was pulled into a stage (PM-427) is the team's: a client sees the move, not the reason.
-  if (event.type === 'task_stage_changed' && isClient(viewer) && event.data && 'pulled' in event.data) {
-    const { pulled: _pulled, ...visible } = event.data;
+  // The subtasks a collecting card closed with (PM-647) are internal cards' keys.
+  if (
+    event.type === 'task_stage_changed' &&
+    isClient(viewer) &&
+    event.data &&
+    ('pulled' in event.data || 'partsClosed' in event.data)
+  ) {
+    const { pulled: _pulled, partsClosed: _partsClosed, ...visible } = event.data;
     return { ...event, data: visible };
   }
   if (event.type !== 'session_started') return event;

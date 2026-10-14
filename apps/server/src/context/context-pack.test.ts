@@ -592,9 +592,10 @@ describe('token economy (PM-181)', () => {
   // operator role is now called owner, three characters shorter).
   // PM-486 adds 70 characters: answering ask_human never grants an approval label.
   // PM-559 adds 106 characters: a question that became moot is withdrawn with withdraw_question.
+  // PM-647 adds 236 characters: a collecting card whose subtasks are closed goes to Done without the gates.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 16453, brief: 865 },
-    { name: 'code reviewer', handle: 'code-review', system: 14553, brief: 1903 },
+    { name: 'developer', handle: 'fe-1', system: 16689, brief: 865 },
+    { name: 'code reviewer', handle: 'code-review', system: 14789, brief: 1903 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'
@@ -625,7 +626,8 @@ describe('token economy (PM-181)', () => {
     // PM-462 adds the Operator's 35 characters to the team list.
     // PM-486 adds the same 70-character approval warning.
     // PM-559 adds the same 106 characters about withdrawing a moot question.
-    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(11202);
+    // PM-647 adds the same 236 characters about a collecting card closing with its subtasks.
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(11438);
   });
 });
 

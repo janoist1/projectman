@@ -4125,6 +4125,8 @@ export const hu = {
       },
       merge_target_unknown: 'a következő lépés',
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
+      task_stage_changed_parts_closed:
+        'Lezárta: {from} → {to}, kapuk nélkül, mert minden részkártyája lezárult ({parts})',
       task_stage_changed_branch_moved:
         'Visszaküldte a rendszer: {from} → {to}; az ág elmozdult az átadott commitról ({pinned}) erre: {head}',
       task_stage_changed_tests_failed:

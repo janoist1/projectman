@@ -133,7 +133,7 @@ import { conflict } from './kernel';
 import { SessionCloser } from './runtime/sessions';
 import { SessionOrchestrator } from './runtime/sessions';
 import { AutoAdvance } from './runtime/watchers';
-import { LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './core/tasks';
+import { CollectingCloser, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './core/tasks';
 import { TimelineService } from './core/timeline';
 import { InvolvementService } from './core/tasks';
 import {
@@ -1509,6 +1509,24 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_stage_changed', (change) => partChanged(change.task));
   events.on('task_labels_changed', ({ task }) => partChanged(task));
   events.on('task_cancelled', (task) => partChanged(task));
+  // A collecting card closes with its parts, without the gates, when its last subtask closes or its last
+  // blocking label comes off (PM-647). No sweep: it would close again a card a person reopened.
+  const collectingCloser = new CollectingCloser({ ctx, projects, tasks });
+  const closeWithParts = (work: () => Promise<void>, taskKey: string): void => {
+    background.run(work, (err) =>
+      opts.logger.warn({ err, taskKey }, 'could not close the collecting card with its parts'),
+    );
+  };
+  events.on('task_stage_changed', (change) => {
+    if (change.task.status === 'done' && change.task.parentKey)
+      closeWithParts(() => collectingCloser.partClosed(change.task), change.task.key);
+  });
+  events.on('task_cancelled', (task) => {
+    if (task.parentKey) closeWithParts(() => collectingCloser.partClosed(task), task.key);
+  });
+  events.on('task_labels_changed', ({ task, previousLabels }) =>
+    closeWithParts(() => collectingCloser.unblocked(task, previousLabels), task.key),
+  );
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));

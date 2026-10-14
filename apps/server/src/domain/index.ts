@@ -86,7 +86,9 @@ import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { OperatorActions, OperatorApprovals } from '../services/operator';
 import { FixLimitWatch } from './fix-limit';
-import { FullTestRuns } from './full-tests';
+import { FullTestRuns, ScreenshotRuns } from '../services/full-tests';
+import { outputTail } from '../full-test';
+import { ScreenshotTools } from '../mcp/full-tests';
 import { DecisionCandidates } from './decision-candidates';
 import { DocWrites } from './doc-writes';
 import { MergeCardLock, Merges } from '../services/merges';
@@ -115,7 +117,6 @@ import { createLocalEngine, LocalEngineDirectory } from './engines';
 import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
-import { ScreenshotRuns } from './screenshot-runs';
 import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
@@ -172,7 +173,6 @@ export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { CardMeasure } from './card-measure';
 export { FixLimitWatch } from './fix-limit';
-export { FullTestRuns } from './full-tests';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
@@ -857,6 +857,7 @@ export function createDomain(opts: DomainOptions) {
   const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
   // The server's full test of the pinned commit (PM-217) holds the reviewers back until its result is in.
   const fullTests = new FullTestRuns({
+    runSandbox: fullTestSandbox,
     ctx,
     projects,
     tasks,
@@ -955,6 +956,7 @@ export function createDomain(opts: DomainOptions) {
   const screenshotRuns =
     opts.engines || engines.ids().some((id) => engines.get(id)?.screenshotExecutor)
       ? new ScreenshotRuns({
+          outputTail,
           executorFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.screenshotExecutor,
           platformFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.platform,
           diskFor: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,
@@ -1127,6 +1129,7 @@ export function createDomain(opts: DomainOptions) {
         sessionEngine,
       }),
       merges: new MergeTools({ calls: toolCaller, merges }),
+      screenshots: new ScreenshotTools({ calls: toolCaller, screenshots: screenshotRuns }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
     },
     docWrites,
@@ -1134,7 +1137,6 @@ export function createDomain(opts: DomainOptions) {
     operatorRequests,
     operatorSteps,
     questionScreening,
-    screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
     handoffs,

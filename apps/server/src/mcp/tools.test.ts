@@ -81,6 +81,7 @@ describe('team tool registration', () => {
         'delete_attachment',
       ],
       'services/merges': ['merge_task', 'prioritize_merge'],
+      'services/full-tests': ['take_screenshots', 'get_screenshot_run'],
     });
   });
 });

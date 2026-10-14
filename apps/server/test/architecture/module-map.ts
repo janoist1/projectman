@@ -278,8 +278,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/full-tests',
     pass: 'split-tool',
-    paths: ['domain/full-tests.ts', 'domain/screenshot-runs.ts'],
-    sealed: false,
+    paths: ['services/full-tests/'],
+    sealed: true,
   },
   {
     id: 'services/releases',
@@ -498,11 +498,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     removedBy: 'core/base',
   },
   {
-    from: 'services/full-tests',
-    to: 'runtime/sessions',
-    removedBy: 'services/full-tests',
-  },
-  {
     from: 'core/inbox',
     to: 'runtime/sessions',
     removedBy: 'core/inbox',
@@ -561,11 +556,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'runtime/sessions',
     to: 'services/schedules',
     removedBy: 'runtime/sessions',
-  },
-  {
-    from: 'services/full-tests',
-    to: 'full-test',
-    removedBy: 'services/full-tests',
   },
   {
     from: 'runtime/sessions',

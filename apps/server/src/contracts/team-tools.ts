@@ -520,6 +520,17 @@ export interface FeedbackToolsHandler {
   closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
 }
 
+export interface ScreenshotToolsHandler {
+  /**
+   * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
+   * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
+   * with `getScreenshotRun`.
+   */
+  takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
+  /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
+  getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
+}
+
 /** The tools of services/releases (PM-606). */
 export interface ReleaseToolsHandler {
   /**
@@ -541,6 +552,7 @@ export interface TeamToolsHandler
     AttachmentToolsHandler,
     MergeToolsHandler,
     FeedbackToolsHandler,
+    ScreenshotToolsHandler,
     BoundaryToolsHandler,
     ReleaseToolsHandler,
     OperatorToolsHandler {
@@ -574,14 +586,6 @@ export interface TeamToolsHandler
    * Operator, in the owner's own conversation, during an open owner request.
    */
   markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
-  /**
-   * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
-   * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
-   * with `getScreenshotRun`.
-   */
-  takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
-  /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
-  getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
   /**
    * decide_permission_request: the AI decider answers a member's tool question delegated to it
    * (PM-169), or hands it to a person (`escalate`). The reason is required.

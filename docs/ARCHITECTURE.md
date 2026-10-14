@@ -945,12 +945,14 @@ The developer's sandbox cannot open a pseudo-terminal, so the server's PTY tests
 timeoutMinutes = 15}` in the project's configuration; absent: nothing below happens) gets a **full test** of the
 commit pinned at the hand-over, run by the server.
 
-- **Queue.** `FullTestRuns` (`domain/full-tests.ts`) queues a run (`full_test_runs`, migration 32) when the
+- **Queue.** `FullTestRuns` (`services/full-tests/full-tests.ts`) queues a run (`full_test_runs`, migration 32) when the
   review pin is saved (the stage change) or a new round re-pins (`repinReview`, on the developer's message to a
   reviewer), and drops the queued or running run of an older pin or of a stage the card left (`cancelled`:
   `repinned`, `stage_left`; `branch_moved`, `interrupted` at a restart, `shutdown` at a stop). One run runs at a
   time in the whole installation, first in first out, under `nice -n 10` (set on the process that starts
   srt, outside the sandbox: Seatbelt refuses `setpriority` inside it; the sandbox and the command inherit it).
+  The scoped Effect core (`services/full-tests/queue.ts`, PM-601) drains the durable FIFO and
+  interrupts steps cooperatively: the aborted executor call settles before the next step starts.
 - **Executor.** `src/full-test` (`FullTestExecutor` in `contracts/full-test.ts`) writes the srt settings
   (`fullTestSandbox`: reads the checkout and the configured repository's git directory only, writes its run
   directory `<tmp>/pmft-<end of the run id>/` only: srt's own default temporary directory, `/tmp/claude`, which it
@@ -1372,7 +1374,8 @@ workers follow the machine's size.
 
 - **Cloud composition** — `engine-link/remote/{hub,transfers,runner,transcripts,host,attachments,machine,github,handlers,index}.ts`,
   `engine-link/index.ts` (`EngineLinks.authenticate`), `app.ts` (`parseMode`, `createCloudRemote`),
-  `domain/{sessions,engine-registry,messaging/messaging,machine,full-tests,screenshot-runs}.ts` (PM-315).
+  `domain/{sessions,engine-registry,messaging/messaging,machine}.ts`,
+  `services/full-tests/{full-tests,screenshot-runs}.ts` (PM-315, PM-601).
   `PROJECTMAN_MODE=cloud` runs the UI, the API and the database and no machine-dependent part: the
   runner, the transcripts, the plan usage, the machine probe, the engine directory (worktrees, workspaces,
   session folders, free disk), the GitHub CLI, the full test and the screenshots are the engine's, asked
@@ -1747,13 +1750,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
   and writes images to local output storage. For a Codex member, whose sandbox cannot start
   Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
-  PM-351): `domain/screenshot-runs.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
+  PM-351): `services/full-tests/{screenshot-runs,screenshot-core}.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
   member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
   the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
   **Cloud mode (PM-315):** `screenshots.run/cancel` run on the session's engine
-  (`domain/screenshot-runs.ts` takes a remote executor, announced by the engine's `screenshot_started`
+  (`services/full-tests/screenshot-runs.ts` takes a remote executor, announced by the engine's `screenshot_started`
   event); a run with no connected engine is refused as `engine_offline`. The scenario and the image list come from the engine (`files.*`).
   `index.ts` builds no local screenshot executor in cloud mode.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `screenshots.run/cancel`, `files.resolve_scenario` and `files.list_images` (PM-313), provision a compatible browser on the engine, preserve the disposable
@@ -1958,7 +1961,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine (engine mode, PM-314: runs in the engine process):** trust is part of `session.start` (PM-313); prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
   **Module:** `runner`
-- **Server full test before review** — `domain/full-tests.ts`, `engine-host/disk.ts`
+- **Server full test before review** — `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine),
   `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local

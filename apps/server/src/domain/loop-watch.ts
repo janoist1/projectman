@@ -25,13 +25,13 @@ import type {
 } from '@projectman/shared';
 import type { TaskLoopRecord } from '../db';
 import { ownerHandles } from './access';
-import type { Admission, AutomaticStart, StartSpec } from './admission';
+import type { Admission, AutomaticStart, StartSpec } from '../runtime/admission';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
 import type { MessageDelivery } from './messaging';
 import type { ConfigChange, ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
+import type { SessionOrchestrator } from '../runtime/sessions';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { KeyedMutex, SYSTEM_ACTOR, humanActor, newId } from './util';

@@ -8,9 +8,9 @@ import {
 } from '@projectman/shared';
 import type { AgentProvider, EngineId, HumanMemberConfig, Task } from '@projectman/shared';
 import type { ProviderStatus, EngineDirectory } from '../src/contracts';
-import type { AutomaticStart } from '../src/domain/admission';
-import { DeferredStarts } from '../src/domain/admission';
-import { WorkOutages } from '../src/domain/outages';
+import type { AutomaticStart } from '../src/runtime/admission';
+import { DeferredStarts } from '../src/runtime/admission';
+import { WorkOutages } from '../src/runtime/watchers';
 import { createDomainEvents } from '../src/domain/events';
 import { ENGINE_OFFLINE_AFTER_MS } from '../src/engine-link';
 import { createLocalEngine } from '../src/engine-host';

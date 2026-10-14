@@ -9,7 +9,7 @@ import type { Messaging } from '../../domain/messaging';
 import { recipientHasCardRole } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
 import type { TaskService } from '../../domain/tasks';
-import type { TaskStarts } from '../../domain/admission';
+import type { TaskStarts } from '../../runtime/admission';
 import { aiActor } from '../../domain/util';
 import type { ProjectState, OperatorActions } from '../../services/operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';

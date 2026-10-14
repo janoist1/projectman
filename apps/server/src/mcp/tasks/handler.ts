@@ -37,8 +37,8 @@ import {
 } from '../../domain/visibility';
 import type { Viewer } from '../../domain/visibility';
 import type { ProjectFocusService } from '../../domain/project-focus';
-import type { SessionCloser } from '../../domain/session-closer';
-import type { SessionOrchestrator } from '../../domain/sessions';
+import type { SessionCloser } from '../../runtime/sessions';
+import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TaskService, TaskWaits } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
 import { aiActor, humanActor, unique } from '../../domain/util';

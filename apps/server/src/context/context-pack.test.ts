@@ -29,7 +29,7 @@ import type {
   HandoffTakeover,
   SessionPolicy,
 } from '../contracts';
-import { commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
+import { commandVerdict, readableRootsFor, sessionSandbox } from '../runtime/sessions';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';

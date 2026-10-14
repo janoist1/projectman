@@ -17,7 +17,7 @@ import type { DomainContext } from '../context';
 import type { DomainEventMap } from '../events';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../sessions';
+import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TaskService } from '../tasks';
 import { SYSTEM_ACTOR, unique } from '../util';
 import type { Messaging } from './messaging';

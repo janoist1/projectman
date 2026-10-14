@@ -344,12 +344,59 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     await install(reference);
     await staleTarget();
 
-    expect(await clone({ copyTree: () => new Promise(() => undefined), copyTimeoutMs: 10 }).result).toEqual({
+    expect(
+      await clone({
+        copyTree: (_src, _dest, signal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          }),
+        copyTimeoutMs: 10,
+      }).result,
+    ).toEqual({
       status: 'skipped',
       reason: 'failed',
     });
     expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
     expect(await readFile(path.join(target, 'apps/web/node_modules/vite/index.js'), 'utf8')).toBe('old');
+    expect(await leftovers(target)).toEqual([]);
+  });
+
+  it('removes the temporary only after an aborted copy stopped', async () => {
+    await install(reference);
+    await staleTarget();
+    let lateWriteFinished = false;
+    const copyTree = async (_src: string, dest: string, signal: AbortSignal) => {
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+      await mkdir(dest, { recursive: true });
+      await writeFile(path.join(dest, 'late-write'), 'copier still running');
+      lateWriteFinished = true;
+      throw new Error('aborted');
+    };
+
+    expect(await clone({ copyTree, copyTimeoutMs: 10 }).result).toEqual({
+      status: 'skipped',
+      reason: 'failed',
+    });
+    expect(lateWriteFinished).toBe(true);
+    expect(await leftovers(target)).toEqual([]);
+    expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
+    expect(await readFile(path.join(target, 'apps/web/node_modules/vite/index.js'), 'utf8')).toBe('old');
+  });
+
+  it('does not start the next directory once the budget ran out', async () => {
+    await install(reference);
+    const copyTree = vi.fn(
+      (_src: string, _dest: string, signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        }),
+    );
+
+    expect(await clone({ copyTree, copyTimeoutMs: 10 }).result).toEqual({
+      status: 'skipped',
+      reason: 'failed',
+    });
+    expect(copyTree).toHaveBeenCalledTimes(1);
     expect(await leftovers(target)).toEqual([]);
   });
 

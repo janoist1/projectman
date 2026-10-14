@@ -181,8 +181,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/admission',
     pass: 'split-tool',
-    paths: ['domain/admission/', 'domain/handoffs.ts'],
-    sealed: false,
+    paths: ['runtime/admission/', 'domain/admission/', 'domain/handoffs.ts'],
+    sealed: true,
   },
   {
     id: 'runtime/sessions',
@@ -190,6 +190,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'runtime/sessions',
     pass: 'split-tool',
     paths: [
+      'runtime/sessions/',
       'domain/sessions.ts',
       'domain/session-closer.ts',
       'domain/session-policy.ts',
@@ -198,7 +199,7 @@ export const MODULES: readonly ModuleEntry[] = [
       'domain/engines.ts',
       'domain/engine-registry.ts',
     ],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'runtime/delivery',
@@ -214,6 +215,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'runtime/permissions',
     pass: 'split',
     paths: [
+      'runtime/permissions/',
       'domain/read-only-commands.ts',
       'domain/unattended-commands.ts',
       'domain/command-options.ts',
@@ -223,7 +225,7 @@ export const MODULES: readonly ModuleEntry[] = [
       'domain/worktree-commands.ts',
       'domain/in-place-edits.ts',
     ],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'runtime/watchers',
@@ -231,6 +233,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'runtime/watchers',
     pass: 'split-tool',
     paths: [
+      'runtime/watchers/',
       'domain/loop-watch.ts',
       'domain/fix-limit.ts',
       'domain/review-watch.ts',
@@ -241,7 +244,7 @@ export const MODULES: readonly ModuleEntry[] = [
       'domain/worktree-sweep.ts',
       'domain/tasks/auto-advance.ts',
     ],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'runtime/usage',
@@ -249,13 +252,14 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'runtime/usage',
     pass: 'split-tool',
     paths: [
+      'runtime/usage/',
       'domain/plan-usage.ts',
       'domain/provider-quota-hold.ts',
       'domain/provider-keys.ts',
       'domain/nanogpt-key-check.ts',
       'domain/usage-alerts.ts',
     ],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'context',
@@ -460,11 +464,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     removedBy: 'auth',
   },
   {
-    from: 'context',
-    to: 'assembly',
-    removedBy: 'context',
-  },
-  {
     from: 'core/tasks',
     to: 'runtime/sessions',
     removedBy: 'core/tasks',
@@ -528,11 +527,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'core/projects',
     to: 'runtime/sessions',
     removedBy: 'core/projects',
-  },
-  {
-    from: 'core/tasks',
-    to: 'runtime/watchers',
-    removedBy: 'core/tasks',
   },
   {
     from: 'core/tasks',

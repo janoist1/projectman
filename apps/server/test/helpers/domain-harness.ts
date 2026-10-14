@@ -28,7 +28,7 @@ import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
 import { createLocalEngine } from '../../src/engine-host';
-import { LocalEngineDirectory } from '../../src/domain/engines';
+import { LocalEngineDirectory } from '../../src/runtime/sessions';
 import {
   capturingLogger,
   createFakeRunnerModule,

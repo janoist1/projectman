@@ -8,7 +8,7 @@ import {
   HEAVY_LOCK_DIR_VARIABLE,
   PREFER_OFFLINE_VARIABLE,
   PTY_SKIP_VARIABLE,
-} from './session-policy';
+} from '../runtime/sessions';
 import { SHELL_REDIRECTIONS } from './shell-words';
 import {
   NPM_CHECKS,

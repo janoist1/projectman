@@ -13,7 +13,7 @@ import type {
 } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../src/db';
 import { Admission, conflict, DeferredStarts, DomainError } from '../src/domain';
-import { isDeferrable } from '../src/domain/admission';
+import { isDeferrable } from '../src/runtime/admission';
 import type { AutomaticStart, DomainContext, SessionOrchestrator, TaskService } from '../src/domain';
 import { capturingLogger, planUsage } from './helpers/fakes';
 import { makeRepoless, testConfig } from './helpers/test-template';

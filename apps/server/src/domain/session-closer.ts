@@ -18,7 +18,7 @@ import { engineIdOf } from './engines';
 import type { DomainContext } from './context';
 import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
-import type { RefinementSteps } from './admission';
+import type { RefinementSteps } from '../runtime/admission';
 import type { SessionOrchestrator } from './sessions';
 import type { StageChange, TaskService } from './tasks';
 

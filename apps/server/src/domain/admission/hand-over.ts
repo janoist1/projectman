@@ -3,7 +3,7 @@ import type { AiMemberConfig, ProjectConfig, Session, Stage, Task } from '@proje
 import { conflict } from '../errors';
 import type { MessageDelivery } from '../messaging';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../sessions';
+import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { StageChange, TaskService } from '../tasks';
 import { actorHandle } from '../util';
 import type { Admission } from './admission';

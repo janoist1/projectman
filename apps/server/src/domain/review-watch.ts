@@ -2,7 +2,7 @@ import { isOpenTask, isTheme, reviewReturnedWork, stageOf } from '@projectman/sh
 import type { Messaging } from './messaging';
 import type { DomainContext } from './context';
 import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
+import type { SessionOrchestrator } from '../runtime/sessions';
 import { stopStageReviewers, workStageBefore } from './stage-reviewers';
 import type { TaskService } from './tasks';
 import { KeyedMutex, SYSTEM_ACTOR } from './util';

@@ -3,7 +3,7 @@ import type { InboxItem, Task } from '@projectman/shared';
 import type { DomainContext } from '../context';
 import { DomainError } from '../errors';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../sessions';
+import type { SessionOrchestrator } from '../../runtime/sessions';
 import { KeyedMutex, SYSTEM_ACTOR } from '../util';
 import type { TaskService } from './service';
 

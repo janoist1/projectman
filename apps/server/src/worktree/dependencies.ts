@@ -4,6 +4,7 @@ import { lstat, readdir, readFile, rename, rm, stat, statfs, utimes } from 'node
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { DependencySkip, DependencyRefreshResult } from '../contracts';
+import { copyWithinBudget } from './copy-budget';
 import { tryGit } from './git';
 import { canonical, createKeyedLock } from './paths';
 
@@ -60,8 +61,11 @@ export async function cloneDependencies(args: {
   logger: FastifyBaseLogger;
   /** Default: process.platform (tests). */
   platform?: NodeJS.Platform;
-  /** Default: `cp -c -R src dest` without a shell (tests). */
-  copyTree?: (src: string, dest: string) => Promise<void>;
+  /**
+   * Default: `cp -c -R src dest` without a shell (tests).
+   * Must stop and settle soon after `signal` aborts: the clone waits for it before it removes the temporaries.
+   */
+  copyTree?: (src: string, dest: string, signal: AbortSignal) => Promise<void>;
   /** Default: both checkouts on one APFS volume (tests). Throws when cloning from the reference is not possible. */
   probe?: (reference: string, target: string) => Promise<void>;
   /** Total copying budget; tests can shorten it. */
@@ -112,23 +116,22 @@ async function cloneIntoTarget(
       return skipped('unsupported');
     }
 
-    const copyDeadline = Date.now() + (args.copyTimeoutMs ?? DEPENDENCY_COPY_TIMEOUT_MS);
-    for (const dir of dirs) {
-      const temporary = path.join(target, dir, `.node_modules.pm-${suffix}`);
-      temporaries.push(temporary);
-      const remaining = copyDeadline - Date.now();
-      if (remaining <= 0) throw new Error('dependency copying timed out');
-      const src = path.join(reference.path, dir, 'node_modules');
-      if (await present(temporary)) throw new Skip('unsupported');
-      await assertSafeParent(target, temporary);
-      if (args.copyTree) await boundedCopy(args.copyTree, src, temporary, remaining);
-      else await defaultCopyTree(src, temporary, remaining);
-      for (const cache of CACHE_DIRS) {
-        const cachePath = path.join(temporary, cache);
-        await assertSafeParent(target, cachePath);
-        await rm(cachePath, { recursive: true, force: true });
-      }
-    }
+    await copyWithinBudget(
+      dirs.map((dir) => async (signal: AbortSignal) => {
+        const temporary = path.join(target, dir, `.node_modules.pm-${suffix}`);
+        temporaries.push(temporary);
+        const src = path.join(reference.path, dir, 'node_modules');
+        if (await present(temporary)) throw new Skip('unsupported');
+        await assertSafeParent(target, temporary);
+        await (args.copyTree ?? defaultCopyTree)(src, temporary, signal);
+        for (const cache of CACHE_DIRS) {
+          const cachePath = path.join(temporary, cache);
+          await assertSafeParent(target, cachePath);
+          await rm(cachePath, { recursive: true, force: true });
+        }
+      }),
+      args.copyTimeoutMs ?? DEPENDENCY_COPY_TIMEOUT_MS,
+    );
 
     // The reference's install must not have been touched while it was being copied.
     if (
@@ -372,31 +375,16 @@ async function defaultProbe(reference: string, target: string): Promise<void> {
 }
 
 /** `-R` keeps symbolic links as links, so a workspace link stays relative and points at the copy's own package. */
-function defaultCopyTree(src: string, dest: string, timeout: number): Promise<void> {
+function defaultCopyTree(src: string, dest: string, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile('cp', ['-c', '-R', src, dest], { windowsHide: true, timeout }, (error, _stdout, stderr) => {
+    if (signal.aborted) return reject(new Error('dependency copying aborted'));
+    const child = execFile('cp', ['-c', '-R', src, dest], { windowsHide: true }, (error, _stdout, stderr) => {
+      signal.removeEventListener('abort', stop);
       if (error) reject(new Error(`cp -c -R failed: ${stderr.trim() || error.message}`));
       else resolve();
     });
+    // Kill manually: execFile's signal option rejects before the child has stopped.
+    const stop = () => child.kill();
+    signal.addEventListener('abort', stop, { once: true });
   });
-}
-
-/** Bounds injected test copies; production cp is killed and awaited by execFile on timeout. */
-async function boundedCopy(
-  copy: (src: string, dest: string) => Promise<void>,
-  src: string,
-  dest: string,
-  timeout: number,
-) {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    await Promise.race([
-      copy(src, dest),
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('dependency copying timed out')), timeout);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }

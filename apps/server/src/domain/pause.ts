@@ -18,12 +18,12 @@ import type {
 } from '@projectman/shared';
 import type { PauseOutcome, RunnerEvent, SessionRunner } from '../contracts';
 import type { PauseRecord, SessionPauseRecord } from '../db';
-import type { Admission, RefinementSteps } from './admission';
+import type { Admission, RefinementSteps } from '../runtime/admission';
 import { findHumanByEmail } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import type { FixLimitWatch } from './fix-limit';
-import type { HandoffService } from './handoffs';
+import type { FixLimitWatch } from '../runtime/watchers';
+import type { HandoffService } from '../runtime/admission';
 import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';

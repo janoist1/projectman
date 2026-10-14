@@ -1,7 +1,7 @@
 import type { ToolContext } from '../../contracts';
 import { type ToolCaller, toToolError } from '../caller';
 import type { WatcherToolsHandler } from '../../contracts/team-tools';
-import type { FixLimitDecision, FixLimitWatch } from '../../domain/fix-limit';
+import type { FixLimitDecision, FixLimitWatch } from '../../runtime/watchers';
 
 export class WatcherTools implements WatcherToolsHandler {
   private readonly calls: ToolCaller;

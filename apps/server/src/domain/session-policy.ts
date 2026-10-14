@@ -37,11 +37,11 @@ import {
 import type { FullTestSandbox, SessionPolicy } from '../contracts';
 import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../contracts';
 import type { AgentSandbox } from '../contracts';
-import { isWithin, isWithinAny } from './command-paths';
-import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
-import { isReadOnlyCommand } from './read-only-commands';
-import { parseShellCommand } from './shell-words';
-import { isWorktreeRoutine } from './worktree-commands';
+import { isWithin, isWithinAny } from '../runtime/permissions';
+import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from '../runtime/permissions';
+import { isReadOnlyCommand } from '../runtime/permissions';
+import { parseShellCommand } from '../runtime/permissions';
+import { isWorktreeRoutine } from '../runtime/permissions';
 
 /**
  * Per-role session settings, kept in one place so they are easy to change.

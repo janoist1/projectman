@@ -587,7 +587,7 @@ packages count as contracts and are accessible to every layer.
 | `context`               | Agent context packs and prompts.                                                                   |
 | `services/merges`       | Card merge orchestration, the merge queue (Effect) and merge locks; sealed (`index.ts`).           |
 | `services/full-tests`   | Full-test and screenshot-run orchestration.                                                        |
-| `services/releases`     | Release proposals and release roadmap notices.                                                     |
+| `services/releases`     | Release proposals and release roadmap notices (`services/releases/`, sealed).                      |
 | `services/github`       | GitHub synchronization, pull requests and publishing.                                              |
 | `services/feedback`     | Feedback marks, screenshots and widget sessions.                                                   |
 | `services/project-docs` | Operator project-document writes and decision candidates.                                          |
@@ -1869,7 +1869,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   access. Pause and shutdown act through the local runner; activation checks local instance
   markers and database use. Deployment scripts using the control client need access to that
   host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
-  Release flow (PM-491, `domain/releases.ts`, `PROJECTMAN_RELEASE_TARGET`): the release watcher reads, claims and
+  Release flow (PM-491, `services/releases/releases.ts`, `PROJECTMAN_RELEASE_TARGET`): the release watcher reads, claims and
   reports on this same local socket, so it must run on the server's host; the instance's repository is on
   the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
   (see "Release of the instance"); no new boundary.
@@ -2340,7 +2340,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
 - **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
-  `release_proposed`; `ReleaseRoadmapNotices` (`domain/release-roadmap-notices.ts`) then sends the Operator one
+  `release_proposed`; `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) then sends the Operator one
   English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an
   Operator; `MessageRepository.hasNote` looks for the release id in the Operator's earlier system messages). It wakes
   nobody and arrives with the owner's next message; the `operatorRule` line tells the Operator to offer the roadmap
@@ -2550,7 +2550,7 @@ screens (PM-492) come in their own cards.
   `proposed` → `approved` → `deploying` → `live` → `published`, or `rejected` / `failed`. A partial unique
   index (`releases_open`) allows one release in `proposed`, `approved` or `deploying` for a project. A release has
   a theme card (kind `theme`); its timeline holds `release_changed` for every change, and `ReleaseService`
-  (`domain/releases.ts`) is the only writer.
+  (`services/releases/releases.ts`) is the only writer.
 - **Contents.** Only a commit a recorded merge of a card left on the default branch can be released
   (`task_merges`, state `merged`; `release_commit_unknown` otherwise). The cards are those whose merge commit is
   an ancestor of the release commit and not of the base: the last release that went live, else the running

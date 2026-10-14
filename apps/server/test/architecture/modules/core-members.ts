@@ -6,12 +6,12 @@ export const coreMembers: ModuleEntry = {
   target: 'core/members',
   pass: 'split',
   paths: [
-    'core/members/ports.ts',
+    'core/members/',
     'domain/members.ts',
     'domain/access.ts',
     'domain/invitations.ts',
     'domain/presence.ts',
     'domain/naming.ts',
   ],
-  sealed: false,
+  sealed: true,
 };

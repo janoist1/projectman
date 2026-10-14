@@ -1,3 +1,9 @@
+import { createInboxService } from '../core/inbox';
+import { createMessaging } from '../core/messages';
+import { createTimelineService } from '../core/timeline';
+import { createMemberService } from '../core/members';
+import { createTaskService } from '../core/tasks';
+import { createProjectService } from '../core/projects';
 import { FeedbackTools } from '../mcp/feedback';
 import { OperatorTools } from '../mcp/operator';
 import { MemberTools } from '../mcp/members';
@@ -33,7 +39,7 @@ export {
 import path from 'node:path';
 import type { EngineId, Me, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
-import type { InvitationAccounts } from '../core/members/ports';
+import type { InvitationAccounts } from '../core/members';
 import type { EngineCounters } from '../runtime/sessions';
 import type {
   AttachmentStorage,
@@ -56,8 +62,8 @@ import type {
 } from '../contracts';
 import type { Repositories } from '../db';
 import type { ProcessProbe } from '../contracts';
-import { projectAccessFor } from './access';
-import type { ProjectAccess } from './access';
+import { projectAccessFor } from '../core/members';
+import type { ProjectAccess } from '../core/members';
 import {
   Admission,
   DeferredStarts,
@@ -70,26 +76,26 @@ import {
   WorkStarts,
 } from '../runtime/admission';
 import type { StartSpec } from '../runtime/admission';
-import { AttachmentService } from './attachments';
-import { MessageAttachmentService } from './message-attachments';
+import { AttachmentService } from '../core/attachments';
+import { MessageAttachmentService } from '../core/attachments';
 import { BackgroundTasks } from '../kernel';
-import { BoardService } from './board';
+import { BoardService } from '../core/tasks';
 import { OperatorRequests, OperatorSteps } from '../services/operator';
 import { OperatorSignals } from '../services/operator';
-import { QuestionScreening } from './question-screening';
+import { QuestionScreening } from '../core/inbox';
 import { ProjectManagerChannels } from '../services/operator';
 import { ProjectState } from '../services/operator';
 export { ProjectState } from '../services/operator';
 import { PmReplyRelay } from '../services/operator';
 import { BoundaryService } from '../services/boundary';
 import { BoundaryTools } from '../mcp/boundary';
-import { CardQuestions } from './card-questions';
-import { createDomainContext, defaultTemplateRegistry, isoNow } from './context';
-import type { DomainContext, TemplateRegistry } from './context';
-import { createEventBus } from './event-bus';
+import { CardQuestions } from '../core/inbox';
+import { createDomainContext, defaultTemplateRegistry, isoNow } from '../core/base';
+import type { DomainContext, TemplateRegistry } from '../core/base';
+import { createEventBus } from '../core/base';
 import { GithubSync } from '../services/github';
 import { GithubTools } from '../mcp/github';
-import { InboxService, delegatedPermissionPrompt } from './inbox';
+import { InboxService, delegatedPermissionPrompt } from '../core/inbox';
 import { OperatorActions, OperatorApprovals } from '../services/operator';
 import { FixLimitWatch } from '../runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from '../services/full-tests';
@@ -103,18 +109,18 @@ import { commandVerdict, engineIdOf, fullTestSandbox, readableRootsFor } from '.
 import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
 import type { ReleaseTarget } from '../services/releases';
 import { LoopWatch } from '../runtime/watchers';
-import { OpenQuestionLabel } from './open-question-label';
-import { ApprovalQuestions } from './approval-questions';
-import { QuestionClosing } from './question-closing';
-import { InvitationService } from './invitations';
-import { MemberProfiles, MemberService } from './members';
-import { MessageService, Messaging, RelationNotices } from './messaging';
+import { OpenQuestionLabel } from '../core/inbox';
+import { ApprovalQuestions } from '../core/inbox';
+import { QuestionClosing } from '../core/inbox';
+import { InvitationService } from '../core/members';
+import { MemberProfiles, MemberService } from '../core/members';
+import { MessageService, Messaging, RelationNotices } from '../core/messages';
 import { MessageDelivery } from '../runtime/delivery';
 import { PlanUsageMonitor } from '../runtime/usage';
-import { PresenceService } from './presence';
-import { OWNER_HANDLE, ProjectService } from './projects';
+import { PresenceService } from '../core/members';
+import { OWNER_HANDLE, ProjectService } from '../core/projects';
 import { ReviewWatch } from '../runtime/watchers';
-import { RoleService } from './roles';
+import { RoleService } from '../core/projects';
 import { ScheduleService } from '../services/schedules';
 import type { ScheduleTimer } from '../services/schedules';
 import { HandoffService } from '../runtime/admission';
@@ -127,34 +133,43 @@ import { conflict } from '../kernel';
 import { SessionCloser } from '../runtime/sessions';
 import { SessionOrchestrator } from '../runtime/sessions';
 import { AutoAdvance } from '../runtime/watchers';
-import { LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
+import { LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from '../core/tasks';
 import { TeamToolsService } from '../mcp/team-tools';
 import { InboxTools } from '../mcp/inbox';
 import { MessageTools } from '../mcp/messages';
 import { AdmissionTools } from '../mcp/admission';
 import { WatcherTools } from '../mcp/watchers';
 import { SessionTools } from '../mcp/sessions';
-import { TimelineService } from './timeline';
-import { InvolvementService } from './involvements';
+import { TimelineService } from '../core/timeline';
+import { InvolvementService } from '../core/tasks';
 import {
   FeedbackNotices,
   FeedbackScreenshotStore,
   FeedbackService,
   FeedbackWidgetService,
 } from '../services/feedback';
-import { ProjectFocusService } from './project-focus';
-import { AgentQuestions } from './agent-question';
+import { ProjectFocusService } from '../core/tasks';
+import { AgentQuestions } from '../core/inbox';
 import { InputStallAlerts } from '../runtime/watchers';
 import { UsageAlerts } from '../runtime/usage';
 import { DiskGuard } from '../runtime/watchers';
 import { WorkOutages } from '../runtime/watchers';
 import { WorktreeSweep } from '../runtime/watchers';
-import { CardMeasure } from './card-measure';
+import { CardMeasure } from '../core/tasks';
 import { SYSTEM_ACTOR } from '../kernel';
 import { SYSTEM_SENDER } from '@projectman/shared';
 
-export * from './access';
-export * from './context';
+export { hasAccess, ownerHandles } from '@projectman/shared';
+export {
+  requireMemberAccess,
+  requireHuman,
+  requireAiMember,
+  findHumanByEmail,
+  projectAccessFor,
+} from '../core/members';
+export type { ProjectAccess, AccessRefusal } from '../core/members';
+export { createDomainContext, isoNow, defaultTemplateRegistry, createTemplateRegistry } from '../core/base';
+export type { DomainContext, TemplateRegistry } from '../core/base';
 export {
   DomainError,
   notFound,
@@ -166,30 +181,30 @@ export {
   themeRefused,
   unavailable,
 } from '../kernel';
-export { createEventBus } from './event-bus';
-export { createDomainEvents } from './events';
-export type { DomainEventMap, DomainEvents } from './events';
+export { createEventBus } from '../core/base';
+export { createDomainEvents } from '../core/base';
+export type { DomainEventMap, DomainEvents } from '../core/base';
 export { Admission, DeferredStarts } from '../runtime/admission';
 export type { AutomaticStart } from '../runtime/admission';
-export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
-export { MessageAttachmentService, createMessageAttachmentStorage } from './message-attachments';
+export { AttachmentService, contentDisposition, createAttachmentStorage } from '../core/attachments';
+export { MessageAttachmentService, createMessageAttachmentStorage } from '../core/attachments';
 export { BackgroundTasks } from '../kernel';
-export { BoardService } from './board';
+export { BoardService } from '../core/tasks';
 export { BoundaryService } from '../services/boundary';
-export { CardQuestions, QUESTION_LIMIT } from './card-questions';
-export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
-export { CardMeasure } from './card-measure';
-export { InvitationService } from './invitations';
-export { MemberProfiles, MemberService } from './members';
+export { CardQuestions, QUESTION_LIMIT } from '../core/inbox';
+export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from '../core/inbox';
+export { CardMeasure } from '../core/tasks';
+export { InvitationService } from '../core/members';
+export { MemberProfiles, MemberService } from '../core/members';
 export { MessageDelivery } from '../runtime/delivery';
-export { MessageService, Messaging } from './messaging';
-export { RoleService, roleUsage, roleViews } from './roles';
-export { defaultMemberHandle, defaultMemberName } from './naming';
+export { MessageService, Messaging } from '../core/messages';
+export { RoleService, roleUsage, roleViews } from '../core/projects';
+export { defaultMemberHandle, defaultMemberName } from '../core/members';
 export { MachineMonitor } from '../runtime/watchers';
 export type { PauseRequester } from '../runtime/sessions';
-export { PresenceService } from './presence';
-export { ProjectService, OWNER_HANDLE } from './projects';
-export type { Author, LoadedProject, ConfigChange } from './projects';
+export { PresenceService } from '../core/members';
+export { ProjectService, OWNER_HANDLE } from '../core/projects';
+export type { Author, LoadedProject, ConfigChange } from '../core/projects';
 export { ScheduleService } from '../services/schedules';
 export type { ScheduleTimer } from '../services/schedules';
 export {
@@ -218,12 +233,13 @@ export {
   PROJECT_CHECK_COMMANDS,
 } from '../runtime/permissions';
 export { SessionOrchestrator, LIVE_SESSION_STATES, MAX_FIRST_INPUT_CHARS } from '../runtime/sessions';
-export { TaskService, isOpenTask } from './tasks';
-export type { MoveResult, StageChange, TaskUpdate } from './tasks';
-export { TimelineService } from './timeline';
+export { TaskService } from '../core/tasks';
+export { isOpenTask } from '@projectman/shared';
+export type { MoveResult, StageChange, TaskUpdate } from '../core/tasks';
+export { TimelineService } from '../core/timeline';
 export { FeedbackService, FeedbackWidgetService } from '../services/feedback';
 export type { FeedbackWidgetSession } from '../services/feedback';
-export { ProjectFocusService } from './project-focus';
+export { ProjectFocusService } from '../core/tasks';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from '../kernel';
 
 import { ProviderKeys } from '../runtime/usage';
@@ -422,9 +438,9 @@ export function createDomain(opts: DomainOptions) {
       })
     : null;
 
-  const timeline = new TimelineService(ctx);
+  const timeline = createTimelineService(ctx);
   const involvements = new InvolvementService(ctx);
-  const projects = new ProjectService({
+  const projects = createProjectService({
     ctx,
     configStore: opts.configStore,
     templates,
@@ -479,7 +495,7 @@ export function createDomain(opts: DomainOptions) {
         opts.logger,
       ),
     );
-  const inbox = new InboxService({
+  const inbox = createInboxService({
     ctx,
     timeline,
     projects,
@@ -502,7 +518,7 @@ export function createDomain(opts: DomainOptions) {
   const operatorRequests = new OperatorRequests({ ctx });
   const operatorSteps = new OperatorSteps({ ctx });
   const messages = new MessageService({ ctx, timeline, projects, operatorRequests });
-  const tasks = new TaskService({
+  const tasks = createTaskService({
     ctx,
     timeline,
     projects,
@@ -555,7 +571,7 @@ export function createDomain(opts: DomainOptions) {
     projects,
     storage: opts.messageAttachmentStorage,
   });
-  const members = new MemberService({
+  const members = createMemberService({
     ctx,
     projects,
     timeline,
@@ -662,7 +678,7 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     timeline,
   });
-  const messaging = new Messaging({
+  const messaging = createMessaging({
     ctx,
     projects,
     tasks,

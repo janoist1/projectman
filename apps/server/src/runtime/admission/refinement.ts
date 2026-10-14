@@ -23,13 +23,13 @@ import type {
   Session,
   Task,
 } from '@projectman/shared';
-import { ownerHandles } from '../../domain/access';
-import type { InboxService } from '../../domain/inbox';
+import { ownerHandles } from '@projectman/shared';
+import type { InboxService } from '../../core/inbox';
 import type { MessageDelivery } from '../delivery';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import type { StageChange, TaskService } from '../../domain/tasks';
-import type { TimelineService } from '../../domain/timeline';
+import type { StageChange, TaskService } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';

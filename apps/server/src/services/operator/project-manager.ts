@@ -9,10 +9,10 @@ import {
 } from '@projectman/shared';
 import type { AiMemberConfig, OperatorChannel, ProjectManagerChannel, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import type { OperatorRequests } from './requests';
 import type { OperatorSignals } from './signals';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 
 /** The project's permanent project-manager conversation and why it may have to wait. */
 export class ProjectManagerChannels {

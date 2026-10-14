@@ -6,12 +6,12 @@ export const coreTasks: ModuleEntry = {
   target: 'core/tasks',
   pass: 'split',
   paths: [
-    'core/tasks/ports.ts',
+    'core/tasks/',
     'domain/tasks/',
     'domain/board.ts',
     'domain/project-focus.ts',
     'domain/involvements.ts',
     'domain/card-measure.ts',
   ],
-  sealed: false,
+  sealed: true,
 };

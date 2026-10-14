@@ -3,7 +3,7 @@ import { TeamToolError } from '../../contracts';
 import type { ToolCaller } from '../caller';
 import type { SessionToolsHandler } from '../../contracts/team-tools';
 import type { WorkDoing } from '@projectman/shared';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import type { SessionOrchestrator } from '../../runtime/sessions';
 
 export class SessionTools implements SessionToolsHandler {

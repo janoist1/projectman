@@ -1,3 +1,7 @@
+export function createProjectService(deps: ConstructorParameters<typeof ProjectService>[0]): ProjectService {
+  return new ProjectService(deps);
+}
+
 import { isAbsolute } from 'node:path';
 import {
   DEFAULT_PROJECT_LANGUAGE,
@@ -30,11 +34,11 @@ import type {
 import { ConfigStoreError } from '../config/errors';
 import type { ConfigStore } from '../contracts';
 import type { ProjectRecord } from '../db';
-import { projectAccessFor } from './access';
-import { isoNow } from './context';
-import type { DomainContext, TemplateRegistry } from './context';
+import { projectAccessFor } from '../core/members';
+import { isoNow } from '../core/base';
+import type { DomainContext, TemplateRegistry } from '../core/base';
 import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from '../kernel';
-import type { TimelineService } from './timeline';
+import type { TimelineService } from '../core/timeline';
 import { humanActor, KeyedMutex } from '../kernel';
 
 /** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */

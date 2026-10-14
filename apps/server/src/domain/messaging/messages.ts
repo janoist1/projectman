@@ -18,12 +18,12 @@ import type {
   TeamThread,
   WorkItemRef,
 } from '@projectman/shared';
-import { isoNow } from '../context';
+import { isoNow } from '../../core/base';
 import { wakeFactsFor, wakesFor } from './staleness';
-import type { DomainContext } from '../context';
+import type { DomainContext } from '../../core/base';
 import type { MessageRequests } from '../../core/messages/ports';
-import type { TimelineService } from '../timeline';
-import type { ProjectService } from '../projects';
+import type { TimelineService } from '../../core/timeline';
+import type { ProjectService } from '../../core/projects';
 import { forbidden, notFound } from '../../kernel';
 import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 

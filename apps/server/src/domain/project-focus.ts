@@ -12,12 +12,12 @@ import type {
   ProjectFocusView,
   TimelineEvent,
 } from '@projectman/shared';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
+import { isoNow } from '../core/base';
+import type { DomainContext } from '../core/base';
 import { DomainError, conflict, forbidden, notFound } from '../kernel';
-import type { ProjectService } from './projects';
+import type { ProjectService } from '../core/projects';
 import type { TaskService } from './tasks';
-import type { TimelineService } from './timeline';
+import type { TimelineService } from '../core/timeline';
 
 /**
  * The project's focus (PM-427): one ordered list of themes and cards per project. A write checks who

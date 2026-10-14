@@ -1,9 +1,9 @@
 import { cronMatches, memberOf, nextCronRun, ScheduleSkipReason } from '@projectman/shared';
 import type { Actor, ScheduleRun, SchedulesView, Session } from '@projectman/shared';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { DomainError, invalid, notFound, unavailable } from '../../kernel';
-import type { ProjectService } from '../../domain/projects';
-import type { TimelineService } from '../../domain/timeline';
+import type { ProjectService } from '../../core/projects';
+import type { TimelineService } from '../../core/timeline';
 import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { ScheduleAdmission, ScheduleTimer } from './ports';
 import { MinuteTimer } from './timer';

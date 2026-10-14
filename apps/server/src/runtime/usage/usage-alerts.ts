@@ -1,10 +1,10 @@
 import { ALERT_SEEN_OPTION, limitTokens, usageTotal } from '@projectman/shared';
 import type { InboxItem, SessionTokensAlert, SessionUsageAlert } from '@projectman/shared';
-import { ownerHandles } from '../../domain/access';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
-import type { InboxService } from '../../domain/inbox';
-import type { ProjectService } from '../../domain/projects';
+import { ownerHandles } from '@projectman/shared';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
+import type { InboxService } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
 
 /**
  * The warning limit of a session's tokens (PM-187): once a session's usage, as `limitTokens` counts

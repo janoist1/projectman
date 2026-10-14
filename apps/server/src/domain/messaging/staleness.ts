@@ -14,7 +14,7 @@ import {
   stageOwners,
 } from '@projectman/shared';
 import type { ProjectConfig, StaleReason, Task, TeamMessage, WakeBlock, WakeFacts } from '@projectman/shared';
-import type { DomainContext } from '../context';
+import type { DomainContext } from '../../core/base';
 
 /** Server facts for the shared message validity rule; no git lookup is needed at delivery. */
 export function staleReasonFor(

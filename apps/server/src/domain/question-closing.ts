@@ -1,6 +1,6 @@
 import { PENDING_INBOX_STATES } from '@projectman/shared';
 import type { InboxItem, QuestionCloseRule, Task } from '@projectman/shared';
-import type { DomainContext } from './context';
+import type { DomainContext } from '../core/base';
 import type { InboxService } from './inbox';
 
 /**

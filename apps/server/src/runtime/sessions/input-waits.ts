@@ -1,6 +1,6 @@
 import type { Session } from '@projectman/shared';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import type { InputStallAlerts } from '../watchers';
 import type { SessionTimers } from './session-timers';
 

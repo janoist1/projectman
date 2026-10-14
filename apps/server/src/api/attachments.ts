@@ -11,7 +11,8 @@ import type {
 } from '@projectman/shared';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
-import { contentDisposition, DomainError, invalid } from '../domain';
+import { contentDisposition } from '../core/attachments';
+import { DomainError, invalid } from '../domain';
 import { actorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 

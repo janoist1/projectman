@@ -15,13 +15,13 @@ import {
 import type { EngineId, ProjectConfig, Session, SessionStop, Task } from '@projectman/shared';
 import type { EngineDirectory } from '../../contracts';
 import { engineIdOf } from './engines';
-import type { DomainContext } from '../../domain/context';
-import type { Messaging } from '../../domain/messaging';
+import type { DomainContext } from '../../core/base';
+import type { Messaging } from '../../core/messages';
 import type { MessageDelivery } from '../delivery';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import type { RefinementSteps } from '../admission';
 import type { SessionOrchestrator } from './sessions';
-import type { StageChange, TaskService } from '../../domain/tasks';
+import type { StageChange, TaskService } from '../../core/tasks';
 
 const MINUTE_MS = 60_000;
 

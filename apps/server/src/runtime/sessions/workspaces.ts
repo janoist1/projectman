@@ -19,8 +19,8 @@ import type {
 } from '../../contracts';
 import type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from '../../db';
 import { taskBranchName } from '@projectman/shared';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { conflict, DomainError } from '../../kernel';
 import { KeyedMutex, newId } from '../../kernel';
 

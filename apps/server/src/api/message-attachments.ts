@@ -6,7 +6,8 @@ import { MAX_ATTACHMENT_BYTES, routes } from '@projectman/shared';
 import type { DeleteMessageAttachmentResponse, UploadMessageAttachmentResponse } from '@projectman/shared';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
-import { contentDisposition, DomainError, invalid } from '../domain';
+import { contentDisposition } from '../core/attachments';
+import { DomainError, invalid } from '../domain';
 import { CONTENT_SECURITY_POLICY, MULTIPART_OVERHEAD_BYTES, tooLarge } from './attachments';
 import { actorOf, requireAccess } from './context';
 

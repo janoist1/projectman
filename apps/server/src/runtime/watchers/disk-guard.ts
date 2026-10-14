@@ -1,11 +1,11 @@
 import { ALERT_SEEN_OPTION, alertPayloadOf } from '@projectman/shared';
 import type { DiskLowAlert, EngineId, ProjectConfig } from '@projectman/shared';
 import type { EngineDirectory } from '../../contracts';
-import { ownerHandles } from '../../domain/access';
-import type { DomainContext } from '../../domain/context';
+import { ownerHandles } from '@projectman/shared';
+import type { DomainContext } from '../../core/base';
 import { conflict } from '../../kernel';
-import type { InboxService } from '../../domain/inbox';
-import type { ProjectService } from '../../domain/projects';
+import type { InboxService } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
 
 const GB = 1024 ** 3;
 

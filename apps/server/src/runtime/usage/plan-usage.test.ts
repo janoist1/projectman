@@ -3,7 +3,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../../contracts';
 import { BackgroundTasks } from '../../kernel';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import { PlanUsageMonitor } from './plan-usage';
 
 const usage: PlanUsage = {

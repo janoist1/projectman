@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
-import { TeamToolError } from '../src/contracts';
-import type { MessageStateReport, ToolContext } from '../src/contracts';
-import { aiActor } from '../src/domain';
-import { WAKE_REPLY_WAIT_MS } from '../src/domain/messaging/messaging';
-import { formatProjectState, formatSentMessage } from '../src/mcp/format';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
-import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { TeamToolError } from '../../../contracts';
+import type { MessageStateReport, ToolContext } from '../../../contracts';
+import { aiActor } from '../../../domain';
+import { WAKE_REPLY_WAIT_MS } from '../../../domain/messaging/messaging';
+import { formatProjectState, formatSentMessage } from '../../../mcp/format';
+import { createDomainHarness, OWNER_ACTOR } from '../../../../test/helpers/domain-harness';
+import type { DomainHarness } from '../../../../test/helpers/domain-harness';
+import { flush } from '../../../../test/helpers/fakes';
 
 let h: DomainHarness;
 afterEach(() => h?.cleanup());

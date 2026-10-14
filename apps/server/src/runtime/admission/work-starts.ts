@@ -1,9 +1,9 @@
 import { evaluateStart, stageOf } from '@projectman/shared';
 import type { StagePull, Task } from '@projectman/shared';
 import { DomainError } from '../../kernel';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import type { StageChange, TaskService } from '../../domain/tasks';
+import type { StageChange, TaskService } from '../../core/tasks';
 import { SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../kernel';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';

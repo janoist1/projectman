@@ -11,11 +11,11 @@ import type {
   MessageAttachmentReading,
   ToolContext,
 } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
-import { sessionFileName } from '../../domain/message-attachments';
-import type { MessageAttachmentService } from '../../domain/message-attachments';
-import type { TaskService } from '../../domain/tasks';
+import { sessionFileName } from '../../core/attachments';
+import type { MessageAttachmentService } from '../../core/attachments';
+import type { TaskService } from '../../core/tasks';
 import { attachmentToolRules } from '../../runtime/sessions';
 import { aiActor, humanActor } from '../../kernel';
 

@@ -1,7 +1,7 @@
 import { Data, Deferred, Effect, FiberMap } from 'effect';
 import type { Scope } from 'effect';
 import type { DocWriteRecord } from '../../db';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { abortable, runFork } from '../../kernel';
 import type { DocWriteSlotPeer } from './ports';
 

@@ -2,12 +2,12 @@ import type { Task } from '@projectman/shared';
 import type { EngineDirectory, GithubService } from '../../contracts';
 import type { MergeRecord } from '../../db';
 import type { BackgroundTasks } from '../../kernel';
-import type { DomainContext } from '../../domain/context';
-import type { InboxService } from '../../domain/inbox';
-import type { Messaging } from '../../domain/messaging';
-import type { ProjectService } from '../../domain/projects';
-import type { TaskService } from '../../domain/tasks';
-import type { TimelineService } from '../../domain/timeline';
+import type { DomainContext } from '../../core/base';
+import type { InboxService } from '../../core/inbox';
+import type { Messaging } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
 import type { MergeCardLock } from '../../kernel';
 import type { MergeCheckSandbox, MergeSessions } from './ports';
 

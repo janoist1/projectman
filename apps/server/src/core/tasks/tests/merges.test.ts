@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateRequestOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
-import type { TaskMoves } from '../src/domain/tasks/moves';
-import type { BranchMerger, FullTestExecutor, FullTestResult, MergeBaseState } from '../src/contracts';
-import { withVisibleCardLinks, clientCanSeeTimelineEvent } from '../src/domain/visibility';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
-import type { DomainHarness } from './helpers/domain-harness';
-import { pullRequest } from './helpers/fakes';
-import { makeLocalOnly } from './helpers/test-template';
-import { aiActor, humanActor } from '../src/domain';
+import type { TaskMoves } from '../../../domain/tasks/moves';
+import type { BranchMerger, FullTestExecutor, FullTestResult, MergeBaseState } from '../../../contracts';
+import { withVisibleCardLinks, clientCanSeeTimelineEvent } from '../../projects';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  restartDomainHarness,
+} from '../../../../test/helpers/domain-harness';
+import type { DomainHarness } from '../../../../test/helpers/domain-harness';
+import { pullRequest } from '../../../../test/helpers/fakes';
+import { makeLocalOnly } from '../../../../test/helpers/test-template';
+import { aiActor, humanActor } from '../../../domain';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

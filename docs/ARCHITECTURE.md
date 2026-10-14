@@ -118,7 +118,7 @@ Documentation map:
   card changing theme writes nothing to its subtasks, which are only announced again. A card that becomes
   a subtask loses its own theme. `task_theme_changed {themeKey, previous}` is recorded on the card and on
   both themes. A theme's cards (collecting cards with their subtasks) and its progress (done of not
-  cancelled cards) are `themeCards` / `themeProgress` in `domain/theme.ts`.
+  cancelled cards) are `themeCards` / `themeProgress` in [`core/tasks`](modules/core-tasks.md).
   A task works in one repository: its own `repo`, else the project's only one when it has
   exactly one (`effectiveRepo`, the one rule in `packages/shared` that placement, the command
   policy, the context pack and the web read). The repo can be set later (task drawer, REST
@@ -130,7 +130,7 @@ Documentation map:
   and delete is one rule in `packages/shared` (`canReadAttachments`, `canUploadAttachment`,
   `canDeleteAttachment`, with `canSeeTask` underneath): project membership always; a client only
   on a shared task; a viewer only reads; AI members and the other workers upload; the uploader or
-  a human owner or admin deletes. The attachments service (`domain/attachments`, the contract in
+  a human owner or admin deletes. The attachments service ([`core/attachments`](modules/core-attachments.md), the contract in
   `contracts/attachments.ts`) takes a stream, so REST and the team tools share one size,
   storage and access check, and judges the member against the current roster and the task's
   current visibility again just before an upload is published. The media type is proven from the
@@ -286,7 +286,7 @@ Documentation map:
   turn starts, and wakes its recipient as usual when the card leaves refinement; only the answer to
   the recipient's own `ask_human` question goes through at once.
   PM-421: a new relation on a card that is being worked on is announced by `RelationNotices`
-  (`domain/messaging/relation-notices.ts`), which listens to the `task_relations_added` event
+  ([`core/messages`](modules/core-messages.md)), which listens to the `task_relations_added` event
   (emitted after commit by `TaskService.create` / `applyUpdate`, one event per operation, for both
   cards; a deletion emits nothing). Each AI member with a running session on the card (not the actor,
   not a closed card) gets one stored `info` message from `SYSTEM_SENDER` (`system`) naming the
@@ -569,6 +569,13 @@ packages count as contracts and are accessible to every layer.
 
 The source is [module-map.ts](../apps/server/test/architecture/module-map.ts); only a phase's closing card edits this table (PM-627 in phase 4).
 
+The eight core modules are sealed behind their named `index.ts` exports (PM-636).
+Their public names, types and factory dependency shapes are fixed before the parallel
+implementation moves: each slice changes only its own re-export source paths.
+Assembly uses `createProjectService`, `createTaskService`, `createMemberService`,
+`createTimelineService`, `createMessaging` and `createInboxService` in the existing
+construction order; the factories return the existing classes without changing behavior.
+
 | Module                                            | Responsibility                                                              |
 | ------------------------------------------------- | --------------------------------------------------------------------------- |
 | `contracts`                                       | Shared server interfaces and engine ports.                                  |
@@ -699,9 +706,9 @@ The programs, their files and facades, the pinned version and the rules are in
 - `instance/` — installation identity and activation state.
 - `kernel/` — shared helpers, Effect execution, periodic sweeps and merge locks.
 - `agent-text/` — AI-facing wording for context packs and team tools.
-- `domain/` — the remaining core: projects, tasks, members, messages, inbox, attachments,
-  timeline, context and events; common errors, utilities and background jobs; and
-  `index.ts` (`createDomain`), the composition and event wiring.
+- `core/` — the eight sealed core facades: base, projects, tasks, members, timeline,
+  messages, inbox and attachments. Their implementations temporarily remain in `domain/`.
+- `domain/index.ts` (`createDomain`) — the composition and event wiring until PM-630.
 - `runtime/` — admission and handovers; session lifecycle, launch, rounds, compaction,
   provider limits, cleanup, policy, pause and workspaces; message delivery; command permission
   rules; health, machine and outage watchers; provider usage, quota and managed keys.
@@ -827,7 +834,7 @@ AI decider of PM-169, below). The auto mode's own refusals arrive as the
 publishing) are deny rules computed in `runtime/sessions` (`session policy`) and rendered in `--settings` by
 the Claude adapter; see `PROVIDERS.md` for the server-side decisions and their reasons.
 
-`core/inbox/ports.ts` owns `InboxPermissionPolicy` (PM-635): `InboxService` receives
+`core/inbox` owns `InboxPermissionPolicy` (PM-635): `InboxService` receives
 `engineIdOf`, `readableRootsFor` and `commandVerdict` from the `runtime/sessions` facade
 through assembly. The rules and engine-id default remain in runtime; core still checks
 the tool working directory's canonical paths on the session's engine before applying
@@ -1393,7 +1400,7 @@ workers follow the machine's size.
 
 - **Cloud composition** — `engine-link/remote/{hub,transfers,runner,transcripts,host,attachments,machine,github,handlers,index}.ts`,
   `engine-link/index.ts` (`EngineLinks.authenticate`), `app.ts` (`parseMode`, `createCloudRemote`),
-  `runtime/sessions` (`SessionOrchestrator`, `EngineRegistry`), `domain/messaging/messaging.ts`, `runtime/watchers` (`MachineMonitor`),
+  `runtime/sessions` (`SessionOrchestrator`, `EngineRegistry`), `core/messages`, `runtime/watchers` (`MachineMonitor`),
   `services/full-tests/{full-tests,screenshot-runs}.ts` (PM-315, PM-601).
   `PROJECTMAN_MODE=cloud` runs the UI, the API and the database and no machine-dependent part: the
   runner, the transcripts, the plan usage, the machine probe, the engine directory (worktrees, workspaces,
@@ -1581,6 +1588,9 @@ Keep entries current under the rule in `CLAUDE.md`.
 
 Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 
+Core attachment and permission entries use the stable module facade addresses (PM-636).
+This import refactor changes no filesystem operation, machine assumption or remote-engine RPC.
+
 - **Session process liveness** — `runner/session.ts` (PM-376). Every 30 s the runner
   probes the attached CLI PID with signal 0, recovering a missing PTY exit event through
   the normal failed-session cleanup. Only `ESRCH` proves disappearance; permission errors
@@ -1666,7 +1676,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
   preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
   folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `session policy`) (PM-268, PM-333, PM-339, PM-312).
-  `core/inbox/ports.ts` exposes the existing readable-root calculation through `InboxPermissionPolicy`
+  `core/inbox` exposes the existing readable-root calculation through `InboxPermissionPolicy`
   (PM-635); policy rendering and folder operations remain in runtime and on the engine. Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
@@ -1728,8 +1738,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
   ignored (the engine cleans up when it is back).
   **Module:** `engine-host`
-- **Message attachments (PM-516)** — `domain/message-attachments/{storage,service,image}.ts`,
-  `domain/attachments/{files,upload,thumbnail}.ts`, `api/message-attachments.ts`, `mcp/attachments/tools.ts`
+- **Message attachments (PM-516)** — `core/attachments`, `api/message-attachments.ts`, `mcp/attachments/tools.ts`
   (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
   `<PROJECTMAN_HOME>/message-attachments/<projectKey>/<id>` (0700 directories, 0600 files, `.thumb`,
   `.part`), written and read by the server process on its own disk (`O_EXCL`, `O_NOFOLLOW`), and
@@ -1750,7 +1759,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   card attachments.
   **Module:** `core/attachments`
 - **Message file in the session folder (PM-518)** — `mcp/attachments/handler.ts` (`readMessageAttachment`,
-  `sessionFileTarget`), `domain/message-attachments/{service,storage}.ts` (`source`, `locate`,
+  `sessionFileTarget`), `core/attachments` (`source`, `locate`,
   `sessionFileName`), `engine-host/session-folders.ts` (`SessionFolders.materializeFile`),
   `engine-link/{methods,engine-handlers,engine-limit}.ts` (`files.materialize_into_session`),
   `engine-link/remote/host.ts`, `contracts/runner.ts` (`PROVIDER_MCP_IMAGE_RESULTS`). When the
@@ -1866,8 +1875,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   diagnostic payload crosses the server/engine boundary.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
-  `core/inbox` (`domain/inbox.ts`) keeps the existing broker and receives the command policy
-  through `InboxPermissionPolicy` (`core/inbox/ports.ts`, PM-635); no hook payload or transport changes.
+  `core/inbox` keeps the existing broker and receives the command policy
+  through `InboxPermissionPolicy` (`core/inbox`, PM-635); no hook payload or transport changes.
   **Cloud mode (PM-315):** the cloud registers no hook routes (`registerHookRoutes` is empty) and listens
   on no loopback for the CLIs. `permission.*` and `mcp.relay` are handled by `engine-link/remote/handlers.ts`;
   the relay runs the request through the cloud's own `/mcp/<token>` route and answers 404 for a token whose
@@ -1878,7 +1887,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
-  operations. PM-368's `domain/messaging/messaging.ts` and `runtime/delivery/delivery.ts` also use
+  operations. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `runtime/admission` (`HandoffService`) uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
@@ -1926,9 +1935,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 - **Native sandbox and canonical paths** — `runtime/sessions` (`session policy`),
   `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
-  engine's `realpath`, `isDirectory`, `isRealDirectory`). `core/inbox` (`domain/inbox.ts`, PM-635)
+  engine's `realpath`, `isDirectory`, `isRealDirectory`). `core/inbox` (PM-635)
   uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
-  policy functions through `InboxPermissionPolicy` (`core/inbox/ports.ts`); path validation still
+  policy functions through `InboxPermissionPolicy` (`core/inbox`); path validation still
   runs on the session's engine and requires no new RPC.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
@@ -2267,7 +2276,7 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 
 - **Storage.** Table `project_focus_items` (migration 43; `(project_key, task_key)` is the key, `position` the order,
   `added_by` the actor as JSON), repository `repos.projectFocus` with `list(projectKey)` and `replace(projectKey, items)`.
-  `ProjectFocusService` (`apps/server/src/domain/project-focus.ts`) replaces the list and appends the timeline event in
+  `ProjectFocusService` (`core/tasks`) replaces the list and appends the timeline event in
   one unit of work; the `project_focus_changed` WebSocket event leaves when that commits, then the `onChange` listeners
   run. A write that leaves an item where it was writes nothing. The service takes nothing off by itself: a closed item
   stays until a person removes it, covers nothing, and still counts in the numbering.
@@ -2499,8 +2508,8 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
   the Operator's own and not a human's) is created in the inbox state `screening` with
   `payload.screening.until` = now + `QUESTION_SCREENING_MINUTES` (10); no person sees it. `QuestionScreening`
-  (`core/inbox`, `domain/question-screening.ts`) wakes the Operator through the consumer-owned
-  `ScreeningAdmission` and `ScreeningSessions` ports (`core/inbox/ports.ts`, PM-635) and
+  (`core/inbox`) wakes the Operator through the consumer-owned
+  `ScreeningAdmission` and `ScreeningSessions` ports (`core/inbox`, PM-635) and
   `Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>` from the messaging facade. Assembly
   passes the existing admission, sessions and delivery instances, including for deferred restore.
   It wakes the Operator like `operator_signals`

@@ -50,9 +50,9 @@ import type {
 } from '../../contracts';
 import type { TaskHandoffRow } from '../../db';
 import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from '../admission';
-import { QUESTION_LIMIT } from '../../domain/card-questions';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { QUESTION_LIMIT } from '../../core/inbox';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { conflict, DomainError, themeRefused } from '../../kernel';
 import {
   allowedToolsFor,

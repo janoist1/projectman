@@ -2,7 +2,7 @@ import { Data, Effect, FiberMap } from 'effect';
 import type { Scope } from 'effect';
 import type { Task } from '@projectman/shared';
 import type { BranchMerger } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { abortable, runFork } from '../../kernel';
 import type { MergeRun } from './deps';
 import type { MergeSlotPeer } from './ports';

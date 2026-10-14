@@ -24,8 +24,8 @@ import type {
 } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { notFound } from '../domain';
-import type { ProjectAccess } from '../domain/access';
-import { canSeeTask, isClient, visibleTaskDetail, visibleTasks } from '../domain/visibility';
+import type { ProjectAccess } from '../core/members';
+import { canSeeTask, isClient, visibleTaskDetail, visibleTasks } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 

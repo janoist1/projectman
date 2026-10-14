@@ -5,9 +5,9 @@ import { isOperator, memberOf, messageRoute, sessionWorkItemOf } from '@projectm
 import type { ProjectConfig, WorkItemRef } from '@projectman/shared';
 import type { MessageToolsHandler } from '../../contracts/team-tools';
 import type { SentMessageRecipient, WorkspaceFile } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
-import type { Messaging } from '../../domain/messaging';
-import type { MessageAttachmentService } from '../../domain/message-attachments';
+import type { DomainContext } from '../../core/base';
+import type { Messaging } from '../../core/messages';
+import type { MessageAttachmentService } from '../../core/attachments';
 import { RELAY_WINDOW_MS, type OperatorRequests } from '../../services/operator';
 import { aiActor } from '../../kernel';
 import { toMessageToolError, toFileToolError, isOwner, OWNER_ONLY } from '../caller';

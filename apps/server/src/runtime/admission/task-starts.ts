@@ -29,13 +29,13 @@ import type {
   StagePull,
   Task,
 } from '@projectman/shared';
-import { ownerHandles } from '../../domain/access';
+import { ownerHandles } from '@projectman/shared';
 import { conflict, forbidden, invalid, notFound, themeRefused } from '../../kernel';
-import type { MemberService } from '../../domain/members';
-import type { Author, ProjectService } from '../../domain/projects';
+import type { MemberService } from '../../core/members';
+import type { Author, ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import { approvalRequestedError, gateBlockedError } from '../../domain/tasks';
-import type { StageChange, TaskService } from '../../domain/tasks';
+import { approvalRequestedError, gateBlockedError } from '../../core/tasks';
+import type { StageChange, TaskService } from '../../core/tasks';
 import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../kernel';
 import type { Admission } from './admission';
 import { assertPrerequisitesClosed } from './rules';

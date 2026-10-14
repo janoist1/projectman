@@ -1,6 +1,6 @@
 import type { Session } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { InputWaits } from './input-waits';
 import { SessionTimers } from './session-timers';
 

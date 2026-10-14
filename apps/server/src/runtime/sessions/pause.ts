@@ -19,17 +19,17 @@ import type {
 import type { PauseOutcome, RunnerEvent, SessionRunner } from '../../contracts';
 import type { PauseRecord, SessionPauseRecord } from '../../db';
 import type { Admission, RefinementSteps } from '../admission';
-import { findHumanByEmail } from '../../domain/access';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { findHumanByEmail } from '../../core/members';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import type { FixLimitWatch } from '../watchers';
 import type { HandoffService } from '../admission';
-import type { Messaging } from '../../domain/messaging';
+import type { Messaging } from '../../core/messages';
 import type { MessageDelivery } from '../delivery';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from './sessions';
 import { waitForShutdownStops } from './shutdown-wait';
-import type { AppendTimelineInput, TimelineService } from '../../domain/timeline';
+import type { AppendTimelineInput, TimelineService } from '../../core/timeline';
 import { humanActor, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** Catches up the scheduled runs a pause skipped; services/schedules supplies it, the assembly passes it. */

@@ -1,10 +1,10 @@
 import type { OperatorSessions } from './ports';
 import { isOperator, isProjectManager, memberOf, SYSTEM_SENDER } from '@projectman/shared';
 import type { Session, TeamMessage } from '@projectman/shared';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import type { BackgroundTasks } from '../../kernel';
-import type { MessageService } from '../../domain/messaging';
-import type { ProjectService } from '../../domain/projects';
+import type { MessageService } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
 import { aiActor, KeyedMutex } from '../../kernel';
 
 export const RELAY_WINDOW_MS = 2 * 60 * 60 * 1000;

@@ -1,5 +1,5 @@
 import type { Session } from '@projectman/shared';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import type { SessionTimers } from './session-timers';
 
 export interface TurnFinishesDeps {

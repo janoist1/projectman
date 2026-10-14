@@ -19,16 +19,16 @@ import type {
   ProjectConfig,
 } from '@projectman/shared';
 import type { OperatorRequestRecord } from '../../db';
-import { ownerHandles } from '../../domain/access';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { ownerHandles } from '@projectman/shared';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { conflict, DomainError, forbidden, invalid, notFound } from '../../kernel';
-import { DECISION_OPTIONS } from '../../domain/inbox';
-import type { InboxService, Resolver } from '../../domain/inbox';
-import type { MemberService } from '../../domain/members';
-import type { MessageService } from '../../domain/messaging';
+import { DECISION_OPTIONS } from '../../core/inbox';
+import type { InboxService, Resolver } from '../../core/inbox';
+import type { MemberService } from '../../core/members';
+import type { MessageService } from '../../core/messages';
 import type { OperatorSteps } from './requests';
-import type { Author, ProjectService } from '../../domain/projects';
+import type { Author, ProjectService } from '../../core/projects';
 import { aiActor, newId, SYSTEM_ACTOR } from '../../kernel';
 
 interface Dependencies {

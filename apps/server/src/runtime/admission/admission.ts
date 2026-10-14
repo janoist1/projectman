@@ -29,15 +29,15 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import type { EngineDirectory } from '../../contracts';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import type { DiskGuard } from '../watchers';
 import { conflict } from '../../kernel';
 import { highestUsagePercent } from '../usage';
 import type { PlanUsageCache } from '../usage';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
-import type { TaskService } from '../../domain/tasks';
+import type { TaskService } from '../../core/tasks';
 import { KeyedMutex } from '../../kernel';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
 import {

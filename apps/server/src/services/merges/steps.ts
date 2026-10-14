@@ -11,7 +11,7 @@ import type { Actor, MergeBlockReason, MergeFailure, ProjectConfig, Task } from 
 import type { BranchMerger } from '../../contracts';
 import { mergedState } from '../../db';
 import type { MergeRecord } from '../../db';
-import { isoNow } from '../../domain/context';
+import { isoNow } from '../../core/base';
 import { conflict } from '../../kernel';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';

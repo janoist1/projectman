@@ -25,22 +25,22 @@ import type {
   TaskToolDetail,
   ToolContext,
 } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
-import { QUESTION_LIMIT } from '../../domain/card-questions';
-import type { CardQuestions } from '../../domain/card-questions';
+import type { DomainContext } from '../../core/base';
+import { QUESTION_LIMIT } from '../../core/inbox';
+import type { CardQuestions } from '../../core/inbox';
 import { DomainError } from '../../kernel';
 import {
   canSeeTask,
   clientCanSeeTimelineEvent,
   visibleTaskDetail,
   visibleTimelineEvent,
-} from '../../domain/visibility';
-import type { Viewer } from '../../domain/visibility';
-import type { ProjectFocusService } from '../../domain/project-focus';
+} from '../../core/projects';
+import type { Viewer } from '../../core/projects';
+import type { ProjectFocusService } from '../../core/tasks';
 import type { SessionCloser } from '../../runtime/sessions';
 import type { SessionOrchestrator } from '../../runtime/sessions';
-import type { TaskService, TaskWaits } from '../../domain/tasks';
-import type { TimelineService } from '../../domain/timeline';
+import type { TaskService, TaskWaits } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
 import { aiActor, humanActor, unique } from '../../kernel';
 
 import type { ToolCaller, GuestView } from '../caller';

@@ -11,15 +11,15 @@ import type {
 } from '@projectman/shared';
 import type { BranchMerger, EngineDirectory, ReleaseStateReport } from '../../contracts';
 import type { MergeRecord } from '../../db';
-import { ownerHandles } from '../../domain/access';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { ownerHandles } from '@projectman/shared';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { conflict, DomainError, forbidden, notFound } from '../../kernel';
-import type { InboxService, Resolver } from '../../domain/inbox';
-import { DECISION_OPTIONS } from '../../domain/inbox';
-import type { ProjectService } from '../../domain/projects';
-import type { TaskService } from '../../domain/tasks';
-import type { TimelineService } from '../../domain/timeline';
+import type { InboxService, Resolver } from '../../core/inbox';
+import { DECISION_OPTIONS } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
 import { aiActor, humanActor, KeyedMutex, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** The project and repository that are the instance itself (`PROJECTMAN_RELEASE_TARGET`, `<project key>/<repository>`). */

@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { DEFAULT_AGENT_PROVIDER, type AgentProvider, type PlanUsage } from '@projectman/shared';
 import type { EventBus, PlanUsageProvider } from '../../contracts';
 import type { BackgroundTasks } from '../../kernel';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 
 import { RefreshLoop } from './refresh-loop';
 

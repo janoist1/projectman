@@ -41,15 +41,13 @@ import type {
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
-import {
-  createAttachmentStorage,
-  createDomain,
-  createEventBus,
-  createMessageAttachmentStorage,
-} from './domain';
+import { createAttachmentStorage, createMessageAttachmentStorage } from './core/attachments';
+import { createDomain } from './domain';
+import { createEventBus } from './core/base';
 import { freeBytesOf } from './engine-host';
 import { readHeavyRunSessions } from './full-test';
-import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
+import type { Domain, ScheduleTimer } from './domain';
+import type { TemplateRegistry } from './core/base';
 import { createGithubService } from './services/github';
 import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http/feedback-host-guard';
 import { assertHomeMayStart } from './instance';

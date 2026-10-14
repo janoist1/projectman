@@ -2,7 +2,7 @@ import type { ProjectConfig, Session, SessionStop } from '@projectman/shared';
 import { SESSION_IDLE_CLOSE_MINUTES } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aiActor } from '../src/domain';
-import { stopStageReviewers } from '../src/domain/stage-reviewers';
+import { stopStageReviewers } from '../src/core/projects';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

@@ -1,7 +1,13 @@
+export function createTimelineService(
+  ctx: ConstructorParameters<typeof TimelineService>[0],
+): TimelineService {
+  return new TimelineService(ctx);
+}
+
 import { isLoopWork } from '@projectman/shared';
 import type { Actor, TimelineEvent, TimelineEventData, TimelineEventType } from '@projectman/shared';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
+import { isoNow } from '../core/base';
+import type { DomainContext } from '../core/base';
 import { newId } from '../kernel';
 
 /** An event to append; `data` has the shape its type documents in `TimelineEventData`. */

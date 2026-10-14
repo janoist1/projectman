@@ -1,0 +1,12 @@
+export { TaskService, createTaskService } from '../../domain/tasks/service';
+export type { HandoffTrigger, TaskUpdate } from '../../domain/tasks/service';
+export { PrerequisiteClosures } from '../../domain/tasks/prerequisites';
+export { TaskWaits } from '../../domain/tasks/task-wait';
+export { LeftParts } from '../../domain/tasks/left-parts';
+export { approvalRequestedError, gateBlockedError } from '../../domain/tasks/moves';
+export type { MergeGate, MoveResult, StageChange } from '../../domain/tasks/moves';
+export { BoardService } from '../../domain/board';
+export { ProjectFocusService } from '../../domain/project-focus';
+export { InvolvementService } from '../../domain/involvements';
+export { CardMeasure } from '../../domain/card-measure';
+export type { TaskPauseReader, BoardPlanUsage, BoardPauses } from './ports';

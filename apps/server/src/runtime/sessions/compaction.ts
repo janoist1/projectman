@@ -2,9 +2,9 @@ import { DEFAULT_AGENT_PROVIDER, isOpenTask, isWorkingOnTask } from '@projectman
 import type { AgentProvider, Session, Task } from '@projectman/shared';
 import { COMPACTING_PROVIDERS } from '../../contracts';
 import type { ContextPackBuilder, RunnerEvent, SessionRunner } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
-import type { ProjectService } from '../../domain/projects';
-import type { TaskService } from '../../domain/tasks';
+import type { DomainContext } from '../../core/base';
+import type { ProjectService } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
 
 /**
  * A session that owes a compaction (PM-213), idle at the end of its round or stopped and resuming,

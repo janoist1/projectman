@@ -7,6 +7,9 @@ export const OperatorWatch = z.enum(OPERATOR_WATCH_LEVELS);
 export type OperatorWatch = z.infer<typeof OperatorWatch>;
 export const DEFAULT_OPERATOR_WATCH: OperatorWatch = 'report';
 
+/** The signal kinds the Operator may close as needing nothing instead of presenting them. */
+export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = ['ready_waiting'];
+
 /** How much the Operator does on its own on a system signal (PM-545); absent means report. */
 export function operatorWatchOf(config: Pick<ProjectConfig, 'team'>): OperatorWatch {
   return config.team.operatorWatch ?? DEFAULT_OPERATOR_WATCH;

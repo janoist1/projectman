@@ -1050,6 +1050,7 @@ export function createDomain(opts: DomainOptions) {
         projectState,
         operatorActions,
         taskStarts,
+        operatorSignals,
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
       releases: new ReleaseTools({ calls: toolCaller, releases }),

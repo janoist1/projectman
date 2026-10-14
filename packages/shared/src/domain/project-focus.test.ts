@@ -9,6 +9,7 @@ import {
   pullCandidates,
   pullSourceStage,
   startClass,
+  startableCards,
 } from './project-focus';
 import type { Task } from './task';
 
@@ -156,6 +157,7 @@ describe('the start class and the pull (PM-427)', () => {
       labels: [
         { id: 'design-ok', name: 'Design ok', setBy: 'anyone' },
         { id: 'waiting', name: 'Waiting', setBy: 'anyone', blocks: true },
+        { id: 'refine', name: 'Refine', setBy: 'anyone' },
       ],
     },
   });
@@ -225,6 +227,34 @@ describe('the start class and the pull (PM-427)', () => {
       const noWork = { pipeline: { ...pullConfig.pipeline, stages: [stages[0]!, stages[2]!] } };
       expect(pullSourceStage(noQueue)).toBeNull();
       expect(pullSourceStage(noWork)).toBeNull();
+    });
+  });
+
+  describe('startableCards', () => {
+    it('returns nonurgent cards outside the focus in input order', () => {
+      const tasks = [card('AC-10'), card('AC-2', { priority: 'normal' })];
+      expect(startableCards({ config: pullConfig, tasks, fromStageId: 'ready', toStageId: 'dev' })).toEqual(
+        tasks,
+      );
+      expect(pulled(tasks)).toEqual([]);
+    });
+    it('excludes prerequisites, holding labels, refinement, assignees, open collectors and unmet gates', () => {
+      const tasks = [
+        card('AC-1', { links: [{ kind: 'prerequisite', ref: 'AC-9' }] }),
+        card('AC-2', { labels: ['design-ok', 'waiting'] }),
+        card('AC-3', { labels: ['design-ok', 'refine'] }),
+        card('AC-4', { assignee: 'dev' }),
+        card('AC-5'),
+        card('AC-6', { parentKey: 'AC-5', assignee: 'dev' }),
+        card('AC-7', { labels: [] }),
+        card('AC-8'),
+        card('AC-9', { stageId: 'dev' }),
+      ];
+      expect(
+        startableCards({ config: pullConfig, tasks, fromStageId: 'ready', toStageId: 'dev' }).map(
+          (t) => t.key,
+        ),
+      ).toEqual(['AC-8']);
     });
   });
 

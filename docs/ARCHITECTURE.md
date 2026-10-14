@@ -708,8 +708,8 @@ No REST contract changes. This refactor moves server code only; engine calls and
 file-transfer boundaries stay unchanged.
 
 The Operator slice (PM-605) lives in `services/operator/`, with one entry point and
-structural ports for sessions, admission, delivery, pauses and releases. Its five tools
-(`get_project_state`, `operate`, `screen_question`, `start_task`, `start_member`) live in
+structural ports for sessions, admission, delivery, pauses and releases. Its six tools
+(`get_project_state`, `operate`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) live in
 `mcp/operator/`; signal decisions and manager/Operator channels register in `api/operator.ts`.
 This module needs no Effect program: retries belong to admission, reply relay uses
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
@@ -2657,8 +2657,9 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   as projectman input, without a team message or an owner request. A persisted `delivered_at` keeps the
   15-minute project wake interval across restarts. Delivered signals become open when presented or when
   the turn ends; startup recovers delivered pending rows. Undelivered rows never appear in REST or WS.
-  `send_message` may present a delivered signal to owners without a request; all other writes retain
-  the request guard. Owner acceptance records a visible message and the signal decision atomically,
+  `send_message` may present a delivered signal to owners without a request; question screening and
+  signal triage are standing duties, while other writes retain the request or signal-step guard.
+  Owner acceptance records a visible message and the signal decision atomically,
   and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
   Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
   admission stay on the server, and notice delivery uses the existing engine session boundary.
@@ -2672,11 +2673,21 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   merge with an AI merger, at once; a person as merger gets the inbox item instead), `unreleased`
   (`unreleased:<base>`; `ReleaseService.unreleased`, from the stored merges and the latest live release or
   the running commit, without git or an engine; work merged for `OPERATOR_UNRELEASED_HOURS` = 24 and no
-  open release) and `ready_waiting` (one per project; a card in a later queue stage ready for a work stage
+  open release) and `ready_waiting` (`ready_waiting:<card keys>`; startable cards in later queue stages ready for a work stage
   whose AI owner is free, not on leave, not temporary, under its capacity, with the parallel AI limit not
   reached; raised at once, delivered only after `OPERATOR_READY_WAITING_MINUTES` = 30, silently closed
   if it ends before). `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
   team is paused. All data comes from the server's database and configuration: no machine-dependent part.
+  `startableCards` shares the pull rules without the urgent or focus filter: no assignee, open prerequisite,
+  holding label, refinement, open subtask or unmet gate. The subject lists all startable card keys in numeric
+  order. The latest dismissed signal acknowledges its subject cards when their stage entry (or creation)
+  is no later than its decision, even after resolution or capacity changes. No case exists when all are
+  acknowledged; a new card or re-entry opens a case for the full set. The old `ready_waiting` case resolves
+  on the first sweep. The Operator may use `dismiss_signal { signal_id, note }` without an owner request
+  at every watch level, only for a delivered, unpresented, still valid ready_waiting signal and outside
+  guest conversations. It stores the reason in `decision_note` (migration 59, outside the DTO) and publishes
+  the decision to owners. Presented signals remain theirs to decide. Wake facts contain `cards`, `new_cards`
+  (unacknowledged at wake time), and `last_dismissed` with the time, actor, note and cards.
 
   **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
   the Operator's own and not a human's) is created in the inbox state `screening` with

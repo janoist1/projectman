@@ -1,8 +1,32 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ToolContext } from '../contracts';
+import { createDomainHarness } from '../../test/helpers/domain-harness';
+import type { DomainHarness } from '../../test/helpers/domain-harness';
+import { settle } from '../../test/helpers/fakes';
 import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
+  it('dismiss_signal validates its bounds, trims the note and returns the dismissal', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'dismiss_signal')!;
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({ signal_id: 'ops_1', note: '  Parked on purpose.  ' });
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      signal_id: 'ops_1',
+      state: 'dismissed',
+    });
+    expect(handler.calls[0]).toMatchObject({
+      method: 'dismissSignal',
+      args: { signalId: 'ops_1', note: 'Parked on purpose.' },
+    });
+    for (const input of [
+      { signal_id: '', note: 'reason' },
+      { signal_id: 'x'.repeat(65), note: 'reason' },
+      { signal_id: 'ops_1', note: ' ' },
+      { signal_id: 'ops_1', note: 'x'.repeat(1001) },
+    ])
+      expect(tool.inputSchema.safeParse(input).success).toBe(false);
+  });
   it.each(['send_message', 'start_member'])(
     '%s describes and forwards the parallel-work confirmation',
     async (name) => {
@@ -249,5 +273,98 @@ describe('Operator MCP tools', () => {
     expect(tool.inputSchema.safeParse({ ...args, text: '' }).success).toBe(false);
     expect(tool.inputSchema.safeParse({ ...args, text: 'x'.repeat(20001) }).success).toBe(false);
     expect(tool.inputSchema.safeParse({ ...args, text: 'x'.repeat(20000) }).success).toBe(true);
+  });
+});
+
+describe('dismiss_signal authorization and domain errors', () => {
+  let h: DomainHarness;
+  let operator: ToolContext;
+  beforeEach(async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        config.team.members.push({
+          kind: 'human',
+          handle: 'guest',
+          displayName: 'Guest',
+          access: 'developer',
+          roles: [],
+        });
+        config.pipeline.stages.splice(1, 0, {
+          id: 'ready',
+          name: 'Ready',
+          kind: 'queue',
+          columnId: 'todo',
+          owners: ['owner'],
+        });
+      },
+    });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
+    operator = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
+  });
+  afterEach(async () => {
+    await h?.cleanup();
+  });
+
+  it('rejects a non-Operator before evaluating the signal', async () => {
+    await expect(
+      h.domain.teamTools.dismissSignal(
+        { ...operator, member: 'dev-1' },
+        { signalId: 'unknown', note: 'Note' },
+      ),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+      message: 'operator_only: only the Operator may dismiss signals.',
+    });
+  });
+
+  it('rejects guest conversations even for the Operator', async () => {
+    await h.domain.messaging.sendReporting('AR', 'guest', { to: ['operator'], text: 'Hello' });
+    await settle();
+    const guest = h.domain.sessions
+      .list('AR', { member: 'operator' })
+      .find((s) => s.workItem.type === 'general' && s.workItem.with === 'guest')!;
+    await expect(
+      h.domain.teamTools.dismissSignal(
+        { ...operator, sessionId: guest.id },
+        { signalId: 'unknown', note: 'Note' },
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('operator_owner_only') });
+  });
+
+  it('dismisses without an owner request and hides the record-only note from the DTO', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Parked' }, { kind: 'human', handle: 'owner' });
+    h.repos.tasks.update(card.id, { stageId: 'ready', status: 'active' });
+    await h.domain.operatorSignals.sweep('AR');
+    const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'ready_waiting')!;
+    h.repos.operatorSignals.delivered([signal.id], new Date().toISOString());
+    expect(h.repos.operatorRequests.latest('AR', 1)).toEqual([]);
+    await expect(
+      h.domain.teamTools.dismissSignal(operator, { signalId: signal.id, note: 'Waits intentionally.' }),
+    ).resolves.toEqual({ signalId: signal.id, state: 'dismissed' });
+    expect(h.repos.operatorSignals.get(signal.id)?.decisionNote).toBe('Waits intentionally.');
+    expect(h.domain.operatorSignals.channel('AR').signals[0]).not.toHaveProperty('decisionNote');
+    expect(h.domain.operatorSignals.active('AR')).toEqual([]);
+    expect(h.repos.operatorRequests.latest('AR', 1)).toEqual([]);
+  });
+
+  it('maps domain refusals with the existing tool error conversion', async () => {
+    await expect(
+      h.domain.teamTools.dismissSignal(operator, { signalId: 'unknown', note: 'Note' }),
+    ).rejects.toMatchObject({ code: 'invalid', message: 'unknown signal in this project' });
+    const idle = h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'idle', caseKey: 'idle:missing' });
+    await expect(
+      h.domain.teamTools.dismissSignal(operator, { signalId: idle.id, note: 'Note' }),
+    ).rejects.toMatchObject({ code: 'invalid', message: 'the Operator may not dismiss this signal kind' });
+    const ready = h.domain.operatorSignals.raise({
+      projectKey: 'AR',
+      kind: 'ready_waiting',
+      caseKey: 'ready_waiting:missing',
+    });
+    await expect(
+      h.domain.teamTools.dismissSignal(operator, { signalId: ready.id, note: 'Note' }),
+    ).rejects.toMatchObject({
+      code: 'invalid',
+      message: 'operator_signal_closed: the signal is no longer open',
+    });
   });
 });

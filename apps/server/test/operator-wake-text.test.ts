@@ -99,6 +99,7 @@ describe('level report', () => {
     expect(header()).toContain('Change nothing until an owner says yes.');
     expect(header()).toContain('one message for the whole wake-up');
     expect(header()).toContain('signal_ids');
+    expect(header()).toContain('close with dismiss_signal and a note');
     expect(header()).toContain('actionable_signal_ids');
     expect(header()).not.toContain('steps_left');
     expect(wakeRows()).toMatchObject([{ id: signal.id, kind: 'idle', ...noStep }]);
@@ -123,6 +124,7 @@ describe('level unblock', () => {
     expect(text).toContain('On a signal never merge, release, approve, move a card');
     expect(text).toContain('stalled, silent, outage and nobody signals always go to the owners');
     expect(text).toContain('one message for the whole wake-up');
+    expect(text).toContain('close with dismiss_signal and a note');
     expect(wakeRows()).toMatchObject([
       {
         id: signal.id,
@@ -168,6 +170,47 @@ describe('level unblock', () => {
 });
 
 describe('level drive', () => {
+  it('includes acknowledged cards and only new cards in wake facts, with the last dismissal', async () => {
+    await setup('drive', (config) => {
+      config.pipeline.stages.splice(1, 0, {
+        id: 'ready',
+        name: 'Ready',
+        kind: 'queue',
+        owners: ['owner'],
+        columnId: 'todo',
+      });
+    });
+    const first = await place({ stageId: 'ready', status: 'active' });
+    await h.domain.operatorSignals.sweep('AR');
+    later(OPERATOR_READY_WAITING_MINUTES);
+    await h.domain.operatorSignals.sweep('AR');
+    await flush();
+    expect(wakeRows()[0]!.facts).toEqual({
+      cards: [first.key],
+      new_cards: [first.key],
+      last_dismissed: null,
+    });
+    const at = now.toISOString();
+    const result = await h.domain.teamTools.dismissSignal(operator(), {
+      signalId: open('ready_waiting')[0]!.id,
+      note: 'Parked intentionally.',
+    });
+    expect(result.state).toBe('dismissed');
+    await h.domain.operatorSignals.sweep('AR');
+    h.runner.setState(operator().sessionId, 'idle');
+    later(1);
+    const second = await place({ stageId: 'ready', status: 'active' });
+    await h.domain.operatorSignals.sweep('AR');
+    later(OPERATOR_READY_WAITING_MINUTES);
+    await h.domain.operatorSignals.sweep('AR');
+    await flush();
+    expect(wakeRows()[0]!.facts).toEqual({
+      cards: [first.key, second.key],
+      new_cards: [second.key],
+      last_dismissed: { at, by: 'operator', note: 'Parked intentionally.', cards: [first.key] },
+    });
+  });
+
   it('names the project manager for cards that stand ready, with three steps', async () => {
     await setup('drive', (config) => {
       config.pipeline.stages.splice(1, 0, {
@@ -187,6 +230,7 @@ describe('level drive', () => {
     await flush();
     expect(header()).toContain('When steps_left is 0, bring the signal to the owners.');
     expect(header()).not.toContain('Change nothing');
+    expect(header()).toContain('close with dismiss_signal and a note');
     expect(wakeRows()).toMatchObject([
       {
         kind: 'ready_waiting',

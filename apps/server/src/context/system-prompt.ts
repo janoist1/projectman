@@ -654,6 +654,8 @@ const DOCS_RULES = [
 function signalRules(level: OperatorWatch, report: { done: string; decision: string }): string[] {
   const bold = (label: string) => `**${label}**`;
   const check = 'When projectman wakes you with signals, check the state (get_project_state) first.';
+  const dismiss =
+    'A ready_waiting signal whose cards all wait on purpose you close with dismiss_signal and a note instead of bringing it to the owners; new_cards in its facts are the cards that became ready since the last close.';
   const never =
     "On a signal you never merge, release, approve, move a card, or set a label or a setting. A stalled, silent, outage or nobody signal always goes to the owners. Anything else on a signal only after an owner's yes.";
   const message = `Send the owners at most one message per wake-up: send_message (kind info) with signal_ids, covering every signal of the wake-up, in two parts: ${bold(report.done)} (signal → step → result) and ${bold(report.decision)} (what you propose); put the signals the owners must decide in actionable_signal_ids. Leave out a part that is empty; if you did nothing and nothing needs a decision, write nothing.`;
@@ -661,18 +663,20 @@ function signalRules(level: OperatorWatch, report: { done: string; decision: str
     return [
       `${check} Then bring each signal to the owners with what happened and what you propose. You change nothing until an owner says yes.`,
       never,
+      dismiss,
       message,
     ];
   const step = `On an idle, merge_waiting or merge_blocked signal you may take ${level === 'unblock' ? 'one step' : 'a step'} yourself: the tool named in its step field (start_task or start_member), for the task and members it names, with the signal's signal_id. Weigh it first: the focus, the priorities, and the check before a start. When you do not step, say why.`;
   const followUp =
     'A signal that comes back with follow_up true was acted on (steps lists what): tell the owners what you did and what became of it.';
   return level === 'unblock'
-    ? [`${check} ${step} It is one step per signal (steps_left).`, followUp, never, message]
+    ? [`${check} ${step} It is one step per signal (steps_left).`, followUp, never, dismiss, message]
     : [
         `${check} ${step} It is up to three steps per signal, at least 30 minutes apart (steps_left, next_step_at).`,
-        'Besides, with start_member and a short task as a text, start the release owner on an unreleased signal (propose a release) and the project manager on a ready_waiting signal (hand out work), as the step field says. When steps_left is 0, bring the signal to the owners.',
+        'Besides, with start_member and a short task as a text, start the release owner on an unreleased signal (propose a release) and the project manager on a ready_waiting signal whose new_cards should start (hand out work), as the step field says. When steps_left is 0, bring the signal to the owners.',
         followUp,
         never,
+        dismiss,
         message,
       ];
 }

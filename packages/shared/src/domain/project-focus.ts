@@ -148,23 +148,35 @@ export function pullCandidates(input: {
   if (!source || !development) return [];
   const ranked = (task: Task) => ({ key: task.key, rank: task.boardRank, updatedAt: task.updatedAt });
   const candidates: { task: Task; class: StartClass }[] = [];
-  for (const task of tasks) {
-    if (
-      !canAutomaticallyStartTask(task, tasks) ||
-      task.status !== 'active' ||
-      task.stageId !== source.id ||
-      task.assignee
-    )
-      continue;
+  for (const task of startableCards({ config, tasks, fromStageId: source.id, toStageId: development.id })) {
     const cls = startClass(task, places);
-    if (cls.kind === 'other') continue;
-    if (openPrerequisites(task, tasks).length > 0) continue;
-    if (startBlock(task, config) !== null) continue;
-    const evaluation = evaluateStart(task, config, development.id);
-    if (evaluation.unmet.length > 0 || evaluation.approvals.length > 0) continue;
-    candidates.push({ task, class: cls });
+    if (cls.kind !== 'other') candidates.push({ task, class: cls });
   }
   return candidates
     .sort((a, b) => compareStartClass(a.class, b.class) || compareBoardOrder(ranked(a.task), ranked(b.task)))
     .map((candidate) => candidate.task);
+}
+
+/** The cards of a queue stage a developer could start into the given work stage now (PM-665),
+ * in the order of `tasks`: the rules of `pullCandidates` without its urgent or focus condition. */
+export function startableCards(input: {
+  config: ProjectConfig;
+  tasks: readonly Task[];
+  fromStageId: string;
+  toStageId: string;
+}): Task[] {
+  const { config, tasks, fromStageId, toStageId } = input;
+  return tasks.filter((task) => {
+    if (
+      !canAutomaticallyStartTask(task, tasks) ||
+      task.status !== 'active' ||
+      task.stageId !== fromStageId ||
+      task.assignee
+    )
+      return false;
+    if (openPrerequisites(task, tasks).length > 0) return false;
+    if (startBlock(task, config) !== null) return false;
+    const evaluation = evaluateStart(task, config, toStageId);
+    return evaluation.unmet.length === 0 && evaluation.approvals.length === 0;
+  });
 }

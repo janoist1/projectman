@@ -592,7 +592,12 @@ repository), not on the machine. If the machine is gone or broken beyond repair:
    restores** the files from restic and the database from the Litestream replica
    ([HYBRID.md](HYBRID.md), "Restoring on a new volume"); it refuses to start on any error except
    "no replica yet", so an empty board never replicates over a backup it could not read.
-4. `npm run cloud -- rehearse` once it runs, to know the restore works.
+4. `npm run cloud -- rehearse` and perform the file/hash/database-reference checks in
+   [HYBRID.md](HYBRID.md#backup-and-restore) before accepting recovery. Record both recovery times
+   and any lost records/files. The latest replica and latest restic snapshot are not a shared
+   snapshot: files may lag by 6 hours, longer after a failed backup. If the DB references files
+   absent from the snapshot, recover a verified copy or choose an earlier database point below
+   and repeat the checks in isolation. The rehearsal success line proves smoke checks only.
 
 Never run two machines on the same buckets: one replica has one writer.
 

@@ -1576,7 +1576,8 @@ workers follow the machine's size.
   token, storage key or restic password (an environment filter only: one uid, so `/proc/<pid>/environ`
   of the others stays readable to a compromised server). `PROJECTMAN_HOME` is the platform volume (`/data`): the
   database is replicated by Litestream (continuously, S3-compatible storage) and the rest of the
-  home (`secret`, `secrets/`, `customization/` with `.git`, `attachments/`, memory, `instance.json`)
+  home (`secret`, `secrets/`, `customization/` with `.git`, `attachments/`, `message-attachments/`,
+  `feedback/`, `memory/`, `instance.json`)
   by restic into a separate encrypted repository (its password is not the storage key). A fresh
   volume restores both before the server starts and stops the start on any restore error other
   than "no replica / no repository yet". The first setup from a browser needs a one-time setup code
@@ -1597,6 +1598,15 @@ workers follow the machine's size.
   cloud's home, never an engine's worktrees or transcripts. The restore rehearsal
   (`entrypoint.sh rehearse`) starts a standby copy on the loopback with no tunnel and no
   replication, so it cannot disturb the production replica.
+  PM-668 excludes provider homes, engine credentials, machine workspaces, logs and transient
+  caches/spools from restic; the cloud-volume marker is rebuilt only after successful restore.
+  Rehearsal requires an empty separate directory; temporary restore staging uses `TMPDIR`
+  (default `/tmp`) passed through the cleared environment. The DB (1s sync) and files (21600s
+  interval, first delay 300s) are separate recovery points: files may lag by 6 hours or longer
+  after backup failures. A smoke pass is not complete recovery; the HYBRID/AWS runbook requires
+  file/hash/reference checks and an earlier DB point when necessary. The fake-tool SQLite fixture
+  proves coverage/error paths, while real S3/Docker acceptance belongs to PM-675. Storage secrets
+  and backup execution stay on the cloud, never in engine payloads.
   **Module:** `deploy`
 
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,

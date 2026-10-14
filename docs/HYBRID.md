@@ -233,14 +233,33 @@ anonymous caller meets (an Access login page is the right result then, and the f
 
 What is backed up, and by whom:
 
-| What                                                                                                                 | By         | How often                                          |
-| -------------------------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------- |
-| `db.sqlite` (all boards, accounts, key hashes)                                                                       | Litestream | continuously (every second); a snapshot a day      |
-| `secret` (the cookie signing key), `secrets/`, `customization/` with `.git`, `attachments/`, memory, `instance.json` | restic     | every 6 hours, 7 daily / 4 weekly / 6 monthly kept |
-| `logs/`, `browsers/`                                                                                                 | nobody     | (not worth keeping)                                |
+| What                                                                                                                                                         | By         | How often                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | -------------------------------------------------- |
+| `db.sqlite` (all boards, accounts, key hashes)                                                                                                               | Litestream | continuously (every second); a snapshot a day      |
+| `secret` (the cookie signing key), `secrets/`, `customization/` with `.git`, `attachments/`, `message-attachments/`, `feedback/`, `memory/`, `instance.json` | restic     | every 6 hours, 7 daily / 4 weekly / 6 monthly kept |
+| `logs/`, `browsers/`, provider homes, engine credentials, worktrees and transient caches/spools                                                              | nobody     | excluded from restic                               |
 
 The database and the files belong together (the database holds the attachments' names, the files
-their content): restore both, from the same time if you can choose.
+their content). **These are separate recovery points, not an atomic shared snapshot.** Litestream's
+1-second sync interval is not a guaranteed 1-second recovery point. Files can be up to 6 hours
+behind the database with the default interval; failed backups extend that window, and before the
+first successful backup no files are protected. Retention can make an older recovery point farther apart.
+
+Before activating recovered data, record the selected restic snapshot time and Litestream database
+time. On an isolated standby copy, enumerate the database's card, message and widget file references;
+check every ready attachment exists and its size matches the database's `size` field.
+The production `attachments` and `message_attachments` tables do not store content hashes.
+For SHA-256 verification, compare restored files against a separately recorded inventory from
+the selected backup's source (for example the verified migration package for the first backup).
+Also verify cookie secret, customization and memory against that inventory. If no matching
+inventory exists, record that content-hash verification could not be performed; file presence
+and size alone do not prove byte-for-byte equality. A newer DB can reference uploads
+made after the file snapshot. List those missing files and the affected records and time period;
+recover them from another verified copy if available. Otherwise select an earlier DB point using
+`-timestamp` (see [AWS.md](AWS.md#restoring-the-database-to-a-point-in-time)), restore into another
+empty scratch directory and repeat the checks. An earlier DB also loses later cards/messages and
+may leave harmless unreferenced files. Record that loss before activation. If no consistent point
+is available, recovery remains incomplete; a successful server start does not resolve missing files.
 
 ### Restoring on a new volume
 
@@ -271,6 +290,14 @@ docker run --rm \
 
 Use **read-only storage keys** for it if your provider allows. It ends with
 `REHEARSAL PASSED` or a message saying what failed. It is the same code path as the real restore.
+Use an empty scratch directory separate from the cloud home. The success line proves restore and
+HTTP smoke checks only; perform the file/reference checks above before calling it a complete recovery.
+The automated fake-tool fixture uses a synthetic SQLite `file_references(path, sha256)` table,
+not the production attachment schema. It verifies those fixture references and known SHA-256
+values for cookie secret, customization, card/message/widget files and memory, plus failure paths
+and writer isolation. It does not establish that production attachment rows contain hashes.
+It does not prove real S3, restic encryption, Litestream replication or Docker restore: that
+operational evidence is required on PM-675, including the first complete file backup and restore.
 
 Restore the database alone to a file, to look at it (point-in-time with `-timestamp`):
 

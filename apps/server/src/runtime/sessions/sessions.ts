@@ -3,7 +3,6 @@ import { LIVE_SESSION_STATES } from '@projectman/shared';
 import type { EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
-  ALERT_SEEN_OPTION,
   cardWorkerSessions,
   DEFAULT_AGENT_PROVIDER,
   LOCAL_ENGINE_ID,
@@ -12,9 +11,7 @@ import {
   isMergeRunningFor,
   effectiveSessionPermissions,
   isOnLeave,
-  isOpenTask,
   isOperator,
-  isWorkingOnTask,
   isWorkPaused,
   memberOf,
   permissionDecidersNow,
@@ -45,7 +42,7 @@ import type {
   WorkDoing,
   WorkItemRef,
 } from '@projectman/shared';
-import { COMPACTING_PROVIDERS, openingTurnOrigin } from '../../contracts';
+import { openingTurnOrigin } from '../../contracts';
 import type {
   AttachmentOperations,
   CardWorker,
@@ -62,7 +59,7 @@ import type {
 } from '../../contracts';
 import { encodeWorkItem } from '../../db';
 import { roleLabel } from '../../agent-text';
-import { ownerHandles, requireAiMember } from '../../domain/access';
+import { requireAiMember } from '../../domain/access';
 import { assertNotPaused } from '../admission';
 import type { CardQuestions } from '../../domain/card-questions';
 import { isoNow } from '../../domain/context';
@@ -71,26 +68,25 @@ import { conflict, DomainError, notFound } from '../../domain/errors';
 import type { MemberService } from '../../domain/members';
 import type { ProjectFocusService } from '../../domain/project-focus';
 import type { ConfigChange, ProjectService } from '../../domain/projects';
+import { RoundCompaction } from './compaction';
+import { DoneCleanup } from './done-cleanup';
 import { DONE_TASK_CLEANUP_DELAY_MS, DONE_TASK_TURN_LIMIT_MS } from './session-policy';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
 import type { InputStallAlerts } from '../watchers';
 import type { UsageAlerts } from '../usage';
-import { ProviderQuotaHolds } from '../usage';
 import type { PlanUsageCache } from '../usage';
 import type { InboxService } from '../../domain/inbox';
 import { aiActor, KeyedMutex, newUuid } from '../../domain/util';
 import { MergeCardLock } from '../../kernel';
 import { CloseStates } from './close-states';
 import { SessionLifecycle } from './lifecycle';
-import {
-  COMPACT_MIN_CONTEXT_TOKENS,
-  errorCode,
-  MESSAGE_SEPARATOR,
-  providerNotLoggedIn,
-  SessionLauncher,
-} from './launch';
+import { MESSAGE_SEPARATOR, providerNotLoggedIn, SessionLauncher } from './launch';
+import { INPUT_STALL_MS, InputWaits } from './input-waits';
 import { LiveSessions } from './live-sessions';
+import { ProviderLimits } from './provider-limits';
+import { SessionTimers } from './session-timers';
+import { TurnFinishes } from './turn-finish';
 import { MemberWorkspaces } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
 
@@ -99,7 +95,9 @@ export { LIVE_SESSION_STATES } from '@projectman/shared';
 export const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission'];
 const ENDED = new Set<SessionState>(['exited', 'failed']);
 
-export { COMPACT_MIN_CONTEXT_TOKENS, MESSAGE_SEPARATOR } from './launch';
+export { MESSAGE_SEPARATOR } from './launch';
+export { COMPACT_MIN_CONTEXT_TOKENS } from './compaction';
+export { INPUT_STALL_MS } from './input-waits';
 
 export type { EnsureSessionResult } from '../../contracts';
 
@@ -197,12 +195,6 @@ export interface SessionOrchestratorDeps {
   inputStallMs?: number;
 }
 
-/** A session waiting for input at its terminal this long is reported to the owners (PM-199). */
-export const INPUT_STALL_MS = 10 * 60_000;
-
-/** Worktree removals that are refused on purpose (the worktree module's error codes). */
-const KEPT_WORKTREE_CODES = new Set(['dirty', 'outside_root', 'not_a_worktree', 'main_worktree']);
-
 /** One start, stop or settings change at a time per (member x work item). */
 function sessionLockKey(projectKey: string, handle: string, workItem: WorkItemRef): string {
   const wi = encodeWorkItem(workItem);
@@ -225,17 +217,16 @@ export class SessionOrchestrator {
   private readonly mergeCards: MergeCardLock;
   /** What is held for each session's current process: tokens, first input, modes, stop reasons. */
   readonly live = new LiveSessions();
-  private readonly cleanupTimers = new Set<NodeJS.Timeout>();
-  /** The wait of each session that waits for input at its terminal (PM-199), until it is over. */
-  private readonly inputWaits = new Map<string, { since: string; timer: NodeJS.Timeout }>();
-  /**
-   * Sessions that moved their task to done in the middle of a turn (PM-190): the task's cleanup
-   * runs once the turn ends, or at the limit.
-   */
-  private readonly finishingTurns = new Map<
-    string,
-    { projectKey: string; taskKey: string; timer: NodeJS.Timeout }
-  >();
+  /** The timers of the turn, input wait and cleanup parts (`session-timers.ts`). */
+  private readonly timers: SessionTimers;
+  /** The sessions that wait for input at their terminal (PM-199, `input-waits.ts`). */
+  private readonly inputWaits: InputWaits;
+  /** The compaction at the end of a round (PM-213, `compaction.ts`). */
+  private readonly compaction: RoundCompaction;
+  /** The sessions that moved their task to done in the middle of a turn (PM-190, `turn-finish.ts`). */
+  private readonly turns: TurnFinishes;
+  /** The cleanup of done tasks (`done-cleanup.ts`). */
+  private readonly cleanup: DoneCleanup;
   /**
    * Where each session stands on closing (PM-288): marked, waiting for a fix, held by a heavy run,
    * closing. Only the `runtime/sessions` module uses it (`SessionCloser` reaches it through here).
@@ -251,13 +242,8 @@ export class SessionOrchestrator {
   private readonly lifecycle: SessionLifecycle;
   /** Starts the sessions' processes (`launch.ts`). */
   private readonly launcher: SessionLauncher;
-  private readonly providerHolds = new ProviderQuotaHolds();
-  private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
-  private quotaResume:
-    ((session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>) | undefined;
-  /** Sessions whose CLI reported a lost login, and of which provider, until they end (PM-467). */
-  private readonly lostLogins = new Map<string, AgentProvider>();
-  private quotaProbe: Promise<PlanUsage | null> | null = null;
+  /** What the provider limits: token usage, the request quota and a lost login (`provider-limits.ts`). */
+  private readonly limits: ProviderLimits;
   /** The member workspaces (PM-138) of each engine that has them, made when first used. */
   private readonly workspaceSets = new Map<
     EngineId,
@@ -271,13 +257,65 @@ export class SessionOrchestrator {
     this.lifecycle = new SessionLifecycle({
       subscribe: () => deps.runner.onEvent((event) => this.handleRunnerEvent(event)),
       onClose: () => {
-        for (const timer of this.cleanupTimers) clearTimeout(timer);
-        this.cleanupTimers.clear();
-        for (const { timer } of this.finishingTurns.values()) clearTimeout(timer);
-        this.finishingTurns.clear();
-        for (const { timer } of this.inputWaits.values()) clearTimeout(timer);
-        this.inputWaits.clear();
+        this.timers.close();
+        this.turns.dispose();
+        this.inputWaits.dispose();
       },
+    });
+    this.timers = new SessionTimers(this.ctx.logger);
+    this.turns = new TurnFinishes({
+      logger: this.ctx.logger,
+      timers: this.timers,
+      limitMs: deps.doneTurnLimitMs ?? DONE_TASK_TURN_LIMIT_MS,
+      cleanUp: (projectKey, taskKey) => this.cleanup.run(projectKey, taskKey),
+    });
+    this.cleanup = new DoneCleanup({
+      ctx: this.ctx,
+      engines: deps.engines,
+      runner: deps.runner,
+      timers: this.timers,
+      turns: this.turns,
+      delayMs: deps.doneCleanupDelayMs ?? DONE_TASK_CLEANUP_DELAY_MS,
+      isRunning: (sessionId) => this.isRunning(sessionId),
+      noteStop: (sessionId, stop) => this.live.stopReasons.set(sessionId, stop),
+      markEnded: (sessionId, stop) => {
+        this.markEnded(sessionId, null, null, stop);
+      },
+      inWorkspace: (session) => Boolean(this.workspacesOfSession(session)?.isWorkspacePath(session.cwd)),
+      background: (job) => this.lifecycle.run(job),
+    });
+    this.inputWaits = new InputWaits({
+      ctx: this.ctx,
+      timers: this.timers,
+      ...(deps.inputStall ? { alerts: deps.inputStall } : {}),
+      stallMs: deps.inputStallMs ?? INPUT_STALL_MS,
+      isPaused: (session) => this.isPaused(session),
+    });
+    this.compaction = new RoundCompaction({
+      ctx: this.ctx,
+      projects: deps.projects,
+      tasks: deps.tasks,
+      runner: deps.runner,
+      contextBuilder: deps.contextBuilder,
+      find: (sessionId) => this.find(sessionId),
+      isRunning: (sessionId) => this.isRunning(sessionId),
+      isPaused: (session) => this.isPaused(session),
+      closePending: (sessionId) => this.closeStates.markOf(sessionId) !== undefined,
+      messageWaiting: (session) => this.messageWaiting(session),
+      underLock: (session, work) =>
+        this.lifecycle.run(() =>
+          this.locks.run(sessionLockKey(session.projectKey, session.member, session.workItem), work),
+        ),
+    });
+    this.limits = new ProviderLimits({
+      ctx: this.ctx,
+      projects: deps.projects,
+      runner: deps.runner,
+      ...(deps.usageAlerts ? { usageAlerts: deps.usageAlerts } : {}),
+      ...(deps.inbox ? { inbox: deps.inbox } : {}),
+      ...(deps.onAuthError ? { onAuthError: deps.onAuthError } : {}),
+      publish: (session) => this.publishSession(session),
+      background: (job) => this.lifecycle.run(job),
     });
     this.launcher = new SessionLauncher(deps, {
       live: this.live,
@@ -294,7 +332,7 @@ export class SessionOrchestrator {
       cardWorkersFor: (config, task, self) => this.cardWorkersFor(config, task, self),
       transcriptWritten: (session) => this.transcriptWritten(session),
       transcriptSummary: (session) => this.transcriptSummary(session),
-      compactInstruction: (provider) => this.compactInstruction(provider),
+      compactFirst: (existing, resume, provider) => this.compaction.firstOnResume(existing, resume, provider),
       assertProviderReady: (provider, member, engineId) =>
         this.assertProviderReady(provider, member, engineId),
       removeSessionFolderOf: (sessionId) => this.removeSessionFolderOf(sessionId),
@@ -387,63 +425,25 @@ export class SessionOrchestrator {
     usage: Pick<PlanUsageCache, 'get' | 'invalidate'>,
     resume: (session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>,
   ): void {
-    this.quotaUsage = usage;
-    this.quotaResume = resume;
+    this.limits.useQuotaRecovery(usage, resume);
   }
 
   observeProviderUsage(provider: AgentProvider, usage: PlanUsage | null): void {
-    if (provider === 'nanogpt' && !this.quotaProbe)
-      this.providerHolds.observed(provider, usage, this.ctx.now());
+    this.limits.observeProviderUsage(provider, usage);
   }
 
   /** Persisted quota deferrals must check usage again before any restart-time inference. */
   restoreProviderQuota(): void {
-    if (this.providerHolds.start('nanogpt', this.ctx.now())) this.quotaUsage?.invalidate();
+    this.limits.restoreProviderQuota();
   }
 
   /** Unknown quota holds retry only the read-only usage probe, never inference. */
-  async refreshProviderQuota(): Promise<void> {
-    if (this.providerHolds.check('nanogpt', this.ctx.now())?.kind !== 'unknown' || this.quotaProbe) return;
-    const usage = (await this.quotaUsage?.get('nanogpt')) ?? null;
-    this.providerHolds.observed('nanogpt', usage, this.ctx.now());
+  refreshProviderQuota(): Promise<void> {
+    return this.limits.refreshProviderQuota();
   }
 
   dispose(): void {
     this.lifecycle.close();
-  }
-
-  /**
-   * A session in `waiting_input` holds its messages back, and nothing in the app need show why:
-   * after `inputStallMs` the owners are told (PM-199). The wait is timed from its first state event;
-   * a repeated one (a new activity) does not restart it.
-   */
-  private watchInputWait(session: Session): void {
-    const waiting = session.state === 'waiting_input';
-    const current = this.inputWaits.get(session.id);
-    if (!waiting) {
-      if (current) clearTimeout(current.timer);
-      this.inputWaits.delete(session.id);
-      return;
-    }
-    const alerts = this.deps.inputStall;
-    if (current || !alerts) return;
-    const since = isoNow(this.ctx);
-    const delay = this.deps.inputStallMs ?? INPUT_STALL_MS;
-    const timer = setTimeout(() => {
-      this.inputWaits.delete(session.id);
-      // The wait may have ended some other way than a state event: nothing to say then.
-      if (this.ctx.repos.sessions.get(session.id)?.state !== 'waiting_input') return;
-      // A pause held the session: nobody is to blame for the wait, and `afterPause` watches it again.
-      if (this.isPaused(session)) return;
-      try {
-        const item = alerts.raise(session.id, since, Math.max(1, Math.round(delay / 60_000)));
-        if (item) this.ctx.logger.warn({ sessionId: session.id, since }, 'session waits for input unseen');
-      } catch (err) {
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'input wait alert failed');
-      }
-    }, delay);
-    timer.unref();
-    this.inputWaits.set(session.id, { since, timer });
   }
 
   /** MCP: maps /mcp/:token to the calling session; null rejects the call. */
@@ -918,7 +918,7 @@ export class SessionOrchestrator {
   cancelClose(sessionId: string): void {
     if (!this.closeStates.cancel(sessionId)) return;
     const session = this.find(sessionId);
-    if (session && this.ctx.repos.sessions.compaction(session.id).pending) this.compactWhenIdle(session);
+    if (session) this.compaction.whenIdle(session);
   }
 
   /**
@@ -987,12 +987,12 @@ export class SessionOrchestrator {
   afterPause(session: Session): void {
     const current = this.find(session.id);
     if (!current || ENDED.has(current.state) || !this.isRunning(current.id)) return;
-    this.watchInputWait(current);
+    this.inputWaits.watch(current);
     this.wakeForNewRound(current);
     if (current.state !== 'idle') return;
     this.restartForMergeFix(current);
     if (current.permissionRestartPending) this.restartWhenIdle(current);
-    if (this.ctx.repos.sessions.compaction(current.id).pending) this.compactWhenIdle(current);
+    this.compaction.whenIdle(current);
   }
 
   /** What a session that was cut at `point` is told when the pause ends (undefined: the builder has no text). */
@@ -1089,101 +1089,12 @@ export class SessionOrchestrator {
    * `mover` is the AI member that made the move: its session finishes the turn it is in first.
    */
   scheduleDoneCleanup(projectKey: string, taskKey: string, mover: string | null = null): void {
-    const timer = setTimeout(() => {
-      this.cleanupTimers.delete(timer);
-      this.runDoneCleanup(projectKey, taskKey, mover);
-    }, this.deps.doneCleanupDelayMs ?? DONE_TASK_CLEANUP_DELAY_MS);
-    timer.unref();
-    this.cleanupTimers.add(timer);
+    this.cleanup.schedule(projectKey, taskKey, mover);
   }
 
-  private runDoneCleanup(projectKey: string, taskKey: string, mover: string | null = null): void {
-    this.lifecycle
-      .run(() => this.cleanupDoneTask(projectKey, taskKey, { mover }))
-      .catch((err: unknown) => this.ctx.logger.warn({ err, taskKey }, 'cleanup of a done task failed'));
-  }
-
-  /**
-   * Stops a done task's sessions and removes its worktrees unless they hold uncommitted or unpushed
-   * work. The session of `mover` that is still in a turn (it moved the task, and its messages and
-   * notes may follow) is left to finish it: the cleanup runs again when it is idle or ended, or
-   * after `DONE_TASK_TURN_LIMIT_MS` (PM-190).
-   */
-  async cleanupDoneTask(
-    projectKey: string,
-    taskKey: string,
-    opts: { mover?: string | null } = {},
-  ): Promise<void> {
-    const task = this.ctx.repos.tasks.get(taskKey);
-    if (!task || task.projectKey !== projectKey || task.status !== 'done') return; // reopened meanwhile
-    const sessions = this.ctx.repos.sessions.list(projectKey, { taskKey });
-    let finishing = false;
-    for (const session of sessions) {
-      if (!this.isRunning(session.id)) continue;
-      if (opts.mover && session.member === opts.mover && session.state !== 'idle') {
-        this.finishTurnThenCleanUp(session, taskKey);
-        finishing = true;
-        continue;
-      }
-      const stop: SessionStop = { kind: 'card_done', taskKey };
-      this.live.stopReasons.set(session.id, stop);
-      try {
-        await this.deps.runner.stop(session.id);
-      } catch (err) {
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session');
-      }
-      this.markEnded(session.id, null, null, stop);
-    }
-    // The worktrees go once the finishing session is done with them too.
-    if (finishing) return;
-    // A member workspace outlives its tasks (PM-138): only per-task worktrees are removed.
-    // Each is removed through the engine its session ran on.
-    const worktrees = new Map<string, { engineId: EngineId; path: string }>();
-    for (const s of sessions) {
-      if (s.branch === null || this.workspacesOfSession(s)?.isWorkspacePath(s.cwd)) continue;
-      worktrees.set(`${engineIdOf(s)}\0${s.cwd}`, { engineId: engineIdOf(s), path: s.cwd });
-    }
-    for (const { engineId, path } of worktrees.values()) {
-      const engine = this.deps.engines.get(engineId);
-      if (!engine) {
-        this.ctx.logger.info({ path, taskKey, engineId }, 'worktree not removed: its engine is offline');
-        continue;
-      }
-      try {
-        const status = await engine.worktrees.status(path);
-        if (status.dirty || status.unpushedCommits > 0) {
-          this.ctx.logger.info({ path, taskKey, ...status }, 'keeping a worktree with local work');
-          continue;
-        }
-        await engine.worktrees.remove({ path });
-      } catch (err) {
-        // Expected refusals (WorktreeError codes): local changes, a checkout we do not own.
-        const code = errorCode(err);
-        const expected = code !== null && KEPT_WORKTREE_CODES.has(code);
-        this.ctx.logger[expected ? 'info' : 'warn']({ err, path, taskKey, code }, 'worktree not removed');
-      }
-    }
-  }
-
-  /** Waits for the session's turn to end (`turnEnded`), at most `DONE_TASK_TURN_LIMIT_MS`. */
-  private finishTurnThenCleanUp(session: Session, taskKey: string): void {
-    if (this.finishingTurns.has(session.id)) return; // the first deadline stands
-    const timer = setTimeout(() => {
-      this.ctx.logger.info({ sessionId: session.id, taskKey }, 'done task: the turn limit passed');
-      this.turnEnded(session.id);
-    }, this.deps.doneTurnLimitMs ?? DONE_TASK_TURN_LIMIT_MS);
-    timer.unref();
-    this.finishingTurns.set(session.id, { projectKey: session.projectKey, taskKey, timer });
-    this.ctx.logger.info({ sessionId: session.id, taskKey }, 'done task: the mover finishes its turn first');
-  }
-
-  /** A finishing session is idle, ended or out of time: its done task is cleaned up now. */
-  private turnEnded(sessionId: string): void {
-    const finishing = this.finishingTurns.get(sessionId);
-    if (!finishing) return;
-    this.finishingTurns.delete(sessionId);
-    clearTimeout(finishing.timer);
-    this.runDoneCleanup(finishing.projectKey, finishing.taskKey);
+  /** Stops a done task's sessions and removes its clean worktrees (see `DoneCleanup.cleanUp`). */
+  cleanupDoneTask(projectKey: string, taskKey: string, opts: { mover?: string | null } = {}): Promise<void> {
+    return this.cleanup.cleanUp(projectKey, taskKey, opts);
   }
 
   /**
@@ -1420,13 +1331,7 @@ export class SessionOrchestrator {
   }
 
   assertProviderCooldown(provider: AgentProvider): void {
-    const hold = this.providerHolds.check(provider, this.ctx.now());
-    if (hold)
-      throw conflict('provider_rate_limited', 'Provider request limit reached', {
-        provider,
-        until: hold.until?.toISOString() ?? null,
-        kind: hold.kind,
-      });
+    this.limits.assertProviderCooldown(provider);
   }
 
   /**
@@ -1452,13 +1357,11 @@ export class SessionOrchestrator {
     // A resumed conversation whose CLI failed before it was ready cannot be resumed (PM-340): the next
     // start begins a new conversation, so it does not fail again and again with the same resume.
     const resumeFailed = failed && session?.state === 'starting' && resuming && !stop;
-    this.lostLogins.delete(sessionId);
+    this.limits.ended(sessionId);
     this.closeStates.ended(sessionId);
     this.removeSessionFolderOf(sessionId);
-    this.turnEnded(sessionId);
-    const wait = this.inputWaits.get(sessionId);
-    if (wait) clearTimeout(wait.timer);
-    this.inputWaits.delete(sessionId);
+    this.turns.ended(sessionId);
+    this.inputWaits.ended(sessionId);
     if (!session || ENDED.has(session.state)) return null;
     const at = isoNow(this.ctx);
     const state: SessionState = failed ? 'failed' : 'exited';
@@ -1525,11 +1428,11 @@ export class SessionOrchestrator {
         }
         case 'state': {
           if (ENDED.has(event.state)) {
-            const lostLogin = this.lostLogins.get(session.id);
+            const lostLogin = this.limits.lostLogin(session.id);
             const ended = this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
             if (ended && lostLogin && ended.lastStop?.kind === 'login_lost')
               void this.lifecycle
-                .run(() => this.resumeAfterLoginLost(ended, lostLogin))
+                .run(() => this.limits.resumeAfterLoginLost(ended, lostLogin))
                 .catch((err: unknown) =>
                   this.ctx.logger.error({ err, sessionId: session.id }, 'provider login deferral failed'),
                 );
@@ -1549,17 +1452,16 @@ export class SessionOrchestrator {
             ...(event.state === 'idle' ? { doing: null } : {}),
           })!;
           this.publishSession(updated);
-          this.watchInputWait(updated);
+          this.inputWaits.watch(updated);
           this.recomputeMemberState(session.projectKey, session.member);
           this.wakeForNewRound(updated);
           if (updated.state === 'idle' && session.state !== 'idle') {
             void this.ctx.events.emit('session_idle', updated);
           }
-          if (updated.state === 'idle') this.turnEnded(updated.id);
+          if (updated.state === 'idle') this.turns.ended(updated.id);
           if (updated.state === 'idle') this.restartForMergeFix(updated);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
-          if (updated.state === 'idle' && this.ctx.repos.sessions.compaction(updated.id).pending)
-            this.compactWhenIdle(updated);
+          if (updated.state === 'idle') this.compaction.whenIdle(updated);
           return;
         }
         case 'transcript_path': {
@@ -1594,81 +1496,19 @@ export class SessionOrchestrator {
           return;
         }
         case 'compaction': {
-          // The compaction the server asked for is over, or given up: it is not owed any more (PM-213).
-          // What the conversation's context is, is measured again from its next step.
-          if (event.phase === 'finished') this.ctx.repos.sessions.setContextTokens(session.id, null);
-          if (event.requested && event.phase !== 'started')
-            this.ctx.repos.sessions.setCompactPending(session.id, false);
-          this.ctx.logger.info(
-            { sessionId: session.id, phase: event.phase, trigger: event.trigger, requested: event.requested },
-            'conversation compaction',
-          );
+          this.compaction.observe(session.id, event);
           return;
         }
         case 'usage': {
-          if (event.contextTokens !== undefined)
-            this.ctx.repos.sessions.setContextTokens(session.id, event.contextTokens);
-          if (event.entries.length === 0) return;
-          // Counted at once (PM-178). During a turn the session's state changes carry the new sum to
-          // the screens; once the turn is over (its last lines may come after the Stop), this does.
-          this.ctx.repos.tokenUsage.add(
-            {
-              sessionId: session.id,
-              projectKey: session.projectKey,
-              member: session.member,
-              taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-            },
-            this.ctx.now(),
-            event.entries,
-          );
-          // The warning limit (PM-187) only marks the session and tells the owners: it keeps running.
-          let alerted = false;
-          try {
-            alerted = this.deps.usageAlerts?.check(session.id) != null;
-          } catch (err) {
-            this.ctx.logger.warn({ err, sessionId: session.id }, 'usage alert check failed');
-          }
-          if (session.state !== 'working' || alerted)
-            this.publishSession(this.ctx.repos.sessions.get(session.id)!);
+          this.limits.usage(session, event);
           return;
         }
         case 'auth_error': {
-          this.lostLogins.set(session.id, event.provider);
-          this.deps.onAuthError?.(session.projectKey, session.member, event.provider, engineIdOf(session));
-          // The runner stops the session; its final state carries the message.
-          this.ctx.logger.warn(
-            { sessionId: session.id, provider: event.provider, message: event.message },
-            'agent CLI lost its login',
-          );
+          this.limits.authError(session, event);
           return;
         }
         case 'rate_limited': {
-          if (event.provider !== 'nanogpt') return;
-          const started = this.providerHolds.start(event.provider, this.ctx.now());
-          if (started) {
-            this.quotaUsage?.invalidate();
-            this.quotaProbe = Promise.resolve()
-              .then(() => this.quotaUsage?.get('nanogpt') ?? null)
-              .catch(() => null);
-          }
-          const stageId =
-            session.workItem.type === 'task'
-              ? this.ctx.repos.tasks.get(session.workItem.taskKey)?.stageId
-              : undefined;
-          // Persist the continuation while the usage request is still pending: a restart
-          // during its timeout must not lose the affected task's wake-up.
-          const resume = this.quotaResume;
-          if (stageId && resume)
-            void this.lifecycle
-              .run(() => resume(session, stageId, 'quota'))
-              .catch((err: unknown) =>
-                this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota deferral failed'),
-              );
-          void this.lifecycle
-            .run(() => this.finishQuotaFailure(session, event.message, started, stageId))
-            .catch((err: unknown) =>
-              this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota recovery failed'),
-            );
+          this.limits.rateLimited(session, event);
           return;
         }
       }
@@ -1678,72 +1518,6 @@ export class SessionOrchestrator {
         'runner event handling failed',
       );
     }
-  }
-
-  private async finishQuotaFailure(
-    session: Session,
-    message: string,
-    started: boolean,
-    stageId?: string,
-  ): Promise<void> {
-    const usage = await this.quotaProbe;
-    if (started) {
-      this.providerHolds.settle('nanogpt', usage, this.ctx.now());
-      this.quotaProbe = null;
-      const hold = this.providerHolds.check('nanogpt', this.ctx.now());
-      const config = this.deps.projects.cachedConfig(session.projectKey);
-      const owners = config ? ownerHandles(config) : [];
-      if (owners.length > 0)
-        this.deps.inbox?.create({
-          projectKey: session.projectKey,
-          kind: 'alert',
-          assignees: owners,
-          source: session.member,
-          sessionId: session.id,
-          taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-          title: 'NanoGPT request limit reached',
-          payload: {
-            alert: 'provider_rate_limited',
-            provider: 'nanogpt',
-            until: hold?.until?.toISOString() ?? null,
-            weeklyPercent: usage?.weeklyPercent ?? null,
-            message,
-            workItem: session.workItem,
-          },
-          options: [ALERT_SEEN_OPTION],
-        });
-    }
-    if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId, 'quota');
-  }
-
-  /**
-   * A task's session ended because its CLI lost the provider login (PM-467). The login is checked
-   * afresh: only a confirmed logout parks the task until the login is back (then admission resumes
-   * it). A login the check still finds, or cannot judge, is not a reason to start again: the
-   * server may refuse a login the CLI believes in, and every restart would fail the same way.
-   */
-  private async resumeAfterLoginLost(session: Session, provider: AgentProvider): Promise<void> {
-    if (session.workItem.type !== 'task') return;
-    const stageId = this.ctx.repos.tasks.get(session.workItem.taskKey)?.stageId;
-    if (!stageId) return;
-    let status;
-    try {
-      status = await this.deps.runner.providerStatus?.(provider, {
-        member: session.member,
-        refresh: true,
-        ...engineOption(engineIdOf(session)),
-      });
-    } catch (err) {
-      this.ctx.logger.warn({ err, sessionId: session.id, provider }, 'could not check the provider login');
-    }
-    if (status?.loggedIn !== false) {
-      this.ctx.logger.warn(
-        { sessionId: session.id, provider, loggedIn: status?.loggedIn ?? null },
-        'the session lost its login but the provider is not confirmed logged out: no automatic resume',
-      );
-      return;
-    }
-    await this.quotaResume?.(session, stageId, 'login');
   }
 
   /**
@@ -1850,95 +1624,12 @@ export class SessionOrchestrator {
       );
   }
 
-  // ---------------------------------------------------------------- end-of-round compaction (PM-213)
-
-  /** The text the compaction command takes, when sessions of this provider are compacted at all. */
-  private compactInstruction(provider: AgentProvider | undefined): string | null {
-    const instruction = this.deps.contextBuilder.compactInstruction;
-    if (!instruction || !this.deps.runner.compact) return null;
-    return COMPACTING_PROVIDERS.has(provider ?? DEFAULT_AGENT_PROVIDER) ? instruction : null;
-  }
-
   /**
-   * The card left a stage (`task_stage_changed`): the round of every member's session on it ends
-   * when the card is no longer in a stage that member works it in, so that conversation owes a
-   * compaction. A session in a turn is compacted once it idles, an idle one now; one that does not
-   * run is compacted when it resumes (`start`). A member who works the card in the next stage as
-   * well goes on in the same conversation, and a card that is done or cancelled needs nothing.
+   * The card left a stage (`task_stage_changed`): the round of every member's session on it ends,
+   * so that conversation owes a compaction (see `RoundCompaction.roundEnded`).
    */
-  async roundEnded(task: Task): Promise<void> {
-    if (!isOpenTask(task)) return;
-    const config = await this.deps.projects.config(task.projectKey);
-    for (const session of this.ctx.repos.sessions.list(task.projectKey, { taskKey: task.key })) {
-      if (!this.compactInstruction(session.provider)) continue;
-      if (isWorkingOnTask(config, task, session.member, 'idle')) continue;
-      this.ctx.repos.sessions.setCompactPending(session.id, true);
-    }
-  }
-
-  /**
-   * Compacts the session now if it is idle, else its next idle moment does (`handleRunnerEvent`). Not
-   * one marked to close (PM-288): its conversation is compacted when it resumes (`compactFirst`).
-   */
-  private compactWhenIdle(session: Session): void {
-    if (
-      session.state !== 'idle' ||
-      this.isPaused(session) ||
-      this.closeStates.markOf(session.id) !== undefined
-    )
-      return;
-    this.lifecycle
-      .run(() =>
-        this.locks.run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
-          this.compactIdle(session.id),
-        ),
-      )
-      .catch((err: unknown) =>
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not compact the session'),
-      );
-  }
-
-  /**
-   * Types the compaction command into an idle session whose round ended, unless something is on its
-   * way into it: a message goes first, and the compaction waits for the session's next idle moment.
-   * The caller holds the session's lock.
-   */
-  private async compactIdle(sessionId: string): Promise<void> {
-    const ready = (s: Session | null): s is Session =>
-      Boolean(
-        s &&
-        s.workItem.type === 'task' &&
-        s.state === 'idle' &&
-        this.isRunning(s.id) &&
-        this.ctx.repos.sessions.compaction(s.id).pending &&
-        !this.deps.runner.hasPendingInput?.(s.id) &&
-        !this.messageWaiting(s),
-      );
-    if (!ready(this.find(sessionId))) return;
-    const found = this.find(sessionId)!;
-    const config = await this.deps.projects.config(found.projectKey);
-    const session = this.find(sessionId);
-    if (!ready(session) || session.workItem.type !== 'task') return;
-    const instruction = this.compactInstruction(session.provider);
-    if (!instruction) return;
-    const task = this.deps.tasks.get(session.projectKey, session.workItem.taskKey);
-    if (isWorkingOnTask(config, task, session.member, 'idle')) {
-      // The card is back in a stage the member works it in: the conversation goes on with it.
-      this.ctx.repos.sessions.setCompactPending(session.id, false);
-      return;
-    }
-    if (!isOpenTask(task)) return;
-    // A small conversation is not worth a summary (a just compacted one is small): nothing is owed.
-    const { contextTokens } = this.ctx.repos.sessions.compaction(session.id);
-    if ((contextTokens ?? 0) <= COMPACT_MIN_CONTEXT_TOKENS) {
-      this.ctx.repos.sessions.setCompactPending(session.id, false);
-      return;
-    }
-    const asked = await this.deps.runner.compact!(session.id, instruction);
-    this.ctx.logger.info(
-      { sessionId: session.id, taskKey: task.key, asked },
-      asked ? 'compacting the conversation at the end of its round' : 'the compaction was not asked for',
-    );
+  roundEnded(task: Task): Promise<void> {
+    return this.compaction.roundEnded(task);
   }
 
   private publishSession(session: Session): void {

@@ -7,16 +7,91 @@ trial are on the card PM-590 (and the later cards of the refactor, "Refaktor 2")
 
 Only in a module that has been rewritten on purpose, behind a plain TypeScript facade. Today:
 
-| Program                          | File                                                     | Facade                                                                                  |
-| -------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| the runner's input queue         | `apps/server/src/runner/input-queue.ts`                  | `InputQueue` (same file)                                                                |
-| the message delivery             | `apps/server/src/runtime/delivery/delivery.ts`           | `MessageDelivery` (same file, exported by `runtime/delivery/index.ts`)                  |
-| the merge queue                  | `apps/server/src/services/merges/queue.ts`               | `Merges` (`services/merges/merges.ts`, exported by its `index.ts`)                      |
-| the full test queue              | `apps/server/src/services/full-tests/queue.ts`           | `FullTestRuns` (`services/full-tests/full-tests.ts`, exported by its `index.ts`)        |
-| screenshot execution and polling | `apps/server/src/services/full-tests/screenshot-core.ts` | `ScreenshotRuns` (`services/full-tests/screenshot-runs.ts`, exported by its `index.ts`) |
-| the GitHub pull request poller   | `apps/server/src/services/github/poll-loop.ts`           | `createPullRequestPoller` (`services/github/poller.ts`)                                 |
-| the schedule timer               | `apps/server/src/services/schedules/timer.ts`            | `MinuteTimer` (same file), used by `ScheduleService`, exported by its `index.ts`        |
-| the document write queue         | `apps/server/src/services/project-docs/write-queue.ts`   | `DocWrites` (`services/project-docs/doc-writes.ts`, exported by its `index.ts`)         |
+Each card edits only its own item; the bold first line never changes.
+
+- **the runner's input queue**
+
+  File: `apps/server/src/runner/input-queue.ts`. Facade: `InputQueue` (same file).
+
+- **the message delivery**
+
+  File: `apps/server/src/runtime/delivery/delivery.ts`. Facade: `MessageDelivery` (same file, exported by `runtime/delivery/index.ts`).
+
+- **the merge queue**
+
+  File: `apps/server/src/services/merges/queue.ts`. Facade: `Merges` (`services/merges/merges.ts`, exported by its `index.ts`).
+
+- **the full test queue**
+
+  File: `apps/server/src/services/full-tests/queue.ts`. Facade: `FullTestRuns` (`services/full-tests/full-tests.ts`, exported by its `index.ts`).
+
+- **screenshot execution and polling**
+
+  File: `apps/server/src/services/full-tests/screenshot-core.ts`. Facade: `ScreenshotRuns` (`services/full-tests/screenshot-runs.ts`, exported by its `index.ts`).
+
+- **the GitHub pull request poller**
+
+  File: `apps/server/src/services/github/poll-loop.ts`. Facade: `createPullRequestPoller` (`services/github/poller.ts`).
+
+- **the schedule timer**
+
+  File: `apps/server/src/services/schedules/timer.ts`. Facade: `MinuteTimer` (same file), used by `ScheduleService`, exported by its `index.ts`.
+
+- **the document write queue**
+
+  File: `apps/server/src/services/project-docs/write-queue.ts`. Facade: `DocWrites` (`services/project-docs/doc-writes.ts`, exported by its `index.ts`).
+
+- **PM-613 sweeps**
+
+  Planned.
+
+- **PM-615 plan usage (runtime/usage)**
+
+  Planned.
+
+- **PM-616 admission (if any)**
+
+  Planned.
+
+- **PM-617 machine and outages**
+
+  Planned.
+
+- **PM-618 pause**
+
+  Planned.
+
+- **PM-619 session lifecycle**
+
+  Planned.
+
+- **PM-620 turn, input wait, compaction and cleanup**
+
+  Planned.
+
+- **PM-621 runner session and CLI**
+
+  Planned.
+
+- **PM-622 hooks and permission gate**
+
+  Planned.
+
+- **PM-623 transcript tailer, plan usage and trust**
+
+  Planned.
+
+- **PM-624 worktree dependency copy**
+
+  Planned.
+
+- **PM-625 engine host (if any)**
+
+  Planned.
+
+- **PM-626 heavy-run lock and sandboxed run**
+
+  Planned.
 
 Everything else stays plain TypeScript. Do not start using Effect in another module, in a route
 handler, in `packages/shared` or in the web app without a card that says so. **No Effect type crosses

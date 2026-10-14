@@ -10,26 +10,14 @@ module tool definitions and handlers, and the text the model reads.
 
 A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements the module's handler contract, and `index.ts` exports both.
-The groups so far are `members`, `tasks`, `attachments`, `merges`
-(`merge_task`, `prioritize_merge`; module `services/merges`), `feedback`, `github`
-(`link_pull_request`; module `services/github`), `full-tests`
-(`take_screenshots`, `get_screenshot_run`; module `services/full-tests`), `boundary`, `releases` and `operator`, plus
-`project-docs` (`read_project_doc`, `write_project_docs`, `list_decision_candidates`,
-`mark_decision_candidates`; module `services/project-docs`). `tools.ts` collects their
-definitions in `TEAM_TOOL_GROUPS`; `TeamToolsService` in `domain/team-tools.ts`
-forwards to their handlers. New tools belong in the module's group and handler,
-never in either collector. The remaining tools move with their own module's
-refactor pass (PM-577).
+`TEAM_TOOL_GROUPS` in `tools.ts` is the registry of module tool definitions;
+`TeamToolsService` in `mcp/team-tools.ts` forwards to their handlers.
+New tools belong in the module's group and handler, never in either collector.
 
 Assembly creates one shared `ToolCaller` (`caller.ts`) for caller checks, the
 Operator's request and guest access, step logging, and opening session files.
 Every handler receives that instance so signal-step reservations stay shared.
 Shared definition types, schemas and helpers live in `kit.ts`.
-
-The Operator tools (`get_project_state`, `operate`, `screen_question`, `start_task`,
-`start_member`) live in `mcp/operator/` (PM-605), with the `OperatorToolsHandler`
-contract. Signal decisions and project-manager/Operator channels register in `api/operator.ts`;
-their URLs, access checks and responses stay unchanged.
 
 REST routes already register by module: `api/<module>.ts` exports
 `register<X>Routes(app, deps)`, collected by `registerApiRoutes` in `api/index.ts`.

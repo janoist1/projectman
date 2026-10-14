@@ -119,7 +119,12 @@ import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
-import { TeamToolsService } from './team-tools';
+import { TeamToolsService } from '../mcp/team-tools';
+import { InboxTools } from '../mcp/inbox';
+import { MessageTools } from '../mcp/messages';
+import { AdmissionTools } from '../mcp/admission';
+import { WatcherTools } from '../mcp/watchers';
+import { SessionTools } from '../mcp/sessions';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
 import {
@@ -209,7 +214,6 @@ export {
 } from './sessions';
 export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
-export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
 export { FeedbackService, FeedbackWidgetService } from '../services/feedback';
 export type { FeedbackWidgetSession } from '../services/feedback';
@@ -1090,7 +1094,6 @@ export function createDomain(opts: DomainOptions) {
     sessionEngine,
   });
   const teamTools = new TeamToolsService({
-    calls: toolCaller,
     tools: {
       projectDocs: new ProjectDocTools({
         calls: toolCaller,
@@ -1113,7 +1116,7 @@ export function createDomain(opts: DomainOptions) {
         operatorActions,
         taskStarts,
       }),
-      members: new MemberTools({ calls: toolCaller, members }),
+      members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
       releases: new ReleaseTools({ calls: toolCaller, releases }),
       tasks: new TaskTools({
         calls: toolCaller,
@@ -1140,22 +1143,20 @@ export function createDomain(opts: DomainOptions) {
       merges: new MergeTools({ calls: toolCaller, merges }),
       screenshots: new ScreenshotTools({ calls: toolCaller, screenshots: screenshotRuns }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
+      inbox: new InboxTools({
+        calls: toolCaller,
+        ctx,
+        tasks,
+        inbox,
+        timeline,
+        questionScreening,
+        openQuestionLabel,
+      }),
+      messages: new MessageTools({ calls: toolCaller, ctx, messaging, operatorRequests, messageAttachments }),
+      admission: new AdmissionTools({ calls: toolCaller, handoffs }),
+      watchers: new WatcherTools({ calls: toolCaller, fixLimit }),
+      sessions: new SessionTools({ calls: toolCaller, ctx, sessions }),
     },
-    operatorRequests,
-    operatorSteps,
-    questionScreening,
-    openQuestionLabel,
-    fixLimit,
-    handoffs,
-    ctx,
-    sessions,
-    projects,
-    tasks,
-    messaging,
-    inbox,
-    timeline,
-    memory: opts.memory,
-    messageAttachments,
   });
   const agentQuestions = new AgentQuestions({
     ctx,

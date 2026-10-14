@@ -402,14 +402,6 @@ export const MODULES: readonly ModuleEntry[] = [
     sealed: false,
   },
   {
-    id: 'team-tools',
-    layer: 'connector',
-    target: 'mcp',
-    pass: 'split',
-    paths: ['domain/team-tools.ts'],
-    sealed: false,
-  },
-  {
     id: 'ws',
     layer: 'connector',
     target: 'ws',

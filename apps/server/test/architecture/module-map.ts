@@ -66,7 +66,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'db',
     pass: 'none',
-    paths: ['db/'],
+    paths: ['db/', 'db/merge-trains.ts'],
     sealed: true,
   },
   {
@@ -178,7 +178,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/merges',
     pass: 'split-tool',
-    paths: ['services/merges/'],
+    paths: ['services/merges/', 'services/merges/train-selection.ts'],
     sealed: true,
   },
   {

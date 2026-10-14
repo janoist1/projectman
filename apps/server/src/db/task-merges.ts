@@ -1,5 +1,6 @@
 import type { TaskMerged, TaskMergeState } from '@projectman/shared';
 import type { Db } from './database';
+import { MergeTrainId } from './merge-trains';
 
 export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
   projectKey: string;
@@ -11,6 +12,8 @@ export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
   prioritizedAt?: string;
   updatedAt: string;
   finishedAt?: string;
+  /** Internal train membership; never exposed in the card's public merge state. */
+  trainId?: string;
   pushed?: TaskMerged['pushed'];
   pullRequests?: TaskMerged['pullRequests'];
   resolution?: TaskMerged['resolution'];
@@ -45,13 +48,16 @@ const columns = {
   prioritizedAt: 'prioritized_at',
   updatedAt: 'updated_at',
   finishedAt: 'finished_at',
+  trainId: 'train_id',
 } as const;
 const json = new Set(['check', 'block', 'failure', 'pushed', 'pullRequests', 'fix', 'resolution']);
 function record(row: Record<string, unknown>): MergeRecord {
   return Object.fromEntries(
     Object.entries(columns).flatMap(([key, column]) => {
       const value = row[column];
-      return value === null ? [] : [[key, json.has(key) ? JSON.parse(value as string) : value]];
+      if (value === null) return [];
+      if (key === 'trainId') return [[key, MergeTrainId.parse(value)]];
+      return [[key, json.has(key) ? JSON.parse(value as string) : value]];
     }),
   ) as unknown as MergeRecord;
 }
@@ -141,6 +147,7 @@ export function createTaskMergeRepository(db: Db) {
       );
     },
     save(row: MergeRecord) {
+      if (row.trainId !== undefined) MergeTrainId.parse(row.trainId);
       const entries = Object.entries(columns);
       db.prepare(
         `INSERT INTO task_merges (${entries.map(([, col]) => `"${col}"`).join(',')}) VALUES (${entries.map(() => '?').join(',')}) ON CONFLICT(id) DO UPDATE SET ${entries

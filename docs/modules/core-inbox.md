@@ -6,7 +6,7 @@ Human questions, approvals, permission decisions, question screening/closing and
 
 ## Facade
 
-`InboxService`, `ApprovalQuestions`, `CardQuestions`, `AgentQuestions`, `QuestionClosing`, `QuestionScreening` and `OpenQuestionLabel` currently live in `domain/`. The planned entry point is `core/inbox/index.ts`; this preparation changes no question or approval contract.
+`core/inbox/index.ts` is the sealed entry point. It exports `InboxService` with `createInboxService`, the `PERMISSION_OPTIONS`, `DECISION_OPTIONS` and `ANSWER_OPTION` constants, `sponsorOrOwners`, `delegatedPermissionPrompt`, `answerText`, the `Resolver` and `InboxDecider` types, `ApprovalQuestions`, `CardQuestions` with `QUESTION_LIMIT`, `AgentQuestions` with `agentQuestionsOf`, `QuestionClosing`, `QuestionScreening`, `OpenQuestionLabel` and the port types below. The implementation moved here unchanged (PM-643); no question or approval contract changed.
 
 ## Ports
 
@@ -21,16 +21,13 @@ Assembly passes the existing session orchestrator, admission and delivery instan
 
 The inbox also receives the domain context, projects, timeline, `EngineDirectory` and an optional attachment-directory callback. Existing `InboxDecider`, `QuestionAnswerer` and `AskerStarts` hooks connect decisions and answering work. The permission broker and engine contracts are unchanged. No runtime module is imported by this module; its two dependency exceptions are removed.
 
-## Current and planned files
+## Files
 
-Current paths under `apps/server/src`: `core/inbox/ports.ts`, `domain/inbox.ts`, `domain/approval-questions.ts`, `domain/card-questions.ts`, `domain/agent-question.ts`, `domain/question-closing.ts`, `domain/question-screening.ts`, `domain/open-question-label.ts`.
-The planned folder is `apps/server/src/core/inbox/`.
+All files live in `apps/server/src/core/inbox/`: `index.ts`, `ports.ts`, `inbox.ts`, `approval-questions.ts`, `card-questions.ts`, `agent-question.ts`, `question-closing.ts`, `question-screening.ts` and `open-question-label.ts`.
 The authoritative descriptor is
 [`core-inbox.ts`](../../apps/server/test/architecture/modules/core-inbox.ts),
-imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
-Its paths, pass, layer and sealed state are preserved by PM-631; later module slices
-update their own descriptor and this document, remove their dependency exceptions from
-the central map and update architecture port descriptions and inventory references.
+imported by the single [module map](../../apps/server/test/architecture/module-map.ts);
+its only path is `core/inbox/` and the module is sealed.
 
 ## Remote engine
 

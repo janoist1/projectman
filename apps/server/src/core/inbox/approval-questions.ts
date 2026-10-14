@@ -1,6 +1,6 @@
 import { PENDING_INBOX_STATES, questionPayloadOf } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
-import type { DomainContext } from '../core/base';
+import type { DomainContext } from '../base';
 import type { InboxService } from './inbox';
 import type { OpenQuestionLabel } from './open-question-label';
 

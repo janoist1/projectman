@@ -5,15 +5,6 @@ export const coreInbox: ModuleEntry = {
   layer: 'core',
   target: 'core/inbox',
   pass: 'split',
-  paths: [
-    'core/inbox/',
-    'domain/inbox.ts',
-    'domain/approval-questions.ts',
-    'domain/card-questions.ts',
-    'domain/agent-question.ts',
-    'domain/question-closing.ts',
-    'domain/question-screening.ts',
-    'domain/open-question-label.ts',
-  ],
+  paths: ['core/inbox/'],
   sealed: true,
 };

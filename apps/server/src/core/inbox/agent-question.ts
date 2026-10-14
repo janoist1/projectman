@@ -1,6 +1,6 @@
 import type { QuestionOptionInput } from '@projectman/shared';
-import type { ToolContext } from '../contracts';
-import type { DomainContext } from '../core/base';
+import type { ToolContext } from '../../contracts';
+import type { DomainContext } from '../base';
 
 /**
  * A question an agent CLI puts to whoever sits at its terminal (Claude Code's AskUserQuestion,

@@ -12,7 +12,7 @@ A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements the module's handler contract, and `index.ts` exports both.
 The groups so far are `members`, `tasks`, `attachments`, `merges`
 (`merge_task`, `prioritize_merge`; module `services/merges`), `feedback`, `github`
-(`link_pull_request`; module `services/github`), `boundary` and `operator`. `tools.ts` collects their
+(`link_pull_request`; module `services/github`), `boundary`, `releases` and `operator`. `tools.ts` collects their
 definitions in `TEAM_TOOL_GROUPS`; `TeamToolsService` in `domain/team-tools.ts`
 forwards to their handlers. New tools belong in the module's group and handler,
 never in either collector. The remaining tools move with their own module's

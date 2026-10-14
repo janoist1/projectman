@@ -529,6 +529,20 @@ export interface GithubToolsHandler {
   ): Promise<{ task: Task }>;
 }
 
+/** The tools of services/releases (PM-606). */
+export interface ReleaseToolsHandler {
+  /**
+   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
+   * branch's head (or `commit`); `preview` only lists what the release would contain.
+   */
+  proposeRelease(
+    ctx: ToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease>;
+  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
+  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
+}
+
 export interface TeamToolsHandler
   extends
     MemberToolsHandler,
@@ -538,6 +552,7 @@ export interface TeamToolsHandler
     FeedbackToolsHandler,
     GithubToolsHandler,
     BoundaryToolsHandler,
+    ReleaseToolsHandler,
     OperatorToolsHandler {
   /**
    * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
@@ -628,17 +643,6 @@ export interface TeamToolsHandler
     /** The sender is the Operator (PM-543): the text then never sends it to a person. */
     operator: boolean;
   }>;
-
-  /**
-   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
-   * branch's head (or `commit`); `preview` only lists what the release would contain.
-   */
-  proposeRelease(
-    ctx: ToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease>;
-  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
-  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
 
   /**
    * ask_human: create a question in a human's inbox; the answer arrives later as a team message.

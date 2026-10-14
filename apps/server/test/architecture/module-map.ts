@@ -286,8 +286,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/releases',
     pass: 'split',
-    paths: ['domain/releases.ts', 'domain/release-roadmap-notices.ts'],
-    sealed: false,
+    paths: ['services/releases/'],
+    sealed: true,
   },
   {
     id: 'services/github',

@@ -1,4 +1,4 @@
-import type { AttachmentStorage } from '../../contracts';
+import type { AttachmentStorage } from '../../../contracts';
 import { FileAttachmentStorage } from './storage';
 
 export { AttachmentService } from './service';

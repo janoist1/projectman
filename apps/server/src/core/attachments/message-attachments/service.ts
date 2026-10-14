@@ -24,17 +24,17 @@ import type {
   MessageAttachmentReading,
   MessageAttachmentStorage,
   MessageAttachmentUploadInput,
-} from '../../contracts';
-import type { MessageAttachmentRecord, MessageAttachmentState } from '../../db';
+} from '../../../contracts';
+import type { MessageAttachmentRecord, MessageAttachmentState } from '../../../db';
 import { sanitizeFileName } from '../attachments/file-name';
 import { sniffMediaType } from '../attachments/media-type';
 import { ThumbnailMaker } from '../attachments/thumbnail';
 import { receiveUpload, storageFailed } from '../attachments/upload';
-import { isoNow } from '../../core/base';
-import type { DomainContext } from '../../core/base';
-import { DomainError, forbidden, invalid, notFound } from '../../kernel';
-import type { ProjectService } from '../../core/projects';
-import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../kernel';
+import { isoNow } from '../../base';
+import type { DomainContext } from '../../base';
+import { DomainError, forbidden, invalid, notFound } from '../../../kernel';
+import type { ProjectService } from '../../projects';
+import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../../kernel';
 import { MessageImageRenderer } from './image';
 import { messageFileOwner } from './storage';
 

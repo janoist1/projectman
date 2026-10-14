@@ -3,7 +3,7 @@ import { open, rename, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
-import type { AttachmentWriter } from '../../contracts';
+import type { AttachmentWriter } from '../../../contracts';
 
 /** Suffix of a file still being written; recovery removes every one it finds. */
 export const TEMPORARY_SUFFIX = '.part';

@@ -10,7 +10,7 @@ import type {
   AttachmentThumbnail,
   AttachmentWriter,
   StoredFile,
-} from '../../contracts';
+} from '../../../contracts';
 import {
   createWritableFile,
   isMissing,

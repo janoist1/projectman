@@ -25,7 +25,7 @@ import type {
   WorktreeInfo,
   WorktreeManager,
 } from '../../src/contracts';
-import { cheapSubagent } from '../../src/context';
+import { cheapSubagent } from '../../src/context/subagents';
 
 /** In-memory SessionRunner: records calls; tests drive state with emit()/setState(). */
 export class FakeRunner implements SessionRunner {

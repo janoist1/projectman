@@ -3,7 +3,7 @@
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
 sessions. The handler contracts live in
-`src/contracts/team-tools.ts` (`TeamToolsHandler`). This module owns the MCP transport,
+`src/contracts/index.ts` (`TeamToolsHandler`). This module owns the MCP transport,
 module tool definitions and handlers, and the text the model reads.
 
 ## Where a tool goes

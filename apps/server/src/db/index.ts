@@ -21,6 +21,7 @@ export type {
 } from './feedback';
 import { createFullTestRunRepository } from './full-test-runs';
 import { createInvitationRepository } from './invitations';
+export type { InvitationRecord } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
 import { createDecisionOfferRepository } from './decision-offers';

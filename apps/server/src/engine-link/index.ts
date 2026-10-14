@@ -23,6 +23,21 @@ export { createCloudRemote } from './remote';
 export type { CloudRemote } from './remote';
 export { createAppTagReader, resolveAppTag, resolveAppVersion } from './version';
 export { EngineStartSpec } from './session-schemas';
+export { createEngineAudit } from './engine-audit';
+export { createEngineClient } from './engine-client';
+export type { LinkSocketFactory } from './engine-client';
+export {
+  EngineConfigError,
+  engineFiles,
+  loadEngineConfig,
+  readLinkHeaders,
+  readSecretFile,
+  resolveEngineConfig,
+} from './engine-config';
+export { createEngineHandlers } from './engine-handlers';
+export { createEngineLimit } from './engine-limit';
+export { createEngineStatusWriter } from './engine-status';
+export { createEngineTransfers } from './engine-transfer';
 
 export interface EngineLink extends Omit<EngineRpc, 'receive' | 'close'> {
   readonly resumed: boolean;

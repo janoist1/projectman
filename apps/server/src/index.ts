@@ -11,11 +11,10 @@ import { defaultSessionTmpRoot } from './engine-host';
 import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { parseFeedbackPublicUrl } from './http';
 import { createFixtureProbe, parseMachineFixture } from './machine';
-import { createServerLogStream, serverLogFile } from './logging/server-log';
+import { createServerLogStream, serverLogFile } from './logging';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './runtime/usage';
-import { createAppTagReader, resolveAppVersion } from './engine-link';
-import { EngineConfigError } from './engine-link/engine-config';
+import { createAppTagReader, resolveAppVersion, EngineConfigError } from './engine-link';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:

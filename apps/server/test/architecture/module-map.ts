@@ -51,7 +51,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'contracts',
     pass: 'none',
     paths: ['contracts/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'db',
@@ -59,7 +59,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'db',
     pass: 'none',
     paths: ['db/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'config',
@@ -67,7 +67,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'config',
     pass: 'none',
     paths: ['config/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'logging',
@@ -75,7 +75,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'logging',
     pass: 'none',
     paths: ['logging/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'instance',
@@ -83,7 +83,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'instance',
     pass: 'none',
     paths: ['instance/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'kernel',
@@ -99,7 +99,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'agent-text',
     pass: 'none',
     paths: ['agent-text/'],
-    sealed: false,
+    sealed: true,
   },
   coreBase,
   coreProjects,
@@ -163,7 +163,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'context',
     pass: 'split',
     paths: ['context/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'services/merges',
@@ -283,7 +283,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'engine-link',
     pass: 'none',
     paths: ['engine-link/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'api',
@@ -299,7 +299,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'mcp',
     pass: 'split',
     paths: ['mcp/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'ws',
@@ -323,7 +323,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'control',
     pass: 'none',
     paths: ['control/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'auth',
@@ -351,5 +351,5 @@ export const MODULES: readonly ModuleEntry[] = [
   },
 ];
 
-// Initial baseline only. Slice cards remove exceptions; never add new ones.
+// No dependency exceptions remain. Never add new ones.
 export const EXCEPTIONS: readonly DependencyException[] = [];

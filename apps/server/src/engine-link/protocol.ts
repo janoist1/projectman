@@ -10,7 +10,7 @@ import {
   TokenUsage,
 } from '@projectman/shared';
 import type { EnginePaths, PermissionRefusedInfo, RunnerEvent, RunningSessionInfo } from '../contracts';
-import type { PullRequestInfo } from '../contracts/github';
+import type { PullRequestInfo } from '../contracts';
 
 export const ENGINE_PROTOCOL_VERSION = 1;
 export const ENGINE_MAX_FRAME_BYTES = 4 * 1024 * 1024;

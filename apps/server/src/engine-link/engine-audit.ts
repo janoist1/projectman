@@ -1,4 +1,4 @@
-import { createRotatingFile } from '../logging/rotating-file';
+import { createRotatingFile } from '../logging';
 
 /** One line per request the engine served (PM-314). Never prompts, messages, input, file content or keys. */
 export interface EngineAuditEntry {

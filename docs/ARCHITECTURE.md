@@ -1148,7 +1148,33 @@ or one without a review test selects only itself. An incompatible, ineligible or
 ends the prefix. Diagnostic candidates never mix with normal candidates or another parent;
 every selected diagnostic member's integer 1–8 limit bounds the group. A singleton uses the
 individual merge path. Selection neither sorts nor rewrites timestamps and reads no DB or engine.
-This slice does not activate grouped git/check execution; that follows in PM-660.
+**Common train execution (PM-660).** `services/merges/train.ts` reserves the compatible
+queued prefix under card locks sorted by task key, rechecking sources, gates, merger rights,
+PR metadata, engine and the full review configuration. One transaction saves the manifest
+and moves every member to running. The existing Effect repository slot owns the train;
+the document writer retains its priority when that slot next frees. There is no collection
+delay and no card lock during heavy-queue waiting or testing. Cancelling any member interrupts
+the common worker and waits for checkout cleanup before the slot can be reused. Survivors
+return to queued with their original priority snapshots; the invalid manifest is retired.
+
+The engine builds an ordered source chain, then closes it with another `build` whose first
+parent is the original main. The unchanged first-parent merge-test diff therefore covers
+every source. One `_merge/<trainId>` checkout uses dependencies matching the merged lockfile;
+one full-test run with `requireHeavyLock: true` checks the candidate, without individual
+green-result reuse. Candidate and all member merge commits are saved before testing. Every
+member switches to checking on the common onStarted callback and receives the same result
+and run id. The final locked checkpoint rechecks every source and authorization before one
+non-force push and local compare-and-swap advance. Publication is cooperative and cannot be
+cancelled once started. One transaction records every merged row and each starter's own
+task_merged event, followed by each card's ordinary afterMerge/AutoAdvance.
+
+A failed group check marks the train and members failed, without publishing or attributing
+the failure to each member; smaller diagnostic groups belong to PM-661. Operational failures
+block with the original reason. Non-fast-forward rebuilds and rechecks once, then blocks.
+Startup handles train manifests before individual rows: candidate ancestry detects a push
+or local advance completed before the DB transaction, and finishes without repeating the
+check, push or events. Unpublished candidates rebuild and recheck conservatively. The train
+worker is the sole owner of shared checkout release, including startup recovery.
 The manifest and selection run on the server with remote engines too, grouped by `engineId`;
 they add no machine-dependent operation or RPC. Execution belongs to the existing
 "Member initiated merge" inventory entry when enabled.
@@ -1227,6 +1253,8 @@ workers follow the machine's size.
   check is the exception (PM-658): `FullTestSpec.requireHeavyLock` (optional; the merge always sends `true`)
   makes a missing or unusable queue end the run as `error` / `heavy_lock_unavailable` (`durationMs` 0, no
   sandbox, no `onStarted`), so the merge blocks as `check_error` and never runs one without the queue.
+  A merge train (PM-660) submits one common candidate through that same executor and lock;
+  its repository slot and card locks do not permit parallel heavy runs or bypass the queue.
 - **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
   npm cache when there is no clone). The same folder and variables go to a Codex member as
@@ -2412,6 +2440,10 @@ assumption or remote-engine RPC.
   `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
   `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
   syntax check. No git or process crosses into server-side DB validation.
+  For a train (PM-660), the server calls the same build operation for every approved source
+  and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
+  full_test.run. The manifest, ordered locks and attribution stay on the server; all members
+  must share an engine and no new RPC or command allowlist entry is required.
   **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
   of the changed files and short results cross the link, and a merge to a repo or branch not named by

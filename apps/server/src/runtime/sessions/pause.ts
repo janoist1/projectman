@@ -27,6 +27,7 @@ import type { HandoffService } from '../admission';
 import type { MessageDelivery, Messaging } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from './sessions';
+import { waitForShutdownStops } from './shutdown-wait';
 import type { AppendTimelineInput, TimelineService } from '../../domain/timeline';
 import { humanActor, newId, SYSTEM_ACTOR } from '../../domain/util';
 
@@ -339,17 +340,13 @@ export class PauseService {
       { userId: null, source: 'system' },
       { kind: 'shutdown', forceAfterMs: waitMs },
     );
-    const limit = waitMs + graceMs;
-    let forced = false;
-    for (let waited = 0; this.stillStopping() && waited < limit; waited += SHUTDOWN_POLL_MS) {
-      // A pause that was open before (a person's, longer) would let the stop cut the sessions mid-turn:
-      // what has not stopped by the deadline is cut with one Esc, as the shutdown's own pause would.
-      if (!forced && waited >= waitMs) {
-        forced = true;
-        await this.forceLater();
-      }
-      await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_POLL_MS));
-    }
+    await waitForShutdownStops({
+      waitMs,
+      graceMs,
+      pollMs: SHUTDOWN_POLL_MS,
+      stillStopping: () => this.stillStopping(),
+      forceLater: () => this.forceLater(),
+    });
     const left = this.ctx.repos.pauses.openSessions().filter((row) => row.point === null).length;
     if (left > 0) this.ctx.logger.warn({ sessions: left }, 'sessions did not stop before the shutdown');
   }

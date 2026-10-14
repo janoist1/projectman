@@ -59,7 +59,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-618 pause**
 
-  Planned.
+  File: `apps/server/src/runtime/sessions/shutdown-wait.ts`. Facade: `waitForShutdownStops` (same file), used by `PauseService.pauseForShutdown` (`runtime/sessions/pause.ts`); not exported by `runtime/sessions/index.ts`.
 
 - **PM-619 session lifecycle**
 

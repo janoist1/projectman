@@ -9,7 +9,7 @@ import type {
   ProjectConfig,
   HumanMemberConfig,
 } from '@projectman/shared';
-import type { AuthService, AuthUser } from '../auth/auth-service';
+import type { InvitationAccounts, InvitationUser } from '../core/members/ports';
 import type { InvitationRecord } from '../db/invitations';
 import { findHumanByEmail, hasAccess, requireMemberAccess } from './access';
 import type { DomainContext } from './context';
@@ -34,7 +34,7 @@ export class InvitationService {
   private readonly projects: ProjectService;
   private readonly members: MemberService;
   /** Hashes the password of a new account (the account is stored after the commit). */
-  private readonly accounts: Pick<AuthService, 'prepareUser'>;
+  private readonly accounts: InvitationAccounts;
   // Serializes account creation across projects, acceptance and revocation.
   private readonly lock = new KeyedMutex();
 
@@ -42,7 +42,7 @@ export class InvitationService {
     ctx: DomainContext;
     projects: ProjectService;
     members: MemberService;
-    accounts: Pick<AuthService, 'prepareUser'>;
+    accounts: InvitationAccounts;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -50,7 +50,11 @@ export class InvitationService {
     this.accounts = deps.accounts;
   }
 
-  async create(projectKey: string, input: CreateInviteRequest, user: AuthUser): Promise<CreatedInvitation> {
+  async create(
+    projectKey: string,
+    input: CreateInviteRequest,
+    user: InvitationUser,
+  ): Promise<CreatedInvitation> {
     return this.lock.run('invitations', async () => {
       const config = await this.projects.config(projectKey);
       const inviter = requireMemberAccess(findHumanByEmail(config, user.email), 'admin', {
@@ -155,7 +159,7 @@ export class InvitationService {
     };
   }
 
-  accept(token: string, body: unknown, caller: AuthUser | null): Promise<AuthUser> {
+  accept(token: string, body: unknown, caller: InvitationUser | null): Promise<InvitationUser> {
     return this.lock.run('invitations', async () => {
       const invite = this.valid(token);
       const existing = this.ctx.repos.users.findByEmail(invite.email);

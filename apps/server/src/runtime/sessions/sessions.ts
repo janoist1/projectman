@@ -71,6 +71,7 @@ import { conflict, DomainError, notFound } from '../../domain/errors';
 import type { MemberService } from '../../domain/members';
 import type { ProjectFocusService } from '../../domain/project-focus';
 import type { ConfigChange, ProjectService } from '../../domain/projects';
+import { DoneCleanup } from './done-cleanup';
 import { DONE_TASK_CLEANUP_DELAY_MS, DONE_TASK_TURN_LIMIT_MS } from './session-policy';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
@@ -85,12 +86,14 @@ import { CloseStates } from './close-states';
 import { SessionLifecycle } from './lifecycle';
 import {
   COMPACT_MIN_CONTEXT_TOKENS,
-  errorCode,
   MESSAGE_SEPARATOR,
   providerNotLoggedIn,
   SessionLauncher,
 } from './launch';
+import { INPUT_STALL_MS, InputWaits } from './input-waits';
 import { LiveSessions } from './live-sessions';
+import { SessionTimers } from './session-timers';
+import { TurnFinishes } from './turn-finish';
 import { MemberWorkspaces } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
 
@@ -100,6 +103,7 @@ export const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'wait
 const ENDED = new Set<SessionState>(['exited', 'failed']);
 
 export { COMPACT_MIN_CONTEXT_TOKENS, MESSAGE_SEPARATOR } from './launch';
+export { INPUT_STALL_MS } from './input-waits';
 
 export type { EnsureSessionResult } from '../../contracts';
 
@@ -197,12 +201,6 @@ export interface SessionOrchestratorDeps {
   inputStallMs?: number;
 }
 
-/** A session waiting for input at its terminal this long is reported to the owners (PM-199). */
-export const INPUT_STALL_MS = 10 * 60_000;
-
-/** Worktree removals that are refused on purpose (the worktree module's error codes). */
-const KEPT_WORKTREE_CODES = new Set(['dirty', 'outside_root', 'not_a_worktree', 'main_worktree']);
-
 /** One start, stop or settings change at a time per (member x work item). */
 function sessionLockKey(projectKey: string, handle: string, workItem: WorkItemRef): string {
   const wi = encodeWorkItem(workItem);
@@ -225,17 +223,14 @@ export class SessionOrchestrator {
   private readonly mergeCards: MergeCardLock;
   /** What is held for each session's current process: tokens, first input, modes, stop reasons. */
   readonly live = new LiveSessions();
-  private readonly cleanupTimers = new Set<NodeJS.Timeout>();
-  /** The wait of each session that waits for input at its terminal (PM-199), until it is over. */
-  private readonly inputWaits = new Map<string, { since: string; timer: NodeJS.Timeout }>();
-  /**
-   * Sessions that moved their task to done in the middle of a turn (PM-190): the task's cleanup
-   * runs once the turn ends, or at the limit.
-   */
-  private readonly finishingTurns = new Map<
-    string,
-    { projectKey: string; taskKey: string; timer: NodeJS.Timeout }
-  >();
+  /** The timers of the turn, input wait and cleanup parts (`session-timers.ts`). */
+  private readonly timers: SessionTimers;
+  /** The sessions that wait for input at their terminal (PM-199, `input-waits.ts`). */
+  private readonly inputWaits: InputWaits;
+  /** The sessions that moved their task to done in the middle of a turn (PM-190, `turn-finish.ts`). */
+  private readonly turns: TurnFinishes;
+  /** The cleanup of done tasks (`done-cleanup.ts`). */
+  private readonly cleanup: DoneCleanup;
   /**
    * Where each session stands on closing (PM-288): marked, waiting for a fix, held by a heavy run,
    * closing. Only the `runtime/sessions` module uses it (`SessionCloser` reaches it through here).
@@ -271,13 +266,39 @@ export class SessionOrchestrator {
     this.lifecycle = new SessionLifecycle({
       subscribe: () => deps.runner.onEvent((event) => this.handleRunnerEvent(event)),
       onClose: () => {
-        for (const timer of this.cleanupTimers) clearTimeout(timer);
-        this.cleanupTimers.clear();
-        for (const { timer } of this.finishingTurns.values()) clearTimeout(timer);
-        this.finishingTurns.clear();
-        for (const { timer } of this.inputWaits.values()) clearTimeout(timer);
-        this.inputWaits.clear();
+        this.timers.close();
+        this.turns.dispose();
+        this.inputWaits.dispose();
       },
+    });
+    this.timers = new SessionTimers(this.ctx.logger);
+    this.turns = new TurnFinishes({
+      logger: this.ctx.logger,
+      timers: this.timers,
+      limitMs: deps.doneTurnLimitMs ?? DONE_TASK_TURN_LIMIT_MS,
+      cleanUp: (projectKey, taskKey) => this.cleanup.run(projectKey, taskKey),
+    });
+    this.cleanup = new DoneCleanup({
+      ctx: this.ctx,
+      engines: deps.engines,
+      runner: deps.runner,
+      timers: this.timers,
+      turns: this.turns,
+      delayMs: deps.doneCleanupDelayMs ?? DONE_TASK_CLEANUP_DELAY_MS,
+      isRunning: (sessionId) => this.isRunning(sessionId),
+      noteStop: (sessionId, stop) => this.live.stopReasons.set(sessionId, stop),
+      markEnded: (sessionId, stop) => {
+        this.markEnded(sessionId, null, null, stop);
+      },
+      inWorkspace: (session) => Boolean(this.workspacesOfSession(session)?.isWorkspacePath(session.cwd)),
+      background: (job) => this.lifecycle.run(job),
+    });
+    this.inputWaits = new InputWaits({
+      ctx: this.ctx,
+      timers: this.timers,
+      ...(deps.inputStall ? { alerts: deps.inputStall } : {}),
+      stallMs: deps.inputStallMs ?? INPUT_STALL_MS,
+      isPaused: (session) => this.isPaused(session),
     });
     this.launcher = new SessionLauncher(deps, {
       live: this.live,
@@ -410,40 +431,6 @@ export class SessionOrchestrator {
 
   dispose(): void {
     this.lifecycle.close();
-  }
-
-  /**
-   * A session in `waiting_input` holds its messages back, and nothing in the app need show why:
-   * after `inputStallMs` the owners are told (PM-199). The wait is timed from its first state event;
-   * a repeated one (a new activity) does not restart it.
-   */
-  private watchInputWait(session: Session): void {
-    const waiting = session.state === 'waiting_input';
-    const current = this.inputWaits.get(session.id);
-    if (!waiting) {
-      if (current) clearTimeout(current.timer);
-      this.inputWaits.delete(session.id);
-      return;
-    }
-    const alerts = this.deps.inputStall;
-    if (current || !alerts) return;
-    const since = isoNow(this.ctx);
-    const delay = this.deps.inputStallMs ?? INPUT_STALL_MS;
-    const timer = setTimeout(() => {
-      this.inputWaits.delete(session.id);
-      // The wait may have ended some other way than a state event: nothing to say then.
-      if (this.ctx.repos.sessions.get(session.id)?.state !== 'waiting_input') return;
-      // A pause held the session: nobody is to blame for the wait, and `afterPause` watches it again.
-      if (this.isPaused(session)) return;
-      try {
-        const item = alerts.raise(session.id, since, Math.max(1, Math.round(delay / 60_000)));
-        if (item) this.ctx.logger.warn({ sessionId: session.id, since }, 'session waits for input unseen');
-      } catch (err) {
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'input wait alert failed');
-      }
-    }, delay);
-    timer.unref();
-    this.inputWaits.set(session.id, { since, timer });
   }
 
   /** MCP: maps /mcp/:token to the calling session; null rejects the call. */
@@ -987,7 +974,7 @@ export class SessionOrchestrator {
   afterPause(session: Session): void {
     const current = this.find(session.id);
     if (!current || ENDED.has(current.state) || !this.isRunning(current.id)) return;
-    this.watchInputWait(current);
+    this.inputWaits.watch(current);
     this.wakeForNewRound(current);
     if (current.state !== 'idle') return;
     this.restartForMergeFix(current);
@@ -1089,101 +1076,12 @@ export class SessionOrchestrator {
    * `mover` is the AI member that made the move: its session finishes the turn it is in first.
    */
   scheduleDoneCleanup(projectKey: string, taskKey: string, mover: string | null = null): void {
-    const timer = setTimeout(() => {
-      this.cleanupTimers.delete(timer);
-      this.runDoneCleanup(projectKey, taskKey, mover);
-    }, this.deps.doneCleanupDelayMs ?? DONE_TASK_CLEANUP_DELAY_MS);
-    timer.unref();
-    this.cleanupTimers.add(timer);
+    this.cleanup.schedule(projectKey, taskKey, mover);
   }
 
-  private runDoneCleanup(projectKey: string, taskKey: string, mover: string | null = null): void {
-    this.lifecycle
-      .run(() => this.cleanupDoneTask(projectKey, taskKey, { mover }))
-      .catch((err: unknown) => this.ctx.logger.warn({ err, taskKey }, 'cleanup of a done task failed'));
-  }
-
-  /**
-   * Stops a done task's sessions and removes its worktrees unless they hold uncommitted or unpushed
-   * work. The session of `mover` that is still in a turn (it moved the task, and its messages and
-   * notes may follow) is left to finish it: the cleanup runs again when it is idle or ended, or
-   * after `DONE_TASK_TURN_LIMIT_MS` (PM-190).
-   */
-  async cleanupDoneTask(
-    projectKey: string,
-    taskKey: string,
-    opts: { mover?: string | null } = {},
-  ): Promise<void> {
-    const task = this.ctx.repos.tasks.get(taskKey);
-    if (!task || task.projectKey !== projectKey || task.status !== 'done') return; // reopened meanwhile
-    const sessions = this.ctx.repos.sessions.list(projectKey, { taskKey });
-    let finishing = false;
-    for (const session of sessions) {
-      if (!this.isRunning(session.id)) continue;
-      if (opts.mover && session.member === opts.mover && session.state !== 'idle') {
-        this.finishTurnThenCleanUp(session, taskKey);
-        finishing = true;
-        continue;
-      }
-      const stop: SessionStop = { kind: 'card_done', taskKey };
-      this.live.stopReasons.set(session.id, stop);
-      try {
-        await this.deps.runner.stop(session.id);
-      } catch (err) {
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session');
-      }
-      this.markEnded(session.id, null, null, stop);
-    }
-    // The worktrees go once the finishing session is done with them too.
-    if (finishing) return;
-    // A member workspace outlives its tasks (PM-138): only per-task worktrees are removed.
-    // Each is removed through the engine its session ran on.
-    const worktrees = new Map<string, { engineId: EngineId; path: string }>();
-    for (const s of sessions) {
-      if (s.branch === null || this.workspacesOfSession(s)?.isWorkspacePath(s.cwd)) continue;
-      worktrees.set(`${engineIdOf(s)}\0${s.cwd}`, { engineId: engineIdOf(s), path: s.cwd });
-    }
-    for (const { engineId, path } of worktrees.values()) {
-      const engine = this.deps.engines.get(engineId);
-      if (!engine) {
-        this.ctx.logger.info({ path, taskKey, engineId }, 'worktree not removed: its engine is offline');
-        continue;
-      }
-      try {
-        const status = await engine.worktrees.status(path);
-        if (status.dirty || status.unpushedCommits > 0) {
-          this.ctx.logger.info({ path, taskKey, ...status }, 'keeping a worktree with local work');
-          continue;
-        }
-        await engine.worktrees.remove({ path });
-      } catch (err) {
-        // Expected refusals (WorktreeError codes): local changes, a checkout we do not own.
-        const code = errorCode(err);
-        const expected = code !== null && KEPT_WORKTREE_CODES.has(code);
-        this.ctx.logger[expected ? 'info' : 'warn']({ err, path, taskKey, code }, 'worktree not removed');
-      }
-    }
-  }
-
-  /** Waits for the session's turn to end (`turnEnded`), at most `DONE_TASK_TURN_LIMIT_MS`. */
-  private finishTurnThenCleanUp(session: Session, taskKey: string): void {
-    if (this.finishingTurns.has(session.id)) return; // the first deadline stands
-    const timer = setTimeout(() => {
-      this.ctx.logger.info({ sessionId: session.id, taskKey }, 'done task: the turn limit passed');
-      this.turnEnded(session.id);
-    }, this.deps.doneTurnLimitMs ?? DONE_TASK_TURN_LIMIT_MS);
-    timer.unref();
-    this.finishingTurns.set(session.id, { projectKey: session.projectKey, taskKey, timer });
-    this.ctx.logger.info({ sessionId: session.id, taskKey }, 'done task: the mover finishes its turn first');
-  }
-
-  /** A finishing session is idle, ended or out of time: its done task is cleaned up now. */
-  private turnEnded(sessionId: string): void {
-    const finishing = this.finishingTurns.get(sessionId);
-    if (!finishing) return;
-    this.finishingTurns.delete(sessionId);
-    clearTimeout(finishing.timer);
-    this.runDoneCleanup(finishing.projectKey, finishing.taskKey);
+  /** Stops a done task's sessions and removes its clean worktrees (see `DoneCleanup.cleanUp`). */
+  cleanupDoneTask(projectKey: string, taskKey: string, opts: { mover?: string | null } = {}): Promise<void> {
+    return this.cleanup.cleanUp(projectKey, taskKey, opts);
   }
 
   /**
@@ -1455,10 +1353,8 @@ export class SessionOrchestrator {
     this.lostLogins.delete(sessionId);
     this.closeStates.ended(sessionId);
     this.removeSessionFolderOf(sessionId);
-    this.turnEnded(sessionId);
-    const wait = this.inputWaits.get(sessionId);
-    if (wait) clearTimeout(wait.timer);
-    this.inputWaits.delete(sessionId);
+    this.turns.ended(sessionId);
+    this.inputWaits.ended(sessionId);
     if (!session || ENDED.has(session.state)) return null;
     const at = isoNow(this.ctx);
     const state: SessionState = failed ? 'failed' : 'exited';
@@ -1549,13 +1445,13 @@ export class SessionOrchestrator {
             ...(event.state === 'idle' ? { doing: null } : {}),
           })!;
           this.publishSession(updated);
-          this.watchInputWait(updated);
+          this.inputWaits.watch(updated);
           this.recomputeMemberState(session.projectKey, session.member);
           this.wakeForNewRound(updated);
           if (updated.state === 'idle' && session.state !== 'idle') {
             void this.ctx.events.emit('session_idle', updated);
           }
-          if (updated.state === 'idle') this.turnEnded(updated.id);
+          if (updated.state === 'idle') this.turns.ended(updated.id);
           if (updated.state === 'idle') this.restartForMergeFix(updated);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
           if (updated.state === 'idle' && this.ctx.repos.sessions.compaction(updated.id).pending)

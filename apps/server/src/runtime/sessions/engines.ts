@@ -1,6 +1,6 @@
 import { LOCAL_ENGINE_ID } from '@projectman/shared';
 import type { EngineId, MemberHandle, Session } from '@projectman/shared';
-import type { EngineDirectory, EngineHost } from '../contracts';
+import type { EngineDirectory, EngineHost } from '../../contracts';
 
 /** The engine a session runs on; a session from before engines ran on the local one. */
 export function engineIdOf(session: Pick<Session, 'engineId'>): EngineId {

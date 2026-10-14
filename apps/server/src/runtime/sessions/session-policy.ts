@@ -5,7 +5,7 @@ import {
   HYBRID_ARCHIVE_DIR,
   HYBRID_STAGING_DIR,
   sensitivePaths,
-} from '../contracts';
+} from '../../contracts';
 export {
   OPEN_OUTBOUND_DOMAINS,
   SANDBOX_DENIED_ENV_VARS,
@@ -13,7 +13,7 @@ export {
   HYBRID_ARCHIVE_DIR,
   HYBRID_STAGING_DIR,
   sensitivePaths,
-} from '../contracts';
+} from '../../contracts';
 import path from 'node:path';
 import {
   effectiveRepo,
@@ -33,15 +33,15 @@ import {
   MEMBER_SANDBOX_DIRS,
   SANDBOX_GIT_CONFIG_FILE,
   SESSION_DIR_VARIABLE,
-} from '../contracts';
-import type { FullTestSandbox, SessionPolicy } from '../contracts';
-import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../contracts';
-import type { AgentSandbox } from '../contracts';
-import { isWithin, isWithinAny } from '../runtime/permissions';
-import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from '../runtime/permissions';
-import { isReadOnlyCommand } from '../runtime/permissions';
-import { parseShellCommand } from '../runtime/permissions';
-import { isWorktreeRoutine } from '../runtime/permissions';
+} from '../../contracts';
+import type { FullTestSandbox, SessionPolicy } from '../../contracts';
+import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../../contracts';
+import type { AgentSandbox } from '../../contracts';
+import { isWithin, isWithinAny } from '../permissions';
+import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from '../permissions';
+import { isReadOnlyCommand } from '../permissions';
+import { parseShellCommand } from '../permissions';
+import { isWorktreeRoutine } from '../permissions';
 
 /**
  * Per-role session settings, kept in one place so they are easy to change.

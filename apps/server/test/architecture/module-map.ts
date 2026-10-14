@@ -189,16 +189,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/sessions',
     pass: 'split-tool',
-    paths: [
-      'runtime/sessions/',
-      'domain/sessions.ts',
-      'domain/session-closer.ts',
-      'domain/session-policy.ts',
-      'domain/pause.ts',
-      'domain/workspaces.ts',
-      'domain/engines.ts',
-      'domain/engine-registry.ts',
-    ],
+    paths: ['runtime/sessions/'],
     sealed: true,
   },
   {

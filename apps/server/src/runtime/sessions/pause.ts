@@ -16,19 +16,19 @@ import type {
   Session,
   SessionPause,
 } from '@projectman/shared';
-import type { PauseOutcome, RunnerEvent, SessionRunner } from '../contracts';
-import type { PauseRecord, SessionPauseRecord } from '../db';
-import type { Admission, RefinementSteps } from '../runtime/admission';
-import { findHumanByEmail } from './access';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import type { FixLimitWatch } from '../runtime/watchers';
-import type { HandoffService } from '../runtime/admission';
-import type { MessageDelivery, Messaging } from './messaging';
-import type { ProjectService } from './projects';
+import type { PauseOutcome, RunnerEvent, SessionRunner } from '../../contracts';
+import type { PauseRecord, SessionPauseRecord } from '../../db';
+import type { Admission, RefinementSteps } from '../admission';
+import { findHumanByEmail } from '../../domain/access';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import type { FixLimitWatch } from '../watchers';
+import type { HandoffService } from '../admission';
+import type { MessageDelivery, Messaging } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from './sessions';
-import type { AppendTimelineInput, TimelineService } from './timeline';
-import { humanActor, newId, SYSTEM_ACTOR } from './util';
+import type { AppendTimelineInput, TimelineService } from '../../domain/timeline';
+import { humanActor, newId, SYSTEM_ACTOR } from '../../domain/util';
 
 /** Catches up the scheduled runs a pause skipped; services/schedules supplies it, the assembly passes it. */
 export interface MissedRunCatchUp {

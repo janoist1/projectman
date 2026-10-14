@@ -2,9 +2,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { EngineProvider } from '@projectman/shared';
 import type { CreateEngineResponse, EngineId, EngineStatusView, EngineView } from '@projectman/shared';
 import { z } from 'zod';
-import type { EventBus } from '../contracts';
-import type { EngineRecord, Repositories } from '../db';
-import { DomainError } from './errors';
+import type { EventBus } from '../../contracts';
+import type { EngineRecord, Repositories } from '../../db';
+import { DomainError } from '../../domain/errors';
 
 const StoredHello = z.object({
   hostname: z.string(),

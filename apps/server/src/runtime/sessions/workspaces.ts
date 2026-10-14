@@ -16,13 +16,13 @@ import type {
   SourceHead,
   WorkspaceCheckout,
   WorkspaceSource,
-} from '../contracts';
-import type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from '../db';
+} from '../../contracts';
+import type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from '../../db';
 import { taskBranchName } from '@projectman/shared';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import { conflict, DomainError } from './errors';
-import { KeyedMutex, newId } from './util';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import { conflict, DomainError } from '../../domain/errors';
+import { KeyedMutex, newId } from '../../domain/util';
 
 /** Where a task session works in its member's workspace, as `SessionOrchestrator.start` uses it. */
 export interface WorkspacePlacement {

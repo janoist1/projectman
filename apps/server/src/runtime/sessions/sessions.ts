@@ -1,6 +1,6 @@
-import { wakesFor } from './messaging';
+import { wakesFor } from '../../domain/messaging';
 import { LIVE_SESSION_STATES } from '@projectman/shared';
-import type { EnsureSessionResult } from '../contracts';
+import type { EnsureSessionResult } from '../../contracts';
 import path from 'node:path';
 import {
   approverBlocker,
@@ -60,7 +60,7 @@ import {
   WORKSPACE_CODEX_CONFIG,
   openingTurnOrigin,
   PROVIDER_NOT_LOGGED_IN,
-} from '../contracts';
+} from '../../contracts';
 import type {
   AttachmentOperations,
   CardRelation,
@@ -83,20 +83,20 @@ import type {
   ToolContext,
   TranscriptReader,
   WorktreeInfo,
-} from '../contracts';
-import { encodeWorkItem } from '../db';
-import type { TaskHandoffRow } from '../db';
-import { roleLabel } from '../agent-text';
-import { ownerHandles, requireAiMember } from './access';
-import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from '../runtime/admission';
-import { QUESTION_LIMIT } from './card-questions';
-import type { CardQuestions } from './card-questions';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import { conflict, DomainError, notFound, themeRefused } from './errors';
-import type { MemberService } from './members';
-import type { ProjectFocusService } from './project-focus';
-import type { ConfigChange, ProjectService } from './projects';
+} from '../../contracts';
+import { encodeWorkItem } from '../../db';
+import type { TaskHandoffRow } from '../../db';
+import { roleLabel } from '../../agent-text';
+import { ownerHandles, requireAiMember } from '../../domain/access';
+import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from '../admission';
+import { QUESTION_LIMIT } from '../../domain/card-questions';
+import type { CardQuestions } from '../../domain/card-questions';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import { conflict, DomainError, notFound, themeRefused } from '../../domain/errors';
+import type { MemberService } from '../../domain/members';
+import type { ProjectFocusService } from '../../domain/project-focus';
+import type { ConfigChange, ProjectService } from '../../domain/projects';
 import {
   allowedToolsFor,
   attachmentToolRules,
@@ -112,15 +112,15 @@ import {
   usesWorktree,
   withSessionFolders,
 } from './session-policy';
-import type { TaskService } from './tasks';
-import type { TimelineService } from './timeline';
-import type { InputStallAlerts } from '../runtime/watchers';
-import type { UsageAlerts } from '../runtime/usage';
-import { ProviderQuotaHolds } from '../runtime/usage';
-import type { PlanUsageCache } from '../runtime/usage';
-import type { InboxService } from './inbox';
-import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
-import { MergeCardLock } from '../kernel';
+import type { TaskService } from '../../domain/tasks';
+import type { TimelineService } from '../../domain/timeline';
+import type { InputStallAlerts } from '../watchers';
+import type { UsageAlerts } from '../usage';
+import { ProviderQuotaHolds } from '../usage';
+import type { PlanUsageCache } from '../usage';
+import type { InboxService } from '../../domain/inbox';
+import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from '../../domain/util';
+import { MergeCardLock } from '../../kernel';
 import { MemberWorkspaces } from './workspaces';
 import type { WorkspacePlacement } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
@@ -139,7 +139,7 @@ const ENDED = new Set<SessionState>(['exited', 'failed']);
  */
 export const COMPACT_MIN_CONTEXT_TOKENS = 100_000;
 
-export type { EnsureSessionResult } from '../contracts';
+export type { EnsureSessionResult } from '../../contracts';
 
 export type { SessionStartCause } from '@projectman/shared';
 import type { SessionStartCause } from '@projectman/shared';

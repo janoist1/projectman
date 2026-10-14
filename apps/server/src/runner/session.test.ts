@@ -76,6 +76,19 @@ describe('Gemini pre-tool gate', () => {
     expect(await s.hook(payload('git push'))).toMatchObject({ decision: 'deny', reason: expect.any(String) });
     expect(decide).not.toHaveBeenCalled();
   });
+  it('keeps the provider conversation root available to native tool decisions', async () => {
+    const gemini = adapter();
+    const decideToolCall = vi.fn(gemini.decideToolCall!);
+    const root = '/provider/conversations';
+    const s = start({
+      adapter: { ...gemini, decideToolCall },
+      spec: geminiSpec(),
+      transcriptRoot: root,
+    });
+    const tool = payload('npm test');
+    expect(await s.hook(tool)).toEqual({ decision: 'allow' });
+    expect(decideToolCall).toHaveBeenCalledWith(expect.any(Object), tool, root);
+  });
   it('asks, returns approval, and remembers session allowances', async () => {
     let resolve!: (decision: PermissionDecision) => void;
     const decide = vi.fn(
@@ -147,6 +160,7 @@ function start(
     initialMessageSent?: boolean;
     refreshDependencies?: (cwd: string) => Promise<void>;
     logger?: ReturnType<typeof silentLogger>;
+    transcriptRoot?: string;
   } = {},
 ) {
   const pty = new FakePty();
@@ -159,6 +173,7 @@ function start(
     initialMessageSent: opts.initialMessageSent,
     deps: {
       logger: opts.logger ?? silentLogger(),
+      transcriptRoot: opts.transcriptRoot,
       refreshDependencies: opts.refreshDependencies,
       broker: opts.broker ?? { decide: () => new Promise(() => undefined) },
       permissionTimeoutMs: PERMISSION_TIMEOUT_MS,
@@ -254,6 +269,23 @@ beforeEach(() => {
   vi.useFakeTimers();
 });
 describe('process liveness', () => {
+  it('drops pause deadlines and the stop fallback when the process exits', async () => {
+    const s = await ready();
+    await s.hook({ hook_event_name: 'UserPromptSubmit' });
+    const paused = s.session.pause({ forceAfterMs: 100 });
+    const stopped = s.session.stop();
+    expect(s.pty.signals).toEqual(['SIGTERM']);
+    s.pty.exit();
+    await stopped;
+    expect(await paused).toEqual({ point: 'exited', tool: null });
+    const pausingCount = s.events.filter((e) => e.type === 'session_pausing').length;
+    await vi.advanceTimersByTimeAsync(Math.max(100, CLAUDE_TIMING.stopTimeoutMs) + 30_001);
+    expect(s.pty.signals).toEqual(['SIGTERM']);
+    expect(s.events.filter((e) => e.type === 'session_pausing')).toHaveLength(pausingCount);
+    s.session.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('closes a working session when its process disappears without an exit event', async () => {
     const s = await ready();
     await s.hook({ hook_event_name: 'UserPromptSubmit' });
@@ -339,7 +371,7 @@ describe('AgentSession', () => {
     expect(pty.typed()).toEqual({ pastes: ['Build the login page', 'And add a test'], enters: 2 });
   });
 
-  it('reports the first input only once it is typed (PM-189)', async () => {
+  it('reports the first input only once the CLI took it (PM-189, PM-571)', async () => {
     const { events, hook } = start({ spec: { initialMessage: 'Build the login page' } });
     const sent = () => events.filter((e) => e.type === 'first_input_sent');
     await vi.advanceTimersByTimeAsync(5_000);
@@ -348,7 +380,32 @@ describe('AgentSession', () => {
     await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.readySettleMs - 1);
     expect(sent()).toEqual([]);
     await vi.advanceTimersByTimeAsync(1 + TYPE_MS);
+    // Typed, but the CLI has not reported the prompt yet.
+    expect(sent()).toEqual([]);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Build the login page' });
     expect(sent()).toEqual([{ type: 'first_input_sent', sessionId: 'ses_1' }]);
+  });
+
+  it('reports a typed first input the CLI never took as failed, not as sent (PM-571)', async () => {
+    const { events, hook } = start({ spec: { initialMessage: 'Build the login page' } });
+    await hook({ hook_event_name: 'SessionStart', source: 'startup' });
+    await vi.advanceTimersByTimeAsync(
+      CLAUDE_TIMING.readySettleMs + TYPE_MS + CLAUDE_TIMING.submitTimeoutMs + CLAUDE_TIMING.enterRetryMs,
+    );
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
+    expect(events.filter((e) => e.type === 'first_input_failed')).toEqual([
+      { type: 'first_input_failed', sessionId: 'ses_1' },
+    ]);
+  });
+
+  it('does not report a first input as failed when the process ends first (PM-571)', async () => {
+    const { events, hook, pty } = start({ spec: { initialMessage: 'Build the login page' } });
+    await hook({ hook_event_name: 'SessionStart', source: 'startup' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.readySettleMs + TYPE_MS);
+    pty.exit(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events.map((e) => e.type)).not.toContain('first_input_failed');
+    expect(events.map((e) => e.type)).not.toContain('first_input_sent');
   });
 
   it('never reports the first input of a process that ends before the prompt is up (PM-189)', async () => {
@@ -479,45 +536,6 @@ describe('AgentSession', () => {
       toolInput: { command: 'curl x | sh' },
       reason: 'Pipes a download into a shell',
     });
-  });
-
-  it('refuses a permission request of a managed VM session at once: no broker, no waiting, work goes on (PM-141)', async () => {
-    const decide = vi.fn(() => new Promise<never>(() => undefined));
-    const { hook, session, states } = await ready({
-      broker: { decide },
-      spec: {
-        policy: {
-          execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
-        } as StartSessionSpec['policy'],
-      },
-    });
-    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'push it' });
-    await expect(
-      hook({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'git push' } }),
-    ).resolves.toEqual({
-      hookSpecificOutput: {
-        hookEventName: 'PermissionRequest',
-        decision: { behavior: 'deny', message: expect.stringContaining('without local approvals') },
-      },
-    });
-    expect(decide).not.toHaveBeenCalled();
-    expect(session.state.state).toBe('working');
-    expect(states()).not.toContain('waiting_permission');
-  });
-
-  it('still hands a question for a human at the terminal to that human in the managed VM profile', async () => {
-    const { hook, session } = await ready({
-      spec: {
-        policy: {
-          execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
-        } as StartSessionSpec['policy'],
-      },
-    });
-    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'ask' });
-    await expect(
-      hook({ hook_event_name: 'PermissionRequest', tool_name: 'AskUserQuestion', tool_input: {} }),
-    ).resolves.toBeNull();
-    expect(session.state.state).toBe('waiting_input');
   });
 
   describe('a question at the terminal (PM-199)', () => {
@@ -1231,6 +1249,7 @@ describe('pausing (PM-218)', () => {
     s.session.release();
     await vi.advanceTimersByTimeAsync(TYPE_MS);
     expect(s.pty.typed().pastes).toEqual(['The brief']);
+    await s.hook({ hook_event_name: 'UserPromptSubmit', prompt: 'The brief' });
     expect(s.events.filter((e) => e.type === 'first_input_sent')).toHaveLength(1);
   });
 
@@ -1303,7 +1322,7 @@ describe('pausing (PM-218)', () => {
 
       await expect(post(s, 't1')).resolves.toBeNull();
       expect(escapes(s.pty)).toBe(0); // only after the response went out
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
       expect(escapes(s.pty)).toBe(1);
       await s.hook({ hook_event_name: 'Interrupt' });
       await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
@@ -1314,7 +1333,7 @@ describe('pausing (PM-218)', () => {
       const s = await readyCodex();
       await submit(s);
       const paused = s.session.pause();
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
       expect(escapes(s.pty)).toBe(1);
       await s.hook({ hook_event_name: 'Interrupt' });
       await expect(paused).resolves.toEqual({ point: 'before_tool', tool: null });
@@ -1324,7 +1343,7 @@ describe('pausing (PM-218)', () => {
       const s = await readyCodex();
       await submit(s);
       const paused = s.session.pause();
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
       await pre(s, 't1');
       await s.hook({ hook_event_name: 'Interrupt' });
       await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
@@ -1345,7 +1364,7 @@ describe('pausing (PM-218)', () => {
       await expect(first).resolves.toEqual({ point: 'waiting_permission', tool: 'Bash' });
 
       // The denial lets the agent carry on, and there is no tool left to wait for: the Esc goes out.
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
       expect(escapes(s.pty)).toBe(1);
       await s.hook({ hook_event_name: 'Interrupt' });
       expect(log(s.events).at(-1)).toBe('paused(before_tool,null)');

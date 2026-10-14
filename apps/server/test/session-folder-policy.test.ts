@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionPolicy } from '../src/contracts';
-import { sensitivePaths, sessionSandbox, withSessionFolders } from '../src/domain/session-policy';
+import { sensitivePaths, sessionSandbox, withSessionFolders } from '../src/runtime/sessions';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
@@ -240,17 +240,6 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
       expect(sandbox.allowWrite).toEqual([sessionDir]);
       expect(sandbox.denyRead).toEqual([userHome, appHome, ...sensitivePaths({ userHome, appHome })]);
     });
-  });
-
-  it('gives the managed VM profile no sandbox at all', () => {
-    const vm = buildSessionPolicy({
-      config: testConfig(),
-      role: 'developer',
-      task: { repo: 'web' },
-      placement: { kind: 'member_workspace', path: source, use: 'work' },
-      managedVm: { boundary: { name: 'vm', version: 1 } },
-    });
-    expect(sessionSandbox(vm, { ...paths, sessionDir, browsersDir: browsers })).toBeUndefined();
   });
 
   describe('withSessionFolders', () => {

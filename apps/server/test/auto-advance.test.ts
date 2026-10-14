@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateRequestOf } from '@projectman/shared';
-import { aiActor } from '../src/domain';
+import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 
 const owner = { handle: 'owner', access: 'owner' as const };
+
+function barrier() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => (release = resolve));
+  return { promise, release };
+}
 
 /** A card that lacks only a person's approval for its next stage asks for it by itself (PM-445). */
 describe('automatic stage advance', () => {
@@ -59,6 +65,272 @@ describe('automatic stage advance', () => {
     await h.domain.autoAdvance.check(h.domain.tasks.get('AR', work.key));
     expect(openDecisions(work.key)).toEqual([]);
     expect(h.domain.tasks.get('AR', work.key).stageId).toBe('development');
+  });
+
+  it.each(['before', 'after'])(
+    'does not repeat an approval request when automatic preparation starts %s the decision closes',
+    async (timing) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          // A review handover gives the real move preparation an asynchronous boundary to hold.
+          config.pipeline.stages.find((s) => s.id === 'merge')!.owners = ['cr'];
+        },
+      });
+      const key = await cardInCodeReview();
+      await approve(key);
+      await settle();
+      const item = openDecisions(key)[0]!;
+      const businessEvents = () =>
+        h.domain.timeline.list('AR', { taskKey: key }).filter((e) => !e.type.startsWith('session_'));
+      const before = businessEvents();
+      const waiting = h.domain.tasks.get('AR', key);
+      const handler = h.domain.tasks.handleDecisionResolved.bind(h.domain.tasks);
+      const closed = barrier();
+      const decisionBarrier = barrier();
+      const delayedDecision = vi
+        .spyOn(h.domain.tasks, 'handleDecisionResolved')
+        .mockImplementationOnce(async (resolved) => {
+          expect(resolved).toMatchObject({ id: item.id, state: 'resolved' });
+          closed.release();
+          await decisionBarrier.promise;
+          await handler(resolved);
+        });
+      const sourceHead = h.domain.sessions.sourceHead.bind(h.domain.sessions);
+      const preparing = barrier();
+      const moveBarrier = barrier();
+      const delayedMove = vi
+        .spyOn(h.domain.sessions, 'sourceHead')
+        .mockImplementationOnce(async (...args) => {
+          preparing.release();
+          await moveBarrier.promise;
+          return sourceHead(...args);
+        });
+      let automatic: Promise<void> | undefined;
+      let resolution: ReturnType<typeof h.domain.inbox.resolve> | undefined;
+      try {
+        if (timing === 'before') {
+          automatic = h.domain.autoAdvance.check(waiting);
+          await preparing.promise;
+        }
+        resolution = h.domain.inbox.resolve('AR', item.id, { optionId: 'approve' }, owner);
+        await closed.promise;
+        expect(h.domain.inbox.isResolvingGate('AR', key, 'code_review', 'merge')).toBe(true);
+        if (timing === 'after') {
+          automatic = h.domain.autoAdvance.check(waiting);
+          await preparing.promise;
+        }
+        moveBarrier.release();
+        await automatic;
+        expect.soft(businessEvents()).toEqual(before);
+        expect.soft(h.domain.inbox.list('AR', { kind: 'decision', taskKey: key })).toHaveLength(1);
+        expect.soft(h.domain.tasks.get('AR', key)).toEqual(waiting);
+
+        decisionBarrier.release();
+        await resolution;
+        expect(h.domain.inbox.isResolvingGate('AR', key, 'code_review', 'merge')).toBe(false);
+        await h.domain.autoAdvance.check(h.domain.tasks.get('AR', key));
+        // The golden path accounts for exactly two human events before awaitSystem reads its tail.
+        for (const event of businessEvents().slice(before.length + 2)) {
+          expect(event.actor, `${event.type} that nobody asked for is the system's`).toEqual(SYSTEM_ACTOR);
+        }
+        expect(businessEvents().slice(0, before.length)).toEqual(before);
+        expect(businessEvents().slice(before.length)).toMatchObject([
+          {
+            type: 'task_labels_changed',
+            actor: OWNER_ACTOR,
+            data: { added: ['merge-ok'], removed: [], reason: 'approval' },
+          },
+          {
+            type: 'task_stage_changed',
+            actor: OWNER_ACTOR,
+            data: { from: 'code_review', to: 'merge', approvedBy: ['owner'], inboxItemIds: [item.id] },
+          },
+        ]);
+        expect(h.domain.inbox.list('AR', { kind: 'decision', taskKey: key })).toMatchObject([
+          { id: item.id, state: 'resolved', resolution: { optionId: 'approve', by: 'owner' } },
+        ]);
+        expect(h.domain.tasks.get('AR', key)).toMatchObject({
+          stageId: 'merge',
+          status: 'active',
+          labels: ['code-review-ok', 'merge-ok'],
+        });
+      } finally {
+        moveBarrier.release();
+        decisionBarrier.release();
+        await automatic;
+        await resolution;
+        delayedMove.mockRestore();
+        delayedDecision.mockRestore();
+      }
+    },
+  );
+
+  it.each(['approve', 'reject'])(
+    'keeps simultaneous gate decisions independent while one finishes with %s',
+    async (optionId) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          config.team.members.push({
+            kind: 'human',
+            handle: 'approver',
+            displayName: 'Second approver',
+            access: 'owner',
+            roles: ['operator'],
+          });
+          config.pipeline.labels.push({
+            id: 'second-approval',
+            name: 'Second approval',
+            setBy: { members: ['approver'], humansOnly: true },
+          });
+          config.pipeline.stages
+            .find((s) => s.id === 'merge')!
+            .gate!.conditions.push({
+              type: 'has_label',
+              label: 'second-approval',
+            });
+        },
+      });
+      const key = await cardInCodeReview();
+      await approve(key);
+      await settle();
+      const items = openDecisions(key);
+      expect(items).toHaveLength(2);
+      const first = items.find((item) => item.assignees.includes('owner'))!;
+      const second = items.find((item) => item.assignees.includes('approver'))!;
+      const gates = items.map(() => ({ closed: barrier(), resume: barrier() }));
+      const handler = h.domain.tasks.handleDecisionResolved.bind(h.domain.tasks);
+      const delayed = vi.spyOn(h.domain.tasks, 'handleDecisionResolved').mockImplementation(async (item) => {
+        const gate = gates[items.findIndex((candidate) => candidate.id === item.id)]!;
+        gate.closed.release();
+        await gate.resume.promise;
+        await handler(item);
+      });
+      const firstGate = gates[items.indexOf(first)]!;
+      const secondGate = gates[items.indexOf(second)]!;
+      const resolutions = [
+        h.domain.inbox.resolve('AR', first.id, { optionId }, owner),
+        h.domain.inbox.resolve('AR', second.id, { optionId: 'approve' }, { ...owner, handle: 'approver' }),
+      ];
+      const resolving = () => h.domain.inbox.isResolvingGate('AR', key, 'code_review', 'merge');
+      try {
+        await Promise.all(gates.map((gate) => gate.closed.promise));
+        expect(resolving()).toBe(true);
+        for (const [project, task, from, to] of [
+          ['OTHER', key, 'code_review', 'merge'],
+          ['AR', 'AR-999', 'code_review', 'merge'],
+          ['AR', key, 'development', 'merge'],
+          ['AR', key, 'code_review', 'release'],
+        ]) {
+          expect(h.domain.inbox.isResolvingGate(project!, task!, from!, to!)).toBe(false);
+        }
+        firstGate.resume.release();
+        await resolutions[0];
+        expect(resolving()).toBe(true);
+        secondGate.resume.release();
+        await resolutions[1];
+        expect(resolving()).toBe(false);
+        expect(h.domain.tasks.get('AR', key)).toMatchObject({
+          stageId: optionId === 'approve' ? 'merge' : 'code_review',
+          status: 'active',
+        });
+        const changes = h.domain.timeline
+          .list('AR', { taskKey: key })
+          .filter((event) => event.type === 'task_labels_changed' && event.data.reason === 'approval');
+        expect(changes).toMatchObject(
+          optionId === 'approve'
+            ? [
+                { actor: OWNER_ACTOR, data: { added: ['merge-ok'], removed: [], reason: 'approval' } },
+                {
+                  actor: { kind: 'human', handle: 'approver' },
+                  data: { added: ['second-approval'], removed: [], reason: 'approval' },
+                },
+              ]
+            : [],
+        );
+        if (optionId === 'approve') {
+          expect(
+            h.domain.timeline.list('AR', { taskKey: key }).filter((e) => e.type === 'task_stage_changed'),
+          ).toMatchObject([
+            { actor: OWNER_ACTOR, data: { from: 'backlog', to: 'code_review' } },
+            {
+              actor: OWNER_ACTOR,
+              data: {
+                from: 'code_review',
+                to: 'merge',
+                approvedBy: ['owner', 'approver'],
+                inboxItemIds: items.map((item) => item.id),
+              },
+            },
+          ]);
+        } else {
+          const retry = await h.domain.tasks.moveToStage('AR', key, 'merge', SYSTEM_ACTOR);
+          expect(retry.pendingApproval).toHaveLength(2);
+        }
+      } finally {
+        for (const gate of gates) gate.resume.release();
+        await Promise.all(resolutions);
+        delayed.mockRestore();
+      }
+    },
+  );
+
+  it('releases a gate decision when closing it fails, so the same approval can be retried', async () => {
+    h = await createDomainHarness();
+    const key = await cardInCodeReview();
+    await approve(key);
+    await settle();
+    const item = openDecisions(key)[0]!;
+    const delayed = vi.spyOn(h.repos.inbox, 'close').mockImplementationOnce(() => {
+      expect(h.domain.inbox.isResolvingGate('AR', key, 'code_review', 'merge')).toBe(true);
+      throw new Error('injected close failure');
+    });
+    try {
+      await expect(h.domain.inbox.resolve('AR', item.id, { optionId: 'approve' }, owner)).rejects.toThrow(
+        'injected close failure',
+      );
+      expect(h.domain.inbox.isResolvingGate('AR', key, 'code_review', 'merge')).toBe(false);
+      expect(openDecisions(key)).toMatchObject([{ id: item.id }]);
+      await h.domain.inbox.resolve('AR', item.id, { optionId: 'approve' }, owner);
+      expect(h.domain.tasks.get('AR', key).stageId).toBe('merge');
+    } finally {
+      delayed.mockRestore();
+    }
+  });
+
+  it('releases a refused approval handover so committed work can request approval again', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        config.pipeline.stages.find((s) => s.id === 'merge')!.owners = ['cr'];
+      },
+    });
+    const key = await cardInCodeReview();
+    await approve(key);
+    await settle();
+    const item = openDecisions(key)[0]!;
+    const dirty = vi.spyOn(h.domain.sessions, 'sourceHead').mockResolvedValueOnce({
+      path: h.workspace,
+      branch: 'task/AR-1',
+      commit: 'c1',
+      dirty: true,
+      changes: 1,
+      committedAt: null,
+    });
+    try {
+      await h.domain.inbox.resolve('AR', item.id, { optionId: 'approve' }, owner);
+      expect(h.domain.inbox.isResolvingGate('AR', key, 'code_review', 'merge')).toBe(false);
+      expect(h.domain.tasks.get('AR', key)).toMatchObject({ stageId: 'code_review', status: 'active' });
+      expect(h.domain.timeline.list('AR', { taskKey: key }).at(-1)).toMatchObject({
+        type: 'task_updated',
+        actor: OWNER_ACTOR,
+        data: { gateBlocked: { to: 'merge', reason: 'handover_uncommitted' } },
+      });
+      const retry = await h.domain.tasks.moveToStage('AR', key, 'merge', SYSTEM_ACTOR);
+      expect(retry.pendingApproval).toHaveLength(1);
+      await h.domain.inbox.resolve('AR', retry.pendingApproval[0]!.id, { optionId: 'approve' }, owner);
+      expect(h.domain.tasks.get('AR', key).stageId).toBe('merge');
+    } finally {
+      dirty.mockRestore();
+    }
   });
 
   it('does not ask again after the approver rejected the request in this stay in the stage', async () => {

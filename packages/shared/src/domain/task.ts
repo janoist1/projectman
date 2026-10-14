@@ -21,7 +21,7 @@ export type TaskKey = z.infer<typeof TaskKey>;
 export const TaskStatus = z.enum(['active', 'waiting', 'blocked', 'done', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
-/** Informational only: priority never changes ordering or starts work. */
+/** Urgent starts first and is pulled into development (PM-427); the other levels only inform. */
 export const TaskPriority = z.enum(['urgent', 'high', 'normal', 'low']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;
@@ -338,6 +338,14 @@ export function isOpenTask(task: Pick<Task, 'status'>): boolean {
  */
 export function isTheme(task: Pick<Task, 'kind'>): boolean {
   return task.kind === 'theme';
+}
+
+/** Automatic work starts skip themes and cards with open subtasks (PM-586). */
+export function canAutomaticallyStartTask(
+  task: Pick<Task, 'key' | 'kind'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): boolean {
+  return !isTheme(task) && !tasks.some((child) => child.parentKey === task.key && isOpenTask(child));
 }
 
 /** Sequence number of a task key ("AR-21" -> 21). */

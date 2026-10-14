@@ -11,8 +11,8 @@ import type {
   FeedbackMarkDetail as MarkDetail,
   ServerEvent,
 } from '@projectman/shared';
-import { humanActor } from '../src/domain';
-import { canSeeProjectEvent } from '../src/domain/visibility';
+import { humanActor } from '../src/kernel';
+import { canSeeProjectEvent } from '../src/core/projects';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';

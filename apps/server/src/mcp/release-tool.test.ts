@@ -1,6 +1,50 @@
 import { describe, expect, it, vi } from 'vitest';
+import { OPERATOR_GUEST_TOOLS, OPERATOR_NEVER_TOOLS, OPERATOR_READ_TOOLS } from '../services/operator';
 import { TEAM_TOOLS } from './tools';
 import { createFakeTeamToolsHandler } from './testing';
+
+describe('check_release', () => {
+  const tool = TEAM_TOOLS.find((tool) => tool.name === 'check_release')!;
+  const ctx = { projectKey: 'AR', member: 'operator', taskKey: null, sessionId: 'session-1' };
+
+  it('only reads, and takes a full commit id only', () => {
+    expect(tool.annotations.readOnlyHint).toBe(true);
+    expect(tool.inputSchema.safeParse({}).success).toBe(true);
+    expect(tool.inputSchema.safeParse({ commit: 'a'.repeat(40) }).success).toBe(true);
+    expect(tool.inputSchema.safeParse({ commit: 'main' }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ commit: 'a'.repeat(40), title: 'x' }).success).toBe(false);
+  });
+
+  it('is in the Operator’s read tools, and in no guest or forbidden list', () => {
+    expect(OPERATOR_READ_TOOLS.has('check_release')).toBe(true);
+    expect(OPERATOR_GUEST_TOOLS.has('check_release')).toBe(false);
+    expect(OPERATOR_NEVER_TOOLS.has('check_release')).toBe(false);
+    expect(OPERATOR_NEVER_TOOLS.has('propose_release')).toBe(true);
+  });
+
+  it('prints the candidate with the proposers and says nothing was recorded', async () => {
+    const handler = createFakeTeamToolsHandler();
+    const check = vi.spyOn(handler, 'checkRelease');
+    const result = await tool.run({ ctx, handler, args: { commit: 'b'.repeat(40) } });
+    expect(check).toHaveBeenCalledWith(ctx, { commit: 'b'.repeat(40) });
+    expect(result).toContain('Release check passed: commit ' + 'b'.repeat(40));
+    expect(result).toContain('1 cards (FAKE-1 A merged card)');
+    expect(result).toContain('proposers: devops');
+    expect(result).toMatch(/Nothing was recorded\.$/);
+  });
+
+  it('prints the refusal as the proposal would give it', async () => {
+    const handler = createFakeTeamToolsHandler();
+    vi.spyOn(handler, 'checkRelease').mockResolvedValue({
+      candidate: null,
+      refusal: { code: 'release_open', message: 'release rel_1 is proposed' },
+      proposers: ['devops'],
+    });
+    const result = await tool.run({ ctx, handler, args: {} });
+    expect(result).toContain('Release check: would be refused — release_open: release rel_1 is proposed.');
+    expect(result).toMatch(/Nothing was recorded\.$/);
+  });
+});
 
 describe('propose_release', () => {
   const tool = TEAM_TOOLS.find((tool) => tool.name === 'propose_release')!;

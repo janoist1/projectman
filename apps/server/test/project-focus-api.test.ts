@@ -7,7 +7,7 @@ import type {
   Task,
   TaskDetail,
 } from '@projectman/shared';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';

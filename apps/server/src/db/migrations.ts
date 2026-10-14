@@ -1104,5 +1104,73 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
       PRIMARY KEY (project_key, member, mark_id)
     );`,
   },
+  {
+    version: 56,
+    name: 'operator signal kinds',
+    sql: `DROP INDEX operator_signals_open;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT
+    );
+    INSERT INTO operator_signals SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at FROM operator_signals_old;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
+  },
+  {
+    version: 57,
+    name: 'operator steps on signals',
+    // PM-545: the Operator's own steps on a system signal hang on a request row of source 'signal' (the
+    // CHECK grows, so both tables are rebuilt: the steps first reference the new requests table, then the
+    // old pair goes) and carry the signal's id; a signal remembers when to be looked at again.
+    sql: `CREATE TABLE operator_requests_next (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('message', 'answer', 'signal')),
+      message_id TEXT,
+      inbox_item_id TEXT,
+      from_handle TEXT NOT NULL,
+      quote TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      closed_at TEXT
+    );
+    CREATE TABLE operator_steps_next (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES operator_requests_next(id),
+      at TEXT NOT NULL,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL,
+      task_key TEXT,
+      member TEXT,
+      changes TEXT NOT NULL DEFAULT '[]',
+      config_version TEXT,
+      inbox_item_id TEXT,
+      refusal TEXT,
+      signal_id TEXT
+    );
+    INSERT INTO operator_requests_next SELECT id, project_key, session_id, source, message_id, inbox_item_id, from_handle, quote, opened_at, closed_at FROM operator_requests;
+    INSERT INTO operator_steps_next (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal)
+      SELECT id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal FROM operator_steps;
+    DROP TABLE operator_steps;
+    DROP TABLE operator_requests;
+    ALTER TABLE operator_requests_next RENAME TO operator_requests;
+    ALTER TABLE operator_steps_next RENAME TO operator_steps;
+    CREATE INDEX operator_requests_project ON operator_requests(project_key, opened_at);
+    CREATE INDEX operator_requests_session ON operator_requests(session_id) WHERE closed_at IS NULL;
+    CREATE INDEX operator_steps_request ON operator_steps(request_id, at);
+    CREATE INDEX operator_steps_signal ON operator_steps(signal_id) WHERE signal_id IS NOT NULL;
+    ALTER TABLE operator_signals ADD COLUMN follow_up_at TEXT;`,
+  },
+  {
+    version: 58,
+    name: 'merge queue priority',
+    // PM-576: a queued merge the merger (or the Operator) put forward carries the time of that decision;
+    // the queue puts such merges first, the latest decision first, and the rest by created_at as before.
+    sql: `ALTER TABLE task_merges ADD COLUMN prioritized_at TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

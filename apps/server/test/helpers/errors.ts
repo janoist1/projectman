@@ -1,5 +1,5 @@
 import { expect } from 'vitest';
-import { DomainError } from '../../src/domain';
+import { DomainError } from '../../src/kernel';
 
 /** The error a promise rejects with, asserted to be a `type` (default: DomainError). */
 export async function rejection<E extends Error = DomainError>(

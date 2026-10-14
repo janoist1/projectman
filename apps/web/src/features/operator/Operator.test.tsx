@@ -15,6 +15,7 @@ import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import { operatorSummaryFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
 import { InboxPage } from '../inbox/InboxPage';
 import { HistorySection } from '../settings/sections/HistorySection';
@@ -76,6 +77,7 @@ function step(partial: Partial<OperatorStep> & Pick<OperatorStep, 'id' | 'action
     changes: [],
     configVersion: null,
     inboxItemId: null,
+    signalId: null,
     refusal: null,
     ...partial,
   };
@@ -507,6 +509,76 @@ describe('a signal the Operator raised', () => {
   const presenting = (project: Project, body = 'A kártyát most senki nem viheti.') =>
     project.backend.sendTeamMessage('operator', ['owner'], 'AC-20', body);
 
+  it('groups decisions, orders actionable signals first and keeps rows in place after acceptance', async () => {
+    const project = mockProject();
+    const message = presenting(project, operatorSummaryFixture('summary').body);
+    project.backend.operatorSignals = operatorSummaryFixture(message.id).signals;
+    renderLayout(project);
+    fireEvent.click(await button());
+    const group = await screen.findByRole('heading', { name: new RegExp(t('operator.signal.group')) });
+    const card = group.closest('article')!;
+    const rows = () => [...card.querySelectorAll('li')];
+    expect(rows().map((row) => row.getAttribute('data-signal-id'))).toEqual([
+      'sig_first',
+      'sig_later',
+      'sig_out',
+    ]);
+    const accept = within(rows()[0]! as HTMLElement).getByRole('button', {
+      name: t('operator.signal.accept'),
+    });
+    expect(accept.getAttribute('aria-describedby')).toBe(rows()[0]!.querySelector('h4')!.id);
+    expect(within(rows()[2]! as HTMLElement).queryByRole('button')).toBeNull();
+    fireEvent.click(accept);
+    await waitFor(() =>
+      expect(posted(project, '/messages')[0]?.body).toMatchObject({ operatorSignal: 'sig_first' }),
+    );
+    await within(card).findByText(new RegExp(t('operator.signal.accepted')));
+    expect(rows().map((row) => row.getAttribute('data-signal-id'))).toEqual([
+      'sig_first',
+      'sig_later',
+      'sig_out',
+    ]);
+    expect(group.textContent).toContain(t('operator.signal.groupCount', { count: 2 }));
+    expect(document.activeElement).toBe(
+      within(rows()[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.accept') }),
+    );
+    expect(within(rows()[2]! as HTMLElement).queryByRole('button')).toBeNull();
+    project.backend.operatorSignals.find((s) => s.id === 'sig_out')!.state = 'resolved';
+    fireEvent.click(
+      within(rows()[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
+    );
+    await waitFor(() => expect(card.getAttribute('data-state')).toBe('resolved'));
+    expect(within(rows()[2]! as HTMLElement).getByRole('status').textContent).toContain(
+      t('operator.signal.resolved'),
+    );
+    expect(posted(project, '/operator/signals/sig_out/dismiss')).toHaveLength(0);
+    expect(group.textContent).toBe(t('operator.signal.group'));
+    expect(document.activeElement).toBe(group);
+    expect(within(card).queryByRole('button')).toBeNull();
+  });
+
+  it('keeps a failed decision on its row while other rows remain actionable', async () => {
+    const project = mockProject();
+    const message = presenting(project);
+    project.backend.operatorSignals = operatorSummaryFixture(message.id).signals;
+    renderLayout(project);
+    fireEvent.click(await button());
+    const group = await screen.findByRole('heading', { name: new RegExp(t('operator.signal.group')) });
+    const rows = [...group.closest('article')!.querySelectorAll('li')];
+    project.backend.operatorSignals.find((s) => s.id === 'sig_first')!.state = 'resolved';
+    fireEvent.click(
+      within(rows[0]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
+    );
+    expect(await within(rows[0]! as HTMLElement).findByRole('alert')).toHaveProperty(
+      'textContent',
+      t('operator.signal.closed'),
+    );
+    expect(within(rows[1]! as HTMLElement).queryByRole('alert')).toBeNull();
+    expect(
+      within(rows[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.accept') }),
+    ).toHaveProperty('disabled', false);
+  });
+
   it('says yes with a visible message that names the signal', async () => {
     const project = mockProject();
     const message = presenting(project);
@@ -539,17 +611,22 @@ describe('a signal the Operator raised', () => {
     expect(await screen.findByText(new RegExp(t('operator.signal.dismissed')))).toBeTruthy();
   });
 
-  it('has no yes button when nothing can be done, and a card without a presenting message stands alone', async () => {
-    const project = mockProject();
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'silent', actionable: false })];
-    renderLayout(project);
-    fireEvent.click(await button());
-    const heading = await screen.findByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' });
-    expect(heading).toBeTruthy();
-    expect(screen.getByText(t('operator.signal.bodies.silent'))).toBeTruthy();
-    expect(screen.queryByRole('button', { name: t('operator.signal.accept') })).toBeNull();
-    expect(screen.getByRole('button', { name: t('operator.signal.dismiss') })).toBeTruthy();
-  });
+  it.each([false, true])(
+    'has no buttons on a non-actionable card (presenting message: %s)',
+    async (hasMessage) => {
+      const project = mockProject();
+      const message = hasMessage ? presenting(project) : null;
+      project.backend.operatorSignals = [
+        signal({ id: 'sig_1', kind: 'silent', actionable: false, messageId: message?.id ?? null }),
+      ];
+      renderLayout(project);
+      fireEvent.click(await button());
+      const heading = await screen.findByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' });
+      expect(heading).toBeTruthy();
+      expect(screen.getByText(message?.body ?? t('operator.signal.bodies.silent'))).toBeTruthy();
+      expect(within(heading.closest('article')!).queryByRole('button')).toBeNull();
+    },
+  );
 
   it('shows the four kinds by their own title', async () => {
     const project = mockProject();
@@ -565,6 +642,25 @@ describe('a signal the Operator raised', () => {
     expect(screen.getByRole('heading', { name: 'AC-20: senki nem viheti' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'AC-20: válaszra vár a munkamenet' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' })).toBeTruthy();
+  });
+
+  it('shows the board kinds (PM-547) by their own title and text', async () => {
+    const project = mockProject();
+    project.backend.operatorSignals = [
+      signal({ id: 'sig_1', kind: 'idle' }),
+      signal({ id: 'sig_2', kind: 'merge_waiting' }),
+      signal({ id: 'sig_3', kind: 'merge_blocked' }),
+      signal({ id: 'sig_4', kind: 'unreleased', taskKey: null }),
+      signal({ id: 'sig_5', kind: 'ready_waiting', taskKey: null }),
+    ];
+    renderLayout(project);
+    fireEvent.click(await button());
+    expect(await screen.findByRole('heading', { name: 'AC-20: senki nem dolgozik rajta' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'AC-20: beolvasztásra vár' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'AC-20: elakadt a beolvasztás' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Kiadásra váró munka' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Indítható kártyák várnak' })).toBeTruthy();
+    expect(screen.getByText(t('operator.signal.bodies.ready_waiting'))).toBeTruthy();
   });
 
   it('says on the card that the signal is no longer open, without a toast', async () => {
@@ -627,6 +723,35 @@ describe('the approval in Rád vár', () => {
     rendered(project);
     expect(await screen.findByRole('button', { name: t('operator.approval.stop') })).toBeTruthy();
     expect(screen.getByRole('button', { name: t('operator.approval.pause') })).toBeTruthy();
+  });
+
+  it('shows the watch level change and its consequence before approval', async () => {
+    const project = mockProject();
+    project.backend.inbox.push(
+      approvalItem('stp_watch', {
+        action: 'config_change',
+        operation: { op: 'config_patch', patch: { operatorWatch: 'unblock' } },
+        changes: [
+          {
+            area: 'project',
+            target: null,
+            field: 'operatorWatch',
+            before: null,
+            after: 'unblock',
+            level: 'approval',
+          },
+        ],
+        consequence: 'operator_watch',
+      }),
+    );
+    rendered(project);
+    const consequence = await screen.findByText(t('operator.approval.consequences.operator_watch'));
+    const card = consequence.closest('article')!;
+    expect(within(card).getByText('unblock')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
+    await waitFor(() =>
+      expect(posted(project, '/inbox/inb_stp_watch/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
+    );
   });
 
   it('rejects without changing anything', async () => {

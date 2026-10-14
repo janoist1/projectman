@@ -1,6 +1,6 @@
 import type { AgentProvider, ProjectConfig, Session } from '@projectman/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MAX_FIRST_INPUT_CHARS } from '../src/domain';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_FIRST_INPUT_CHARS } from '../src/runtime/sessions';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -365,6 +365,56 @@ describe('the first input of a resumed session', () => {
       h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 1, signal: null });
       await flush();
       expect(h.repos.messages.pending('AR', 'dev-1').map((m) => m.id)).toEqual([message.id]);
+    });
+  });
+
+  describe('a message the session did not take (PM-571)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('keeps a typed first input the CLI never took waiting, and types it again later', async () => {
+      h.runner.holdFirstInput = true;
+      const one = waiting('dev-1', 'First: check the title.', 1);
+      await h.domain.messageStarts.wake('AR', 'dev-1', task);
+      await flush();
+      const session = h.repos.sessions.findByWorkItem('AR', 'dev-1', task)!;
+
+      h.runner.emit({ type: 'first_input_failed', sessionId: session.id });
+      await flush();
+      // Not delivered, and not lost: it waits, and is typed into the running session after a pause.
+      expect(h.repos.messages.pending('AR', 'dev-1')).toHaveLength(1);
+      expect(h.runner.messages).toEqual([]);
+
+      h.runner.setState(session.id, 'idle');
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flush();
+      expect(h.runner.messages.map((m) => m.text)).toEqual([
+        one.replace('action · sent 2026-09-30 10:00 UTC version unknown\n', ''),
+      ]);
+      expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
+    });
+
+    it('keeps a message typed into the running session waiting when the CLI did not take it, and types it again', async () => {
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+      h.runner.setState(session.id, 'idle');
+      h.runner.failNextSend = new Error('Session did not take the typed message');
+      const message = await h.domain.messaging.send('AR', 'owner', {
+        to: ['dev-1'],
+        text: 'Please review.',
+        taskKey: 'AR-1',
+      });
+      await flush();
+      expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
+      expect(h.repos.messages.pending('AR', 'dev-1').map((m) => m.id)).toEqual([message.id]);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flush();
+      expect(h.runner.messages.map((m) => m.text).join('\n')).toContain('Please review.');
+      expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
     });
   });
 

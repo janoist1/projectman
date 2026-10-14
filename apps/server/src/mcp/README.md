@@ -2,9 +2,26 @@
 
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
-sessions. The behaviour lives in the domain (`TeamToolsHandler`, see
-`src/contracts/team-tools.ts`); this module is the MCP transport, the tool definitions and the
-text the model reads.
+sessions. The handler contracts live in
+`src/contracts/index.ts` (`TeamToolsHandler`). This module owns the MCP transport,
+module tool definitions and handlers, and the text the model reads.
+
+## Where a tool goes
+
+A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
+`handler.ts` implements the module's handler contract, and `index.ts` exports both.
+`TEAM_TOOL_GROUPS` in `tools.ts` is the registry of module tool definitions;
+`TeamToolsService` in `mcp/team-tools.ts` forwards to their handlers.
+New tools belong in the module's group and handler, never in either collector.
+
+Assembly creates one shared `ToolCaller` (`caller.ts`) for caller checks, the
+Operator's request and guest access, step logging, and opening session files.
+Every handler receives that instance so signal-step reservations stay shared.
+Shared definition types, schemas and helpers live in `kit.ts`.
+
+REST routes already register by module: `api/<module>.ts` exports
+`register<X>Routes(app, deps)`, collected by `registerApiRoutes` in `api/index.ts`.
+No REST code or contract changes are needed for this registration.
 
 ## Endpoint
 
@@ -63,6 +80,7 @@ tests use the SDK's own client, which behaves the same way here):
 | `create_task`               | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                                                                                                                 | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                                          |
 | `link_pull_request`         | `task_key`, `repo` (`owner/name`), `number`                                                                                                                                                               | `linkPullRequest(ctx, { taskKey, repo, number })`                                                                     |
 | `ask_human`                 | `question`, `options?` (1–10: labels, or `{ label, consequence? }`), `recommended?`, `recommendation_reason?`, `details?`, `task_key?`, `to?`, `attachments?` (1–6 `att_…` ids of the card or its parent) | `askHuman(ctx, { question, options?, recommended?, recommendationReason?, details?, taskKey?, to?, attachmentIds? })` |
+| `withdraw_question`         | `item_id`, `reason` (1–1000 chars)                                                                                                                                                                        | `withdrawQuestion(ctx, { itemId, reason })`                                                                           |
 | `save_memory`               | `note` (max 2000 chars)                                                                                                                                                                                   | `saveMemory(ctx, { note })`                                                                                           |
 | `list_attachments`          | `task_key`, `offset?` (default 0), `limit?` (1–200, default 50)                                                                                                                                           | `listAttachments(ctx, { taskKey, offset, limit })`                                                                    |
 | `read_attachment`           | `task_key`, `attachment_id`                                                                                                                                                                               | `readAttachment(ctx, { taskKey, attachmentId })`                                                                      |
@@ -89,6 +107,20 @@ tests use the SDK's own client, which behaves the same way here):
   A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
   Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
   Guest conversations cannot call it until a separate task provides a viewer filter.
+  The overview also carries the `release` block (PM-542: the running version, commit and tag, the latest live and the
+  open release, the latest merges into the default branch), the starts that wait without a card (`general`) and the
+  undelivered team messages per AI member.
+- `prioritize_merge { task_key, reason }` (PM-576) puts the card's queued merge at the front of its repository's
+  merge queue. The card's merger and the Operator (in an owner's open request, logged as the step `task_update`)
+  may call it; it answers `moved` or `not moved` (first already). The running merge is not interrupted, a card
+  whose merge is not queued (none, requested, running, failed…) is refused with `merge_not_prioritizable`,
+  someone else with `merge_not_merger`. The reason and the cards it went ahead of go on the card's timeline
+  (`task_merge_prioritized`). Handler method: `prioritizeMerge(ctx, { taskKey, reason })`. An owner does the
+  same in the UI (`POST …/tasks/:taskKey/merge/prioritize`, the "Előre" button of the queued merge box).
+- `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
+  not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
+  candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
+  deployment duty who may propose it. It records nothing; the Operator never proposes a release itself.
 - `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
   (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
   the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text
@@ -101,6 +133,15 @@ tests use the SDK's own client, which behaves the same way here):
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
+- `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558) is the Operator's tool for
+  the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
+  `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`
+  `{ what, where, expected }`); `note` is always required, a field the outcome does not take is refused
+  (`invalid_outcome_fields`). Only the Operator, not in guest conversations, no open request needed; a question
+  no longer in screening answers `question_not_screening` (moot still works). `ask_human` answers
+  `{ screening: true }` for a screened question and takes `reask_of` + `reask_reason` (together) to ask a settled
+  question again unscreened (`reask_not_allowed` otherwise). Handler method: `screenQuestion(ctx, { itemId,
+outcome, note, answer?, forwardTo?, todo? })`. See ARCHITECTURE.md, "The Operator".
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the
@@ -146,7 +187,7 @@ tests use the SDK's own client, which behaves the same way here):
   (`engine-host/workspace-file.ts`, PM-312). `delete_attachment` deletes only the caller's own.
 - Screenshots (PM-351) are for the members whose own sandbox cannot start Chromium (Codex).
   `take_screenshots` starts `npm run shots` in the caller's worktree, in the server's own `srt`
-  sandbox (`domain/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run
+  sandbox (`services/full-tests/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run
   still going is answered as `running`, and `get_screenshot_run` waits another 40 s. The arguments
   are built from the validated fields only: `--out`, `--keep-data` and `--machine` cannot be given,
   and the scenario must be a file inside the working directory or the session folder (real path).
@@ -218,6 +259,6 @@ createMcpModule({ handler, resolveContext, logger: app.log }).registerRoutes(app
 `npm test -w @projectman/server`: `mcp.test.ts` runs a real Fastify server and the SDK's
 `Client` with `StreamableHTTPClientTransport` (initialize, tool list and schemas, every tool,
 errors, timeout, tokens, HTTP methods, the `server/discover` probe, localhost enforcement);
-`format.test.ts` covers the helpers; the local-request guard is `src/http/local-guard.ts`
+`format.test.ts` covers the helpers; the local-request guard is `src/kernel/local-guard.ts`
 (tested in `local-guard.test.ts`). `testing.ts` provides an in-memory
 `TeamToolsHandler` that other tests can reuse.

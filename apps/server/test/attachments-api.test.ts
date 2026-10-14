@@ -9,7 +9,7 @@ import {
   UploadAttachmentResponse,
 } from '@projectman/shared';
 import type { Attachment } from '@projectman/shared';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';

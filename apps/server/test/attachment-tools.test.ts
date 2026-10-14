@@ -15,7 +15,7 @@ import { MAX_ATTACHMENT_BYTES } from '@projectman/shared';
 import type { Attachment } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { conflict } from '../src/domain/errors';
+import { conflict } from '../src/kernel';
 import { pngBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

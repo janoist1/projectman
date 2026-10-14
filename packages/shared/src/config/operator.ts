@@ -256,6 +256,8 @@ const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   release_approvers: 'release',
   owners: 'member',
   permissions: 'member',
+  review_test: 'repos',
+  operator_watch: 'project',
 };
 
 /** A row for a rule that names a change the field-by-field comparison did not show; a safety net, not a path. */

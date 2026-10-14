@@ -8,9 +8,10 @@ import { routes } from '@projectman/shared';
 import type { HumanAccess, ProjectConfig } from '@projectman/shared';
 import { buildApp } from '../../src/app';
 import type { AppModules, BuildAppOptions } from '../../src/app';
-import type { BoundaryOperationAdapter, RuntimeBoundary } from '../../src/contracts';
-import { createTemplateRegistry, humanActor } from '../../src/domain';
-import type { ScheduleTimer } from '../../src/domain';
+import type { BoundaryOperationAdapter } from '../../src/contracts';
+import { createTemplateRegistry } from '../../src/core/base';
+import { humanActor } from '../../src/kernel';
+import type { ScheduleTimer } from '../../src/services/schedules';
 import { createRunnerModule } from '../../src/runner';
 import { FAKE_CLAUDE, FAKE_CODEX, FAKE_GEMINI, freePort } from '../../src/runner/test-helpers';
 import {
@@ -29,8 +30,6 @@ export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password
 export interface AppHarnessOptions {
   nanogptKeyCheck?: AppModules['nanogptKeyCheck'];
   boundaryAdapter?: BoundaryOperationAdapter;
-  /** The VM boundary (PM-140); default: none. */
-  runtimeBoundary?: RuntimeBoundary;
   webDistDir?: string;
   now?: () => Date;
   scheduleTimer?: ScheduleTimer;
@@ -44,6 +43,7 @@ export interface AppHarnessOptions {
   app?: Pick<
     BuildAppOptions,
     | 'doneCleanupDelayMs'
+    | 'screenQuestions'
     | 'doneTurnLimitMs'
     | 'clientIpHeader'
     | 'freeDiskBytes'
@@ -127,7 +127,6 @@ export async function createAppHarness(
   const modules: AppModules = {
     nanogptKeyCheck: opts.nanogptKeyCheck,
     boundaryAdapter: opts.boundaryAdapter,
-    runtimeBoundary: opts.runtimeBoundary,
     createRunnerModule: (o) => runnerModule.create(o),
     createMcpModule: real.mcp ? undefined : (o) => mcp.create(o),
     github,
@@ -174,10 +173,14 @@ export async function createAppHarness(
       webDistDir: opts.webDistDir ?? null,
       planUsageTtlMs: 0,
       doneCleanupDelayMs: 0,
+      // Questions go to the people at once, unless a test is about the Operator's screening (PM-558).
+      screenQuestions: false,
       // The tests must not depend on how full the disk they run on is.
       freeDiskBytes: async () => null,
       // Only the tests of the control command open the socket (PM-219).
       controlSocket: false,
+      // Fake sessions must not discover this machine's shared Claude directories.
+      claudeTmpRoots: [],
       ...opts.app,
       ...(cli
         ? {

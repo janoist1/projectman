@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthService } from '../auth';
-import type { Domain } from '../domain';
-import type { EngineRegistry } from '../domain';
+import type { ApiDomain } from './ports';
+import type { EngineRegistry } from '../runtime/sessions';
 import { registerEngineRoutes } from './engines';
 import { registerAttachmentRoutes } from './attachments';
 import { registerMessageAttachmentRoutes } from './message-attachments';
@@ -13,9 +13,9 @@ import { registerFeedbackRoutes } from './feedback';
 import { registerFeedbackWidgetRoutes } from './feedback-widget';
 import { registerProjectFocusRoutes } from './project-focus';
 import { registerBoundaryRoutes } from './boundary';
-import { registerRuntimeBoundaryRoutes } from './runtime-boundary';
 import { registerInvitationRoutes } from './invitations';
 import { registerMemberRoutes } from './members';
+import { registerOperatorRoutes } from './operator';
 import { registerProjectRoutes } from './projects';
 import { registerRoleRoutes } from './roles';
 import { registerPauseRoutes } from './pause';
@@ -23,14 +23,14 @@ import { registerMachineRoutes } from './machine';
 import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
+import { registerMergeRoutes } from './merges';
 
-export { apiError, registerErrorHandling, toApiError } from './errors';
-export { parseBody } from './validation';
+export type { ApiDomain } from './ports';
 
 /** What the routes call: the domain services and the accounts. */
 export interface ApiServices {
   engineRegistry?: EngineRegistry;
-  domain: Domain;
+  domain: ApiDomain;
   auth: AuthService;
   /** The header that names the real client behind a trusted entrance (see clientAddress). */
   clientIpHeader?: string;
@@ -44,7 +44,9 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerEngineRoutes(app, services);
   registerProviderRoutes(app, domain);
   registerProjectRoutes(app, services);
+  registerOperatorRoutes(app, services);
   registerTaskRoutes(app, domain);
+  registerMergeRoutes(app, domain);
   registerAttachmentRoutes(app, services);
   registerMessageAttachmentRoutes(app, services);
   registerMemberRoutes(app, domain);
@@ -63,7 +65,6 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
     widgetFile: services.feedbackWidgetFile ?? null,
   });
   registerBoundaryRoutes(app, domain);
-  registerRuntimeBoundaryRoutes(app, domain);
   registerConfigRoutes(app, domain);
   registerInvitationRoutes(app, services);
 }

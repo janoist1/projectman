@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { memberOf, operatorApprovalOf } from '@projectman/shared';
+import { memberOf, operatorApprovalOf, operatorWatchOf } from '@projectman/shared';
+import { humanActor } from '../src/kernel';
 import type { AiMemberConfig, OperatorOperation, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
@@ -58,6 +59,76 @@ const member = async (handle = 'dev-1') =>
 const resolve = (id: string, optionId = 'approve') => h.domain.inbox.resolve('AR', id, { optionId }, owner);
 
 describe('Operator actions and owner approvals (PM-464)', () => {
+  it('allows only the owner to change the watch level, including clearing it', async () => {
+    await setup();
+    const patchAs = async (operatorWatch: 'report' | 'unblock' | 'drive' | null, meta: typeof by) =>
+      h.domain.projects.patch(
+        'AR',
+        {
+          baseVersion: (await h.domain.projects.load('AR')).version,
+          operatorWatch,
+        },
+        meta,
+      );
+    const admin = { actor: humanActor('dana'), author: { name: 'Dana', email: 'dana@example.test' } };
+    const integrator = {
+      actor: { ...OWNER_ACTOR, via: 'integrator' as const },
+      author: { ...OWNER, via: 'integrator' as const },
+    };
+    const originalVersion = (await h.domain.projects.load('AR')).version;
+    for (const meta of [admin, integrator])
+      await expect(patchAs('unblock', meta)).rejects.toMatchObject({
+        code: meta === admin ? 'owner_only' : 'owner_login_required',
+        status: 403,
+      });
+    expect((await h.domain.projects.load('AR')).version).toBe(originalVersion);
+    expect(operatorWatchOf((await patchAs('drive', by)).config)).toBe('drive');
+    for (const meta of [admin, integrator])
+      await expect(patchAs(null, meta)).rejects.toMatchObject({
+        code: meta === admin ? 'owner_only' : 'owner_login_required',
+        status: 403,
+      });
+    const cleared = await patchAs(null, by);
+    expect(cleared.config.team).not.toHaveProperty('operatorWatch');
+    expect(operatorWatchOf(cleared.config)).toBe('report');
+    await expect(patchAs('report', admin)).resolves.toBeDefined();
+    await expect(patchAs(null, integrator)).resolves.toBeDefined();
+  });
+
+  it('changes and clears the watch level only after owner approval', async () => {
+    await setup(true);
+    for (const level of ['unblock', null] as const) {
+      const before = await h.domain.projects.config('AR');
+      const result = await operate({ op: 'config_patch', patch: { operatorWatch: level } });
+      expect(result.status).toBe('awaiting_approval');
+      expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))).toMatchObject({
+        consequence: 'operator_watch',
+        changes: [{ area: 'project', field: 'operatorWatch', level: 'approval', after: level }],
+      });
+      expect(await h.domain.projects.config('AR')).toEqual(before);
+      expect((await h.configStore.load('AR')).config.team.operatorWatch).toBe(before.team.operatorWatch);
+      await resolve(result.inbox_item_id!);
+      const config = await h.domain.projects.config('AR');
+      expect(operatorWatchOf(config)).toBe(level ?? 'report');
+      expect((await h.configStore.load('AR')).config.team.operatorWatch).toBe(level ?? undefined);
+      if (level === null) {
+        expect(config.team).not.toHaveProperty('operatorWatch');
+        expect((await h.configStore.load('AR')).config.team).not.toHaveProperty('operatorWatch');
+      }
+    }
+    h = await restartDomainHarness(h);
+    expect(operatorWatchOf(await h.domain.projects.config('AR'))).toBe('report');
+  });
+
+  it('keeps the approved watch level in project state after a server restart', async () => {
+    await setup(true);
+    const result = await operate({ op: 'config_patch', patch: { operatorWatch: 'unblock' } });
+    await resolve(result.inbox_item_id!);
+    h = await restartDomainHarness(h);
+    expect((await h.domain.projectState.overview('AR')).operatorWatch).toBe('unblock');
+    expect((await h.domain.projects.config('AR')).team.operatorWatch).toBe('unblock');
+  });
+
   it.each(['config_changed', 'session_ended', 'pause_changed'] as const)(
     'does not hold later %s listeners while an approval recheck is pending',
     async (event) => {
@@ -229,6 +300,95 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     expect((await h.domain.projects.history('AR')).some((row) => row.approvedBy === 'owner')).toBe(false);
   });
 
+  it('sets and removes the full test of a repository only after the owner approves (PM-538)', async () => {
+    await setup();
+    const reviewTest = { command: 'npm run merge-test', maxWorkers: 4, timeoutMinutes: 30 };
+    const repo = async () => (await h.domain.projects.config('AR')).project.repos[0]!;
+    const set = await operate({
+      op: 'config_patch',
+      patch: { repoReviewTest: [{ repo: 'web', reviewTest }] },
+    });
+    expect(set.status).toBe('awaiting_approval');
+    const item = h.domain.inbox.get('AR', set.inbox_item_id!);
+    expect(operatorApprovalOf(item)).toMatchObject({
+      consequence: 'review_test',
+      changes: [
+        {
+          area: 'repos',
+          target: 'web',
+          field: 'reviewTest',
+          before: null,
+          after: '{"command":"npm run merge-test","maxWorkers":4,"timeoutMinutes":30}',
+          level: 'approval',
+        },
+      ],
+    });
+    expect(await repo()).not.toHaveProperty('reviewTest');
+    await resolve(item.id);
+    expect(await repo()).toMatchObject({ reviewTest });
+    expect((await h.domain.projects.history('AR'))[0]).toMatchObject({
+      operator: 'operator',
+      approvedBy: 'owner',
+    });
+
+    const removed = await operate({
+      op: 'config_patch',
+      patch: { repoReviewTest: [{ repo: 'web', reviewTest: null }] },
+    });
+    expect(operatorApprovalOf(h.domain.inbox.get('AR', removed.inbox_item_id!))).toMatchObject({
+      consequence: 'review_test',
+      changes: [{ field: 'reviewTest', before: expect.stringContaining('merge-test'), after: null }],
+    });
+    await resolve(removed.inbox_item_id!);
+    expect(await repo()).not.toHaveProperty('reviewTest');
+  });
+
+  it('asks for approval for fullTestAtMerge too, and refuses an unknown repository (PM-538)', async () => {
+    await setup();
+    const result = await operate({
+      op: 'config_patch',
+      patch: { repoFullTestAtMerge: [{ repo: 'web', fullTestAtMerge: true }] },
+    });
+    expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))).toMatchObject({
+      consequence: 'review_test',
+      changes: [{ field: 'fullTestAtMerge', after: 'true' }],
+    });
+    await expect(
+      operate({
+        op: 'config_patch',
+        patch: { repoReviewTest: [{ repo: 'ghost', reviewTest: null }] },
+      }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('unknown_repo') });
+  });
+
+  it('does not let a non-owner approve a full test change (PM-538)', async () => {
+    await setup();
+    const result = await operate({
+      op: 'config_patch',
+      patch: {
+        repoReviewTest: [{ repo: 'web', reviewTest: { command: 'true', maxWorkers: 2, timeoutMinutes: 15 } }],
+      },
+    });
+    await expect(
+      h.domain.inbox.resolve(
+        'AR',
+        result.inbox_item_id!,
+        { optionId: 'approve' },
+        { handle: 'dana', access: 'admin' },
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      h.domain.inbox.resolve(
+        'AR',
+        result.inbox_item_id!,
+        { optionId: 'approve' },
+        { ...owner, via: 'integrator' },
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(await h.domain.projects.config('AR')).toMatchObject({ project: { repos: [{ name: 'web' }] } });
+    expect((await h.domain.projects.config('AR')).project.repos[0]).not.toHaveProperty('reviewTest');
+  });
+
   it('rejects integrator decisions and non-owner human decisions', async () => {
     await setup();
     const result = await operate(network());
@@ -374,11 +534,49 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     const task = await h.domain.tasks.create('AR', { title: 'Write', stageId: 'ready' }, OWNER_ACTOR);
     const first = await h.domain.teamTools.startTask(ctx, { taskKey: task.key, assignee: 'dev-1' });
     expect(first.session_id).toBeTruthy();
+    expect(first.assignee).toBe('dev-1');
     expect(h.domain.tasks.get('AR', task.key).stageId).toBe('development');
     await h.domain.sessions.stop('AR', first.session_id!);
     const second = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
     expect(second.session_id).toBeTruthy();
     expect(h.domain.sessions.isRunning(second.session_id!)).toBe(true);
+  });
+
+  it('names a refused leave start and records no waiting start', async () => {
+    await setup(false, (config) => {
+      (memberOf(config, 'dev-1') as AiMemberConfig).onLeave = true;
+    });
+    const task = await h.domain.tasks.create('AR', { title: 'Write', stageId: 'ready' }, OWNER_ACTOR);
+    await expect(
+      h.domain.teamTools.startTask(ctx, { taskKey: task.key, assignee: 'dev-1' }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('member_on_leave') });
+    expect(h.domain.tasks.get('AR', task.key)).toMatchObject({ stageId: 'ready', assignee: null });
+    expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+    const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
+    expect(h.repos.operatorRequests.steps(request.id).at(-1)).toMatchObject({
+      action: 'task_start',
+      status: 'refused',
+      refusal: { code: 'member_on_leave' },
+    });
+  });
+
+  it('reports which Senior the card waits for without assigning a developer', async () => {
+    await setup(false, (config) => {
+      (memberOf(config, 'dev-2') as AiMemberConfig).senior = true;
+    });
+    const busy = await h.domain.tasks.create('AR', { title: 'Busy', stageId: 'ready' }, OWNER_ACTOR);
+    await h.domain.teamTools.startTask(ctx, { taskKey: busy.key, assignee: 'dev-2' });
+    const task = await h.domain.tasks.create(
+      'AR',
+      {
+        title: 'Senior work',
+        stageId: 'ready',
+        developerLevel: { level: 'senior', reason: 'Runner changes' },
+      },
+      OWNER_ACTOR,
+    );
+    const result = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
+    expect(result).toMatchObject({ assignee: null, session_id: null, senior_wait: { seniors: ['dev-2'] } });
   });
 
   it('honors the explicit prerequisite override only for the owner-requested Operator start', async () => {
@@ -422,6 +620,8 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     const task = await h.domain.tasks.create('AR', { title: 'Screen', stageId: 'ready' }, OWNER_ACTOR);
     const result = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
     expect(result.session_id).toBeNull();
+    expect(result.awaiting).toEqual({ labels: ['design-ok'], members: ['des'] });
+    expect(result.assignee).toBeNull();
     expect(h.domain.sessions.list('AR', { taskKey: task.key }).map((s) => s.member)).toEqual(['des']);
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toMatchObject({
       reason: 'label_missing',

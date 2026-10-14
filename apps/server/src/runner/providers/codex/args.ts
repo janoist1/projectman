@@ -23,7 +23,7 @@ import { sanitizeMessage } from '../../typing';
  *   at its dots), so the trust screen never shows;
  * - the project's CLAUDE.md as the fallback when a repository has no AGENTS.md;
  * - the local restricted-read permission profile and approval policy mapped from the member's
- *   permission mode; only managed VM sessions use legacy sandbox flags.
+ *   permission mode.
  * `--dangerously-bypass-hook-trust` lets our hooks run without the one-time review in /hooks.
  */
 
@@ -348,18 +348,11 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     c(`hooks.${event}`, hookGroups(command, timeoutS));
   }
 
-  const managed = spec.policy?.execution?.profile === 'managed_vm';
   const permissions = spec.policy?.permissions ?? codexPermissions(spec.permissionMode);
-  // The managed VM's boundary is outside the CLI: no local approval, no inner sandbox. `plan`
-  // stays research-only (`read-only`); nothing in this profile is ever the legacy `workspace-write`.
-  if (managed && permissions.approval !== 'never')
-    throw new Error('The managed VM profile asks nothing locally; refusing a policy that does.');
-  if (managed && permissions.sandbox === 'workspace-write')
-    throw new Error('The managed VM profile has no inner sandbox; refusing a workspace-write policy.');
-  if (!managed && permissions.sandbox === 'danger-full-access')
-    throw new Error('Codex runs without its sandbox only in the managed VM profile; refusing to start.');
-  // What our sandbox shares with Codex's own (the heavy-run queue folder, PM-346). Not in the managed VM.
-  const portable = managed ? undefined : spec.sandbox?.portable;
+  if (permissions.sandbox === 'danger-full-access')
+    throw new Error('Codex requires its sandbox; refusing to start.');
+  // What our sandbox shares with Codex's own (the heavy-run queue folder, PM-346).
+  const portable = spec.sandbox?.portable;
   const writes = permissions.sandbox === 'workspace-write';
   // The commands' own temporary directory (PM-339): their TMPDIR and a writable root, while the
   // shared ones (`/tmp`, the CLI's TMPDIR) are closed. Only where the sandbox writes.
@@ -372,20 +365,19 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     ...(portable?.allowWrite ?? []),
     ...(tmpDir ? [tmpDir] : []),
   ];
-  if (!managed) {
-    c('default_permissions', CODEX_PERMISSION_PROFILE);
-    c(
-      `permissions.${CODEX_PERMISSION_PROFILE}`,
-      codexPermissionProfile({
-        sandbox: writes ? 'workspace-write' : 'read-only',
-        deniedPaths: codexDeniedPaths(input),
-        writableRoots,
-        readOnlyPaths: sharedGit?.readOnly ?? [],
-        tmpDir,
-        cliPath: input.cliPath,
-      }),
-    );
-  }
+  c('default_permissions', CODEX_PERMISSION_PROFILE);
+  c(
+    `permissions.${CODEX_PERMISSION_PROFILE}`,
+    codexPermissionProfile({
+      sandbox: writes ? 'workspace-write' : 'read-only',
+      deniedPaths: codexDeniedPaths(input),
+      writableRoots,
+      readOnlyPaths: sharedGit?.readOnly ?? [],
+      tmpDir,
+      cliPath: input.cliPath,
+    }),
+  );
+
   // Every command sees them, also one run outside the sandbox after a question.
   // The browsers belong to a writing sandbox. A read-only one still names the session folder (PM-522):
   // the server puts files there, and the sandbox reads it without writing it.
@@ -401,7 +393,6 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   // The built-in image viewer (not a sandboxed command, so it asks nothing) opens the session folder's
   // images; it respects the denied paths, and the read-only profile reads the folder (PM-522).
   if (portable?.env['PROJECTMAN_SESSION_DIR']) c('tools.view_image', true);
-  if (managed) args.push('--sandbox', permissions.sandbox);
   args.push('--ask-for-approval', permissions.approval);
   args.push('--model', modelForProvider(input.provider?.id ?? 'codex', spec.model));
   c('model_reasoning_effort', spec.effort === 'max' ? 'xhigh' : (spec.effort ?? DEFAULT_CODEX_EFFORT));

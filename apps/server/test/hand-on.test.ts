@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { handOnRequestOf } from '@projectman/shared';
 import type { CardMover, ProjectConfig } from '@projectman/shared';
 import { migrateProjectConfig } from '../src/config/migrations';
-import { aiActor, SYSTEM_ACTOR } from '../src/domain';
+import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
 import { TEAM_TOOLS } from '../src/mcp';
 import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
 import {
@@ -19,20 +19,28 @@ import { joinNames, t } from '../../i18n/t';
 import {
   FREE_ANSWER_OPTION_ID,
   alertText,
+  askerStartNote,
   boundaryOf,
+  closedReasonOf,
   delegationNote,
+  displayKindOf,
   fixLimitDecisionText,
   gateMoveText,
   gateThenMergeText,
   inboxHeading,
   inboxItemDomId,
+  isTodo,
   loopDecisionText,
+  operatorFallbackOf,
+  operatorNoteOf,
+  rerouteReasonOf,
   seniorWaitDecisionText,
   optionLabel,
   payloadCode,
   permissionTool,
   questionExtras,
   splitQuestion,
+  todoRows,
   withConsequences,
 } from '../../lib/inbox';
 import type { ApprovalHint } from '../../lib/inbox';
@@ -92,6 +100,13 @@ export interface InboxCardProps {
    * a plain line (the card is not on the board). Left out, the row stays the card's title (the drawer's cards).
    */
   taskHref?: string | null;
+  /**
+   * The question closed while the viewer had it open (PM-556): the card keeps its place and says so.
+   * `closed`: it closed by itself, so with nothing typed and the focus elsewhere `onDismissGone` takes the
+   * card away at once; `refused`: the server refused the viewer's answer as the question is closed.
+   */
+  closedWhileOpen?: 'closed' | 'refused' | null;
+  onDismissGone?: () => void;
 }
 
 /** The card row: the key (mono, bold) and the title, two lines at most; a link when the card can be opened. */
@@ -174,9 +189,13 @@ export function InboxCard({
   approvalHint = null,
   cardHref = null,
   taskHref,
+  closedWhileOpen = null,
+  onDismissGone,
 }: InboxCardProps) {
   const operatorApproval = operatorApprovalOf(item);
   const handOn = handOnRequestOf(item);
+  // A question the Operator made a todo of (PM-556): the result field is always open, with two buttons.
+  const todo = isTodo(item);
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
   const choices = withConsequences(
     item,
@@ -184,7 +203,9 @@ export function InboxCard({
   );
   const allowsFreeAnswer =
     item.kind === 'question' && (answerOption !== undefined || item.options.length === 0);
-  const [answering, setAnswering] = useState(allowsFreeAnswer && choices.length === 0);
+  const [answering, setAnswering] = useState(todo || (allowsFreeAnswer && choices.length === 0));
+  const cardRef = useRef<HTMLElement>(null);
+  const [leaving, setLeaving] = useState(false);
   const [answer, setAnswer] = useState('');
   const [answerError, setAnswerError] = useState<string | null>(null);
   const answerId = useId();
@@ -215,6 +236,37 @@ export function InboxCard({
     if (answerBlocked) return;
     onResolve(item, { ...body, ...(attachmentIds.length ? { attachmentIds } : {}) });
   };
+  const hasDraft = answer.trim() !== '' || uploads.items.length > 0;
+  useEffect(() => {
+    if (closedWhileOpen !== 'closed') return;
+    const focused = cardRef.current?.contains(document.activeElement) ?? false;
+    if (!hasDraft && !focused) onDismissGone?.();
+    // Decided once, at the moment the question closes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closedWhileOpen]);
+  const dismissGone = () => {
+    const calm =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (calm) {
+      onDismissGone?.();
+      return;
+    }
+    setLeaving(true);
+    window.setTimeout(() => onDismissGone?.(), 250);
+  };
+  // Done and "Cannot do it" on a todo: the reason of the second is required (PM-556).
+  const pickTodo = (option: InboxOption) => {
+    if (answerBlocked) return;
+    const text = answer.trim();
+    if (option.id === 'todo_cannot' && !text) {
+      setAnswerError(t('inbox.todo.reasonRequired'));
+      answerInput.current?.focus();
+      return;
+    }
+    setAnswerError(null);
+    resolveAnswer({ optionId: option.id, ...(text ? { note: text } : {}) });
+  };
   const source = members.get(item.source);
   const code = payloadCode(item);
   const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline, labels) : null;
@@ -239,6 +291,14 @@ export function InboxCard({
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
   const extras = questionExtras(item);
+  // What came with a question from an AI member (PM-556): the Operator's word, why it did not look, why it is asked again.
+  const displayKind = displayKindOf(item);
+  const open = item.state === 'open';
+  const operatorNote = open ? operatorNoteOf(item) : null;
+  const steps = todo ? todoRows(item) : [];
+  const fallback = open ? operatorFallbackOf(item) : null;
+  const rerouted = open ? rerouteReasonOf(item) : null;
+  const startNote = open && !assignedToOthers ? askerStartNote(item, members, myHandle) : null;
   const boundary = boundaryOf(item);
   const delegation = delegationNote(item, members, myHandle);
   // The system is no member (disk space, loops): it shows as the timeline shows it.
@@ -264,6 +324,7 @@ export function InboxCard({
     fixLimitText !== null ||
     seniorWaitText !== null ||
     (item.kind === 'question' &&
+      !todo &&
       (extras.recommendedOptionId !== null || choices.some((option) => option.consequence)));
 
   const submitAnswer = () => {
@@ -275,6 +336,75 @@ export function InboxCard({
     setAnswerError(null);
     resolveAnswer({ optionId: FREE_ANSWER_OPTION_ID, note: answer.trim() });
   };
+
+  const attachButton = answering ? (
+    <Button
+      variant="ghost"
+      icon="paperclip"
+      size={buttonSize}
+      disabled={pending}
+      title={t('messageAttachments.addTitle')}
+      onClick={() => picker.current?.click()}
+    >
+      {t('messageAttachments.add')}
+    </Button>
+  ) : null;
+
+  const headRow = (
+    <div className={styles.head}>
+      <Chip tone="kind">{t(`inbox.kinds.${displayKind}`)}</Chip>
+      {fromSystem ? (
+        <span className={styles.systemIcon} aria-hidden="true">
+          <Icon name="layers" size={13} strokeWidth={2} />
+        </span>
+      ) : (
+        <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
+      )}
+      <span className={styles.source}>
+        {fromSystem ? t('common.system') : nameOf(item.source, members, myHandle)}
+      </span>
+      <span className={styles.spacer} />
+      <time className={styles.time} dateTime={item.createdAt}>
+        {formatAgo(item.createdAt)}
+      </time>
+    </div>
+  );
+
+  // The question closed while the viewer had it open (PM-556): the card says so and keeps the place until "Rendben".
+  if (closedWhileOpen) {
+    const reason = closedReasonOf(item);
+    return (
+      <article
+        ref={cardRef}
+        id={inboxItemDomId(item.id)}
+        className={clsx(
+          styles.card,
+          styles.gone,
+          leaving && styles.leaving,
+          compact && styles.compact,
+          mobile && styles.mobile,
+        )}
+        data-kind={displayKind}
+      >
+        {headRow}
+        {taskRow}
+        <Heading className={styles.title}>{heading}</Heading>
+        <div className={styles.goneBox} role="status">
+          <p>
+            <strong>
+              {reason ? t('inbox.closedWhileOpen.leadWithReason') : t('inbox.closedWhileOpen.leadPlain')}
+            </strong>{' '}
+            {reason ? t('inbox.closedWhileOpen.withReason', { reason }) : t('inbox.closedWhileOpen.plain')}
+          </p>
+          <div className={styles.actions}>
+            <Button variant="secondary" size={buttonSize} disabled={leaving} onClick={dismissGone}>
+              {t('inbox.closedWhileOpen.dismiss')}
+            </Button>
+          </div>
+        </div>
+      </article>
+    );
+  }
 
   // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
   if (operatorApproval) {
@@ -336,29 +466,14 @@ export function InboxCard({
 
   return (
     <article
+      ref={cardRef}
       id={inboxItemDomId(item.id)}
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
-      data-kind={item.kind}
+      data-kind={displayKind}
       data-alert={outageAlert ? 'work_outage' : releaseAlert ? 'release_failed' : undefined}
       data-severity={releaseAlert && isReleaseDown(releaseAlert) ? 'down' : undefined}
     >
-      <div className={styles.head}>
-        <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
-        {fromSystem ? (
-          <span className={styles.systemIcon} aria-hidden="true">
-            <Icon name="layers" size={13} strokeWidth={2} />
-          </span>
-        ) : (
-          <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
-        )}
-        <span className={styles.source}>
-          {fromSystem ? t('common.system') : nameOf(item.source, members, myHandle)}
-        </span>
-        <span className={styles.spacer} />
-        <time className={styles.time} dateTime={item.createdAt}>
-          {formatAgo(item.createdAt)}
-        </time>
-      </div>
+      {headRow}
       {taskRow}
       <Heading className={styles.title} tabIndex={-1} data-inbox-title="">
         {heading}
@@ -435,6 +550,34 @@ export function InboxCard({
       ) : null}
       {extras.details ? <QuestionDetails text={extras.details} /> : null}
       <QuestionAttachments item={item} projectKey={item.projectKey} />
+      {steps.length > 0 ? (
+        <section className={styles.steps} aria-labelledby={`${answerId}-steps`}>
+          <h3 id={`${answerId}-steps`} className={styles.stepsTitle}>
+            {t('inbox.todo.stepTitle')}
+          </h3>
+          <dl className={styles.stepsList}>
+            {steps.map((row) => (
+              <Fragment key={row.label}>
+                <dt>{row.label}</dt>
+                <dd>{row.value}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </section>
+      ) : null}
+      {operatorNote ? (
+        <p className={styles.operatorNote}>
+          <span className={styles.operatorAvatar} aria-hidden="true">
+            OP
+          </span>
+          <span>
+            <strong>{t('inbox.operatorNote')}</strong> {operatorNote}
+          </span>
+        </p>
+      ) : null}
+      {fallback ? <p className={styles.note}>{t(`inbox.operatorFallback.${fallback}`)}</p> : null}
+      {rerouted ? <p className={styles.note}>{t('inbox.rerouted', { reason: rerouted })}</p> : null}
+      {startNote ? <p className={styles.note}>{startNote}</p> : null}
       {code ? (
         <div className={styles.codeWrap}>
           {tool ? (
@@ -474,7 +617,14 @@ export function InboxCard({
             </div>
           ) : null}
           <label htmlFor={answerId} className={styles.answerLabel}>
-            {t('inbox.answerLabel')}
+            {todo ? (
+              <>
+                {t('inbox.todo.resultLabel')}{' '}
+                <span className={styles.optional}>{t('inbox.todo.resultOptional')}</span>
+              </>
+            ) : (
+              t('inbox.answerLabel')
+            )}
           </label>
           <textarea
             ref={answerInput}
@@ -482,8 +632,11 @@ export function InboxCard({
             className={styles.answerInput}
             rows={2}
             value={answer}
-            placeholder={t('inbox.answerPlaceholder')}
-            onChange={(event) => setAnswer(event.target.value)}
+            placeholder={todo ? t('inbox.todo.resultPlaceholder') : t('inbox.answerPlaceholder')}
+            onChange={(event) => {
+              setAnswer(event.target.value);
+              if (todo) setAnswerError(null);
+            }}
             aria-invalid={answerError ? true : undefined}
             aria-describedby={answerHelp ? `${answerId}-error` : undefined}
             onPaste={(event) => {
@@ -571,24 +724,19 @@ export function InboxCard({
           ) : null}
         </div>
       ) : (
-        <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>
-          {answering ? (
+        <div
+          className={clsx(
+            styles.actions,
+            item.kind === 'permission' && styles.actionsTop,
+            todo && styles.todoActions,
+          )}
+        >
+          {answering && !todo ? (
             <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={answerBlocked}>
               {t('inbox.answerSubmit')}
             </Button>
           ) : null}
-          {answering ? (
-            <Button
-              variant="ghost"
-              icon="paperclip"
-              size={buttonSize}
-              disabled={pending}
-              title={t('messageAttachments.addTitle')}
-              onClick={() => picker.current?.click()}
-            >
-              {t('messageAttachments.add')}
-            </Button>
-          ) : null}
+          {todo ? null : attachButton}
           {item.kind === 'permission' ? (
             <PermissionActions
               options={choices}
@@ -611,14 +759,20 @@ export function InboxCard({
                 <Button
                   key={option.id}
                   variant={
-                    answering || alertPayload?.alert === 'feedback_forwarded'
-                      ? 'secondary'
-                      : variantFor[option.style]
+                    todo
+                      ? option.id === 'todo_done'
+                        ? 'primary'
+                        : 'ghost'
+                      : answering || alertPayload?.alert === 'feedback_forwarded'
+                        ? 'secondary'
+                        : variantFor[option.style]
                   }
                   size={buttonSize}
                   disabled={answerBlocked}
                   onClick={() =>
-                    resolveAnswer({ optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
+                    todo
+                      ? pickTodo(option)
+                      : resolveAnswer({ optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
                   }
                 >
                   {optionLabel(option)}
@@ -626,6 +780,7 @@ export function InboxCard({
               ))}
             </>
           )}
+          {todo ? attachButton : null}
           {outageAlert && item.state === 'open' ? (
             <OutageCheck item={item} size={buttonSize === 'xl' ? 'xl' : 'lg'} />
           ) : null}

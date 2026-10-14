@@ -7,6 +7,7 @@ export const ERROR_CODES = [
   'operator_signal_closed',
   'merge_not_merger',
   'merge_not_ready',
+  'merge_not_prioritizable',
   'merge_fix_not_allowed',
   'merge_fix_invalid',
   'merge_fix_engine_mismatch',
@@ -143,6 +144,12 @@ export const ERROR_CODES = [
   'no_assignees',
   'unknown_option',
   'answer_required',
+  // The Operator screens AI members' questions (PM-558): a task the person cannot do needs a reason; the
+  // question is not in screening; the outcome's fields do not fit; the question may not be asked again unscreened.
+  'todo_reason_required',
+  'question_not_screening',
+  'invalid_outcome_fields',
+  'reask_not_allowed',
   'ai_approval_forbidden',
   'not_a_recipient',
   // AI work: admission, task starts, schedules and sessions
@@ -178,8 +185,6 @@ export const ERROR_CODES = [
   'provider_unsupported',
   'nanogpt_key_rejected',
   'session_start_failed',
-  // The question-free managed VM profile (PM-141): its boundary is not verified, or a CLI does not fit
-  'managed_vm_unavailable',
   // A standby copy of the installation (PM-143, `instance.json`): only the active instance starts AI work
   'instance_standby',
   // Member workspaces (PM-138)
@@ -188,8 +193,6 @@ export const ERROR_CODES = [
   'workspace_fetch_failed',
   'workspace_branch_missing',
   'workspace_source_missing',
-  // The VM boundary (PM-140): its readiness or a part of it failed, so no session starts.
-  'runtime_boundary_not_ready',
   // The fix round limit (PM-262): the card is not held, the caller does not decide it, nobody can plan.
   'fix_limit_not_held',
   'fix_limit_not_decider',
@@ -217,6 +220,10 @@ export const ERROR_CODES = [
   'operator_never',
   'operator_only',
   'operator_approval_stale',
+  // The Operator's own steps on a system signal (PM-545): no more steps left, or too soon after the last;
+  // a start_member on a card for a member with no role on it.
+  'operator_signal_budget',
+  'not_card_role',
   // The Operator's documents (PM-495): not set up; an edit that does not apply (422); a log line that would
   // change; no change at all; the file moved on since it was read; a write already waits or runs (409);
   // the write did not go up (409).

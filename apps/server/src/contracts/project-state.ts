@@ -1,5 +1,14 @@
-import type { InboxKind, SessionState, StageKind, StartBlock, TaskStartWaiting } from '@projectman/shared';
-import type { TaskWait, OperatorSignal } from '@projectman/shared';
+import type {
+  InboxKind,
+  SessionState,
+  StageKind,
+  StaleReason,
+  StartBlock,
+  TaskStartWaiting,
+  WakeBlock,
+  WorkItemRef,
+} from '@projectman/shared';
+import type { TaskWait, OperatorSignal, OperatorWatch } from '@projectman/shared';
 
 export interface TaskStateReport {
   taskKey: string;
@@ -18,11 +27,72 @@ export interface TaskStateReport {
   signals: OperatorSignal[];
 }
 
+export interface ReleaseStateReport {
+  running: { version: string; commit: string | null; tag: string | null };
+  latestLive: {
+    id: string;
+    taskKey: string;
+    tag: string | null;
+    commit: string;
+    liveAt: string | null;
+  } | null;
+  open: {
+    id: string;
+    taskKey: string;
+    state: 'proposed' | 'approved' | 'deploying';
+    commit: string;
+    proposedBy: string;
+  } | null;
+  /** The last merges of cards into the release repository, newest first. */
+  recentMerges: Array<{
+    taskKey: string;
+    title: string;
+    commit: string | null;
+    at: string | null;
+    by: string | null;
+  }>;
+}
+
 export interface ProjectStateReport {
+  operatorWatch: OperatorWatch;
   paused: { project: boolean; instance: boolean };
   stages: Array<{ stageId: string; count: number }>;
   sessions: Array<{ id: string; member: string; taskKey: string | null; state: SessionState; since: string }>;
-  waitingStarts: Array<{ taskKey: string; member: string | null; reason: TaskStartWaiting['reason'] }>;
+  /** taskKey null: a start without a card (it goes to a general conversation), e.g. a wake-up for a message. */
+  waitingStarts: Array<{
+    taskKey: string | null;
+    member: string | null;
+    reason: TaskStartWaiting['reason'];
+  }>;
   openOwnerItems: Array<{ id: string; kind: InboxKind; taskKey: string | null; title: string }>;
   signals: OperatorSignal[];
+  /** null: this instance does not release this project (no release target, or another project's). */
+  release: ReleaseStateReport | null;
+  /** The undelivered team messages of the AI members, per member; a member with none is left out. */
+  waitingMessages: Array<{ member: string; count: number; oldestAt: string }>;
+}
+
+/** What became of one team message for each recipient (PM-543), from today's facts. */
+export interface MessageStateReport {
+  messageId: string;
+  from: string;
+  taskKey: string | null;
+  kind: 'action' | 'info';
+  sentAt: string;
+  recipients: Array<{
+    handle: string;
+    human: boolean;
+    deliveredAt: string | null;
+    /** Where the recipient gets it: the receipt's route, else the card's (or the general chat). */
+    route: WorkItemRef;
+    /** The recipient's live session on that route. */
+    session: { id: string; state: SessionState; since: string } | null;
+    /** The admission deferral of the recipient's start on that route. */
+    waiting: { reason: TaskStartWaiting['reason']; since: string } | null;
+    /** The last failed start on that route since the server started (MessageStarts memory). */
+    lastStartFailure: { code: string; at: string } | null;
+    /** Why it does not wake, from today's facts. */
+    noWake: WakeBlock | 'info' | null;
+    stale: StaleReason | null;
+  }>;
 }

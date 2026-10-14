@@ -1,11 +1,57 @@
 import { appendFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tempDirs, waitFor } from '../test-helpers';
 import { TranscriptTailer } from './tailer';
 
 const dirs = tempDirs();
 afterEach(() => dirs.cleanup());
+
+describe('TranscriptTailer facade timers', () => {
+  const tailers: TranscriptTailer[] = [];
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    for (const tailer of tailers.splice(0)) tailer.stop();
+    vi.useRealTimers();
+  });
+
+  it('polls exactly at its interval and cancels its timer on stop', async () => {
+    const tailer = new TranscriptTailer({
+      path: path.join(await dirs.make(), 'missing.jsonl'),
+      from: 'start',
+      onLines: () => undefined,
+      pollIntervalMs: 20,
+    });
+    tailers.push(tailer);
+    const poll = vi.spyOn(tailer, 'poll');
+    await tailer.start();
+    expect(vi.getTimerCount()).toBe(1);
+    expect(poll).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(19);
+    expect(poll).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(poll).toHaveBeenCalledTimes(2);
+    tailer.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(poll).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves no timer or poll when stopped while start awaits the file size', async () => {
+    const file = path.join(await dirs.make(), 'existing.jsonl');
+    await writeFile(file, '{"old":1}\n');
+    const tailer = new TranscriptTailer({ path: file, from: 'end', onLines: () => undefined });
+    tailers.push(tailer);
+    const poll = vi.spyOn(tailer, 'poll');
+    const started = tailer.start();
+    tailer.stop();
+    await started;
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(poll).not.toHaveBeenCalled();
+  });
+});
 
 function collect() {
   const lines: string[] = [];

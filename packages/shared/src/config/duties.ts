@@ -187,7 +187,7 @@ export function isWorkingInStage(
   return stage.kind !== 'queue' && stage.kind !== 'done' && stage.owners.includes(handle);
 }
 /** Session states of a live session: a process that runs (or starts) for its work item. */
-const LIVE_SESSION_STATES: SessionState[] = [
+export const LIVE_SESSION_STATES: SessionState[] = [
   'starting',
   'idle',
   'working',

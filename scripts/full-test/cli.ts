@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import Fastify from 'fastify';
-import { fullTestSandbox } from '../../apps/server/src/domain';
+import { fullTestSandbox } from '../../apps/server/src/runtime/sessions';
 import { createFullTestExecutor, defaultHeavyLockDir, quoteShellWord } from '../../apps/server/src/full-test';
 import { parseFullTestArgs } from './args';
 

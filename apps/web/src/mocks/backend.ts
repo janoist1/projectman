@@ -60,6 +60,7 @@ import {
   SetupRequest,
   StartTaskRequest,
   StartMergeRequest,
+  PrioritizeMergeRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
@@ -2108,6 +2109,9 @@ export class MockBackend {
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/merge$/.exec(rest)) && method === 'POST') {
       return this.startMerge(m[1]!, body);
     }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/merge\/prioritize$/.exec(rest)) && method === 'POST') {
+      return this.prioritizeMerge(m[1]!, body);
+    }
 
     if (
       (m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/(cancel|reopen|close-theme)$/.exec(rest)) &&
@@ -2386,6 +2390,7 @@ export class MockBackend {
         ),
       });
     }
+    if (rest === '/inbox/screened' && method === 'GET') return this.screenedQuestions(query);
     if ((m = /^\/boundary\/([\w-]+)$/.exec(rest)) && method === 'GET') {
       this.refreshBoundaryInbox();
       const item = this.inbox.find((i) => i.id === m![1] && i.kind === 'boundary');
@@ -3883,6 +3888,42 @@ export class MockBackend {
     });
     this.closeMergeItems(task, merge.id, this.viewerHandle);
     return ok({ task: clone(task) });
+  }
+
+  /**
+   * The prioritize route: the card's merger or an owner puts its queued merge first. The fake has no queue
+   * order of its own; it keeps the timeline entry the server writes, listing the queued merges of the repository.
+   */
+  private prioritizeMerge(taskKey: string, body?: unknown): MockResponse {
+    const parsed = PrioritizeMergeRequest.safeParse(body ?? {});
+    if (!parsed.success) return error(400, 'invalid_request', 'Invalid prioritize request');
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    const viewer = memberOf(this.config, this.viewerHandle);
+    if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
+      return error(403, 'insufficient_access', 'Requires developer access');
+    const merge = task.merge;
+    const owner = viewer?.kind === 'human' && viewer.access === 'owner';
+    if (merge && merge.merger !== this.viewerHandle && !owner)
+      return error(403, 'merge_not_merger', 'Only the card merger or an owner may move a merge forward');
+    if (!merge || merge.state !== 'queued')
+      return error(409, 'merge_not_prioritizable', 'Only a queued merge can be moved forward', {
+        reason: !merge ? 'no_merge' : merge.state === 'running' ? 'running' : 'not_queued',
+      });
+    const ahead = this.tasks
+      .filter(
+        (other) =>
+          other.key !== task.key && other.merge?.state === 'queued' && other.merge.repo === merge.repo,
+      )
+      .map((other) => other.key);
+    if (ahead.length === 0) return ok({ task: clone(task), moved: false });
+    this.addTimeline(taskKey, this.viewerHandle, 'task_merge_prioritized', {
+      mergeId: merge.id,
+      repo: merge.repo,
+      reason: parsed.data.reason,
+      ahead,
+    });
+    return ok({ task: clone(task), moved: true });
   }
 
   /**
@@ -5765,6 +5806,33 @@ export class MockBackend {
     this.settleSeniorWaits();
   }
 
+  /**
+   * The questions the Operator screened (PM-556), for an owner or an admin: those it still holds, and those it
+   * settled itself (answered, forwarded, or found moot) since the given time, newest first, at most 20.
+   */
+  private screenedQuestions(query: URLSearchParams): MockResponse {
+    if (!['owner', 'admin'].includes(this.viewerAccess()))
+      return error(403, 'insufficient_access', 'Only an admin sees what the Operator screened');
+    const since = query.get('since');
+    if (!since || Number.isNaN(Date.parse(since))) return error(400, 'invalid_request', 'Invalid since');
+    const settled = (item: InboxItem): boolean => {
+      if (item.kind !== 'question') return false;
+      const screening = questionPayloadOf(item)?.screening;
+      if (!screening) return false;
+      if (item.state === 'screening') return true;
+      return (
+        screening.outcome === 'answered' ||
+        screening.outcome === 'forwarded' ||
+        item.resolution?.rule === 'operator_moot'
+      );
+    };
+    const timeOf = (item: InboxItem) => item.resolution?.at ?? item.createdAt;
+    const all = this.inbox
+      .filter((item) => settled(item) && Date.parse(timeOf(item)) >= Date.parse(since))
+      .sort((a, b) => timeOf(b).localeCompare(timeOf(a)));
+    return ok({ items: clone(all.slice(0, 20)), today: all.length });
+  }
+
   private resolve(itemId: string, body: unknown): MockResponse {
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
@@ -5815,6 +5883,9 @@ export class MockBackend {
       });
     if (item.kind === 'question' && input.optionId === 'answer' && !note && !attached.length) {
       return error(400, 'answer_required', 'A free-text answer needs a note');
+    }
+    if (item.kind === 'question' && input.optionId === 'todo_cannot' && !note) {
+      return error(400, 'todo_reason_required', 'A todo that cannot be done needs a reason');
     }
     if (item.kind === 'hand_on') {
       // Taking the card on is a move under the gates: refused, the item stays open.

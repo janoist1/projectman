@@ -3,7 +3,7 @@ import { OperatorChannel, routes, splitTeamMessageBatch } from '@projectman/shar
 import type { ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { OPERATOR_REQUEST_TTL_MS } from '../src/domain/operator-requests';
+import { OPERATOR_REQUEST_TTL_MS } from '../src/services/operator';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
@@ -184,6 +184,7 @@ describe('the Operator’s write guard (PM-463)', () => {
       () => h.domain.teamTools.sendMessage(tool(), { to: ['owner'], text: 'Done', kind: 'info' }),
       () => h.domain.teamTools.askHuman(tool(), { question: 'Anything?' }),
       () => h.domain.teamTools.saveMemory(tool(), { note: 'a note' }),
+      () => h.domain.teamTools.withdrawQuestion(tool(), { itemId: 'inb_any', reason: 'Moot.' }),
     ];
     for (const call of calls) expect(await refusal(call())).toMatch(/^operator_no_request:/);
     await expect(h.domain.teamTools.getTask(tool(), { taskKey: 'AR-1' })).resolves.toBeTruthy();
@@ -238,7 +239,6 @@ describe('the Operator’s write guard (PM-463)', () => {
           reason: 'x',
         } as never),
       () => h.domain.teamTools.submitBoundaryRequest(tool(), { operationId: 'x' } as never),
-      () => h.domain.teamTools.publishTaskBranch(tool(), { taskKey: 'AR-1', commit: 'abc1234' }),
       () => h.domain.teamTools.mergeTask(tool(), { taskKey: 'AR-1' }),
     ];
     for (const call of calls()) expect(await refusal(call())).toMatch(/^operator_never:/);
@@ -304,6 +304,49 @@ describe('the Operator’s step log (PM-463)', () => {
     const refused = steps()[3]!;
     expect(refused.refusal).toMatchObject({ code: 'invalid_request' });
     expect(refused.refusal!.message).toContain('no-such-stage');
+  });
+
+  it('lets the Operator put a merge first for an open request, as one step, and not without one (PM-576)', async () => {
+    await setup();
+    await h.domain.tasks.create('AR', { title: 'Second card' }, OWNER_ACTOR);
+    const merge = (taskKey: string, at: string) =>
+      h.repos.taskMerges.save({
+        id: `merge-${taskKey}`,
+        projectKey: 'AR',
+        taskKey,
+        repo: 'web',
+        base: 'main',
+        fromStageId: 'code_review',
+        toStageId: 'done',
+        merger: 'dev-1',
+        requestedAt: at,
+        state: 'queued',
+        step: 'queued',
+        landed: 'nowhere',
+        createdAt: at,
+        updatedAt: at,
+      });
+    merge('AR-1', '2026-10-11T09:00:00.000Z');
+    merge('AR-2', '2026-10-11T09:30:00.000Z');
+    await ask('Merge AR-2 first');
+    await endTurn();
+    await expect(
+      h.domain.teamTools.prioritizeMerge(tool(), { taskKey: 'AR-2', reason: 'it unblocks AR-1' }),
+    ).rejects.toThrow(/operator_no_request/);
+    await ask('Merge AR-2 first, please');
+    const result = await h.domain.teamTools.prioritizeMerge(tool(), {
+      taskKey: 'AR-2',
+      reason: 'it unblocks AR-1',
+    });
+    expect(result.moved).toBe(true);
+    expect(h.repos.taskMerges.get('merge-AR-2')?.prioritizedAt).toBeDefined();
+    expect(steps().map((s) => [s.action, s.status, s.taskKey])).toEqual([['task_update', 'done', 'AR-2']]);
+    expect(
+      h.domain.timeline.list('AR', { taskKey: 'AR-2' }).find((e) => e.type === 'task_merge_prioritized'),
+    ).toMatchObject({
+      actor: { handle: 'operator' },
+      data: { reason: 'it unblocks AR-1', ahead: ['AR-1'] },
+    });
   });
 
   it('does not log a message to the owner as a step, and tags the messages sent during the request', async () => {

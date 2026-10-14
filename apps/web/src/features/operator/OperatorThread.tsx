@@ -27,6 +27,7 @@ import { receiptsOf } from '../messages/receipts';
 import { TaskChip } from '../messages/TaskChip';
 import { operatorSentText, operatorWaitOf } from './operatorChannel';
 import { OperatorSignalCard } from './OperatorSignalCard';
+import { OperatorSignalList } from './OperatorSignalList';
 import { OperatorSteps } from './OperatorSteps';
 import styles from './OperatorThread.module.css';
 
@@ -92,8 +93,9 @@ export function OperatorThread({
   const wait = operatorWaitOf(channel);
   const anchors = useMemo(() => stepAnchors(channel.requests, messages), [channel.requests, messages]);
   const signalByMessage = useMemo(() => {
-    const map = new Map<string, OperatorSignal>();
-    for (const signal of channel.signals) if (signal.messageId) map.set(signal.messageId, signal);
+    const map = new Map<string, OperatorSignal[]>();
+    for (const signal of channel.signals)
+      if (signal.messageId) map.set(signal.messageId, [...(map.get(signal.messageId) ?? []), signal]);
     return map;
   }, [channel.signals]);
   const trailingSignals = channel.signals.filter(
@@ -161,8 +163,20 @@ export function OperatorThread({
             {entry.day}
           </div>
         ) : null}
-        {signal ? (
-          <OperatorSignalCard signal={signal} message={message} operatorHandle={handle} readOnly={readOnly} />
+        {signal && signal.length > 1 ? (
+          <OperatorSignalList
+            signals={signal}
+            message={message}
+            operatorHandle={handle}
+            readOnly={readOnly}
+          />
+        ) : signal?.[0] ? (
+          <OperatorSignalCard
+            signal={signal[0]}
+            message={message}
+            operatorHandle={handle}
+            readOnly={readOnly}
+          />
         ) : (
           <div
             className={clsx(styles.message, mine ? styles.out : styles.in, entry.firstOfRun && styles.first)}

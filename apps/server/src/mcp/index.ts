@@ -1,14 +1,35 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { McpModule, McpModuleOptions, ToolContext } from '../contracts';
-import { nonLocalReason } from '../http/local-guard';
+import { nonLocalReason } from '../kernel';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, type TeamServerDeps } from './server';
+
+export { FeedbackTools } from './feedback';
+export { OperatorTools } from './operator';
+export { MemberTools } from './members';
+export { TaskTools } from './tasks';
+export { AttachmentTools } from './attachments';
+export { MergeTools } from './merges';
+export { ReleaseTools } from './releases';
+export { ToolCaller } from './caller';
+export { BoundaryTools } from './boundary';
+export { GithubTools } from './github';
+export { ScreenshotTools } from './full-tests';
+export { ProjectDocTools } from './project-docs';
+export { TeamToolsService } from './team-tools';
+export { InboxTools } from './inbox';
+export { MessageTools } from './messages';
+export { AdmissionTools } from './admission';
+export { WatcherTools } from './watchers';
+export { SessionTools } from './sessions';
 
 export {
   TEAM_TOOLS,
+  TEAM_TOOL_GROUPS,
   TEAM_TOOL_NAMES,
   toolOutputText,
   type TeamToolName,
+  type TeamToolGroup,
   type ToolImage,
   type ToolOutput,
 } from './tools';

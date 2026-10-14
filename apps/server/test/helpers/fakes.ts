@@ -25,7 +25,7 @@ import type {
   WorktreeInfo,
   WorktreeManager,
 } from '../../src/contracts';
-import { cheapSubagent } from '../../src/context';
+import { cheapSubagent } from '../../src/context/subagents';
 
 /** In-memory SessionRunner: records calls; tests drive state with emit()/setState(). */
 export class FakeRunner implements SessionRunner {
@@ -73,7 +73,14 @@ export class FakeRunner implements SessionRunner {
     return info;
   }
 
+  /** The next `sendUserMessage` is typed but the CLI never takes it: it rejects, as the real runner does (PM-571). */
+  failNextSend: Error | null = null;
   async sendUserMessage(sessionId: string, text: string): Promise<void> {
+    if (this.failNextSend) {
+      const err = this.failNextSend;
+      this.failNextSend = null;
+      throw err;
+    }
     this.messages.push({ sessionId, text });
   }
 

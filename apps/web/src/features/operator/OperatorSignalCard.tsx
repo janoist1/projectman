@@ -14,7 +14,7 @@ import { t } from '../../i18n/t';
 import styles from './OperatorSignalCard.module.css';
 
 /** The heading of a signal: its kind, with the card's key as a link where the kind names one. */
-function SignalTitle({ signal, projectKey }: { signal: OperatorSignal; projectKey: string }) {
+export function SignalTitle({ signal, projectKey }: { signal: OperatorSignal; projectKey: string }) {
   const marker = '\u0000';
   const text = t(`operator.signal.kinds.${signal.kind}`, { key: marker });
   const [before = '', after = ''] = text.split(marker);
@@ -31,7 +31,7 @@ function SignalTitle({ signal, projectKey }: { signal: OperatorSignal; projectKe
 }
 
 /** What happened to a signal that is no longer open, with the time. */
-function closedText(signal: OperatorSignal): string | null {
+export function closedText(signal: OperatorSignal): string | null {
   switch (signal.state) {
     case 'accepted':
       return signal.decidedAt
@@ -115,13 +115,11 @@ export function OperatorSignalCard({
           {t('operator.signal.details')} →
         </Link>
       ) : null}
-      {open && !readOnly ? (
+      {open && signal.actionable && !readOnly ? (
         <div className={styles.actions}>
-          {signal.actionable ? (
-            <Button variant="primary" size="md" loading={send.isPending} disabled={busy} onClick={accept}>
-              {t('operator.signal.accept')}
-            </Button>
-          ) : null}
+          <Button variant="primary" size="md" loading={send.isPending} disabled={busy} onClick={accept}>
+            {t('operator.signal.accept')}
+          </Button>
           <Button
             variant="secondary"
             size="md"

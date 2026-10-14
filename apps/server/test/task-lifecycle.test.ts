@@ -1,8 +1,9 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor, ServerEvent, TaskStatus } from '@projectman/shared';
-import { aiActor, humanActor, LIVE_SESSION_STATES } from '../src/domain';
-import type { StageChange } from '../src/domain';
+import { aiActor, humanActor } from '../src/kernel';
+import { LIVE_SESSION_STATES } from '../src/runtime/sessions';
+import type { StageChange } from '../src/core/tasks';
 import { TEAM_TOOLS, TEAM_TOOL_NAMES } from '../src/mcp/tools';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

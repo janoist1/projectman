@@ -139,6 +139,17 @@ describe('cloud mode remote parts', () => {
   };
 
   describe('runner', () => {
+    it('reads heavy-run sessions and falls back for old or disconnected engines', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      // An older engine has no handler: its RPC responds unknown_method.
+      expect(await host.heavyRunSessions()).toEqual([]);
+      engine.answer('host.heavy_run_sessions', () => ['s1']);
+      expect(await host.heavyRunSessions()).toEqual(['s1']);
+      engine.disconnect();
+      expect(await host.heavyRunSessions()).toEqual([]);
+    });
+
     it('starts on the default engine with the token, not the address, and mirrors the session', async () => {
       const engine = await online();
       engine.answer('session.start', (params) => running(params.sessionId));

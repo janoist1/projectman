@@ -12,6 +12,7 @@
     "../../scripts/heavy",
     "../../scripts/merge-test",
     "../../scripts/full-test",
-    "../../scripts/live"
+    "../../scripts/live",
+    "../../scripts/cloud"
   ]
 }

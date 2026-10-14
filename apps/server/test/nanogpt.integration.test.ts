@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';

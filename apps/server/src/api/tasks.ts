@@ -11,7 +11,6 @@ import {
   ReopenTaskRequest,
   routes,
   StartTaskRequest,
-  StartMergeRequest,
   TASK_CREATE_MIN_ACCESS,
   UpdateTaskRequest,
 } from '@projectman/shared';
@@ -23,12 +22,12 @@ import type {
   TaskHandoffRecord,
   UpdateTaskResponse,
 } from '@projectman/shared';
-import type { Domain } from '../domain';
-import { notFound } from '../domain';
-import type { ProjectAccess } from '../domain/access';
-import { canSeeTask, isClient, visibleTaskDetail, visibleTasks } from '../domain/visibility';
+import type { ApiDomain } from './ports';
+import { notFound } from '../kernel';
+import type { ProjectAccess } from '../core/members';
+import { canSeeTask, isClient, visibleTaskDetail, visibleTasks } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type TaskParams = { Params: { key: string; taskKey: string } };
@@ -37,7 +36,7 @@ const ClosedCardsQuery = z.object({
   days: z.coerce.number().int().min(1).max(MAX_CLOSED_CARDS_DAYS).optional(),
 });
 
-export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): void {
   /** The detail the viewer sees, with why the card stands still (PM-460); a client gets no `wait`. */
   const detailFor = async (access: ProjectAccess, key: string, taskKey: string): Promise<TaskDetail> => {
     const detail = visibleTaskDetail(
@@ -81,13 +80,6 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     const body = parseBody(UpdateTaskRequest, request.body);
     if (body.assignee !== undefined) await requireAccess(domain, request, key, { minimum: 'admin' });
     return domain.tasks.update(key, taskKey, body, actorOf(access));
-  });
-
-  app.post<TaskParams>(routes.taskMerge(':key', ':taskKey'), async (request) => {
-    const { key, taskKey } = request.params;
-    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
-    const body = parseBody(StartMergeRequest, request.body);
-    return { task: await domain.merges.start(key, taskKey, actorOf(access), body) };
   });
 
   /** A closed handoff of the card with its note or summary (PM-342); an unknown or foreign one is 404. */

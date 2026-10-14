@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { fullTestSandbox } from '../domain';
+import { fullTestSandbox } from '../runtime/sessions';
 import {
   failedFiles,
+  failureReport,
+  FAILURE_REPORT_CHARS,
   outputTail,
   OutputTail,
   OUTPUT_LIMIT_BYTES,
@@ -41,6 +43,130 @@ describe('the output of a full test', () => {
     const plain = outputTail(`${'x'.repeat(10_000)}END`);
     expect(plain.endsWith('END')).toBe(true);
     expect(plain).toHaveLength(OUTPUT_TAIL_CHARS);
+  });
+
+  describe('failureReport', () => {
+    const vitestRun = (failed: boolean, errors = false) =>
+      [
+        ' RUN  v4.0.0 /repo/apps/web',
+        ...Array.from({ length: 300 }, (_, i) => ` ✓ test/ok${i}.test.ts (3 tests) 4ms`),
+        ...(failed
+          ? [
+              '⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯',
+              ' FAIL  test/web.test.tsx > renders',
+              'AssertionError: expected 1 to be 2',
+            ]
+          : []),
+        ...(errors ? ['⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯', 'Error: boom in a timer'] : []),
+        ' Test Files  1 failed | 299 passed (300)',
+        '      Tests  1 failed | 900 passed (901)',
+        ...(errors ? ['     Errors  2 errors'] : []),
+        '   Duration  50s',
+      ].join('\n');
+
+    it('keeps the failure blocks and totals per workspace, not the start of the output', () => {
+      const output = [
+        'merge-test scope: all (--all)',
+        '> @projectman/shared@0.0.0 test',
+        '> vitest run',
+        ' RUN  v4.0.0 /repo/packages/shared',
+        ' Test Files  10 passed (10)',
+        '      Tests  50 passed (50)',
+        '> @projectman/web@0.0.0 test',
+        '> vitest run',
+        vitestRun(true, true),
+        'npm error Lifecycle script `test` failed',
+      ].join('\n');
+      const report = failureReport(output);
+      expect(report).toContain('## @projectman/shared test');
+      expect(report).toContain('Tests  50 passed (50)');
+      expect(report).toContain('## @projectman/web test');
+      expect(report).toContain('FAIL  test/web.test.tsx > renders');
+      expect(report).toContain('Unhandled Errors');
+      expect(report).toContain('Errors  2 errors');
+      expect(report).not.toContain('ok12.test.ts');
+      expect(report.length).toBeLessThanOrEqual(FAILURE_REPORT_CHARS);
+    });
+
+    it('keeps server failures when a successful web run follows with a long output', () => {
+      const report = failureReport(
+        [
+          '> @projectman/server@0.0.0 test',
+          '> vitest run',
+          ' RUN  v4.0.0 /repo/apps/server',
+          '⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯',
+          ' FAIL  src/domain/screenshot-runs.test.ts > take_screenshots > starts the run',
+          'TypeError: Cannot read properties of undefined',
+          '⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯',
+          'Error: The scenario shots/login.mjs is not a file.',
+          ' Test Files  1 failed | 299 passed (300)',
+          '      Tests  1 failed | 900 passed (901)',
+          '     Errors  2 errors',
+          '> @projectman/web@0.0.0 test',
+          '> vitest run',
+          ' RUN  v4.0.0 /repo/apps/web',
+          ' ✓ src/passing.test.ts (3 tests)\n'.repeat(1_000),
+          ' Test Files  300 passed (300)',
+          '      Tests  900 passed (900)',
+        ].join('\n'),
+      );
+      expect(report).toContain('## @projectman/server test');
+      expect(report).toContain(
+        'FAIL  src/domain/screenshot-runs.test.ts > take_screenshots > starts the run',
+      );
+      expect(report).toContain('The scenario shots/login.mjs is not a file.');
+      expect(report).toContain('Errors  2 errors');
+      expect(report).toContain('## @projectman/web test');
+      expect(report).not.toContain('src/passing.test.ts');
+      expect(report.length).toBeLessThanOrEqual(FAILURE_REPORT_CHARS);
+    });
+
+    it('says a workspace stopped without a report', () => {
+      const output = [
+        '> @projectman/server@0.0.0 test',
+        '> vitest run',
+        ' RUN  v4.0.0 /repo/apps/server',
+        ' ✓ test/a.test.ts (2 tests)',
+        ' ❯ test/b.test.ts (3 tests | 1 failed)',
+      ].join('\n');
+      const report = failureReport(output);
+      expect(report).toContain('## @projectman/server test');
+      expect(report).toContain('stopped without reporting');
+      expect(report).toContain('❯ test/b.test.ts');
+    });
+
+    it('keeps the error lines of a failed type check', () => {
+      const output = [
+        '> @projectman/web@0.0.0 typecheck',
+        '> tsc -p tsconfig.json',
+        'src/a.ts(1,1): error TS2322: Type string is not assignable to number.',
+      ].join('\n');
+      expect(failureReport(output)).toBe(
+        '## @projectman/web typecheck\nsrc/a.ts(1,1): error TS2322: Type string is not assignable to number.',
+      );
+    });
+
+    it('gives every failing workspace room and keeps the totals when cutting', () => {
+      const big = (name: string) =>
+        [
+          `> @projectman/${name}@0.0.0 test`,
+          '> vitest run',
+          ' RUN  v4.0.0 /repo',
+          '⎯⎯⎯⎯⎯⎯ Failed Tests 40 ⎯⎯⎯⎯⎯⎯',
+          ...Array.from({ length: 400 }, (_, i) => ` FAIL  test/${name}${i}.test.ts > case ${i}`),
+          ` Test Files  40 failed (40)`,
+        ].join('\n');
+      const report = failureReport(`${big('server')}\n${big('web')}`);
+      expect(report.length).toBeLessThanOrEqual(FAILURE_REPORT_CHARS);
+      expect(report).toContain('## @projectman/server test');
+      expect(report).toContain('## @projectman/web test');
+      expect(report.match(/Test Files {2}40 failed/g)).toHaveLength(2);
+    });
+
+    it('falls back to the end of the output when nothing is recognised', () => {
+      expect(failureReport(`${'x'.repeat(10_000)}END`, 100)).toHaveLength(100);
+      expect(failureReport('')).toBe('');
+    });
   });
 
   it('keeps only the end of what a process wrote', () => {

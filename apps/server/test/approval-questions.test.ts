@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';

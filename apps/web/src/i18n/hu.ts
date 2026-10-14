@@ -57,6 +57,7 @@ export const hu = {
       provider_resume: 'a szolgáltatói keret újra elérhető',
       pause_resume: 'a szünet véget ért',
       handoff: 'a kártya felelőse változott',
+      question_screening: 'Kérdést szűr',
     },
     stops: {
       assignee_change: 'a felelős módosításához',
@@ -458,7 +459,6 @@ export const hu = {
       workspace_codex_config:
         'A munkafa saját .codex mappájában olyan Codex-beállítás van, amely a homokozón kívül futtathatna parancsot (például hook, MCP-szerver vagy szabály), ezért a Codex-tag nem indul el.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
-      managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
       session_failed: 'A munkamenet sikertelenül zárult.',
       server_restarted: 'A szerver újraindult a futás közben.',
@@ -860,6 +860,8 @@ export const hu = {
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
       merge_not_merger: 'A beolvasztást csak a kártya beolvasztója indíthatja.',
       merge_not_ready: 'A kártya még nem áll készen a beolvasztásra.',
+      merge_not_prioritizable:
+        'Csak a sorban álló beolvasztás vehető előre; ez most nem áll sorban (vagy már fut).',
       merge_fix_not_allowed: 'Csak a beolvasztó javíthat ütközés miatt sikertelen beolvasztást.',
       merge_fix_invalid:
         'A javítás nincs commitolva, vagy hiányzik belőle a jóváhagyott commit vagy az alap.',
@@ -892,6 +894,9 @@ export const hu = {
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
       operator_signal_closed: 'Ez a jelzés már nem nyitott.',
+      operator_signal_budget:
+        'Ehhez a jelzéshez az Operátor lépéskerete elfogyott, vagy még nem telt el elég idő az előző lépés óta.',
+      not_card_role: 'Erre a kártyára nincs szerepe a címzettnek, ezért nem indítható rajta keresztül.',
       operator_approval_stale:
         'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
       docs_not_configured:
@@ -968,8 +973,6 @@ export const hu = {
       team_paused: 'A csapat szünetel: amíg tart, új munka nem indul.',
       instance_standby:
         'Ez a példány készenléti másolat: az AI-munka csak az éles (aktív) példányban indul, itt csak az adatok láthatók.',
-      managed_vm_unavailable:
-        'A kérdésmentes VM-profil határa nincs igazolva (vagy a telepített szolgáltatói program nem a jóváhagyott verzió), ezért a munkamenet nem indul el.',
       workspace_busy:
         'A tag munkaállomásán most egy másik feladat munkamenete fut ebben a repóban; az előbb annak kell véget érnie.',
       workspace_dirty:
@@ -977,12 +980,14 @@ export const hu = {
       workspace_fetch_failed: 'A friss alapágat nem sikerült letölteni, ezért az új feladat nem indult el.',
       workspace_branch_missing: 'A feladat ága hiányzik a tag munkaállomásáról.',
       workspace_source_missing: 'Az átadott commit már nincs rajta a feladat ágán; kérj új átadást.',
-      runtime_boundary_not_ready:
-        'A virtuális gép védelme most nincs rendben (ellenőrzés, indító vagy hálózati kapu), ezért AI-munkamenet nem indul.',
       project_exists: 'Ilyen kulcsú projekt már van.',
       workspace_not_found: 'Ez a munkaterület-útvonal nem létezik ezen a gépen.',
       unknown_template: 'Ismeretlen sablon.',
       answer_required: 'Írj választ, mielőtt elküldöd.',
+      todo_reason_required: 'Írd le, miért nem végezhető el a teendő.',
+      question_not_screening: 'Ezt a kérdést az Operátor már nem szűri.',
+      invalid_outcome_fields: 'A kimenethez hiányzik vagy fölösleges egy mező.',
+      reask_not_allowed: 'Ezt a kérdést nem lehet szűrés nélkül újra feltenni.',
       invalid_credentials: 'Hibás e-mail cím vagy jelszó.',
       integrator_key_invalid:
         'Az integrálói kulcsot visszavonták, vagy lejárt. A tulajdonos a Beállításokban adhat újat.',
@@ -1855,6 +1860,17 @@ export const hu = {
       queued: {
         title: 'Beolvasztás: sorra vár',
         text: 'Egy másik beolvasztás fut ebben a tárhelyben.',
+        prioritize: {
+          open: 'Előre',
+          label: 'Miért kerüljön előre?',
+          hint: 'A futó beolvasztást nem szakítja meg; az idővonalon az indok is látszik.',
+          required: 'Írd le röviden, miért kerüljön előre.',
+          submit: 'Előre veszem',
+          submitting: 'Előre vétel…',
+          cancel: 'Mégse',
+          first: 'Ez már a sor elején áll: a futó beolvasztás után ez következik.',
+          done: 'Előre került: a futó beolvasztás után ez következik.',
+        },
       },
       running: {
         title: 'Beolvasztás a {base} ágba',
@@ -2770,6 +2786,8 @@ export const hu = {
       decidedApproved: 'Jóváhagytad · {time}',
       decidedRejected: 'Elvetetted · {time}',
       consequences: {
+        operator_watch:
+          'A már kiadott jelzések nem változnak; az Operátor a következő ébredésétől e szerint lép jelzésre.',
         network: 'A futó munkamenetek nem változnak; a hálózati szabály az újonnan indulókra érvényes.',
         permission_mode: 'A futó munkamenetek nem változnak; az engedélymód az újonnan indulókra érvényes.',
         pipeline: 'A kártyák helye nem változik, a szabály a következő mozgatástól érvényes.',
@@ -2778,6 +2796,8 @@ export const hu = {
         member_retire: 'A tag futó munkamenetei leállnak, a munkáját a csapat veszi át.',
         member_other: 'A tag futó munkamenetei nem változnak.',
         locations: 'A futó munkamenetek nem változnak; az új helyet az újonnan indulók használják.',
+        review_test:
+          'A már futó tesztek nem változnak; az új beállítás a következő teljes teszttől érvényes.',
         fix_limit: 'A már zajló javítási körök nem változnak.',
         session_stop: 'A munkamenet leáll; a kártya a megszokott módon folytatható.',
         project_pause: 'A futó munkamenetek befejezik az aktuális lépésüket, újak nem indulnak.',
@@ -2787,6 +2807,8 @@ export const hu = {
       },
     },
     signal: {
+      group: 'Döntés kell',
+      groupCount: '{count} nyitott',
       raised: 'Magától szóltam · {time}',
       noMessage: 'Jelzés · {time}',
       accept: 'Igen, intézd',
@@ -2803,12 +2825,22 @@ export const hu = {
         nobody: '{key}: senki nem viheti',
         stalled: '{key}: válaszra vár a munkamenet',
         silent: '{key}: a munkamenet nem ad jelet',
+        idle: '{key}: senki nem dolgozik rajta',
+        merge_waiting: '{key}: beolvasztásra vár',
+        merge_blocked: '{key}: elakadt a beolvasztás',
+        unreleased: 'Kiadásra váró munka',
+        ready_waiting: 'Indítható kártyák várnak',
       },
       bodies: {
         outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
         nobody: 'A kártyát most egy tag sem viheti a beállítások szerint.',
         stalled: 'A munkamenet egy ideje bemenetre vár.',
         silent: 'A munkamenet dolgozik, de egy ideje nem ad jelet.',
+        idle: 'A kártyának van felelőse, de fél órája nem fut rajta munka.',
+        merge_waiting: 'A beolvasztást fél órája kérték, de a beolvasztó még nem kezdte el.',
+        merge_blocked: 'A beolvasztás ütközés, elbukott ellenőrzés vagy hiba miatt áll.',
+        unreleased: 'A fő ágon egy napnál régebben beolvasztott munka vár kiadásra.',
+        ready_waiting: 'Indításra kész kártya vár, és van szabad fejlesztő.',
       },
     },
   },
@@ -3172,6 +3204,8 @@ export const hu = {
       approval: 'Jóváhagyás',
       alert: 'Figyelmeztetés',
       release: 'Kiadás',
+      // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
+      todo: 'Teendő',
     },
     kindsLower: {
       hand_on: 'továbbvitel',
@@ -3183,6 +3217,7 @@ export const hu = {
       approval: 'jóváhagyás',
       alert: 'figyelmeztetés',
       release: 'kiadás',
+      todo: 'teendő',
     },
     options: {
       allow: 'Engedélyezem',
@@ -3202,6 +3237,8 @@ export const hu = {
       move: 'Tovább',
       dismiss: 'Rendben',
       merge: 'Beolvasztás',
+      todo_done: 'Megcsináltam',
+      todo_cannot: 'Nem tudom megcsinálni',
     },
     /** A Senior card that has waited too long for a Senior (PM-348/PM-349): wait on, or any free developer. */
     seniorWait: {
@@ -3474,6 +3511,15 @@ export const hu = {
       dismiss: 'Tudomásul véve',
       approval_given: 'Lezárva: a jóváhagyás megtörtént',
       feedback_handled: 'Lezárva: a jelölés el van intézve',
+      // A question closed without an answer (PM-556).
+      task_done: 'Tárgytalan: a kártya Kész',
+      task_cancelled: 'Tárgytalan: a kártya megszakítva',
+      handed_off: 'Tárgytalan: átadta a kártyát',
+      assignee_changed: 'Tárgytalan: a kártya új felelőst kapott',
+      withdrawn: 'Visszavonta',
+      operator_moot: 'Tárgytalan: az Operátor szerint',
+      todo_done: 'Megcsináltad',
+      todo_cannot: 'Nem csinálod meg',
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
@@ -3485,9 +3531,96 @@ export const hu = {
       senior_wait_ended: 'Automatikus',
       approval_given: 'Automatikus',
       feedback_handled: 'Automatikus',
+      operator_answered: 'Az Operátor megválaszolta',
+      operator_forwarded: 'Az Operátor továbbadta',
+      operator_moot: 'Az Operátor tárgytalannak zárta',
+      task_done: 'A kártya Kész lett',
+      task_cancelled: 'A kártya megszakadt',
+      handed_off: 'Átadták a kártyát',
+      assignee_changed: 'Új felelőse lett a kártyának',
+      withdrawn: 'Visszavonták',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
+    /** The name of the resolver of a question that closed by itself (PM-556). */
+    closedBySystem: 'Magától lezárult',
+    /** The page's two groups, shown when the viewer has both decisions and todos (PM-556). */
+    groups: {
+      decisions: 'Döntés kell',
+      todo: 'Teendő',
+      todoHint: 'Ezt csak ember tudja megcsinálni.',
+    },
+    /** A todo the Operator made out of a question (PM-556): the step box and the result field. */
+    todo: {
+      stepTitle: 'A lépés',
+      what: 'Mit',
+      where: 'Hol',
+      expected: 'Várt eredmény',
+      resultLabel: 'Eredmény',
+      resultOptional: '(nem kötelező)',
+      resultPlaceholder: 'Mi lett? Pl. a kimenet vége…',
+      reasonRequired: 'Írd meg röviden, miért nem.',
+      emptyFilter: 'Ebben nincs teendőd.',
+    },
+    /** What the Operator said about a question that came to the viewer (PM-556). */
+    operatorNote: 'Operátor:',
+    operatorFallback: {
+      timeout: 'Az Operátor nem nézte át: nem válaszolt 10 percen belül.',
+      unavailable: 'Az Operátor nem nézte át: nem volt elérhető.',
+    },
+    rerouted: 'Újra kérdezi, az Operátor szűrése nélkül. Indoka: „{reason}”',
+    /** Why a question closed while the viewer had it open, in the middle of a sentence (PM-556). */
+    closedReasons: {
+      task_done: 'a kártya Kész',
+      task_cancelled: 'a kártya megszakadt',
+      handed_off: 'a kérdező átadta a kártyát',
+      assignee_changed: 'a kártya új felelőst kapott',
+      withdrawn: 'a kérdező visszavonta',
+      operator_moot: 'az Operátor szerint tárgytalan',
+    },
+    /** The card of a question that closed while the viewer was answering it (PM-556). */
+    closedWhileOpen: {
+      leadWithReason: 'Ez a kérdés közben lezárult:',
+      leadPlain: 'Ez a kérdés közben lezárult.',
+      withReason: '{reason}. A válaszod nem ment el.',
+      plain: 'A válaszod nem ment el.',
+      dismiss: 'Rendben',
+    },
+    /** The asker cannot start now, so the viewer's answer waits for the member (PM-556). */
+    awaitsStart: {
+      note: '{name} most {reason}: a válaszod megvárja.',
+      toast: 'Elküldve. {name} {reason}, a válasz megvárja.',
+      waiting: 'A válasz vár {name} indulására: {reason}.',
+      delivered: 'Megkapta {time}.',
+      before: {
+        leave: 'szabadságon van',
+        quota: 'kvótára vár',
+        capacity: 'nem fér be, tele a kapacitása',
+      },
+      after: {
+        leave: 'szabadságon van',
+        quota: 'kvótára vár',
+        capacity: 'tele a kapacitása',
+        other: 'most nem tud indulni',
+      },
+    },
+    /** The folded row of the questions the Operator settled with no person involved (PM-556). */
+    operatorTrail: {
+      title: 'Az Operátor intézte · ma {count}',
+      titleUnknown: 'Az Operátor intézte',
+      lead: 'Ezek nem jutottak el hozzád. Ha valamelyik mégis rád tartozott volna, a kérdező újra kérdezhet.',
+      loading: 'Betöltés…',
+      error: 'Nem sikerült betölteni.',
+      retry: 'Újra',
+      limit: 'A legutóbbi {count} látszik.',
+      answered: 'Megválaszolta',
+      forwarded: 'Továbbadta',
+      moot: 'Tárgytalan',
+      forwardedTo: '{name} kapta meg: {note}',
+      forwardedToPlain: '{name} kapta meg.',
+      at: 'Operátornál',
+      until: 'Legkésőbb {time}-kor hozzád kerül.',
+    },
     resolvedBy: '{who} · {time}',
     allDone: 'Ebben a szűrésben minden el van intézve.',
     allDoneEverywhere: 'Minden el van intézve.',
@@ -3586,6 +3719,8 @@ export const hu = {
         pause: 'szünet miatt',
         handed_off: 'a munkát leadta',
         handoff_timeout: 'lejárt a leadás ideje',
+        merge_running: 'a beolvasztás a szerveren fut',
+        awaiting_fix: 'a fejlesztő javítására vár',
       },
       short: {
         step_done: 'lépés kész',
@@ -3596,6 +3731,8 @@ export const hu = {
         pause: 'szünet',
         handed_off: 'leadva',
         handoff_timeout: 'leadás lejárt',
+        merge_running: 'beolvasztás fut',
+        awaiting_fix: 'javításra vár',
       },
     },
     tabs: {
@@ -3952,6 +4089,8 @@ export const hu = {
       task_stage_changed: 'Továbbvitte: {from} → {to}',
       task_hand_on_requested: '{requestedBy} végzett; {mover} viszi tovább ide: {to}',
       task_merge_requested: 'Beolvasztásra vár: {merger}.',
+      task_merge_prioritized: 'Előre vette a beolvasztási sorban. Indok: {reason}',
+      task_merge_prioritized_ahead: 'Előre vette a beolvasztási sorban ezek elé: {ahead}. Indok: {reason}',
       task_merged: 'Beolvasztotta a {base} ágba: {commit}{parts}',
       task_merged_found: 'Bent van a {base} ágban: {commit} (kézzel beolvasztva).',
       merged_checked: 'ellenőrzés: {check}, sikeres',
@@ -4051,7 +4190,24 @@ export const hu = {
       permission_escalated_timeout: 'A döntnök nem döntött időben, emberi döntésre vár',
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
+      question_asked_screening: 'Kérdés: {question} · az Operátornál',
+      question_asked_unscreened: 'Kérdés újra, az Operátor szűrése nélkül: {question} · indok: {reason}',
       question_answered: 'Válasz: {answer}',
+      // The Operator's screening of a question (PM-556); the row names who acted.
+      question_screened_answered: 'Megválaszolta {asker} kérdését: „{answer}”',
+      question_screened_forwarded: 'Továbbadta {to} részére {asker} kérdését: {note}',
+      question_screened_moot: 'Tárgytalannak zárta {asker} kérdését: {note}',
+      question_screened_decision: 'Döntésként továbbengedte neked: {note}',
+      question_screened_todo: 'Teendőként továbbengedte neked: {note}',
+      question_screened_todo_recorded: 'Teendőként továbbengedte neked: {note} Hiányként rögzítette.',
+      question_screening_skipped_timeout:
+        '{asker} kérdése 10 perc után az Operátor szűrése nélkül került hozzád: az Operátor nem válaszolt időben',
+      question_screening_skipped_unavailable:
+        '{asker} kérdése 10 perc után az Operátor szűrése nélkül került hozzád: nem volt elérhető',
+      question_closed: '{asker} kérdése lezárult: {reason}',
+      question_closed_withdrawn: '{asker} visszavonta a kérdését: {note}',
+      question_answer_waiting: 'A válaszod vár {asker} indulására',
+      question_answer_delivered: 'Megkapta.',
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',

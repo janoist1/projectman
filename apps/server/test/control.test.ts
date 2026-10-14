@@ -7,7 +7,7 @@ import { CONTROL_SOCKET_NAME } from '@projectman/shared';
 import { runControl, sendControlRequest } from '../../../scripts/control/client';
 import { serveControlConnection, startControlSocket } from '../src/control';
 import type { ControlPause } from '../src/control';
-import { DomainError } from '../src/domain';
+import { DomainError } from '../src/kernel';
 import {
   pausedSession as session,
   pauseStatus as status,

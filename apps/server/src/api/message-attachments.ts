@@ -5,8 +5,9 @@ import type { FastifyInstance } from 'fastify';
 import { MAX_ATTACHMENT_BYTES, routes } from '@projectman/shared';
 import type { DeleteMessageAttachmentResponse, UploadMessageAttachmentResponse } from '@projectman/shared';
 import type { AuthService } from '../auth';
-import type { Domain } from '../domain';
-import { contentDisposition, DomainError, invalid } from '../domain';
+import type { ApiDomain } from './ports';
+import { contentDisposition } from '../core/attachments';
+import { DomainError, invalid } from '../kernel';
 import { CONTENT_SECURITY_POLICY, MULTIPART_OVERHEAD_BYTES, tooLarge } from './attachments';
 import { actorOf, requireAccess } from './context';
 
@@ -20,7 +21,7 @@ type AttachmentParams = { Params: { key: string; id: string } };
  */
 export function registerMessageAttachmentRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService },
+  deps: { domain: ApiDomain; auth: AuthService },
 ): void {
   const { domain, auth } = deps;
 

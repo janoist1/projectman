@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ExecutionProfile, ProjectConfig } from '@projectman/shared';
+import type { ProjectConfig } from '@projectman/shared';
 import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
@@ -13,25 +13,19 @@ import type {
   BranchMerger,
   FullTestExecutor,
   ScreenshotExecutor,
-  GithubPublisher,
-  ManagedVmBoundary,
   MemberWorkspaceManager,
-  RuntimeBoundary,
 } from '../../src/contracts';
-import type { EgressSettings } from '../../src/domain';
-import {
-  attachmentToolRules,
-  createAttachmentStorage,
-  createDomain,
-  createMessageAttachmentStorage,
-  createTemplateRegistry,
-  humanActor,
-} from '../../src/domain';
-import type { ScheduleTimer } from '../../src/domain/schedules';
+import { attachmentToolRules } from '../../src/runtime/sessions';
+import { createDomain } from '../../src/assembly';
+import { humanActor } from '../../src/kernel';
+import { createAttachmentStorage, createMessageAttachmentStorage } from '../../src/core/attachments';
+import { createTemplateRegistry } from '../../src/core/base';
+import type { ScheduleTimer } from '../../src/services/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
-import type { Domain } from '../../src/domain';
+import type { Domain } from '../../src/assembly';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
-import { createLocalEngine, LocalEngineDirectory } from '../../src/domain/engines';
+import { createLocalEngine } from '../../src/engine-host';
+import { LocalEngineDirectory } from '../../src/runtime/sessions';
 import {
   capturingLogger,
   createFakeRunnerModule,
@@ -65,6 +59,8 @@ export async function createDomainHarness(
     now?: () => Date;
     scheduleTimer?: ScheduleTimer;
     handOffRetryMs?: number;
+    /** True: the Operator screens AI members' questions first (PM-558); default false in tests. */
+    screenQuestions?: boolean;
     doneTurnLimitMs?: number;
     /** The database lives in a file, so that a restart can open it again. */
     persistent?: boolean;
@@ -86,15 +82,6 @@ export async function createDomainHarness(
     wrapMemberWorkspaces?: (inner: MemberWorkspaceManager) => MemberWorkspaceManager;
     /** The process ids the workspace reservation sees as still running (default: none). */
     liveProcesses?: Set<number>;
-    /** The VM boundary (PM-140); default none. */
-    runtimeBoundary?: RuntimeBoundary;
-    /** The network gate's settings (PM-140). */
-    egress?: EgressSettings;
-    /** The installation's execution profile (PM-141, default legacy) and the proof of its boundary. */
-    executionProfile?: ExecutionProfile;
-    managedVm?: ManagedVmBoundary;
-    /** The VM's GitHub publishing identity (PM-142); absent, nothing can be published. */
-    githubPublisher?: GithubPublisher;
     /** The user's home and the app home the sessions' sandboxes are computed from (PM-153); default the real home, none. */
     userHome?: string;
     appHome?: string;
@@ -102,6 +89,7 @@ export async function createDomainHarness(
     inputStallMs?: number;
     /** The free disk bytes (PM-243); absent: not measured, so no start is refused for disk space. */
     freeDiskBytes?: () => Promise<number | null>;
+    heavyRunSessions?: () => Promise<string[]>;
     /** How long a closed card's worktree stays (default 3 days). */
     closedWorktreeKeepMs?: number;
     /** The server's full test before review (PM-217); absent, the feature is off. */
@@ -131,6 +119,8 @@ export async function createDomainHarness(
     releaseTarget?: { projectKey: string; repo: string };
     /** The commit the server runs (PM-491); default `dev`. */
     appVersion?: string;
+    /** The release tag of the running build (PM-542); absent: none. */
+    appTag?: () => Promise<string | null>;
     engineName?: (id: string) => string | null;
     /** The attachments of a remote engine (PM-315); absent: the sessions read the stored files themselves. */
     engineAttachments?: EngineAttachments;
@@ -193,6 +183,7 @@ export async function createDomainHarness(
                   workspacesRootDir: memberWorkspaces ? workspacesDir : undefined,
                   workspacePath: () => workspace,
                   fullTestExecutor: opts.fullTestExecutor,
+                  heavyRunSessions: opts.heavyRunSessions,
                   claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
                 },
                 log.logger,
@@ -203,6 +194,7 @@ export async function createDomainHarness(
         : {}),
     engineName: opts.engineName,
     ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
+    ...(opts.appTag ? { appTag: opts.appTag } : {}),
     // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).
     get appVersion() {
       return runningVersion.value;
@@ -216,15 +208,12 @@ export async function createDomainHarness(
     browsersDir: opts.browsersDir,
     heavyLockDir: opts.heavyLockDir,
     boundaryAdapter: opts.boundaryAdapter,
-    runtimeBoundary: opts.runtimeBoundary,
-    egress: opts.egress,
     repos,
     configStore,
     logger: log.logger,
     publicBaseUrl: 'http://127.0.0.1:4700',
     createRunner: (broker) => runnerModule.createWithBroker(broker),
     github,
-    githubPublisher: opts.githubPublisher,
     userHome: opts.userHome,
     appHome: opts.appHome,
     inputStallMs: opts.inputStallMs,
@@ -245,13 +234,13 @@ export async function createDomainHarness(
         }
       : {}),
     processExists: (pid) => liveProcesses.has(pid),
-    executionProfile: opts.executionProfile,
-    managedVm: opts.managedVm,
     templates: createTemplateRegistry([testTemplate]),
     planUsageTtlMs: 0,
     now: opts.now,
     scheduleTimer: opts.scheduleTimer,
     doneCleanupDelayMs: 0,
+    // Questions go to the people at once, unless a test is about the Operator's screening (PM-558).
+    screenQuestions: opts.screenQuestions ?? false,
     doneTurnLimitMs: opts.doneTurnLimitMs,
     handOffRetryMs: opts.handOffRetryMs,
     // Tests call `domain.reviewWatch.check()` themselves: the timer must not fire on its own.
@@ -268,6 +257,7 @@ export async function createDomainHarness(
     // And the handoff sweep: tests call `domain.handoffs.sweep()` after moving the clock.
     handoffSweepMs: 3_600_000,
     freeDiskBytes: opts.freeDiskBytes,
+    heavyRunSessions: opts.heavyRunSessions,
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,
   });
   await domain.start();

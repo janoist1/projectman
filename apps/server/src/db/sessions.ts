@@ -10,7 +10,6 @@ import {
 } from '@projectman/shared';
 import type {
   AgentProvider,
-  ExecutionProfile,
   Session,
   SessionPause,
   SessionState,
@@ -236,8 +235,6 @@ export function createSessionRepository(db: Db) {
               OR (s.work_item_type = 'task' AND EXISTS (
                     SELECT 1 FROM tasks t WHERE t.key = s.work_item_ref AND t.status NOT IN ('done', 'cancelled'))))`,
     ),
-    profile: db.prepare('SELECT execution_profile FROM sessions WHERE id = ?'),
-    setProfile: db.prepare('UPDATE sessions SET execution_profile = ? WHERE id = ?'),
     compaction: db.prepare('SELECT compact_pending, context_tokens FROM sessions WHERE id = ?'),
     setCompactPending: db.prepare('UPDATE sessions SET compact_pending = ? WHERE id = ?'),
     setContextTokens: db.prepare('UPDATE sessions SET context_tokens = ? WHERE id = ?'),
@@ -299,17 +296,6 @@ export function createSessionRepository(db: Db) {
 
   return {
     get,
-    /**
-     * The execution profile the session's conversation ran in (PM-141). Kept beside the session, not
-     * in its public shape: it only decides whether a conversation may be resumed.
-     */
-    executionProfile(id: string): ExecutionProfile {
-      const row = statements.profile.get(id) as { execution_profile: string } | undefined;
-      return row?.execution_profile === 'managed_vm' ? 'managed_vm' : 'legacy';
-    },
-    setExecutionProfile(id: string, profile: ExecutionProfile): void {
-      statements.setProfile.run(profile, id);
-    },
     /** The end-of-round compaction state of the session's conversation (PM-213). */
     compaction(id: string): SessionCompaction {
       const row = statements.compaction.get(id) as

@@ -4,6 +4,7 @@ import { lstat, readdir, readFile, rename, rm, stat, statfs, utimes } from 'node
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { DependencySkip, DependencyRefreshResult } from '../contracts';
+import { copyWithinBudget } from './copy-budget';
 import { tryGit } from './git';
 import { canonical, createKeyedLock } from './paths';
 
@@ -12,7 +13,7 @@ export type DependencyCloneResult = DependencyRefreshResult;
 
 /** Caches under node_modules that may hold absolute paths into the reference. */
 const CACHE_DIRS = ['.vite', '.vite-temp', '.cache'];
-const LOCKFILE = 'package-lock.json';
+export const DEPENDENCY_LOCKFILE = 'package-lock.json';
 /** The hidden lockfile npm writes into node_modules at the end of every install. */
 const HIDDEN_LOCKFILE = path.join('node_modules', '.package-lock.json');
 const withDependencyLock = createKeyedLock();
@@ -22,7 +23,7 @@ const DEPENDENCY_COPY_TIMEOUT_MS = 90_000;
 export async function dependencyState(target: string) {
   const [installedAt, lockTime] = await Promise.all([
     mtimeOrNull(path.join(target, HIDDEN_LOCKFILE)),
-    mtimeOrNull(path.join(target, LOCKFILE)),
+    mtimeOrNull(path.join(target, DEPENDENCY_LOCKFILE)),
   ]);
   return {
     installedAt,
@@ -60,8 +61,11 @@ export async function cloneDependencies(args: {
   logger: FastifyBaseLogger;
   /** Default: process.platform (tests). */
   platform?: NodeJS.Platform;
-  /** Default: `cp -c -R src dest` without a shell (tests). */
-  copyTree?: (src: string, dest: string) => Promise<void>;
+  /**
+   * Default: `cp -c -R src dest` without a shell (tests).
+   * Must stop and settle soon after `signal` aborts: the clone waits for it before it removes the temporaries.
+   */
+  copyTree?: (src: string, dest: string, signal: AbortSignal) => Promise<void>;
   /** Default: both checkouts on one APFS volume (tests). Throws when cloning from the reference is not possible. */
   probe?: (reference: string, target: string) => Promise<void>;
   /** Total copying budget; tests can shorten it. */
@@ -87,13 +91,13 @@ async function cloneIntoTarget(
     const { installedAt, lockTime, fresh } = await dependencyState(target);
     if (fresh) return skipped('present');
     const refreshing = await present(path.join(target, 'node_modules'));
-    const targetLock = await readOrNull(path.join(target, LOCKFILE));
+    const targetLock = await readOrNull(path.join(target, DEPENDENCY_LOCKFILE));
     if (!targetLock) return skipped('no_lockfile');
     // `node_modules/` (with the slash) matches a directory-only ignore pattern that does not exist yet.
     if ((await tryGit(['-C', target, 'check-ignore', '-q', 'node_modules/'])) === null)
       return skipped('not_ignored');
 
-    const reference = await findReference(args.candidates, target, targetLock);
+    const reference = await findDependencyReference(args.candidates, target, targetLock);
     if (!reference) return skipped('no_reference');
 
     const dirs = await dependencyDirs(reference.path, target);
@@ -112,36 +116,35 @@ async function cloneIntoTarget(
       return skipped('unsupported');
     }
 
-    const copyDeadline = Date.now() + (args.copyTimeoutMs ?? DEPENDENCY_COPY_TIMEOUT_MS);
-    for (const dir of dirs) {
-      const temporary = path.join(target, dir, `.node_modules.pm-${suffix}`);
-      temporaries.push(temporary);
-      const remaining = copyDeadline - Date.now();
-      if (remaining <= 0) throw new Error('dependency copying timed out');
-      const src = path.join(reference.path, dir, 'node_modules');
-      if (await present(temporary)) throw new Skip('unsupported');
-      await assertSafeParent(target, temporary);
-      if (args.copyTree) await boundedCopy(args.copyTree, src, temporary, remaining);
-      else await defaultCopyTree(src, temporary, remaining);
-      for (const cache of CACHE_DIRS) {
-        const cachePath = path.join(temporary, cache);
-        await assertSafeParent(target, cachePath);
-        await rm(cachePath, { recursive: true, force: true });
-      }
-    }
+    await copyWithinBudget(
+      dirs.map((dir) => async (signal: AbortSignal) => {
+        const temporary = path.join(target, dir, `.node_modules.pm-${suffix}`);
+        temporaries.push(temporary);
+        const src = path.join(reference.path, dir, 'node_modules');
+        if (await present(temporary)) throw new Skip('unsupported');
+        await assertSafeParent(target, temporary);
+        await (args.copyTree ?? defaultCopyTree)(src, temporary, signal);
+        for (const cache of CACHE_DIRS) {
+          const cachePath = path.join(temporary, cache);
+          await assertSafeParent(target, cachePath);
+          await rm(cachePath, { recursive: true, force: true });
+        }
+      }),
+      args.copyTimeoutMs ?? DEPENDENCY_COPY_TIMEOUT_MS,
+    );
 
     // The reference's install must not have been touched while it was being copied.
     if (
       (await mtimeOrNull(path.join(reference.path, HIDDEN_LOCKFILE))) !== reference.installedAt ||
-      !(await readOrNull(path.join(reference.path, LOCKFILE)))?.equals(targetLock)
+      !(await readOrNull(path.join(reference.path, DEPENDENCY_LOCKFILE)))?.equals(targetLock)
     ) {
       await removeAll(target, temporaries);
       return skipped('reference_changed');
     }
 
     if (
-      !(await readOrNull(path.join(target, LOCKFILE)))?.equals(targetLock) ||
-      (await mtimeOrNull(path.join(target, LOCKFILE))) !== lockTime ||
+      !(await readOrNull(path.join(target, DEPENDENCY_LOCKFILE)))?.equals(targetLock) ||
+      (await mtimeOrNull(path.join(target, DEPENDENCY_LOCKFILE))) !== lockTime ||
       (refreshing && (await mtimeOrNull(path.join(target, HIDDEN_LOCKFILE))) !== installedAt)
     ) {
       await removeAll(target, temporaries);
@@ -221,18 +224,18 @@ function skipped(reason: DependencyCloneSkip): DependencyCloneResult {
   return { status: 'skipped', reason };
 }
 
-/** The first candidate with the target's lockfile (byte for byte) and an install after its last change. */
-async function findReference(
-  candidates: string[],
+/** The first candidate with the target's lockfile (byte for byte) and an install after its last change; never the target. */
+export async function findDependencyReference(
+  candidates: readonly string[],
   target: string,
   targetLock: Buffer,
 ): Promise<{ path: string; installedAt: number } | null> {
   const resolvedTarget = path.resolve(target);
   for (const candidate of candidates) {
     if (path.resolve(candidate) === resolvedTarget) continue;
-    const lock = await readOrNull(path.join(candidate, LOCKFILE));
+    const lock = await readOrNull(path.join(candidate, DEPENDENCY_LOCKFILE));
     if (!lock || !lock.equals(targetLock)) continue;
-    const lockTime = await mtimeOrNull(path.join(candidate, LOCKFILE));
+    const lockTime = await mtimeOrNull(path.join(candidate, DEPENDENCY_LOCKFILE));
     const installedAt = await mtimeOrNull(path.join(candidate, HIDDEN_LOCKFILE));
     if (lockTime === null || installedAt === null || installedAt < lockTime) continue;
     return { path: candidate, installedAt };
@@ -372,31 +375,16 @@ async function defaultProbe(reference: string, target: string): Promise<void> {
 }
 
 /** `-R` keeps symbolic links as links, so a workspace link stays relative and points at the copy's own package. */
-function defaultCopyTree(src: string, dest: string, timeout: number): Promise<void> {
+function defaultCopyTree(src: string, dest: string, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile('cp', ['-c', '-R', src, dest], { windowsHide: true, timeout }, (error, _stdout, stderr) => {
+    if (signal.aborted) return reject(new Error('dependency copying aborted'));
+    const child = execFile('cp', ['-c', '-R', src, dest], { windowsHide: true }, (error, _stdout, stderr) => {
+      signal.removeEventListener('abort', stop);
       if (error) reject(new Error(`cp -c -R failed: ${stderr.trim() || error.message}`));
       else resolve();
     });
+    // Kill manually: execFile's signal option rejects before the child has stopped.
+    const stop = () => child.kill();
+    signal.addEventListener('abort', stop, { once: true });
   });
-}
-
-/** Bounds injected test copies; production cp is killed and awaited by execFile on timeout. */
-async function boundedCopy(
-  copy: (src: string, dest: string) => Promise<void>,
-  src: string,
-  dest: string,
-  timeout: number,
-) {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    await Promise.race([
-      copy(src, dest),
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('dependency copying timed out')), timeout);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }

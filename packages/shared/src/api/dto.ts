@@ -6,6 +6,13 @@ export const StartMergeRequest = z.object({
   resolution: z.string().trim().min(1).max(2000).optional(),
 });
 export type StartMergeRequest = z.infer<typeof StartMergeRequest>;
+
+/** The reason a queued merge is put at the front of the queue, in the person's words (PM-576). */
+export const PRIORITIZE_MERGE_REASON_MAX = 500;
+export const PrioritizeMergeRequest = z.object({
+  reason: z.string().trim().min(1).max(PRIORITIZE_MERGE_REASON_MAX),
+});
+export type PrioritizeMergeRequest = z.infer<typeof PrioritizeMergeRequest>;
 import { BoardPlacement } from '../domain/board-order';
 import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { DutyId } from '../domain/duty';
@@ -125,6 +132,8 @@ export const OperatorStep = z.object({
   changes: z.array(ConfigChangeRow),
   configVersion: z.string().nullable(),
   inboxItemId: z.string().nullable(),
+  /** The system signal the Operator acted on without an owner's request (PM-545). */
+  signalId: z.string().nullable(),
   refusal: z.object({ code: z.enum(ERROR_CODES), message: z.string() }).nullable(),
 });
 export type OperatorStep = z.infer<typeof OperatorStep>;
@@ -139,7 +148,25 @@ export const OperatorRequestView = z.object({
 export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
 export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
 export const OPERATOR_SILENT_WORK_MINUTES = 30;
-export const OperatorSignalKind = z.enum(['outage', 'nobody', 'stalled', 'silent']);
+/** A card held by an AI member with no work running for this long is idle (PM-547). */
+export const OPERATOR_IDLE_MINUTES = 30;
+/** A merge the merger has not started for this long is waiting. */
+export const OPERATOR_MERGE_WAIT_MINUTES = 30;
+/** Work merged and not released for this long is waiting for a release. */
+export const OPERATOR_UNRELEASED_HOURS = 24;
+/** Startable cards and free capacity together for this long wake the Operator. */
+export const OPERATOR_READY_WAITING_MINUTES = 30;
+export const OperatorSignalKind = z.enum([
+  'outage',
+  'nobody',
+  'stalled',
+  'silent',
+  'idle',
+  'merge_waiting',
+  'merge_blocked',
+  'unreleased',
+  'ready_waiting',
+]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
 export const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
 export type OperatorSignalState = z.infer<typeof OperatorSignalState>;
@@ -491,6 +518,8 @@ export const OperatorConsequence = z.enum([
   'member_retire',
   'member_other',
   'locations',
+  'review_test',
+  'operator_watch',
   'fix_limit',
   'session_stop',
   'project_pause',

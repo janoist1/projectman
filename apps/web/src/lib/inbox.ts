@@ -7,12 +7,22 @@ import {
   loopDecisionOf,
   mergeRequestOf,
   permissionDelegationOf,
+  QuestionCloseRule,
   questionPayloadOf,
   releaseApprovalOf,
   seniorWaitDecisionOf,
 } from '@projectman/shared';
-import type { InboxItem, InboxOption, LabelView, Task, WorkItemRef } from '@projectman/shared';
-import { formatStamp, formatTokens } from '../i18n/format';
+import type {
+  AnswerDelivery,
+  InboxItem,
+  InboxOption,
+  LabelView,
+  QuestionScreening,
+  Task,
+  TaskStartWaiting,
+  WorkItemRef,
+} from '@projectman/shared';
+import { formatStamp, formatTime, formatTokens } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
@@ -46,6 +56,8 @@ const BUILT_IN_OPTIONS = [
   'move',
   'dismiss',
   'merge',
+  'todo_done',
+  'todo_cannot',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
@@ -638,6 +650,9 @@ export function isAutomaticDecision(item: InboxItem): boolean {
 }
 
 export function resolutionLabel(item: InboxItem): string {
+  // A question closed without an answer (PM-556) says why, whatever its state is.
+  const closed = QuestionCloseRule.safeParse(item.resolution?.rule);
+  if (closed.success) return t(`inbox.resolutions.${closed.data}`);
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
   if (item.resolution?.rule === 'outage_ended') return t('inbox.resolutions.outage_ended');
@@ -700,10 +715,20 @@ export function decisionToast(item: InboxItem, optionId: string, myHandle: strin
   });
 }
 
-/** Who decided: the rule the system decided by, "Rendszer" for older automatic decisions, or the member. */
+/**
+ * Who decided: the rule the system decided by, "Rendszer" for older automatic decisions, or the member.
+ * A question that closed by itself (the card finished, the asker handed it off) says so; one the Operator
+ * closed names the Operator, and a withdrawn one the asker.
+ */
 export function resolverName(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
   const resolution = item.resolution;
   if (resolution?.via) return t('involvement.integratorFull');
+  const closed = QuestionCloseRule.safeParse(resolution?.rule);
+  if (closed.success) {
+    if (resolution?.by === 'system' || closed.data === 'task_done' || closed.data === 'task_cancelled')
+      return t('inbox.closedBySystem');
+    return nameOf(resolution?.by ?? null, members, myHandle);
+  }
   if (resolution?.rule) return t(`inbox.resolutionRules.${resolution.rule}`);
   return nameOf(resolution && resolution.by !== 'system' ? resolution.by : null, members, myHandle);
 }
@@ -719,11 +744,206 @@ export function resolutionNote(item: InboxItem): string | null {
 
 export function isPositiveResolution(item: InboxItem): boolean {
   const optionId = item.resolution?.optionId;
-  return item.state === 'resolved' && optionId !== 'deny' && optionId !== 'reject';
+  return (
+    item.state === 'resolved' &&
+    optionId !== 'deny' &&
+    optionId !== 'reject' &&
+    optionId !== 'todo_cannot' &&
+    !isClosedWithoutAnswer(item)
+  );
+}
+
+/** A question closed without an answer (PM-556): the card finished, the asker left it, or the Operator found it moot. */
+export function isClosedWithoutAnswer(item: InboxItem): boolean {
+  return QuestionCloseRule.safeParse(item.resolution?.rule).success;
+}
+
+/** The mark of a row in the history: a tick, a cross, a quiet dash (closed without an answer) or "…" (the answer waits). */
+export type ResolutionMark = 'ok' | 'no' | 'moot' | 'wait';
+
+export function resolutionMark(item: InboxItem): ResolutionMark {
+  if (isClosedWithoutAnswer(item)) return 'moot';
+  if (!isPositiveResolution(item)) return 'no';
+  return answerDeliveryOf(item)?.state === 'waiting' ? 'wait' : 'ok';
+}
+
+/**
+ * Whether the history ("Mostanában döntöttél") lists an item. What the Operator settled with no person
+ * involved is in its trail ("Az Operátor intézte") instead. A question the Operator closed as moot only
+ * counts when it had gone to the people first (it was a todo, or released by the fallback): the record
+ * does not keep a plain decision released and closed later, so that case stays in the trail.
+ */
+export function isRecentDecision(item: InboxItem): boolean {
+  if (item.state === 'open' || item.state === 'screening') return false;
+  const rule = item.resolution?.rule;
+  if (rule === 'operator_answered' || rule === 'operator_forwarded') return false;
+  if (rule === 'operator_moot') {
+    const screening = screeningOf(item);
+    return Boolean(screening?.todo || screening?.fallback);
+  }
+  return true;
 }
 
 export function openItems(items: readonly InboxItem[] | undefined): InboxItem[] {
   return (items ?? []).filter((item) => item.state === 'open');
+}
+
+/** What the Operator recorded about a question (PM-556), or null. */
+export function screeningOf(item: InboxItem): QuestionScreening | null {
+  return item.kind === 'question' ? (questionPayloadOf(item)?.screening ?? null) : null;
+}
+
+/** A question the Operator made a todo of: "Teendő", not "Kérdés" (PM-556), also after it closed. */
+export function isTodo(item: InboxItem): boolean {
+  return item.kind === 'question' && screeningOf(item)?.outcome === 'todo';
+}
+
+/** The kind a card shows: a todo is its own kind. */
+export type DisplayKind = InboxItem['kind'] | 'todo';
+
+export function displayKindOf(item: InboxItem): DisplayKind {
+  return isTodo(item) ? 'todo' : item.kind;
+}
+
+/** What the Operator said about a question that went to the people (a decision or a todo), or null. */
+export function operatorNoteOf(item: InboxItem): string | null {
+  const screening = screeningOf(item);
+  if (!screening || (screening.outcome !== 'decision' && screening.outcome !== 'todo')) return null;
+  return screening.note?.trim() || null;
+}
+
+/** Why the Operator did not look at a question: it did not answer in time, or could not be started. */
+export function operatorFallbackOf(item: InboxItem): 'timeout' | 'unavailable' | null {
+  return screeningOf(item)?.fallback ?? null;
+}
+
+/** The question was asked again without screening (PM-556): the reason the asker gave, or null. */
+export function rerouteReasonOf(item: InboxItem): string | null {
+  return item.kind === 'question' ? (questionPayloadOf(item)?.unscreened?.reason.trim() ?? null) : null;
+}
+
+/** The rows of a todo's step box, in order; those the Operator left empty are skipped. */
+export function todoRows(item: InboxItem): { label: string; value: string }[] {
+  const todo = screeningOf(item)?.todo;
+  if (!todo) return [];
+  return [
+    { label: t('inbox.todo.what'), value: todo.what },
+    { label: t('inbox.todo.where'), value: todo.where },
+    { label: t('inbox.todo.expected'), value: todo.expected },
+  ].filter((row) => row.value.trim() !== '');
+}
+
+/** The delivery state of the viewer's answer to an AI member's question (PM-556), or null. */
+export function answerDeliveryOf(item: InboxItem): AnswerDelivery | null {
+  return item.kind === 'question' ? (questionPayloadOf(item)?.answerDelivery ?? null) : null;
+}
+
+type StartWaitingReason = TaskStartWaiting['reason'];
+
+/** The few words why a member cannot start now, or null for a reason the asker's wait is not explained by. */
+function startWaitingWords(reason: StartWaitingReason, form: 'before' | 'after'): string | null {
+  switch (reason) {
+    case 'member_on_leave':
+      return t(`inbox.awaitsStart.${form}.leave`);
+    case 'plan_usage_paused':
+    case 'provider_rate_limited':
+      return t(`inbox.awaitsStart.${form}.quota`);
+    case 'member_at_capacity':
+    case 'ai_limit_reached':
+      return t(`inbox.awaitsStart.${form}.capacity`);
+    default:
+      return null;
+  }
+}
+
+/** The line above the buttons: the asker cannot start now, so an answer waits ("{név} most szabadságon van: …"). Null otherwise. */
+export function askerStartNote(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const reason = item.askerStart?.reason;
+  const words = reason ? startWaitingWords(reason, 'before') : null;
+  return words
+    ? t('inbox.awaitsStart.note', { name: nameOf(item.source, members, myHandle), reason: words })
+    : null;
+}
+
+/** The notice after an answer went through when the asker cannot start now: "Elküldve. {név} {ok}, a válasz megvárja." */
+export function askerStartToast(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const reason = item.askerStart?.reason;
+  const words = reason ? startWaitingWords(reason, 'before') : null;
+  return words
+    ? t('inbox.awaitsStart.toast', { name: nameOf(item.source, members, myHandle), reason: words })
+    : null;
+}
+
+/** The history line under an answered question: the answer waits for the member's start, or reached them. Null otherwise. */
+export function answerDeliveryText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const delivery = answerDeliveryOf(item);
+  if (!delivery) return null;
+  if (delivery.state === 'delivered')
+    return t('inbox.awaitsStart.delivered', { time: formatTime(delivery.at) });
+  const words = startWaitingWords(delivery.reason, 'after');
+  return t('inbox.awaitsStart.waiting', {
+    name: nameOf(item.source, members, myHandle),
+    reason: words ?? t('inbox.awaitsStart.after.other'),
+  });
+}
+
+/** "Ez a kérdés közben lezárult: {ok}": the reason the question closed while it was open, or null when not known. */
+export function closedReasonOf(item: InboxItem): string | null {
+  const closed = QuestionCloseRule.safeParse(item.resolution?.rule);
+  return closed.success ? t(`inbox.closedReasons.${closed.data}`) : null;
+}
+
+/**
+ * Whether an open item left the list because of something other than the viewer's own answer: a rule or
+ * another person closed it (a question of an asker who handed the card off, for one).
+ */
+export function closedBySomeoneElse(item: InboxItem, myHandle: string | null): boolean {
+  if (item.state === 'open' || item.state === 'screening') return false;
+  if (isClosedWithoutAnswer(item)) return true;
+  return item.resolution?.by !== undefined && item.resolution.by !== myHandle;
+}
+
+/** The Operator's part in a question the viewer did not see (the trail "Az Operátor intézte"). */
+export type OperatorTrailMark = 'answered' | 'forwarded' | 'moot' | 'at';
+
+export function operatorTrailMark(item: InboxItem): OperatorTrailMark {
+  if (item.state === 'screening') return 'at';
+  const outcome = screeningOf(item)?.outcome;
+  return outcome === 'answered' || outcome === 'forwarded' ? outcome : 'moot';
+}
+
+/**
+ * The line under a trail row: the Operator's note (for a forwarded question, who got it), or for a question
+ * still with the Operator when it goes to the people.
+ */
+export function operatorTrailNote(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const screening = screeningOf(item);
+  if (item.state === 'screening' && screening)
+    return t('inbox.operatorTrail.until', { time: formatTime(screening.until) });
+  const note = screening?.note?.trim();
+  if (screening?.outcome === 'forwarded' && screening.forwardedTo) {
+    const name = nameOf(screening.forwardedTo, members, myHandle);
+    return note
+      ? t('inbox.operatorTrail.forwardedTo', { name, note })
+      : t('inbox.operatorTrail.forwardedToPlain', { name });
+  }
+  return note || null;
 }
 
 export function isAssignedTo(item: InboxItem, handle: string | null): boolean {

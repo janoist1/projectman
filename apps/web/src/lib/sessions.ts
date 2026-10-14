@@ -35,6 +35,8 @@ export const AUTOMATIC_CLOSURES: ReadonlySet<SessionStop['kind']> = new Set([
   'pause',
   'handed_off',
   'handoff_timeout',
+  'merge_running',
+  'awaiting_fix',
 ]);
 export function isAutomaticClosureKind(
   kind: SessionStop['kind'],
@@ -46,7 +48,9 @@ export function isAutomaticClosureKind(
   | 'sent_back'
   | 'pause'
   | 'handed_off'
-  | 'handoff_timeout' {
+  | 'handoff_timeout'
+  | 'merge_running'
+  | 'awaiting_fix' {
   return AUTOMATIC_CLOSURES.has(kind);
 }
 const STOPPED_CLOSURES: ReadonlySet<SessionStop['kind']> = new Set([
@@ -138,6 +142,16 @@ export function closureReason(stop: SessionStop, ctx: ClosureContext): Reason {
       return {
         short: t('session.closure.short.handoff_timeout'),
         long: t('session.closure.long.handoff_timeout'),
+      };
+    case 'merge_running':
+      return {
+        short: t('session.closure.short.merge_running'),
+        long: detail(t('session.closure.long.merge_running')),
+      };
+    case 'awaiting_fix':
+      return {
+        short: t('session.closure.short.awaiting_fix'),
+        long: detail(t('session.closure.long.awaiting_fix')),
       };
     default:
       return { short: t('session.closure.short.pause'), long: t('session.closure.long.pause') };

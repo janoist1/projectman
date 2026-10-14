@@ -15,7 +15,6 @@ describe('egress migration (16)', () => {
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
       const repos = createRepositories(db);
       expect(repos.timeline.list('AR')[0]).toMatchObject({ type: 'boundary_changed' });
-      expect(repos.egress.listAllowances('AR', '2026-01-01T00:00:00.000Z')).toEqual([]);
       for (const table of ['egress_operations', 'egress_allowances'])
         expect(db.prepare('SELECT name FROM sqlite_master WHERE name = ?').get(table)).toBeDefined();
     } finally {

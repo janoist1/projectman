@@ -15,10 +15,49 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acquireHeavyLock, defaultHeavyLockDir, HeavyLockError, readHeavyQueue } from './heavy-lock';
+import {
+  acquireHeavyLock,
+  defaultHeavyLockDir,
+  HeavyLockError,
+  readHeavyQueue,
+  readHeavyRunSessions,
+} from './heavy-lock';
 import type { HeavyLock, HeavyLockEntry } from './heavy-lock';
 
 const FIXTURE = fileURLToPath(new URL('../../test/fixtures/heavy-holder.ts', import.meta.url));
+
+it('lets a holder process exit naturally after release', async () => {
+  const child = holder('released', path.join(root, 'released.log'), 100);
+  await until(() => child.exitCode !== null, 'holder exit after release', 5000);
+  expect(child.exitCode).toBe(0);
+  expect(child.signalCode).toBeNull();
+});
+
+describe('heavy-run sessions', () => {
+  it('includes live holders and waiters once and does not remove stale entries', async () => {
+    writeHolder({ sessionId: 'holder' });
+    writeTicket('fresh', { sessionId: 'waiter' });
+    writeTicket('duplicate', { sessionId: 'holder' });
+    const stale = writeTicket('stale', { sessionId: 'stale' }, 60_000);
+    writeTicket('dead', { sessionId: 'dead', pid: 2_000_000_000 });
+    writeTicket('anonymous', {});
+    expect((await readHeavyRunSessions(dir)).sort()).toEqual(['holder', 'waiter']);
+    expect(existsSync(stale)).toBe(true);
+  });
+
+  it('filters stale, dead and anonymous holders', async () => {
+    writeHolder({ sessionId: 'stale' }, 60_000);
+    expect(await readHeavyRunSessions(dir)).toEqual([]);
+    writeHolder({ sessionId: 'dead', pid: 2_000_000_000 });
+    expect(await readHeavyRunSessions(dir)).toEqual([]);
+    writeHolder({});
+    expect(await readHeavyRunSessions(dir)).toEqual([]);
+  });
+
+  it('returns no sessions for a missing folder', async () => {
+    expect(await readHeavyRunSessions(dir)).toEqual([]);
+  });
+});
 
 /** Short timings: a heartbeat every 40 ms, a holder or a waiter is stale after 400 ms. */
 const FAST = { heartbeatMs: 40, staleMs: 400, pollMs: 20 };

@@ -7,15 +7,15 @@ import {
   UpdateMemberRequest,
 } from '@projectman/shared';
 import type { MemberProfile, MemberView } from '@projectman/shared';
-import { forbidden } from '../domain';
-import type { Domain } from '../domain';
+import { forbidden } from '../kernel';
+import type { ApiDomain } from './ports';
 import { actorOf, authorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type MemberParams = { Params: { key: string; handle: string } };
 
-export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get<ProjectParams>(routes.members(':key'), async (request): Promise<MemberView[]> => {
     const access = await requireAccess(domain, request, request.params.key);
     return domain.members.rosterOf(request.params.key, access);

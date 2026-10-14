@@ -33,7 +33,7 @@ export const MergeFailure = z.object({
   files: z.array(z.string()).max(50).optional(),
   command: z.string().optional(),
   runId: z.string().optional(),
-  /** At most the last 40 lines. */
+  /** The failure report of the check by workspace (blocks and totals, PM-554); older rows hold the last 40 lines. */
   outputTail: z.string().max(8000).optional(),
 });
 export type MergeFailure = z.infer<typeof MergeFailure>;
@@ -79,6 +79,12 @@ export type TaskMergeState = z.infer<typeof TaskMergeState>;
 export function isMergeFixer(merge: TaskMergeState | null | undefined, member: string): boolean {
   return merge?.state === 'fixing' && merge.merger === member && merge.fix?.by === member;
 }
+
+/** The member started the card's merge and the server queued or runs it: the member has nothing to do until its result (PM-552). */
+export function isMergeRunningFor(merge: TaskMergeState | null | undefined, member: string): boolean {
+  return merge?.merger === member && (merge.state === 'queued' || merge.state === 'running');
+}
+
 export const TaskMerged = z.object({
   resolution: z.object({ note: z.string().max(2000), commit: z.string() }).optional(),
   via: z.enum(['tool', 'found']),

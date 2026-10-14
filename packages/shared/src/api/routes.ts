@@ -33,11 +33,8 @@ export const routes = {
   decideBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/decide`,
   revokeBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/revoke`,
   /** GET (owner): the network destinations opened for the project's members (PM-140). */
-  egressAllowances: (key: string) => `/api/projects/${key}/egress`,
   /** POST (owner): closes an opened destination before it expires. */
-  revokeEgressAllowance: (key: string, id: string) => `/api/projects/${key}/egress/${id}/revoke`,
   /** GET (any logged-in member): whether the VM boundary is configured and ready (PM-140). */
-  runtimeBoundary: () => '/api/runtime-boundary',
   providers: () => '/api/providers',
   nanogptKey: () => '/api/providers/nanogpt/key',
   setupStatus: () => '/api/setup',
@@ -54,6 +51,9 @@ export const routes = {
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
   taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,
+  /** POST: puts the card's queued merge at the front of its repository's queue (`PrioritizeMergeRequest`, PM-576). */
+  taskMergePrioritize: (key: string, taskKey: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/merge/prioritize`,
   task: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}`,
   /** GET: a closed handoff of the card with its note or summary (`TaskHandoffRecord`, PM-342). */
   taskHandoff: (key: string, taskKey: string, id: string) =>
@@ -147,6 +147,8 @@ export const routes = {
   closedCardsMeasure: (key: string) => `/api/projects/${key}/measure/closed-cards`,
 
   inbox: (key: string) => `/api/projects/${key}/inbox`,
+  /** GET (owner, admin; query `since`, ISO): the questions the Operator screened, newest first (PM-556). */
+  screenedQuestions: (key: string) => `/api/projects/${key}/inbox/screened`,
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
   checkOutage: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/check`,
 

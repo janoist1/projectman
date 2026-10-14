@@ -16,6 +16,8 @@ import type {
   MemberView,
   QuestionAttachment,
   QuestionOptionInput,
+  QuestionTodo,
+  ScreeningOutcome,
   Task,
   TaskDetail,
   TaskKind,
@@ -30,6 +32,8 @@ import type {
   WorkItemRef,
   BoundaryRequest,
   BoundaryGrant,
+  StaleReason,
+  TaskStartWaiting,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
   OperatorOperation,
@@ -37,8 +41,7 @@ import type {
   ProjectDoc,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
-import type { PullRequestInfo, RemoteState } from './github';
-import type { ProjectStateReport, TaskStateReport } from './project-state';
+import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
 
 /** What read_project_doc answers: the lines asked for of a project document at one commit. */
 export interface ProjectDocRead {
@@ -106,6 +109,17 @@ export type SentMessageHold =
   /** The card is being handed over from the recipient (PM-342): the receiver gets the message. */
   | 'handoff';
 
+/** What became of waking the recipient (PM-543; only with delivery 'wake'). */
+export type WakeStart =
+  /** The session started or continued, and the message is in it. */
+  | { state: 'started'; sessionId: string }
+  /** It was not decided while the send waited; the start goes on in the background. */
+  | { state: 'starting' }
+  /** Admission put the start off (a leave, a pause, no capacity…); it is retried. */
+  | { state: 'waiting'; reason: TaskStartWaiting['reason'] }
+  /** The start stopped with an error (the DomainError code, else `start_failed`; `not_started`: it ran but no live session exists). */
+  | { state: 'failed'; code: string };
+
 /** What happens to a sent team message for one recipient, decided when it is sent (PM-144). */
 export interface SentMessageRecipient {
   handle: MemberHandle;
@@ -120,6 +134,12 @@ export interface SentMessageRecipient {
   waitingPermission?: { inboxItemId: string; deciders: string[]; since: string };
   /** Only with delivery 'next_input' (PM-426): why the message starts no session for the recipient. */
   noWake?: WakeBlock;
+  /** Only with delivery 'next_input' (PM-543): the message is kind info, so it starts nothing. */
+  info?: true;
+  /** Only with delivery 'next_input' (PM-543): the message was stale when sent (e.g. 'card_closed'), so it wakes nobody. */
+  stale?: StaleReason;
+  /** Only with delivery 'wake', and only when the send waited for the start (`awaitWake`). */
+  start?: WakeStart;
 }
 
 export interface ToolContext {
@@ -272,36 +292,6 @@ export interface MessageAttachmentReading {
   file?: { path: string };
 }
 
-/** A refused destination the session may ask for with submit_boundary_request. */
-export interface NetworkDenial {
-  operationId: string;
-  /** `host:port`. */
-  destination: string;
-  refusedAt: string;
-  /** Asking (and the allowance it may open) is possible until then. */
-  expiresAt: string;
-}
-
-/** The result of `publish_task_branch`. */
-export interface PublishedTaskBranch {
-  repo: string;
-  branch: string;
-  commit: string;
-  /** The remote branch already had this commit, so nothing was uploaded. */
-  alreadyPublished: boolean;
-  pullRequest: PullRequestInfo;
-  /** False when the branch's open pull request already existed. */
-  pullRequestCreated: boolean;
-  task: Task;
-}
-
-/** The result of `get_remote_state`. */
-export interface PublishedTaskState extends RemoteState {
-  taskKey: string;
-  /** The member who published the task's pull request; null when none did. */
-  publishedBy: string | null;
-}
-
 /** The input of `take_screenshots` (PM-351), as the domain gets it from the validated tool arguments. */
 export interface TakeScreenshotsInput {
   /** The scenario module, relative to the session's working directory or absolute. */
@@ -345,124 +335,36 @@ export interface ProposedRelease {
   tasks: { key: string; title: string }[];
 }
 
-export interface TeamToolsHandler {
-  getProjectState(
-    ctx: ToolContext,
-    args: { taskKey?: string },
-  ): Promise<TaskStateReport | ProjectStateReport>;
-  operate(
-    ctx: ToolContext,
-    args: { title: string; operation: OperatorOperation },
-  ): Promise<{
-    status: 'done' | 'awaiting_approval' | 'refused';
-    step_id: string;
-    changes: ConfigChangeRow[];
-    config_version?: string | null;
-    inbox_item_id?: string;
-  }>;
-  startTask(
-    ctx: ToolContext,
-    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
-  ): Promise<{ task_key: string; session_id: string | null; hired: string | null }>;
-  /**
-   * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
-   * Only the Operator; needs no open request.
-   */
-  readProjectDoc(
-    ctx: ToolContext,
-    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
-  ): Promise<ProjectDocRead>;
-  /**
-   * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
-   * branch. Only the Operator, in the owner's own conversation, during an open owner request.
-   */
-  writeProjectDocs(
-    ctx: ToolContext,
-    args: {
-      baseCommit: string;
-      message: string;
-      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
-    },
-  ): Promise<ProjectDocWrite>;
-  /**
-   * list_decision_candidates (PM-496): the owners' answers on cards that may be decisions. Only the
-   * Operator, not in guest conversations; needs no open request. Counts as a look.
-   */
-  listDecisionCandidates(ctx: ToolContext, args: { limit?: number }): Promise<DecisionCandidatesList>;
-  /**
-   * mark_decision_candidates (PM-496): the owner's verdict on offered candidates, all or nothing. Only the
-   * Operator, in the owner's own conversation, during an open owner request.
-   */
-  markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
-  /**
-   * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
-   * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
-   * with `getScreenshotRun`.
-   */
-  takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
-  /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
-  getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
-  submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
-  getBoundaryRequest(
-    ctx: ToolContext,
-    args: { requestId: string },
-  ): Promise<{ request: BoundaryRequest; grant: BoundaryGrant | null }>;
-  decideBoundaryRequest(
-    ctx: ToolContext,
-    args: DecideBoundaryRequest & { requestId: string },
-  ): Promise<BoundaryRequest>;
-  /**
-   * decide_permission_request: the AI decider answers a member's tool question delegated to it
-   * (PM-169), or hands it to a person (`escalate`). The reason is required.
-   */
-  decidePermissionRequest(
-    ctx: ToolContext,
-    args: { requestId: string; decision: 'allow' | 'deny' | 'escalate'; reason: string },
-  ): Promise<{ requestId: string; decision: 'allow' | 'deny' | 'escalate'; outcome: string }>;
-  /**
-   * decide_fix_limit (PM-262): the AI member who decides (the lead, or the planner it asked) decides how a
-   * card that reached its fix round limit goes on. The reason is required.
-   */
-  decideFixLimit(
-    ctx: ToolContext,
-    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
-  ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
-  /**
-   * hand_off (PM-342): the member a card is being handed over from writes the note for its successor; its
-   * session closes when it is idle. Refused with `handoff_not_open` when nothing is being handed over from
-   * the caller on that card (any more).
-   */
-  handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }>;
-  /** list_network_denials: destinations the egress proxy refused this session (PM-140), newest first. */
-  listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]>;
-  /** list_tasks: visible board tasks, newest update first. */
-  listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
-  /** send_message: deliver a message to team members (AI sessions or human inboxes). */
-  sendMessage(
-    ctx: ToolContext,
-    args: {
-      to: MemberHandle[];
-      text: string;
-      taskKey?: string;
-      kind: MessageKind;
-      signalId?: string;
-      signalActionable?: boolean;
-      /**
-       * Files to send with the message (PM-520): paths in the caller's session folder or relative to its
-       * working directory, read as `attach_file` reads them. All or nothing; a bad file names itself.
-       */
-      attachments?: string[];
-    },
-  ): Promise<{
-    messageId: string;
-    deliveredTo: MemberHandle[];
-    /** What happens to the message for each recipient, in the order of `to` (PM-144). */
-    recipients: SentMessageRecipient[];
-    /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
-    routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
-  }>;
+/**
+ * What check_release answers (PM-542): the rehearsal of propose_release. Either the candidate, or the refusal
+ * propose_release would give now. Nothing is recorded.
+ */
+export interface ReleaseCheckResult {
+  candidate: { commit: string; baseCommit: string | null; tasks: { key: string; title: string }[] } | null;
+  refusal: { code: string; message: string } | null;
+  /** The members with the deployment duty: they may propose the release. */
+  proposers: string[];
+}
+
+/** What became of the Operator's start of a member on work without a card (PM-541). */
+export interface MemberStartResult {
+  messageId: string;
+  /** The member's line as send_message gives it, with `start` (PM-543). */
+  recipient: SentMessageRecipient;
+}
+
+/** The tools of core/members (PM-592). */
+export interface MemberToolsHandler {
   /** list_members: roster with handles, roles and status. */
   listMembers(ctx: ToolContext): Promise<MemberView[]>;
+  /** save_memory: append a durable learning to this member's memory. */
+  saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
+}
+
+/** The tools of core/tasks (PM-592). */
+export interface TaskToolsHandler {
+  /** list_tasks: visible board tasks, newest update first. */
+  listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
   /**
    * get_task: task with recent timeline, and where its work happens. With `eventId`, the detail
    * also carries that event of the task (not_found when the task has no such event).
@@ -474,18 +376,6 @@ export interface TeamToolsHandler {
    * recorded before the stage move, so labels added in the same call count for the target stage's
    * gate.
    */
-  mergeTask(
-    ctx: ToolContext,
-    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
-  ): Promise<{ task: Task }>;
-  /**
-   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
-   * branch's head (or `commit`); `preview` only lists what the release would contain.
-   */
-  proposeRelease(
-    ctx: ToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease>;
   updateTask(
     ctx: ToolContext,
     args: {
@@ -530,52 +420,10 @@ export interface TeamToolsHandler {
       developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }>;
-  /** link_pull_request: attach a GitHub PR to the task. */
-  linkPullRequest(
-    ctx: ToolContext,
-    args: { taskKey: string; repo: string; number: number },
-  ): Promise<{ task: Task }>;
-  /**
-   * publish_task_branch (PM-142, managed VM profile only): puts the caller's own task branch at the
-   * named commit on GitHub through the VM's publishing identity, and opens its pull request once.
-   * Everything but the commit, the title and the body comes from the server's records.
-   */
-  publishTaskBranch(
-    ctx: ToolContext,
-    args: { taskKey?: string; commit: string; title?: string; body?: string },
-  ): Promise<PublishedTaskBranch>;
-  /** get_remote_state (PM-142): the remote default branch and task branch heads, their distance and the pull requests. */
-  getRemoteState(ctx: ToolContext, args: { taskKey: string }): Promise<PublishedTaskState>;
-  /**
-   * ask_human: create a question in a human's inbox; the answer arrives later as a team message.
-   * The question is written for a non-specialist. Each option is a label, or a label with its
-   * `consequence` (what happens if it is picked). `recommended` is the exact label of one option,
-   * with its one-sentence `recommendationReason`; `details` is markdown technical background that
-   * the inbox shows folded. All of these are optional.
-   */
-  askHuman(
-    ctx: ToolContext,
-    args: {
-      question: string;
-      options?: QuestionOptionInput[];
-      taskKey?: string;
-      to?: MemberHandle[];
-      recommended?: string;
-      recommendationReason?: string;
-      details?: string;
-      /** Ids of files of the question's card or its parent (PM-498), at most `MAX_QUESTION_ATTACHMENTS`. */
-      attachmentIds?: string[];
-    },
-  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }>;
-  /**
-   * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
-   * task argument: it always concerns the caller's session, which must be a task session in a round.
-   * Only the latest is kept; it is cleared when the round ends. `recorded` is false when the session
-   * was not in a round, so nothing was written.
-   */
-  setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }>;
-  /** save_memory: append a durable learning to this member's memory. */
-  saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
+}
+
+/** The tools of core/attachments (PM-592). */
+export interface AttachmentToolsHandler {
   /** list_attachments: a page of the task's attachments, oldest first. */
   listAttachments(
     ctx: ToolContext,
@@ -595,6 +443,54 @@ export interface TeamToolsHandler {
    * a message they cannot see is not found, whoever uploaded it.
    */
   readMessageAttachment(ctx: ToolContext, args: { attachmentId: string }): Promise<MessageAttachmentReading>;
+  /**
+   * attach_file: attaches a regular file from the calling session's working directory (as the
+   * server recorded it; never a directory the caller names) in the caller's name. The path is
+   * relative to that directory or absolute inside it.
+   */
+  attachFile(ctx: ToolContext, args: { taskKey: string; path: string }): Promise<{ attachment: Attachment }>;
+  /** delete_attachment: deletes an attachment under the REST rules (an AI member deletes its own). */
+  deleteAttachment(
+    ctx: ToolContext,
+    args: { taskKey: string; attachmentId: string },
+  ): Promise<{ attachmentId: string; fileName: string | null }>;
+}
+
+/** The tools of services/boundary (PM-607). */
+export interface BoundaryToolsHandler {
+  /** submit_boundary_request: one registered external operation; the requester is the calling session. */
+  submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
+  /** get_boundary_request: a request the caller raised or may decide, with its grant. */
+  getBoundaryRequest(
+    ctx: ToolContext,
+    args: { requestId: string },
+  ): Promise<{ request: BoundaryRequest; grant: BoundaryGrant | null }>;
+  /** decide_boundary_request: delegated requests only; owner exceptions stay with the owner. */
+  decideBoundaryRequest(
+    ctx: ToolContext,
+    args: DecideBoundaryRequest & { requestId: string },
+  ): Promise<BoundaryRequest>;
+}
+
+/** The tools of services/merges. */
+export interface MergeToolsHandler {
+  /** merge_task: the card's merger starts (or retries, or continues after a fix) the merge of the approved commit. */
+  mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }>;
+  /**
+   * prioritize_merge (PM-576): the card's merger or the Operator puts the card's merge at the front of its
+   * repository's queue, with the reason; `moved` is false when it was first already.
+   */
+  prioritizeMerge(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task: Task; moved: boolean }>;
+}
+
+/** The tools of services/feedback (PM-608). */
+export interface FeedbackToolsHandler {
   /**
    * get_feedback (PM-512, feedback processors only; else `forbidden` with `feedback_processor_only`):
    * the marks that wait for a decision.
@@ -624,17 +520,168 @@ export interface TeamToolsHandler {
   ): Promise<FeedbackToolResult>;
   /** close_feedback: the mark is closed, with an optional last reply. */
   closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
-  /**
-   * attach_file: attaches a regular file from the calling session's working directory (as the
-   * server recorded it; never a directory the caller names) in the caller's name. The path is
-   * relative to that directory or absolute inside it.
-   */
-  attachFile(ctx: ToolContext, args: { taskKey: string; path: string }): Promise<{ attachment: Attachment }>;
-  /** delete_attachment: deletes an attachment under the REST rules (an AI member deletes its own). */
-  deleteAttachment(
+}
+
+/** The tools of services/github (PM-604). */
+export interface GithubToolsHandler {
+  /** link_pull_request: attach a GitHub PR to the task. */
+  linkPullRequest(
     ctx: ToolContext,
-    args: { taskKey: string; attachmentId: string },
-  ): Promise<{ attachmentId: string; fileName: string | null }>;
+    args: { taskKey: string; repo: string; number: number },
+  ): Promise<{ task: Task }>;
+}
+
+export interface ScreenshotToolsHandler {
+  /**
+   * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
+   * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
+   * with `getScreenshotRun`.
+   */
+  takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
+  /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
+  getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
+}
+
+/** The tools of services/releases (PM-606). */
+export interface ReleaseToolsHandler {
+  /**
+   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
+   * branch's head (or `commit`); `preview` only lists what the release would contain.
+   */
+  proposeRelease(
+    ctx: ToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease>;
+  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
+  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
+}
+
+export interface TeamToolsHandler
+  extends
+    MemberToolsHandler,
+    TaskToolsHandler,
+    AttachmentToolsHandler,
+    MergeToolsHandler,
+    FeedbackToolsHandler,
+    GithubToolsHandler,
+    ScreenshotToolsHandler,
+    BoundaryToolsHandler,
+    ReleaseToolsHandler,
+    OperatorToolsHandler,
+    ProjectDocToolsHandler,
+    InboxToolsHandler,
+    MessageToolsHandler,
+    AdmissionToolsHandler,
+    WatcherToolsHandler,
+    SessionToolsHandler {}
+
+export interface InboxToolsHandler {
+  /**
+   * decide_permission_request: the AI decider answers a member's tool question delegated to it
+   * (PM-169), or hands it to a person (`escalate`). The reason is required.
+   */
+  decidePermissionRequest(
+    ctx: ToolContext,
+    args: { requestId: string; decision: 'allow' | 'deny' | 'escalate'; reason: string },
+  ): Promise<{ requestId: string; decision: 'allow' | 'deny' | 'escalate'; outcome: string }>;
+  /**
+   * ask_human: create a question in a human's inbox; the answer arrives later as a team message.
+   * The question is written for a non-specialist. Each option is a label, or a label with its
+   * `consequence` (what happens if it is picked). `recommended` is the exact label of one option,
+   * with its one-sentence `recommendationReason`; `details` is markdown technical background that
+   * the inbox shows folded. All of these are optional.
+   */
+  askHuman(
+    ctx: ToolContext,
+    args: {
+      question: string;
+      options?: QuestionOptionInput[];
+      taskKey?: string;
+      to?: MemberHandle[];
+      recommended?: string;
+      recommendationReason?: string;
+      details?: string;
+      /** Ids of files of the question's card or its parent (PM-498), at most `MAX_QUESTION_ATTACHMENTS`. */
+      attachmentIds?: string[];
+      /** The earlier question the Operator settled, and why a person must see this one (PM-558); only together. */
+      reaskOf?: string;
+      reaskReason?: string;
+    },
+  ): Promise<{
+    inboxItemId: string;
+    approvalLabel?: string;
+    attachments?: QuestionAttachment[];
+    /** An AI member's question waits for the Operator's screening before the people see it (PM-558). */
+    screening?: true;
+  }>;
+  /**
+   * withdraw_question (PM-559): the asking member closes its own pending question (open, or still with the
+   * Operator for screening) because it became moot, with a short `reason`. Errors: `not_found` (no such
+   * question in the project), `forbidden` `not_your_question` (the caller did not ask it), `invalid`
+   * `question_closed` (it is not pending any more).
+   */
+  withdrawQuestion(ctx: ToolContext, args: { itemId: string; reason: string }): Promise<{ itemId: string }>;
+}
+
+export interface MessageToolsHandler {
+  /** send_message: deliver a message to team members (AI sessions or human inboxes). */
+  sendMessage(
+    ctx: ToolContext,
+    args: {
+      to: MemberHandle[];
+      text: string;
+      taskKey?: string;
+      kind: MessageKind;
+      signalId?: string;
+      signalActionable?: boolean;
+      signalIds?: string[];
+      actionableSignalIds?: string[];
+      /**
+       * Files to send with the message (PM-520): paths in the caller's session folder or relative to its
+       * working directory, read as `attach_file` reads them. All or nothing; a bad file names itself.
+       */
+      attachments?: string[];
+    },
+  ): Promise<{
+    messageId: string;
+    deliveredTo: MemberHandle[];
+    /** What happens to the message for each recipient, in the order of `to` (PM-144). */
+    recipients: SentMessageRecipient[];
+    /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
+    routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
+    /** The sender is the Operator (PM-543): the text then never sends it to a person. */
+    operator: boolean;
+  }>;
+}
+
+export interface AdmissionToolsHandler {
+  /**
+   * hand_off (PM-342): the member a card is being handed over from writes the note for its successor; its
+   * session closes when it is idle. Refused with `handoff_not_open` when nothing is being handed over from
+   * the caller on that card (any more).
+   */
+  handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }>;
+}
+
+export interface WatcherToolsHandler {
+  /**
+   * decide_fix_limit (PM-262): the AI member who decides (the lead, or the planner it asked) decides how a
+   * card that reached its fix round limit goes on. The reason is required.
+   */
+  decideFixLimit(
+    ctx: ToolContext,
+    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
+  ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
+}
+
+export interface SessionToolsHandler {
+  /**
+   * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
+   * task argument: it always concerns the caller's session, which must be a task session in a round.
+   * Only the latest is kept; it is cleared when the round ends. `recorded` is false when the session
+   * was not in a round, so nothing was written.
+   */
+  setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }>;
 }
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */
@@ -657,4 +704,91 @@ export interface McpModuleOptions {
 export interface McpModule {
   /** Registers the MCP endpoint at /mcp/:token (localhost only). */
   registerRoutes(app: FastifyInstance): void;
+}
+
+/** The tools of services/project-docs (PM-495, PM-496). */
+export interface ProjectDocToolsHandler {
+  /**
+   * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
+   * Only the Operator; needs no open request.
+   */
+  readProjectDoc(
+    ctx: ToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ): Promise<ProjectDocRead>;
+  /**
+   * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
+   * branch. Only the Operator, in the owner's own conversation, during an open owner request.
+   */
+  writeProjectDocs(
+    ctx: ToolContext,
+    args: {
+      baseCommit: string;
+      message: string;
+      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+    },
+  ): Promise<ProjectDocWrite>;
+  /**
+   * list_decision_candidates (PM-496): the owners' answers on cards that may be decisions. Only the
+   * Operator, not in guest conversations; needs no open request. Counts as a look.
+   */
+  listDecisionCandidates(ctx: ToolContext, args: { limit?: number }): Promise<DecisionCandidatesList>;
+  /**
+   * mark_decision_candidates (PM-496): the owner's verdict on offered candidates, all or nothing. Only the
+   * Operator, in the owner's own conversation, during an open owner request.
+   */
+  markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
+}
+
+/** The tools of services/operator (PM-605). */
+export interface OperatorToolsHandler {
+  getProjectState(
+    ctx: ToolContext,
+    args: { taskKey?: string; messageId?: string },
+  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
+  operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation },
+  ): Promise<{
+    status: 'done' | 'awaiting_approval' | 'refused';
+    step_id: string;
+    changes: ConfigChangeRow[];
+    config_version?: string | null;
+    inbox_item_id?: string;
+  }>;
+  startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
+  ): Promise<{
+    task_key: string;
+    session_id: string | null;
+    hired: string | null;
+    /** The card's assignee after the start. */
+    assignee: string | null;
+    /** Gate labels and the members started to set them (PM-236). */
+    awaiting?: { labels: string[]; members: string[] };
+    /** Seniors the card waits for, without an assigned developer (PM-348). */
+    senior_wait?: { seniors: string[] };
+  }>;
+  startMember(
+    ctx: ToolContext,
+    args: { member: string; text: string; taskKey?: string; signalId?: string },
+  ): Promise<MemberStartResult>;
+  /**
+   * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
+   * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
+   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
+   * guest conversation; needs no open request.
+   */
+  screenQuestion(
+    ctx: ToolContext,
+    args: {
+      itemId: string;
+      outcome: ScreeningOutcome;
+      note: string;
+      answer?: string;
+      forwardTo?: MemberHandle;
+      todo?: QuestionTodo;
+    },
+  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
 }

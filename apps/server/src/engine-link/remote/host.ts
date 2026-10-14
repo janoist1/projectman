@@ -18,7 +18,7 @@ import type {
 } from '../../contracts';
 import { MERGE_ERROR_CODES, MergeError, WorkspaceFileRefusal } from '../../contracts';
 import type { MergeErrorCode } from '../../contracts';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import type { EngineMethod, MethodParams, MethodResult } from '../methods';
 import { EngineCallError } from '../rpc';
 import type { CallOptions } from '../rpc';
@@ -114,18 +114,6 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       resolveSource: (source) => call('workspace.resolveSource', [source]),
       checkoutTaskBranch: (key, request) => call('workspace.checkoutTaskBranch', [key, request]),
       checkoutReview: (key, source, roundId) => call('workspace.checkoutReview', [key, source, roundId]),
-      async exportBranch(key, branch) {
-        // The bundle goes over the file endpoint into the cloud's spool; the cloud reads it from there.
-        const ticket = transfers.issueUpload(id, 'bundle');
-        try {
-          const receipt = await call('workspace.export_branch', { key, branch, uploadToken: ticket.token });
-          const received = ticket.take(receipt);
-          return { path: received.path, bundle: true, done: async () => ticket.dispose() };
-        } catch (err) {
-          ticket.dispose();
-          throw err;
-        }
-      },
     };
 
     const foldersRoot = () => helloOf().paths.sessionFoldersRoot ?? '';
@@ -313,6 +301,14 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           return await call('host.free_disk', {});
         } catch {
           return null;
+        }
+      },
+      async heavyRunSessions() {
+        if (!hub.link(id)) return [];
+        try {
+          return await call('host.heavy_run_sessions', {});
+        } catch {
+          return [];
         }
       },
       processExists(pid) {

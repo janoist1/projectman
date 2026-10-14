@@ -15,11 +15,11 @@ Documentation map:
 | this file                                                                  | concepts, invariants, runtime structure, module map, storage        |
 | [DECISIONS.md](DECISIONS.md)                                               | what the owner decided and why (numbered, append-only)              |
 | [ROADMAP.md](ROADMAP.md)                                                   | what is built, what comes next, open questions for the owner        |
+| [LESSONS.md](LESSONS.md)                                                   | what building projectman taught us: challenges and lessons          |
 | [PROVIDERS.md](PROVIDERS.md)                                               | Claude Code and Codex: flags, hooks, permissions, login, plan usage |
 | [design/labels.md](design/labels.md), [design/duties.md](design/duties.md) | labels and gates; roles as duty bundles (reference, built)          |
 | [design/phase2.md](design/phase2.md)                                       | the phase 2 proposal (meetings, retro loop, "Rendszer", notices)    |
 | [GITHUB.md](GITHUB.md), [SECURITY.md](SECURITY.md), [DEPLOY.md](DEPLOY.md) | GitHub integration; threat model and protections; server deployment |
-| [VM.md](VM.md)                                                             | the managed VM profile: build, readiness report, trial, restore     |
 
 ## Hard constraints
 
@@ -37,7 +37,7 @@ Documentation map:
    people and agents (task titles, notes, messages, label names) is in the project's language.
 3. **No real agent or `gh` CLI in automated tests.** Tests use fakes that speak the same
    protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
-   `apps/server/src/github/test-fixtures/fake-gh.mjs`.
+   `apps/server/src/services/github/test-fixtures/fake-gh.mjs`.
 
 ## Concepts
 
@@ -118,7 +118,7 @@ Documentation map:
   card changing theme writes nothing to its subtasks, which are only announced again. A card that becomes
   a subtask loses its own theme. `task_theme_changed {themeKey, previous}` is recorded on the card and on
   both themes. A theme's cards (collecting cards with their subtasks) and its progress (done of not
-  cancelled cards) are `themeCards` / `themeProgress` in `domain/theme.ts`.
+  cancelled cards) are `themeCards` / `themeProgress` in [`core/tasks`](modules/core-tasks.md).
   A task works in one repository: its own `repo`, else the project's only one when it has
   exactly one (`effectiveRepo`, the one rule in `packages/shared` that placement, the command
   policy, the context pack and the web read). The repo can be set later (task drawer, REST
@@ -130,7 +130,7 @@ Documentation map:
   and delete is one rule in `packages/shared` (`canReadAttachments`, `canUploadAttachment`,
   `canDeleteAttachment`, with `canSeeTask` underneath): project membership always; a client only
   on a shared task; a viewer only reads; AI members and the other workers upload; the uploader or
-  a human owner or admin deletes. The attachments service (`domain/attachments`, the contract in
+  a human owner or admin deletes. The attachments service ([`core/attachments`](modules/core-attachments.md), the contract in
   `contracts/attachments.ts`) takes a stream, so REST and the team tools share one size,
   storage and access check, and judges the member against the current roster and the task's
   current visibility again just before an upload is published. The media type is proven from the
@@ -241,15 +241,13 @@ Documentation map:
   (read by the CLI from the working directory), the member's identity, duty fragments and
   instructions, the team roster, the project's labels, how to use the team tools, the rules
   of the current stage, for tasks the shell commands the server runs without asking (generated
-  from the command rules in `domain/`, `unattended-commands.ts`, so that a member writes them in
+  from `runtime/permissions` (`unattended-commands`), so that a member writes them in
   a form that passes), the member's memory, and for tasks a kick-off brief (title,
   description, links, relations to other cards, attachments, recent timeline) sent as the first message.
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
   humans, save memories and work with attachments (list, read by local path, attach a file of
-  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)), and
-  in the managed VM publish their own task branch (`publish_task_branch`) and read the remote
-  (`get_remote_state`; PM-142, [GITHUB.md](GITHUB.md)). Text
+  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
   an agent writes in its own session reaches nobody.
 - **Team messages** — a message about a task goes to the recipient's session for that task
   (batched when idle; a stopped session is started or resumed through admission only for a valid
@@ -288,7 +286,7 @@ Documentation map:
   turn starts, and wakes its recipient as usual when the card leaves refinement; only the answer to
   the recipient's own `ask_human` question goes through at once.
   PM-421: a new relation on a card that is being worked on is announced by `RelationNotices`
-  (`domain/messaging/relation-notices.ts`), which listens to the `task_relations_added` event
+  ([`core/messages`](modules/core-messages.md)), which listens to the `task_relations_added` event
   (emitted after commit by `TaskService.create` / `applyUpdate`, one event per operation, for both
   cards; a deletion emits nothing). Each AI member with a running session on the card (not the actor,
   not a closed card) gets one stored `info` message from `SYSTEM_SENDER` (`system`) naming the
@@ -393,7 +391,14 @@ Documentation map:
   (a running session only gets a notice), a person gets a `manual_step` alert. Nothing is done
   while a session is mid-turn on the card; a step is not handed out twice (its member's turn
   ending without the label raises one `stalled` alert). When every label is on, the system takes
-  `refine` off, moves the card to the stage before development and tells who prioritises (`done`).
+  `refine` off and moves the card to the stage before development. Completion (`done`, PM-594)
+  sends a team message to the configured card mover, otherwise the project manager, otherwise
+  the Operator (`info` for a human, `action` for an AI member). Without a recipient, only the
+  `refinement_turn` timeline event remains. The project manager can start for this system message;
+  the Operator receives it with the owner's next message under the existing wake rule (PM-447/475).
+  Legacy `done` alerts are cancelled at startup (`RefinementSteps.reconcile`) and when the card is
+  next examined (`closeAlerts`). The shared `isInformationalAlert` predicate also excludes them
+  from `taskWait`, so an acknowledgement never makes the card wait for their recipient.
   Every change of turn is a `refinement_turn` timeline event (`turnMember` reads the latest). A
   turn left open when `refine` comes off (or the card leaves the stage) is closed with `stopped`,
   so putting `refine` back begins a new turn (PM-420). A
@@ -447,14 +452,13 @@ included, is refused until they are fixed (`isToleratedOnLoad`).
 
 ```
 browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node, 127.0.0.1:4700)
-                                                 ├─ domain services ─▶ SQLite (runtime state)
+                                                 ├─ core and services ─▶ SQLite (runtime state)
                                                  ├─ config store ────▶ customization git repo (YAML)
                                                  ├─ github ──────────▶ gh CLI (owner's login, read-only)
-                                                 │                  └─ publisher: git + gh as the VM's own identity (PM-142)
                                                  └─ runner ──▶ node-pty ──▶ claude | codex (interactive TUI)
-claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission broker)
+claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission gate)
 codex ─── command hooks ─▶ forwarder ─▶ POST /hooks/:token ─▶ runner
-claude | codex ── MCP (http)  /mcp/:token ────▶ team tools ─▶ domain
+claude | codex ── MCP (http)  /mcp/:token ────▶ team tools ─▶ module facades
 claude | codex ── transcript JSONL ────────────▶ runner transcript tailer ─▶ chat events
 ```
 
@@ -480,7 +484,7 @@ claude | codex ── transcript JSONL ────────────▶ r
 - **End-of-round compaction (PM-213, part of PM-209).** A member's round on a card ends when the
   card leaves the stage the member worked it in (`isWorkingOnTask` false after a
   `task_stage_changed`; a card that is done or cancelled needs nothing). The conversation then owes
-  a compaction (`sessions.compact_pending`): `SessionOrchestrator.roundEnded` marks every session of
+  a compaction (`sessions.compact_pending`): `SessionOrchestrator.roundEnded` delegates to `RoundCompaction` (`runtime/sessions/compaction.ts`), which marks every session of
   the card and, at the session's idle moment, types `/compact <instruction>` through the runner
   (`SessionRunner.compact`; the text is `COMPACT_INSTRUCTION` of the context module, which names what
   to keep). Nothing is typed while a message is on its way in (`hasPendingInput`): it goes first, and
@@ -503,14 +507,22 @@ claude | codex ── transcript JSONL ────────────▶ r
   it reviewed last (`sessions.reviewed_commit`, set when a session starts on a pinned commit) and asks
   for only the change since and the fixes of its earlier findings.
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
-  `apps/server/src/domain/index.ts` (`createDomain`), which builds the services (the board,
+  `apps/server/src/assembly.ts` (`createDomain`), which builds the services (the board,
   member profiles and invitations included) and wires their reactions to the domain events.
+  Core implementations live in the eight sealed `core/<module>/` folders; common helpers
+  live behind `kernel/index.ts`. Composition lives in `assembly.ts` (PM-648).
 - Services tell each other what happened through typed domain events (`ctx.events`:
   configuration changes, resolved inbox items, stage moves, cancellations, label and mention
   notices, sessions starting and ending, messages waiting for a recipient); a failing listener
   is logged and never stops the others. The event bus carries only what goes to clients (the
-  websocket). Background work (hand-overs, message wake-ups, plan usage probes) is drained
-  when the server stops.
+  websocket). Shutdown stops the kernel sweep tickers and module programs, then waits for
+  running sweep rounds and background work (hand-overs, message wake-ups, plan usage probes).
+  It next awaits `MessageDelivery.close()`, calls `pauses.dispose()` and `sessions.dispose()`,
+  and awaits `sessions.settleFolderRemovals()` (including the session lifecycle Scope closing).
+  The Scope ends the runner subscription and job tracking, refuses new jobs and closes session
+  timers; it neither cuts nor waits for existing session jobs. Folder removals are awaited
+  separately before temporary roots are released.
+  Finally the machine monitor and the scheduled work finish.
 - Only `apps/server/src/index.ts` reads configuration from the environment; it passes it to
   the modules as options. The git and gh commands the server runs inherit its environment.
 - Writes that belong together run as one unit of work (`ctx.unitOfWork`): one SQLite
@@ -518,6 +530,188 @@ claude | codex ── transcript JSONL ────────────▶ r
   the task inside it and write only the columns they change.
 
 ## Module map
+
+### Layers and the dependency rule (PM-577)
+
+Every server source file belongs to one stable module and one layer (PM-577, PM-649).
+Targets describe the implemented layout; passes record the completed refactor.
+Each module gets one pass: `none` keeps it unchanged; `move` relocates it;
+`split` gives it a narrow plain TypeScript interface; `split-tool` does that and
+adopts the chosen tool (Effect) in the same pass; `delete` removes it.
+
+| Layer       | Contents                                                        | Runs on                                                     |
+| ----------- | --------------------------------------------------------------- | ----------------------------------------------------------- |
+| `contracts` | Shared interfaces and engine ports                              | Server and engine                                           |
+| `infra`     | Storage, configuration, logging and common helpers              | Server; engine where needed (logging, identity and helpers) |
+| `core`      | Project, task, member, message and inbox rules                  | Server                                                      |
+| `runtime`   | Admission, sessions, delivery, permissions, watches and context | Server; engine-local enforcement through contracts          |
+| `service`   | Independent capabilities such as merges, tests and releases     | Server; machine operations through engine ports             |
+| `engine`    | CLIs, worktrees, host operations and server/engine transport    | Execution host; remote adapters also run on the server      |
+| `connector` | API, MCP, websocket, HTTP, control and auth adapters            | Server; engine-side HTTP/MCP relay where needed             |
+| `assembly`  | Application startup and dependency wiring                       | Server or engine entry point                                |
+
+Imports within a module are unrestricted. Across modules, dependencies go only
+downward according to this table (type imports count too):
+
+| Layer       | May import                                                      |
+| ----------- | --------------------------------------------------------------- |
+| `contracts` | `contracts`                                                     |
+| `infra`     | `contracts`, `infra`                                            |
+| `core`      | `contracts`, `infra`, `core`                                    |
+| `runtime`   | `contracts`, `infra`, `core`, `runtime`                         |
+| `service`   | `contracts`, `infra`, `core`                                    |
+| `engine`    | `contracts`, `infra`, `engine`                                  |
+| `connector` | `contracts`, `infra`, `core`, `runtime`, `service`, `connector` |
+| `assembly`  | All layers                                                      |
+
+Services do not call other services, and runtime and services do not call each
+other: they communicate through the core. Connectors and runtime reach engine
+capabilities only through ports in `contracts/`. Workspace `@projectman/*`
+packages count as contracts and are accessible to every layer.
+
+The source is [module-map.ts](../apps/server/test/architecture/module-map.ts).
+The final closure is recorded by PM-649, after PM-627 and PM-645 closed phases 4 and 5.
+
+The kernel and eight core modules are sealed at their final paths (PM-631, PM-637–644).
+The core descriptors live in `test/architecture/modules/core-<module>.ts`, assembled in
+the original `MODULES` order. Their public names, types and factory dependency shapes
+remain those frozen in PM-636; no old implementation files or forwarding shims remain.
+Assembly uses `createProjectService`, `createTaskService`, `createMemberService`,
+`createTimelineService`, `createMessaging` and `createInboxService` in the existing
+construction order; the factories return the existing classes without changing behavior.
+
+| Module                                            | Responsibility                                                              |
+| ------------------------------------------------- | --------------------------------------------------------------------------- |
+| `contracts`                                       | Shared server interfaces and engine ports.                                  |
+| `db`                                              | SQLite storage, repositories and migrations.                                |
+| `config`                                          | Project configuration loading, validation and migrations.                   |
+| `logging`                                         | Structured server and engine logging and file rotation.                     |
+| `instance`                                        | Installation identity and activation state.                                 |
+| `kernel`                                          | Common errors, utilities, background work, sweeps and merge locks.          |
+| `agent-text`                                      | Text formatting for agent-facing context.                                   |
+| [`core/base`](modules/core-base.md)               | Domain context, units of work, domain events and the websocket event bus.   |
+| [`core/projects`](modules/core-projects.md)       | Projects, roles, stage reviewers and visibility.                            |
+| [`core/tasks`](modules/core-tasks.md)             | Tasks, PR records, board state, focus, involvement and card measures.       |
+| [`core/members`](modules/core-members.md)         | Member access, invitations, presence and naming.                            |
+| [`core/timeline`](modules/core-timeline.md)       | Append-only task and project timeline access.                               |
+| [`core/messages`](modules/core-messages.md)       | Stored messages, routing and conversation rules.                            |
+| [`core/inbox`](modules/core-inbox.md)             | Human questions, approvals, permission decisions and question lifecycle.    |
+| [`core/attachments`](modules/core-attachments.md) | Task and message attachment storage and processing.                         |
+| `runtime/admission`                               | Admission, deferred starts, handovers and refinement.                       |
+| `runtime/sessions`                                | Session lifecycle, rounds, compaction, policy, pause and workspaces.        |
+| `runtime/delivery`                                | Message delivery to member sessions.                                        |
+| `runtime/permissions`                             | Command parsing and execution permission rules.                             |
+| `runtime/watchers`                                | Runtime health, machine sampling, outage, review and cleanup watches.       |
+| `runtime/usage`                                   | Provider quota, plan usage and managed provider keys.                       |
+| `context`                                         | Agent context packs, prompts and member memory through two factories.       |
+| `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
+| `services/full-tests`                             | Full-test and screenshot-run orchestration.                                 |
+| `services/releases`                               | Release proposals and release roadmap notices.                              |
+| `services/github`                                 | GitHub synchronization, pull requests and publishing.                       |
+| `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
+| `services/project-docs`                           | Operator document writes and decision candidates.                           |
+| `services/boundary`                               | External operation authorization and boundary requests.                     |
+| `services/schedules`                              | Scheduled member work.                                                      |
+| `services/operator`                               | Operator actions, signals, requests and project management.                 |
+| `runner`                                          | Provider CLIs, PTYs, permission waits, transcripts, usage probes and trust. |
+| `worktree`                                        | Task and member worktree creation and dependency refresh.                   |
+| `engine-host`                                     | Engine-local files, session roots, host operations and branch merging.      |
+| `full-test`                                       | Sandboxed test execution and the heavy-run queue.                           |
+| `machine`                                         | Machine probes and process parsing.                                         |
+| `engine-link`                                     | Server/engine RPC, transport and remote adapters.                           |
+| `api`                                             | HTTP API adapters.                                                          |
+| `mcp`                                             | MCP transport, tool declarations and handlers.                              |
+| `ws`                                              | Websocket transport and broadcasts.                                         |
+| `http`                                            | HTTP transport guards and infrastructure.                                   |
+| `control`                                         | Administrative control socket.                                              |
+| `auth`                                            | Authentication and integrator credentials.                                  |
+| `assembly` (`assembly.ts`)                        | Domain service composition and wiring.                                      |
+| `entry`                                           | Application and engine startup, composition and shutdown.                   |
+
+The single source of truth for file → module → layer assignments, targets and
+passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
+The longest matching path wins; each declared path must exist and appear only once.
+[dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
+enforces the layer rules against all production TypeScript source files.
+There are no dependency exceptions; new ones must not be added. Every module below
+the assembly layer is sealed: cross-module imports use its target `index.ts`.
+The guard test asserts both the empty exception list and complete sealing.
+
+The sealed modules are `contracts`, `db`, `config`, `logging`, `instance`, `kernel`,
+`agent-text`; all eight `core/*` modules; `runtime/admission`, `runtime/sessions`,
+`runtime/delivery`, `runtime/permissions`, `runtime/watchers`, `runtime/usage`, `context`;
+all nine `services/*` modules; `runner`, `worktree`, `engine-host`, `full-test`, `machine`,
+`engine-link`; and `api`, `mcp`, `ws`, `http`, `control`, `auth`.
+Only `assembly` and `entry` remain unsealed in the assembly layer. Other layers cannot
+import them. The `context` facade exposes `createContextPackBuilder` and
+`createMemberMemoryStore`; prompt and formatting helpers remain internal.
+
+No exception has a `core/*` source. The fifteen original pairs are accounted for in
+[the phase 5 closure inventory](refactor-core-closure.md): PM-612 removed one, and
+PM-632–635 removed fourteen. PM-646 removed the four connector exceptions
+(`api/auth/ws → assembly`, `instance → entry`). PM-648 moved composition to
+`assembly.ts` and removed compatibility exports; callers import the owning module.
+PM-649 sealed the remaining ten modules and added the final guard. The `domain/`
+folder is gone, composition exports only its factory and types, and every lower-layer
+module is behind its facade. This completes the module refactor's structural goals (PM-577).
+
+#### Core extension points
+
+When a core rule needs facts from a service or runtime module, the port type belongs
+to the core module. Its `register…` method names the core concept rather than the
+provider. Registration happens in assembly (`assembly.ts`); constructor ports also
+receive the existing runtime/auth/service instances there. These interfaces live in
+`core/{projects,tasks,members,messages,inbox}/ports.ts` and are exported by their facades.
+Core imports neither runtime/services/auth nor Effect. A later registration replaces
+the earlier one.
+
+The first extension point is `TaskService.registerMergeGate(gate: MergeGate)` (PM-591).
+The merge service supplies the facts for “done only after merging”; the rule that
+decides which move requires a merge and when to check it (`moveMerge`, `mergeRepoOf`)
+stays in `packages/shared` and is applied by task moves.
+
+The inbox's `registerDecider(key, decide)` supplies merge, release, hand-on and Operator
+approval decisions; handlers that own the item close it themselves. `registerQuestionAnswer`
+supplies question delivery, and `registerAskerStarts` supplies visible asker-start previews.
+Messaging's `registerWaker` supplies recipient wake-ups, `registerSignals` records Operator
+signal presentations and decisions, and `registerCardHold(reason, hold)` supplies card-level
+fix-limit and full-test holds while messaging decides which recipients wait (PM-593).
+The awaited `task_review_round` event announces an assignee's action message about an open
+card before recording it; its assembly listener queues the pinned commit's full test before
+recipients get the message.
+
+#### Team tools and routes by module (PM-592)
+
+A module's team tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
+`handler.ts` implements its handler contract, and `index.ts` exports both.
+`TEAM_TOOL_GROUPS` in `mcp/tools.ts` is the registry of module tool definitions;
+`mcp/team-tools.ts` collects the handlers through `TeamToolsService` forwarding
+methods. New tools belong in their module's group and handler, never in either collector.
+
+One shared `ToolCaller` (`mcp/caller.ts`) checks callers, the Operator's requests and
+guest access, records steps and opens session files. Assembly creates it once and
+passes it to every handler, preserving the shared signal-step reservation.
+
+REST routes already register by module: `api/<module>.ts` exports
+`register<X>Routes(app, deps)`, collected by `registerApiRoutes` in `api/index.ts`.
+No REST contract changes. This refactor moves server code only; engine calls and
+file-transfer boundaries stay unchanged.
+
+The Operator slice (PM-605) lives in `services/operator/`, with one entry point and
+structural ports for sessions, admission, delivery, pauses and releases. Its five tools
+(`get_project_state`, `operate`, `screen_question`, `start_task`, `start_member`) live in
+`mcp/operator/`; signal decisions and manager/Operator channels register in `api/operator.ts`.
+This module needs no Effect program: retries belong to admission, reply relay uses
+`background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
+(`assembly.ts`) declares the sweep list.
+
+**Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
+behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
+an Effect program: `kernel`, `runtime/sessions`, `runtime/delivery`, `runtime/watchers`,
+`runtime/usage`, `services/merges`, `services/full-tests`, `services/github`,
+`services/project-docs`, `services/schedules`, `runner`, `worktree`, `full-test`.
+The programs, their files and facades, the pinned version and the rules are in
+[EFFECT.md](EFFECT.md); read it before touching or writing Effect code.
 
 **Packages** (TypeScript source, used directly by both apps):
 
@@ -529,37 +723,39 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 **Server** (`apps/server/src`):
 
-- `contracts/` — interfaces between server modules (runner, team tools, GitHub, context,
-  config store, event bus).
-- `runner/` — PTY sessions (input queue, permission gate), provider adapters
-  (`providers/claude`, `providers/codex`), hooks and the hook forwarder, transcripts, plan
-  usage, login checks.
-- `mcp/` — the team tools MCP server (`/mcp/:token`): tool definitions and the text the model
-  reads.
-- `context/` — the context pack: system prompt, kick-off brief, work-item rules, member memory.
-- `agent-text/` — AI-facing wording shared by the context pack and the team tools: timeline
-  events, links, the repository of a task, one-line text.
-- `worktree/` — git worktrees and branches for tasks; member workspaces (independent clones,
-  safe branch switches, pinned review checkouts; PM-138).
-- `github/` — `gh`-based pull request lookups and polling (the owner's read login); the publisher
-  with the VM's separate identity (PM-142).
-- `runtime-boundary/` — the VM boundary (PM-140): the boundary configuration, the launcher
-  (root daemon, protocol, client), the worker bridge (inside each unit's own network namespace)
-  and the service's per-member bridge sockets, the egress proxy, the worker workspace access, the
-  readiness verdict and the boundary probe verify.sh runs.
-- `http/` — request guards shared by the internal endpoints (local-only checks).
-- `config/` — the customization repository: YAML load and save, git history, revert,
-  configuration migrations.
+- `contracts/` — interfaces between modules and server/engine ports.
 - `db/` — SQLite schema, migrations and repositories.
-- `domain/` — domain services: projects and roles; tasks (`tasks/`: CRUD, labels, stage moves
-  and approvals); members and profiles; sessions; admission (`admission/`: checks, deferred
-  starts, task starts with temp workers, stage hand-overs, message wake-ups); schedules;
-  messaging (`messaging/`: send, delivery, receipts); attachments (`attachments/`: the service,
-  file storage, content check, file names); feedback marks (`feedback/`: the service, the
-  screenshot store, the widget service with the tool's sessions and limits; PM-506, PM-509); inbox; invitations; the board; GitHub
-  sync and pull request records; the team tools handler; domain events.
-- `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
-- `app.ts` builds the application; `index.ts` reads the environment and starts it.
+- `config/` — customization YAML, validation, migrations and git history.
+- `logging/` — structured logs and rotating server and engine log files.
+- `instance/` — installation identity and activation state.
+- `kernel/` — shared helpers, Effect execution, periodic sweeps and merge locks.
+- `agent-text/` — AI-facing wording for context packs and team tools.
+- `core/` — the eight sealed core facades: base, projects, tasks, members, timeline,
+  messages, inbox and attachments, with implementations inside each module's own folder.
+- `assembly.ts` (`createDomain`) — the composition and event wiring (PM-648).
+- `runtime/` — admission and handovers; session lifecycle, launch, rounds, compaction,
+  provider limits, cleanup, policy, pause and workspaces; message delivery; command permission
+  rules; health, machine and outage watchers; provider usage, quota and managed keys.
+- `context/` — context packs, prompts, kick-off briefs and member memory.
+- `services/` — merges, full tests and screenshots, releases, GitHub synchronization and
+  publishing, feedback and widget sessions, project documents, boundary requests, schedules
+  and Operator actions (the nine service modules).
+- `runner/` — provider CLIs and PTYs, the input queue, session clocks, permission gate,
+  hooks and their forwarder, transcripts, provider usage probes, trust and login checks.
+- `worktree/` — task worktrees and branches, member workspaces and dependency refresh.
+- `engine-host/` — local engine composition, session folders and roots, sandbox directories,
+  files, screenshots, host operations and branch merging.
+- `full-test/` — sandboxed test execution, screenshots and the heavy-run lock.
+- `machine/` — OS machine probes and process parsing.
+- `engine-link/` — server/engine RPC, transport, transfers and remote adapters.
+- `api/` — REST routes.
+- `mcp/` — team tool transport, definitions, module handlers, collector and shared `ToolCaller`.
+- `ws/` — websocket transport and broadcasts.
+- `http/` — HTTP request guards and infrastructure.
+- `control/` — the administrative control socket.
+- `auth/` — login, invitations and integrator credentials.
+- `app.ts` builds the server; `engine-app.ts` builds the engine; `index.ts` reads the environment;
+  `shutdown.ts` coordinates stopping.
 
 **Web** (`apps/web/src`): React UI (board, task drawer, team and profiles, session chat and
 terminal, inbox, messages, settings) with `api/` (typed client, queries, websocket cache),
@@ -599,9 +795,6 @@ worktrees/<KEY>/…         git worktrees created for tasks
 workspaces/<KEY>/<handle>/<repo>/{repo,cache,tmp}
                           member workspaces (PM-138, when on): durable independent clones,
                           never removed by projectman
-workspaces/<KEY>/<handle>/.home
-                          the member's own directory without a repository (PM-141, managed VM
-                          profile only: chats, schedule runs, tasks without a repository)
 instance.json             role of this copy (PM-143): absent = the active instance, `standby` or
                           `retired`; written only by a person with the move tool
 migrated/                 what a move left (PM-143): the apply report, the old machine's pending
@@ -662,8 +855,14 @@ immediate refusal with no inbox item, a `permission_refused` event `by: 'approve
 AI decider of PM-169, below). The auto mode's own refusals arrive as the
 `PermissionDenied` hook, through `PermissionBroker.refused`, as `permission_refused` `by:
 'classifier'`. The hard denials (credentials, the live instance's data, `WebFetch` of localhost,
-publishing) are deny rules computed in `domain/session-policy.ts` and rendered in `--settings` by
+publishing) are deny rules computed in `runtime/sessions` (`session policy`) and rendered in `--settings` by
 the Claude adapter; see `PROVIDERS.md` for the server-side decisions and their reasons.
+
+`core/inbox` owns `InboxPermissionPolicy` (PM-635): `InboxService` receives
+`engineIdOf`, `readableRootsFor` and `commandVerdict` from the `runtime/sessions` facade
+through assembly. The rules and engine-id default remain in runtime; core still checks
+the tool working directory's canonical paths on the session's engine before applying
+the command verdict. The permission broker, engine contracts and decision order are unchanged.
 
 **The AI decider on the host (PM-169).** With approver `ai` (and the owner's `team.boundary.enabled`) a
 question the CLI still asks goes to the AI members holding `boundary_authorization`, not to the sponsor:
@@ -674,8 +873,7 @@ a `permission` inbox item whose `payload.delegation` carries the decider(s) and 
 decider is woken by a team message and answers with `decide_permission_request`
 (`InboxService.resolveDelegated`: `allow` and `deny` close the item in its name and answer the waiting
 hook, `escalate` hands it to the sponsor or owners). A deadline, a decider on leave or delegation
-switched off do the same in `sweepDelegations`; nothing is ever an allowance by itself. The `managed_vm`
-profile has no local approvals and is untouched.
+switched off do the same in `sweepDelegations`; nothing is ever an allowance by itself.
 
 An owner may set both settings for one session, as Claude Desktop switches the mode per session
 (PM-170): `PATCH /api/projects/:key/sessions/:id` (`UpdateSessionRequest`, owner only; `null`
@@ -688,8 +886,7 @@ pack's approver text), `InboxService.decide` (the refusal of `none`, and the app
 header. A new approver applies to the next question. A new mode needs the CLI's process to start again: a running session is marked
 `permissionRestartPending` and restarts with `--resume` (Codex `resume`) once it is idle and
 `SessionRunner.hasPendingInput` says no message is on its way in; messages for it wait meanwhile
-and are typed in after the restart, which gets no continue message. Behind the managed VM profile
-only a change into or out of `plan` restarts it. Grants "for this session" die with the process:
+and are typed in after the restart, which gets no continue message. Grants "for this session" die with the process:
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
 
@@ -724,7 +921,7 @@ The existing PM-134 Claude shell sandbox remains a separate legacy setting. This
 preserves it and does not certify it as the strict filesystem and network boundary.
 
 The CLI's own sandbox of a legacy session (PM-167, decision 28) is `sessionSandbox(policy, …)` in
-`domain/session-policy.ts`, from the policy's actual paths; the runner gets it as
+`runtime/sessions` (`session policy`), from the policy's actual paths; the runner gets it as
 `StartSessionSpec.sandbox` and the context pack as `ContextPackInput.sandbox`. A developer's
 worktree session (PM-134) gets one computed per session from `SandboxPaths` too (PM-153: the user's
 home, the app home, the repository's default branch): `denyRead` closes the user's home and the
@@ -743,94 +940,7 @@ home, the server's own checkout `installDir` from `index.ts`; PM-188) in `denyWr
 and the live data (`deniedPaths`) in `denyRead`. The Claude adapter also denies `Edit` of the
 `denyWrite` paths (and everything below them) with rules, since the sandbox does not bind the
 built-in file tools. Codex renders the sensitive-path denials and portable writes through its
-own permission profile (PM-356; readers receive no write entries); the
-managed VM profile gets none.
-
-## Managed VM profile (PM-137, part of PM-135)
-
-The running boundary of the VM direction (decisions 25, 26) is **outside** the app and measured:
-`deploy/vm/` builds a Linux guest from a root-managed profile (`profile.env`, one source for
-`bootstrap.sh` and `verify.sh`), and the app only consumes a result. The pieces:
-
-- **Protected side**: the service account (`projectman`, uid 19000), the app and CLIs owned by root,
-  `PROJECTMAN_HOME` (database, cookie secret, attachments, memory, worktrees), the logs, and the
-  boundary settings (`/etc/projectman`, the nftables egress table `projectman_gate`, the units).
-  None of it is writable by the workers; the data is not readable by them.
-- **Free side**: one unprivileged account per member, `pmw-<handle>` (uids 20000–20999, own group
-  and home under `/var/lib/projectman-work`), where that member's sessions and workspaces live.
-- **Contract**: `packages/shared/src/deploy/vm-readiness.ts` lists the checks (version, worker
-  privileges, protected paths, host isolation, network gate, launcher, service), which are
-  required, and the one verdict rule `evaluateVmReadiness()`. `verify.sh` writes a report in that
-  shape; `scripts/vm-readiness.ts` prints the verdict and the server enforces it (below); PM-143
-  consumes it for the move. A flag such as `VM=true` is never an input; the report is strict and a
-  missing check fails.
-
-**The runtime boundary (PM-140, `src/runtime-boundary`).** `index.ts` reads nothing from the
-environment: `index.ts` of the server loads the root-owned boundary configuration
-(`PROJECTMAN_BOUNDARY_CONFIG`, `BoundaryConfig`), and `app.ts` builds from it:
-
-- the **launcher client** (`SessionLauncher`): the runner starts every session through it as the
-  member's worker (`RunnerModuleOptions.launcher`), the member workspace manager runs every
-  workspace command through it (`WorkspaceAccess`), and the session orchestrator prepares a
-  worker's session directory with it. The launcher itself (`launcher/daemon.ts`, entry
-  `dist/launcher.js`) runs as root behind a socket only the service's group reaches and turns a
-  narrow, validated request into a `systemd-run` unit with a fixed sandbox;
-- the **egress proxy** (`egress/proxy.ts`, in the service process): the workers' only way out;
-  it asks the domain's `EgressService` for every connection, which allows the base list and
-  allowances and turns allowed PM-139 grants into allowances (DB migration 16);
-- the **verdict** (`RuntimeBoundary.status()`): the readiness report, the launcher's answer and the
-  proxy's listener. `SessionOrchestrator` refuses every start while it is not ready
-  (`runtime_boundary_not_ready`). The question-free profile (PM-141, `managed_vm`) needs this
-  configuration (the server does not start without it), and its per-start proof
-  (`ManagedVmBoundary.verify()`) also requires `status().ready`, so question-free sessions only ever
-  run through the launcher as the member's worker.
-
-Without the configuration the boundary is `off` (`disabledRuntimeBoundary`), nothing changes for
-other installations, and `status().ready` is always false.
-
-Details, the manual trial and backup/restore are in [VM.md](VM.md).
-
-## Execution profile (PM-141, part of PM-135)
-
-An installation runs in one of two **execution profiles** (`ExecutionProfile` in
-`packages/shared/src/deploy/managed-vm.ts`): `legacy`, the Mac installation as it always was, or
-`managed_vm`, the owner's choice for the verified managed VM. In the managed VM profile the boundary
-is outside the CLIs, so Claude Code and Codex run without local approval questions (decision 26);
-[PROVIDERS.md](PROVIDERS.md) lists what each CLI is given and what is not yet proven by hand.
-
-- **Selection is not proof.** `PROJECTMAN_EXECUTION_PROFILE=managed_vm` (read in `index.ts`, with
-  `PROJECTMAN_WORKSPACES=member`, `PROJECTMAN_BOUNDARY_CONFIG` and optionally
-  `PROJECTMAN_VM_READINESS_REPORT`, which defaults to the boundary configuration's report) only
-  selects. Every start, resume included, asks a `ManagedVmBoundary` (`contracts/runner.ts`): the
-  report boundary needs a Linux host, a ready, current report with the launcher and the domain gate
-  passed (`evaluateManagedVmActivation`), and `app.ts` adds the runtime boundary's verdict (launcher
-  answering, egress proxy listening). Otherwise the start fails with `managed_vm_unavailable`, before
-  any workspace is prepared or process spawned, and never falls back to a legacy start. An unknown
-  profile, or a managed VM without member workspaces or the boundary configuration, stops the
-  server; a readiness report on a legacy installation does too. On the Mac the profile cannot be
-  entered by a file or a flag.
-- **The policy** (`SessionPolicy.execution`, placement `member_workspace`, built by
-  `buildManagedVmPolicy` in `domain/session-policy.ts`) keeps `enforcement: 'legacy'`: it neither
-  claims strict isolation nor migrates a `permissionMode` (`managedVmPermissions` reads the member's
-  mode; `plan` stays research-only). It has no tool grants to render, no denied operations and no
-  sandbox; the business rules and owner exceptions apply at the domain, network and operation gate
-  (BOUNDARY.md). Sessions without a repository (chats, schedule runs, a task without one) work in a
-  directory of the member's own worker account (behind the launcher) or in the member's own
-  `<workspaces>/<KEY>/<handle>/.home`, never a shared directory.
-- **No local approval path.** A permission request that arrives anyway is refused at once in the
-  runner (and in the inbox broker): no inbox item, no `commandVerdict`, no command-form rules; the
-  context pack drops the "Commands that run without asking" section. The legacy path keeps all of it.
-- **Profile changes.** `sessions.execution_profile` (migration 14) records the profile a session last
-  ran in. A conversation of the other profile is not resumed; the session starts a new one in the new
-  placement and its unconsumed boundary requests are revoked (`BoundaryService.invalidateSession`).
-- **Checks before each spawn** (runner, `runner/managed-vm.ts`): the installed CLI version is one the
-  question-free settings are proven for, and the VM's own provider configuration (managed policy, user
-  files, Codex's project file) sets nothing that overrides the protected start (PM-49); behind the
-  launcher the user files are read from the member's worker home without following links; the Claude
-  start also leaves out the project's settings and `.mcp.json`.
-
-The fake CLIs model this (`FAKE_*_VERSION`, bypass modes, `FAKE_*_FORCE_*` for a request where none is
-expected); the real CLIs are only run in the human trial of [VM.md](VM.md).
+own permission profile (PM-356; readers receive no write entries).
 
 ## Instance role and the move (PM-143, part of PM-135)
 
@@ -847,7 +957,7 @@ updated to a build that knows it before the old home is called retired.
 The move tool (`scripts/migrate/`) is outside the server and uses it only for the schema version, the marker and
 the configuration loader. It reads a **stopped** source (its database from a scratch copy of the main file and
 its log, never in place), writes a checksummed secret package (the home without worktrees, workspaces and the
-publishing identity; a git bundle per repository; the dirty files of every checkout; the transcripts the
+retired publishing data; a git bundle per repository; the dirty files of every checkout; the transcripts the
 database names), and `apply` turns it into a standby home: the database migrated by this build, the stored
 paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
 repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
@@ -882,12 +992,14 @@ The developer's sandbox cannot open a pseudo-terminal, so the server's PTY tests
 timeoutMinutes = 15}` in the project's configuration; absent: nothing below happens) gets a **full test** of the
 commit pinned at the hand-over, run by the server.
 
-- **Queue.** `FullTestRuns` (`domain/full-tests.ts`) queues a run (`full_test_runs`, migration 32) when the
+- **Queue.** `FullTestRuns` (`services/full-tests/full-tests.ts`) queues a run (`full_test_runs`, migration 32) when the
   review pin is saved (the stage change) or a new round re-pins (`repinReview`, on the developer's message to a
   reviewer), and drops the queued or running run of an older pin or of a stage the card left (`cancelled`:
   `repinned`, `stage_left`; `branch_moved`, `interrupted` at a restart, `shutdown` at a stop). One run runs at a
   time in the whole installation, first in first out, under `nice -n 10` (set on the process that starts
   srt, outside the sandbox: Seatbelt refuses `setpriority` inside it; the sandbox and the command inherit it).
+  The scoped Effect core (`services/full-tests/queue.ts`, PM-601) drains the durable FIFO and
+  interrupts steps cooperatively: the aborted executor call settles before the next step starts.
 - **Executor.** `src/full-test` (`FullTestExecutor` in `contracts/full-test.ts`) writes the srt settings
   (`fullTestSandbox`: reads the checkout and the configured repository's git directory only, writes its run
   directory `<tmp>/pmft-<end of the run id>/` only: srt's own default temporary directory, `/tmp/claude`, which it
@@ -899,7 +1011,7 @@ commit pinned at the hand-over, run by the server.
   or a `/tmp/claude` that does not exist, so `fullTestEnv` sets it to the run's tmp) with
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` set to `maxWorkers`, kills the process group at the time limit
   and reads vitest's failed files and "Failed Tests" section from the output. Without macOS or `srt` the
-  executor is not available and the feature is off. The managed VM profile leaves it out.
+  executor is not available and the feature is off.
 - **The hold.** While the current pin has no result (`FullTestRuns.holds`) the reviewers do not start (the
   hand-over's deferred start waits with `full_test_pending`) and the developer's messages to them are stored
   (`Messaging.heldForFullTest`); a person's message is not held. `TaskReviewPin.fullTest` shows the state.
@@ -947,8 +1059,15 @@ configuration rules determine readiness and the forward moves that need the appr
 default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
 pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.merged`.
 
-`domain/merges.ts` persists requested, queued, running, failed and blocked states in `task_merges`,
-with one running merge per project/repository in FIFO order. The card engine's `BranchMerger` prepares
+`services/merges/` (PM-600; `Merges` in `merges.ts` is the facade, exported by `index.ts` with `MergeCardLock`)
+persists requested, queued, running, failed and blocked states in `task_merges`,
+with one running merge per project/repository in FIFO order. The slot is an Effect program
+(`queue.ts`, `makeMergeQueue`: a `FiberMap` keyed `projectKey:repo`; `docs/EFFECT.md`); the merge itself is
+the sequential async program of `steps.ts` (`MergeSteps`), which stops at its own checkpoints when its
+abort signal fires (`kernel/effect.ts` `abortable`: an interrupted slot is free only after the merge settled
+and released its check worktree). `notify.ts` holds the messages to the merger, `ports.ts` the structural
+interfaces to the sessions, the slot peer and the check sandbox. The tools `merge_task` and
+`prioritize_merge` are `mcp/merges/`, the two routes `api/merges.ts`. The card engine's `BranchMerger` prepares
 the base, validates linked PRs, builds without changing the base, checks local checkout conflicts,
 runs or reuses the approved commit's full check, checks readiness again, pushes and advances locally.
 The check goes through two steps (PM-489): `check_waiting` while the full test waits for the machine's
@@ -967,6 +1086,21 @@ The merger never moves the card itself. Every forward move path checks the defau
 transaction, including approvals and hand-on requests; manual merges discovered there are recorded
 with `via: found` when a persistent handover exists.
 
+**Queue order (PM-576).** One merge runs per repository (the full check runs on main merged with the card, so
+a second one in parallel would check against a stale main), but the order of the waiting ones is a member's
+decision, not the server's: by default it is the order of the requests (`task_merges.created_at`, `rowid`; a
+retry keeps its place). The queue reads `ORDER BY prioritized_at IS NULL, prioritized_at DESC, created_at,
+rowid` (`QUEUE_ORDER` in `db/task-merges.ts`; `prioritized_at` is a nullable column, migration 58, and
+`created_at` is never rewritten). The card's merger or the Operator (in an owner's request, step `task_update`)
+calls the team tool `prioritize_merge { task_key, reason }`, an owner does the same with the "Előre" button of the
+queued merge box (`POST /api/projects/:key/tasks/:taskKey/merge/prioritize`, body `{ reason }`); both land in
+`Merges.prioritize`: it allows the card's merger, an owner and the Operator only, takes a `queued` merge only
+(`merge_not_prioritizable` otherwise), sets `prioritized_at`, writes `task_merge_prioritized` (`mergeId`, `repo`,
+`reason`, `ahead`: the keys of the queued cards it went ahead of) on the card with the caller as its actor, and
+pumps the queue. The mark is cleared when the merge starts running. A merge already first changes nothing (no
+event). The running merge is not interrupted. Remote engine: the queue is on the server and the engine is not
+involved; no new machine-dependent part.
+
 Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
 retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
 releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
@@ -980,17 +1114,25 @@ GitHub service (the default engine's `github.*` calls in cloud mode); it is inde
 Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
 as a code-free card. See the machine inventory entry below.
 
+Check dependencies match the merged `package-lock.json` (PM-580). The engine tries the preferred
+source, its repository checkout, then that repository's non-prunable worktrees under `worktreesRoot`
+outside `_merge`, using canonical paths and excluding overlapping checkouts. The first byte-identical
+lockfile with an installation at least as recent as that lockfile supplies `node_modules`; the source
+is checked again after copying. Without a matching installed source, the check never starts and the
+merge blocks with `check_error` and installation instructions. No install command runs. A merged tree
+without a regular root lockfile keeps the preferred-source copy behavior.
+
 `BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
 (PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
 the decision log and the roadmap are; absent, the feature is off, and `projectDocsOf` takes the first
 repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
 
-**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`domain/doc-writes.ts`)
+**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`services/project-docs/doc-writes.ts`)
 writes a row of `doc_writes` and runs it in the same repository slot as a merge: `Merges.pump` skips a
-repository while `DocWrites.busy` says a write runs there, and a merge's `finally` calls `docWrites.pump()`
+repository while `DocWrites.busy` says a write runs there, and a merge fiber's observer calls `docWrites.pump()`
 before its own `pump()`, so a waiting write goes first when the slot frees (`DocWrites.pump` skips a repository
-for which `Merges.busy`, and calls `merges.pump()` when it ends). `Merges.useDocWrites` ties the two (as
-`useFullTests` does). At most one write is open (`queued` or `running`) per project (unique index
+for which `Merges.busy`, and calls `merges.pump()` when it ends). `Merges.registerSlotPeer` ties the two (the peer
+is the `MergeSlotPeer` port: `busy` and `pump`; the writes use `DocWriteSlotPeer`: `busy`, `holder` and `pump`). Neither module imports the other; domain assembly connects them. At most one write is open (`queued` or `running`) per project (unique index
 `doc_writes_open`). Its git work is the engine's (`prepare`, `readFile`, `commitFiles`, `checkoutConflicts`,
 `push`, `advance`), run in the order of the card's merge: a `non_fast_forward` push is built again once, on the
 new head. The built commit is saved (`commit_sha`) before the push; a `running` row from before a restart is
@@ -1002,8 +1144,9 @@ Three full test suites at once (2026-10-04) took the load to 81–89 and the swa
 starts a worker per core, about 150 MB each. So **one heavy run goes at a time on the machine**, and a run's
 workers follow the machine's size.
 
-- **The lock** (`apps/server/src/full-test/heavy-lock.ts`, node built-ins only, because the CLI imports it
-  directly and `full-test/index.ts` loads the sandbox runtime). macOS has no `flock` or `lockf`, so it is a
+- **The lock** (`apps/server/src/full-test/heavy-lock.ts`, with an Effect core in
+  `full-test/heavy-lock-core.ts`). The CLI imports the facade directly; `full-test/index.ts` also
+  loads the sandbox runtime. macOS has no `flock` or `lockf`, so the lock is a
   directory in `/tmp/projectman-<uid>/heavy` (`defaultHeavyLockDir()`, `PROJECTMAN_HEAVY_LOCK_DIR`): its parent
   must be 0700 and ours, or the queue is `heavy_lock_unavailable`. `holder/` is the lock itself (`mkdir` is
   atomic; `owner.json` inside names the process, its label, checkout and session); `queue/<ticket>.json` is one
@@ -1013,6 +1156,11 @@ workers follow the machine's size.
   wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
   moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
   who holds it and who waits, for the PM-300 display.
+- **Idle close (PM-569).** An idle session with a live heavy-run holder or waiter stays open,
+  and gets its full idle interval after the last sweep that saw the run. Heartbeats must be at most
+  30 seconds old and the PID must live. After 120 minutes since `lastActivityAt`, idle closure applies
+  even with a run present. Other closure reasons and meeting sessions are unchanged. Only queued
+  commands are covered; grace is in memory and does not survive a server restart.
 - **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
   `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
@@ -1028,7 +1176,7 @@ workers follow the machine's size.
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
   npm cache when there is no clone). The same folder and variables go to a Codex member as
   `AgentSandbox.portable` (PM-346): `buildCodexArgs` adds the parent to `sandbox_workspace_write.writable_roots`
-  (only in `workspace-write`; none in the managed VM) and sets each variable with
+  (only in `workspace-write`) and sets each variable with
   `shell_environment_policy.set.<NAME>`, so every command sees them, also one run outside the sandbox after a
   question. The server makes the missing parent (0700) before the process starts.
 - **Workers.** `defaultTestWorkers` (`packages/shared/src/config/test-workers.ts`): half the cores, at most 4,
@@ -1042,8 +1190,22 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
+  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
+  that creates and maintains the cloud board on AWS Lightsail: `preflight` and `aws` (PM-534: the machine,
+  the firewall, the two S3 buckets, the two IAM users and their access keys), later the machine part
+  (PM-535), Cloudflare (PM-536) and the DNS move (PM-537). It calls the `aws` CLI v2 with argv (profile and
+  region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
+  assumptions: the `aws` CLI v2 with the profile `i` on the owner's Mac, later `ssh`/`scp`, and the secrets
+  store `~/.config/projectman/cloud/` (directory 700, files 600, symbolic links and wider modes refused;
+  `config.json`, `cloudflare-token`, `cloud.env`), which sits under `~/.config/projectman`, a path the AI
+  sessions' sandboxes deny. No state file: resources are found by name. **Remote engine:** nothing runs on
+  an engine; this is the owner's tool and the cloud machine it provisions is the server side. The
+  `cloud.env` it writes is what the container of "Cloud deployment and backup" reads.
+  **Module:** `scripts`
+
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
-  `apps/server/src/domain/feedback/{service,screenshots}.ts`, `apps/server/src/api/feedback.ts`,
+  `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
   `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/index.ts` only), the table family
   `feedback_*` and `PROJECTMAN_HOME/feedback/`. The app side (this card) is cookie authenticated and
   runs on the server; the public entrance for the tool on customer pages (a later card) will be an
@@ -1054,8 +1216,8 @@ workers follow the machine's size.
   database, the screenshot files and the public entrance. **Remote engine:** everything runs on the
   server; an engine needs nothing from it and receives a mark's screenshot only as the card's
   attachment, over the existing attachment transfer. The processing (PM-512) runs on the server too: the
-  wake-up message to the project manager (`domain/feedback/notices.ts`) is an ordinary stored team message,
-  and the feedback team tools (`domain/team-tools.ts`, `mcp/tools.ts`) are answered by the server.
+  wake-up message to the project manager (`services/feedback/notices.ts`) is an ordinary stored team message,
+  and the feedback team tools (`mcp/feedback/`) are answered by the server.
   `get_feedback { mark_id }` hands the stored screenshot's absolute path (`FeedbackScreenshotStore.locate`) only
   to a session whose engine is the local one (`getFeedbackMark`); a session on a remote engine gets none
   and reads the image as the card's attachment (`read_attachment`, PM-315) after
@@ -1063,7 +1225,7 @@ workers follow the machine's size.
   with the other data (`HYBRID_CLOUD_ENTRIES`) and the public entrance belongs to the cloud server.
 
   **The public widget API (PM-509)** — `apps/server/src/api/feedback-widget.ts`,
-  `apps/server/src/domain/feedback/widget.ts`, routes `routes.feedbackWidgetScript()`
+  `apps/server/src/services/feedback/widget.ts`, routes `routes.feedbackWidgetScript()`
   (`/feedback/widget.js`) and `routes.feedbackWidgetApi()` (`/feedback/api/v1`). Outside `/api`, so
   its own guard applies: an `onRequest` hook checks the `Origin` (the address of some project's
   surface, else 403 `feedback_origin_not_allowed`), answers the CORS preflight (no credentials,
@@ -1079,6 +1241,7 @@ workers follow the machine's size.
   the public address of the server (`PROJECTMAN_FEEDBACK_PUBLIC_URL`) is the only machine assumption.
   **Remote engine:** nothing runs on an engine; the API, its sessions and limits live on the server, and
   the engine is not involved. Security notes: `docs/SECURITY.md` "The feedback tool's public API".
+  **Module:** `services/feedback`
 
 - **Live release watcher (PM-387, PM-493)** — `scripts/live/*` (`npm run live`, `npm run release-test`),
   `apps/server/test/live-*.test.ts`. Two macOS LaunchAgents (`com.projectman.live` for the server,
@@ -1086,8 +1249,12 @@ workers follow the machine's size.
   (`~/projectman-live`) to a release the owner approved: fetch, build, release test, configuration check,
   then pause, stop, database backup, atomic directory switch, verification, and on success tag and
   GitHub release; on a failure it puts back the previous build and the backup. The state is a journal in
-  `~/.projectman/release/` (denied to the sessions' sandboxes in `domain/session-policy.ts`); the watcher
+  `~/.projectman/release/` (denied to the sessions' sandboxes in `contracts/sandbox.ts`); the watcher
   talks to the server through the control socket (`release_next`, `release_claim`, `release_report`).
+  **launchd teardown (PM-584):** `scripts/live/launchd.ts` polls `launchctl print` after `bootout`
+  until the job is absent (up to 120 s), before cutover or rollback continues; `bootstrap` retries
+  exit status 5 every 500 ms for up to 30 s. A rollback whose unload fails stays in its journal step
+  for the next watcher round. These waits run on the macOS server host; no engine boundary changes.
   It needs launchd (`launchctl`), the user's `gui/<uid>` domain, `git`, `npm`, `sqlite3`, `lsof`, the
   `gh` CLI login and git access to the GitHub remote, the live checkout, the data home and its control
   socket on one machine, and the machine's heavy-run queue. **Remote engine:** the watcher belongs to the
@@ -1101,6 +1268,7 @@ workers follow the machine's size.
   Homebrew `Cellar` path, which a `brew upgrade node` removes). `live status` checks both files exist. Machine
   assumption: macOS's background-item naming and an unsigned launcher; Homebrew's `bin` link. A remote engine
   has no such plist.
+  **Module:** `scripts`
 
 - **Feedback widget public entrance (PM-506)** — the hostname without Access for the marking widget on
   customer pages (PM-513). Code: `PROJECTMAN_FEEDBACK_PUBLIC_URL` checked at start in
@@ -1117,6 +1285,7 @@ workers follow the machine's size.
   given by whoever installs it (`docs/HYBRID.md`). **Remote engine:** the entrance belongs to the server
   (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
   Security notes: `docs/SECURITY.md` "The widget's public hostname".
+  **Module:** `http`
 
 - **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
   checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
@@ -1126,12 +1295,15 @@ workers follow the machine's size.
   paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
   **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
   dependencies and queue. Only the command and result need to cross the existing full-test boundary.
+  **Module:** `scripts`
 
-- **Provider and engine outage watch (PM-449)** — `domain/outages.ts`, `runner/runner.ts`
+- **Provider and engine outage watch (PM-449)** — `runtime/watchers` (`WorkOutages`), `runner/runner.ts`
   (`providerStatus`). Every 30 seconds the server checks the used providers' login
   (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
   and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
   rounds. The CLI and its login must live on the machine that runs the sessions.
+  The bounded status wait runs on the server in `runtime/watchers/provider-status-wait.ts`
+  (Effect, PM-617).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
   connectivity comes from the server's engine registry. No new engine code is needed.
   A remote engine that has not connected since server startup gets the same 120-second
@@ -1141,9 +1313,10 @@ workers follow the machine's size.
   confirmed recovery resolves it with `outage_ended` and retries deferred work. Unknown
   checks preserve the last confirmed outage. Acknowledgement suppresses repeats for the
   episode; open alerts and their original start times are adopted after restart.
+  **Module:** `runtime/watchers`
 
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
-  `domain/engine-registry.ts`, `db/engines.ts`, `api/engines.ts` (PM-313).
+  `runtime/sessions` (`EngineRegistry`), `db/engines.ts`, `api/engines.ts` (PM-313).
   Engines connect outward to `/engine/link` with a bearer machine key; the cloud stores only
   its SHA-256 hash and display prefix. Remote requests require HTTPS; forwarded protocol headers
   are trusted only from a loopback reverse proxy. Plain sockets are restricted to local requests.
@@ -1164,6 +1337,11 @@ workers follow the machine's size.
   `resolveAppVersion` reads the installation checkout's git HEAD, falling back to `dev`.
   The override must match `[A-Za-z0-9._+-]{1,64}`. This assumes a git checkout when no override is
   supplied; packaged cloud and engine builds should set the same version explicitly.
+  `resolveAppTag` (`engine-link/version.ts`, PM-541, PM-542) reads the release tag on the same checkout's HEAD
+  (`git tag --points-at HEAD`, first tag matching `RELEASE_TAG_PATTERN`; `createAppTagReader` remembers only a found
+  tag, because the release watcher tags after the switch). It reads the installation's own git checkout, so it runs
+  on the server's machine and never on a remote engine; without git, on a timeout (2 s) or with a
+  `PROJECTMAN_VERSION` override (a cloud package has no checkout) the tag is null.
   Existing inventory boundaries use these groups:
   - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
   - Codex project layer inspection: `session.assert_workspace_config`.
@@ -1174,14 +1352,18 @@ workers follow the machine's size.
   - Attachments: `files.export`, `files.materialize`; transcripts/resume: `transcript.*`.
   - Machine metrics and process attribution: `machine.*` and `hello.instanceTag/pid/uid`.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
-  - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
+  - Free-disk admission: `host.free_disk`; idle heavy-run protection: `host.heavy_run_sessions`;
+    CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
     `full_test_started` event when the run got its turn in the queue (PM-489).
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
+    **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
   `scripts/engine/{cli,commands}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
+  Entry points import the named exports of `engine-link/index.ts` (PM-649); the
+  implementations above and their machine assumptions remain unchanged.
   `PROJECTMAN_MODE=engine` (`npm run engine -- start`) runs the machine-dependent parts on the Mac
   beside the CLIs and connects outward to the cloud's `/engine/link` with its machine key. There is
   no database, no `/api`, no web app and no control socket; only `index.ts` reads the environment.
@@ -1222,8 +1404,7 @@ workers follow the machine's size.
   `instanceTag`, `pid`, `uid` and `bootId`. The NanoGPT key is asked from the cloud for a starting
   NanoGPT session only and lives in memory for that start; the audit log records that request (method,
   session id, ok or error) but never the key. On SIGINT/SIGTERM the engine pauses its
-  running sessions first, then stops them and closes the link. `managed_vm` and a boundary config are
-  refused at start-up (PM-331). The link client reconnects with a back-off of 1 to 30 seconds, replays
+  running sessions first, then stops them and closes the link. The link client reconnects with a back-off of 1 to 30 seconds, replays
   unacknowledged events by sequence number, buffers at most 10,000 events or 50 MB (the oldest are
   dropped and counted), and sends terminal data only for sessions the cloud attached.
   **Assumptions:** the code (a git checkout), the CLIs, their logged-in accounts (Claude, Codex,
@@ -1241,10 +1422,12 @@ workers follow the machine's size.
   purpose-scoped uploads and downloads (`engine-transfer.ts`; the cloud's endpoints are PM-315).
   The link client uses the runtime's `WebSocket`, which cannot send the close codes 1001, 1002 and
   1011: it closes with 1000 and a reason text (`engine_shutdown`) instead.
+  **Module:** `entry`
 
 - **Cloud composition** — `engine-link/remote/{hub,transfers,runner,transcripts,host,attachments,machine,github,handlers,index}.ts`,
   `engine-link/index.ts` (`EngineLinks.authenticate`), `app.ts` (`parseMode`, `createCloudRemote`),
-  `domain/{sessions,engine-registry,messaging/messaging,machine,full-tests,screenshot-runs}.ts` (PM-315).
+  `runtime/sessions` (`SessionOrchestrator`, `EngineRegistry`), `core/messages`, `runtime/watchers` (`MachineMonitor`),
+  `services/full-tests/{full-tests,screenshot-runs}.ts` (PM-315, PM-601).
   `PROJECTMAN_MODE=cloud` runs the UI, the API and the database and no machine-dependent part: the
   runner, the transcripts, the plan usage, the machine probe, the engine directory (worktrees, workspaces,
   session folders, free disk), the GitHub CLI, the full test and the screenshots are the engine's, asked
@@ -1269,9 +1452,7 @@ workers follow the machine's size.
   condition, now answered by `handlers.ts`) and is never logged.
   **Assumptions:** the cloud has no CLI, git checkout, browser or session folder of its own; the one
   engine of a project (the default engine) is the machine the owner sees. `PROJECTMAN_MACHINE_FIXTURE`
-  is ignored and no full-test or screenshot executor is built locally. Publishing a task branch
-  (`PublishingGate`) is not available in cloud mode: `githubPublishTokenFile` is valid with `managed_vm`
-  only, so `publish_task_branch` answers `not_available` (the remote `exportBranch` exists, unused). The
+  is ignored and no full-test or screenshot executor is built locally. The
   local worktree manager is still created because `DomainOptions.worktrees` is required, and is unused.
   The idempotency store of a link keeps 10,000 results; the `usage` events replayed after a cloud restart
   can be counted twice, because the cloud's memory of handled events does not survive its restart.
@@ -1280,6 +1461,7 @@ workers follow the machine's size.
   (`isDirectory` answers `engine_offline`, HTTP 409), a full test is refused with `engine_offline`, and
   the machine view is `engine_offline`. Moving the cloud onto a host with no CLIs is the goal; the
   `hello` paths are the engine's own and are never opened by the cloud.
+  **Module:** `engine-link`
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
@@ -1312,12 +1494,13 @@ workers follow the machine's size.
   cloud's home, never an engine's worktrees or transcripts. The restore rehearsal
   (`entrypoint.sh rehearse`) starts a standby copy on the loopback with no tunnel and no
   replication, so it cannot disturb the production replica.
+  **Module:** `deploy`
 
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
-  `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
+  `db/integrator-keys.ts`, `runtime/sessions` (`session policy`), `runner/env.ts` (PM-251).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
   Authentication accepts it only on a local connection or HTTPS, using the existing loopback
-  proxy protocol rules in `auth/local-request.ts`.
+  proxy protocol rules in `kernel` (`clientAddress`, `requestProtocol`).
   The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
   Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
   `PROJECTMAN_INTEGRATOR_KEY` before launching members.
@@ -1329,10 +1512,11 @@ workers follow the machine's size.
   "Integrator access"); the key still works only over HTTPS, which the container sees as
   `x-forwarded-proto: https` from the tunnel's loopback connection. The service token is a second
   secret with the same rules: never in a message, task, commit, prompt or engine payload.
+  **Module:** `auth`
 
-- **Codex project layer check** — `runner/managed-vm.ts` (`inspectProjectCodex`,
+- **Codex project layer check** — `runner/ambient-config.ts` (`inspectProjectCodex`,
   `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
-  `runner/providers/codex/index.ts` (`launch`), `domain/sessions.ts` (PM-357).
+  `runner/providers/codex/index.ts` (`launch`), `runtime/sessions` (`SessionLauncher` in `launch.ts`) (PM-357).
   The server reads the CLI's canonical working directory and each `.codex` layer from the
   nearest ancestor with a `.git` entry. Member starts and resumes allow only `config.toml`
   with model and project-document roots; confined reads reject links and nonregular files.
@@ -1342,6 +1526,7 @@ workers follow the machine's size.
   Today the server and CLI share the filesystem. NanoGPT retains its separate `any` rule.
   **Cloud mode (PM-315):** `RemoteRunner.assertWorkspaceConfig` calls `session.assert_workspace_config` on the
   session's engine; the engine refuses with its relative file names and key names only, never values.
+  **Module:** `runner`
 
 - **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
   `runner/env.ts`, `app.ts`, `index.ts`
@@ -1349,7 +1534,7 @@ workers follow the machine's size.
   `PROJECTMAN_HOME/providers/nanogpt/codex-home`; any `auth.json` refuses startup. Only this
   adapter supplies the secret as trusted child environment and excludes it from CLI shell
   commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
-  Codex home. Managed VM execution is refused pending PM-331. **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`,
+  Codex home. **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`,
   `provider.status` and `secret.nanogpt_key` (PM-313); the CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs. The current server and
@@ -1367,20 +1552,20 @@ workers follow the machine's size.
   and only the server writes it. Without a safe tmp root a writing NanoGPT sandbox gets no folder
   and keeps the shared `/tmp` open as before.
   NanoGPT-only quota detection emits `rate_limited` over the existing RunnerEvent boundary;
-  `domain/provider-quota-hold.ts` keeps a provider-wide, in-memory hold on the server,
+  `runtime/usage` (`ProviderQuotaHolds`) keeps a provider-wide, in-memory hold on the server,
   blocking starts and message wakeups until the measured weekly reset. The adapter's
   `planUsage.get()` reads `GET https://api.nano-gpt.com/api/subscription/v1/usage` with the
   managed key, without logging credentials or response bodies (10-second timeout, no
   redirects). Unknown usage holds inference while only usage probes retry; initially
   known lower usage gives a fifteen-minute rate hold. Owners receive one alert per hold.
-  `domain/admission/message-starts.ts` persists the affected task's deferred continuation.
+  `runtime/admission` (`MessageStarts`) persists the affected task's deferred continuation.
   Server restart loses the hold, but stored quota deferrals restore an unknown hold
   without an alert and require a usage probe before inference. **Remote engine:** usage HTTP runs on the server where the managed key
   is stored, as the key check already does, using the existing `api.nano-gpt.com` host;
   transcript parsing stays on the engine and sends `rate_limited` across RunnerEvent.
   No new machine-dependent boundary is required (PM-377).
   Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
-  `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
+  `runner/ambient-config.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
   NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home
   `hooks.json` files; escaped quoted TOML roots fail closed in the shared inspector.
   The shared inspector checks separate project and home hook files for every Codex caller;
@@ -1396,6 +1581,7 @@ workers follow the machine's size.
   (`engine-link/remote/handlers.ts`) releases it only to the engine of a NanoGPT session that is starting
   (`RemoteRunner.takeKeyGrant`: a grant held only until the start call returns), never caches or logs it, and a key change asks each engine for its login state again
   (`provider.status`).
+  **Module:** `runner`
 
 - **Gemini (agy) CLI, conversation directories and keychain login** —
   `runner/providers/gemini/*` (PM-326; PM-319). The interactive PTY runs `AGY_BIN`/`agy`,
@@ -1412,9 +1598,8 @@ workers follow the machine's size.
   This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
   **Remote engine (engine mode, PM-314: runs in the engine process):** the binary, login/keychain, private directories, PTY, forwarder and
   transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
-  transcript access must use the launcher with the conversation root as its confinement,
-  rather than opening engine paths on the server. Managed VM launches remain unsupported
-  until PM-331. No remote Gemini launcher is implemented by PM-326.
+  transcript access must stay confined to the provider's conversation root on the engine,
+  rather than opening engine paths on the server.
   **Session folder (PM-522):** a Gemini session gets the per-process session folder (see **Session
   output folders**), named in `PROJECTMAN_SESSION_DIR` through the environment `launch` returns
   (`runner.ts` merges `launch.env`). Gemini has no OS sandbox, so the folder is written by its file
@@ -1423,8 +1608,9 @@ workers follow the machine's size.
   or screenshot scope. On a remote engine the environment is built on the engine side; an older
   engine without this launch environment leaves the variable unset (the folder is then not named, the
   path in a tool answer still works).
+  **Module:** `runner`
 
-- **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
+- **NanoGPT secret store** — `runtime/usage` (`ProviderKeys`, `createNanogptKeyCheck`) (PM-328).
   See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
@@ -1433,24 +1619,30 @@ workers follow the machine's size.
   storage and validation remain on the server; this card does not send
   the key to an engine. PM-329 must deliver it only to NanoGPT sessions over the authenticated
   server/engine boundary, without configuration, database or logging persistence on either side.
+  **Module:** `runtime/usage`
 
 This is a living inventory of assumptions that tie execution to a machine, account or OS.
-The current local mode usually places the server and agent CLIs on the same host; the managed
-VM boundary separates accounts on one host, not server and engine across hosts. The remote
+The current local mode usually places the server and agent CLIs on the same host. The remote
 actions below are requirements for planning, not implemented remote support or new contracts.
 Keep entries current under the rule in `CLAUDE.md`.
 
 Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 
+Core attachment and permission entries name their final implementation locations behind the
+stable module facades (PM-645). This refactor changes no filesystem operation, machine
+assumption or remote-engine RPC.
+
 - **Session process liveness** — `runner/session.ts` (PM-376). Every 30 s the runner
   probes the attached CLI PID with signal 0, recovering a missing PTY exit event through
   the normal failed-session cleanup. Only `ESRCH` proves disappearance; permission errors
-  leave the session running. An unreaped zombie also passes the probe. Across launcher worker
-  accounts an `EPERM` result provides no liveness verdict; the launcher exit event remains necessary.
-  The PID belongs to this host (including local launcher workers).
+  leave the session running. An unreaped zombie also passes the probe.
+  Since PM-621, `runner/session-clock.ts` schedules the probe with a ref'd Effect sleep: a running session keeps the process alive until shutdown stops it.
+  The PID belongs to this host.
   **Remote engine (engine mode, PM-314: runs in the engine process):** run this probe beside the CLI on the engine and transport the exit event;
   a remote PID must never be checked against the server's process table.
   Since PM-311 the domain asks the workspace's engine (`EngineHost.processExists`, `contracts/engine.ts`).
+  The local probe runs on the engine in `engine-host/local-engine.ts` (PM-611).
+  **Module:** `runner`
 
 - **Fake CLI pause test gates** — `runner/runner.integration.test.ts` and
   `apps/server/test/fixtures/fake-claude.mjs` (PM-344). Tests hold the fake's work/tool
@@ -1459,15 +1651,19 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   that temporary filesystem. Interrupting a turn abandons its gate without a release.
   **Remote engine:** run this integration harness and its fake together on the engine;
   these test-only paths never cross the production server/engine boundary.
+  **Module:** `runner`
 - **Dependency clones and refreshes** — `worktree/dependencies.ts`, `cloneDependencies`,
   `worktree/worktree-manager.ts`, `ensureForTask` (PM-334, PM-412).
   Copies installed `node_modules` from another checkout with the same lockfile using
   `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Missing or
   stale installations are cloned before a task session starts or resumes and before each tool
   via `runner/session.ts`, `RunnerModuleOptions.refreshDependencies`; staleness uses the
-  local lockfile and hidden npm lockfile modification times. Per-worktree serialization and
-  directory backups protect replacements; a server-start lifetime registry restricts targets,
-  failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
+  local lockfile and hidden npm lockfile modification times.
+  The merge check uses the same reference-selection rule via `findDependencyReference` on the engine
+  (`engine-host/merge-check.ts`, PM-580), selecting against the merged lockfile and blocking with
+  `check_error` before running checks when no installed source matches.
+  Per-worktree serialization and directory backups protect replacements; a server-start lifetime registry
+  restricts targets, failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
   time for preparation (`runner/hook-forwarder.ts`, 120 seconds for Claude and Codex).
   No npm install runs outside a sandbox.
   Target workspace ancestors must be real directories: component-wise `lstat` checks run
@@ -1479,7 +1675,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   cannot be cloned across machines, and native dependencies must match the engine. Keep the
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
-- **Heavy-run queue and worker limits** — `full-test/heavy-lock.ts`,
+  **Module:** `worktree`
+- **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core}.ts`,
   `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
   `/tmp/projectman-<uid>/heavy` uses local atomic directory operations, PID liveness and
@@ -1497,8 +1694,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   temporary files from atomic writes do not count as queued waiters. Run it on the execution
   host, using its own temporary directory and PID namespace.
   Since PM-311 the folder is `EnginePaths.heavyLockDir` of the session's engine (`contracts/engine.ts`).
+  Idle closure asks that engine through `EngineHost.heavyRunSessions` / `host.heavy_run_sessions`
+  (PM-569). PID and heartbeat checks run on the engine; only its own running session ids cross
+  to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
+  **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `index.ts` (`loggerOptions`)
-  (PM-444). Every process logs pino's JSON lines to the terminal and, since PM-444, to
+  (PM-444), exposed through `logging/index.ts` to `index.ts` and
+  `engine-link/engine-audit.ts` (PM-649). Every process logs pino's JSON lines to the terminal and, since PM-444, to
   `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
   mode); the terminal's scrollback alone lost the older lines. The file is appended across starts,
   rotated at 10 MB (`server.log` → `.1` → … `.4`, five files, so about 50 MB at most), mode 0600 in
@@ -1510,19 +1712,24 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine:** each process writes its own log on its own host: the cloud's under the cloud's
   home, the engine's under the engine's home. Logs are not shipped across the link; to read the
   engine's log, read it on the engine's machine.
+  **Module:** `logging`
 - **Session output folders** — `index.ts`, `engine-host/session-folders.ts` (`SessionFolders`),
-  `engine-host/disk.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
-  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339, PM-312). Legacy Claude
+  `engine-host/sandbox-dirs.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
+  `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
+  preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
+  folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `session policy`) (PM-268, PM-333, PM-339, PM-312).
+  `core/inbox/ports.ts` exposes the existing readable-root calculation through `InboxPermissionPolicy`
+  (PM-635); policy rendering and folder operations remain in runtime and on the engine. Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. Since
   PM-522 Gemini, NanoGPT and read-only Codex sessions get one too (`sessionFolderAccess`):
 
-  | Session                                                                | Folder                                                     | Own TMPDIR, browsers, screenshots |
-  | ---------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------- |
-  | Claude; Codex or NanoGPT with `workspace-write` and a tmp root         | write                                                      | yes                               |
-  | Codex or NanoGPT read-only (`default`, `plan`, reader)                 | read; only the server writes it                            | no                                |
-  | Gemini                                                                 | write by file tools under the hook gate (not in plan mode) | no                                |
-  | `workspace-write` without a tmp root, `danger-full-access`, managed VM | none                                                       | –                                 |
+  | Session                                                        | Folder                                                     | Own TMPDIR, browsers, screenshots |
+  | -------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------- |
+  | Claude; Codex or NanoGPT with `workspace-write` and a tmp root | write                                                      | yes                               |
+  | Codex or NanoGPT read-only (`default`, `plan`, reader)         | read; only the server writes it                            | no                                |
+  | Gemini                                                         | write by file tools under the hook gate (not in plan mode) | no                                |
+  | `workspace-write` without a tmp root, `danger-full-access`     | none                                                       | –                                 |
 
   A read-only Codex or NanoGPT sandbox names the folder in `PROJECTMAN_SESSION_DIR`, reads it and
   opens its images with `view_image`, but does not write it. **Remote engine:** `folders.make` and
@@ -1550,6 +1757,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   in `deniedPaths`. A Claude session without a safe tmp root (no folders, or an unusable root) runs
   as before and the shared roots are not denied for it (fail-open: the CLI still needs them).
   A session that is already running keeps its old rules until its next start.
+  Fake app tests use `claudeTmpRoots: []` in `test/helpers/app-harness.ts` and
+  `test/auth-restart.test.ts` instead of discovering the executing machine's shared Claude
+  directories (PM-633). Tests that inspect these roots can supply explicit fixtures through
+  the harness's `app` options. This test isolation leaves production root discovery and the
+  server/engine boundary unchanged.
+  Engine-host fixtures in `test/engines.test.ts` also supply explicit `claudeTmpRoots`
+  (PM-635), so the remote/offline and engine-disk tests do not discover the user's directories.
   The tmp root is another machine-dependent assumption: a shared host-local `/tmp`.
   Every Claude session reads all the folders below the instance's root
   (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy
@@ -1567,7 +1781,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and allocate the session's tmp there, and pass `CLAUDE_CODE_TMPDIR` to the CLI on the engine.
   Since PM-311 the registry is `EngineHost.sessionFolders` (`EngineSessionFolders`) and the roots are
   `EnginePaths.sessionFoldersRoot`, `sessionTmpRoot` and `claudeTmpRoots` (`contracts/engine.ts`);
-  `createLocalEngine` (`domain/engines.ts`) prepares them, with the same checks as before.
+  `createLocalEngine` (`engine-host/local-engine.ts`) prepares them, with the same checks as before.
   Since PM-312 the disk work is the engine's too: `make`, `remove`, `sweep` and `releaseTmpRoot`
   are asynchronous (the domain awaits a session's pending removal before it makes the new folder at
   a restart, `Sessions.folderRemovals`), and the member's sandbox directory (0700) with its git
@@ -1577,16 +1791,24 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   the folders on the engine (`folders.*`, `host.*`) and keeps the paths in the hub's mirror, so
   `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
   ignored (the engine cleans up when it is back).
+  **Module:** `engine-host`
 
-- **Message attachments (PM-516)** — `domain/message-attachments/{storage,service,image}.ts`,
-  `domain/attachments/{files,upload,thumbnail}.ts`, `api/message-attachments.ts`, `mcp/tools.ts`
+- **Card attachments (PM-644)** — `core/attachments/attachments/{service,storage,thumbnail}.ts`
+  (through `core/attachments/index.ts`) and `contracts/attachments.ts`. Records and the private
+  `<PROJECTMAN_HOME>/attachments` store belong to the server; local storage uses 0700 directories,
+  0600 files and no-follow opens, and `sharp`/libvips generates thumbnails there.
+  **Remote engine:** keep storage and image processing beside the server. Engine callers use
+  the existing authenticated attachment/transfer boundary; their local paths are not server
+  storage paths. No new RPC or payload is introduced by moving these files.
+  **Module:** `core/attachments`
+- **Message attachments (PM-516, PM-644)** — `core/attachments/message-attachments/` (through `core/attachments/index.ts`), `api/message-attachments.ts`, `mcp/attachments/tools.ts`
   (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
   `<PROJECTMAN_HOME>/message-attachments/<projectKey>/<id>` (0700 directories, 0600 files, `.thumb`,
   `.part`), written and read by the server process on its own disk (`O_EXCL`, `O_NOFOLLOW`), and
   reached only through the protected REST routes and the team tool. A session never gets a path into
   that store: `read_message_attachment` returns the content itself (an image, a small text), and for
   what the content cannot show (PM-518) a copy in the caller's own session folder (below).
-  `domain/session-policy.ts` includes the entire store in `sensitivePaths` (PM-524), denying
+  `contracts/sandbox.ts` includes the entire store in `sensitivePaths` (PM-524), denying
   direct file-tool and sandboxed shell access on the machine that hosts a session; authorized
   copies in its session folder remain readable. Remote engines use the same policy for their
   local app home and receive authorized files through the existing transfer boundary below.
@@ -1598,8 +1820,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   base64), made on each request (`MessageImageRenderer`, `sharp`, the server's libvips). A text is
   at most 100 000 bytes. The home directory itself must be on one machine with the server, as for the
   card attachments.
-- **Message file in the session folder (PM-518)** — `domain/team-tools.ts` (`readMessageAttachment`,
-  `sessionFileTarget`), `domain/message-attachments/{service,storage}.ts` (`source`, `locate`,
+  **Module:** `core/attachments`
+- **Message file in the session folder (PM-518)** — `mcp/attachments/handler.ts` (`readMessageAttachment`,
+  `sessionFileTarget`), `core/attachments/message-attachments/` (`source`, `locate`,
   `sessionFileName`), `engine-host/session-folders.ts` (`SessionFolders.materializeFile`),
   `engine-link/{methods,engine-handlers,engine-limit}.ts` (`files.materialize_into_session`),
   `engine-link/remote/host.ts`, `contracts/runner.ts` (`PROVIDER_MCP_IMAGE_RESULTS`). When the
@@ -1613,7 +1836,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and Codex render an MCP `image` result), gemini and nanogpt false (the Gemini CLI has no place for
   one yet; NanoGPT is Codex over a custom provider, so it depends on the model): the first reading of
   an image gives them the file. Since PM-522 every provider has a session folder where the sandbox
-  allows one (`sessionFolderAccess` in `domain/session-policy.ts`: Gemini; Codex and NanoGPT with a
+  allows one (`sessionFolderAccess` in `runtime/sessions/session-policy.ts`: Gemini; Codex and NanoGPT with a
   writing sandbox or a read-only one), so a Gemini or NanoGPT session gets the path too. **Open:** that
   Gemini's `view_file` shows a PDF or an image to the model, and that a NanoGPT model uses
   `view_image`, are unproven; the path is returned either way.
@@ -1624,7 +1847,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   own, checks size and checksum, and `SessionFolders.materializeFile` puts it in. The engine's limit
   allows the call only for a session whose folder `folders.make` created on it, with a plain name and a
   valid token. An engine without the method answers `unknown_method`, which counts as a failure above.
-- **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
+  **Module:** `mcp`
+- **Browser installation and screenshots** — `index.ts`, `runtime/sessions` (`session policy`),
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).
   Playwright loads local Chromium binaries from the configured browser directory (default
@@ -1632,14 +1856,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
   and writes images to local output storage. For a Codex member, whose sandbox cannot start
   Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
-  PM-351): `domain/screenshot-runs.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
+  PM-351): `services/full-tests/{screenshot-runs,screenshot-core}.ts`, `full-test/{screenshots,run-sandboxed,run-sandboxed-core}.ts` start it in the
   member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
-  the session folder as the output; it queues in the machine's heavy-run queue and is off in the
-  managed VM profile and off macOS. Since PM-312 the scenario file is resolved and the images are
+  the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
   **Cloud mode (PM-315):** `screenshots.run/cancel` run on the session's engine
-  (`domain/screenshot-runs.ts` takes a remote executor, announced by the engine's `screenshot_started`
+  (`services/full-tests/screenshot-runs.ts` takes a remote executor, announced by the engine's `screenshot_started`
   event); a run with no connected engine is refused as `engine_offline`. The scenario and the image list come from the engine (`files.*`).
   `index.ts` builds no local screenshot executor in cloud mode.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `screenshots.run/cancel`, `files.resolve_scenario` and `files.list_images` (PM-313), provision a compatible browser on the engine, preserve the disposable
@@ -1648,8 +1871,12 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   server cannot run it against a remote path); the server keeps only the tool and the run record.
   Since PM-311 the browser directory is `EnginePaths.browsersDir` and the run is the
   `EngineHost.screenshotExecutor` of the requesting session's engine (`contracts/engine.ts`).
+  **Module:** `engine-host`
 - **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
-  `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
+  `runtime/watchers` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
+  Demand-driven rounds and bounded request waits run on the server in
+  `runtime/watchers/machine-rounds.ts` (Effect, PM-617); measurement and signalling stay
+  behind the existing machine probe boundary.
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
   ownership checks and signals use its UID and PID namespace, with process start times
   checked against PID reuse. **Remote engine (engine mode, PM-314: runs in the engine process):** use `machine.snapshot/processes/env_values/signal` (PM-313), measure and stop on the owning engine,
@@ -1658,12 +1885,14 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
   (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
   engine the machine view answers `engine_offline` (409).
+  **Module:** `machine`
 - **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
   `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
   `PROJECTMAN_SESSION_ID` (PM-320). This identifies a local installation by its home path,
   not a host-independent engine identity. **Remote engine:** plan instance/engine attribution
   explicitly, including reconnects and moves; equal paths on different hosts must not imply
   equal ownership.
+  **Module:** `entry`
 - **Session process termination** — `runner/session.ts` (`stop`, `kill`),
   `runner/runner.ts` (PM-341; PM-320). The runner owns a local process handle and sends
   SIGTERM, then SIGKILL after a timeout (or SIGKILL immediately for a forced stop).
@@ -1671,14 +1900,15 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.stop` and runner exit events (PM-313), execute stop/kill on the engine owning that process, return its exit
   acknowledgement, and plan descendant cleanup there; a server-side PID or closed transport
   is not evidence that a remote session has stopped.
+  **Module:** `runner`
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
-  `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
+  `runner/session.ts`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runner/providers/{claude,codex}/transcript.ts`
   (PM-340). NanoGPT uses the separate home in **NanoGPT Codex home and key delivery** (PM-329).
   The reader selects the shared Codex transcript format with `usesCodexCli` from
   `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
   Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
-  checks transcript content; managed worker reads are confined to the worker home.
+  checks transcript content.
   PM-342 adds `TranscriptReader.summary` (`runner/transcript/summary.ts`): when a member's new
   conversation replaces one that could not go on (provider changed, lost, moved) or a card is
   handed over without a note, the server reads the old transcript for the CLI's compaction
@@ -1688,15 +1918,16 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   stream conversation events to the server, and preserve confinement. A conversation ID
   without its engine's saved state is insufficient for resume. `summary()` runs on the engine,
   next to the conversation; only the `HandoffSummary` (at most 8000 characters) crosses the
-  server/engine boundary, and the managed worker's `confineTo` restriction stays.
+  server/engine boundary.
   Since PM-311 a session records its engine (`sessions.engine_id`, `Session.engineId`), the transcript
   reader calls carry the optional `engineId`, and a conversation resumes only on the same engine (a
-  different one counts as `relocated`, like a changed execution profile).
+  different one counts as `relocated`).
   **Cloud mode (PM-315):** `createRemoteTranscripts` (`engine-link/remote/transcripts.ts`) asks the session's
   engine (`transcript.has_content/read/summary`); the transcript text crosses as a single-use transfer.
+  **Module:** `runner`
 - **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
-  `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
-  `http/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
+  `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `LiveSessions`), `runner/runner.ts`, `runner/hook-forwarder.ts`,
+  `kernel` (`nonLocalReason`), `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
@@ -1709,30 +1940,32 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   diagnostic payload crosses the server/engine boundary.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
+  `core/inbox` keeps the existing broker and receives the command policy
+  through `InboxPermissionPolicy` (`core/inbox`, PM-635); no hook payload or transport changes.
   **Cloud mode (PM-315):** the cloud registers no hook routes (`registerHookRoutes` is empty) and listens
   on no loopback for the CLIs. `permission.*` and `mcp.relay` are handled by `engine-link/remote/handlers.ts`;
   the relay runs the request through the cloud's own `/mcp/<token>` route and answers 404 for a token whose
   session runs on another engine.
+  **Module:** `runner`
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
-  `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `domain/worktree-sweep.ts`,
+  `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `runtime/watchers` (`WorktreeSweep`),
   `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
-  operations. PM-368's `domain/messaging/{messaging,delivery}.ts` also uses
+  operations. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
-  PM-342's `domain/handoffs.ts` uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, including `workspace.export_branch` (PM-313), run this git query beside the worktrees and return the attributed branch head
+  PM-342's `runtime/admission` (`HandoffService`) uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
+  **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
-  as shared storage. The managed VM's bundle hand-over is a separate existing mechanism.
+  as shared storage.
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
-  **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`), and the branch
-  leaves the engine only as an upload (`workspace.export_branch`, unused: publishing is not available in
-  cloud mode). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
+  **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
   is required.
-- **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
-  `domain/admission/` (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
+  **Module:** `worktree`
+- **Free-disk admission guard** — `runtime/watchers` (`DiskGuard`, engine `freeDiskBytes`),
+  `runtime/admission` (`Admission`) (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
   value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
   hosts or even every local worktree volume. **Remote engine (engine mode, PM-314: runs in the engine process):** use `host.free_disk` (PM-313), report capacity for the
   engine's execution/storage volumes and plan admission against those as well as server
@@ -1740,13 +1973,14 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`);
   since PM-312 the `statfs` itself is `freeBytesOf` in `engine-host/disk.ts`, not in `domain/`.
   **Cloud mode (PM-315):** the engine directory answers with `host.free_disk` of the target engine.
-- **Control socket, pause and deployment** — `control/socket.ts`, `domain/pause.ts`,
+  **Module:** `runtime/watchers`
+- **Control socket, pause and deployment** — `control/socket.ts`, `runtime/sessions` (`PauseService`),
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
   `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
   access. Pause and shutdown act through the local runner; activation checks local instance
   markers and database use. Deployment scripts using the control client need access to that
   host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
-  Release flow (PM-491, `domain/releases.ts`, `PROJECTMAN_RELEASE_TARGET`): the release watcher reads, claims and
+  Release flow (PM-491, `services/releases/releases.ts`, `PROJECTMAN_RELEASE_TARGET`): the release watcher reads, claims and
   reports on this same local socket, so it must run on the server's host; the instance's repository is on
   the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
   (see "Release of the instance"); no new boundary.
@@ -1762,15 +1996,19 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   needs the person's statement that the cloud is retired, no running engine and a database that
   holds the cloud's `engines` row, so that a stale pre-hybrid database never replaces the cloud's work;
   `--discard-cloud-data` states the opposite on purpose.)
-- **Native sandbox and canonical paths** — `domain/session-policy.ts`,
+  **Module:** `control`
+- **Native sandbox and canonical paths** — `runtime/sessions` (`session policy`),
   `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
-  engine's `realpath`, `isDirectory`, `isRealDirectory`).
+  engine's `realpath`, `isDirectory`, `isRealDirectory`). `core/inbox` (PM-635)
+  uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
+  policy functions through `InboxPermissionPolicy` (`core/inbox`); path validation still
+  runs on the session's engine and requires no new RPC.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
   Claude member with it on gets the sandbox network allowlist `*` minus the blocked hosts, with it
-  off only the npm registry (the legacy profile; the managed VM profile is not changed by it).
+  off only the npm registry.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
   the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
@@ -1791,8 +2029,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   This file-path exception relies on macOS Seatbelt enforcement. A Linux engine may keep a
   nonexistent lock path closed; verify provider grants on that engine before claiming rebase
   support. The hard-link probe must fail at link creation, without writing through the link.
-  The managed VM retains the legacy sandbox flags because its VM is the boundary.
-  PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
+  PM-356 adds local startup checks in `runner/runner.ts` and `runner/ambient-config.ts`:
   a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only
   setting names through `codex_setup_incomplete`. User MCP names are resolved beside the CLI;
   ambiguous names refuse startup. `runner/providers/codex/args.ts` disables each user server
@@ -1819,9 +2056,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Since PM-311 the paths the policy is built from are the session's engine's `EnginePaths`
   (`userHome`, `home`, `worktreesRoot`, `workspacesRoot`, `installDir`, `gitExcludesFile`;
   `contracts/engine.ts`).
+  **Module:** `runtime/sessions`
 - **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
-  `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
+  `runner/session.ts`, `runtime/usage` (`PlanUsageMonitor`) (PM-341; PM-286, PM-310).
   See **NanoGPT Codex home and key delivery** (PM-329): token usage is parsed as Codex,
   but NanoGPT rollouts never feed the ChatGPT plan gauge.
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
@@ -1831,18 +2069,18 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   timestamped measurements; leave credentials there and retain subscription-only execution.
   **Cloud mode (PM-315):** `createRemotePlanUsage` (`engine-link/remote/transcripts.ts`) asks the engine
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
-- **Claude workspace trust** — `runner/providers/claude/trust.ts`,
-  `runtime-boundary/claude-trust.ts` (PM-341; PM-140). The runner updates workspace trust
-  in `~/.claude.json` (or the configured Claude config directory); the managed launcher
-  helper does so as the worker, for that worker's home and local repository path.
+  **Module:** `runtime/usage`
+- **Claude workspace trust** — `runner/providers/claude/trust.ts` (PM-341).
+  The runner updates workspace trust in `~/.claude.json` (or the configured Claude config directory).
   **Remote engine (engine mode, PM-314: runs in the engine process):** trust is part of `session.start` (PM-313); prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
-- **Server full test before review** — `domain/full-tests.ts`, `engine-host/disk.ts`
+  **Module:** `runner`
+- **Server full test before review** — `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine),
-  `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
+  `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt` and is off in the managed VM profile. Its sandbox
+  it is unavailable without macOS/`srt`. Its sandbox
   (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `full_test.run/cancel` (PM-313), plan where the pinned commit and dependencies are tested, equivalent
@@ -1853,8 +2091,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
-- **Merge conflict fix worktrees** — `domain/{merges,sessions,worktree-sweep}.ts`,
-  `worktree/worktree-manager.ts`, `domain/session-policy.ts`, `engine-link` (PM-471).
+  **Module:** `services/full-tests`
+- **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
+  `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
   a file-changing duty, only while the card is `fixing`. Placement changes when its session
   restarts after the turn. The checkout starts at the approved commit; the merger merges the
@@ -1872,15 +2111,17 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
   with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
   `MemberWorkspaces` retains its existing work/review choices. The server's shared
-  `domain/merge-card-lock.ts` lock serializes fix creation, session placement and cleanup;
+  `kernel` (`MergeCardLock`) lock serializes fix creation, session placement and cleanup;
   cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
   Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
   at startup and periodically. The engine revalidates the canonical fix path under its
   repository mutex, refuses symlinks and leaves unregistered directories in place.
+  **Module:** `services/merges`
 
 - **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
-  `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
-  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`
+  `engine-host/{branch-merger,merge-check,doc-files,merge-repo,git-output,merge-git,merge-input}.ts`,
+  `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
+  `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
@@ -1888,8 +2129,11 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
   with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
   `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
-  `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from a source the engine limit bounds, an
-  APFS clone `cp -c` on macOS), `merge.push` (never forced, `--no-verify`) and `merge.advance` (a
+  `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from an installed checkout with a byte-identical
+  merged lockfile, an APFS clone `cp -c` on macOS; PM-580). The engine tries the bounded preferred source,
+  its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
+  source after copying and blocks with `check_error` before checks if none matches. `merge.push`
+  (never forced, `--no-verify`) and `merge.advance` (a
   fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
   Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched
   off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The
@@ -1909,15 +2153,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   registered with a `mergeBranch`, a `base` must be that branch, 1–2 different paths, 1 MiB of text each
   without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
   machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
-- **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
-  `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
-  `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,
-  PM-138; PM-331). The privileged launcher uses a local Unix socket and worker accounts;
-  egress peer identity comes from Linux's local `/proc/net/tcp*` socket UID tables.
-  Worker workspace hand-over uses local owner-checked spool files and git bundles.
-  **Remote engine:** retain the launcher, account isolation, peer checks and spools inside
-  the execution host; plan authenticated server/engine requests and artifact transfer instead
-  of forwarding Unix paths, UIDs or TCP peer lookup across machines.
+  **Module:** `services/merges`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
   `scripts/migrate/{inventory,paths,database,git,apply,instance}.ts` (PM-270, PM-143).
   Disposable instances reserve loopback ports, spawn local server/web process groups and
@@ -1946,6 +2182,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   (fixed names, so one path denies the tree); the package (`--out`) and the downloaded copy (`--from`)
   are the person's folders outside the home, which the sandboxes' deny-only reads do not cover, so the
   guide tells the person to delete them after use.
+  **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
@@ -1960,14 +2197,15 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   the one that should run the engine (the plist names it). **Does this work on a remote engine?**
   This is the engine's own start-up: it must run on the engine's machine, as the user who owns the
   CLIs; nothing of it crosses to the cloud. On Linux the equivalent is a systemd user unit (not built).
+  **Module:** `scripts`
 
 - **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,
-  `buildSessionEnv`), `runtime-boundary/launcher/daemon.ts` (`workerEnvironment`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,
+  `buildSessionEnv`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,
   `EDITOR` and `VISUAL` set to `true`, so git (a rebase's message or todo list) never opens
   Vim on a terminal nobody types into. The values override the service's environment and are
-  set for every provider; the managed VM launcher's worker environment (sessions and one-off
-  programs) takes the same constant. **Remote engine:** the engine builds the session
+  set for every provider. **Remote engine:** the engine builds the session
   environment beside the CLI with the same function (or the same four variables).
+  **Module:** `runner`
 
 After this inventory reaches `main`, the architect must compare the PM-286 hybrid plan and
 its breakdown with it before PM-311 starts, including the related remote-work directions
@@ -1989,7 +2227,7 @@ Running sessions finish their step. A measurement that fails never blocks anythi
 
 ### Loop watch
 
-`LoopWatch` (`apps/server/src/domain/loop-watch.ts`, PM-261; it replaced the message storm alert of PM-186 and
+`LoopWatch` (`runtime/watchers`, PM-261; it replaced the message storm alert of PM-186 and
 its `team.limits.messageBurst`, dropped from old configurations by the `dropMessageBurst` migration) catches AI
 members writing to each other on a card without progress. The rules are pure and live in
 `packages/shared/src/domain/loop-watch.ts` (`countsForLoop`, `findLoop`, `loopWatchers`, `loopDeciders`), also
@@ -2013,7 +2251,7 @@ The phase `let_run` and the `let_run` event only remain for loops let run before
 
 ### Fix round limit
 
-`FixLimitWatch` (`apps/server/src/domain/fix-limit.ts`, PM-262) puts an upper limit on a card's fix rounds. The
+`FixLimitWatch` (`runtime/watchers`, PM-262) puts an upper limit on a card's fix rounds. The
 rules are pure and live in `packages/shared/src/domain/fix-limit.ts` (`countFixRounds`, `fixLimitReached`,
 `fixLimitLead`, `fixLimitPlanner`, `fixLimitDeciders`), also used by the web's fake backend. A round is a
 `code-review-changes` label put on the card, a `design-review-changes` label (the project's label list gets it
@@ -2049,7 +2287,7 @@ A card in a `step` or `release` stage whose next gate lacks nothing but humans' 
 The rule is pure, `stageAdvance` in `packages/shared/src/config/gates.ts` (also used by the web's status line):
 `move` when no condition is missing, `approve` when only human-only labels are, `null` otherwise (never from a
 `work` or `queue` stage, never for a gate with unmet conditions). `AutoAdvance`
-(`apps/server/src/domain/tasks/auto-advance.ts`) acts on it as the system: it calls `moveToStage`, which moves the
+(`runtime/watchers`) acts on it as the system: it calls `moveToStage`, which moves the
 card or opens the same "Döntés" inbox item a person's move attempt opens (source `system`; the item names the
 label). It looks at a card when its labels or stage change, when a session of it goes idle or ends, and at every
 open card once after the start. It does not move a card a session works on (an idle one does not count), does not
@@ -2062,7 +2300,7 @@ left that stay is discarded, so it cannot undo a human's move or reopen a finish
 
 ### Assignee handoff (PM-342)
 
-`HandoffService` (`apps/server/src/domain/handoffs.ts`, PM-423) hands a card's work from the old assignee to the new
+`HandoffService` (`runtime/admission`, PM-423) hands a card's work from the old assignee to the new
 one. The plan is pure and in `packages/shared/src/domain/handoff.ts` (`planHandoff`, `handoffBlocksStart`), also used by
 the web's fake backend. A handoff starts when the assignee of a card changes and the old one is an AI member who has a
 conversation on the card: by a person's change (`manual`), a fix-limit `reassign` (`fix_limit_reassign`), the removal of
@@ -2103,7 +2341,7 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 
 - **Storage.** Table `project_focus_items` (migration 43; `(project_key, task_key)` is the key, `position` the order,
   `added_by` the actor as JSON), repository `repos.projectFocus` with `list(projectKey)` and `replace(projectKey, items)`.
-  `ProjectFocusService` (`apps/server/src/domain/project-focus.ts`) replaces the list and appends the timeline event in
+  `ProjectFocusService` (`core/tasks`) replaces the list and appends the timeline event in
   one unit of work; the `project_focus_changed` WebSocket event leaves when that commits, then the `onChange` listeners
   run. A write that leaves an item where it was writes nothing. The service takes nothing off by itself: a closed item
   stays until a person removes it, covers nothing, and still counts in the numbering.
@@ -2116,13 +2354,38 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   `PATCH` and `DELETE .../focus/items/:taskKey`, and `GET .../focus/changes?limit=` (the project's `focus_changed`
   events, newest first). All are internal-only (`requireAccess(..., { internal: true })`).
 - **Timeline.** `focus_changed` (`added`/`removed` on the item's own card or theme, `moved` without a card, so it shows
-  only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`) is reserved for the pull into the
-  work stage (PM-427 2/4).
+  only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }` or
+  `{ reason: 'focus', position, key, title }`) marks a card the system pulled into the work stage (below).
+- **Order of deferred starts (PM-436).** `Admission.retryDeferred` ranks the stored starts by `startClass` /
+  `compareStartClass` (shared): urgent (the card's priority is `urgent`), then focus by place, then the others; within
+  a class the `senior_busy` waits first, then the store order, so without focus or urgent cards the old order holds.
+  The places are read once per project and round. Rounds run one after the other: a start being retried is out of
+  the store, so an overlapping round would not see it; a round asked for while one runs makes the running one go once more.
+- **Pull (PM-436).** At the end of every `retryDeferred` round (so on every event that retries the deferred starts) the
+  `FocusPull` (`admission/focus-pull.ts`) gives a free developer a ready (Indulhat) card from the queue stage before
+  the work stage (`pullSourceStage`): `pullCandidates` takes the urgent cards (board order), then the focus cards by
+  place. A candidate is an active card, not a theme or a collector with open subtasks, with no assignee,
+  no open prerequisite, no start block
+  (`startBlock`, so no `waiting-answer`) and nothing more asked by the gates on the way: a card that would need
+  `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`pickDeveloper`: a
+  Senior card waits for a Senior, never goes to another developer) among the AI owners of the work stage who are not
+  temp workers, not on leave, have capacity and are not waited for by a stored deferral (that one goes first, a
+  `senior_busy` wait waits for its Seniors). One card per developer per round; nothing is pulled while AI work is off or
+  the project or the instance is paused, and no temp worker is hired. `WorkStarts.pull` takes the admission lock per
+  card and starts it like a deferred start (`startLocked` in the system's name, `automatic`, `StartTaskOptions.pulled`
+  into the stage change), so the Start button and a pull on the same card make one start; a failure after the
+  assignment falls back to the usual `work_start` retry. Refusals are logged at debug level and write no timeline.
+  Automatic work starts also leave themes and collectors with open subtasks unassigned (PM-586), using
+  `canAutomaticallyStartTask` (shared) before choosing a developer and again before assignment. A deferred
+  work start is dropped on retry when its card gains an open subtask. Explicit manual starts remain available.
+  A new round starts at once on a focus change (`ProjectFocusService.onChange`), on a priority set to `urgent` (the
+  internal `task_priority_changed` event) and on a card entering the queue stage, besides the freeing of a developer.
 - **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of
   `canSeeProjectEvent`), not `focus_changed` (it is not in `CLIENT_TASK_TIMELINE`), and `visibleTimelineEvent` takes
   `pulled` off a stage change.
 
-**Remote engine:** no machine-dependent part: server-side data and domain; the inventory below does not change.
+**Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
+new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
 
 ### The Operator (PM-447, PM-462, PM-463, PM-464)
 
@@ -2154,25 +2417,35 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   and AI messages are data, the three levels, `get_project_state` for "why is it stuck", the report after each request
   (`operatorReport` labels in the locales).
 - **State reports (PM-465).** The read-only MCP tool `get_project_state { task_key? }` is available only to the
-  Operator (`operator_only`, 403), without an open owner request. `ProjectState` in `domain/project-state.ts`
+  Operator (`operator_only`, 403), without an open owner request. `ProjectState` in `services/operator/project-state.ts`
   reads the task service's admission waiting reason, fix limit and loop view, shared start/gate rules,
   open Senior waits, inbox questions, pause records and live sessions. Its task report names each recorded reason;
   its overview counts cards by stage (themes excluded), lists live and idle sessions with `lastActivityAt`,
   card starts still deferred and open inbox items assigned to project owners. Report interfaces live in
   `contracts/project-state.ts`; MCP formatting adds short English explanations for the Operator to translate.
+- **Release facts (PM-542).** The overview also carries `release` (`ReleaseService.overview`: the running version,
+  commit and tag, the latest live and the open release, the last ten merges of cards into the release repository,
+  newest first; null when the instance does not release the project), the deferred starts that have no card
+  (`taskKey` null, e.g. a wake-up for a message) and the undelivered team messages per AI member. The read-only
+  tool `check_release { commit? }` (Operator only, no open request, not in guest conversations) is the rehearsal of
+  `propose_release`: `ReleaseService.check` makes the same checks in the same order (target, open release,
+  candidate) and answers the candidate or the refusal with the code and message `propose` would give, plus the
+  members with the deployment duty; it records nothing. The Operator never proposes a release itself. On a remote
+  engine the running version and tag come from the server's own installation; the candidate's ancestry questions go
+  to the engine that holds the repository, and an offline engine gives the `engine_offline` refusal.
   `TaskStateReport.wait` comes from `TaskWaits.ofCard` (PM-460, viewer null) and is worded first by
   `describeTaskWait`. Task and overview reports include active system signals (PM-476) through
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
   The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
   It neither starts work nor contacts an engine.
-- **Operator documents (PM-495, PM-388).** `read_project_doc { doc, from_line?, line_count? }` is a read tool
+- **Operator documents (PM-495, PM-388).** Tools and their handler live in `mcp/project-docs/`. `read_project_doc { doc, from_line?, line_count? }` is a read tool
   (`OPERATOR_READ_TOOLS`, not a guest tool): the decision log or roadmap at the fresh head of the default branch,
   read through `BranchMerger.readFile` on the Operator's engine, with the commit it was read at.
   `write_project_docs { base_commit, message, edits }` writes: the Operator only (`operator_only`), in the owners'
   own conversation (`{ type: 'general' }` without `with`, from an owner's request; `operator_owner_only`
   otherwise) and with an open request (`operator_no_request`); `OPERATOR_TOOL_ACTIONS` maps it to `docs_write`.
   The edits are checked against the text at `base_commit` first (`applyDocEdits`, `isAppendOnly`, both pure, in
-  `domain/doc-edits.ts`; the decision log only takes new lines; 422 `docs_edit_not_found`, `docs_edit_ambiguous`,
+  `services/project-docs/doc-edits.ts`; the decision log only takes new lines; 422 `docs_edit_not_found`, `docs_edit_ambiguous`,
   `docs_not_append_only`, `docs_unchanged`), then the write is queued (`doc_writes`, one open per project:
   409 `docs_write_pending`) with an Operator step in `queued` status, and runs in the repository's merge slot (see
   "Merge"). The call waits up to 60 seconds for a write that starts at once and answers `published`, `queued` or
@@ -2182,12 +2455,12 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
 - **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
-  `release_proposed`; `ReleaseRoadmapNotices` (`domain/release-roadmap-notices.ts`) then sends the Operator one
+  `release_proposed`; `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) then sends the Operator one
   English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an
   Operator; `MessageRepository.hasNote` looks for the release id in the Operator's earlier system messages). It wakes
   nobody and arrives with the owner's next message; the `operatorRule` line tells the Operator to offer the roadmap
   comparison then and to write (`write_project_docs`) only after the owner says yes. No machine-dependent part.
-- **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`domain/decision-candidates.ts`) finds the
+- **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`services/project-docs/decision-candidates.ts`) finds the
   questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
   the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.
 listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 20) is a read tool
@@ -2229,13 +2502,13 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
   conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
   `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
-- **Owner requests** (migration 47, `OperatorRequests` in `domain/operator-requests.ts`). A request opens when an
+- **Owner requests** (migration 47, `OperatorRequests` in `services/operator/requests.ts`). A request opens when an
   owner's message, or the owner's answer to the Operator's question, is delivered into its session
   (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on
   the session's `idle` or `ended` (the listener is registered before the delivery's own idle listener, so the next
   batch opens a new request), when a newer one opens, or after `OPERATOR_REQUEST_TTL_MS` (30 minutes, checked when it
   is looked up).
-- **Write guard** (`TeamToolsService.caller(ctx, tool)`). The Operator calls the reading tools (`OPERATOR_READ_TOOLS`)
+- **Write guard** (`ToolCaller.caller(ctx, tool)`, `mcp/caller.ts`). The Operator calls the reading tools (`OPERATOR_READ_TOOLS`)
   at any time; every other tool needs an open request (`operator_no_request` 403), and the decisions of other members
   and hand-overs, and `publish_task_branch` (publishing outside) (`OPERATOR_NEVER_TOOLS`) are never its
   (`operator_never` 403). The guard hands the request it found on to the step log, so a request expiring between the
@@ -2249,7 +2522,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   channel plus the last 50 requests with their steps, the newest last) to a person's own login (the owners' requests
   to an owner, their own to anyone else; PM-475); no new WebSocket event.
 
-- **Operations and approvals** (PM-464, `domain/operator-actions.ts`). `operate` and `start_task` are Operator-only
+- **Operations and approvals** (PM-464, `services/operator/actions.ts`). `operate` and `start_task` are Operator-only
   MCP tools and need an open owner request. Configuration previews reuse the member service's draft mutations;
   `operatorConfigVerdict` chooses immediate execution, an owner approval item, or refusal. Configuration commits
   recheck the verdict and the approved change rows under the project's configuration lock. Approval decisions
@@ -2266,7 +2539,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
   remain approval operations.
 
-- **System signals** (PM-476, migration 50, `domain/operator-signals.ts`). Provider/engine outages,
+- **System signals** (PM-476, migration 50, `services/operator/signals.ts`). Provider/engine outages,
   cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
   create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
   The sweep checks `WorkOutages.activeIds` only after its first evaluation (`null` means not yet observed),
@@ -2281,6 +2554,46 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
   Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
   admission stay on the server, and notice delivery uses the existing engine session boundary.
+  Five board kinds (PM-547, migration 56) join the four, raised and closed by the same sweep from
+  `OperatorSignals.boardCases` (`pending()` rechecks a signal against it before waking the Operator):
+  `idle` (`idle:<task>:<stage>`; a work or step card whose `TaskWaits` reason is `assignee`, or `queued`
+  with an AI step owner, held by an AI member who is not on leave, with no activity for
+  `OPERATOR_IDLE_MINUTES` = 30 since the later of `wait.since` and the card's latest session activity),
+  `merge_waiting` (`merge_waiting:<task>`; a `requested` merge an AI merger has not started for
+  `OPERATOR_MERGE_WAIT_MINUTES` = 30), `merge_blocked` (`merge_blocked:<task>`; a `failed` or `blocked`
+  merge with an AI merger, at once; a person as merger gets the inbox item instead), `unreleased`
+  (`unreleased:<base>`; `ReleaseService.unreleased`, from the stored merges and the latest live release or
+  the running commit, without git or an engine; work merged for `OPERATOR_UNRELEASED_HOURS` = 24 and no
+  open release) and `ready_waiting` (one per project; a card in a later queue stage ready for a work stage
+  whose AI owner is free, not on leave, not temporary, under its capacity, with the parallel AI limit not
+  reached; raised at once, delivered only after `OPERATOR_READY_WAITING_MINUTES` = 30, silently closed
+  if it ends before). `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
+  team is paused. All data comes from the server's database and configuration: no machine-dependent part.
+
+  **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
+  the Operator's own and not a human's) is created in the inbox state `screening` with
+  `payload.screening.until` = now + `QUESTION_SCREENING_MINUTES` (10); no person sees it. `QuestionScreening`
+  (`core/inbox`) wakes the Operator through the consumer-owned
+  `ScreeningAdmission` and `ScreeningSessions` ports (`core/inbox`, PM-635) and
+  `Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>` from the messaging facade. Assembly
+  passes the existing admission, sessions and delivery instances, including for deferred restore.
+  It wakes the Operator like `operator_signals`
+  (deferred start kind `question_screening`, no capacity, the Operator's general conversation, one notice with a
+  JSON line per question; `deliveredAt` is written after the first input). The Operator settles each question with
+  `screen_question` (an Operator-only tool, not in guest conversations, no owner request, no `OPERATOR_NEVER_TOOLS`
+  entry): `answered` and `forwarded` resolve the item (`operator_answered`, `operator_forwarded`) and carry the
+  answer or the forward through `Messaging` (`answer` with an AI actor and the re-ask hint; `forwardQuestion`: an
+  `action` message with origin `question_forward` to the recipient, which wakes it without a card role, and an
+  `info` message to the asker); `moot` cancels it (`operator_moot`); `decision` and `todo` release it to the
+  people (`InboxService.releaseScreened`; a todo's options become Done and Cannot do it, and Cannot do it needs
+  a reason). Every outcome writes a `question_screened` timeline event. The fallback gives the question to the
+  people: at once (`unavailable`: no Operator, AI off, the Operator on leave, the team paused, admission defers
+  the start or it throws) or when `until` passes (`timeout`, `QuestionScreening.sweep`, a 30-second timer and a
+  startup sweep); `screen_question` then answers `question_not_screening`, except `moot`. An asker may ask a
+  settled question again with `ask_human` `reask_of` and `reask_reason`, once per question; the new question is
+  `open` and carries `payload.unscreened`. `GET /api/projects/:key/inbox/screened?since=` (owner, admin) lists the
+  latest 20 screened questions and the count of today's. Only database rows and the existing admission and
+  messaging paths: no machine-dependent part.
 
 **Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
 steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.
@@ -2289,7 +2602,7 @@ steps live on the server; the tool calls already cross the MCP boundary); the in
 
 The team's work can be paused so that every session stops at a safe point and goes on from there (a quicker
 deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` / `release` (PM-218,
-[PROVIDERS.md](PROVIDERS.md)); `PauseService` (`apps/server/src/domain/pause.ts`) is the team's.
+[PROVIDERS.md](PROVIDERS.md)); `PauseService` (`runtime/sessions`) is the team's.
 
 - **Scope and storage.** A pause covers the instance or one project, never one member (decision 32). It is a row of
   `pauses` (migration 31; at most one open per scope), and `session_pauses` holds one open row for every session
@@ -2356,7 +2669,7 @@ screens (PM-492) come in their own cards.
   `proposed` → `approved` → `deploying` → `live` → `published`, or `rejected` / `failed`. A partial unique
   index (`releases_open`) allows one release in `proposed`, `approved` or `deploying` for a project. A release has
   a theme card (kind `theme`); its timeline holds `release_changed` for every change, and `ReleaseService`
-  (`domain/releases.ts`) is the only writer.
+  (`services/releases/releases.ts`) is the only writer.
 - **Contents.** Only a commit a recorded merge of a card left on the default branch can be released
   (`task_merges`, state `merged`; `release_commit_unknown` otherwise). The cards are those whose merge commit is
   an ancestor of the release commit and not of the base: the last release that went live, else the running
@@ -2403,7 +2716,7 @@ pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pi
   `app.ts` and given to the runner and to the domain. A process of a session survives a detach (`setsid`,
   `nohup`) with its environment, so the marks follow it. (A session that is not started by this build has no
   tag: its leftovers are not recognised.)
-- **Classification** (`MachineMonitor`, `apps/server/src/domain/machine.ts`). From one process list: the
+- **Classification** (`runtime/watchers`, `MachineMonitor`). From one process list: the
   tree under each running session's CLI is that session's; the server's own tree is `projectman`; an orphan is a
   root that has **both** marks (this instance's tag and a `ses_` session id), belongs to the server's user, lies
   outside every live tree and the server's tree, is not an ancestor of the server, and whose parent is not a
@@ -2485,11 +2798,4 @@ remote engines receive the existing messages and context packs through the exist
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks
 and merges. projectman reads from GitHub: it polls the PRs linked to tasks, keeps the
 `pr-merged` label, clears `pr_updated` labels when new commits land, and attributes PR authors
-to members (`githubLogin`). The one writing path is the managed VM's **publishing gate** (PM-142,
-decision 26): the team tool `publish_task_branch` (`domain/publishing.ts`) takes member, task,
-repository and branch from the server's records, and `GithubPublisher` (`github/publisher.ts`)
-pushes that branch (never the default branch, never forced) and opens its pull request once, with a
-separate GitHub identity whose token only the service holds. The pull request's author is recorded
-from the authenticated session (`task_links.author_source = 'published'`, migration 15), so polling
-by the shared bot login never rewrites it and no-self-review keeps holding. `get_remote_state` lets
-the integrator and reviewers read the remote. See [GITHUB.md](GITHUB.md).
+to members (`githubLogin`). See [GITHUB.md](GITHUB.md).

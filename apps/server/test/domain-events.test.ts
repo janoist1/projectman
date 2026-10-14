@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from '@projectman/shared';
-import { createDomainEvents } from '../src/domain';
+import { createDomainEvents } from '../src/core/base';
 import { capturingLogger } from './helpers/fakes';
 
 const cancelled = { key: 'AR-1', projectKey: 'AR' } as Task;

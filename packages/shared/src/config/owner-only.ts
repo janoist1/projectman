@@ -5,6 +5,8 @@ import {
   DEFAULT_OUTBOUND_NETWORK,
 } from '../domain/member';
 import { BUILT_IN_ROLE_IDS } from '../domain/role';
+import { canonical } from './canonical';
+import { operatorWatchOf } from './operator-watch';
 import { dutyMembers, roleBundle } from './duties';
 import { stageApprovers } from './gates';
 import { labelDefinition, labelHolders } from './labels';
@@ -22,10 +24,20 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
  * - `release_approvers`: who approves the release stages;
  * - `owners`: who is an owner;
  * - `permissions`: an AI member's permission mode or approver (who answers when the CLI asks), or
- *   a new AI member that starts with other than the defaults.
+ *   a new AI member that starts with other than the defaults;
+ * - `review_test`: a repository's full test, `reviewTest` (the shell command the server runs in the
+ *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538);
+ * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548).
  */
 export type OwnerOnlyChange =
-  'locations' | 'admin_or_account' | 'approval_policy' | 'release_approvers' | 'owners' | 'permissions';
+  | 'locations'
+  | 'admin_or_account'
+  | 'approval_policy'
+  | 'release_approvers'
+  | 'owners'
+  | 'permissions'
+  | 'review_test'
+  | 'operator_watch';
 
 /** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
 export function ownerOnlyChanges(
@@ -41,7 +53,23 @@ export function ownerOnlyChanges(
     changes.push('release_approvers');
   if (ownersSignature(previous) !== ownersSignature(next)) changes.push('owners');
   if (permissionsChanged(previous, next)) changes.push('permissions');
+  if (reviewTestSignature(previous) !== reviewTestSignature(next)) changes.push('review_test');
+  if (operatorWatchOf(previous) !== operatorWatchOf(next)) changes.push('operator_watch');
   return changes;
+}
+
+/** The repositories that have a full test or run it only at the merge, with those two settings. */
+function reviewTestSignature(config: ProjectConfig): string {
+  return canonical(
+    config.project.repos
+      .filter((repo) => repo.reviewTest !== undefined || repo.fullTestAtMerge === true)
+      .map((repo) => ({
+        name: repo.name,
+        reviewTest: repo.reviewTest ?? null,
+        fullTestAtMerge: repo.fullTestAtMerge === true,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
 }
 
 /**

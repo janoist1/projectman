@@ -143,6 +143,34 @@ const hold = (over: Partial<FixLimit> = {}): FixLimit => ({
 
 const handles = (result: ReturnType<typeof wait>) => result?.next.map((member) => member.handle);
 
+it('ignores legacy refinement completion notices while retaining actionable alerts', () => {
+  const notice = item({
+    kind: 'alert',
+    payload: {
+      alert: 'refinement',
+      taskKey: 'AC-1',
+      label: null,
+      reason: 'done',
+    },
+  });
+  const task = card({ stageId: 'ready', labels: ['scope-ok'] });
+  for (const viewer of ['owner', 'dev-1', null]) {
+    expect(wait(task, { openItems: [notice], viewer })).toEqual(wait(task));
+  }
+  for (const reason of ['manual_step', 'stalled']) {
+    const action = item({
+      ...notice,
+      payload: {
+        alert: 'refinement',
+        taskKey: 'AC-1',
+        label: 'scope-ok',
+        reason,
+      },
+    });
+    expect(wait(task, { openItems: [action], viewer: 'owner' })?.reason).toBe('inbox');
+  }
+});
+
 const gateItem = (assignees: string[], over: Partial<InboxItem> = {}) =>
   item({
     kind: 'decision',
@@ -295,6 +323,17 @@ describe('every reason', () => {
     const result = wait(card({ stageId: 'ready', assignee: null, startWaiting }));
     expect(result).toMatchObject({ reason: 'start_waiting', since: NOW, startWaiting });
     expect(handles(result)).toEqual(['analyst']);
+  });
+
+  it('inbox: a question the Operator screens is a pending question, but not "for" a viewer yet (PM-556)', () => {
+    const screened = item({ state: 'screening', assignees: ['owner'] });
+    expect(wait(card(), { openItems: [screened] })).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_1' });
+    // Not an item of the viewer's own list: the card does not read as waiting for them.
+    expect(wait(card(), { openItems: [screened], viewer: 'owner' })).toMatchObject({ reason: 'inbox' });
+    const worker = { handle: 'dev-1', since: NOW, handingOff: false };
+    expect(wait(card(), { openItems: [screened], workers: [worker], viewer: 'owner' })).toMatchObject({
+      reason: 'working',
+    });
   });
 
   it('inbox: an open item waits for a person', () => {

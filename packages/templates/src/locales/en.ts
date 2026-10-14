@@ -311,6 +311,7 @@ export const en: TemplateLocale = {
   },
   operatorReport: {
     done: 'Done',
+    decision: 'Decision needed',
     approval: 'Needs your approval',
     waiting: 'Waiting for you',
     nothing: 'Nothing.',

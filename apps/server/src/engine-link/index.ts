@@ -1,9 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { EngineId } from '@projectman/shared';
 import { routes } from '@projectman/shared';
-import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../auth';
-import { DomainError } from '../domain';
-import type { EngineRegistry } from '../domain';
+import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../kernel';
+import { DomainError } from '../kernel';
 import { createEngineRpc, createRpcState } from './rpc';
 import type { EngineRpc, RpcState } from './rpc';
 import {
@@ -22,8 +21,23 @@ export * from './rpc';
 export { createEngineEventBuffer } from './event-buffer';
 export { createCloudRemote } from './remote';
 export type { CloudRemote } from './remote';
-export { resolveAppVersion } from './version';
+export { createAppTagReader, resolveAppTag, resolveAppVersion } from './version';
 export { EngineStartSpec } from './session-schemas';
+export { createEngineAudit } from './engine-audit';
+export { createEngineClient } from './engine-client';
+export type { LinkSocketFactory } from './engine-client';
+export {
+  EngineConfigError,
+  engineFiles,
+  loadEngineConfig,
+  readLinkHeaders,
+  readSecretFile,
+  resolveEngineConfig,
+} from './engine-config';
+export { createEngineHandlers } from './engine-handlers';
+export { createEngineLimit } from './engine-limit';
+export { createEngineStatusWriter } from './engine-status';
+export { createEngineTransfers } from './engine-transfer';
 
 export interface EngineLink extends Omit<EngineRpc, 'receive' | 'close'> {
   readonly resumed: boolean;
@@ -42,9 +56,17 @@ export interface EngineLinks {
   close(): void;
 }
 
+/** What the link needs from the engine registry; the assembly passes `EngineRegistry`. */
+export interface EngineLinkRegistry {
+  resolve(key: string): EngineId | null;
+  onRevoke(listener: (id: EngineId) => void): () => void;
+  seen(id: EngineId, ip: string, hello?: Hello): void;
+  setOnline(id: EngineId, online: boolean): void;
+}
+
 /** Authenticated outgoing engine sockets. Human cookies and integrator tokens grant no access. */
 export function createEngineLinks(options: {
-  registry: EngineRegistry;
+  registry: EngineLinkRegistry;
   clientIpHeader?: string;
   now?: () => number;
 }): EngineLinks {

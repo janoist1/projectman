@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { CONTROL_SOCKET_NAME, EXECUTION_PROFILES } from '@projectman/shared';
-import type { ExecutionProfile } from '@projectman/shared';
+import { CONTROL_SOCKET_NAME } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import type { FastifyBaseLogger, FastifyInstance, FastifyServerOptions } from 'fastify';
-import { registerApiRoutes, registerErrorHandling } from './api';
+import { registerApiRoutes } from './api';
+import { registerErrorHandling } from './http';
 import {
   AuthService,
   createSetupCode,
@@ -16,7 +16,7 @@ import {
   MAX_SETUP_CODE_FAILURES,
   registerAuth,
 } from './auth';
-import { serializeRequest } from './auth/request-logging';
+import { serializeRequest } from './http';
 import { createConfigStore } from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
@@ -29,9 +29,7 @@ import type {
   ContextPackBuilder,
   FullTestExecutor,
   ScreenshotExecutor,
-  GithubPublisher,
   GithubService,
-  ManagedVmBoundary,
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
@@ -39,41 +37,30 @@ import type {
   MemberWorkspaceManager,
   RunnerModule,
   RunnerModuleOptions,
-  RuntimeBoundary,
   TerminalMode,
   WorktreeManager,
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
-import {
-  createAttachmentStorage,
-  createDomain,
-  createEventBus,
-  createMessageAttachmentStorage,
-} from './domain';
+import { createAttachmentStorage, createMessageAttachmentStorage } from './core/attachments';
+import { createDomain } from './assembly';
+import { createEventBus } from './core/base';
 import { freeBytesOf } from './engine-host';
-import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
-import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
-import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http/feedback-host-guard';
-import { assertHomeMayStart } from './instance';
+import { readHeavyRunSessions } from './full-test';
+import type { Domain } from './assembly';
+import type { ScheduleTimer } from './services/schedules';
+import type { TemplateRegistry } from './core/base';
+import { createGithubService } from './services/github';
+import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http';
+import { assertHomeMayStart, RUN_MODES } from './instance';
+import type { RunMode } from './instance';
 import { createMcpModule } from './mcp';
-import { createReadinessBoundary, createRunnerModule, ManagedVmUnavailableError } from './runner';
-import {
-  createManagedEgressProxy,
-  createRuntimeBoundary,
-  createServiceBridges,
-  disabledRuntimeBoundary,
-  egressScopeTag,
-  isManagedBoundary,
-  openWorkerBridges,
-  passwdAccounts,
-} from './runtime-boundary';
-import type { AccountLookup, BoundaryConfig } from './runtime-boundary';
+import { createRunnerModule } from './runner';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
 import { createCloudRemote, createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
 import type { EngineLinks } from './engine-link';
-import { EngineRegistry } from './domain';
+import { EngineRegistry } from './runtime/sessions';
 
 /** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
 export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
@@ -93,15 +80,12 @@ export interface TerminalModeGuard {
   claudeBin: string | undefined;
   /** CODEX_BIN. */
   codexBin: string | undefined;
-  /** PROJECTMAN_BOUNDARY_CONFIG. */
-  boundaryConfig: string | undefined;
-  executionProfile: ExecutionProfile;
 }
 
 /**
  * PROJECTMAN_TERMINAL: `pty` (default) or `pipe`, which starts the CLIs without a terminal. `pipe` is
  * only for a development instance with the fake CLIs, so it is refused for the live home, without
- * both CLI paths set explicitly, with the managed VM boundary or the managed VM profile.
+ * both CLI paths set explicitly.
  */
 export function parseTerminalMode(value: string | undefined, guard: TerminalModeGuard): TerminalMode {
   if (!value) return 'pty';
@@ -109,16 +93,9 @@ export function parseTerminalMode(value: string | undefined, guard: TerminalMode
     throw new Error(`invalid PROJECTMAN_TERMINAL: ${value} (pty or pipe)`);
   if (value === 'pty') return 'pty';
   const liveHome = resolve(guard.liveHome);
-  if (
-    !guard.home ||
-    resolve(guard.home) === liveHome ||
-    !guard.claudeBin ||
-    !guard.codexBin ||
-    guard.boundaryConfig ||
-    guard.executionProfile === 'managed_vm'
-  )
+  if (!guard.home || resolve(guard.home) === liveHome || !guard.claudeBin || !guard.codexBin)
     throw new Error(
-      'PROJECTMAN_TERMINAL=pipe is only for development instances with the fake CLIs: set PROJECTMAN_HOME to a development home, CLAUDE_BIN and CODEX_BIN to the fake CLIs, and no managed VM setting',
+      'PROJECTMAN_TERMINAL=pipe is only for development instances with the fake CLIs: set PROJECTMAN_HOME to a development home, CLAUDE_BIN and CODEX_BIN to the fake CLIs',
     );
   return 'pipe';
 }
@@ -131,9 +108,6 @@ export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
   return `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}`;
 }
 
-export const RUN_MODES = ['single', 'cloud', 'engine'] as const;
-export type RunMode = (typeof RUN_MODES)[number];
-
 /** `PROJECTMAN_MODE`: single (default), cloud (engine registry, PM-313) or engine (the engine process, PM-314). */
 export function parseMode(value: string | undefined): RunMode {
   const mode = value?.trim() || 'single';
@@ -143,15 +117,11 @@ export function parseMode(value: string | undefined): RunMode {
 
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
-  nanogptKeyCheck?: import('./domain').NanogptKeyCheck;
+  nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
   boundaryAdapter?: BoundaryOperationAdapter;
-  /** The proof of the managed VM boundary (default: the readiness report, `vmReadinessReport`). */
-  managedVmBoundary?: ManagedVmBoundary;
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;
   github?: GithubService;
-  /** The VM's GitHub publishing identity (default: built from `githubPublishTokenFile`, else none). */
-  githubPublisher?: GithubPublisher;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
   worktrees?: WorktreeManager;
@@ -162,13 +132,9 @@ export interface AppModules {
   attachmentStorage?: AttachmentStorage;
   /** The files of team message attachments (default: PROJECTMAN_HOME/message-attachments). */
   messageAttachmentStorage?: MessageAttachmentStorage;
-  /** The VM boundary (default: from `runtimeBoundary` in the options, else none). Tests pass a fake. */
-  runtimeBoundary?: RuntimeBoundary;
-  /** The worker accounts of the boundary (default: /etc/passwd). */
-  workerAccounts?: AccountLookup;
   /**
    * Makes the executor of the server's full test before review (PM-217). Default: none, so the feature
-   * is off; `index.ts` passes the sandboxed one, except for the managed VM profile.
+   * is off; `index.ts` passes the sandboxed one.
    */
   createFullTestExecutor?: (opts: { logger: FastifyBaseLogger }) => FullTestExecutor;
   /**
@@ -202,6 +168,8 @@ export interface BuildAppOptions {
   /** Tests: the cloud mode's setup code instead of a random one (PM-317). */
   setupCode?: string;
   appVersion?: string;
+  /** The release tag on the running build's commit (`createAppTagReader`, PM-542); absent: no tag known. */
+  appTag?: () => Promise<string | null>;
   /**
    * The project and repository that are this instance itself (`PROJECTMAN_RELEASE_TARGET`, PM-491):
    * its releases are proposed, approved and deployed. Absent: releases are off.
@@ -233,7 +201,7 @@ export interface BuildAppOptions {
   /**
    * PROJECTMAN_CLIENT_IP_HEADER: the header the public entrance (e.g. `cf-connecting-ip` behind
    * Cloudflare) sets to the real client's address. Only the attempt limiters read it, and only
-   * from a loopback peer (auth/local-request `clientAddress`). Default: none, the connection's
+   * from a loopback peer (kernel/local-request `clientAddress`). Default: none, the connection's
    * address counts.
    */
   clientIpHeader?: string;
@@ -282,6 +250,8 @@ export interface BuildAppOptions {
   planUsageTtlMs?: number;
   scheduleTimer?: ScheduleTimer;
   doneCleanupDelayMs?: number;
+  /** Tests: false sends every AI question to the people at once instead of the Operator's screening (PM-558). */
+  screenQuestions?: boolean;
   doneTurnLimitMs?: number;
   /** The free bytes where the data is kept (default: `statfs` of `home`); null: not measurable (PM-243). */
   freeDiskBytes?: () => Promise<number | null>;
@@ -291,31 +261,6 @@ export interface BuildAppOptions {
    * worktree per task. Off by default: switching the live instance over is its own decision (PM-143).
    */
   memberWorkspaces?: boolean;
-  /**
-   * The managed VM boundary (PM-140), from the root-owned boundary configuration the service unit
-   * names. It only makes the server stricter: every session starts through the protected launcher
-   * as its member's worker, workspaces live in worker homes, workers reach the network through the
-   * egress proxy, and no session starts while the boundary is not ready. Needs `memberWorkspaces`.
-   */
-  runtimeBoundary?: BoundaryConfig;
-  /**
-   * The installation's execution profile (PM-141): `legacy` (default, the Mac as it always was) or
-   * `managed_vm`, the owner's choice for the verified managed VM (docs/VM.md). It starts every
-   * session question-free, but only while a verified boundary proves itself at that start; the
-   * setting alone proves nothing. It needs member workspaces and a way to verify
-   * (`vmReadinessReport`, or an injected boundary): otherwise the server does not start.
-   */
-  executionProfile?: ExecutionProfile;
-  /** The readiness report of `deploy/vm/verify.sh` (a root-owned file) that proves the boundary. */
-  vmReadinessReport?: string;
-  /** How old that report may be (default one day). */
-  vmReadinessMaxAgeMs?: number;
-  /**
-   * The file holding the VM's separate GitHub identity for publishing task branches (PM-142). Only
-   * the managed VM profile accepts it, and only the service reads it: the token never reaches a
-   * session. Without it (and without `modules.githubPublisher`) nothing is published.
-   */
-  githubPublishTokenFile?: string;
   /**
    * The public address of the feedback widget's entrance (PROJECTMAN_FEEDBACK_PUBLIC_URL, PM-506), when
    * the installation has one; the settings view shows it. Absent: the settings say there is none.
@@ -360,38 +305,6 @@ declare module 'fastify' {
  */
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const modules = options.modules ?? {};
-  // An installation that names a profile it cannot run is a start-up error, never a quiet fallback
-  // to something else (PM-141): the managed VM needs member workspaces and a way to verify itself.
-  const executionProfile = options.executionProfile ?? 'legacy';
-  if (!(EXECUTION_PROFILES as readonly string[]).includes(executionProfile))
-    throw new Error(`unknown execution profile: ${String(executionProfile)}`);
-  let managedVm: ManagedVmBoundary | undefined;
-  if (executionProfile === 'managed_vm') {
-    if (!options.memberWorkspaces)
-      throw new Error('execution profile managed_vm needs member workspaces (PROJECTMAN_WORKSPACES=member)');
-    // Question-free sessions only behind the VM boundary (PM-140): without it they would run as the
-    // service itself. A test may inject its own proof instead.
-    if (!modules.managedVmBoundary && !options.runtimeBoundary)
-      throw new Error(
-        'execution profile managed_vm needs the VM boundary configuration (PROJECTMAN_BOUNDARY_CONFIG)',
-      );
-    const reportPath = options.vmReadinessReport ?? options.runtimeBoundary?.readiness.report;
-    if (!modules.managedVmBoundary && !reportPath)
-      throw new Error('execution profile managed_vm needs a readiness report to verify the boundary');
-    managedVm =
-      modules.managedVmBoundary ??
-      createReadinessBoundary({
-        reportPath: reportPath!,
-        maxAgeMs:
-          options.vmReadinessMaxAgeMs ??
-          (options.runtimeBoundary ? options.runtimeBoundary.readiness.maxAgeSeconds * 1000 : undefined),
-      });
-  } else if (modules.managedVmBoundary || options.vmReadinessReport) {
-    throw new Error('a VM readiness report is set, but the execution profile is not managed_vm');
-  }
-  // The publishing identity belongs to the managed VM alone (decision 26): elsewhere agents do not push.
-  if (options.githubPublishTokenFile && executionProfile !== 'managed_vm')
-    throw new Error('a GitHub publishing token is set, but the execution profile is not managed_vm');
   const home = resolve(options.home);
   // A retired copy never starts, a standby copy only shows its data (PM-143): checked before anything
   // in the home is created or opened.
@@ -490,18 +403,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
         logger: log.child({ module: 'github' }),
       });
-    // A second identity, with its own token and home: the poller above only reads and never holds it.
-    const githubPublisher =
-      modules.githubPublisher ??
-      (options.githubPublishTokenFile
-        ? createGithubPublisher({
-            ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
-            host: options.ghHost ?? APP_DEFAULTS.ghHost,
-            stateDir: join(home, 'github-publish'),
-            token: createTokenFileReader(resolve(options.githubPublishTokenFile)),
-            logger: log.child({ module: 'github-publish' }),
-          })
-        : undefined);
     const contextBuilder = modules.contextPackBuilder ?? createContextPackBuilder();
     const memory = modules.memberMemory ?? createMemberMemoryStore({ rootDir: join(home, 'memory') });
     const worktrees =
@@ -511,63 +412,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         logger: log.child({ module: 'worktree' }),
         cloneDependencies: options.cloneDependencies ?? false,
       });
-    // The VM boundary (PM-140): fail closed. Its proxy is the workers' only way out; the status
-    // reports it down until it listens, and no session starts meanwhile.
-    const boundaryConfig = options.runtimeBoundary;
-    if (boundaryConfig && !options.memberWorkspaces)
-      throw new Error('the managed VM boundary needs member workspaces (PROJECTMAN_WORKSPACES=member)');
-    let egressProxy: ReturnType<typeof createManagedEgressProxy> | null = null;
-    const workerAccounts = modules.workerAccounts ?? passwdAccounts();
-    // Each worker unit reaches the app and the proxy only through its member's bridge sockets.
-    const bridges = boundaryConfig
-      ? createServiceBridges({
-          root: boundaryConfig.bridgeRoot,
-          appPort: boundaryConfig.appPort,
-          groupOf: (member) =>
-            workerAccounts.byName(`${boundaryConfig.workers.prefix}${member}`)?.gid ?? null,
-          onEgress: (socket, member) => {
-            if (egressProxy?.listening()) egressProxy.acceptFrom(socket, member);
-            else socket.destroy();
-          },
-          logger: log.child({ module: 'bridge' }),
-        })
-      : null;
-    const runtimeBoundary: RuntimeBoundary =
-      modules.runtimeBoundary ??
-      (boundaryConfig
-        ? createRuntimeBoundary({
-            config: boundaryConfig,
-            egressUp: () => egressProxy?.listening() ?? false,
-            prepare: (member) => bridges!.ensure(member),
-            serverSpool: join(home, 'spool'),
-          })
-        : disabledRuntimeBoundary(options.now));
-    const managed = isManagedBoundary(runtimeBoundary) ? runtimeBoundary : null;
-    // The question-free profile (PM-141) holds only while the boundary holds now: the report, and
-    // the launcher and the egress proxy answering (PM-140), at every session start.
-    const verifiedManagedVm: ManagedVmBoundary | undefined =
-      managedVm && runtimeBoundary.mode === 'managed_vm'
-        ? {
-            async verify() {
-              const attestation = await managedVm.verify();
-              const status = await runtimeBoundary.status();
-              if (!status.ready)
-                throw new ManagedVmUnavailableError(
-                  'not_ready',
-                  'the VM boundary is not ready (readiness, launcher or egress proxy)',
-                  { problems: status.problems },
-                );
-              return attestation;
-            },
-          }
-        : managedVm;
     const workspacesDir = join(home, 'workspaces');
     const memberWorkspaces = options.memberWorkspaces
       ? (modules.memberWorkspaces ??
         createMemberWorkspaceManager({
           rootDir: workspacesDir,
           logger: log.child({ module: 'workspace' }),
-          ...(managed ? { access: managed.workspaceAccess, rootFor: managed.workspacesRoot } : {}),
         }))
       : undefined;
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
@@ -575,12 +425,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     const domain = createDomain({
       appVersion: options.appVersion ?? 'dev',
+      ...(options.appTag ? { appTag: options.appTag } : {}),
       ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),
       engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
-      runtimeBoundary,
-      ...(boundaryConfig
-        ? { egress: { base: boundaryConfig.egress.base, grantHours: boundaryConfig.egress.grantHours } }
-        : {}),
       boundaryAdapter: modules.boundaryAdapter,
       nanogptKeyCheck: modules.nanogptKeyCheck,
       fullTestExecutor: remote
@@ -623,19 +470,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               claudeConfigPath: options.claudeConfigPath,
               env: options.agentEnv,
               terminal: options.terminal,
-              managedVm: verifiedManagedVm,
               publicBaseUrl,
               instanceTag,
               broker,
               refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
               permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
               logger: log.child({ module: 'runner' }),
-              ...(runtimeBoundary.mode === 'managed_vm' && runtimeBoundary.launcher && runtimeBoundary.layout
-                ? { launcher: runtimeBoundary.launcher, workerLayout: runtimeBoundary.layout }
-                : {}),
             }),
       github,
-      githubPublisher,
       contextBuilder,
       memory,
       worktrees,
@@ -656,51 +498,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       heavyLockDir: options.heavyLockDir,
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
-      // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher
-      // stops every session whose service connection drops: none outlives a restart of the server.
-      ...(runtimeBoundary.mode === 'managed_vm' ? { processExists: () => false } : {}),
-      executionProfile,
-      managedVm: verifiedManagedVm,
       standby,
       templates: modules.templates,
       now: options.now,
       scheduleTimer: options.scheduleTimer,
       planUsageTtlMs: options.planUsageTtlMs,
       doneCleanupDelayMs: options.doneCleanupDelayMs,
+      ...(options.screenQuestions !== undefined ? { screenQuestions: options.screenQuestions } : {}),
       doneTurnLimitMs: options.doneTurnLimitMs,
       freeDiskBytes: options.freeDiskBytes ?? (() => freeBytesOf(home)),
+      heavyRunSessions: options.heavyLockDir ? () => readHeavyRunSessions(options.heavyLockDir!) : undefined,
     });
-    if (boundaryConfig) {
-      const proxy = createManagedEgressProxy({
-        config: boundaryConfig,
-        logger: log.child({ module: 'egress' }),
-        resolveToken: (token) => domain.sessions.resolveEgressToken(token),
-        async authorize(identity, destination) {
-          const decision = await domain.egress.authorize(identity, destination);
-          if (!decision.allowed) return decision;
-          // A session's tunnels carry its member's scope in its project, so they can be ended.
-          const scope = identity.session
-            ? [egressScopeTag(identity.session.projectKey, identity.member)]
-            : [];
-          return decision.via === 'allowance'
-            ? { allowed: true, tags: [decision.allowanceId, ...scope], expiresAt: decision.expiresAt }
-            : { allowed: true, tags: scope };
-        },
-      });
-      // A revoked allowance ends its open tunnels too, not only new connections...
-      domain.ctx.events.on('egress_allowance_revoked', (allowance) => {
-        const closed = proxy.closeTagged(allowance.id);
-        if (closed > 0)
-          log.info({ allowanceId: allowance.id, closed }, 'closed egress tunnels of a revoked allowance');
-      });
-      // ... and so does a member who may no longer work in the project (removed, on leave, AI off).
-      domain.ctx.events.on('egress_member_inactive', ({ projectKey, member }) => {
-        const closed = proxy.closeTagged(egressScopeTag(projectKey, member), { remember: false });
-        if (closed > 0)
-          log.info({ projectKey, member, closed }, 'closed egress tunnels of an inactive member');
-      });
-      egressProxy = proxy;
-    }
     const mcpModule = (modules.createMcpModule ?? createMcpModule)({
       handler: domain.teamTools,
       // O(1) in-memory lookup: runs on every MCP request.
@@ -799,26 +607,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           log: log.child({ module: 'control' }),
         });
       }
-      // A standby copy (PM-143) opens no way out for anyone: the proxy's port belongs to the active instance.
-      if (egressProxy && !standby) {
-        const proxy = egressProxy;
-        await proxy.listen().catch((err: unknown) => log.error({ err }, 'the egress proxy could not listen'));
-      }
-      // Every worker's bridge from the start (PM-175): the readiness probe needs them before any session.
-      if (bridges && boundaryConfig && !standby) {
-        await openWorkerBridges({
-          config: boundaryConfig,
-          accounts: workerAccounts,
-          bridges,
-          logger: log.child({ module: 'bridge' }),
-        });
-      }
     });
     const db = repos.db;
     app.addHook('onClose', async () => {
       await controlSocket?.close();
-      await egressProxy?.close();
-      await bridges?.close();
       // The team is paused over the links that are up; none waits for an engine that is not.
       remote?.stopWaiting();
       await domain.stop();

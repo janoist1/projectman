@@ -8,8 +8,8 @@ import {
   visibleProjectEvent,
   visibleTaskDetail,
   visibleTasks,
-} from '../src/domain/visibility';
-import type { ProjectEvent } from '../src/domain/visibility';
+} from '../src/core/projects';
+import type { ProjectEvent } from '../src/core/projects';
 
 const client = { access: 'client' as const, handle: 'acme-client' };
 const developer = { access: 'developer' as const, handle: 'dev' };

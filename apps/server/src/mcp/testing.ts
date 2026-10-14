@@ -217,6 +217,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('mergeTask', ctx, args);
       return { task: findTask(args.taskKey).task };
     },
+    async prioritizeMerge(ctx, args) {
+      await enter('prioritizeMerge', ctx, args);
+      return { task: findTask(args.taskKey).task, moved: true };
+    },
     async proposeRelease(ctx, args) {
       await enter('proposeRelease', ctx, args);
       const commit = args.commit ?? '0'.repeat(40);
@@ -224,6 +228,18 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return args.preview
         ? { commit, baseCommit: null, tasks }
         : { releaseId: 'rel_fake', taskKey: 'FAKE-2', commit, baseCommit: null, tasks };
+    },
+    async checkRelease(ctx, args) {
+      await enter('checkRelease', ctx, args);
+      return {
+        candidate: {
+          commit: args.commit ?? '0'.repeat(40),
+          baseCommit: null,
+          tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
+        },
+        refusal: null,
+        proposers: ['devops'],
+      };
     },
     async submitBoundaryRequest(ctx, args) {
       await enter('submitBoundaryRequest', ctx, args);
@@ -235,7 +251,11 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     },
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);
-      return { task_key: args.taskKey, session_id: null, hired: null };
+      return { task_key: args.taskKey, session_id: null, hired: null, assignee: args.assignee ?? null };
+    },
+    async startMember(ctx, args) {
+      await enter('startMember', ctx, args);
+      return { messageId: 'msg_fake', recipient: { handle: args.member, delivery: 'typed_now' } };
     },
     async readProjectDoc(ctx, args) {
       await enter('readProjectDoc', ctx, args);
@@ -262,6 +282,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('markDecisionCandidates', ctx, args);
       return { marked: args.items.length };
     },
+    async screenQuestion(ctx, args) {
+      await enter('screenQuestion', ctx, args);
+      return { inboxItemId: args.itemId, outcome: args.outcome };
+    },
     async getBoundaryRequest(ctx, args) {
       await enter('getBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'Unknown boundary request.');
@@ -281,10 +305,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async handOff(ctx, args) {
       await enter('handOff', ctx, args);
       return { recorded: true };
-    },
-    async listNetworkDenials(ctx) {
-      await enter('listNetworkDenials', ctx, {});
-      return [];
     },
     calls,
     members,
@@ -314,6 +334,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         messageId,
         deliveredTo: args.to,
         recipients: args.to.map((handle) => ({ handle, delivery: 'typed_now' as const })),
+        operator: false,
       };
     },
 
@@ -334,11 +355,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('getProjectState', ctx, args);
       return {
         paused: { project: false, instance: false },
+        operatorWatch: 'report',
         stages: [],
         sessions: [],
         waitingStarts: [],
         openOwnerItems: [],
         signals: [],
+        release: null,
+        waitingMessages: [],
       };
     },
     async getTask(ctx, args) {
@@ -471,53 +495,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { task: detail.task };
     },
 
-    async publishTaskBranch(ctx, args) {
-      await enter('publishTaskBranch', ctx, args);
-      const detail = findTask(args.taskKey ?? ctx.taskKey ?? 'AR-21');
-      const pullRequest = {
-        repo: 'acme/web',
-        number: 7,
-        title: args.title ?? detail.task.title,
-        url: 'https://github.com/acme/web/pull/7',
-        state: 'open' as const,
-        draft: false,
-        headRef: `${detail.task.key}-work`,
-        baseRef: 'main',
-        checks: 'none' as const,
-        reviewDecision: null,
-        additions: 1,
-        deletions: 0,
-        changedFiles: 1,
-        updatedAt: '2026-10-01T10:00:00Z',
-      };
-      return {
-        repo: 'acme/web',
-        branch: `${detail.task.key}-work`,
-        commit: args.commit,
-        alreadyPublished: false,
-        pullRequest,
-        pullRequestCreated: true,
-        task: detail.task,
-      };
-    },
-
-    async getRemoteState(ctx, args) {
-      await enter('getRemoteState', ctx, args);
-      findTask(args.taskKey);
-      return {
-        taskKey: args.taskKey,
-        repo: 'acme/web',
-        baseBranch: 'main',
-        baseCommit: 'a'.repeat(40),
-        branch: `${args.taskKey}-work`,
-        branchCommit: 'b'.repeat(40),
-        ahead: 2,
-        behind: 0,
-        pullRequests: [],
-        publishedBy: null,
-      };
-    },
-
     async askHuman(ctx, args) {
       await enter('askHuman', ctx, args);
       const notHuman = (args.to ?? []).filter((h) => members.find((m) => m.handle === h)?.kind !== 'human');
@@ -532,6 +509,11 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('saveMemory', ctx, args);
       memory.set(ctx.member, [...(memory.get(ctx.member) ?? []), args.note]);
       return { ok: true };
+    },
+
+    async withdrawQuestion(ctx, args) {
+      await enter('withdrawQuestion', ctx, args);
+      return { itemId: args.itemId };
     },
 
     async setCurrentWork(ctx, args) {

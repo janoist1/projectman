@@ -1,0 +1,204 @@
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { Resolver } from 'node:dns/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * The outside world of the cloud commands (PM-534): processes, the network, DNS, the clock. The commands take it
+ * as an argument, so their tests run with fakes (no AWS, no Cloudflare). The file system is the real one; the
+ * tests use a temporary HOME.
+ */
+
+export interface RunResult {
+  /** The exit status; 124 after the time limit, 127 when the command does not exist. */
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface RunOptions {
+  /** Written to the command's standard input (never put a secret in `args`). */
+  input?: string;
+  /** Added to the process environment. */
+  env?: Record<string, string>;
+  timeoutMs?: number;
+  /** `inherit` hands the terminal to the command (an interactive ssh); the result's output is then empty. */
+  stdio?: 'pipe' | 'inherit';
+}
+
+export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
+
+export interface CloudDeps {
+  run(command: string, args: string[], options?: RunOptions): Promise<RunResult>;
+  /** `from | to`: the standard output of the first is the standard input of the second. */
+  pipe(
+    from: { command: string; args: string[] },
+    to: { command: string; args: string[] },
+  ): Promise<RunResult>;
+  fetch: typeof fetch;
+  /** The records of a name (an empty list when there are none); `servers` are resolver IP addresses. */
+  resolve(name: string, type: DnsRecordType, servers?: string[]): Promise<string[]>;
+  out(line: string): void;
+  err(line: string): void;
+  now(): Date;
+  sleep(ms: number): Promise<void>;
+  /** The user's home directory (the secrets store is under it). */
+  homeDir: string;
+  /** The checkout the command runs from. */
+  repoRoot: string;
+}
+
+/** The output of a command is kept up to this size; the end is what a failure message shows. */
+const OUTPUT_LIMIT = 4_000_000;
+const KILL_GRACE_MS = 5_000;
+
+function keep(current: string, chunk: string): string {
+  const next = current + chunk;
+  return next.length > OUTPUT_LIMIT ? next.slice(next.length - OUTPUT_LIMIT) : next;
+}
+
+function run(command: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let settled = false;
+    const inherit = options.stdio === 'inherit';
+    const finish = (result: RunResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const child = spawn(command, args, {
+      env: { ...process.env, ...options.env },
+      stdio: inherit ? 'inherit' : [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      detached: !inherit,
+    });
+    const stop = (signal: NodeJS.Signals) => {
+      try {
+        if (child.pid !== undefined && !inherit) process.kill(-child.pid, signal);
+        else child.kill(signal);
+      } catch {
+        child.kill(signal);
+      }
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stop('SIGTERM');
+      setTimeout(() => stop('SIGKILL'), KILL_GRACE_MS).unref();
+    }, options.timeoutMs ?? 2_147_483_647);
+    child.stdout?.setEncoding('utf8').on('data', (chunk: string) => (stdout = keep(stdout, chunk)));
+    child.stderr?.setEncoding('utf8').on('data', (chunk: string) => (stderr = keep(stderr, chunk)));
+    if (options.input !== undefined && child.stdin) {
+      child.stdin.on('error', () => undefined);
+      child.stdin.end(options.input);
+    }
+    child.on('error', (error: NodeJS.ErrnoException) =>
+      finish({
+        code: error.code === 'ENOENT' ? 127 : 126,
+        stdout,
+        stderr: `${stderr}${error.message}\n`,
+      }),
+    );
+    child.on('close', (code, signal) =>
+      finish({
+        code: timedOut ? 124 : (code ?? (signal ? 128 : 1)),
+        stdout,
+        stderr: timedOut ? `${stderr}\nthe command did not finish in time and was stopped\n` : stderr,
+      }),
+    );
+  });
+}
+
+function pipe(
+  from: { command: string; args: string[] },
+  to: { command: string; args: string[] },
+): Promise<RunResult> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    const results: { first: number | null; second: number | null } = { first: null, second: null };
+    const finish = () => {
+      if (results.first === null || results.second === null) return;
+      resolve({ code: results.first !== 0 ? results.first : results.second, stdout, stderr });
+    };
+    const first: ChildProcess = spawn(from.command, from.args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const second: ChildProcess = spawn(to.command, to.args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    first.stdout?.pipe(second.stdin!);
+    second.stdin?.on('error', () => undefined);
+    first.stderr?.setEncoding('utf8').on('data', (chunk: string) => (stderr = keep(stderr, chunk)));
+    second.stderr?.setEncoding('utf8').on('data', (chunk: string) => (stderr = keep(stderr, chunk)));
+    second.stdout?.setEncoding('utf8').on('data', (chunk: string) => (stdout = keep(stdout, chunk)));
+    const failed = (which: 'first' | 'second') => (error: NodeJS.ErrnoException) => {
+      stderr = `${stderr}${error.message}\n`;
+      results[which] = error.code === 'ENOENT' ? 127 : 126;
+      if (which === 'first') second.stdin?.end();
+      finish();
+    };
+    first.on('error', failed('first'));
+    second.on('error', failed('second'));
+    first.on('close', (code) => {
+      results.first = code ?? 1;
+      finish();
+    });
+    second.on('close', (code) => {
+      results.second = code ?? 1;
+      finish();
+    });
+  });
+}
+
+const EMPTY_ANSWER = new Set(['ENODATA', 'ENOTFOUND', 'NODATA', 'NXDOMAIN']);
+
+async function resolve(name: string, type: DnsRecordType, servers?: string[]): Promise<string[]> {
+  const resolver = new Resolver();
+  if (servers && servers.length > 0) resolver.setServers(servers);
+  try {
+    switch (type) {
+      case 'A':
+        return await resolver.resolve4(name);
+      case 'AAAA':
+        return await resolver.resolve6(name);
+      case 'CNAME':
+        return await resolver.resolveCname(name);
+      case 'NS':
+        return await resolver.resolveNs(name);
+      case 'MX':
+        return (await resolver.resolveMx(name)).map((record) => `${record.priority} ${record.exchange}`);
+      case 'TXT':
+        return (await resolver.resolveTxt(name)).map((chunks) => chunks.join(''));
+      case 'SRV':
+        return (await resolver.resolveSrv(name)).map(
+          (record) => `${record.priority} ${record.weight} ${record.port} ${record.name}`,
+        );
+      case 'CAA':
+        return (await resolver.resolveCaa(name)).map((record) => {
+          const tag = ['issue', 'issuewild', 'iodef'].find((key) => key in record) ?? 'issue';
+          const value = (record as unknown as Record<string, unknown>)[tag];
+          return `${record.critical} ${tag} "${String(value)}"`;
+        });
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && EMPTY_ANSWER.has(code)) return [];
+    throw error;
+  }
+}
+
+export function realDeps(): CloudDeps {
+  return {
+    run,
+    pipe,
+    fetch: (input, init) => fetch(input, init),
+    resolve,
+    out: (line) => process.stdout.write(`${line}\n`),
+    err: (line) => process.stderr.write(`${line}\n`),
+    now: () => new Date(),
+    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+    homeDir: os.homedir(),
+    repoRoot: path.resolve(fileURLToPath(new URL('../..', import.meta.url))),
+  };
+}

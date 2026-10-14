@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { isRepoFilePath } from '@projectman/shared';
+import { MergeError, type MergeRepoRef } from '../contracts';
 
 /**
  * The inputs of the merge calls (PM-451), checked the same way by the local merger (which never trusts its
@@ -8,8 +9,11 @@ import { isRepoFilePath } from '@projectman/shared';
 
 /** A commit id, SHA-1 or SHA-256. */
 export const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
-/** The id of one merge of a card (`mrg_` and 8 to 40 lowercase letters or digits). */
-export const MERGE_ID = /^mrg_[a-z0-9]{8,40}$/;
+/**
+ * The id of one merge of a card: `merge_` (what the domain's `newId('merge')` makes, and what stored rows
+ * carry) or `mrg_`, then 8 to 40 lowercase letters or digits.
+ */
+export const MERGE_ID = /^(?:merge|mrg)_[a-z0-9]{8,40}$/;
 export const MERGE_MESSAGE_MAX = 2000;
 /** The largest file `readFile` returns and `commitFiles` writes (PM-494). */
 export const DOC_FILE_MAX_BYTES = 1024 * 1024;
@@ -76,4 +80,38 @@ export function isBranchName(name: string): Promise<boolean> {
       (error, stdout) => resolve(!error && stdout.trim() === name),
     );
   });
+}
+
+const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
+const REPO_NAME = /^[a-z0-9][a-z0-9._-]*$/;
+
+export const invalidInput = (message: string): never => {
+  throw new MergeError('invalid_input', message);
+};
+
+/** The arguments of a merge call, checked: the repository (from the engine's own binding), a commit id, a base. */
+export interface MergeArgs {
+  repo(ref: MergeRepoRef): string;
+  commit(value: string, what: string): string;
+  base(value: string): Promise<string>;
+}
+
+export function mergeArgs(repoPath: (projectKey: string, repo: string) => string | null): MergeArgs {
+  return {
+    repo(ref) {
+      if (!PROJECT_KEY.test(ref.projectKey) || !REPO_NAME.test(ref.repo))
+        invalidInput('Not a project key or repo name');
+      const repo = repoPath(ref.projectKey, ref.repo);
+      if (!repo) return invalidInput(`${ref.projectKey}/${ref.repo} is not bound on this engine`);
+      return repo;
+    },
+    commit(value, what) {
+      if (!isCommitId(value)) invalidInput(`${what} is not a commit id`);
+      return value.toLowerCase();
+    },
+    async base(value) {
+      if (!(await isBranchName(value))) invalidInput('The base is not a branch name');
+      return value;
+    },
+  };
 }

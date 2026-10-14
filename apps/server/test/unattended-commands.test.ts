@@ -1,16 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSandbox } from '../src/contracts';
 import { testTemplate } from './helpers/test-template';
+import { allowedToolsFor, commandVerdict, readableRootsFor } from '../src/runtime/sessions';
 import {
-  allowedToolsFor,
-  commandVerdict,
   describeSandbox,
   describeUnattendedCommands,
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,
-  readableRootsFor,
-} from '../src/domain';
-import { READ_ONLY_GIT, READ_ONLY_PROGRAMS } from '../src/domain/read-only-commands';
+} from '../src/runtime/permissions';
+import { READ_ONLY_GIT, READ_ONLY_PROGRAMS } from '../src/runtime/permissions';
 
 /**
  * The "Commands that run without asking" section of the system prompt is generated from the

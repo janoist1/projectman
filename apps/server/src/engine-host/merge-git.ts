@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
-import { MergeError } from '../contracts';
-import { BILLING_ENV_VARS } from '../runner/env';
+import { BILLING_ENV_VARS } from '../runner';
 
 /**
  * The git runner of the merger (PM-451). Every call is an argument array without a shell, with the
@@ -132,8 +131,6 @@ export function runGitBytes(
     child.stdin?.end();
   });
 }
-
-export { MergeError };
 
 /** The end of a git output, at most `max` characters, without credentials. */
 export function outputTail(text: string, max = 2000): string {

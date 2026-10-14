@@ -6,10 +6,11 @@ import { sendControlRequest } from '../../../scripts/control/client';
 import { serveControlConnection } from '../src/control';
 import type { ControlRelease } from '../src/control';
 import type { BranchMerger, MergeBaseState } from '../src/contracts';
-import type { Resolver } from '../src/domain/inbox';
-import type { Messaging } from '../src/domain/messaging';
-import type { ProjectService } from '../src/domain/projects';
-import { ReleaseRoadmapNotices } from '../src/domain/release-roadmap-notices';
+import { conflict } from '../src/kernel';
+import type { Resolver } from '../src/core/inbox';
+import type { Messaging } from '../src/core/messages';
+import type { ProjectService } from '../src/core/projects';
+import { ReleaseRoadmapNotices } from '../src/services/releases';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER as OWNER_AUTHOR, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -54,6 +55,7 @@ describe('the release flow', () => {
   async function setup(
     opts: {
       appVersion?: string;
+      appTag?: () => Promise<string | null>;
       target?: boolean;
       merged?: typeof MERGED;
       head?: string;
@@ -66,6 +68,7 @@ describe('the release flow', () => {
       merger,
       ...(opts.target === false ? {} : { releaseTarget: TARGET }),
       ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
+      ...(opts.appTag ? { appTag: opts.appTag } : {}),
       adjust(config: ProjectConfig) {
         if (opts.roadmap !== false) config.project.repos[0]!.docs = { roadmap: 'docs/ROADMAP.md' };
         config.team.members.push(
@@ -101,7 +104,7 @@ describe('the release flow', () => {
         step: 'finishing',
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
-        finishedAt: `2026-01-0${index + 1}T00:00:00.000Z`,
+        finishedAt: `2026-01-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
       });
     }
   }
@@ -201,6 +204,169 @@ describe('the release flow', () => {
       await expect(h.domain.releases.candidate('OTHER')).rejects.toMatchObject({
         code: 'release_not_configured',
       });
+    });
+  });
+
+  describe('the check (PM-542)', () => {
+    /** The rows a proposal would write: releases, the timeline of every card and the inbox. */
+    const written = () => ({
+      releases: h.repos.releases.list('AR').length,
+      timeline: h.domain.timeline.list('AR', {}).length,
+      inbox: h.domain.inbox.list('AR', {}).length,
+      tasks: h.domain.tasks.list('AR').length,
+    });
+
+    it('gives the candidate and the members with the deployment duty, and records nothing', async () => {
+      await setup();
+      const before = written();
+      const check = await h.domain.releases.check('AR');
+      expect(check.refusal).toBeNull();
+      expect(check.candidate).toEqual(await h.domain.releases.candidate('AR'));
+      expect(check.proposers).toContain('devops');
+      expect(written()).toEqual(before);
+    });
+
+    it.each([
+      ['release_empty', { merged: [] }, undefined],
+      ['release_commit_unknown', {}, sha(9)],
+      ['release_not_configured', { target: false }, undefined],
+    ] as const)(
+      'refuses with %s, the code and the message the proposal gives, and records nothing',
+      async (code, opts, commit) => {
+        await setup(opts as Parameters<typeof setup>[0]);
+        const before = written();
+        const check = await h.domain.releases.check('AR', commit);
+        const refused = await propose(commit ? { commit } : {}).catch((err: unknown) => err);
+        expect(check.candidate).toBeNull();
+        expect(check.refusal).toEqual({ code, message: (refused as Error).message });
+        expect(written()).toEqual(before);
+      },
+    );
+
+    it('refuses while a release is open, with the proposal’s message', async () => {
+      await setup();
+      const { release } = await propose();
+      const before = written();
+      const check = await h.domain.releases.check('AR');
+      const refused = await propose({ title: 'Another' }).catch((err: unknown) => err);
+      expect(check.refusal).toEqual({ code: 'release_open', message: (refused as Error).message });
+      expect(check.refusal?.message).toContain(release.id);
+      expect(written()).toEqual(before);
+    });
+
+    it('refuses when the engine that holds the repository is offline', async () => {
+      await setup();
+      vi.spyOn(h.domain.releases as unknown as { merger(p: string): unknown }, 'merger').mockImplementation(
+        () => {
+          throw conflict('engine_offline', 'the engine that holds the repository is not connected');
+        },
+      );
+      const check = await h.domain.releases.check('AR');
+      expect(check.refusal?.code).toBe('engine_offline');
+    });
+
+    it('lets a failure that is no refusal of a release through', async () => {
+      await setup();
+      vi.spyOn(h.domain.projects, 'config').mockRejectedValue(new Error('broken config'));
+      await expect(h.domain.releases.check('AR')).rejects.toThrow('broken config');
+    });
+
+    it('is open to the Operator only as a tool', async () => {
+      await setup();
+      const operator: ToolContext = {
+        projectKey: 'AR',
+        member: 'operator',
+        sessionId: 'ses_op',
+        taskKey: null,
+      };
+      await expect(h.domain.teamTools.checkRelease(devops, {})).rejects.toMatchObject({
+        code: 'forbidden',
+        message: expect.stringContaining('operator_only'),
+      });
+      const result = await h.domain.teamTools.checkRelease(operator, {});
+      expect(result.refusal).toBeNull();
+      expect(result.candidate?.commit).toBe(sha(3));
+    });
+  });
+
+  describe('the overview for the Operator (PM-542)', () => {
+    it('has no release block for a project the instance does not release', async () => {
+      await setup();
+      expect(await h.domain.releases.overview('OTHER')).toBeNull();
+      await h.cleanup();
+      await setup({ target: false });
+      expect(await h.domain.releases.overview('AR')).toBeNull();
+    });
+
+    it('names the running build, takes its tag from the build and lists the latest merges newest first', async () => {
+      await setup({ appVersion: sha(2) });
+      const overview = await h.domain.releases.overview('AR');
+      expect(overview).toMatchObject({
+        running: { version: sha(2), commit: sha(2), tag: null },
+        latestLive: null,
+        open: null,
+      });
+      expect(overview?.recentMerges).toEqual([
+        { taskKey: 'AR-3', title: 'Card AR-3', commit: sha(3), at: '2026-01-03T00:00:00.000Z', by: 'dev-1' },
+        { taskKey: 'AR-2', title: 'Card AR-2', commit: sha(2), at: '2026-01-02T00:00:00.000Z', by: 'dev-1' },
+        { taskKey: 'AR-1', title: 'Card AR-1', commit: sha(1), at: '2026-01-01T00:00:00.000Z', by: 'dev-1' },
+      ]);
+      await h.cleanup();
+      await setup({ appVersion: sha(2), appTag: async () => 'v2026.10.1' });
+      expect((await h.domain.releases.overview('AR'))?.running.tag).toBe('v2026.10.1');
+      await h.cleanup();
+      // A version that is no commit (an override) has no commit.
+      await setup({ appVersion: 'dev' });
+      expect((await h.domain.releases.overview('AR'))?.running).toEqual({
+        version: 'dev',
+        commit: null,
+        tag: null,
+      });
+    });
+
+    it('keeps the ten latest merges only', async () => {
+      const merged = Array.from({ length: 12 }, (_, index) => ({
+        key: `AR-${index + 1}`,
+        commit: sha(index + 1),
+      }));
+      await setup({ merged, head: sha(12) });
+      const overview = await h.domain.releases.overview('AR');
+      expect(overview?.recentMerges.map((m) => m.taskKey)).toEqual(
+        merged
+          .slice(2)
+          .map((m) => m.key)
+          .reverse(),
+      );
+    });
+
+    it('shows the open release, and the live one with its tag as the running build', async () => {
+      await setup();
+      const { release } = await propose();
+      expect((await h.domain.releases.overview('AR'))?.open).toEqual({
+        id: release.id,
+        taskKey: release.taskKey,
+        state: 'proposed',
+        commit: sha(3),
+        proposedBy: 'devops',
+      });
+      await decide('approve');
+      h.domain.releases.claim(release.id, sha(0));
+      h.setAppVersion(sha(3));
+      await h.domain.releases.report(release.id, { outcome: 'live' });
+      await h.domain.releases.report(release.id, {
+        outcome: 'published',
+        tag: 'v2026.10.11',
+        url: 'https://example.test/releases/v2026.10.11',
+      });
+      const overview = await h.domain.releases.overview('AR');
+      expect(overview?.open).toBeNull();
+      expect(overview?.latestLive).toMatchObject({
+        id: release.id,
+        taskKey: release.taskKey,
+        tag: 'v2026.10.11',
+        commit: sha(3),
+      });
+      expect(overview?.running).toEqual({ version: sha(3), commit: sha(3), tag: 'v2026.10.11' });
     });
   });
 

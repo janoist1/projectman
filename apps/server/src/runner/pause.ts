@@ -21,10 +21,6 @@ export class PauseState {
   halt: PauseOutcome | null = null;
   /** A halting answer or an Esc went out: the turn is ending, and a release must not drop its nudge. */
   turnEnding = false;
-  /** The deadline of the first call: it forces the pause. */
-  deadline: NodeJS.Timeout | null = null;
-  /** The check that the Stop hook followed a halting answer. */
-  stopCheck: NodeJS.Timeout | null = null;
   /** The one Esc of the regular way (Codex), and the one of the forced way. */
   regularEsc = false;
   forced = false;

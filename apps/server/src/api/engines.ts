@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { CreateEngineRequest, routes } from '@projectman/shared';
 import type { ApiServices } from './index';
-import { forbidden } from '../domain';
+import { forbidden } from '../kernel';
 import { currentUser, requireOwnLogin } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 export function registerEngineRoutes(app: FastifyInstance, services: ApiServices): void {
   const { domain, auth, engineRegistry } = services;

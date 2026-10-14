@@ -45,8 +45,9 @@ Less churn, less load, safer providers. Roughly in this order:
 The board in the cloud, AI work in an office or as remote work (decision 38). In order: an engine
 interface in front of the machine-dependent parts (PM-311), disk and terminal behind it (PM-312),
 engine registry, machine keys and protocol (PM-313), the engine process on the Mac (PM-314), the
-cloud build (PM-315), the engine's state in the UI (PM-316), cloud deployment with a Docker image,
-a Cloudflare tunnel and the domain (PM-317, absorbs PM-200), moving between single-machine and
+cloud build (PM-315), the engine's state in the UI (PM-316), cloud deployment: the container
+on AWS Lightsail behind a Cloudflare tunnel and Access at chopper.istvan.io (PM-317, PM-532,
+absorbs PM-200; decision 51), moving between single-machine and
 hybrid mode (PM-318). Then remote work on RunPod and the like (PM-310) and, when needed, a cloud
 office (PM-378).
 

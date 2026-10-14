@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { isErrorCode, routes } from '@projectman/shared';
-import type { Domain } from '../domain';
-import { DomainError } from '../domain';
+import type { ApiDomain } from './ports';
+import { DomainError } from '../kernel';
 import { actorOf, requireAccess } from './context';
 
-export function registerScheduleRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerScheduleRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get<{ Params: { key: string } }>(routes.schedules(':key'), async (request) => {
     await requireAccess(domain, request, request.params.key);
     return domain.schedules.view(request.params.key);

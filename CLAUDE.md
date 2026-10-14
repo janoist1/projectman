@@ -1,7 +1,8 @@
 # projectman — working rules
 
 Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
-comes next and the owner's open questions: `docs/ROADMAP.md`.
+comes next and the owner's open questions: `docs/ROADMAP.md`. The lessons learned while
+building projectman are in `docs/LESSONS.md`.
 `docs/DECISIONS.md` records the owner's decisions and `docs/ROADMAP.md` the plan. Only the
 Operator writes them, at the owner's request or after the owner's yes (decision 50); nobody
 changes them on a card branch. An owner decision made on a card is offered by the Operator
@@ -31,7 +32,7 @@ should confirm still goes to them as a question.
   `CODEX_REFRESH_TOKEN_URL_OVERRIDE` and `CODEX_REVOKE_TOKEN_URL_OVERRIDE`.
 - Never run the real `claude`, `codex` or `gh` CLI in automated tests. Use the fakes in
   `apps/server/test/fixtures/` (`fake-claude.mjs`, `fake-codex.mjs`, sharing
-  `fake-tui.mjs`) and `apps/server/src/github/test-fixtures/fake-gh.mjs`.
+  `fake-tui.mjs`) and `apps/server/src/services/github/test-fixtures/fake-gh.mjs`.
 
 ## Contracts
 
@@ -43,7 +44,8 @@ should confirm still goes to them as a question.
   invariants, owner-only changes) belong in `packages/shared`, used by the server and by the
   web's test fake (`apps/web/src/mocks`); never re-implement one there or in a route handler.
 - Route handlers parse the request, check access and call a domain service; business logic
-  lives in `apps/server/src/domain`. Only `apps/server/src/index.ts` reads the environment.
+  lives behind the `apps/server/src/kernel`, `core`, `runtime` and `services` module facades.
+  `apps/server/src/assembly.ts` composes them. Only `apps/server/src/index.ts` reads the environment.
 - Older configuration shapes, database rows and timeline events exist in real installations.
   Configuration migrations live in `apps/server/src/config/migrations.ts`, database
   migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
@@ -67,19 +69,24 @@ These rules apply to every member, including Codex:
 
 ## Module ownership (parallel workstreams)
 
-| Workstream | Owns                                                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                      |
-| mcp        | `apps/server/src/mcp/**`                                                                                                                  |
-| core       | `apps/server/src/{db,domain,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
-| web        | `apps/web/**`                                                                                                                             |
-| github     | `apps/server/src/github/**`                                                                                                               |
-| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                               |
-| widget     | `apps/feedback-widget/**`                                                                                                                 |
+| Workstream | Owns                                                                                                                                                            |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                                            |
+| mcp        | `apps/server/src/mcp/**`                                                                                                                                        |
+| core       | `apps/server/src/{db,kernel,core,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index,assembly}.ts`, `apps/server/test/**`, `scripts/**` |
+| web        | `apps/web/**`                                                                                                                                                   |
+| github     | `apps/server/src/services/github/**`                                                                                                                            |
+| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                                     |
+| widget     | `apps/feedback-widget/**`                                                                                                                                       |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its
 `index.ts`; import other modules through their `index.ts`, never their internals.
+
+Every file under `apps/server/src` belongs to a module in
+`apps/server/test/architecture/module-map.ts`; `dependencies.test.ts` enforces its
+layer rules. Register new files in that map with an explicit path in the appropriate
+module row. Do not add dependency exceptions: each refactor slice removes its own.
 
 ## Code style
 
@@ -88,6 +95,8 @@ report. Stay inside your paths otherwise. Each module exposes the factory declar
 - `verbatimModuleSyntax`: use `import type` for type-only imports.
 - Validate data at boundaries with zod (HTTP bodies, hook payloads, MCP args, YAML).
 - Prettier config in `.prettierrc.json` (`npm run format`).
+- Effect (the `effect` package) is used only where `docs/EFFECT.md` allows it, behind a plain
+  TypeScript facade; read that file before writing or changing Effect code.
 - Tests: vitest, `*.test.ts` next to the code or under `test/`. Use temp directories;
   never touch real user repositories (e.g. client projects) or `~/.claude` in tests.
   Server test helpers live in `apps/server/test/helpers/` (domain harness, app harness with

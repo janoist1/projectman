@@ -7,7 +7,7 @@ import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 
 const start = (h: DomainHarness, key: string, assignee?: string) =>
   h.domain.taskStarts.start('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' });

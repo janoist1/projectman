@@ -1,14 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { CustomRoleRequest, routes } from '@projectman/shared';
 import type { RolesView, RoleView } from '@projectman/shared';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { actorOf, authorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type RoleParams = { Params: { key: string; roleId: string } };
 
-export function registerRoleRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerRoleRoutes(app: FastifyInstance, domain: ApiDomain): void {
   /** The role catalogue: built-in roles in the project's language, then the team's custom roles. */
   app.get<ProjectParams>(routes.roles(':key'), async (request): Promise<RolesView> => {
     await requireAccess(domain, request, request.params.key);

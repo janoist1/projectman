@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { EngineId } from '@projectman/shared';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import { ENGINE_UPLOAD_MAX_BYTES } from '../protocol';
 import type { RemoteHub } from './hub';
 import type { FileTransfers } from './transfers';

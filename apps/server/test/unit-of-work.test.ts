@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../src/db';
 import type { Repositories } from '../src/db';
-import { createDomainContext, createEventBus } from '../src/domain';
-import type { DomainContext } from '../src/domain';
+import { createDomainContext, createEventBus } from '../src/core/base';
+import type { DomainContext } from '../src/core/base';
 import { capturingLogger } from './helpers/fakes';
 
 describe('unit of work', () => {

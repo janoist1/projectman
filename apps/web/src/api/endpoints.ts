@@ -32,6 +32,7 @@ import {
   ConfigView,
   InboxView,
   InstancePauseView,
+  ScreenedQuestionsResponse,
   Me,
   MemberView,
   ProjectPauseView,
@@ -65,6 +66,7 @@ import type {
   FeedbackSummary,
   LinkFeedbackRequest,
   StartMergeRequest,
+  PrioritizeMergeRequest,
   StopOrphansRequest,
   BoardMoveRequest,
   SendTeamMessageRequest,
@@ -172,6 +174,12 @@ export const api = {
   /** The merger starts the merge of the card's approved work into the main branch (PM-452). */
   startMerge: (key: string, taskKey: string, body?: StartMergeRequest) =>
     apiRequest<{ task: Task }>(routes.taskMerge(key, taskKey), { method: 'POST', body }),
+  /** The merger or an owner puts the card's queued merge at the front of the queue (PM-576). */
+  prioritizeMerge: (key: string, taskKey: string, body: PrioritizeMergeRequest) =>
+    apiRequest<{ task: Task; moved: boolean }>(routes.taskMergePrioritize(key, taskKey), {
+      method: 'POST',
+      body,
+    }),
 
   attachments: (key: string, taskKey: string) =>
     apiRequest(routes.taskAttachments(key, taskKey), { schema: AttachmentListResponse }),
@@ -291,6 +299,11 @@ export const api = {
 
   /** Every state (the server defaults to open items): resolved ones feed the history lists. */
   inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),
+  /** The questions the Operator screened since `since` (an ISO time with an offset); owners and admins only (PM-558). */
+  screenedQuestions: (key: string, since: string) =>
+    apiRequest(`${routes.screenedQuestions(key)}?since=${encodeURIComponent(since)}`, {
+      schema: ScreenedQuestionsResponse,
+    }),
   resolveInbox: (key: string, itemId: string, body: ResolveInboxRequest) =>
     apiRequest<unknown>(routes.resolveInbox(key, itemId), { method: 'POST', body }),
   /** "Check now" on an outage alert (PM-466): the server looks again at once; no body. */

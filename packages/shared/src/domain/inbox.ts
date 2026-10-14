@@ -9,7 +9,7 @@ import { StageId } from './pipeline';
 import { ReleaseStep } from './release';
 import { TaskRelationKind } from './relations';
 import { WorkItemRef } from './session';
-import { TaskKey } from './task';
+import { TaskKey, TaskStartWaiting } from './task';
 import { WorkOutage } from './outage';
 
 /**
@@ -94,8 +94,16 @@ export const InboxOption = z.object({
 });
 export type InboxOption = z.infer<typeof InboxOption>;
 
-export const InboxState = z.enum(['open', 'resolved', 'expired', 'cancelled']);
+export const InboxState = z.enum(['open', 'resolved', 'expired', 'cancelled', 'screening']);
 export type InboxState = z.infer<typeof InboxState>;
+
+/** A question waits for its answer in these states; screening: the Operator looks at it first (PM-556). */
+export const PENDING_INBOX_STATES = ['open', 'screening'] as const;
+
+/** True for a question that still waits for its answer: open, or with the Operator for screening. */
+export function isPendingQuestion(item: Pick<InboxItem, 'kind' | 'state'>): boolean {
+  return item.kind === 'question' && (PENDING_INBOX_STATES as readonly string[]).includes(item.state);
+}
 
 /**
  * The rule by which the system resolved an item itself (`resolution.by` is "system"):
@@ -117,8 +125,35 @@ export const InboxResolutionRule = z.enum([
   'approval_given',
   /** A feedback mark that waited for the owner was handled (PM-506): nothing is left to see. */
   'feedback_handled',
+  /** The Operator answered an AI member's question itself while screening it (PM-556). */
+  'operator_answered',
+  /** The Operator passed a screened question to another member (PM-556). */
+  'operator_forwarded',
+  /** The Operator found a screened question moot (PM-556): nothing is left to answer. */
+  'operator_moot',
+  /** The card a question asked about was done (PM-556): nothing is left to answer. */
+  'task_done',
+  /** The card a question asked about was cancelled (PM-556): nothing is left to answer. */
+  'task_cancelled',
+  /** The card a question asked about was handed to someone else (PM-556). */
+  'handed_off',
+  /** The card a question asked about changed assignee (PM-556). */
+  'assignee_changed',
+  /** The asking member withdrew the question (PM-556). */
+  'withdrawn',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
+
+/** The rules by which a pending question is closed without an answer (`InboxService.closeQuestion`). */
+export const QuestionCloseRule = InboxResolutionRule.extract([
+  'task_done',
+  'task_cancelled',
+  'handed_off',
+  'assignee_changed',
+  'withdrawn',
+  'operator_moot',
+]);
+export type QuestionCloseRule = z.infer<typeof QuestionCloseRule>;
 
 export const InboxItem = z.object({
   id: z.string(),
@@ -149,6 +184,11 @@ export const InboxItem = z.object({
     })
     .nullable(),
   createdAt: z.string(),
+  /**
+   * Computed in list responses only, never stored (PM-556): why the asking member's own session has not
+   * started again to take the answer.
+   */
+  askerStart: z.object({ reason: TaskStartWaiting.shape.reason }).optional(),
 });
 export type InboxItem = z.infer<typeof InboxItem>;
 
@@ -469,6 +509,12 @@ export function alertPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): Alert
   return parsed.success ? parsed.data : null;
 }
 
+/** Legacy completion notices require no decision or action on their card. */
+export function isInformationalAlert(item: Pick<InboxItem, 'kind' | 'payload'>): boolean {
+  const alert = alertPayloadOf(item);
+  return alert?.alert === 'refinement' && alert.reason === 'done';
+}
+
 /** At most this many files on one question (PM-498). */
 export const MAX_QUESTION_ATTACHMENTS = 6;
 
@@ -485,6 +531,66 @@ export const QuestionAttachment = z.object({
   goneAt: z.string().optional(),
 });
 export type QuestionAttachment = z.infer<typeof QuestionAttachment>;
+
+/** How long the Operator may screen a question before it goes to the people (PM-556). */
+export const QUESTION_SCREENING_MINUTES = 10;
+
+/** What the Operator decided about a screened question: it answered, passed it on, found it moot, or asked a person. */
+export const ScreeningOutcome = z.enum(['answered', 'forwarded', 'moot', 'decision', 'todo']);
+export type ScreeningOutcome = z.infer<typeof ScreeningOutcome>;
+
+/** A task for a person that the Operator made out of a question: what to do, where, and what is expected. */
+export const QuestionTodo = z.object({
+  what: z.string().min(1).max(2000),
+  where: z.string().min(1).max(500),
+  expected: z.string().min(1).max(1000),
+});
+export type QuestionTodo = z.infer<typeof QuestionTodo>;
+
+/** `payload.screening` of a question: the Operator looks at it first (PM-556). */
+export const QuestionScreening = z.object({
+  /** ISO: when it was asked plus `QUESTION_SCREENING_MINUTES`. */
+  until: z.string(),
+  /** The Operator got it. */
+  deliveredAt: z.string().optional(),
+  outcome: ScreeningOutcome.optional(),
+  /** The Operator's handle. */
+  by: z.string().optional(),
+  at: z.string().optional(),
+  /** The Operator's reason or background. */
+  note: z.string().max(2000).optional(),
+  /** Outcome `forwarded`. */
+  forwardedTo: z.string().optional(),
+  /** Outcome `todo`. */
+  todo: QuestionTodo.optional(),
+  /** Released to the people with no outcome. */
+  fallback: z.enum(['timeout', 'unavailable']).optional(),
+  /** The feedback item (PM-472) of a todo. */
+  feedbackId: z.string().optional(),
+});
+export type QuestionScreening = z.infer<typeof QuestionScreening>;
+
+/** Whether the answer reached the asking member: it waits for the member's session, or it was delivered. */
+export const AnswerDelivery = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('waiting'), reason: TaskStartWaiting.shape.reason, since: z.string() }),
+  z.object({ state: z.literal('delivered'), at: z.string() }),
+]);
+export type AnswerDelivery = z.infer<typeof AnswerDelivery>;
+
+/** The options of a todo the Operator made out of a question. The web app translates the ids. */
+export const TODO_DONE_OPTION: InboxOption = { id: 'todo_done', label: 'Done', style: 'primary' };
+export const TODO_CANNOT_OPTION: InboxOption = {
+  id: 'todo_cannot',
+  label: 'Cannot do it',
+  style: 'secondary',
+};
+
+/** The questions the Operator screened, newest first, and how many of them today. */
+export const ScreenedQuestionsResponse = z.object({
+  items: z.array(InboxItem),
+  today: z.number().int().nonnegative(),
+});
+export type ScreenedQuestionsResponse = z.infer<typeof ScreenedQuestionsResponse>;
 
 /**
  * `payload` of a `question` item, written by the `ask_human` team tool. The question is also the
@@ -511,6 +617,12 @@ export const QuestionPayload = z.object({
   autoLabel: z.boolean().optional(),
   /** The files the question names (PM-498); absent on older questions and on questions without files. */
   attachments: z.array(QuestionAttachment).optional(),
+  /** Present while the Operator screens the question and after it did (PM-556). */
+  screening: QuestionScreening.optional(),
+  /** The question was asked again without screening: why, and the item it replaces (PM-556). */
+  unscreened: z.object({ reason: z.string().min(1).max(1000), previousItemId: z.string() }).optional(),
+  /** Whether the answer reached the asking member (PM-556). */
+  answerDelivery: AnswerDelivery.optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { BoundaryRequester, ToolContext } from '../src/contracts';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import {
   createAppHarness,
   createProject,

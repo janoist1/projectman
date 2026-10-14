@@ -9,9 +9,9 @@ import {
   startSession,
 } from '../auth';
 import type { AuthService } from '../auth';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { currentUser, requireAccess, requireOwnLogin } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type TokenParams = { Params: { token: string } };
@@ -19,7 +19,7 @@ type TokenParams = { Params: { token: string } };
 /** Admins manage a project's invitations; the invite link itself is public (and rate-limited). */
 export function registerInvitationRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService; clientIpHeader?: string },
+  deps: { domain: ApiDomain; auth: AuthService; clientIpHeader?: string },
 ): void {
   const { domain, auth, clientIpHeader } = deps;
   const { invitations } = domain;

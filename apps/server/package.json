@@ -24,6 +24,7 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "better-sqlite3": "^13.0.3",
+    "effect": "4.0.4",
     "fastify": "^5.12.5",
     "sharp": "^0.35.5",
     "yaml": "^2.9.1",

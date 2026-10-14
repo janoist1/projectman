@@ -1,6 +1,6 @@
 import type { Actor, Task } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { aiActor, humanActor } from '../src/domain';
+import { aiActor, humanActor } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

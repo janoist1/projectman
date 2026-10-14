@@ -171,6 +171,8 @@ export type Session = z.infer<typeof Session>;
 
 /** Minutes of silence (since `Session.lastActivityAt`) after which an idle session closes by itself (PM-288). */
 export const SESSION_IDLE_CLOSE_MINUTES = 15;
+/** Maximum minutes of silence protected by a queued or running heavy command (PM-569). */
+export const SESSION_HEAVY_RUN_IDLE_MAX_MINUTES = 120;
 
 /**
  * A member's work on one card (PM-207): a task session that is working. A member's status and

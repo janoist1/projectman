@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AnswerDelivery,
   gateRequestOf,
+  InboxItem,
   InboxOption,
+  InboxResolutionRule,
+  InboxState,
+  isPendingQuestion,
+  PENDING_INBOX_STATES,
+  QUESTION_SCREENING_MINUTES,
+  QuestionCloseRule,
+  QuestionScreening,
+  QuestionTodo,
+  ScreeningOutcome,
   questionAttachmentsOf,
   questionChoices,
   questionPayloadOf,
   withQuestionAttachmentGone,
 } from './inbox';
+import { MessageOrigin } from './involvement';
 
 const request = {
   requestId: 'gat_1',
@@ -137,6 +149,96 @@ describe('InboxOption', () => {
     expect(InboxOption.parse(plain)).toEqual(plain);
     expect(InboxOption.parse({ ...plain, consequence: 'It stays visible.' }).consequence).toBe(
       'It stays visible.',
+    );
+  });
+});
+
+describe('screening contract (PM-556)', () => {
+  const stored = {
+    id: 'inb_1',
+    projectKey: 'PM',
+    kind: 'question',
+    assignees: ['owner'],
+    source: 'dev',
+    sessionId: null,
+    taskKey: 'PM-1',
+    title: 'Which one?',
+    body: null,
+    payload: { question: 'Which one?' },
+    options: [],
+    state: 'resolved',
+    resolution: { optionId: 'answer', by: 'owner', at: '2026-01-01T00:00:00.000Z', note: 'A' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  it('reads stored rows and payloads without the new fields', () => {
+    expect(InboxItem.parse(stored).askerStart).toBeUndefined();
+    expect(questionPayloadOf(stored)).toEqual({ question: 'Which one?' });
+  });
+
+  it('knows the new state, rules and outcomes', () => {
+    expect(InboxState.parse('screening')).toBe('screening');
+    for (const rule of [
+      'operator_answered',
+      'operator_forwarded',
+      'operator_moot',
+      'task_done',
+      'task_cancelled',
+      'handed_off',
+      'assignee_changed',
+      'withdrawn',
+    ])
+      expect(InboxResolutionRule.parse(rule)).toBe(rule);
+    expect(QuestionCloseRule.options).toEqual([
+      'task_done',
+      'task_cancelled',
+      'handed_off',
+      'assignee_changed',
+      'withdrawn',
+      'operator_moot',
+    ]);
+    expect(() => QuestionCloseRule.parse('operator_answered')).toThrow();
+    for (const outcome of ['answered', 'forwarded', 'moot', 'decision', 'todo'])
+      expect(ScreeningOutcome.parse(outcome)).toBe(outcome);
+    expect(QUESTION_SCREENING_MINUTES).toBe(10);
+  });
+
+  it('reads the screening, unscreened and delivery fields of a question', () => {
+    const todo = { what: 'Check the server', where: 'prod', expected: 'It runs' };
+    const payload = {
+      question: 'Which one?',
+      screening: {
+        until: '2026-01-01T00:10:00.000Z',
+        deliveredAt: '2026-01-01T00:00:01.000Z',
+        outcome: 'todo',
+        by: 'operator',
+        at: '2026-01-01T00:02:00.000Z',
+        note: 'Needs a person',
+        todo,
+        feedbackId: 'fb_1',
+      },
+      unscreened: { reason: 'The answer is urgent', previousItemId: 'inb_0' },
+      answerDelivery: { state: 'waiting', reason: 'member_at_capacity', since: '2026-01-01T00:03:00.000Z' },
+    };
+    expect(questionPayloadOf({ payload })).toEqual(payload);
+    expect(QuestionScreening.parse({ until: 'x', fallback: 'timeout' }).fallback).toBe('timeout');
+    expect(AnswerDelivery.parse({ state: 'delivered', at: 'x' }).state).toBe('delivered');
+    expect(() => AnswerDelivery.parse({ state: 'delivered' })).toThrow();
+    expect(() => QuestionTodo.parse({ ...todo, expected: '' })).toThrow();
+  });
+
+  it('a question is pending while it is open or screened', () => {
+    expect(PENDING_INBOX_STATES).toEqual(['open', 'screening']);
+    expect(isPendingQuestion({ kind: 'question', state: 'open' })).toBe(true);
+    expect(isPendingQuestion({ kind: 'question', state: 'screening' })).toBe(true);
+    for (const state of ['resolved', 'expired', 'cancelled'] as const)
+      expect(isPendingQuestion({ kind: 'question', state })).toBe(false);
+    expect(isPendingQuestion({ kind: 'decision', state: 'open' })).toBe(false);
+  });
+
+  it('a forwarded question is a message origin', () => {
+    expect(MessageOrigin.parse({ kind: 'question_forward', inboxItemId: 'inb_1' }).kind).toBe(
+      'question_forward',
     );
   });
 });

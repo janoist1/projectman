@@ -90,6 +90,8 @@ export interface TemplateLocale {
   /** The bold labels of the Operator's report to the owner (PM-447), in the order of its lines. */
   operatorReport: {
     done: string;
+    /** The part of the one message per wake-up (PM-550) that lists the signals the owners must decide. */
+    decision: string;
     approval: string;
     waiting: string;
     /** What the waiting line says when the owner has nothing to do. */

@@ -13,13 +13,13 @@ import {
   StopSessionRequest,
 } from '@projectman/shared';
 import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
-import { notFound } from '../domain';
-import type { Domain } from '../domain';
-import { forbidden } from '../domain/errors';
-import { canSeeTask, teamMessageParticipant, visibleSession } from '../domain/visibility';
-import type { Viewer } from '../domain/visibility';
+import { notFound } from '../kernel';
+import type { ApiDomain } from './ports';
+import { forbidden } from '../kernel';
+import { canSeeTask, teamMessageParticipant, visibleSession } from '../core/projects';
+import type { Viewer } from '../core/projects';
 import { actorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type SessionParams = { Params: { key: string; sessionId: string } };
@@ -33,12 +33,12 @@ const MessagesQuery = z.object({
 });
 
 /** The Operator's sessions are for the owner and the admin only (PM-475): to anyone else they do not exist. */
-function assertMaySeeSession(domain: Domain, viewer: Viewer, sessionId: string): void {
+function assertMaySeeSession(domain: ApiDomain, viewer: Viewer, sessionId: string): void {
   if (!canSeeOperatorSessions(viewer) && domain.sessions.isOperatorSession(sessionId))
     throw notFound('session', sessionId);
 }
 
-export function registerSessionRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): void {
   /** Session with its chat, parsed from the Claude Code transcript. */
   app.get<SessionParams>(routes.session(':key', ':sessionId'), async (request): Promise<SessionDetail> => {
     const { key, sessionId } = request.params;

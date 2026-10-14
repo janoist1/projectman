@@ -2,14 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ProjectFocusAddRequest, ProjectFocusMoveRequest, routes } from '@projectman/shared';
 import type { ProjectFocusChanges, ProjectFocusView } from '@projectman/shared';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { actorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 const ChangesQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) });
 
 /** The project's focus (PM-427): internal members read it; whoever may set it writes. */
-export function registerProjectFocusRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerProjectFocusRoutes(app: FastifyInstance, domain: ApiDomain): void {
   const view = (projectKey: string, access: Parameters<typeof actorOf>[0]): Promise<ProjectFocusView> =>
     domain.projectFocus.view(projectKey, actorOf(access));
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { alertPayloadOf } from '@projectman/shared';
 import type { AgentProvider, ProjectConfig, Session } from '@projectman/shared';
-import { StartSpec } from '../src/domain/admission';
+import { StartSpec } from '../src/runtime/admission';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

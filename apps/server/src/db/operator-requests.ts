@@ -6,7 +6,7 @@ export interface OperatorRequestRecord {
   id: string;
   projectKey: string;
   sessionId: string;
-  source: 'message' | 'answer';
+  source: 'message' | 'answer' | 'signal';
   messageId: string | null;
   inboxItemId: string | null;
   fromHandle: string;
@@ -26,6 +26,8 @@ export interface OperatorStepRecord {
   changes: ConfigChangeRow[];
   configVersion: string | null;
   inboxItemId: string | null;
+  /** The system signal the step acted on without a request (PM-545). */
+  signalId: string | null;
   refusal: { code: string; message: string } | null;
 }
 
@@ -38,7 +40,7 @@ const requestColumns = `id, project_key AS projectKey, session_id AS sessionId, 
   message_id AS messageId, inbox_item_id AS inboxItemId, from_handle AS fromHandle, quote,
   opened_at AS openedAt, closed_at AS closedAt`;
 const stepColumns = `id, request_id AS requestId, at, action, status, task_key AS taskKey, member, changes,
-  config_version AS configVersion, inbox_item_id AS inboxItemId, refusal`;
+  config_version AS configVersion, inbox_item_id AS inboxItemId, signal_id AS signalId, refusal`;
 
 const toStep = (row: StepRow): OperatorStepRecord => ({
   ...row,
@@ -66,9 +68,12 @@ export function createOperatorRequestRepository(db: Db) {
        ORDER BY opened_at DESC, rowid DESC LIMIT ?) ORDER BY openedAt, n`,
     ),
     insertStep: db.prepare(`INSERT INTO operator_steps
-      (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal)
-      VALUES (@id, @requestId, @at, @action, @status, @taskKey, @member, @changes, @configVersion, @inboxItemId, @refusal)`),
+      (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, signal_id, refusal)
+      VALUES (@id, @requestId, @at, @action, @status, @taskKey, @member, @changes, @configVersion, @inboxItemId, @signalId, @refusal)`),
     stepsOf: db.prepare(`SELECT ${stepColumns} FROM operator_steps WHERE request_id = ? ORDER BY at, rowid`),
+    stepsOfSignal: db.prepare(
+      `SELECT ${stepColumns} FROM operator_steps WHERE signal_id = ? ORDER BY at, rowid`,
+    ),
   };
   return {
     insert(request: Omit<OperatorRequestRecord, 'closedAt'>): void {
@@ -112,6 +117,10 @@ export function createOperatorRequestRepository(db: Db) {
     },
     steps(requestId: string): OperatorStepRecord[] {
       return (statements.stepsOf.all(requestId) as StepRow[]).map(toStep);
+    },
+    /** The steps the Operator took on a signal, the oldest first. */
+    stepsOfSignal(signalId: string): OperatorStepRecord[] {
+      return (statements.stepsOfSignal.all(signalId) as StepRow[]).map(toStep);
     },
     /** Sets a step's status; `refusal` (when given) says why a step ended without doing its work. */
     updateStep(

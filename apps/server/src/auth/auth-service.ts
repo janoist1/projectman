@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
 import type { Repositories, UserRecord } from '../db';
-import { conflict } from '../domain/errors';
-import { newId } from '../domain/util';
+import { conflict } from '../kernel';
+import { newId } from '../kernel';
 
 export interface AuthUser {
   id: string;

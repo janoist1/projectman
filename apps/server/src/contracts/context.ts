@@ -397,7 +397,6 @@ export interface MemberWorkspaceManager {
   /**
    * The member's own directory for sessions with no repository to work in (a general chat, a
    * schedule run, a task without a repository), made when missing: `<root>/<PROJECT>/<handle>/.home`
-   * (PM-141, the managed VM's `member_workspace` placement).
    */
   home(key: { projectKey: string; member: string }): Promise<string>;
   /**
@@ -455,16 +454,6 @@ export interface MemberWorkspaceManager {
     source: WorkspaceSource,
     commit: string,
   ): Promise<WorkspaceCheckout>;
-  /**
-   * Where the server reads a committed branch of the workspace from (publishing, PM-142): the
-   * workspace itself when the server owns its files, else a bundle (`bundle: true`) the member's
-   * worker made of that branch, copied into the server's own spool, so the server never runs git
-   * in a worker's repository (PM-140). `done` removes what was made.
-   */
-  exportBranch(
-    key: MemberWorkspaceKey,
-    branch: string,
-  ): Promise<{ path: string; bundle: boolean; done(): Promise<void> }>;
 }
 
 export interface MemberWorkspaceManagerOptions {

@@ -11,21 +11,15 @@ import {
   symlinkSync,
   writeFileSync,
   chmodSync,
+  utimesSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { BranchMerger } from '../contracts';
-import {
-  classifyPush,
-  createLocalBranchMerger,
-  MERGE_CHECK_DIR,
-  overlappingPaths,
-  parseWorktrees,
-  statusPaths,
-} from './branch-merger';
-import { scrubCredentials } from './merge-git';
-import { isBranchName, isCommitId, isMergeId, isMergeMessage } from './merge-input';
+import { newId } from '../kernel';
+import { createLocalBranchMerger } from './branch-merger';
+import { DEPENDENCIES_NOT_INSTALLED, MERGE_CHECK_DIR } from './merge-check';
 
 const REF = { projectKey: 'PM', repo: 'projectman' };
 
@@ -295,6 +289,91 @@ describe('checkoutConflicts', () => {
 });
 
 describe('checkoutForCheck and releaseCheck', () => {
+  function install(checkout: string, marker: string, fresh = true): void {
+    write(checkout, 'node_modules/.package-lock.json', '{}');
+    write(checkout, 'node_modules/source.txt', marker);
+    const time = new Date('2026-01-01T00:00:00Z');
+    utimesSync(path.join(checkout, 'package-lock.json'), time, time);
+    const installed = new Date(time.getTime() + (fresh ? 1000 : -1000));
+    utimesSync(path.join(checkout, 'node_modules/.package-lock.json'), installed, installed);
+  }
+
+  it.each(['preferred', 'repository', 'worktree', 'stale preferred'])(
+    'selects an installed checkout matching the merge lockfile: %s',
+    async (scenario) => {
+      const { repo, merger, worktreesRoot } = fixture({ withRemote: false });
+      write(repo, '.gitignore', 'node_modules/\n');
+      write(repo, 'package-lock.json', 'old lock');
+      const old = commit(repo, 'add old lock');
+      const preferred = path.join(worktreesRoot, 'card');
+      git(repo, 'worktree', 'add', '--detach', preferred, old);
+      // The card is older than the dependency change on main.
+      write(preferred, 'card.txt', 'card change');
+      const card = commit(preferred, 'change card');
+      write(repo, 'package-lock.json', 'merged lock');
+      const main = commit(repo, 'change dependencies');
+      const built = await merger.build(REF, { onto: main, commit: card, message: 'merge card' });
+      if (!built.ok) throw new Error('unexpected conflict');
+      let depsFrom: string | null = preferred;
+      let expected: string;
+      if (scenario === 'preferred') {
+        write(preferred, 'package-lock.json', 'merged lock');
+        install(preferred, 'preferred');
+        install(repo, 'repository');
+        expected = 'preferred';
+      } else if (scenario === 'repository') {
+        depsFrom = null;
+        install(repo, 'repository');
+        expected = 'repository';
+      } else {
+        install(preferred, 'preferred');
+        if (scenario === 'stale preferred') {
+          write(preferred, 'package-lock.json', 'merged lock');
+          install(preferred, 'preferred', false);
+        }
+        const other = path.join(worktreesRoot, 'other');
+        git(repo, 'worktree', 'add', '--detach', other, main);
+        install(other, 'other');
+        expected = 'other';
+      }
+      const mergeId = 'mrg_lock0001';
+      const made = await merger.checkoutForCheck(REF, { mergeId, mergeCommit: built.mergeCommit, depsFrom });
+      expect(readFileSync(path.join(made.path, 'package-lock.json'), 'utf8')).toBe('merged lock');
+      expect(readFileSync(path.join(made.path, 'node_modules/source.txt'), 'utf8')).toBe(expected);
+      await merger.releaseCheck(REF, { mergeId });
+    },
+  );
+
+  it.each(['missing', 'stale', 'outside', 'merge', 'symlink outside', 'prunable'])(
+    'refuses without an eligible dependency source and releases the checkout: %s',
+    async (scenario) => {
+      const { repo, merger, worktreesRoot } = fixture({ withRemote: false });
+      write(repo, '.gitignore', 'node_modules/\n');
+      write(repo, 'package-lock.json', 'merged lock');
+      const head = commit(repo, 'add lock');
+      if (scenario === 'stale') install(repo, 'stale', false);
+      else if (scenario !== 'missing') {
+        const outside = path.join(root, `outside-source-${counter}`);
+        const other =
+          scenario === 'merge'
+            ? path.join(worktreesRoot, MERGE_CHECK_DIR, 'other')
+            : scenario === 'prunable'
+              ? path.join(worktreesRoot, 'prunable')
+              : outside;
+        git(repo, 'worktree', 'add', '--detach', other, head);
+        install(other, scenario);
+        if (scenario === 'symlink outside') symlinkSync(other, path.join(worktreesRoot, 'linked'));
+        if (scenario === 'prunable') rmSync(other, { recursive: true, force: true });
+      }
+      const mergeId = 'mrg_nolocksource';
+      await expect(
+        merger.checkoutForCheck(REF, { mergeId, mergeCommit: head, depsFrom: null }),
+      ).rejects.toMatchObject({ code: 'git_failed', message: DEPENDENCIES_NOT_INSTALLED });
+      expect(existsSync(path.join(worktreesRoot, MERGE_CHECK_DIR, mergeId))).toBe(false);
+      expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain(mergeId);
+    },
+  );
+
   it('makes a detached checkout under _merge, copies dependencies with relative links kept, and releases it', async () => {
     const { merger, repo, worktreesRoot } = fixture({ withRemote: false });
     const head = git(repo, 'rev-parse', 'HEAD');
@@ -321,6 +400,16 @@ describe('checkoutForCheck and releaseCheck', () => {
     expect(existsSync(expected)).toBe(false);
     expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain('mrg_first0001');
     await merger.releaseCheck(REF, { mergeId: 'mrg_first0001' }); // releasing again is fine
+  });
+
+  it('accepts the id the domain makes for a merge (newId), not only a hand-written one (PM-551)', async () => {
+    const { merger, repo, worktreesRoot } = fixture({ withRemote: false });
+    const head = git(repo, 'rev-parse', 'HEAD');
+    const mergeId = newId('merge');
+    const made = await merger.checkoutForCheck(REF, { mergeId, mergeCommit: head, depsFrom: null });
+    expect(made.path).toBe(path.join(realpathSync(worktreesRoot), MERGE_CHECK_DIR, mergeId));
+    await merger.releaseCheck(REF, { mergeId });
+    expect(existsSync(made.path)).toBe(false);
   });
 
   it('does not copy dependencies through a link the merged tree tracks, out of the checkout', async () => {
@@ -730,85 +819,5 @@ describe('commitFiles', () => {
     const withDir = commit(repo, 'dir');
     await refused({ onto: withDir, files: [{ path: 'dir', text: 'file' }], message: 'm' });
     await refused({ onto: withDir, files: [{ path: 'a.txt/inner', text: 'x' }], message: 'm' }); // a.txt is a file
-  });
-});
-
-describe('input checks', () => {
-  it('accepts commit ids, merge ids and messages only in their shape', () => {
-    expect(isCommitId('a'.repeat(40))).toBe(true);
-    expect(isCommitId('A'.repeat(64))).toBe(true);
-    expect(isCommitId('main')).toBe(false);
-    expect(isCommitId('a'.repeat(39))).toBe(false);
-    expect(isMergeId('mrg_abcdefgh1')).toBe(true);
-    expect(isMergeId('mrg_short')).toBe(false);
-    expect(isMergeId('../x')).toBe(false);
-    expect(isMergeId('')).toBe(false);
-    expect(isMergeMessage('Merge PM-1')).toBe(true);
-    expect(isMergeMessage('a\0b')).toBe(false);
-    expect(isMergeMessage('x'.repeat(2001))).toBe(false);
-  });
-
-  it('accepts branch names git accepts and refuses expansions and options', async () => {
-    for (const ok of ['main', 'release/1.0', 'feature-x']) expect(await isBranchName(ok)).toBe(true);
-    for (const bad of [
-      '',
-      'HEAD',
-      '@',
-      '-x',
-      '--upload-pack=x',
-      '@{-1}',
-      'a..b',
-      'a b',
-      'a\nb',
-      'x.lock',
-      'a:b',
-      'a~1',
-    ])
-      expect(await isBranchName(bad), bad).toBe(false);
-  });
-});
-
-describe('helpers', () => {
-  it('reads paths from the porcelain status, renames giving both names', () => {
-    expect(statusPaths(' M a.txt\0?? dir/b.txt\0R  new.txt\0old.txt\0')).toEqual([
-      'a.txt',
-      'dir/b.txt',
-      'new.txt',
-      'old.txt',
-    ]);
-  });
-
-  it('finds overlaps by path and by file-versus-directory', () => {
-    expect(overlappingPaths(['a', 'b/c', 'd/e/f', 'x'], ['a/1', 'b', 'd/e'])).toEqual(['a', 'b/c', 'd/e/f']);
-    expect(overlappingPaths(['same'], ['same'])).toEqual(['same']);
-    expect(overlappingPaths(['other'], ['same'])).toEqual([]);
-  });
-
-  it('parses the worktree list', () => {
-    const out =
-      'worktree /r\nHEAD abc\nbranch refs/heads/main\n\nworktree /r/w\nHEAD def\ndetached\n\nworktree /gone\nHEAD 1\nbranch refs/heads/x\nprunable gitdir file points to non-existent location\n';
-    expect(parseWorktrees(out)).toEqual([
-      { path: '/r', branch: 'refs/heads/main', prunable: false },
-      { path: '/r/w', branch: null, prunable: false },
-      { path: '/gone', branch: 'refs/heads/x', prunable: true },
-    ]);
-  });
-
-  it('classifies a failed push', () => {
-    expect(classifyPush('! [rejected] main -> main (fetch first)', false)).toBe('non_fast_forward');
-    expect(
-      classifyPush('remote: error: GH006: Protected branch update failed\n! [remote rejected]', false),
-    ).toBe('rejected');
-    expect(classifyPush('fatal: Authentication failed for x', false)).toBe('rejected');
-    expect(classifyPush('fatal: unable to access x: Could not resolve host: h', false)).toBe('unreachable');
-    expect(classifyPush('', true)).toBe('unreachable');
-    expect(classifyPush('something unknown', false)).toBe('rejected');
-  });
-
-  it('scrubs credentials from git output', () => {
-    expect(scrubCredentials('fatal: unable to access https://user:secret@example.test/r.git/')).toBe(
-      'fatal: unable to access https://***@example.test/r.git/',
-    );
-    expect(scrubCredentials('token ghp_abcDEF123 and Bearer abc.def')).toBe('token *** and Bearer ***');
   });
 });

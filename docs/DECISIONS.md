@@ -373,3 +373,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     offers the owner's answers to card questions as decision candidates (PM-496); the owner's
     yes or no is remembered, so a candidate is not offered twice. This modifies decision 35
     only in who updates the roadmap before a release.
+51. **The board runs in the cloud.** Decided by the owner on 2026-10-12, so that the board is
+    reachable while the Mac is off. Host: an AWS Lightsail instance (2 GB) running the
+    `deploy/cloud` container, behind Cloudflare Tunnel and Access at chopper.istvan.io (PM-532).
+    A container is a deployment option under `deploy/`; the projectman core does not depend on
+    Docker. The public entrance from the Mac (PM-200, `docs/DEPLOY.md`) is dropped; Fly.io stays
+    only as an alternative.

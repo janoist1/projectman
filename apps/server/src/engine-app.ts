@@ -7,7 +7,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply, FastifyRequest, FastifyServerOptions } from 'fastify';
 import { AgentProvider, routes } from '@projectman/shared';
 import { APP_DEFAULTS, loopbackBaseUrl } from './app';
-import { serializeRequest } from './auth/request-logging';
+import { serializeRequest } from './http';
 import type {
   FullTestExecutor,
   GithubService,
@@ -17,33 +17,37 @@ import type {
   RunnerModuleOptions,
   ScreenshotExecutor,
 } from './contracts';
-import { createLocalEngine } from './domain/engines';
-import { createEngineAudit } from './engine-link/engine-audit';
-import { createEngineClient } from './engine-link/engine-client';
-import type { LinkSocketFactory } from './engine-link/engine-client';
+import { createLocalEngine } from './engine-host';
 import {
+  createEngineAudit,
+  createEngineClient,
+  createEngineHandlers,
+  createEngineLimit,
+  createEngineStatusWriter,
+  createEngineTransfers,
+  createEngineEventBuffer,
+  ENGINE_RELAY_WAIT_MS,
+  EngineCallError,
   EngineConfigError,
   engineFiles,
   loadEngineConfig,
   readLinkHeaders,
   readSecretFile,
   resolveEngineConfig,
-} from './engine-link/engine-config';
-import { createEngineHandlers } from './engine-link/engine-handlers';
-import { createEngineLimit } from './engine-link/engine-limit';
-import { createEngineStatusWriter } from './engine-link/engine-status';
-import { createEngineTransfers } from './engine-link/engine-transfer';
-import { createEngineEventBuffer } from './engine-link/event-buffer';
-import { ENGINE_RELAY_WAIT_MS } from './engine-link/protocol';
-import { EngineCallError } from './engine-link/rpc';
-import type { EngineEvent, Hello } from './engine-link/protocol';
-import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
+} from './engine-link';
+import type { EngineEvent, Hello, LinkSocketFactory } from './engine-link';
+import {
+  createFullTestExecutor,
+  createScreenshotExecutor,
+  defaultHeavyLockDir,
+  readHeavyRunSessions,
+} from './full-test';
 import { freeBytesOf } from './engine-host';
-import { nonLocalReason } from './http/local-guard';
+import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
 import { createRunnerModule } from './runner';
-import { createGithubService } from './github';
+import { createGithubService } from './services/github';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 
 /**
@@ -61,15 +65,6 @@ const PENDING_INPUT_POLL_MS = 1000;
 const SHUTDOWN_PAUSE_CAP_MS = 20_000;
 const TOKEN = /^[A-Za-z0-9_-]{8,256}$/;
 const LOOPBACK = '127.0.0.1';
-
-/** A hybrid engine runs the `legacy` profile on the owner's machine; the managed VM is a different installation. */
-export function assertEngineProfile(settings: { executionProfile?: string; boundaryConfig?: string }): void {
-  if (settings.executionProfile === 'managed_vm' || settings.boundaryConfig)
-    throw new EngineConfigError(
-      'managed_vm_unsupported',
-      'The engine runs the legacy execution profile only: PROJECTMAN_EXECUTION_PROFILE=managed_vm and PROJECTMAN_BOUNDARY_CONFIG belong to the managed VM, not to an engine.',
-    );
-}
 
 export interface EngineAppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
@@ -91,9 +86,6 @@ export interface EngineAppOptions {
   /** `resolveAppVersion(installDir, PROJECTMAN_VERSION)`: what the cloud compares with its own. */
   version: string;
   installDir: string;
-  /** Checked at start: a managed VM setting stops the engine. */
-  executionProfile?: string;
-  boundaryConfig?: string;
   agentEnv?: NodeJS.ProcessEnv;
   claudeBin?: string;
   codexBin?: string;
@@ -144,7 +136,6 @@ const headerText = (value: string | string[] | undefined, fallback: string): str
 };
 
 export async function buildEngineApp(options: EngineAppOptions): Promise<EngineApp> {
-  assertEngineProfile(options);
   if (os.platform() !== 'darwin' && os.platform() !== 'linux')
     throw new EngineConfigError('platform_unsupported', 'The engine runs on macOS or Linux.');
   const modules = options.modules ?? {};
@@ -358,6 +349,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
           heavyLockDir,
         }),
       freeDiskBytes: () => freeBytesOf(home),
+      heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
       // The engine's own binding (`engine.json`), never the cloud's paths (PM-451).

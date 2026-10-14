@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { InboxItem, ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
+import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
@@ -292,7 +293,10 @@ describe('mark_decision_candidates (PM-496)', () => {
     expect(await refusal(mark(ctx, items))).toContain('operator_no_request');
     // Dana (no owner) talks with the Operator in a conversation of their own.
     await ask('What is going on?', 'dana');
-    const guest = sessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'dana')!;
+    const guest = await waitFor(
+      () => sessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'dana'),
+      { what: 'the Operator conversation with dana' },
+    );
     expect(await refusal(mark(toolOf(guest), items))).toContain('operator_owner_only');
     const dev = { ...ctx, member: 'dev-1' };
     expect(await refusal(mark(dev, items))).toContain('operator_only');
@@ -371,7 +375,10 @@ describe('the signal line in the Operator’s batch (PM-496)', () => {
     await setup();
     answered('inb_1', '2026-10-11T10:00:01.000Z');
     await ask('Hello', 'dana');
-    const guest = sessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'dana')!;
+    const guest = await waitFor(
+      () => sessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'dana'),
+      { what: 'the Operator conversation with dana' },
+    );
     h.runner.setState(guest.id, 'idle');
     await flush();
     const typed = h.runner.messages.length;

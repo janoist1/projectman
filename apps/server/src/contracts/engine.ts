@@ -213,7 +213,8 @@ export interface BranchMerger {
   ): Promise<MergeBuildResult>;
   /** Uncommitted paths of the default branch's checkout that `changed` also touches; [] when it is not checked out. */
   checkoutConflicts(ref: MergeRepoRef, input: { base: string; changed: string[] }): Promise<string[]>;
-  /** A detached worktree of `mergeCommit` for the check, with the dependencies of `depsFrom`. */
+  /** A detached worktree of `mergeCommit` for the check. `depsFrom` is the preferred source;
+   * the engine selects an installed checkout matching the merged lockfile. */
   checkoutForCheck(
     ref: MergeRepoRef,
     input: { mergeId: string; mergeCommit: string; depsFrom: string | null },
@@ -260,6 +261,8 @@ export interface EngineHost {
   readonly sessionFolders?: EngineSessionFolders;
   /** null: not measurable (no start is refused for disk space). */
   freeDiskBytes(): Promise<number | null>;
+  /** Session ids holding or waiting for this engine's heavy-run queue; unavailable gives [], never rejects (PM-569). */
+  heavyRunSessions(): Promise<string[]>;
   processExists(pid: number): boolean;
   /** The project's working directory on this engine; null: the engine does not hold the project. */
   workspacePath(projectKey: string): string | null;
@@ -319,3 +322,8 @@ export interface EngineDirectory {
   engineFor(projectKey: string, member: MemberHandle): EngineId | null;
   onChange(listener: (id: EngineId, online: boolean) => void): () => void;
 }
+
+/** Whether a process (or any process of its group) still exists. */
+export type ProcessProbe = (pid: number) => boolean;
+
+export const ENGINE_OFFLINE_AFTER_MS = 120_000;

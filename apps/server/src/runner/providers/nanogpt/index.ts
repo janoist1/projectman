@@ -7,7 +7,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
 import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
-import { inspectCodexMcpServers, inspectAmbientConfig } from '../../managed-vm';
+import { inspectCodexMcpServers, inspectAmbientConfig } from '../../ambient-config';
 import { createCodexAdapter } from '../codex';
 import { CodexTranscriptParser } from '../codex/transcript';
 import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths, NANOGPT_CODEX_PROVIDER } from '../codex/args';
@@ -129,8 +129,6 @@ export function createNanogptAdapter(opts: {
         });
       if (input.spec.permissionMode === 'bypassPermissions')
         throw new NanogptStartError('nanogpt_setup_incomplete');
-      if (input.spec.policy?.execution?.profile === 'managed_vm')
-        throw new NanogptStartError('provider_unsupported', { profile: 'managed_vm' });
       if (await hasAuth())
         throw new NanogptStartError('nanogpt_setup_incomplete', { problem: 'chatgpt_login' });
       const realCwd = await realpath(input.spec.cwd).catch(() => input.spec.cwd);

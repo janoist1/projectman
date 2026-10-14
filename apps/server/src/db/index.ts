@@ -9,7 +9,6 @@ import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createBoundaryRepository } from './boundary';
-import { createEgressRepository } from './egress';
 import { createFeedbackRepository } from './feedback';
 export type {
   FeedbackEventRecord,
@@ -22,6 +21,7 @@ export type {
 } from './feedback';
 import { createFullTestRunRepository } from './full-test-runs';
 import { createInvitationRepository } from './invitations';
+export type { InvitationRecord } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
 import { createDecisionOfferRepository } from './decision-offers';
@@ -117,7 +117,6 @@ export function createRepositories(db: Db) {
     messages: createMessageRepository(db),
     inbox: createInboxRepository(db),
     boundary: createBoundaryRepository(db),
-    egress: createEgressRepository(db),
     memberState: createMemberStateRepository(db),
     feedback: createFeedbackRepository(db),
     /** Runs `fn` in a single SQLite transaction. */

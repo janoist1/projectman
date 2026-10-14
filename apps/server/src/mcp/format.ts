@@ -1,4 +1,4 @@
-import { developerLevelText, isCardLink, isTheme } from '@projectman/shared';
+import { developerLevelText, isCardLink, isTheme, QUESTION_SCREENING_MINUTES } from '@projectman/shared';
 import type {
   Attachment,
   MemberView,
@@ -7,6 +7,7 @@ import type {
   TimelineEvent,
   WorkItemRef,
   OperatorSignal,
+  StaleReason,
 } from '@projectman/shared';
 import {
   cardQuestionLines,
@@ -37,14 +38,17 @@ import type {
   FeedbackToolResult,
   LocatedAttachmentForTool,
   MessageAttachmentReading,
-  PublishedTaskBranch,
-  PublishedTaskState,
   ScreenshotFailure,
   ScreenshotRun,
   SentMessageRecipient,
+  MemberStartResult,
   TaskToolDetail,
   TaskStateReport,
   ProjectStateReport,
+  MessageStateReport,
+  WakeStart,
+  ReleaseCheckResult,
+  ReleaseStateReport,
 } from '../contracts';
 import { MESSAGE_IMAGE_MAX_SIDE } from '../contracts';
 
@@ -92,7 +96,10 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
 };
 
 /** State codes stay English; the Operator explains them in the project's language. */
-export function formatProjectState(report: TaskStateReport | ProjectStateReport): string {
+export function formatProjectState(
+  report: TaskStateReport | ProjectStateReport | MessageStateReport,
+): string {
+  if ('messageId' in report) return formatMessageState(report);
   if ('taskKey' in report) {
     const lines = [
       `${report.taskKey}: ${oneLine(report.title, 200)} · stage ${report.stageId} (${report.stageKind}) · assignee ${report.assignee ?? 'none'} · labels ${report.labels.join(', ') || 'none'}`,
@@ -143,6 +150,7 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
   }
   return [
     `Pause: project ${report.paused.project}; instance ${report.paused.instance}.`,
+    `Operator watch: ${report.operatorWatch}.`,
     'Cards by stage:',
     ...report.stages.map((s) => `- ${s.stageId}: ${s.count}`),
     'Live and idle sessions:',
@@ -151,23 +159,93 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
     ),
     'Waiting starts:',
     ...report.waitingStarts.map(
-      (s) => `- ${s.taskKey}, ${s.member ?? 'none'}: ${s.reason} — ${waitingExplanations[s.reason]}`,
+      (s) =>
+        `- ${s.taskKey ?? 'general'}, ${s.member ?? 'none'}: ${s.reason} — ${waitingExplanations[s.reason]}`,
     ),
+    'Undelivered team messages:',
+    ...report.waitingMessages.map((m) => `- ${m.member}: ${m.count}, the oldest sent ${m.oldestAt}`),
     'Open owner inbox items:',
     ...report.openOwnerItems.map(
       (i) => `- ${i.id} (${i.kind}), task ${i.taskKey ?? 'none'}: ${oneLine(i.title, 200)}`,
     ),
     'Signals:',
     ...report.signals.map(signalLine),
+    ...releaseLines(report.release),
   ].join('\n');
 }
 
+/** One team message and, per recipient, the facts of what became of it (PM-543). */
+function formatMessageState(report: MessageStateReport): string {
+  const where = (route: WorkItemRef): string =>
+    route.type === 'task' ? `card ${route.taskKey}` : route.type === 'general' ? 'general chat' : route.type;
+  const lines = [
+    `Message ${report.messageId} from ${report.from}${report.taskKey ? ` about ${report.taskKey}` : ''}, kind ${report.kind}, sent ${report.sentAt}.`,
+  ];
+  for (const r of report.recipients) {
+    const facts = [
+      r.human ? 'a person, reads it in the app' : `route ${where(r.route)}`,
+      r.deliveredAt ? `delivered ${r.deliveredAt}` : 'not delivered yet',
+    ];
+    if (r.session) facts.push(`session ${r.session.id} ${r.session.state} since ${r.session.since}`);
+    else if (!r.human) facts.push('no live session on that route');
+    if (r.waiting)
+      facts.push(
+        `start waiting since ${r.waiting.since}: ${r.waiting.reason}, ${waitingExplanations[r.waiting.reason]}`,
+      );
+    if (r.lastStartFailure)
+      facts.push(`last start failed (${r.lastStartFailure.code}) at ${r.lastStartFailure.at}`);
+    if (r.stale) facts.push(`stale (${r.stale}): it starts nothing`);
+    if (r.noWake === 'info') facts.push('kind info: it starts nothing');
+    else if (r.noWake) facts.push(`starts nothing: ${r.noWake}`);
+    lines.push(`- ${r.handle}: ${facts.join('; ')}.`);
+  }
+  return lines.join('\n');
+}
+
+const shortCommit = (commit: string) => commit.slice(0, 8);
+
+function releaseLines(release: ReleaseStateReport | null): string[] {
+  if (!release) return ['Release: this instance does not release this project.'];
+  const { running, latestLive, open } = release;
+  return [
+    'Release:',
+    `- running: version ${running.version}; commit ${running.commit ?? 'unknown'}; tag ${running.tag ?? 'none'}`,
+    latestLive
+      ? `- latest live release: ${latestLive.id}, card ${latestLive.taskKey}, commit ${latestLive.commit}, tag ${latestLive.tag ?? 'none'}, live since ${latestLive.liveAt ?? 'unknown'}`
+      : '- latest live release: none',
+    open
+      ? `- open release: ${open.id}, card ${open.taskKey}, ${open.state}, commit ${open.commit}, proposed by ${open.proposedBy}`
+      : '- open release: none',
+    'Latest merges into the default branch, newest first:',
+    ...release.recentMerges.map(
+      (m) =>
+        `- ${m.taskKey} ${oneLine(m.title, 120)}: commit ${m.commit ? shortCommit(m.commit) : 'unknown'}, ${m.at ?? 'unknown time'}, by ${m.by ?? 'unknown'}`,
+    ),
+  ];
+}
+
+/** check_release: either the refusal propose_release would give, or the candidate; nothing was recorded. */
+export function formatReleaseCheck(check: ReleaseCheckResult): string {
+  const proposers = check.proposers.join(', ') || 'none';
+  if (check.refusal)
+    return `Release check: would be refused — ${check.refusal.code}: ${check.refusal.message}. Proposers (deployment duty): ${proposers}. Nothing was recorded.`;
+  const candidate = check.candidate;
+  if (!candidate) return 'Release check: no result. Nothing was recorded.';
+  const cards = candidate.tasks.map((task) => `${task.key} ${oneLine(task.title, 120)}`).join('; ');
+  return `Release check passed: commit ${candidate.commit}, base ${candidate.baseCommit ?? 'unknown'}, ${candidate.tasks.length} cards (${cards}); proposers: ${proposers}. Nothing was recorded.`;
+}
+
 function signalLine(signal: OperatorSignal): string {
-  const explanations = {
+  const explanations: Record<OperatorSignal['kind'], string> = {
     outage: 'A provider or engine outage needs attention.',
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',
     silent: 'The working session has been silent too long.',
+    idle: 'The card has an AI holder, but no work has run on it for a while.',
+    merge_waiting: 'The merge was requested, but the merger has not started it.',
+    merge_blocked: 'The merge stopped on a conflict, a failed check or a block.',
+    unreleased: 'Work merged on the default branch has waited a long time for a release.',
+    ready_waiting: 'Startable cards wait while a developer has free capacity.',
   };
   return `- signal_${signal.kind}: ${explanations[signal.kind]} ${signal.id}, ${signal.state}, task ${signal.taskKey ?? 'none'}, subject ${signal.subject ?? 'none'}, since ${signal.raisedAt}; actionable ${signal.actionable}.`;
 }
@@ -588,38 +666,6 @@ export function formatLinkedPullRequest(task: Task, repo: string, number: number
   return `Linked PR ${repo}#${number} to ${task.key}.${all}`;
 }
 
-/* ---------- publishing ---------- */
-
-export function formatPublished(result: PublishedTaskBranch): string {
-  const pr = result.pullRequest;
-  const upload = result.alreadyPublished
-    ? `${result.branch} was already at ${result.commit.slice(0, 12)} on GitHub; nothing was uploaded.`
-    : `Published ${result.branch} at ${result.commit.slice(0, 12)} to ${result.repo}.`;
-  const request = result.pullRequestCreated
-    ? `Opened pull request #${pr.number} (${pr.url}) into ${pr.baseRef}.`
-    : `Pull request #${pr.number} (${pr.url}) was already open into ${pr.baseRef}; it now shows the new commit.`;
-  return `${upload} ${request} It is recorded on ${result.task.key} under your name; the task's reviewers see it there.`;
-}
-
-export function formatRemoteState(state: PublishedTaskState): string {
-  const short = (sha: string | null) => (sha ? sha.slice(0, 12) : 'not there');
-  const distance =
-    state.ahead !== null && state.behind !== null
-      ? ` The branch is ${state.ahead} commit(s) ahead of and ${state.behind} behind ${state.baseBranch}.`
-      : '';
-  const requests =
-    state.pullRequests.length > 0
-      ? state.pullRequests
-          .map((pr) => `#${pr.number} ${pr.state}${pr.draft ? ' (draft)' : ''} ${pr.url}`)
-          .join('; ')
-      : 'none';
-  const by = state.publishedBy ? ` Published by ${state.publishedBy}.` : '';
-  return (
-    `${state.taskKey} on ${state.repo}: ${state.baseBranch} is at ${short(state.baseCommit)}, ` +
-    `${state.branch} at ${short(state.branchCommit)}.${distance} Pull requests: ${requests}.${by}`
-  );
-}
-
 /* ---------- messages and questions ---------- */
 
 /** set_current_work: one line; not recorded when the session was not in a round. */
@@ -636,6 +682,8 @@ export function formatSentMessage(result: {
   /** Recipients that get it somewhere else than on the message's own card. */
   routed?: { handle: string; workItem: WorkItemRef }[];
   taskKey: string | null;
+  /** The sender is the Operator (PM-543): no line sends it to a person. */
+  operator?: boolean;
 }): string {
   const about = result.taskKey ? ` about ${result.taskKey}` : '';
   const missing = result.requested.filter((h) => !result.deliveredTo.includes(h));
@@ -645,7 +693,15 @@ export function formatSentMessage(result: {
       : `Message ${result.messageId}${about} was not delivered to anyone.`;
   const parts = [sent];
   if (missing.length > 0) parts.push(`Not delivered to: ${missing.join(', ')}.`);
-  const lines = result.recipients.map((r) => `\n- ${recipientLine(r, result.taskKey)}`);
+  const lines = result.recipients.map(
+    (r) => `\n- ${recipientLine(r, result.taskKey, result.operator === true)}`,
+  );
+  // The Operator can read the outcome of a start that was not decided yet (PM-543).
+  if (
+    result.operator &&
+    result.recipients.some((r) => r.start?.state === 'starting' || r.start?.state === 'waiting')
+  )
+    parts.push(`Read later what became of it with get_project_state message_id ${result.messageId}.`);
   const routed: string[] = [];
   for (const { handle, workItem } of result.routed ?? []) {
     if (workItem.type === 'general')
@@ -660,10 +716,27 @@ export function formatSentMessage(result: {
   return parts.join(' ') + lines.join('') + (routed.length > 0 ? `\n${routed.join(' ')}` : '');
 }
 
-/** What happens to a sent message for one recipient, as the sender is told (PM-144). `taskKey` is the card it is about. */
-function recipientLine(
-  { handle, delivery, hold, waitingPermission, noWake }: SentMessageRecipient,
+export function formatMemberStart(result: MemberStartResult): string {
+  return `${recipientLine(result.recipient, null, true)} Message ${result.messageId}: the text is in the member's general conversation.`;
+}
+
+const staleExplanations: Record<StaleReason, string> = {
+  card_closed: 'is closed',
+  stage_moved: 'has moved to another stage since',
+  superseded: 'has a newer message from the same sender',
+  sender_result: "already has the sender's result",
+  result_recorded: 'already has a result for that commit',
+  permission_closed: 'is decided',
+};
+
+/**
+ * What happens to a sent message for one recipient, as the sender is told (PM-144, PM-543). `taskKey` is the
+ * card it is about; `operator`: the sender is the Operator, who is never sent to a person for it.
+ */
+export function recipientLine(
+  { handle, delivery, hold, waitingPermission, noWake, info, stale, start }: SentMessageRecipient,
   taskKey: string | null,
+  operator = false,
 ): string {
   if (waitingPermission)
     return `${handle}: waiting for a permission decision since ${formatTimestamp(waitingPermission.since)} (decides: ${waitingPermission.deciders.join(', ')}). Your message waits and reaches them in one input with the others when their turn ends after the decision; do not resend it or ask about it.`;
@@ -671,9 +744,17 @@ function recipientLine(
   switch (delivery) {
     case 'next_input':
       if (noWake === 'no_card_role')
-        return `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
+        return operator
+          ? `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), so this starts nothing. They get it the next time they work on ${card}.`
+          : `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
       if (noWake === 'operator_owner_only')
-        return `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.`;
+        return operator
+          ? `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them.`
+          : `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.`;
+      if (stale)
+        return `${handle}: not started: ${card} ${staleExplanations[stale]}, so this message is out of date and starts nothing. They get it with their next input.`;
+      if (info)
+        return `${handle}: not started: a message of kind info starts nothing. They get it with their next input.`;
       return `${handle}: they get it with their next input; it starts nothing.`;
     case 'inbox':
       return `${handle}: a person; they read it in the app.`;
@@ -682,6 +763,7 @@ function recipientLine(
     case 'after_turn':
       return `${handle}: their session is busy; it gets the full text when its current turn ends. Do not resend it.`;
     case 'wake':
+      if (start) return wakeStartLine(handle, start);
       return `${handle}: no session of theirs is running; one starts or resumes with the full text (it may wait for a free slot, a usage limit or a pause). Do not resend it.`;
     case 'held':
       switch (hold) {
@@ -701,6 +783,22 @@ function recipientLine(
         default:
           return `${handle}: held: their session restarts first (a new review round or permission mode); they get it in its first input.`;
       }
+  }
+}
+
+/** What became of waking one recipient, when the send waited for it (PM-543). */
+function wakeStartLine(handle: string, start: WakeStart): string {
+  switch (start.state) {
+    case 'started':
+      return `${handle}: started: their session ${start.sessionId} runs and has the full text. Do not resend it.`;
+    case 'starting':
+      return `${handle}: starting: the start did not finish within the wait and goes on in the background; the full text is in the session's first input. Do not resend it.`;
+    case 'waiting':
+      return `${handle}: not started yet: ${start.reason}, ${waitingExplanations[start.reason]} The start is retried; the message waits for it. Do not resend it.`;
+    case 'failed':
+      return start.code === 'not_started'
+        ? `${handle}: not started: the start ran but no session of theirs is live. The message is stored; they get it with their next start. Do not resend it.`
+        : `${handle}: the start failed (${start.code}). The message is stored; they get it with their next start. Do not resend it.`;
   }
 }
 
@@ -839,6 +937,7 @@ export function formatQuestionAsked(
   asked: { question: string; recommended?: string | undefined },
   approvalLabel?: string,
   attachments?: ReadonlyArray<Pick<QuestionAttachment, 'fileName' | 'taskKey'>>,
+  screening?: boolean,
 ): string {
   const whose = to && to.length > 0 ? ` of ${to.join(', ')}` : '';
   const files =
@@ -849,5 +948,9 @@ export function formatQuestionAsked(
   const approvalNote = approvalLabel
     ? `\nNote: an answer to this question does not put the label \`${approvalLabel}\` on the card. The app asks the label's holders for the approval in their inbox (a gate request); this question closes by itself once the label is on.`
     : '';
-  return `Question ${inboxItemId} is waiting in the inbox${whose}.${files}${hint ? `\nTip for your next question: ${hint}` : ''}${approvalNote}`;
+  // The Operator looks first (PM-558): the asker is told so, and that no person is needed for it to move on.
+  const where = screening
+    ? `went to the Operator first, who answers it, passes it to a member or sends it on to the people${whose}. A person gets it within ${QUESTION_SCREENING_MINUTES} minutes at the latest, and the Operator's result arrives in this session as a team message. If the Operator settled it without a person and you still need a person's answer, ask again with reask_of and reask_reason`
+    : `is waiting in the inbox${whose}`;
+  return `Question ${inboxItemId} ${where}.${files}${hint ? `\nTip for your next question: ${hint}` : ''}${approvalNote}`;
 }

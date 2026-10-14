@@ -305,6 +305,17 @@
   line-height: 1.2;
 }
 
+/* The buttons of a todo (Done, Cannot do it, Attach a file): full width, one under the other. */
+.mobile .todoActions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.mobile .todoActions > button {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
 .mobile .details {
   min-height: 40px;
   align-self: flex-start;
@@ -316,6 +327,135 @@
   font-size: var(--text-sm);
   font-weight: 700;
   color: var(--c-blocked-text);
+}
+
+/* What the Operator wrote about a question that came to the viewer (PM-556): a quiet bar under the question. */
+.operatorNote {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--c-line-soft);
+  background: var(--c-subtle);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--c-ink-2);
+}
+
+.operatorNote strong {
+  font-weight: 700;
+}
+
+.operatorAvatar {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--role-operator-bg);
+  color: var(--role-operator-fg);
+}
+
+/* The step of a todo: what, where, the expected result. */
+.steps {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stepsTitle {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-ink-3);
+}
+
+.stepsList {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  font-size: var(--text-md);
+}
+
+.stepsList dt {
+  color: var(--c-ink-4);
+}
+
+.stepsList dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--c-ink);
+}
+
+.mobile .stepsList {
+  grid-template-columns: 1fr;
+}
+
+.mobile .stepsList dd {
+  margin-bottom: 6px;
+}
+
+/* A quiet line under the question: the Operator did not look, the answer waits for the asker, the asker asks again. */
+.note {
+  margin: 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: var(--text-sm);
+  color: var(--c-ink-4);
+}
+
+.optional {
+  font-weight: 400;
+}
+
+/* A question that closed while the viewer was answering (PM-556): the card keeps its place and says so. */
+.gone {
+  background: var(--c-subtle);
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
+}
+
+.leaving {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.goneBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--c-muted);
+}
+
+.goneBox p {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--c-ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gone {
+    transition: none;
+  }
 }
 
 /* "Vidd tovább" and "Megnyitom": stacked and full width on the phone. */

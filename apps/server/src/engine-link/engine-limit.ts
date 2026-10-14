@@ -8,7 +8,7 @@ import {
   READER_UNSANDBOXED_COMMANDS,
   SANDBOX_DENIED_ENV_VARS,
   sensitivePaths,
-} from '../domain/session-policy';
+} from '../contracts';
 import {
   isBranchName,
   isCommitFileSet,
@@ -16,8 +16,8 @@ import {
   isMergeId,
   isMergeMessage,
   isRepoFilePath,
-} from '../engine-host/merge-input';
-import { isWithin } from '../engine-host/within';
+} from '../engine-host';
+import { isWithin } from '../engine-host';
 import { BILLING_ENV_VARS } from '../runner';
 import { engineFiles } from './engine-config';
 import type { ResolvedEngineConfig } from './engine-config';
@@ -407,10 +407,6 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     'workspace.checkoutReview': ([key, source, ref]) => {
       inside(source.path, 'The source repository');
       return [{ ...key, project: bind(key.project, key.repoName) }, source, ref];
-    },
-    'workspace.export_branch': (params) => {
-      limit.token(params.uploadToken);
-      return { ...params, key: { ...params.key, project: bind(params.key.project, params.key.repoName) } };
     },
     'full_test.run': (params) => {
       const { spec } = params;

@@ -10,8 +10,8 @@ import {
 } from './format';
 import { sampleTaskDetail } from './testing';
 import { TaskStartWaiting } from '@projectman/shared';
-import type { MessageAttachmentReading, TaskStateReport } from '../contracts';
-import { formatMessageAttachment, formatProjectState } from './format';
+import type { MessageAttachmentReading, MessageStateReport, TaskStateReport } from '../contracts';
+import { formatMessageAttachment, formatProjectState, recipientLine } from './format';
 
 describe('formatMessageAttachment (PM-518)', () => {
   const reading = (extra: Record<string, unknown> = {}, content: Record<string, unknown> = {}) =>
@@ -117,16 +117,96 @@ describe('formatProjectState', () => {
     const text = formatProjectState({
       signals: [],
       paused: { project: true, instance: false },
+      operatorWatch: 'report',
       stages: [{ stageId: 'dev', count: 2 }],
       sessions: [{ id: 'ses_1', member: 'dev-1', taskKey: 'AR-21', state: 'idle', since: '2026-10-10' }],
-      waitingStarts: [{ taskKey: 'AR-22', member: 'cr', reason: 'member_on_leave' }],
+      waitingStarts: [
+        { taskKey: 'AR-22', member: 'cr', reason: 'member_on_leave' },
+        { taskKey: null, member: 'dev-2', reason: 'member_on_leave' },
+      ],
       openOwnerItems: [{ id: 'q_1', kind: 'question', taskKey: 'AR-21', title: 'Choose checkout' }],
+      waitingMessages: [{ member: 'dev-2', count: 3, oldestAt: '2026-10-10T08:00:00.000Z' }],
+      release: {
+        running: { version: 'a'.repeat(40), commit: 'a'.repeat(40), tag: 'v2026.10.11' },
+        latestLive: {
+          id: 'rel_1',
+          taskKey: 'AR-30',
+          tag: 'v2026.10.11',
+          commit: 'a'.repeat(40),
+          liveAt: '2026-10-11T09:00:00.000Z',
+        },
+        open: null,
+        recentMerges: [
+          {
+            taskKey: 'AR-31',
+            title: 'Fix the cart',
+            commit: 'b'.repeat(40),
+            at: '2026-10-12T10:00:00.000Z',
+            by: 'claude',
+          },
+        ],
+      },
     });
+    expect(text).toContain(`- running: version ${'a'.repeat(40)}; commit ${'a'.repeat(40)}; tag v2026.10.11`);
+    expect(text).toContain('- open release: none');
+    expect(text).toContain('- AR-31 Fix the cart: commit bbbbbbbb, 2026-10-12T10:00:00.000Z, by claude');
+    expect(text).toContain('- general, dev-2: member_on_leave');
+    expect(text).toContain('- dev-2: 3, the oldest sent 2026-10-10T08:00:00.000Z');
     expect(text).toContain('Pause: project true; instance false.');
     expect(text).toContain('- dev: 2');
     expect(text).toContain('dev-1, task AR-21, idle, since 2026-10-10');
     expect(text).toContain('AR-22, cr: member_on_leave — The member is on leave.');
     expect(text).toContain('q_1 (question), task AR-21: Choose checkout');
+  });
+  it('prints one line of facts per recipient of a message (PM-543)', () => {
+    const report: MessageStateReport = {
+      messageId: 'msg_1',
+      from: 'operator',
+      taskKey: 'AR-21',
+      kind: 'action',
+      sentAt: '2026-10-12T10:00:00.000Z',
+      recipients: [
+        {
+          handle: 'dev-1',
+          human: false,
+          deliveredAt: null,
+          route: { type: 'task', taskKey: 'AR-21' },
+          session: null,
+          waiting: { reason: 'team_paused', since: '2026-10-12T10:00:01.000Z' },
+          lastStartFailure: { code: 'start_failed', at: '2026-10-12T10:00:02.000Z' },
+          noWake: null,
+          stale: null,
+        },
+        {
+          handle: 'cr',
+          human: false,
+          deliveredAt: '2026-10-12T10:00:03.000Z',
+          route: { type: 'general' },
+          session: { id: 'ses_1', state: 'idle', since: '2026-10-12T10:00:03.000Z' },
+          waiting: null,
+          lastStartFailure: null,
+          noWake: 'info',
+          stale: 'card_closed',
+        },
+        {
+          handle: 'owner',
+          human: true,
+          deliveredAt: null,
+          route: { type: 'general' },
+          session: null,
+          waiting: null,
+          lastStartFailure: null,
+          noWake: null,
+          stale: null,
+        },
+      ],
+    };
+    expect(formatProjectState(report).split('\n')).toEqual([
+      'Message msg_1 from operator about AR-21, kind action, sent 2026-10-12T10:00:00.000Z.',
+      '- dev-1: route card AR-21; not delivered yet; no live session on that route; start waiting since 2026-10-12T10:00:01.000Z: team_paused, The team is paused.; last start failed (start_failed) at 2026-10-12T10:00:02.000Z.',
+      '- cr: route general chat; delivered 2026-10-12T10:00:03.000Z; session ses_1 idle since 2026-10-12T10:00:03.000Z; stale (card_closed): it starts nothing; kind info: it starts nothing.',
+      '- owner: a person, reads it in the app; not delivered yet.',
+    ]);
   });
 });
 
@@ -793,6 +873,70 @@ describe('formatSentMessage', () => {
     ]);
   });
 
+  it('states the real start result of each woken recipient (PM-543)', () => {
+    const text = formatSentMessage({
+      messageId: 'msg_1',
+      requested: ['a', 'b', 'c', 'd', 'e'],
+      deliveredTo: ['a', 'b', 'c', 'd', 'e'],
+      taskKey: null,
+      operator: true,
+      recipients: [
+        { handle: 'a', delivery: 'wake', start: { state: 'started', sessionId: 'ses_1' } },
+        { handle: 'b', delivery: 'wake', start: { state: 'starting' } },
+        { handle: 'c', delivery: 'wake', start: { state: 'waiting', reason: 'team_paused' } },
+        { handle: 'd', delivery: 'wake', start: { state: 'failed', code: 'start_failed' } },
+        { handle: 'e', delivery: 'wake', start: { state: 'failed', code: 'not_started' } },
+      ],
+    });
+    const lines = text.split('\n');
+    expect(lines[0]).toContain('Read later what became of it with get_project_state message_id msg_1.');
+    expect(lines.slice(1)).toEqual([
+      '- a: started: their session ses_1 runs and has the full text. Do not resend it.',
+      "- b: starting: the start did not finish within the wait and goes on in the background; the full text is in the session's first input. Do not resend it.",
+      '- c: not started yet: team_paused, The team is paused. The start is retried; the message waits for it. Do not resend it.',
+      '- d: the start failed (start_failed). The message is stored; they get it with their next start. Do not resend it.',
+      '- e: not started: the start ran but no session of theirs is live. The message is stored; they get it with their next start. Do not resend it.',
+    ]);
+  });
+
+  it('does not point to a later read when every start is decided or the sender is not the Operator', () => {
+    const decided = formatSentMessage({
+      messageId: 'msg_1',
+      requested: ['a'],
+      deliveredTo: ['a'],
+      taskKey: null,
+      operator: true,
+      recipients: [{ handle: 'a', delivery: 'wake', start: { state: 'started', sessionId: 'ses_1' } }],
+    });
+    expect(decided).not.toContain('get_project_state');
+    const other = formatSentMessage({
+      messageId: 'msg_1',
+      requested: ['a'],
+      deliveredTo: ['a'],
+      taskKey: null,
+      recipients: [{ handle: 'a', delivery: 'wake', start: { state: 'starting' } }],
+    });
+    expect(other).not.toContain('get_project_state');
+  });
+
+  it('states why an info or an out-of-date message starts nothing (PM-543)', () => {
+    expect(recipientLine({ handle: 'cr', delivery: 'next_input', info: true }, 'AR-1')).toBe(
+      'cr: not started: a message of kind info starts nothing. They get it with their next input.',
+    );
+    expect(recipientLine({ handle: 'cr', delivery: 'next_input', stale: 'card_closed' }, 'AR-1')).toBe(
+      'cr: not started: AR-1 is closed, so this message is out of date and starts nothing. They get it with their next input.',
+    );
+  });
+
+  it('drops the advice to ask a person for the Operator as sender (PM-543)', () => {
+    const roleless = { handle: 'dev', delivery: 'next_input', noWake: 'no_card_role' } as const;
+    expect(recipientLine(roleless, 'AR-1')).toContain('ask a person to bring them in');
+    expect(recipientLine(roleless, 'AR-1', true)).not.toContain('ask a person');
+    const owners = { handle: 'operator', delivery: 'next_input', noWake: 'operator_owner_only' } as const;
+    expect(recipientLine(owners, null)).toContain('ask a person to relay it');
+    expect(recipientLine(owners, null, true)).not.toContain('ask a person');
+  });
+
   it('says where a message went when it did not go to its own card (PM-182)', () => {
     expect(
       formatSentMessage({
@@ -849,6 +993,23 @@ describe('formatQuestionAsked', () => {
         'Tip for your next question: Consider adding a recommendation with a one-sentence reason ' +
         '(recommended, recommendation_reason).',
     );
+  });
+});
+
+describe('formatQuestionAsked while the Operator screens', () => {
+  it('says the Operator looks first, that a person gets it within ten minutes, and how to ask again', () => {
+    const out = formatQuestionAsked(
+      'inb_1',
+      undefined,
+      { question: 'Ship it?', recommended: 'Yes' },
+      undefined,
+      undefined,
+      true,
+    );
+    expect(out).toContain('Question inb_1 went to the Operator first');
+    expect(out).toContain('A person gets it within 10 minutes at the latest');
+    expect(out).toContain('reask_of and reask_reason');
+    expect(out).not.toContain('is waiting in the inbox');
   });
 });
 

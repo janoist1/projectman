@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
-import { SYSTEM_ACTOR, aiActor } from '../src/domain';
+import { SYSTEM_ACTOR, aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { planUsage, settle } from './helpers/fakes';

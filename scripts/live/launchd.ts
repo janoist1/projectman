@@ -11,10 +11,11 @@ export const VERIFY_TIMEOUT_MS = 120_000;
 /** The pause waits for the sessions to stop (the forced stop comes after `DEFAULT_PAUSE_FORCE_AFTER_MS`). */
 export const PAUSE_WAIT_MS = DEFAULT_PAUSE_FORCE_AFTER_MS + 60_000;
 
-/** launchctl's "5: Input/output error": the old job is still being torn down; a short wait cures it. */
+/** launchctl's "5: Input/output error" can persist while the old job is being torn down. */
 const BOOTSTRAP_BUSY = 5;
-const BOOTSTRAP_TRIES = 5;
+const BOOTSTRAP_TIMEOUT_MS = 30_000;
 const BOOTSTRAP_WAIT_MS = 500;
+const BOOTOUT_TIMEOUT_MS = 120_000;
 /** 3: "no such process" (not loaded); 113: could not find the service. Both mean there is nothing to unload. */
 const NOT_LOADED = [3, 113];
 
@@ -25,17 +26,21 @@ export async function isLoaded(deps: LiveDeps, label: string): Promise<boolean> 
   return (await launchctl(deps, ['print', domainTarget(deps.uid, label)])).status === 0;
 }
 
-/** Unloads a job; a job that is not loaded is no error. */
+/** Unloads a job and waits for launchd to release it; an absent job is no error. */
 export async function bootout(deps: LiveDeps, label: string): Promise<RunResult> {
   const result = await launchctl(deps, ['bootout', domainTarget(deps.uid, label)]);
-  return NOT_LOADED.includes(result.status) ? { ...result, status: 0 } : result;
+  if (result.status !== 0 && !NOT_LOADED.includes(result.status)) return result;
+  if (!(await waitUntil(deps, BOOTOUT_TIMEOUT_MS, async () => !(await isLoaded(deps, label)), 500)))
+    return { status: 1, stdout: result.stdout, stderr: `launchd did not unload ${label} within 120 s` };
+  return { ...result, status: 0 };
 }
 
 export async function bootstrap(deps: LiveDeps, label: string): Promise<RunResult> {
   const args = ['bootstrap', `gui/${deps.uid}`, plistFile(deps.homeDir, label)];
+  const deadline = deps.now().getTime() + BOOTSTRAP_TIMEOUT_MS;
   let result = await launchctl(deps, args);
-  for (let tries = 1; result.status === BOOTSTRAP_BUSY && tries < BOOTSTRAP_TRIES; tries += 1) {
-    await deps.sleep(BOOTSTRAP_WAIT_MS);
+  while (result.status === BOOTSTRAP_BUSY && deps.now().getTime() < deadline) {
+    await deps.sleep(Math.min(BOOTSTRAP_WAIT_MS, deadline - deps.now().getTime()));
     result = await launchctl(deps, args);
   }
   return result;

@@ -1,10 +1,10 @@
 export * from './attachments';
 export * from './boundary';
-export * from './runtime-boundary';
 export * from './runner';
 export * from './session-policy';
 export * from './team-tools';
 export * from './project-state';
+export * from './sessions';
 export * from './github';
 export * from './context';
 export * from './config-store';
@@ -12,3 +12,6 @@ export * from './event-bus';
 export * from './full-test';
 export * from './engine';
 export * from './machine';
+
+export * from './claude-rules';
+export * from './sandbox';

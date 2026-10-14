@@ -1,26 +1,28 @@
-import { execFile } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readdir, realpath, rm, unlink } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import type {
-  BranchMerger,
-  MergeAdvanceResult,
-  MergeBaseState,
-  MergeBuildResult,
-  MergePushResult,
-  MergeRepoRef,
-} from '../contracts';
-import { isWithin } from './within';
 import {
-  DOC_FILE_MAX_BYTES,
-  isBranchName,
-  isCommitFileSet,
-  isCommitId,
-  isMergeId,
-  isMergeMessage,
-  isRepoFilePath,
-} from './merge-input';
-import { MergeError, NETWORK_GIT_TIMEOUT_MS, outputTail, runGit, runGitBytes } from './merge-git';
+  MergeError,
+  type BranchMerger,
+  type MergeAdvanceResult,
+  type MergeBaseState,
+  type MergeBuildResult,
+  type MergePushResult,
+  type MergeRepoRef,
+} from '../contracts';
+import { createDocFiles } from './doc-files';
+import { classifyPush, nulPaths, overlappingPaths } from './git-output';
+import { createMergeChecks } from './merge-check';
+import { NETWORK_GIT_TIMEOUT_MS, outputTail, runGit } from './merge-git';
+import { invalidInput, isCommitId, isMergeMessage, mergeArgs } from './merge-input';
+import {
+  dirtyPaths,
+  fetchUpstream,
+  identityOf,
+  isAncestorCommit,
+  must,
+  requireCommit,
+  resolveCommit,
+  upstreamOf,
+  worktreeOf,
+} from './merge-repo';
 
 /**
  * The local `BranchMerger` (PM-451, PM-448): the git work of merging a card's approved commit into the
@@ -42,255 +44,26 @@ export interface LocalBranchMergerOptions {
   networkTimeoutMs?: number;
 }
 
-export const MERGE_CHECK_DIR = '_merge';
-export const MAX_CHANGED = 1000;
-export const MAX_CONFLICTS = 50;
-const MAX_NODE_MODULES_DEPTH = 2; // the root, `*/` and `*/*/`
-const DEPENDENCY_COPY_TIMEOUT_MS = 300_000;
-/** Caches under node_modules that may hold absolute paths of the place they were made in. */
-const CACHE_DIRS = ['.vite', '.vite-temp', '.cache'];
-const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
-const REPO_NAME = /^[a-z0-9][a-z0-9._-]*$/;
-const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
-
-interface Upstream {
-  /** The remote-tracking ref (`refs/remotes/origin/main`). */
-  ref: string;
-  remote: string;
-  /** The branch on the remote (`refs/heads/main`). */
-  remoteRef: string;
-}
-
-const invalid = (message: string): never => {
-  throw new MergeError('invalid_input', message);
-};
-
-function paths(output: string): string[] {
-  return output.split('\0').filter((entry) => entry.length > 0);
-}
-
-/** The paths of `git status --porcelain=v1 -z` (renames and copies give both names). */
-export function statusPaths(output: string): string[] {
-  const entries = output.split('\0');
-  const found: string[] = [];
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index]!;
-    if (entry.length < 4) continue;
-    found.push(entry.slice(3));
-    if (/[RC]/.test(entry.slice(0, 2))) {
-      const original = entries[index + 1];
-      if (original) found.push(original);
-      index += 1;
-    }
-  }
-  return found;
-}
-
-/** The paths of `touched` that `changed` also touches: the same path, or a file where the other has a directory. */
-export function overlappingPaths(touched: readonly string[], changed: readonly string[]): string[] {
-  const files = new Set(changed);
-  const directories = new Set<string>();
-  for (const file of changed) {
-    for (let at = file.indexOf('/'); at !== -1; at = file.indexOf('/', at + 1))
-      directories.add(file.slice(0, at));
-  }
-  const hit = new Set<string>();
-  for (const candidate of touched) {
-    let found = files.has(candidate) || directories.has(candidate);
-    for (let at = candidate.indexOf('/'); !found && at !== -1; at = candidate.indexOf('/', at + 1))
-      found = files.has(candidate.slice(0, at));
-    if (found) hit.add(candidate);
-  }
-  return [...hit].sort();
-}
-
-/** The worktrees of a repository: path and the branch each has checked out (null: detached or bare). */
-export function parseWorktrees(output: string): { path: string; branch: string | null; prunable: boolean }[] {
-  const found: { path: string; branch: string | null; prunable: boolean }[] = [];
-  for (const block of output.split(/\n\s*\n/)) {
-    let item: { path: string; branch: string | null; prunable: boolean } | null = null;
-    for (const line of block.split('\n')) {
-      if (line.startsWith('worktree '))
-        item = { path: line.slice('worktree '.length), branch: null, prunable: false };
-      else if (item && line.startsWith('branch ')) item.branch = line.slice('branch '.length);
-      else if (item && line.startsWith('prunable')) item.prunable = true;
-    }
-    if (item) found.push(item);
-  }
-  return found;
-}
-
-/** How the output of a failed push reads: what the owner has to do about it. */
-export function classifyPush(
-  output: string,
-  timedOut: boolean,
-): 'non_fast_forward' | 'rejected' | 'unreachable' {
-  if (timedOut) return 'unreachable';
-  if (
-    /permission denied|authentication failed|could not read (username|password)|terminal prompts disabled|remote rejected|declined|protected branch|not allowed|forbidden|\b40[13]\b|access denied|insufficient permission|denied to /i.test(
-      output,
-    )
-  )
-    return 'rejected';
-  if (
-    /non-fast-forward|fetch first|updates were rejected|tip of your current branch is behind|\[rejected\]/i.test(
-      output,
-    )
-  )
-    return 'non_fast_forward';
-  if (
-    /could not resolve host|unable to access|connection (refused|reset|timed out)|operation timed out|network is unreachable|no route to host|early eof|rpc failed|unexpected disconnect|could not read from remote|temporary failure in name resolution|name or service not known|broken pipe|the remote end hung up/i.test(
-      output,
-    )
-  )
-    return 'unreachable';
-  return 'rejected';
-}
+const MAX_CHANGED = 1000;
+const MAX_CONFLICTS = 50;
 
 export function createLocalBranchMerger(options: LocalBranchMergerOptions): BranchMerger {
   const platform = options.platform ?? process.platform;
   const networkTimeout = options.networkTimeoutMs ?? NETWORK_GIT_TIMEOUT_MS;
-
-  const repoOf = (ref: MergeRepoRef): string => {
-    if (!PROJECT_KEY.test(ref.projectKey) || !REPO_NAME.test(ref.repo))
-      invalid('Not a project key or repo name');
-    const repo = options.repoPath(ref.projectKey, ref.repo);
-    if (!repo) return invalid(`${ref.projectKey}/${ref.repo} is not bound on this engine`);
-    return repo;
-  };
-  const commitArg = (value: string, what: string): string => {
-    if (!isCommitId(value)) invalid(`${what} is not a commit id`);
-    return value.toLowerCase();
-  };
-  const baseArg = async (value: string): Promise<string> => {
-    if (!(await isBranchName(value))) invalid('The base is not a branch name');
-    return value;
-  };
-
-  const must = async (
-    repo: string,
-    args: readonly string[],
-    what: string,
-    opts?: Parameters<typeof runGit>[2],
-  ) => {
-    const result = await runGit(repo, args, opts);
-    if (result.code !== 0)
-      throw new MergeError(
-        'git_failed',
-        `${what} failed: ${outputTail(result.stderr || result.stdout, 500)}`,
-      );
-    return result.stdout;
-  };
-  /** The commit an object name points at, or null when there is none. */
-  const resolveCommit = async (repo: string, name: string): Promise<string | null> => {
-    const result = await runGit(repo, ['rev-parse', '--verify', '--quiet', `${name}^{commit}`]);
-    return result.code === 0 ? result.stdout.trim() : null;
-  };
-  const requireCommit = async (repo: string, name: string, what: string): Promise<string> => {
-    const commit = await resolveCommit(repo, name);
-    if (!commit) throw new MergeError('unknown_object', `${what} is not known in this repository`);
-    return commit;
-  };
-  const ancestor = async (repo: string, older: string, newer: string): Promise<boolean> => {
-    const result = await runGit(repo, ['merge-base', '--is-ancestor', older, newer]);
-    if (result.code === 0) return true;
-    if (result.code === 1) return false;
-    throw new MergeError('git_failed', `merge-base failed: ${outputTail(result.stderr, 500)}`);
-  };
-  const upstreamOf = async (repo: string, base: string): Promise<Upstream | null> => {
-    const out = await must(
-      repo,
-      [
-        'for-each-ref',
-        '--format=%(refname)%00%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref)',
-        `refs/heads/${base}`,
-      ],
-      'for-each-ref',
-    );
-    for (const line of out.split('\n')) {
-      const [refname, ref, remote, remoteRef] = line.split('\0');
-      if (refname !== `refs/heads/${base}` || !ref || !remote || remote === '.' || !remoteRef) continue;
-      if (!REMOTE_NAME.test(remote))
-        throw new MergeError('no_remote', 'The upstream remote has an unusable name');
-      // The fetch reads the upstream's branch and the push writes `refs/heads/<base>`: they must be one.
-      if (remoteRef !== `refs/heads/${base}`)
-        throw new MergeError('no_remote', `${base} tracks a remote branch of another name (${remoteRef})`);
-      return { ref, remote, remoteRef };
-    }
-    return null;
-  };
-  const fetchUpstream = async (repo: string, upstream: Upstream): Promise<void> => {
-    const fetched = await runGit(
-      repo,
-      [
-        'fetch',
-        '--no-tags',
-        '--no-recurse-submodules',
-        '--no-write-fetch-head',
-        '--',
-        upstream.remote,
-        `+${upstream.remoteRef}:${upstream.ref}`,
-      ],
-      { timeoutMs: networkTimeout },
-    );
-    if (fetched.code !== 0)
-      throw new MergeError(
-        'git_failed',
-        `fetch failed${fetched.timedOut ? ' (timed out)' : ''}: ${outputTail(fetched.stderr || fetched.stdout, 500)}`,
-      );
-  };
-  /** The machine's git identity as the environment of a commit; `no_identity` when the repository has none. */
-  const identityOf = async (repo: string): Promise<Record<string, string>> => {
-    const name = (await runGit(repo, ['config', '--get', 'user.name'])).stdout.trim();
-    const email = (await runGit(repo, ['config', '--get', 'user.email'])).stdout.trim();
-    if (!name || !email)
-      throw new MergeError(
-        'no_identity',
-        'The repository has no committer identity: set user.name and user.email in its git configuration',
-      );
-    return {
-      GIT_AUTHOR_NAME: name,
-      GIT_AUTHOR_EMAIL: email,
-      GIT_COMMITTER_NAME: name,
-      GIT_COMMITTER_EMAIL: email,
-    };
-  };
-  const worktreeOf = async (repo: string, base: string): Promise<string | null> => {
-    const out = await must(repo, ['worktree', 'list', '--porcelain'], 'worktree list', {
-      env: { GIT_OPTIONAL_LOCKS: '0' },
-    });
-    return (
-      parseWorktrees(out).find((item) => item.branch === `refs/heads/${base}` && !item.prunable)?.path ?? null
-    );
-  };
-  const dirtyPaths = async (checkout: string): Promise<string[]> => {
-    const out = await must(checkout, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], 'status', {
-      env: { GIT_OPTIONAL_LOCKS: '0' },
-    });
-    return statusPaths(out);
-  };
-
-  const checkRoot = async (): Promise<string> => {
-    if (!options.worktreesRoot) return invalid('This engine has no worktrees root');
-    const root = path.join(await realpath(options.worktreesRoot), MERGE_CHECK_DIR);
-    const known = await lstat(root).catch(() => null);
-    if (known && (!known.isDirectory() || known.isSymbolicLink()))
-      return invalid(`${root} is not a directory`);
-    return root;
-  };
+  const args = mergeArgs(options.repoPath);
 
   const prepare = async (
     ref: MergeRepoRef,
     input: { base: string; commit: string },
   ): Promise<MergeBaseState> => {
-    const repo = repoOf(ref);
-    const base = await baseArg(input.base);
-    const commit = commitArg(input.commit, 'The commit');
+    const repo = args.repo(ref);
+    const base = await args.base(input.base);
+    const commit = args.commit(input.commit, 'The commit');
     await requireCommit(repo, commit, 'The commit');
     const upstream = await upstreamOf(repo, base);
-    if (upstream) await fetchUpstream(repo, upstream);
+    if (upstream) await fetchUpstream(repo, upstream, networkTimeout);
     const local = await requireCommit(repo, `refs/heads/${base}`, 'The base');
-    const containsLocal = await ancestor(repo, commit, local);
+    const containsLocal = await isAncestorCommit(repo, commit, local);
     let remote: MergeBaseState['remote'] = null;
     let relation: MergeBaseState['relation'] = 'same';
     let containsRemote: boolean | null = null;
@@ -298,11 +71,11 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       const remoteCommit = await requireCommit(repo, upstream.ref, 'The upstream');
       remote = { name: upstream.remote, commit: remoteCommit };
       if (remoteCommit !== local) {
-        if (await ancestor(repo, local, remoteCommit)) relation = 'local_behind';
-        else if (await ancestor(repo, remoteCommit, local)) relation = 'local_ahead';
+        if (await isAncestorCommit(repo, local, remoteCommit)) relation = 'local_behind';
+        else if (await isAncestorCommit(repo, remoteCommit, local)) relation = 'local_ahead';
         else relation = 'diverged';
       }
-      containsRemote = await ancestor(repo, commit, remoteCommit);
+      containsRemote = await isAncestorCommit(repo, commit, remoteCommit);
     }
     return {
       local,
@@ -317,21 +90,22 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     ref: MergeRepoRef,
     input: { ancestor: string; commit: string },
   ): Promise<boolean | null> => {
-    const repo = repoOf(ref);
-    const older = commitArg(input.ancestor, 'The ancestor');
-    const newer = commitArg(input.commit, 'The commit');
+    const repo = args.repo(ref);
+    const older = args.commit(input.ancestor, 'The ancestor');
+    const newer = args.commit(input.commit, 'The commit');
     if (!(await resolveCommit(repo, older)) || !(await resolveCommit(repo, newer))) return null;
-    return ancestor(repo, older, newer);
+    return isAncestorCommit(repo, older, newer);
   };
 
   const build = async (
     ref: MergeRepoRef,
     input: { onto: string; commit: string; message: string },
   ): Promise<MergeBuildResult> => {
-    const repo = repoOf(ref);
-    const onto = commitArg(input.onto, 'The base commit');
-    const commit = commitArg(input.commit, 'The commit');
-    if (!isMergeMessage(input.message) || input.message.trim().length === 0) invalid('Not a commit message');
+    const repo = args.repo(ref);
+    const onto = args.commit(input.onto, 'The base commit');
+    const commit = args.commit(input.commit, 'The commit');
+    if (!isMergeMessage(input.message) || input.message.trim().length === 0)
+      invalidInput('Not a commit message');
     await requireCommit(repo, onto, 'The base commit');
     await requireCommit(repo, commit, 'The commit');
     // The identity first: a repository without one is told so before any work is done.
@@ -370,138 +144,28 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       ['diff-tree', '-r', '--name-only', '-z', '--no-renames', '--no-commit-id', onto, made],
       'diff-tree',
     );
-    return { ok: true, mergeCommit: made, changed: paths(diff).sort().slice(0, MAX_CHANGED) };
+    return { ok: true, mergeCommit: made, changed: nulPaths(diff).sort().slice(0, MAX_CHANGED) };
   };
 
   const checkoutConflicts = async (
     ref: MergeRepoRef,
     input: { base: string; changed: string[] },
   ): Promise<string[]> => {
-    const repo = repoOf(ref);
-    const base = await baseArg(input.base);
-    if (input.changed.some((entry) => entry.includes('\0'))) invalid('Not a path');
+    const repo = args.repo(ref);
+    const base = await args.base(input.base);
+    if (input.changed.some((entry) => entry.includes('\0'))) invalidInput('Not a path');
     const checkout = await worktreeOf(repo, base);
     if (!checkout) return [];
     return overlappingPaths(await dirtyPaths(checkout), input.changed).slice(0, MAX_CONFLICTS);
-  };
-
-  /** The directories (relative, '' is the root) that hold a real `node_modules`, down to three levels. */
-  const dependencyParents = async (root: string): Promise<string[]> => {
-    const realDirectory = async (dir: string) => {
-      const info = await lstat(dir).catch(() => null);
-      return info !== null && info.isDirectory() && !info.isSymbolicLink();
-    };
-    const found: string[] = [];
-    const walk = async (relative: string, depth: number): Promise<void> => {
-      if (await realDirectory(path.join(root, relative, 'node_modules'))) found.push(relative);
-      if (depth >= MAX_NODE_MODULES_DEPTH) return;
-      const entries = await readdir(path.join(root, relative), { withFileTypes: true }).catch(() => []);
-      for (const entry of entries) {
-        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-        if (entry.name === 'node_modules' || entry.name === '.git') continue;
-        await walk(path.join(relative, entry.name), depth + 1);
-      }
-    };
-    await walk('', 0);
-    return found;
-  };
-  const copyTree = (source: string, dest: string, clone: boolean, timeoutMs: number): Promise<void> =>
-    new Promise((resolve, reject) => {
-      // `-P`: a link is copied as a link (the workspace links are relative and point into the new tree).
-      const args = [...(clone ? ['-c'] : []), '-R', '-P', source, dest];
-      execFile(
-        'cp',
-        args,
-        { env: { PATH: process.env.PATH ?? '/usr/bin:/bin' }, timeout: timeoutMs, windowsHide: true },
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
-  const copyDependencies = async (from: string, target: string): Promise<void> => {
-    const deadline = Date.now() + (options.copyTimeoutMs ?? DEPENDENCY_COPY_TIMEOUT_MS);
-    for (const parent of await dependencyParents(from)) {
-      const holder = path.join(target, parent);
-      const holderInfo = await lstat(holder).catch(() => null);
-      // The merged tree may not have that directory any more, or may track something of that name.
-      if (!holderInfo || !holderInfo.isDirectory() || holderInfo.isSymbolicLink()) continue;
-      // The merged tree is the card's: a tracked link on any part of the path (`apps -> /elsewhere`) would
-      // lead the copy out of the check worktree. `target` is already a real path, so the real holder must
-      // be exactly where the path says.
-      if ((await realpath(holder).catch(() => null)) !== holder) continue;
-      const dest = path.join(holder, 'node_modules');
-      if (await lstat(dest).catch(() => null)) continue;
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new MergeError('git_failed', 'copying the dependencies timed out');
-      const source = path.join(from, parent, 'node_modules');
-      if (platform === 'darwin') {
-        try {
-          await copyTree(source, dest, true, remaining);
-        } catch {
-          await rm(dest, { recursive: true, force: true });
-          await copyTree(source, dest, false, Math.max(deadline - Date.now(), 1000));
-        }
-      } else await copyTree(source, dest, false, remaining);
-      for (const cache of CACHE_DIRS) await rm(path.join(dest, cache), { recursive: true, force: true });
-    }
-  };
-
-  const release = async (repo: string, target: string): Promise<void> => {
-    const known = await lstat(target).catch(() => null);
-    if (known?.isSymbolicLink() || (known && !known.isDirectory())) {
-      await unlink(target);
-    } else if (known) {
-      await runGit(repo, ['worktree', 'remove', '--force', '--force', target]);
-      await rm(target, { recursive: true, force: true });
-    }
-    await runGit(repo, ['worktree', 'prune']);
-  };
-
-  const checkoutForCheck = async (
-    ref: MergeRepoRef,
-    input: { mergeId: string; mergeCommit: string; depsFrom: string | null },
-  ): Promise<{ path: string; gitDir: string }> => {
-    const repo = repoOf(ref);
-    if (!isMergeId(input.mergeId)) invalid('Not a merge id');
-    const mergeCommit = commitArg(input.mergeCommit, 'The merge commit');
-    if (input.depsFrom !== null && !path.isAbsolute(input.depsFrom))
-      invalid('The dependencies path is not absolute');
-    const root = await checkRoot();
-    const target = path.join(root, input.mergeId);
-    await mkdir(root, { recursive: true, mode: 0o700 });
-    // A leftover of an earlier try with this id is made again from scratch.
-    await release(repo, target);
-    await must(repo, ['worktree', 'add', '--detach', target, mergeCommit], 'worktree add');
-    try {
-      if (input.depsFrom !== null) {
-        const source = await realpath(input.depsFrom).catch(() => null);
-        if (source === null) invalid('The dependencies path does not exist');
-        else if (isWithin(await realpath(target), source) || isWithin(source, await realpath(target)))
-          invalid('The dependencies path overlaps the check checkout');
-        else await copyDependencies(source, await realpath(target));
-      }
-      const commonDir = (
-        await must(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'rev-parse')
-      ).trim();
-      return { path: await realpath(target), gitDir: await realpath(commonDir) };
-    } catch (error) {
-      await release(repo, target).catch(() => {});
-      throw error;
-    }
-  };
-
-  const releaseCheck = async (ref: MergeRepoRef, input: { mergeId: string }): Promise<void> => {
-    const repo = repoOf(ref);
-    if (!isMergeId(input.mergeId)) invalid('Not a merge id');
-    const root = await checkRoot();
-    await release(repo, path.join(root, input.mergeId));
   };
 
   const push = async (
     ref: MergeRepoRef,
     input: { base: string; mergeCommit: string },
   ): Promise<MergePushResult> => {
-    const repo = repoOf(ref);
-    const base = await baseArg(input.base);
-    const mergeCommit = commitArg(input.mergeCommit, 'The merge commit');
+    const repo = args.repo(ref);
+    const base = await args.base(input.base);
+    const mergeCommit = args.commit(input.mergeCommit, 'The merge commit');
     const upstream = await upstreamOf(repo, base);
     if (!upstream) throw new MergeError('no_remote', `${base} has no upstream to push to`);
     await requireCommit(repo, mergeCommit, 'The merge commit');
@@ -533,13 +197,14 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     ref: MergeRepoRef,
     input: { base: string; from: string; to: string },
   ): Promise<MergeAdvanceResult> => {
-    const repo = repoOf(ref);
-    const base = await baseArg(input.base);
-    const from = commitArg(input.from, 'The old commit');
-    const to = commitArg(input.to, 'The new commit');
+    const repo = args.repo(ref);
+    const base = await args.base(input.base);
+    const from = args.commit(input.from, 'The old commit');
+    const to = args.commit(input.to, 'The new commit');
     await requireCommit(repo, from, 'The old commit');
     await requireCommit(repo, to, 'The new commit');
-    if (!(await ancestor(repo, from, to))) invalid('The new commit is not a descendant of the old one');
+    if (!(await isAncestorCommit(repo, from, to)))
+      invalidInput('The new commit is not a descendant of the old one');
     const moved = (current: string | null): MergeAdvanceResult => ({
       ok: false,
       reason: 'moved',
@@ -576,7 +241,7 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     if (merged.code === 0) return { ok: true };
     const current = await head();
     if (current !== from) return moved(current);
-    const changed = paths(
+    const changed = nulPaths(
       await must(
         repo,
         ['diff-tree', '-r', '--name-only', '-z', '--no-renames', '--no-commit-id', from, to],
@@ -597,129 +262,19 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     );
   };
 
-  /** The tree entry of `file` at `commit`; null when there is none. */
-  const treeEntry = async (
-    repo: string,
-    commit: string,
-    file: string,
-  ): Promise<{ mode: string; type: string; object: string } | null> => {
-    const out = await must(repo, ['ls-tree', '-z', '--full-tree', commit, '--', file], 'ls-tree');
-    for (const entry of paths(out)) {
-      const tab = entry.indexOf('\t');
-      if (tab === -1 || entry.slice(tab + 1) !== file) continue;
-      const [mode, type, object] = entry.slice(0, tab).split(' ');
-      if (mode && type && object) return { mode, type, object };
-    }
-    return null;
-  };
-
-  const readFile = async (
-    ref: MergeRepoRef,
-    input: { at: { commit: string } | { base: string }; path: string },
-  ): Promise<{ commit: string; text: string | null }> => {
-    const repo = repoOf(ref);
-    if (!isRepoFilePath(input.path)) invalid('Not a path inside the repository');
-    let commit: string;
-    if ('commit' in input.at) {
-      commit = await requireCommit(repo, commitArg(input.at.commit, 'The commit'), 'The commit');
-    } else {
-      const base = await baseArg(input.at.base);
-      const upstream = await upstreamOf(repo, base);
-      if (upstream) {
-        await fetchUpstream(repo, upstream);
-        commit = await requireCommit(repo, upstream.ref, 'The upstream');
-      } else commit = await requireCommit(repo, `refs/heads/${base}`, 'The base');
-    }
-    const entry = await treeEntry(repo, commit, input.path);
-    if (!entry) return { commit, text: null };
-    if (entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755'))
-      return invalid(`${input.path} is not a regular file`);
-    const size = Number((await must(repo, ['cat-file', '-s', entry.object], 'cat-file')).trim());
-    if (!Number.isFinite(size) || size > DOC_FILE_MAX_BYTES) return invalid(`${input.path} is over 1 MiB`);
-    const blob = await runGitBytes(repo, ['cat-file', 'blob', entry.object]);
-    if (blob.code !== 0)
-      throw new MergeError('git_failed', `cat-file failed: ${outputTail(blob.stderr, 500)}`);
-    let text: string;
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(blob.stdout);
-    } catch {
-      return invalid(`${input.path} is not UTF-8 text`);
-    }
-    if (text.includes('\0')) return invalid(`${input.path} is not text`);
-    return { commit, text };
-  };
-
-  const commitFiles = async (
-    ref: MergeRepoRef,
-    input: { onto: string; files: { path: string; text: string }[]; message: string },
-  ): Promise<{ commit: string; changed: string[] }> => {
-    const repo = repoOf(ref);
-    const onto = commitArg(input.onto, 'The base commit');
-    if (!isMergeMessage(input.message) || input.message.trim().length === 0) invalid('Not a commit message');
-    if (!isCommitFileSet(input.files))
-      invalid('Not a set of 1 to 2 different files inside the repository, each text under 1 MiB');
-    await requireCommit(repo, onto, 'The base commit');
-    const identity = await identityOf(repo);
-    // The index is a file of its own in a temporary directory: the repository's index, refs and working tree stay as they are.
-    const scratch = await mkdtemp(path.join(os.tmpdir(), 'projectman-index-'));
-    try {
-      const indexEnv = { GIT_INDEX_FILE: path.join(scratch, 'index') };
-      await must(repo, ['read-tree', onto], 'read-tree', { env: indexEnv });
-      let entries = '';
-      for (const file of input.files) {
-        const existing = await treeEntry(repo, onto, file.path);
-        if (
-          existing &&
-          (existing.type !== 'blob' || (existing.mode !== '100644' && existing.mode !== '100755'))
-        )
-          invalid(`${file.path} is not a regular file`);
-        // A file where onto has the directory's place would silently remove that file.
-        for (let at = file.path.indexOf('/'); at !== -1; at = file.path.indexOf('/', at + 1)) {
-          const parent = await treeEntry(repo, onto, file.path.slice(0, at));
-          if (parent && parent.type !== 'tree')
-            invalid(`${file.path.slice(0, at)} is a file, not a directory`);
-        }
-        const blob = (
-          await must(repo, ['hash-object', '-w', '-t', 'blob', '--no-filters', '--stdin'], 'hash-object', {
-            input: file.text,
-          })
-        ).trim();
-        if (!isCommitId(blob)) throw new MergeError('git_failed', 'hash-object gave no object');
-        entries += `${existing?.mode ?? '100644'} ${blob}\t${file.path}\0`;
-      }
-      await must(repo, ['update-index', '-z', '--index-info'], 'update-index', {
-        env: indexEnv,
-        input: entries,
-      });
-      const tree = (await must(repo, ['write-tree'], 'write-tree', { env: indexEnv })).trim();
-      if (!isCommitId(tree)) throw new MergeError('git_failed', 'write-tree gave no tree');
-      const made = (
-        await must(repo, ['commit-tree', tree, '-p', onto, '-m', input.message], 'commit-tree', {
-          env: identity,
-        })
-      ).trim();
-      if (!isCommitId(made)) throw new MergeError('git_failed', 'commit-tree gave no commit');
-      const diff = await must(
-        repo,
-        ['diff-tree', '-r', '--name-only', '-z', '--no-renames', '--no-commit-id', onto, made],
-        'diff-tree',
-      );
-      return { commit: made, changed: paths(diff).sort() };
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
-  };
-
   return {
     prepare,
     isAncestor,
     build,
     checkoutConflicts,
-    checkoutForCheck,
-    releaseCheck,
     push,
     advance,
-    readFile,
-    commitFiles,
+    ...createMergeChecks({
+      args,
+      worktreesRoot: options.worktreesRoot,
+      platform,
+      ...(options.copyTimeoutMs !== undefined ? { copyTimeoutMs: options.copyTimeoutMs } : {}),
+    }),
+    ...createDocFiles({ args, networkTimeoutMs: networkTimeout }),
   };
 }

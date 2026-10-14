@@ -10,13 +10,13 @@ import {
   TokenUsage,
 } from '@projectman/shared';
 import type { EnginePaths, PermissionRefusedInfo, RunnerEvent, RunningSessionInfo } from '../contracts';
-import type { PullRequestInfo } from '../contracts/github';
+import type { PullRequestInfo } from '../contracts';
 
 export const ENGINE_PROTOCOL_VERSION = 1;
 export const ENGINE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 export const ENGINE_HEARTBEAT_MS = 20_000;
 export const ENGINE_DEAD_AFTER_MS = 45_000;
-export const ENGINE_OFFLINE_AFTER_MS = 120_000;
+export { ENGINE_OFFLINE_AFTER_MS } from '../contracts';
 export const ENGINE_RELAY_WAIT_MS = 60_000;
 export const ENGINE_UPLOAD_MAX_BYTES = {
   file: MAX_ATTACHMENT_BYTES,
@@ -103,6 +103,7 @@ export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_d
       signal: z.number().int().nullable(),
     }),
     z.strictObject({ type: z.literal('first_input_sent'), sessionId: text }),
+    z.strictObject({ type: z.literal('first_input_failed'), sessionId: text }),
     z.strictObject({ type: z.literal('provider_session_id'), sessionId: text, providerSessionId: text }),
     z.strictObject({
       type: z.literal('auth_error'),

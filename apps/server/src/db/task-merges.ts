@@ -7,6 +7,8 @@ export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
   fromStageId: string;
   state: TaskMergeState['state'] | 'merged' | 'cancelled';
   createdAt: string;
+  /** When the merger or the Operator put the queued merge forward; cleared when the merge starts running. */
+  prioritizedAt?: string;
   updatedAt: string;
   finishedAt?: string;
   pushed?: TaskMerged['pushed'];
@@ -40,6 +42,7 @@ const columns = {
   pushed: 'pushed_json',
   pullRequests: 'pull_requests_json',
   createdAt: 'created_at',
+  prioritizedAt: 'prioritized_at',
   updatedAt: 'updated_at',
   finishedAt: 'finished_at',
 } as const;
@@ -91,6 +94,8 @@ export function mergedState(row: MergeRecord): TaskMerged | undefined {
     ...(row.resolution ? { resolution: row.resolution } : {}),
   };
 }
+/** Queue order: merges put forward first (the latest decision first), then by when they were asked for. */
+const QUEUE_ORDER = 'prioritized_at IS NULL, prioritized_at DESC, created_at, rowid';
 export function createTaskMergeRepository(db: Db) {
   const read = (sql: string, ...args: string[]) =>
     (db.prepare(sql).all(...args) as Record<string, unknown>[]).map(record);
@@ -99,7 +104,7 @@ export function createTaskMergeRepository(db: Db) {
       return read('SELECT * FROM task_merges WHERE id = ?', id)[0] ?? null;
     },
     list(state: MergeRecord['state']) {
-      return read('SELECT * FROM task_merges WHERE state = ? ORDER BY created_at, rowid', state);
+      return read(`SELECT * FROM task_merges WHERE state = ? ORDER BY ${QUEUE_ORDER}`, state);
     },
     open(projectKey: string, taskKey: string) {
       return (
@@ -108,6 +113,14 @@ export function createTaskMergeRepository(db: Db) {
           projectKey,
           taskKey,
         )[0] ?? null
+      );
+    },
+    /** The repository's open merges that wait or failed (not the running one), in queue order. */
+    waitingOf(projectKey: string, repo: string) {
+      return read(
+        `SELECT * FROM task_merges WHERE project_key = ? AND repo = ? AND state IN ('requested','queued','failed','blocked','fixing') ORDER BY ${QUEUE_ORDER}`,
+        projectKey,
+        repo,
       );
     },
     latestMerged(projectKey: string, taskKey: string) {

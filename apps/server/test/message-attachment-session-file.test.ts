@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PROVIDER_MCP_IMAGE_RESULTS } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { sessionFileName } from '../src/domain/message-attachments';
+import { sessionFileName } from '../src/core/attachments';
 import { pdfBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -244,6 +244,25 @@ describe('message attachment in the folder of a started Gemini, NanoGPT and read
     expect(reading.content).toEqual({ kind: 'none', reason: 'type' });
     expect(reading.file!.path.startsWith(`${folder}/`)).toBe(true);
     expect(readFileSync(reading.file!.path).equals(png)).toBe(true);
+  });
+
+  it('puts nothing into the folder of a Gemini session that is not a recipient of the message', async () => {
+    const { ctx, folder } = await startAs('gemini');
+    const file = await h!.domain.messageAttachments.upload({
+      projectKey: 'AR',
+      actor: OWNER_ACTOR,
+      fileName: 'plan.pdf',
+      content: Readable.from([pdfBytes()]),
+    });
+    await h!.domain.messaging.send(
+      'AR',
+      'owner',
+      { to: ['dev-2'], text: 'Not for dev-1.', taskKey: null, attachmentIds: [file.id] },
+      { actor: OWNER_ACTOR },
+    );
+    const reading = await read(ctx, file.id).catch((err: unknown) => err);
+    expect(reading).toMatchObject({ code: 'not_found' });
+    expect(readdirSync(folder).filter((entry) => entry.startsWith('msa_'))).toEqual([]);
   });
 
   it('shows an image inline to a read-only Codex session, with no file', async () => {

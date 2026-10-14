@@ -400,77 +400,6 @@ describe('buildCodexArgs', () => {
     }
   });
 
-  describe('the managed VM profile (PM-141)', () => {
-    const managed = (
-      sandbox: 'danger-full-access' | 'read-only' | 'workspace-write' = 'danger-full-access',
-      approval: 'never' | 'on-request' = 'never',
-    ): NonNullable<StartSessionSpec['policy']> => ({
-      version: 1,
-      enforcement: 'legacy',
-      execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
-      access: 'member_workspace',
-      placement: { kind: 'member_workspace', path: '/work', use: 'work' },
-      tools: { team: { all: true, names: [] }, files: [], shell: [] },
-      filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
-      deniedOperations: [],
-      network: { allowedDomains: [], allowLocalBinding: false },
-      outsideSandbox: 'deny',
-      permissions: { claude: 'bypassPermissions', sandbox, approval },
-    });
-    const managedInput = (policy = managed()) => ({
-      ...input,
-      spec: { ...spec, permissionMode: 'default', policy },
-    });
-
-    it('runs without a sandbox and without questions', () => {
-      const args = buildCodexArgs(managedInput()).args;
-      expect(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 4)).toEqual([
-        '--sandbox',
-        'danger-full-access',
-        '--ask-for-approval',
-        'never',
-      ]);
-    });
-
-    it('keeps the hooks and the team tools, and passes no approval of the old kind', () => {
-      const c = overrides(buildCodexArgs(managedInput()).args);
-      for (const event of CODEX_HOOK_EVENTS) expect(c.has(`hooks.${event}`)).toBe(true);
-      expect(c.get('mcp_servers.team')).toContain('default_tools_approval_mode="approve"');
-      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
-      for (const feature of [
-        'plugins',
-        'remote_plugin',
-        'apps',
-        'tool_suggest',
-        'skill_mcp_dependency_install',
-        'computer_use',
-        'browser_use',
-        'browser_use_external',
-      ])
-        expect(c.get(`features.${feature}`)).toBe('false');
-    });
-
-    it('keeps a research-only member read-only, also without questions', () => {
-      const args = buildCodexArgs(managedInput(managed('read-only'))).args;
-      expect(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 4)).toEqual([
-        '--sandbox',
-        'read-only',
-        '--ask-for-approval',
-        'never',
-      ]);
-    });
-
-    it('refuses a managed policy that asks or sandboxes the legacy way, and the freedom anywhere else', () => {
-      expect(() => buildCodexArgs(managedInput(managed('danger-full-access', 'on-request')))).toThrow(
-        /asks nothing locally/,
-      );
-      expect(() => buildCodexArgs(managedInput(managed('workspace-write')))).toThrow(/no inner sandbox/);
-      // The same permissions without the managed VM execution profile are never started.
-      const free = { ...managed(), execution: undefined };
-      expect(() => buildCodexArgs(managedInput(free))).toThrow(/only in the managed VM profile/);
-    });
-  });
-
   describe('the shared git directory of a task worktree (PM-399)', () => {
     const gitDir = '/main/repo/.git';
     const adminDir = `${gitDir}/worktrees/PM-1-repo`;
@@ -561,9 +490,7 @@ describe('buildCodexArgs', () => {
 
     it('opens nothing in a read-only sandbox, outside a worktree or without its admin directory', () => {
       expect(profile(policy('read-only'))).not.toContain(gitDir);
-      expect(
-        profile(policy('workspace-write', { kind: 'member_workspace', path: '/work', use: 'work' })),
-      ).not.toContain(gitDir);
+      expect(profile(policy('workspace-write', { kind: 'read_only', path: '/work' }))).not.toContain(gitDir);
       expect(
         profile(policy('workspace-write', { kind: 'task_worktree', path: '/work', gitDir })),
       ).not.toContain(gitDir);
@@ -595,13 +522,11 @@ describe('buildCodexArgs', () => {
     };
     const withPolicy = (
       sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access',
-      execution?: NonNullable<StartSessionSpec['policy']>['execution'],
     ): NonNullable<StartSessionSpec['policy']> => ({
       version: 1,
       enforcement: 'legacy',
-      ...(execution ? { execution } : {}),
       access: 'task_worktree',
-      placement: { kind: 'member_workspace', path: '/work', use: 'work' },
+      placement: { kind: 'task_worktree', path: '/work' },
       tools: { team: { all: true, names: [] }, files: [], shell: [] },
       filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
       deniedOperations: [],
@@ -627,6 +552,9 @@ describe('buildCodexArgs', () => {
     });
 
     it('changes nothing without `portable`', () => {
+      expect(() => build({ policy: withPolicy('danger-full-access'), sandbox })).toThrow(
+        'Codex requires its sandbox',
+      );
       const plain = { ...sandbox, portable: undefined };
       const policy = withPolicy('workspace-write');
       expect(buildCodexArgs({ ...input, spec: { ...spec, policy, sandbox: plain } }).args).toEqual(
@@ -646,19 +574,6 @@ describe('buildCodexArgs', () => {
       expect(c.get('permissions.projectman')).toContain(
         `"/workspace/.git"="write",${tomlValue(lockParent)}="write"`,
       );
-    });
-
-    it('gives the managed VM neither the root nor the variables', () => {
-      const policy = withPolicy('danger-full-access', {
-        profile: 'managed_vm',
-        boundary: { name: 'managed-vm', version: 1 },
-      });
-      const c = build({
-        policy: { ...policy, permissions: { ...policy.permissions, approval: 'never' } },
-        sandbox,
-      });
-      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
-      expect([...c.keys()].some((key) => key.startsWith('shell_environment_policy'))).toBe(false);
     });
 
     describe('the session folder and the own temporary directory (PM-339)', () => {
@@ -734,18 +649,6 @@ describe('buildCodexArgs', () => {
         const c = build({ policy: withPolicy('read-only'), sandbox });
         expect(c.has(`${SET}.PROJECTMAN_SESSION_DIR`)).toBe(false);
         expect(c.has('tools.view_image')).toBe(false);
-      });
-
-      it('sets none of it in the managed VM', () => {
-        const policy = withPolicy('danger-full-access', {
-          profile: 'managed_vm',
-          boundary: { name: 'managed-vm', version: 1 },
-        });
-        const c = build({
-          policy: { ...policy, permissions: { ...policy.permissions, approval: 'never' } },
-          sandbox: withFolder,
-        });
-        expect([...c.keys()].filter((key) => /exclude_|TMPDIR|SESSION_DIR|view_image/.test(key))).toEqual([]);
       });
     });
 

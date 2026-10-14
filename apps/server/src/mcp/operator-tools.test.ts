@@ -3,6 +3,24 @@ import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
+  it('forwards multiple signals and validates list bounds', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'send_message')!;
+    const handler = createFakeTeamToolsHandler();
+    const input = {
+      to: ['owner'],
+      kind: 'info',
+      text: 'Summary',
+      signal_ids: ['a', 'b'],
+      actionable_signal_ids: ['b'],
+    };
+    await tool.run({ ctx: devContext, args: tool.inputSchema.parse(input), handler });
+    expect(handler.calls[0]).toMatchObject({ args: { signalIds: ['a', 'b'], actionableSignalIds: ['b'] } });
+    expect(tool.inputSchema.safeParse({ ...input, signal_ids: [] }).success).toBe(false);
+    expect(
+      tool.inputSchema.safeParse({ ...input, signal_ids: Array.from({ length: 21 }, (_, i) => String(i)) })
+        .success,
+    ).toBe(false);
+  });
   it('forwards optional signal presentation arguments without changing ordinary message calls', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'send_message')!;
     const handler = createFakeTeamToolsHandler();
@@ -123,6 +141,35 @@ describe('Operator MCP tools', () => {
     expect(refused([{ item_id: 'inb_1', verdict: 'maybe' }])).toBe(false);
   });
 
+  it('screen_question takes the fields of its outcome only and forwards them (PM-558)', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'screen_question')!;
+    expect(tool.annotations.readOnlyHint).toBe(false);
+    const handler = createFakeTeamToolsHandler();
+    const todo = { what: 'Renew the certificate', where: 'Hosting panel', expected: 'The new expiry date' };
+    const args = tool.inputSchema.parse({ item_id: 'inb_1', outcome: 'todo', note: 'Needs a login', todo });
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      inboxItemId: 'inb_1',
+      outcome: 'todo',
+    });
+    expect(handler.calls[0]).toMatchObject({
+      method: 'screenQuestion',
+      args: { itemId: 'inb_1', outcome: 'todo', note: 'Needs a login', todo },
+    });
+    const ok = (input: Record<string, unknown>) =>
+      tool.inputSchema.safeParse({ item_id: 'inb_1', note: 'Why', ...input }).success;
+    expect(ok({ outcome: 'moot' })).toBe(true);
+    expect(ok({ outcome: 'answered', answer: 'Yes' })).toBe(true);
+    expect(ok({ outcome: 'forwarded', forward_to: 'dev-1' })).toBe(true);
+    expect(ok({ outcome: 'answered' })).toBe(false);
+    expect(ok({ outcome: 'moot', answer: 'Yes' })).toBe(false);
+    expect(ok({ outcome: 'forwarded' })).toBe(false);
+    expect(ok({ outcome: 'decision', forward_to: 'dev-1' })).toBe(false);
+    expect(ok({ outcome: 'todo' })).toBe(false);
+    expect(ok({ outcome: 'decision', todo })).toBe(false);
+    expect(ok({ outcome: 'decision', note: '' })).toBe(false);
+    expect(ok({ outcome: 'maybe' })).toBe(false);
+  });
+
   it('maps start_task arguments to the shared start handler', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'start_task')!;
     const handler = createFakeTeamToolsHandler();
@@ -131,6 +178,7 @@ describe('Operator MCP tools', () => {
       task_key: 'AR-1',
       session_id: null,
       hired: null,
+      assignee: 'dev-1',
     });
     expect(handler.calls[0]).toMatchObject({
       method: 'startTask',
@@ -138,5 +186,46 @@ describe('Operator MCP tools', () => {
       args: { taskKey: 'AR-1', assignee: 'dev-1', despitePrerequisites: true },
     });
     expect(tool.inputSchema.safeParse({ task_key: 'invalid' }).success).toBe(false);
+  });
+
+  it('passes the signal id of start_task and start_member only when it is given (PM-545)', async () => {
+    const task = TEAM_TOOLS.find((t) => t.name === 'start_task')!;
+    const member = TEAM_TOOLS.find((t) => t.name === 'start_member')!;
+    const handler = createFakeTeamToolsHandler();
+    await task.run({
+      ctx: devContext,
+      args: task.inputSchema.parse({ task_key: 'AR-1', signal_id: 'ops_1' }),
+      handler,
+    });
+    expect(handler.calls[0]!.args).toEqual({ taskKey: 'AR-1', signalId: 'ops_1' });
+    await member.run({
+      ctx: devContext,
+      args: member.inputSchema.parse({ member: 'dev-1', text: 'Go.', task_key: 'AR-1', signal_id: 'ops_1' }),
+      handler,
+    });
+    expect(handler.calls[1]!.args).toEqual({
+      member: 'dev-1',
+      text: 'Go.',
+      taskKey: 'AR-1',
+      signalId: 'ops_1',
+    });
+    expect(task.inputSchema.safeParse({ task_key: 'AR-1', signal_id: '' }).success).toBe(false);
+    expect(member.inputSchema.safeParse({ member: 'dev-1', text: 'Go.', task_key: 'x' }).success).toBe(false);
+  });
+
+  it('validates start_member and reports the member delivery in one line', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'start_member')!;
+    expect(tool.annotations.readOnlyHint).toBe(false);
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({ member: 'dev-1', text: 'Check the engine.' });
+    const output = toolOutputText(await tool.run({ ctx: devContext, args, handler }));
+    expect(output).toContain('dev-1: typed into their session now.');
+    expect(output).toContain('Message msg_fake');
+    expect(output).toContain('general conversation');
+    expect(output).not.toContain('\n');
+    expect(handler.calls[0]).toMatchObject({ method: 'startMember', ctx: devContext, args });
+    expect(tool.inputSchema.safeParse({ ...args, text: '' }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ ...args, text: 'x'.repeat(20001) }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ ...args, text: 'x'.repeat(20000) }).success).toBe(true);
   });
 });

@@ -5,7 +5,6 @@ import {
   cliVersionAtLeast,
   CODEX_PERMISSION_PROFILE_MIN_VERSION,
   DEFAULT_AGENT_PROVIDER,
-  isManagedVmProvider,
   type AgentProvider,
 } from '@projectman/shared';
 import {
@@ -16,22 +15,13 @@ import {
   type RunnerEvent,
   type RunnerModuleOptions,
   type RunningSessionInfo,
-  type SessionLauncher,
   type SessionRunner,
   type StartSessionSpec,
 } from '../contracts';
 import { cliExists, resolveCliPath, runQuietly } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
-import {
-  assertManagedVmPolicy,
-  assertCodexMemberWorkspace,
-  assertNoAmbientOverride,
-  assertProviderVersion,
-  ManagedVmUnavailableError,
-  parseCliVersion,
-  inspectCodexSandboxConfig,
-} from './managed-vm';
+import { assertCodexMemberWorkspace, parseCliVersion, inspectCodexSandboxConfig } from './ambient-config';
 import type { ProviderAdapter } from './providers/types';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
 import { NanogptStartError } from './providers/nanogpt';
@@ -78,7 +68,7 @@ export class SessionManager implements SessionRunner {
   private readonly finished = new Map<string, AgentSession>();
   private readonly byToken = new Map<string, AgentSession>();
   private readonly listeners = new Set<(event: RunnerEvent) => void>();
-  /** By provider, or `provider:member` for a worker's own login (managed VM). */
+  /** Cached login status by provider. */
   private readonly statuses = new Map<string, { status: ProviderStatus; at: number }>();
   private readonly statusChecks = new Map<string, Promise<ProviderStatus>>();
 
@@ -97,36 +87,26 @@ export class SessionManager implements SessionRunner {
     const provider = spec.provider ?? DEFAULT_AGENT_PROVIDER;
     const adapter = this.adapters[provider];
     if (!adapter) throw new Error(`unknown agent provider: ${String(provider)}`);
-    if (provider === 'nanogpt' && (this.opts.launcher || spec.policy?.execution?.profile === 'managed_vm'))
-      throw new NanogptStartError('provider_unsupported', { profile: 'managed_vm' });
     if (!UUID_RE.test(spec.claudeSessionId))
       throw new Error(
         `invalid ${provider === 'claude' ? 'Claude' : adapter.label} session id: ${spec.claudeSessionId}`,
       );
     if (this.sessions.has(spec.sessionId)) throw new Error(`session ${spec.sessionId} is already running`);
     await this.assertWorkspaceConfig({ provider, cwd: spec.cwd });
-    const launcher = this.opts.launcher;
-    if (launcher) return this.startThroughLauncher(spec, provider, launcher);
     const dir = await stat(spec.cwd).catch(() => null);
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
-    if (spec.policy) assertManagedVmPolicy(spec.policy);
-    const managedVm = spec.policy?.execution?.profile === 'managed_vm';
     const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId, {
-      managedVm,
       instanceTag: this.opts.instanceTag,
     });
     if (provider !== 'nanogpt' && !(await cliExists(adapter.bin, env.PATH))) {
-      if (provider === 'codex' && !managedVm)
+      if (provider === 'codex')
         throw new CodexStartError({
           problem: 'cli_missing',
           minCliVersion: CODEX_PERMISSION_PROFILE_MIN_VERSION,
         });
       throw new Error(`${adapter.label} CLI not found: ${adapter.bin}`);
     }
-    // The question-free profile starts only on a proven boundary, with a CLI it is proven for and
-    // without configuration of the VM's own that would override the protected start (PM-141).
-    if (managedVm) await this.assertManagedVm(spec, adapter, env);
-    else if (provider === 'codex') {
+    if (provider === 'codex') {
       env.CODEX_HOME = this.opts.codexHome ?? defaultCodexHome(env);
       await this.assertCodexProfileStart(spec, adapter, env);
     }
@@ -143,7 +123,7 @@ export class SessionManager implements SessionRunner {
 
     const token = randomBytes(24).toString('base64url');
     const launch = await adapter.launch({
-      ...(!managedVm && (provider === 'codex' || provider === 'nanogpt')
+      ...(provider === 'codex' || provider === 'nanogpt'
         ? { cliPath: (await resolveCliPath(adapter.bin, env.PATH)) ?? undefined }
         : {}),
       spec,
@@ -191,100 +171,6 @@ export class SessionManager implements SessionRunner {
     return session.info();
   }
 
-  /**
-   * A session in the managed VM (PM-140): the launcher starts the provider's pinned CLI as the
-   * member's worker account in a sandboxed unit and relays its terminal. Nothing runs locally;
-   * workspace trust and the login check run as that worker too.
-   */
-  private async startThroughLauncher(
-    spec: StartSessionSpec,
-    provider: AgentProvider,
-    launcher: SessionLauncher,
-  ): Promise<RunningSessionInfo> {
-    if (!isManagedVmProvider(provider))
-      throw new Error('This provider is not supported by the managed VM launcher.');
-    const adapter = this.adapters[provider];
-    const layout = this.opts.workerLayout;
-    if (!spec.member || !spec.egressToken || !layout)
-      throw new Error('a session through the launcher needs its member, egress token and worker layout');
-    const home = layout.home(spec.member);
-    if (spec.policy) assertManagedVmPolicy(spec.policy);
-    // The question-free profile's conditions hold behind the launcher too (PM-141): the boundary is
-    // proven now, the CLI is a proven version, and the member's own configuration (its worker home)
-    // does not override the protected start.
-    if (spec.policy?.execution?.profile === 'managed_vm')
-      await this.assertManagedVm(spec, adapter, buildChildEnv(this.opts.env ?? process.env), {
-        home,
-        confineTo: home,
-      });
-    const status = await this.providerStatus(provider, { member: spec.member });
-    if (status.loggedIn === false) throw new ProviderNotLoggedInError(adapter.label, status);
-    if (provider === 'claude') {
-      const trust = await launcher
-        .run({ member: spec.member, program: 'claude-trust', args: [spec.cwd], cwd: home, timeoutMs: 15_000 })
-        .catch((err: unknown) => ({ exitCode: null, stderr: (err as Error).message }));
-      if (trust.exitCode !== 0)
-        this.log.warn(
-          { sessionId: spec.sessionId, detail: trust.stderr.slice(0, 200) },
-          'could not pre-accept workspace trust',
-        );
-    }
-    const token = randomBytes(24).toString('base64url');
-    const launch = await adapter.launch({
-      spec,
-      hookUrl: hookUrlFor(this.opts.publicBaseUrl, token),
-      permissionTimeoutMs: this.opts.permissionTimeoutMs,
-    });
-    const session = new AgentSession({
-      spec,
-      hookToken: token,
-      adapter,
-      initialMessageSent: launch.initialMessageSent,
-      deps: {
-        logger: this.log,
-        broker: this.opts.broker,
-        refreshDependencies: this.opts.refreshDependencies,
-        permissionTimeoutMs: this.opts.permissionTimeoutMs,
-        emit: (event) => this.emit(event),
-        onExited: (exited) => this.retire(exited),
-        onAuthError: () => this.statuses.delete(`${provider}:${spec.member}`),
-        transcriptRoot: launch.conversationRoot ?? home,
-      },
-    });
-    const previous = this.finished.get(spec.sessionId);
-    if (previous) {
-      this.finished.delete(spec.sessionId);
-      previous.dispose();
-    }
-    this.sessions.set(spec.sessionId, session);
-    this.byToken.set(token, session);
-    try {
-      const proc = await launcher.start({
-        sessionId: spec.sessionId,
-        member: spec.member,
-        provider,
-        args: launch.cliArgs,
-        cwd: spec.cwd,
-        cols: session.screen.cols,
-        rows: session.screen.rows,
-        egressToken: spec.egressToken,
-      });
-      session.attach(proc);
-    } catch (err) {
-      this.sessions.delete(spec.sessionId);
-      this.byToken.delete(token);
-      session.dispose();
-      this.emit({ type: 'state', sessionId: spec.sessionId, state: 'failed', activity: null });
-      throw err;
-    }
-    this.log.info(
-      { sessionId: spec.sessionId, provider, member: spec.member, resume: spec.resume, cwd: spec.cwd },
-      'agent session started through the launcher',
-    );
-    return session.info();
-  }
-
-  /** Refuse local profile starts that lack a supported CLI or have competing sandbox settings. */
   private async assertCodexProfileStart(
     spec: StartSessionSpec,
     adapter: ProviderAdapter,
@@ -306,45 +192,6 @@ export class SessionManager implements SessionRunner {
       throw new CodexStartError({ problem: 'sandbox_config', cliVersion, minCliVersion, ambientConfig });
   }
 
-  /**
-   * Prove the managed VM boundary, CLI version and protected configuration before spawning.
-   * Any failure is `managed_vm_unavailable`; nothing is spawned.
-   */
-  private async assertManagedVm(
-    spec: StartSessionSpec,
-    adapter: ProviderAdapter,
-    env: Record<string, string>,
-    worker?: { home: string; confineTo: string },
-  ): Promise<void> {
-    const boundary = this.opts.managedVm;
-    if (!boundary) {
-      throw new ManagedVmUnavailableError(
-        'no_boundary',
-        'this installation has no verified managed VM boundary, so a managed VM session does not start',
-      );
-    }
-    const attestation = await boundary.verify();
-    const wanted = spec.policy!.execution!.boundary;
-    if (wanted.name !== attestation.profile.name || wanted.version !== attestation.profile.version) {
-      throw new ManagedVmUnavailableError(
-        'profile_mismatch',
-        `the session asks for ${wanted.name}@${wanted.version}, the verified boundary is ${attestation.profile.name}@${attestation.profile.version}`,
-        { wanted, verified: attestation.profile },
-      );
-    }
-    const version = await runQuietly(adapter.bin, ['--version'], env);
-    assertProviderVersion(adapter.provider, parseCliVersion(version.stdout), attestation);
-    await assertNoAmbientOverride({
-      provider: adapter.provider,
-      cwd: spec.cwd,
-      // Behind the launcher the CLI runs as the worker: its user configuration is in the worker home,
-      // which the worker controls (read without following a link or blocking on a FIFO).
-      env: worker ? { HOME: worker.home } : env,
-      locations: this.opts.ambientConfig,
-      ...(worker ? { confineTo: worker.confineTo } : {}),
-    });
-  }
-
   /** Login state of a provider's CLI; checks are shared while running and cached briefly. */
   providerStatus(
     provider: AgentProvider,
@@ -352,11 +199,7 @@ export class SessionManager implements SessionRunner {
   ): Promise<ProviderStatus> {
     const adapter = this.adapters[provider];
     if (!adapter) return Promise.reject(new Error(`unknown agent provider: ${String(provider)}`));
-    const launcher = this.opts.launcher;
-    const layout = this.opts.workerLayout;
-    // Through the launcher each worker has its own login; the server's is checked otherwise.
-    const member = launcher && layout ? (opts.member ?? null) : null;
-    const key = member ? `${provider}:${member}` : provider;
+    const key = provider;
     const cached = this.statuses.get(key);
     if (cached && !opts.refresh) {
       const ttl = cached.status.loggedIn === true ? STATUS_TTL_OK_MS : STATUS_TTL_OTHER_MS;
@@ -366,32 +209,6 @@ export class SessionManager implements SessionRunner {
     if (!pending) {
       pending = (async (): Promise<ProviderStatus> => {
         if (provider === 'nanogpt') return adapter.checkLogin(buildChildEnv(this.opts.env ?? process.env));
-        if (member && launcher && layout) {
-          if (!isManagedVmProvider(provider))
-            return {
-              provider,
-              loggedIn: null,
-              method: null,
-              checkedAt: new Date().toISOString(),
-              detail: 'This provider is not supported by the managed VM launcher.',
-            };
-          const out = await launcher
-            .run({
-              member,
-              program: provider,
-              args: adapter.loginCommand,
-              cwd: layout.home(member),
-              timeoutMs: 15_000,
-            })
-            .then((r) => ({
-              code: r.exitCode,
-              stdout: r.stdout,
-              stderr: r.stderr,
-              error: r.timedOut ? 'timed out' : null,
-            }))
-            .catch((err: unknown) => ({ code: null, stdout: '', stderr: '', error: (err as Error).message }));
-          return adapter.parseLogin(out);
-        }
         const env = buildChildEnv(this.opts.env ?? process.env);
         if (provider === 'gemini') return adapter.checkLogin(env);
         if (!(await cliExists(adapter.bin, env.PATH))) {
@@ -408,7 +225,7 @@ export class SessionManager implements SessionRunner {
       })()
         .then((status) => {
           this.statuses.set(key, { status, at: Date.now() });
-          if (status.loggedIn !== true) this.log.warn({ status, member }, 'agent CLI is not usable');
+          if (status.loggedIn !== true) this.log.warn({ status }, 'agent CLI is not usable');
           return status;
         })
         .finally(() => this.statusChecks.delete(key));
@@ -420,7 +237,7 @@ export class SessionManager implements SessionRunner {
   sendUserMessage(sessionId: string, text: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) return Promise.reject(new Error(`session ${sessionId} is not running`));
-    return session.enqueue(text);
+    return session.send(text);
   }
 
   async compact(sessionId: string, instruction: string): Promise<boolean> {

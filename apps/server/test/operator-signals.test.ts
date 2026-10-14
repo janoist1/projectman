@@ -7,8 +7,8 @@ import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';
-import { canSeeProjectEvent } from '../src/domain/visibility';
-import { WorkOutages } from '../src/domain/outages';
+import { canSeeProjectEvent } from '../src/core/projects';
+import { WorkOutages } from '../src/runtime/watchers';
 
 let h: DomainHarness;
 let app: AppHarness | undefined;
@@ -45,6 +45,67 @@ async function deliver() {
 }
 
 describe('Operator system signals', () => {
+  it('presents multiple signals in one message and preserves per-signal actions', async () => {
+    await setup();
+    const a = raise('outage:a');
+    const b = raise('outage:b');
+    await deliver();
+    const sent = await h.domain.teamTools.sendMessage(tool(), {
+      to: ['owner'],
+      kind: 'info',
+      text: 'Summary',
+      signalIds: [a.id, b.id],
+      actionableSignalIds: [a.id],
+    });
+    expect(get(a.id)).toMatchObject({ state: 'open', messageId: sent.messageId, actionable: true });
+    expect(get(b.id)).toMatchObject({ state: 'open', messageId: sent.messageId, actionable: false });
+    expect(h.repos.messages.get(sent.messageId)?.operatorSignal).toBeUndefined();
+  });
+  it('rejects closed signals, mixed arguments, duplicates and non-owner recipients without binding anything', async () => {
+    await setup();
+    const a = raise('outage:a');
+    const b = raise('outage:b');
+    await deliver();
+    const input = { to: ['owner'], kind: 'info' as const, text: 'Summary', signalIds: [a.id, b.id] };
+    for (const changes of [
+      { signalId: a.id },
+      { signalActionable: false },
+      { signalIds: [a.id, a.id] },
+      { actionableSignalIds: ['foreign'] },
+      { to: ['dev-1'] },
+    ])
+      await expect(h.domain.teamTools.sendMessage(tool(), { ...input, ...changes })).rejects.toThrow(
+        'invalid_request',
+      );
+    h.domain.operatorSignals.resolve('AR', b.caseKey);
+    await expect(h.domain.teamTools.sendMessage(tool(), input)).rejects.toThrow('no longer open');
+    expect(get(a.id).messageId).toBeNull();
+    expect(get(b.id).messageId).toBeNull();
+  });
+  it('rolls back all presentations and events if a later presentation fails during recording', async () => {
+    await setup();
+    const a = raise('outage:a');
+    const b = raise('outage:b');
+    await deliver();
+    const events: ServerEvent[] = [];
+    h.domain.bus.subscribe((event) => events.push(event));
+    const present = h.domain.operatorSignals.present.bind(h.domain.operatorSignals);
+    vi.spyOn(h.domain.operatorSignals, 'present').mockImplementation((project, id, message, actionable) => {
+      if (id === b.id) throw new Error('Presentation failed');
+      present(project, id, message, actionable);
+    });
+    await expect(
+      h.domain.teamTools.sendMessage(tool(), {
+        to: ['owner'],
+        kind: 'info',
+        text: 'Summary',
+        signalIds: [a.id, b.id],
+      }),
+    ).rejects.toThrow('Presentation failed');
+    expect(get(a.id).messageId).toBeNull();
+    expect(get(b.id).messageId).toBeNull();
+    expect(events.filter((event) => event.type === 'operator_signal')).toEqual([]);
+  });
   it.each(['pending', 'open'] as const)(
     'preserves a %s outage signal before the first restart evaluation',
     async (state) => {
@@ -246,7 +307,7 @@ describe('Operator system signals', () => {
     const signal = raise();
     expect(() => h.domain.operatorSignals.presentation('AR', signal.id)).toThrow('no longer open');
     await deliver();
-    expect(() => h.domain.operatorSignals.presentation('OTHER', signal.id)).toThrow('no longer open');
+    expect(() => h.domain.operatorSignals.presentation('OTHER', signal.id)).toThrow('unknown signal');
     await expect(
       h.domain.teamTools.sendMessage(
         { ...tool(), member: 'dev-1' },

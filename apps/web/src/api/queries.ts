@@ -9,6 +9,7 @@ import type {
   FeedbackMarkDetail,
   LinkFeedbackRequest,
   StartMergeRequest,
+  PrioritizeMergeRequest,
   StopOrphansRequest,
   AttachmentListResponse,
   BoardView,
@@ -205,6 +206,22 @@ export function useStartMerge(key: string) {
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),
         client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) }),
         client.invalidateQueries({ queryKey: queryKeys.inbox(key) }),
+      ]);
+    },
+  });
+}
+
+/** The merger or an owner puts the card's queued merge at the front of the queue (PM-576). */
+export function usePrioritizeMerge(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskKey, body }: { taskKey: string; body: PrioritizeMergeRequest }) =>
+      api.prioritizeMerge(key, taskKey, body),
+    onSuccess: async ({ task }) => {
+      writeTask(client, key, task);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) }),
       ]);
     },
   });
@@ -571,6 +588,18 @@ export function useLogoutFeedbackMarker(key: string) {
 
 export function useInbox(key: string) {
   return useQuery({ queryKey: queryKeys.inbox(key), queryFn: () => api.inbox(key) });
+}
+
+/**
+ * The questions the Operator screened today (PM-561): the trail "Az Operátor intézte". `enabled` is false for
+ * a viewer who may not see it (below admin); `since` is the start of the viewer's day, an ISO time.
+ */
+export function useScreenedQuestions(key: string, since: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.screenedQuestions(key, since),
+    queryFn: () => api.screenedQuestions(key, since),
+    enabled,
+  });
 }
 
 export interface ResolveVariables {

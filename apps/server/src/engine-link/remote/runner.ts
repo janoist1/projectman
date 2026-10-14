@@ -10,7 +10,7 @@ import type {
   SessionRunner,
   StartSessionSpec,
 } from '../../contracts';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import { EngineCallError, EngineRpcError } from '../rpc';
 import type { EngineStartSpec } from '../session-schemas';
 import type { RemoteHub } from './hub';

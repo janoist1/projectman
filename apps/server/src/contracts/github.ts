@@ -1,4 +1,3 @@
-import type { PublishRefusal } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 
 /**
@@ -42,84 +41,6 @@ export interface GithubService {
   ): () => void;
 }
 
-/**
- * What the publishing gate asks the publisher to do (PM-142): put one commit on one branch of one
- * repository and make sure a pull request exists for it. Every field comes from the server's own
- * records (the authenticated session, the task, the workspace binding); the publisher checks the
- * branch and commit again (`checkPublishTarget` in the shared package) and never trusts more.
- */
-export interface PublishRequest {
-  /** "owner/name" of the GitHub repository. */
-  repo: string;
-  /** The task branch to create or fast-forward. */
-  branch: string;
-  /** The repository's default branch: the pull request's base, never written. */
-  baseBranch: string;
-  /** The full commit id the branch tip must be. */
-  commit: string;
-  /** A repository that holds the branch (the member's workspace clone); read, never written. */
-  sourcePath: string;
-  /**
-   * `bundle`: `sourcePath` is a git bundle of the branch the server owns (behind the VM boundary
-   * the member's worker made it, PM-140); default `repository`.
-   */
-  sourceKind?: 'repository' | 'bundle';
-  title: string;
-  body: string;
-  /** The task key, for the log only. */
-  taskKey: string;
-}
-
-export interface PublishResult {
-  repo: string;
-  branch: string;
-  commit: string;
-  /** The remote branch already had this commit, so nothing was uploaded. */
-  alreadyPublished: boolean;
-  pullRequest: PullRequestInfo;
-  /** False when an open pull request for the branch already existed and was reused. */
-  pullRequestCreated: boolean;
-}
-
-/** Where the remote stands for a task branch (what the integrator and the reviewer read). */
-export interface RemoteState {
-  repo: string;
-  baseBranch: string;
-  /** The remote default branch's head; null when the branch does not exist there. */
-  baseCommit: string | null;
-  branch: string;
-  /** The remote task branch's head; null when it was never published. */
-  branchCommit: string | null;
-  /** Commits of the task branch the default branch lacks, and the other way round; null when unknown. */
-  ahead: number | null;
-  behind: number | null;
-  pullRequests: PullRequestInfo[];
-}
-
-/**
- * Publishing through a separate GitHub identity with narrow rights (PM-142). The identity's token
- * lives only in the server's process: no worker sees it, so neither a raw `git` or `gh` nor any
- * other HTTP client in a session holds more than this gate does. The identity cannot write the
- * default branch, force push, delete or merge either; the repository's protection says so too
- * (docs/GITHUB.md). Owned by src/github.
- */
-export interface GithubPublisher {
-  /** Pushes the commit to the task branch (not forced) and opens its pull request once. */
-  publish(request: PublishRequest): Promise<PublishResult>;
-  /** Remote base and task-branch heads, their distance and the branch's pull requests. */
-  remoteState(repo: string, baseBranch: string, branch: string): Promise<RemoteState>;
-}
-
-/** A publication the publisher refuses or could not finish; the message never holds a credential. */
-export class PublishError extends Error {
-  readonly code: PublishRefusal;
-  constructor(code: PublishRefusal, message: string) {
-    super(message);
-    this.code = code;
-    this.name = 'PublishError';
-  }
-}
-
 export interface GithubModuleOptions {
   /** Path or name of the GitHub CLI (default "gh"). Tests pass a fake. */
   ghBin: string;
@@ -127,4 +48,49 @@ export interface GithubModuleOptions {
   ghHost?: string;
   pollIntervalMs: number;
   logger: FastifyBaseLogger;
+}
+
+/** Why a GitHub call failed. Callers branch on `code`; `message` is meant for logs. */
+export type GithubErrorCode =
+  /** A bad repo, pull request number or branch was passed in; gh was not run. */
+  | 'invalid_argument'
+  /** The gh binary could not be started (not installed or not executable). */
+  | 'not_installed'
+  /** gh is not logged in, or its token is no longer valid. */
+  | 'not_authenticated'
+  /** GitHub API rate limit (primary or secondary). */
+  | 'rate_limited'
+  /** The repository or pull request does not exist, or the login cannot see it. */
+  | 'not_found'
+  /** gh did not finish in time and was killed. */
+  | 'timeout'
+  /** GitHub could not be reached (offline, DNS, connection refused …); usually temporary. */
+  | 'unreachable'
+  /** GitHub answered with a server error (5xx, failed query); usually temporary. */
+  | 'server_error'
+  /** gh printed something that is not the JSON we asked for. */
+  | 'invalid_response'
+  /** The caller cancelled the call (e.g. a watch was unsubscribed). */
+  | 'aborted'
+  /** Anything else. */
+  | 'failed';
+
+export class GithubError extends Error {
+  readonly code: GithubErrorCode;
+  /** Exit code of gh when it ran and failed; null otherwise. */
+  readonly exitCode: number | null;
+  /** Beginning of gh's stderr, for logs. */
+  readonly stderr: string;
+
+  constructor(
+    code: GithubErrorCode,
+    message: string,
+    details: { exitCode?: number | null; stderr?: string; cause?: unknown } = {},
+  ) {
+    super(message, details.cause === undefined ? undefined : { cause: details.cause });
+    this.name = 'GithubError';
+    this.code = code;
+    this.exitCode = details.exitCode ?? null;
+    this.stderr = details.stderr ?? '';
+  }
 }

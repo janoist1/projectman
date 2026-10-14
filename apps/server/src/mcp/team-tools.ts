@@ -138,6 +138,7 @@ export class TeamToolsService implements TeamToolsHandler {
       text: string;
       taskKey?: string;
       kind: 'action' | 'info';
+      despiteWorkers?: boolean;
       signalId?: string;
       signalActionable?: boolean;
       signalIds?: string[];
@@ -410,7 +411,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async startMember(
     ctx: ToolContext,
-    args: { member: string; text: string; taskKey?: string; signalId?: string },
+    args: { member: string; text: string; taskKey?: string; signalId?: string; despiteWorkers?: boolean },
   ): Promise<MemberStartResult> {
     return this.tools.operator.startMember(ctx, args);
   }

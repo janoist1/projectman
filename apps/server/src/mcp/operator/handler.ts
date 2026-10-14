@@ -269,7 +269,7 @@ export class OperatorTools implements OperatorToolsHandler {
 
   async startMember(
     ctx: ToolContext,
-    args: { member: string; text: string; taskKey?: string; signalId?: string },
+    args: { member: string; text: string; taskKey?: string; signalId?: string; despiteWorkers?: boolean },
   ): Promise<MemberStartResult> {
     const config = await this.projects.config(ctx.projectKey);
     if (!isOperator(memberOf(config, ctx.member)))
@@ -322,6 +322,7 @@ export class OperatorTools implements OperatorToolsHandler {
               kind: 'action',
               operatorRequest: who.request!.id,
               awaitWake: true,
+              workerCheck: !args.despiteWorkers,
             },
           )
           .catch((err: unknown) => {

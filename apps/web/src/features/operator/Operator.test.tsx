@@ -241,7 +241,11 @@ describe('the Operator panel', () => {
     fireEvent.change(composer, { target: { value: 'Mi az állás?' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
     await waitFor(() =>
-      expect(posted(project, '/messages')[0]?.body).toEqual({ to: ['operator'], text: 'Mi az állás?' }),
+      expect(posted(project, '/messages')[0]?.body).toEqual({
+        to: ['operator'],
+        text: 'Mi az állás?',
+        despiteWorkers: true,
+      }),
     );
     const log = await screen.findByRole('log', { name: t('operator.thread.label') });
     expect(await within(log).findByText('Mi az állás?')).toBeTruthy();
@@ -263,6 +267,7 @@ describe('the Operator panel', () => {
         to: ['operator'],
         text: 'Nézd meg ezt',
         taskKey: 'AC-20',
+        despiteWorkers: true,
       }),
     );
   });
@@ -592,6 +597,7 @@ describe('a signal the Operator raised', () => {
         text: t('operator.signal.acceptMessage'),
         operatorSignal: 'sig_1',
         taskKey: 'AC-20',
+        despiteWorkers: true,
       }),
     );
     expect(await screen.findByText(t('operator.signal.acceptMessage'))).toBeTruthy();

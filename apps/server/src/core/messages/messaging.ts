@@ -3,6 +3,7 @@ export function createMessaging(deps: ConstructorParameters<typeof Messaging>[0]
 }
 
 import {
+  cardBusyGroups,
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
   isOpenTask,
@@ -31,6 +32,7 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  CardBusyDetails,
   InboxItem,
   ProjectConfig,
   Session,
@@ -59,6 +61,8 @@ import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './
 export const WAKE_REPLY_WAIT_MS = 5000;
 
 export interface SendOptions {
+  /** Checks same-role card workers before any send effects (PM-662). External entry points opt in. */
+  workerCheck?: boolean;
   origin?: TeamMessage['origin'];
   kind?: TeamMessage['kind'];
   subject?: TeamMessage['subject'];
@@ -281,6 +285,20 @@ export class Messaging {
     const taskKey = input.taskKey ?? null;
     const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
+    if (opts.workerCheck && task && isOpenTask(task) && !isTheme(task)) {
+      const busy = this.cardBusyOf(config, task, from, recipients, opts);
+      if (busy)
+        throw conflict(
+          'card_busy',
+          `${task.key}: ${busy.groups
+            .map(
+              (group) =>
+                `${[...group.working.map((worker) => worker.handle), ...group.joining].join(', ')} already work on it as ${group.role}`,
+            )
+            .join('; ')}; send again with despiteWorkers: true if the parallel work is intended`,
+          busy,
+        );
+    }
     // The task's developer writing to a reviewer or tester hands over new work (a re-review, a
     // retest): their next round starts from the latest commit (PM-138, the owner's answer).
     if (
@@ -811,6 +829,60 @@ export class Messaging {
       this.ctx.logger.warn({ err, itemId: item.id }, 'could not tell the asker where the question went');
     }
     return closed;
+  }
+
+  /** Predicts who would join this card, using the same holds, placement and wake rule as delivery. */
+  private cardBusyOf(
+    config: ProjectConfig,
+    task: Task,
+    from: string,
+    recipients: readonly string[],
+    opts: SendOptions,
+  ): CardBusyDetails | null {
+    if ((opts.kind ?? 'action') !== 'action') return null;
+    const workers = this.sessions.cardWorkers(task.projectKey, task, config);
+    const draft = {
+      from,
+      taskKey: task.key,
+      via: opts.actor?.via,
+      origin: opts.origin,
+      kind: 'action' as const,
+    };
+    const joining = recipients.flatMap((handle) => {
+      const member = memberOf(config, handle);
+      if (member?.kind !== 'ai') return [];
+      const role = member.role;
+      if (
+        isProjectManager(member) ||
+        isOperator(member) ||
+        workers.some((worker) => worker.member === handle) ||
+        this.holdOf(config, task, from, handle, opts)
+      )
+        return [];
+      const placed = this.place(
+        task.projectKey,
+        config,
+        handle,
+        opts.workItem ?? routeFor(task.key),
+        !!opts.ownCard,
+        from,
+      );
+      if (
+        placed.workItem.type !== 'task' ||
+        placed.workItem.taskKey !== task.key ||
+        (!placed.running && !messageWakes(draft, wakeFactsFor(this.ctx, config, draft, handle), null))
+      )
+        return [];
+      return [{ handle, role }];
+    });
+    const working = workers.flatMap((worker) => {
+      const member = memberOf(config, worker.member);
+      return member?.kind === 'ai' && worker.member !== from && worker.member !== task.handoff?.from
+        ? [{ handle: worker.member, role: member.role, state: worker.state }]
+        : [];
+    });
+    const groups = cardBusyGroups({ working, joining });
+    return groups.length > 0 ? { taskKey: task.key, groups } : null;
   }
 
   /**

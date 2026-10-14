@@ -101,7 +101,7 @@ export function recipientHasCardRole(
 export function wakeFactsFor(
   ctx: DomainContext,
   config: ProjectConfig,
-  message: TeamMessage,
+  message: Pick<TeamMessage, 'from' | 'taskKey' | 'via' | 'origin'>,
   recipient: string,
 ): WakeFacts {
   const sender = memberOf(config, message.from);

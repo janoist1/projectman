@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {
+  CardBusyDetails,
   ERROR_CODES,
   ownerHandles,
   isOperator,
@@ -498,6 +499,20 @@ export class ToolCaller {
 /** The send_message refusals of the messaging module, in the words the agent reads. */
 export function toMessageToolError(err: unknown): unknown {
   if (!(err instanceof DomainError)) return err;
+  if (err.code === 'card_busy') {
+    const busy = CardBusyDetails.parse(err.details);
+    const groups = busy.groups.map((group) => {
+      const joining = group.joining.join(', ');
+      if (group.working.length === 0)
+        return `this message would put ${joining} to work on it as ${group.role}`;
+      const working = group.working.map((worker) => `${worker.handle} (${worker.state})`).join(', ');
+      return `${working} already works on it as ${group.role}; this message would also put ${joining} to work on it`;
+    });
+    return new TeamToolError(
+      'invalid',
+      `card_busy: ${busy.taskKey}: ${groups.join('; ')}. Nothing was sent. Send it to the member already working, wait until they finish, send it as info, or send again with despite_workers: true if the parallel work is intended.`,
+    );
+  }
   const details = (err.details ?? {}) as { field?: string; what?: string; ids?: string[] };
   if (err.code === 'invalid_request' && details.field === 'text')
     return new TeamToolError('invalid', 'The message text is empty.');

@@ -4,6 +4,20 @@
 
 Stored team messages, routing, recipient/card-role rules, stale-message checks and relation notices.
 
+PM-662 adds an opt-in `SendOptions.workerCheck` to `sendReporting`. Before review-round requests,
+repinning, events or message records, `cardBusyOf` predicts recipients joining an open non-theme
+card using `holdOf`, `place` and the shared wake rule. Existing card workers, project managers and
+Operators never count as joining. The sender and the outgoing handoff member do not count as
+other workers. Shared `cardBusyGroups` groups the remaining workers and joining recipients by
+AI role, returning 409 `card_busy` with `CardBusyDetails` for collisions, including two new
+recipients of the same role in one send.
+
+Only REST team-message sends, MCP `send_message` and Operator `start_member` opt in; callers can
+confirm parallel work with `despiteWorkers: true` (`despite_workers` in MCP). Info messages and
+other internal sends retain their existing behavior. Web sends temporarily confirm by default
+until the PM-663 confirmation dialog is ready. The actual post-review-round placement stays in
+its original position, so a newly queued full test still holds delivery.
+
 ## Facade
 
 `core/messages/index.ts` is the only entry point. It exports `MessageService`, `Messaging` with its factory `createMessaging`, `RelationNotices`, the staleness helpers (`wakesFor`, `wakeFactsFor`, `recipientHasCardRole`, `staleReasonFor`, `senderResultLabelFor`) and the port types below. It does not export `MessageDelivery`: the real delivery is `runtime/delivery`, which assembly and runtime callers import through its facade.

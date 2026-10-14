@@ -908,6 +908,7 @@ export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
 export const SendTeamMessageRequest = z
   .object({
+    despiteWorkers: z.boolean().optional(),
     operatorSignal: z.string().optional(),
     to: z.array(MemberHandle).min(1).max(100),
     /** Empty only when `attachmentIds` names a file (PM-515). */

@@ -4,6 +4,7 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'card_busy',
   'operator_signal_closed',
   'operator_signal_not_dismissible',
   'merge_not_merger',

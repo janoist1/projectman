@@ -146,9 +146,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start a member on work without a card',
       readOnly: false,
       description:
+        'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended. ' +
         "Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the Operator act on signals, it starts the member the signal names.",
       input: {
         member: MemberHandle,
+        despite_workers: z.boolean().optional(),
         text: z.string().min(1).max(20000),
         task_key: TaskKey.optional(),
         signal_id: z.string().min(1).max(64).optional(),
@@ -157,6 +159,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
         return formatMemberStart(
           await handler.startMember(ctx, {
             member: args.member,
+            despiteWorkers: args.despite_workers,
             text: args.text,
             ...(args.task_key !== undefined ? { taskKey: args.task_key } : {}),
             ...(args.signal_id !== undefined ? { signalId: args.signal_id } : {}),

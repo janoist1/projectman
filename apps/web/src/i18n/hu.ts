@@ -775,6 +775,7 @@ export const hu = {
     code: 'Hibakód: {code}',
     /** Stable error codes from the server (ApiError.code and websocket error events). */
     codes: {
+      card_busy: 'A kártyán már dolgozik egy azonos szerepű tag.',
       engine_not_found: 'Nincs ilyen motor.',
       engine_revoked: 'Ezt a motort visszavonták.',
       subtask_self_parent: 'A feladat nem lehet saját maga alfeladata.',

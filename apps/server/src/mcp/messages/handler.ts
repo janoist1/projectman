@@ -42,6 +42,7 @@ export class MessageTools implements MessageToolsHandler {
       text: string;
       taskKey?: string;
       kind: 'action' | 'info';
+      despiteWorkers?: boolean;
       signalId?: string;
       signalActionable?: boolean;
       signalIds?: string[];
@@ -135,6 +136,7 @@ export class MessageTools implements MessageToolsHandler {
                 actor: aiActor(ctx.member),
                 sessionId: ctx.sessionId,
                 kind: args.kind,
+                workerCheck: !args.despiteWorkers,
                 // The report sits under the round of the own steps on signals when no request is open (PM-545).
                 operatorRequest:
                   who.request?.id ??

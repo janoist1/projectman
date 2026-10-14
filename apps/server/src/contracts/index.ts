@@ -4,6 +4,7 @@ export * from './runner';
 export * from './session-policy';
 export * from './team-tools';
 export * from './project-state';
+export * from './sessions';
 export * from './github';
 export * from './context';
 export * from './config-store';

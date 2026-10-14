@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { OPERATOR_GUEST_TOOLS, OPERATOR_NEVER_TOOLS, OPERATOR_READ_TOOLS } from '../domain/operator-requests';
+import { OPERATOR_GUEST_TOOLS, OPERATOR_NEVER_TOOLS, OPERATOR_READ_TOOLS } from '../services/operator';
 import { TEAM_TOOLS } from './tools';
 import { createFakeTeamToolsHandler } from './testing';
 

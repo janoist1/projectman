@@ -21,7 +21,7 @@ import type {
 import { isoNow } from '../context';
 import { wakeFactsFor, wakesFor } from './staleness';
 import type { DomainContext } from '../context';
-import type { OperatorRequests } from '../operator-requests';
+import type { OperatorRequests } from '../../services/operator';
 import type { TimelineService } from '../timeline';
 import type { ProjectService } from '../projects';
 import { forbidden, notFound } from '../errors';

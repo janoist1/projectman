@@ -1,3 +1,10 @@
+import type {
+  OperatorSessions,
+  OperatorAdmission,
+  OperatorDelivery,
+  OperatorReleases,
+  OperatorWakeStart,
+} from './ports';
 import {
   dutyMembers,
   formatInjectedTeamMessage,
@@ -32,17 +39,13 @@ import type {
   Task,
   TaskWait,
 } from '@projectman/shared';
-import type { OperatorSignalRecord } from '../db';
-import type { DomainContext } from './context';
-import { isoNow } from './context';
-import type { Admission, AutomaticStart, StartSpec } from './admission';
-import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
-import type { MessageDelivery } from './messaging';
-import type { TaskWaits } from './tasks';
-import type { ReleaseService } from './releases';
-import { conflict, invalid } from './errors';
-import { newId } from './util';
+import type { OperatorSignalRecord } from '../../db';
+import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../domain/context';
+import type { ProjectService } from '../../domain/projects';
+import type { TaskWaits } from '../../domain/tasks';
+import { conflict, invalid } from '../../domain/errors';
+import { newId } from '../../domain/util';
 
 type SignalInput = {
   projectKey: string;
@@ -84,24 +87,24 @@ export class OperatorSignals {
   constructor(privateDeps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: SessionOrchestrator;
-    admission: Admission;
-    delivery: MessageDelivery;
+    sessions: OperatorSessions;
+    admission: OperatorAdmission;
+    delivery: OperatorDelivery;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
-    releases: Pick<ReleaseService, 'unreleased'>;
+    releases: Pick<OperatorReleases, 'unreleased'>;
   }) {
     this.deps = privateDeps;
   }
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: SessionOrchestrator;
-    admission: Admission;
-    delivery: MessageDelivery;
+    sessions: OperatorSessions;
+    admission: OperatorAdmission;
+    delivery: OperatorDelivery;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
-    releases: Pick<ReleaseService, 'unreleased'>;
+    releases: Pick<OperatorReleases, 'unreleased'>;
   };
 
   raise(input: SignalInput): OperatorSignalRecord {
@@ -324,7 +327,7 @@ export class OperatorSignals {
     }
   }
 
-  rebuild(spec: Extract<StartSpec, { kind: 'operator_signals' }>): AutomaticStart | null {
+  rebuild(spec: { kind: 'operator_signals'; projectKey: string }): OperatorWakeStart | null {
     return this.pending(spec.projectKey).length ? this.start(spec.projectKey) : null;
   }
 
@@ -539,7 +542,7 @@ export class OperatorSignals {
         signal: OperatorSignal.parse(signal),
       });
   }
-  private start(projectKey: string): AutomaticStart {
+  private start(projectKey: string): OperatorWakeStart {
     const { ctx, projects, sessions, admission, delivery } = this.deps;
     return {
       key: `operator-signals:${projectKey}`,

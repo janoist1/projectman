@@ -43,22 +43,22 @@ import type {
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { APPROVER_NONE_REFUSAL } from '../contracts';
+import { APPROVER_NONE_REFUSAL } from '../../contracts';
 import type {
   EngineDirectory,
   PermissionBroker,
   PermissionDecision,
   PermissionRefusedInfo,
   PermissionRequestInfo,
-} from '../contracts';
+} from '../../contracts';
 import { ownerHandles } from '@projectman/shared';
-import { isoNow } from '../core/base';
-import type { DomainContext } from '../core/base';
-import type { InboxPermissionPolicy } from '../core/inbox/ports';
-import { conflict, forbidden, invalid, notFound } from '../kernel';
-import type { ProjectService } from '../core/projects';
-import type { TimelineService } from '../core/timeline';
-import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from '../kernel';
+import { isoNow } from '../base';
+import type { DomainContext } from '../base';
+import type { InboxPermissionPolicy } from './ports';
+import { conflict, forbidden, invalid, notFound } from '../../kernel';
+import type { ProjectService } from '../projects';
+import type { TimelineService } from '../timeline';
+import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from '../../kernel';
 
 /** How many screened questions the screened-questions list returns (PM-558). */
 const SCREENED_QUESTIONS_LIMIT = 20;

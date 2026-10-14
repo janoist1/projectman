@@ -6,12 +6,12 @@ import {
   questionPayloadOf,
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
-import type { ScreeningAdmission, ScreeningAttempt, ScreeningSessions } from '../core/inbox/ports';
-import { isoNow } from '../core/base';
-import type { DomainContext } from '../core/base';
+import type { ScreeningAdmission, ScreeningAttempt, ScreeningSessions } from './ports';
+import { isoNow } from '../base';
+import type { DomainContext } from '../base';
 import type { InboxService } from './inbox';
-import type { MessageDeliveryPort } from '../core/messages';
-import type { ProjectService } from '../core/projects';
+import type { MessageDeliveryPort } from '../messages';
+import type { ProjectService } from '../projects';
 
 /** The first lines of the notice the Operator gets for the questions it screens. */
 const SCREENING_NOTICE =

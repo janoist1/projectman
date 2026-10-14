@@ -1,7 +1,7 @@
 import { isPendingQuestion } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
-import type { CardQuestion } from '../contracts';
-import type { DomainContext } from '../core/base';
+import type { CardQuestion } from '../../contracts';
+import type { DomainContext } from '../base';
 import { answerText } from './inbox';
 
 /** How many questions of a card a brief, a resumed session's first message and get_task list. */

@@ -246,7 +246,6 @@ describe('the Operator panel', () => {
       expect(posted(project, '/messages')[0]?.body).toEqual({
         to: ['operator'],
         text: 'Mi az állás?',
-        despiteWorkers: true,
       }),
     );
     const log = await screen.findByRole('log', { name: t('operator.thread.label') });
@@ -269,7 +268,6 @@ describe('the Operator panel', () => {
         to: ['operator'],
         text: 'Nézd meg ezt',
         taskKey: 'AC-20',
-        despiteWorkers: true,
       }),
     );
   });
@@ -606,7 +604,6 @@ describe('a signal the Operator raised', () => {
         text: t('operator.signal.acceptMessage'),
         operatorSignal: 'sig_1',
         taskKey: 'AC-20',
-        despiteWorkers: true,
       }),
     );
     expect(await screen.findByText(t('operator.signal.acceptMessage'))).toBeTruthy();

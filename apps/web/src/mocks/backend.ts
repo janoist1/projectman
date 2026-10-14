@@ -98,6 +98,10 @@ import {
   isRequiredOperator,
   isRequiredProjectManager,
   isOpenTask,
+  isOperator,
+  isProjectManager,
+  cardBusyGroups,
+  cardWorkerSessions,
   openPrerequisites,
   projectRefines,
   isWorkingOnTask,
@@ -195,6 +199,7 @@ import {
   waitWorkers,
 } from '@projectman/shared';
 import type {
+  CardBusyDetails,
   PartsClosed,
   MessageAttachment,
   MessageAttachmentRef,
@@ -5368,6 +5373,38 @@ export class MockBackend {
     return null;
   }
 
+  /**
+   * The same-role collision a message from the viewer would cause on an open card, from the mock's own
+   * sessions, or null; the rule itself is the shared `cardBusyGroups`. The Operator and the project
+   * manager never count.
+   */
+  private cardBusyOf(taskKey: string | undefined, to: readonly string[]): CardBusyDetails | null {
+    const task = taskKey ? this.findTask(taskKey) : undefined;
+    if (!task || !isOpenTask(task) || isTheme(task)) return null;
+    const stage = stageOf(this.config, task.stageId);
+    const workers = cardWorkerSessions(
+      stage && { kind: stage.kind, owners: stageOwners(this.config, stage) },
+      task,
+      this.sessions,
+    );
+    const aiOf = (handle: string) => {
+      const member = memberOf(this.config, handle);
+      if (member?.kind !== 'ai') return null;
+      const { role } = member;
+      return isOperator(member) || isProjectManager(member) ? null : { handle, role };
+    };
+    const working = workers.flatMap((session) => {
+      const member = aiOf(session.member);
+      return member && member.handle !== this.viewerHandle ? [{ ...member, state: session.state }] : [];
+    });
+    const joining = teamRecipients(this.viewerHandle, to).flatMap((handle) => {
+      const member = aiOf(handle);
+      return member && !workers.some((session) => session.member === handle) ? [member] : [];
+    });
+    const groups = cardBusyGroups({ working, joining });
+    return groups.length > 0 ? { taskKey: task.key, groups } : null;
+  }
+
   private humanTeamMessage(body: unknown): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
     if (!viewer || viewer.kind !== 'human')
@@ -5397,6 +5434,8 @@ export class MockBackend {
       return error(409, 'message_attachment_unavailable', 'Attachment unavailable');
     const refusal = this.teamMessageRefusal(this.viewerHandle, input.to, input.text, ids.length > 0);
     if (refusal) return refusal;
+    const busy = input.despiteWorkers ? null : this.cardBusyOf(input.taskKey, input.to);
+    if (busy) return error(409, 'card_busy', 'The card already has a worker of the same role', busy);
     // "Igen, intézd" accepts the Operator's open signal with the message itself (PM-476).
     const signal = input.operatorSignal
       ? this.operatorSignals.find((entry) => entry.id === input.operatorSignal)

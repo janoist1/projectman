@@ -16,13 +16,7 @@ import type {
   Task,
   TeamMessage,
 } from '@projectman/shared';
-import {
-  useInbox,
-  useReadTeamMessages,
-  useResolveInbox,
-  useSendTeamMessage,
-  useTaskMessages,
-} from '../../api/queries';
+import { useInbox, useReadTeamMessages, useResolveInbox, useTaskMessages } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -48,6 +42,7 @@ import { Composer } from '../session/Composer';
 import styles from './TaskThread.module.css';
 import { MessageAttachments } from '../messages/MessageAttachments';
 import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
+import { useCardBusySend } from '../messages/useCardBusySend';
 import { useFileDrop } from './useFileDrop';
 import attachmentStyles from '../messages/MessageAttachments.module.css';
 
@@ -106,7 +101,11 @@ export function TaskThread({
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const readMessages = useReadTeamMessages(key);
-  const send = useSendTeamMessage(key);
+  const {
+    mutation: send,
+    send: sendConfirmed,
+    dialog: cardBusyDialog,
+  } = useCardBusySend(key, () => composerBox.current?.querySelector('textarea') ?? null);
   const toast = useToast();
   const isMobile = useIsMobile();
   const uploads = useMessageAttachmentUploads(key);
@@ -505,22 +504,21 @@ export function TaskThread({
               blocked={to.length === 0}
               onSend={(text) => {
                 stick.current = true;
-                return send
-                  .mutateAsync({
-                    to,
-                    text,
-                    taskKey: task.key,
-                    ...(uploads.items.length
-                      ? {
-                          attachmentIds: uploads.items.flatMap((item) =>
-                            item.attachment ? [item.attachment.id] : [],
-                          ),
-                        }
-                      : {}),
-                  })
-                  .then(() => undefined);
+                return sendConfirmed({
+                  to,
+                  text,
+                  taskKey: task.key,
+                  ...(uploads.items.length
+                    ? {
+                        attachmentIds: uploads.items.flatMap((item) =>
+                          item.attachment ? [item.attachment.id] : [],
+                        ),
+                      }
+                    : {}),
+                }).then(() => undefined);
               }}
             />
+            {cardBusyDialog}
           </div>
         </div>
       ) : (

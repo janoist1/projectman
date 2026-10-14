@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react';
-import { useBoard, useRoles, useSendTeamMessage } from '../../api/queries';
+import { useBoard, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -15,6 +15,7 @@ import { PauseNote } from '../pause/PauseNote';
 import { useTeamPaused } from '../pause/usePause';
 import styles from './MessageComposer.module.css';
 import { useMessageAttachmentUploads } from './useMessageAttachmentUploads';
+import { useCardBusySend } from './useCardBusySend';
 import { MessageAttachmentTray } from './MessageAttachmentTray';
 import { useFileDrop } from '../board/useFileDrop';
 import { pasteHasText, pastedImages } from '../../lib/attachmentInput';
@@ -37,7 +38,11 @@ export function MessageComposer({
   const { key, myHandle, me } = useProject();
   const board = useBoard(key);
   const roles = useRoles(key);
-  const send = useSendTeamMessage(key);
+  const {
+    mutation: send,
+    send: sendConfirmed,
+    dialog: cardBusyDialog,
+  } = useCardBusySend(key, () => input.current);
   const uploads = useMessageAttachmentUploads(key);
   const picker = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -73,27 +78,24 @@ export function MessageComposer({
           send.isPending
         )
           return;
-        send.mutate(
-          {
-            to: selected,
-            text: text.trim(),
-            ...(uploads.items.length
-              ? {
-                  attachmentIds: uploads.items.flatMap((item) =>
-                    item.attachment ? [item.attachment.id] : [],
-                  ),
-                }
-              : {}),
-            ...(taskKey ? { taskKey } : {}),
+        // A failure shows under the form (`send.error`); stepping back from the busy-card warning shows nothing.
+        sendConfirmed({
+          to: selected,
+          text: text.trim(),
+          ...(uploads.items.length
+            ? {
+                attachmentIds: uploads.items.flatMap((item) => (item.attachment ? [item.attachment.id] : [])),
+              }
+            : {}),
+          ...(taskKey ? { taskKey } : {}),
+        }).then(
+          () => {
+            setText('');
+            uploads.clear();
+            toast.show(t('messages.sent'));
+            onSent?.();
           },
-          {
-            onSuccess: () => {
-              setText('');
-              uploads.clear();
-              toast.show(t('messages.sent'));
-              onSent?.();
-            },
-          },
+          () => undefined,
         );
       }}
     >
@@ -217,6 +219,7 @@ export function MessageComposer({
           {t('messages.send')}
         </Button>
       </DialogActions>
+      {cardBusyDialog}
     </form>
   );
 }

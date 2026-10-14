@@ -87,6 +87,7 @@ describe('team tool registration', () => {
         'mark_decision_candidates',
       ],
       'services/merges': ['merge_task', 'prioritize_merge'],
+      'services/full-tests': ['take_screenshots', 'get_screenshot_run'],
     });
   });
 });

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { TeamToolError } from '../contracts';
+import { TeamToolError } from '../../contracts';
 import type {
   EngineHost,
   ScenarioRefusal,
@@ -12,10 +12,13 @@ import type {
   ScreenshotScope,
   TakeScreenshotsInput,
   ToolContext,
-} from '../contracts';
-import { outputTail } from '../full-test/output';
-import type { SessionOrchestrator } from './sessions';
-import { newId } from './util';
+} from '../../contracts';
+import { Effect, Exit, Scope } from 'effect';
+import { runFork, runPromise } from '../../kernel';
+import type { ScreenshotSessions, OutputTailOf } from './ports';
+import { makeScreenshotCore } from './screenshot-core';
+import type { ScreenshotCoreEffects } from './screenshot-core';
+import { newId } from '../../domain/util';
 
 /** How long `take_screenshots` and `get_screenshot_run` wait for the end of a run (under Codex's 60 s tool limit). */
 export const SCREENSHOT_POLL_MS = 40_000;
@@ -36,7 +39,8 @@ export interface ScreenshotRunsDeps {
   executorFor?: (sessionId: string) => ScreenshotExecutor | undefined;
   /** The disk of the session's engine (PM-312): the scenario it names and the images the run wrote. */
   diskFor: (sessionId: string) => Pick<EngineHost, 'resolveScenario' | 'listImages'> | undefined;
-  sessions: Pick<SessionOrchestrator, 'screenshotScope'>;
+  sessions: ScreenshotSessions;
+  outputTail: OutputTailOf;
   logger: FastifyBaseLogger;
   /** Default: this machine's platform (the sandbox is macOS only). */
   platform?: NodeJS.Platform;
@@ -62,11 +66,8 @@ interface Run {
   exitCode?: number | null;
   failure?: ScreenshotFailure;
   output?: string;
-  controller: AbortController;
   /** The run's end was decided; its status changes when its images are listed. */
   ending: boolean;
-  /** The executor's call, settled when the process group is gone; absent until the run is launched. */
-  executing?: Promise<void>;
   /** Resolved when the run is over. */
   over: Promise<void>;
   settle: () => void;
@@ -81,9 +82,12 @@ interface Run {
 export class ScreenshotRuns {
   private readonly runs = new Map<string, Run>();
   private readonly deps: ScreenshotRunsDeps;
+  private scope = Scope.makeUnsafe();
+  private core: ScreenshotCoreEffects;
 
   constructor(deps: ScreenshotRunsDeps) {
     this.deps = deps;
+    this.core = this.makeCore();
   }
 
   private executorOf(sessionId: string): ScreenshotExecutor | undefined {
@@ -153,7 +157,7 @@ export class ScreenshotRuns {
   stopSession(sessionId: string): void {
     for (const run of this.runs.values()) {
       if (run.sessionId !== sessionId || !isActive(run.status)) continue;
-      run.controller.abort();
+      runFork(this.core.stop(run.id));
       this.finish(run, { failure: 'stopped', exitCode: null, output: '' });
     }
   }
@@ -165,7 +169,9 @@ export class ScreenshotRuns {
   async stop(): Promise<void> {
     for (const sessionId of new Set([...this.runs.values()].map((run) => run.sessionId)))
       this.stopSession(sessionId);
-    await Promise.all([...this.runs.values()].map((run) => run.executing));
+    await runPromise(Scope.close(this.scope, Exit.void));
+    this.scope = Scope.makeUnsafe();
+    this.core = this.makeCore();
   }
 
   private register(ctx: ToolContext, scope: ScreenshotScope): Run {
@@ -182,7 +188,6 @@ export class ScreenshotRuns {
       startedAtIso: new Date(now).toISOString(),
       scope,
       files: [],
-      controller: new AbortController(),
       ending: false,
       over,
       settle,
@@ -194,34 +199,38 @@ export class ScreenshotRuns {
   private launch(ctx: ToolContext, run: Run, args: string[]): void {
     const scope = run.scope;
     const label = `shots ${ctx.taskKey ?? ctx.sessionId} ${ctx.member}`;
-    run.executing = this.executorOf(ctx.sessionId)!
-      .run(
-        {
-          runId: run.id,
-          cwd: scope.cwd,
-          sessionDir: scope.sessionDir,
-          ...(scope.browsersDir ? { browsersDir: scope.browsersDir } : {}),
-          args,
-          sandbox: scope.sandbox,
-          label,
-          timeoutMs: this.deps.runTimeoutMs ?? SCREENSHOT_RUN_TIMEOUT_MS,
-        },
-        run.controller.signal,
-        () => {
-          if (run.status === 'queued') run.status = 'running';
-        },
-      )
-      .then(
-        (ended) => this.finish(run, outcomeOf(ended)),
-        (err: unknown) => {
-          this.deps.logger.warn({ err, runId: run.id }, 'a screenshot run failed');
-          this.finish(run, {
-            failure: 'sandbox',
-            exitCode: null,
-            output: err instanceof Error ? err.message : String(err),
-          });
-        },
-      );
+    runFork(
+      this.core.launch(run.id, (signal) =>
+        this.executorOf(ctx.sessionId)!
+          .run(
+            {
+              runId: run.id,
+              cwd: scope.cwd,
+              sessionDir: scope.sessionDir,
+              ...(scope.browsersDir ? { browsersDir: scope.browsersDir } : {}),
+              args,
+              sandbox: scope.sandbox,
+              label,
+              timeoutMs: this.deps.runTimeoutMs ?? SCREENSHOT_RUN_TIMEOUT_MS,
+            },
+            signal,
+            () => {
+              if (run.status === 'queued') run.status = 'running';
+            },
+          )
+          .then(
+            (ended) => this.finish(run, outcomeOf(ended)),
+            (err: unknown) => {
+              this.deps.logger.warn({ err, runId: run.id }, 'a screenshot run failed');
+              this.finish(run, {
+                failure: 'sandbox',
+                exitCode: null,
+                output: err instanceof Error ? err.message : String(err),
+              });
+            },
+          ),
+      ),
+    );
   }
 
   /**
@@ -239,7 +248,7 @@ export class ScreenshotRuns {
       run.finishedAt = at;
       run.finishedAtIso = new Date(at).toISOString();
       run.exitCode = result.exitCode;
-      run.output = outputTail(result.output, OUTPUT_TAIL_CHARS);
+      run.output = this.deps.outputTail(result.output, OUTPUT_TAIL_CHARS);
       if (result.failure) run.failure = result.failure;
       run.status = result.failure ? 'failed' : 'done';
       run.settle();
@@ -264,16 +273,19 @@ export class ScreenshotRuns {
       .finally(settle);
   }
 
-  private async waitFor(run: Run): Promise<void> {
-    let timer: NodeJS.Timeout | undefined;
-    const poll = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, this.deps.pollMs ?? SCREENSHOT_POLL_MS);
-    });
-    try {
-      await Promise.race([run.over, poll]);
-    } finally {
-      clearTimeout(timer);
-    }
+  private waitFor(run: Run): Promise<void> {
+    return runPromise(this.core.waitFor(run.over));
+  }
+
+  private makeCore(): ScreenshotCoreEffects {
+    return Effect.runSync(
+      Scope.provide(
+        makeScreenshotCore({
+          pollMs: this.deps.pollMs ?? SCREENSHOT_POLL_MS,
+        }),
+        this.scope,
+      ),
+    );
   }
 
   private prune(): void {

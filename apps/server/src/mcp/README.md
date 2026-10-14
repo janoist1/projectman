@@ -11,7 +11,8 @@ module tool definitions and handlers, and the text the model reads.
 A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements the module's handler contract, and `index.ts` exports both.
 The groups so far are `members`, `tasks`, `attachments`, `merges`
-(`merge_task`, `prioritize_merge`; module `services/merges`), `feedback`, `boundary`, `releases` and `operator`, plus
+(`merge_task`, `prioritize_merge`; module `services/merges`), `feedback`, `full-tests`
+(`take_screenshots`, `get_screenshot_run`; module `services/full-tests`), `boundary`, `releases` and `operator`, plus
 `project-docs` (`read_project_doc`, `write_project_docs`, `list_decision_candidates`,
 `mark_decision_candidates`; module `services/project-docs`). `tools.ts` collects their
 definitions in `TEAM_TOOL_GROUPS`; `TeamToolsService` in `domain/team-tools.ts`
@@ -197,7 +198,7 @@ outcome, note, answer?, forwardTo?, todo? })`. See ARCHITECTURE.md, "The Operato
   (`engine-host/workspace-file.ts`, PM-312). `delete_attachment` deletes only the caller's own.
 - Screenshots (PM-351) are for the members whose own sandbox cannot start Chromium (Codex).
   `take_screenshots` starts `npm run shots` in the caller's worktree, in the server's own `srt`
-  sandbox (`domain/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run
+  sandbox (`services/full-tests/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run
   still going is answered as `running`, and `get_screenshot_run` waits another 40 s. The arguments
   are built from the validated fields only: `--out`, `--keep-data` and `--machine` cannot be given,
   and the scenario must be a file inside the working directory or the session folder (real path).

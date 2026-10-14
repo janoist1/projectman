@@ -16,18 +16,21 @@ import type {
   RepoConfig,
   Task,
 } from '@projectman/shared';
-import type { EngineDirectory, EngineHost, FullTestResult } from '../contracts';
-import type { FullTestRunRecord, ReviewPinRecord } from '../db';
-import type { DomainContext } from './context';
-import { isoNow } from './context';
-import type { Messaging } from './messaging';
-import type { ProjectService } from './projects';
-import { fullTestSandbox } from './session-policy';
-import type { SessionOrchestrator } from './sessions';
-import { stopStageReviewers, workStageBefore } from './stage-reviewers';
-import type { TaskService } from './tasks';
-import type { TimelineService } from './timeline';
-import { newId, SYSTEM_ACTOR } from './util';
+import type { EngineDirectory, EngineHost, FullTestResult } from '../../contracts';
+import type { FullTestRunRecord, ReviewPinRecord } from '../../db';
+import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../domain/context';
+import type { Messaging } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import { Effect, Exit, Scope } from 'effect';
+import { runFork, runPromise } from '../../kernel';
+import type { FullTestSessions, FullTestRunSandbox } from './ports';
+import { makeFullTestQueue } from './queue';
+import type { FullTestQueueEffects } from './queue';
+import { stopStageReviewers, workStageBefore } from '../../domain/stage-reviewers';
+import type { TaskService } from '../../domain/tasks';
+import type { TimelineService } from '../../domain/timeline';
+import { newId, SYSTEM_ACTOR } from '../../domain/util';
 
 /** How much of a failed run's output the developer's message carries. */
 const MESSAGE_OUTPUT_CHARS = 3000;
@@ -68,6 +71,22 @@ function settled(run: FullTestRunRecord): boolean {
   return run.status === 'passed' || run.status === 'failed' || run.status === 'error';
 }
 
+export interface FullTestRunsDeps {
+  ctx: DomainContext;
+  projects: ProjectService;
+  tasks: TaskService;
+  sessions: FullTestSessions;
+  messaging: Messaging;
+  timeline: TimelineService;
+  /** The engines (PM-311): a card's full test runs on its own engine's executor, with its places. */
+  engines: EngineDirectory;
+  /** Called when a pin's result is in: the hand-over that waited for it is tried again. */
+  released: () => void;
+
+  /** Builds the sandbox without depending on the session policy module. */
+  runSandbox: FullTestRunSandbox;
+}
+
 /**
  * The server's full test of a task's pinned commit before it is reviewed (PM-217). When a task
  * enters review (or a new round pins a new commit) and its repository has a `reviewTest`, a run is
@@ -80,7 +99,7 @@ export class FullTestRuns {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
-  private readonly sessions: SessionOrchestrator;
+  private readonly sessions: FullTestSessions;
   private readonly messaging: Messaging;
   private readonly timeline: TimelineService;
   private readonly engines: EngineDirectory;
@@ -88,21 +107,13 @@ export class FullTestRuns {
   /** The engines whose sandbox can run a full test (checked at the start). */
   private readonly availableOn = new Set<EngineId>();
   private stopped = false;
-  private current: { runId: string; controller: AbortController } | null = null;
-  private draining: Promise<void> | null = null;
+  private scope = Scope.makeUnsafe();
+  private core: FullTestQueueEffects;
 
-  constructor(deps: {
-    ctx: DomainContext;
-    projects: ProjectService;
-    tasks: TaskService;
-    sessions: SessionOrchestrator;
-    messaging: Messaging;
-    timeline: TimelineService;
-    /** The engines (PM-311): a card's full test runs on its own engine's executor, with its places. */
-    engines: EngineDirectory;
-    /** Called when a pin's result is in: the hand-over that waited for it is tried again. */
-    released: () => void;
-  }) {
+  private readonly deps: FullTestRunsDeps;
+
+  constructor(deps: FullTestRunsDeps) {
+    this.deps = deps;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
@@ -111,6 +122,7 @@ export class FullTestRuns {
     this.timeline = deps.timeline;
     this.engines = deps.engines;
     this.released = deps.released;
+    this.core = this.makeCore();
   }
 
   /** Whether any engine can run a full test. */
@@ -186,7 +198,9 @@ export class FullTestRuns {
     if (!this.available) return;
     const runs = this.ctx.repos.fullTestRuns;
     for (const run of runs.list('running')) this.cancel(run, 'shutdown');
-    await this.draining?.catch(() => undefined);
+    await runPromise(Scope.close(this.scope, Exit.void));
+    this.scope = Scope.makeUnsafe();
+    this.core = this.makeCore();
   }
 
   /**
@@ -279,33 +293,35 @@ export class FullTestRuns {
       reason,
       finishedAt: isoNow(this.ctx),
     });
-    if (this.current?.runId === run.id) this.current.controller.abort();
+    // A checkpoint in execute() can cancel itself: awaiting its own fiber would deadlock.
+    runFork(this.core.abort(run.id));
     const task = this.tasks.find(run.projectKey, run.taskKey);
     if (task) this.tasks.publish(task);
   }
 
   private pump(): void {
-    if (this.draining || this.stopped || !this.available) return;
-    const draining = this.drain()
-      .catch((err: unknown) => this.ctx.logger.warn({ err }, 'the full test queue failed'))
-      .finally(() => {
-        this.draining = null;
-        if (this.ctx.repos.fullTestRuns.list('queued').length > 0) this.pump();
-      });
-    this.draining = draining;
+    if (this.stopped || !this.available) return;
+    runFork(this.core.pump);
   }
 
-  private async drain(): Promise<void> {
-    for (;;) {
-      const next = this.ctx.repos.fullTestRuns.list('queued')[0];
-      if (!next || this.stopped) return;
-      try {
-        await this.execute(next);
-      } catch (err) {
-        this.ctx.logger.warn({ err, runId: next.id }, 'a full test run failed to go through');
-        await this.failToRun(next.id);
-      }
-    }
+  private makeCore(): FullTestQueueEffects {
+    return Effect.runSync(
+      Scope.provide(
+        makeFullTestQueue({
+          next: () => (this.stopped ? undefined : this.ctx.repos.fullTestRuns.list('queued')[0]),
+          step: async (run, signal) => {
+            try {
+              await this.execute(run, signal);
+            } catch (err) {
+              this.ctx.logger.warn({ err, runId: run.id }, 'a full test run failed to go through');
+              await this.failToRun(run.id);
+            }
+          },
+          logger: this.ctx.logger,
+        }),
+        this.scope,
+      ),
+    );
   }
 
   /**
@@ -333,7 +349,7 @@ export class FullTestRuns {
   }
 
   /** One run, from the checks before it to what follows its result. */
-  private async execute(run: FullTestRunRecord): Promise<void> {
+  private async execute(run: FullTestRunRecord, signal: AbortSignal): Promise<void> {
     const runs = this.ctx.repos.fullTestRuns;
     const { projectKey, taskKey } = run;
     const task = this.tasks.find(projectKey, taskKey);
@@ -368,8 +384,6 @@ export class FullTestRuns {
         'no engine to test on',
       );
     const paths = engine.paths();
-    const controller = new AbortController();
-    this.current = { runId: run.id, controller };
     runs.start(run.id, isoNow(this.ctx));
     this.tasks.publish(task);
     let result: FullTestResult;
@@ -381,7 +395,7 @@ export class FullTestRuns {
           command: reviewTest.command,
           maxWorkers: reviewTest.maxWorkers,
           timeoutMs: reviewTest.timeoutMinutes * 60_000,
-          sandbox: fullTestSandbox({
+          sandbox: this.deps.runSandbox({
             checkout: head.path,
             gitDir: await repoGitDir(engine, config, task, workspace),
             userHome: paths.userHome,
@@ -392,7 +406,7 @@ export class FullTestRuns {
             ],
           }),
         },
-        controller.signal,
+        signal,
       );
     } catch (err) {
       this.ctx.logger.warn({ err, runId: run.id }, 'the full test executor threw');
@@ -404,8 +418,6 @@ export class FullTestRuns {
         failedFiles: [],
         outputTail: '',
       };
-    } finally {
-      this.current = null;
     }
     // Dropped while it ran (new pin, stage left, shutdown): the result is of no use.
     if (runs.get(run.id)?.status !== 'running') return;

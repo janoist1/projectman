@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TeamToolError } from '../contracts';
+import { TeamToolError } from '../../contracts';
 import type {
   ScreenshotExecutor,
   ScreenshotRunEnded,
@@ -19,9 +19,10 @@ import type {
   ScreenshotScope,
   TakeScreenshotsInput,
   ToolContext,
-} from '../contracts';
-import { listImages, resolveScenario } from '../engine-host';
+} from '../../contracts';
+import { listImages, resolveScenario } from '../../engine-host';
 import { ScreenshotRuns, screenshotArgs } from './screenshot-runs';
+import { outputTail } from '../../full-test';
 
 const localDisk = () => ({ resolveScenario, listImages });
 
@@ -100,6 +101,7 @@ function runs(
 ) {
   const fake = fakeExecutor();
   const service = new ScreenshotRuns({
+    outputTail,
     executor: fake.executor,
     diskFor: options.diskFor ?? localDisk,
     sessions: {
@@ -360,8 +362,41 @@ describe('how a run ends', () => {
     expect(calls.map((call) => call.signal.aborted)).toEqual([true, true]);
   });
 
+  it('clears polling timers on shutdown and can run again after reopening its scope', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, calls } = runs({
+        diskFor: () => ({
+          resolveScenario: async () => ({ path: path.join(cwd, 'shots', 'login.mjs') }),
+          listImages: async () => [],
+        }),
+      });
+      const taking = take(service);
+      await Promise.resolve();
+      expect(calls).toHaveLength(1);
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      await service.stop();
+      expect(await taking).toMatchObject({ status: 'failed', failure: 'stopped' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(0);
+
+      const next = take(service);
+      await Promise.resolve();
+      expect(calls).toHaveLength(2);
+      expect(calls[1]!.signal.aborted).toBe(false);
+      calls[1]!.end();
+      expect(await next).toMatchObject({ status: 'done' });
+      await service.stop();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('logs and ends as a sandbox failure when the executor throws', async () => {
     const service = new ScreenshotRuns({
+      outputTail,
       executor: { run: () => Promise.reject(new Error('boom')) },
       diskFor: localDisk,
       sessions: { screenshotScope: () => scope },

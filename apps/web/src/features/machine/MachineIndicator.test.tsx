@@ -27,6 +27,83 @@ async function open() {
 }
 
 describe('machine display', () => {
+  it.each([false, true])('hides cloud machine data without polling (phone=%s)', async (phone) => {
+    vi.useFakeTimers();
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: phone && /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => true,
+    }));
+    const project = setup();
+    project.backend.engineMode = 'cloud';
+    const view = project.render(
+      <>
+        <MachineIndicator />
+        <MachineIndicator phone />
+      </>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(view.client.getQueryData(['engines', 'status'])).toMatchObject({ mode: 'cloud' });
+    expect(screen.queryByRole('button', { name: /Gép:/ })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(project.requests.some((row) => row.path.startsWith('/api/machine'))).toBe(false);
+    view.unmount();
+    view.client.clear();
+  });
+
+  it.each(['loading', 'error', 'missing', 'invalid'])('does not poll with %s engine mode', async (state) => {
+    vi.useFakeTimers();
+    const project = setup();
+    const fetch = createMockFetch(project.backend, project.requests);
+    setFetchImplementation((path, init) => {
+      if (path !== '/api/engines/status') return fetch(path, init);
+      if (state === 'loading') return new Promise<Response>(() => {});
+      return Promise.resolve(
+        new Response(JSON.stringify({ mode: state === 'invalid' ? 'unknown' : undefined, engines: [] }), {
+          status: state === 'error' ? 500 : 200,
+        }),
+      );
+    });
+    const view = project.render(<MachineIndicator />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(view.client.getQueryState(['engines', 'status'])?.status).toBe(
+      state === 'loading' ? 'pending' : 'error',
+    );
+    expect(screen.queryByRole('button', { name: /Gép:/ })).toBeNull();
+    expect(project.requests.some((row) => row.path.startsWith('/api/machine'))).toBe(false);
+    view.unmount();
+    view.client.clear();
+  });
+
+  it('does not request internal engine status or machine data for a client', async () => {
+    vi.useFakeTimers();
+    const project = setup();
+    project.backend.viewerHandle = 'kata';
+    project.backend.user = { ...project.backend.user, userId: 'usr_client' };
+    const view = project.render(<MachineIndicator />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(view.client.getQueryData(['me'])).toBeDefined();
+    expect(
+      project.requests.some(
+        (row) => row.path.startsWith('/api/engines') || row.path.startsWith('/api/machine'),
+      ),
+    ).toBe(false);
+    expect(screen.queryByRole('button', { name: /Gép:/ })).toBeNull();
+    view.unmount();
+    view.client.clear();
+  });
+
   it('polls every 15 seconds closed and 5 seconds open, with no background polling', async () => {
     vi.useFakeTimers();
     focusManager.setFocused(true);

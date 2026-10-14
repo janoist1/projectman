@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { machineLevels } from '@projectman/shared';
-import { useMachine, useMe } from '../../api/queries';
+import { useEngineStatus, useMachine, useMe } from '../../api/queries';
 import { Icon } from '../../components/Icon';
 import { MiniMeter } from '../../components/MiniMeter';
 import { formatMemory, formatPercent } from '../../i18n/format';
@@ -13,8 +13,14 @@ import styles from './Machine.module.css';
 
 export function MachineIndicator({ phone = false }: { phone?: boolean }) {
   const me = useMe();
+  const status = useEngineStatus();
   const isPhone = useMediaQuery('(max-width: 767px)');
-  return me.data?.instanceOwner === true && phone === isPhone ? <OwnerIndicator phone={phone} /> : null;
+  return me.data?.instanceOwner === true &&
+    status.data?.mode === 'single' &&
+    !status.isError &&
+    phone === isPhone ? (
+    <OwnerIndicator phone={phone} />
+  ) : null;
 }
 
 export function MachineBadge({ level }: { level: string | null }) {

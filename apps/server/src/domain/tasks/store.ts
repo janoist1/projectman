@@ -4,6 +4,7 @@ import {
   FullTestErrorReason,
   isOpenTask,
   isTheme,
+  LIVE_SESSION_STATES,
   memberOf,
   repoRequired,
   stageOf,
@@ -28,7 +29,6 @@ import type { DomainContext } from '../context';
 import { requireHuman } from '../access';
 import { invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
-import { LIVE_SESSION_STATES } from '../../runtime/sessions';
 import type { TimelineService } from '../timeline';
 
 /** Why the start of AI work on a task waits (the admission's deferred starts). */

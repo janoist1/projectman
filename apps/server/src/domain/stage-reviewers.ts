@@ -1,7 +1,6 @@
-import { stageIndex, stageOwners } from '@projectman/shared';
+import { LIVE_SESSION_STATES, stageIndex, stageOwners } from '@projectman/shared';
 import type { ProjectConfig, Stage, Task } from '@projectman/shared';
-import { LIVE_SESSION_STATES } from '../runtime/sessions';
-import type { SessionOrchestrator } from '../runtime/sessions';
+import type { StageReviewerSessions } from '../core/projects/ports';
 
 /** The work stage before `stageId` that a task sent back from it goes to; none when there is no such stage. */
 export function workStageBefore(config: ProjectConfig, stageId: string): Stage | undefined {
@@ -17,7 +16,7 @@ export function workStageBefore(config: ProjectConfig, stageId: string): Stage |
  * card's developer are left alone.
  */
 export async function stopStageReviewers(
-  sessions: Pick<SessionOrchestrator, 'list' | 'isRunning' | 'stop'>,
+  sessions: StageReviewerSessions,
   config: ProjectConfig,
   task: Pick<Task, 'projectKey' | 'key' | 'assignee'>,
   stage: Stage,

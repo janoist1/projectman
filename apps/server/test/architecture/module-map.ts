@@ -360,21 +360,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     removedBy: 'auth',
   },
   {
-    from: 'core/tasks',
-    to: 'runtime/sessions',
-    removedBy: 'core/tasks',
-  },
-  {
-    from: 'core/tasks',
-    to: 'runtime/usage',
-    removedBy: 'core/tasks',
-  },
-  {
-    from: 'core/base',
-    to: 'runtime/sessions',
-    removedBy: 'core/base',
-  },
-  {
     from: 'core/inbox',
     to: 'runtime/sessions',
     removedBy: 'core/inbox',
@@ -418,16 +403,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'core/messages',
     to: 'runtime/sessions',
     removedBy: 'core/messages',
-  },
-  {
-    from: 'core/projects',
-    to: 'runtime/sessions',
-    removedBy: 'core/projects',
-  },
-  {
-    from: 'core/tasks',
-    to: 'services/github',
-    removedBy: 'core/tasks',
   },
   {
     from: 'instance',

@@ -14,7 +14,7 @@ import type { DomainContext } from '../context';
 import type { InboxService } from '../inbox';
 import type { Messaging } from '../messaging';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../../runtime/sessions';
+import type { TaskPauseReader } from '../../core/tasks/ports';
 import type { TimelineService } from '../timeline';
 import { KeyedMutex, SYSTEM_ACTOR, unique } from '../../kernel';
 
@@ -32,7 +32,7 @@ const EVENTS = 100;
 export class LeftParts {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
-  private readonly sessions: SessionOrchestrator;
+  private readonly sessions: TaskPauseReader;
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
   private readonly timeline: TimelineService;
@@ -41,7 +41,7 @@ export class LeftParts {
   constructor(deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: SessionOrchestrator;
+    sessions: TaskPauseReader;
     messaging: Messaging;
     inbox: InboxService;
     timeline: TimelineService;

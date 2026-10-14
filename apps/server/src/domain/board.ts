@@ -2,8 +2,7 @@ import { DEFAULT_AGENT_PROVIDER, hasPlanUsage, labelHolders, resolvedStages } fr
 import type { BoardView } from '@projectman/shared';
 import type { InboxService } from './inbox';
 import type { MemberService } from './members';
-import type { PauseService } from '../runtime/sessions';
-import type { PlanUsageCache } from '../runtime/usage';
+import type { BoardPauses, BoardPlanUsage } from '../core/tasks/ports';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
 import { isClient, visibleTasks } from './visibility';
@@ -15,16 +14,16 @@ export class BoardService {
   private readonly tasks: TaskService;
   private readonly members: MemberService;
   private readonly inbox: InboxService;
-  private readonly planUsage: Pick<PlanUsageCache, 'peek'>;
-  private readonly pauses: Pick<PauseService, 'projectView'>;
+  private readonly planUsage: BoardPlanUsage;
+  private readonly pauses: BoardPauses;
 
   constructor(deps: {
     projects: ProjectService;
     tasks: TaskService;
     members: MemberService;
     inbox: InboxService;
-    planUsage: Pick<PlanUsageCache, 'peek'>;
-    pauses: Pick<PauseService, 'projectView'>;
+    planUsage: BoardPlanUsage;
+    pauses: BoardPauses;
   }) {
     this.pauses = deps.pauses;
     this.projects = deps.projects;

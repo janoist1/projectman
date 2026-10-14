@@ -30,6 +30,7 @@ import {
   isHandleOnLeave,
   isOpenTask,
   isTheme,
+  LIVE_SESSION_STATES,
   memberOf,
   priorityRefusal,
   repoOf,
@@ -51,8 +52,7 @@ import { conflict, forbidden, invalid, projectManagerMoveRefused, themeRefused }
 import type { AddedRelation } from '../events';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
-import { PullRequestRecords } from '../../services/github';
-import { LIVE_SESSION_STATES } from '../../runtime/sessions';
+import { PullRequestRecords } from './pull-request-records';
 import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../../kernel';
 import { BoardOrder } from './board-order';

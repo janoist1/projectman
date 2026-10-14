@@ -918,6 +918,13 @@ and are typed in after the restart, which gets no continue message. Grants "for 
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
 
+The Operator's approver stays `human`, with source `member` (PM-691), even with a historical
+`none`/`ai` member setting or any session override. `SessionPermissionMember` preserves its identity
+for `isOperator`; ordinary and missing members retain their session settings. The shared
+`sessionApproverChangeRefusal` rejects Operator `none`/`ai` updates with 403 `operator_fixed` before
+any write, restart or event; `human`/`null` clears the override. Mixed mode/forbidden-approver patches
+are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
+
 ## Session policy migration (PM-87 / PM-127)
 
 `contracts/session-policy.ts` is the provider-neutral session intent: placement, semantic team,
@@ -2335,6 +2342,12 @@ assumption or remote-engine RPC.
   uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
   policy functions through `InboxPermissionPolicy` (`core/inbox`); path validation still
   runs on the session's engine and requires no new RPC.
+  PM-691 fixes the Operator's effective approver to `human` on the server through
+  `packages/shared/src/config/permission-level.ts`, including historical session overrides.
+  `runtime/sessions/{sessions,launch}.ts` checks updates and carries the effective member into
+  the existing start/context path; `core/inbox` uses it for human routing. Local and remote
+  engines consume the same start intent. This changes no OS assumption or RPC and never
+  turns a CLI escalation into boundary authorization.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
@@ -2795,6 +2808,21 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   new configuration field is closed until a rule opens it. What `integratorConfigRefusal` or `ownerOnlyChanges` names
   is at least `approval`; the exception is the four member fields above, which the integrator rule would cover but the
   owner asked to go straight through.
+- **Approval waiver classification (PM-691).** The verdict additionally returns `waiverEligible`, true only for
+  an `approval` change whose full end-state diff is on the explicit shared allow lists. Protected rights,
+  authorization duties, gates and approval labels, locations, sharing and the Operator's own settings still
+  need approval; unknown fields are closed. New AI members expose non-default permission fields beside their
+  presence row. Approval labels use `isOwnerApprovalLabel` in both end states (human-only, author exclusion or
+  a gate requirement); their actual holders and resolved reviewer/authorization duties remain protected even
+  without a gate. `team.operatorApprovalWaiver` is optional (absent: false), owner-only and stored in `team.yaml`.
+  reordering existing stages is protected even with unchanged gate definitions. Stage/member changes that
+  alter `mergerOf`, the merge target or any `cardMerger` reviewer choice also need a click; roster reordering
+  has its own approval row because duty-derived owner order can change the selected merger.
+  Classification never changes a verdict's level or authorizes execution. The execution switch follows in PM-692.
+  The Operator template uses `approver: human`; load and revert migrate legacy `none`/`ai` values to `human`
+  without relaxing mode or network. Shared fixed invariants reject a nonhuman Operator approver, an Operator
+  merger and boundary authorization in its role. These errors are never tolerated on load or preserved by a
+  configuration write. The rules run on the server for remote engines too; no new machine-dependent part.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
   priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.

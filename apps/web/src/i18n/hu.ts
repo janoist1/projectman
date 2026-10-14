@@ -5284,6 +5284,9 @@ export const hu = {
       mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
       mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
+      operator_approver_fixed: 'Az Operátor engedélykérője csak ember lehet.',
+      operator_merger_forbidden: 'Az Operátor nem lehet beolvasztó.',
+      operator_boundary_duty_forbidden: 'Az Operátor nem kaphat határkéréseket eldöntő feladatkört.',
     },
     problems: {
       count: '{n} hiba van a mentett beállításokban.',

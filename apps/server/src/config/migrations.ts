@@ -272,6 +272,10 @@ function fixOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
   for (const member of rawAiMembers(raw)) {
     if (!isOperator(member as unknown as MemberConfig)) continue;
     const fields: string[] = [];
+    if (member.approver === 'none' || member.approver === 'ai') {
+      member.approver = 'human';
+      fields.push('approver');
+    }
     // A stated `onLeave: false` is dropped silently: it is the default, nothing is put back.
     if (member.onLeave === true) fields.push('onLeave');
     delete member.onLeave;

@@ -10,6 +10,7 @@ import {
   isMergeFixer,
   isMergeRunningFor,
   effectiveSessionPermissions,
+  sessionApproverChangeRefusal,
   isOnLeave,
   isOperator,
   isWorkPaused,
@@ -64,7 +65,7 @@ import { assertNotPaused } from '../admission';
 import type { CardQuestions } from '../../core/inbox';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
-import { conflict, DomainError, notFound } from '../../kernel';
+import { conflict, DomainError, forbidden, notFound } from '../../kernel';
 import type { MemberService } from '../../core/members';
 import type { ProjectFocusService } from '../../core/tasks';
 import type { ConfigChange, ProjectService } from '../../core/projects';
@@ -666,6 +667,8 @@ export class SessionOrchestrator {
     return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, found.member);
+      const refusal = sessionApproverChangeRefusal(member, req.approver);
+      if (refusal) throw forbidden(refusal, 'the Operator approver is fixed to human');
       if (req.approver) {
         const blocker = approverBlocker(config, member.handle, req.approver);
         if (blocker)
@@ -682,7 +685,7 @@ export class SessionOrchestrator {
       const from = effectiveSessionPermissions(member, before);
       let session = this.ctx.repos.sessions.update(sessionId, {
         ...(req.permissionMode !== undefined ? { permissionModeOverride: req.permissionMode } : {}),
-        ...(req.approver !== undefined ? { approverOverride: req.approver } : {}),
+        ...(req.approver !== undefined ? { approverOverride: isOperator(member) ? null : req.approver } : {}),
       })!;
       const to = effectiveSessionPermissions(member, session);
       const running = this.isRunning(sessionId);

@@ -1,7 +1,8 @@
 import { boundaryLeads } from '../domain/boundary';
-import type { Approver, PermissionMode } from '../domain/member';
+import type { Approver, MemberKind, PermissionMode } from '../domain/member';
 import { DEFAULT_OUTBOUND_NETWORK } from '../domain/member';
 import { memberOf } from './lookup';
+import { isOperator } from './operator-member';
 import type { ProjectConfig } from './schema';
 
 /** The part of an AI member the permission rules read. */
@@ -28,6 +29,25 @@ export interface SessionPermissionFields {
   approverOverride?: Approver;
 }
 
+/** Preserve member identity so the fixed Operator rule also applies to historical session overrides. */
+export type SessionPermissionMember = PermissionFields & {
+  kind?: MemberKind;
+  role?: string;
+  temp?: boolean;
+};
+
+function isPermissionOperator(member: SessionPermissionMember | null | undefined): boolean {
+  return member?.kind === 'ai' && isOperator({ kind: member.kind, role: member.role, temp: member.temp });
+}
+
+/** The Operator's human approver cannot be overridden; resets and an explicit human are accepted. */
+export function sessionApproverChangeRefusal(
+  member: SessionPermissionMember | null | undefined,
+  approver: Approver | null | undefined,
+): 'operator_fixed' | null {
+  return isPermissionOperator(member) && (approver === 'none' || approver === 'ai') ? 'operator_fixed' : null;
+}
+
 /** Where a setting that applies to a session comes from: its member, or the session's own. */
 export type PermissionSource = 'member' | 'session';
 
@@ -44,15 +64,16 @@ export interface EffectiveSessionPermissions {
  * the web (the session header). A session of a member that is gone has only its own settings.
  */
 export function effectiveSessionPermissions(
-  member: PermissionFields | null | undefined,
+  member: SessionPermissionMember | null | undefined,
   session: SessionPermissionFields,
 ): EffectiveSessionPermissions {
+  const fixed = isPermissionOperator(member);
   return {
     permissionMode: session.permissionModeOverride ?? member?.permissionMode,
-    approver: session.approverOverride ?? approverOf(member ?? {}),
+    approver: fixed ? 'human' : (session.approverOverride ?? approverOf(member ?? {})),
     source: {
       mode: session.permissionModeOverride ? 'session' : 'member',
-      approver: session.approverOverride ? 'session' : 'member',
+      approver: !fixed && session.approverOverride ? 'session' : 'member',
     },
   };
 }

@@ -28,6 +28,27 @@ function migrate(config: unknown) {
 }
 
 describe('project configuration migrations', () => {
+  it.each(['none', 'ai'] as const)(
+    'fixes the Operator approver %s idempotently without relaxing mode or network',
+    (approver) => {
+      const legacy = raw();
+      const operator = legacy.team.members.find((member) => member.role === 'ai_operator')!;
+      Object.assign(operator, { approver, permissionMode: 'plan', outboundNetwork: false });
+      const first = migrate(legacy);
+      expect(first.config.team.members.find((member) => isOperator(member))).toMatchObject({
+        approver: 'human',
+        permissionMode: 'plan',
+        outboundNetwork: false,
+      });
+      expect(first.warn).toHaveBeenCalledWith(
+        { projectKey: 'AR', member: 'operator', fields: ['approver'] },
+        'Fixed the Operator',
+      );
+      const again = migrate(first.migrated);
+      expect(again.config).toEqual(first.config);
+      expect(again.warn).not.toHaveBeenCalled();
+    },
+  );
   it('passes a current configuration through untouched', () => {
     const current = raw();
     const { migrated, warn } = migrate(current);

@@ -64,7 +64,10 @@ describe('the local engine', () => {
   const worktrees = new FakeWorktreeManager('/tmp/fictional-worktrees');
 
   it('is the one engine of a single-machine installation, always connected', () => {
-    const engine = createLocalEngine({ worktrees, workspacePath: (key) => `/work/${key}` }, logger);
+    const engine = createLocalEngine(
+      { worktrees, workspacePath: (key) => `/work/${key}`, claudeTmpRoots: [] },
+      logger,
+    );
     const directory = new LocalEngineDirectory(engine);
 
     expect(directory.get(LOCAL_ENGINE_ID)).toBe(engine);
@@ -77,7 +80,7 @@ describe('the local engine', () => {
 
   it('answers with the places it was given, and none for what it was not', () => {
     const bare = createLocalEngine(
-      { worktrees, workspacePath: () => null, userHome: '/home/u' },
+      { worktrees, workspacePath: () => null, userHome: '/home/u', claudeTmpRoots: [] },
       logger,
     ).paths();
     expect(bare).toMatchObject({
@@ -116,7 +119,7 @@ describe('the local engine', () => {
   });
 
   it('has no session folders without a root, and no executors or member workspaces it was not given', async () => {
-    const engine = createLocalEngine({ worktrees, workspacePath: () => null }, logger);
+    const engine = createLocalEngine({ worktrees, workspacePath: () => null, claudeTmpRoots: [] }, logger);
     expect(engine.sessionFolders).toBeUndefined();
     expect(engine.memberWorkspaces).toBeUndefined();
     expect(engine.fullTestExecutor).toBeUndefined();
@@ -197,6 +200,7 @@ describe('sessions on engines', () => {
         workspacePath: () => (without.has(id) ? null : workspace),
         freeDiskBytes: async () => free[id] ?? null,
         worktreesRootDir: join(root, id, 'worktrees'),
+        claudeTmpRoots: [],
       },
       logger,
     );
@@ -516,6 +520,60 @@ describe('sessions on engines', () => {
     }
   });
 
+  describe('permission working directories on the session engine', () => {
+    it('uses the remote canonical paths before automatically approving a routine command', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+      const remote = engines.get(REMOTE)!;
+      const canonical = vi.spyOn(remote, 'realpath').mockImplementation(async (path) => path);
+      const local = vi.spyOn(engines.get(LOCAL_ENGINE_ID)!, 'realpath');
+      const cwd = join(session.cwd!, 'src');
+
+      const decision = await h.runnerModule
+        .broker()
+        .decide(
+          { sessionId: session.id, toolName: 'Bash', toolInput: { command: 'npm ci', cwd }, raw: {} },
+          new AbortController().signal,
+        );
+
+      expect(decision).toEqual({ behavior: 'allow' });
+      expect(canonical.mock.calls).toEqual([[cwd], [session.cwd]]);
+      expect(local).not.toHaveBeenCalled();
+      expect(h.domain.inbox.list('AR', { state: 'open', kind: 'permission' })).toEqual([]);
+    });
+
+    it.each(['offline', 'missing', 'failure', 'outside'] as const)(
+      'leaves the request for a human when the remote canonical check is %s',
+      async (reason) => {
+        engines.placement.set('dev-1', REMOTE);
+        const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+        const remote = engines.get(REMOTE)!;
+        const cwd = join(session.cwd!, 'src');
+        const canonical = vi.spyOn(remote, 'realpath').mockImplementation(async (path) => {
+          if (reason === 'failure') throw new Error('engine realpath failed');
+          if (reason === 'missing') return null;
+          return path === cwd ? join(root, 'another-worktree') : session.cwd!;
+        });
+        if (reason === 'offline') engines.setOnline(REMOTE, false);
+        const controller = new AbortController();
+        const pending = h.runnerModule
+          .broker()
+          .decide(
+            { sessionId: session.id, toolName: 'Bash', toolInput: { command: 'npm ci', cwd }, raw: {} },
+            controller.signal,
+          );
+
+        await vi.waitFor(() =>
+          expect(h.domain.inbox.list('AR', { state: 'open', kind: 'permission' })).toHaveLength(1),
+        );
+        if (reason === 'offline') expect(canonical).not.toHaveBeenCalled();
+        else expect(canonical.mock.calls).toEqual([[cwd], [session.cwd]]);
+        controller.abort();
+        await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
+      },
+    );
+  });
+
   describe('free disk space of the engine', () => {
     const startCard = () =>
       h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
@@ -679,6 +737,7 @@ describe("the disk work of the session's engine (PM-312)", () => {
       {
         worktrees: new FakeWorktreeManager(join(root, 'worktrees')),
         workspacePath: () => join(root, 'workspace'),
+        claudeTmpRoots: [],
         ...places,
       },
       capturingLogger().logger,

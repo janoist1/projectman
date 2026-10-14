@@ -99,7 +99,7 @@ import { DecisionCandidates, DocWrites } from '../services/project-docs';
 import { ProjectDocTools } from '../mcp/project-docs';
 import { Merges } from '../services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from '../kernel';
-import { fullTestSandbox } from '../runtime/sessions';
+import { commandVerdict, engineIdOf, fullTestSandbox, readableRootsFor } from '../runtime/sessions';
 import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
 import type { ReleaseTarget } from '../services/releases';
 import { LoopWatch } from '../runtime/watchers';
@@ -479,7 +479,14 @@ export function createDomain(opts: DomainOptions) {
         opts.logger,
       ),
     );
-  const inbox = new InboxService({ ctx, timeline, projects, engines, attachmentDirectory });
+  const inbox = new InboxService({
+    ctx,
+    timeline,
+    projects,
+    policy: { engineIdOf, readableRootsFor, commandVerdict },
+    engines,
+    attachmentDirectory,
+  });
   // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
   const runnerModule = opts.createRunner(
     {

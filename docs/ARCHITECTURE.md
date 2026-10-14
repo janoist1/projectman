@@ -827,6 +827,12 @@ AI decider of PM-169, below). The auto mode's own refusals arrive as the
 publishing) are deny rules computed in `runtime/sessions` (`session policy`) and rendered in `--settings` by
 the Claude adapter; see `PROVIDERS.md` for the server-side decisions and their reasons.
 
+`core/inbox/ports.ts` owns `InboxPermissionPolicy` (PM-635): `InboxService` receives
+`engineIdOf`, `readableRootsFor` and `commandVerdict` from the `runtime/sessions` facade
+through assembly. The rules and engine-id default remain in runtime; core still checks
+the tool working directory's canonical paths on the session's engine before applying
+the command verdict. The permission broker, engine contracts and decision order are unchanged.
+
 **The AI decider on the host (PM-169).** With approver `ai` (and the owner's `team.boundary.enabled`) a
 question the CLI still asks goes to the AI members holding `boundary_authorization`, not to the sponsor:
 the routing rule (`routePermissionRequest`), the owner's categories it never delegates
@@ -1659,7 +1665,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `engine-host/sandbox-dirs.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
   `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
   preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
-  folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `session policy`) (PM-268, PM-333, PM-339, PM-312). Legacy Claude
+  folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `session policy`) (PM-268, PM-333, PM-339, PM-312).
+  `core/inbox/ports.ts` exposes the existing readable-root calculation through `InboxPermissionPolicy`
+  (PM-635); policy rendering and folder operations remain in runtime and on the engine. Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
   folders are not supplied to read-only Codex sessions. A Codex session also gets its
@@ -1690,6 +1698,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   directories (PM-633). Tests that inspect these roots can supply explicit fixtures through
   the harness's `app` options. This test isolation leaves production root discovery and the
   server/engine boundary unchanged.
+  Engine-host fixtures in `test/engines.test.ts` also supply explicit `claudeTmpRoots`
+  (PM-635), so the remote/offline and engine-disk tests do not discover the user's directories.
   The tmp root is another machine-dependent assumption: a shared host-local `/tmp`.
   Every Claude session reads all the folders below the instance's root
   (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy
@@ -1856,6 +1866,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   diagnostic payload crosses the server/engine boundary.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
+  `core/inbox` (`domain/inbox.ts`) keeps the existing broker and receives the command policy
+  through `InboxPermissionPolicy` (`core/inbox/ports.ts`, PM-635); no hook payload or transport changes.
   **Cloud mode (PM-315):** the cloud registers no hook routes (`registerHookRoutes` is empty) and listens
   on no loopback for the CLIs. `permission.*` and `mcp.relay` are handled by `engine-link/remote/handlers.ts`;
   the relay runs the request through the cloud's own `/mcp/<token>` route and answers 404 for a token whose
@@ -1914,7 +1926,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 - **Native sandbox and canonical paths** — `runtime/sessions` (`session policy`),
   `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
-  engine's `realpath`, `isDirectory`, `isRealDirectory`).
+  engine's `realpath`, `isDirectory`, `isRealDirectory`). `core/inbox` (`domain/inbox.ts`, PM-635)
+  uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
+  policy functions through `InboxPermissionPolicy` (`core/inbox/ports.ts`); path validation still
+  runs on the session's engine and requires no new RPC.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
@@ -2484,7 +2499,11 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
   the Operator's own and not a human's) is created in the inbox state `screening` with
   `payload.screening.until` = now + `QUESTION_SCREENING_MINUTES` (10); no person sees it. `QuestionScreening`
-  (`domain/question-screening.ts`) wakes the Operator for it through admission like `operator_signals`
+  (`core/inbox`, `domain/question-screening.ts`) wakes the Operator through the consumer-owned
+  `ScreeningAdmission` and `ScreeningSessions` ports (`core/inbox/ports.ts`, PM-635) and
+  `Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>` from the messaging facade. Assembly
+  passes the existing admission, sessions and delivery instances, including for deferred restore.
+  It wakes the Operator like `operator_signals`
   (deferred start kind `question_screening`, no capacity, the Operator's general conversation, one notice with a
   JSON line per question; `deliveredAt` is written after the first input). The Operator settles each question with
   `screen_question` (an Operator-only tool, not in guest conversations, no owner request, no `OPERATOR_NEVER_TOOLS`

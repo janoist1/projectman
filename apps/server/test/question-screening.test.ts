@@ -145,6 +145,55 @@ describe('the Operator screens AI members’ questions', () => {
     });
   });
 
+  describe('screening delivery acknowledgements', () => {
+    it('waits for the first input while admitting other work and delivering concurrent questions once', async () => {
+      h.runner.holdFirstInput = true;
+      const questions = await Promise.all([ask('Which font?'), ask('Which colour?')]);
+      await vi.waitFor(() => expect(sessionsOf('operator')).toHaveLength(1));
+      const operator = sessionsOf('operator')[0]!;
+      for (const { inboxItemId } of questions)
+        expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
+
+      // The old persisted spec still rebuilds while the CLI has not acknowledged its notice.
+      const spec = { kind: 'question_screening', projectKey: 'AR' } as const;
+      expect(h.domain.questionScreening.rebuild(spec)?.spec()).toEqual(spec);
+
+      // An unrelated automatic message start must acquire admission while screening waits for input.
+      await h.domain.messaging.sendReporting(
+        'AR',
+        'owner',
+        { to: ['dev-2'], text: 'Please look at the open cards.' },
+        { awaitWake: true },
+      );
+      expect(sessionsOf('dev-2')).toHaveLength(1);
+
+      h.runner.emit({ type: 'first_input_sent', sessionId: operator.id });
+      await vi.waitFor(() => {
+        for (const { inboxItemId } of questions)
+          expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeTruthy();
+      });
+      const notices = typedInto(operator.id).join('\n');
+      for (const { inboxItemId } of questions) expect(notices.split(inboxItemId)).toHaveLength(2);
+      expect(h.runner.started.filter((start) => start.member === 'operator')).toHaveLength(1);
+      expect(h.domain.questionScreening.rebuild(spec)).toBeNull();
+      expect(humanQueue()).toEqual([]);
+    });
+
+    it('releases the question without marking it delivered when the first input resolves false', async () => {
+      h.runner.holdFirstInput = true;
+      const { inboxItemId } = await ask();
+      await vi.waitFor(() => expect(sessionsOf('operator')).toHaveLength(1));
+      const operator = sessionsOf('operator')[0]!;
+      expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
+
+      await h.domain.sessions.stop('AR', operator.id);
+
+      await vi.waitFor(() => expect(item(inboxItemId).state).toBe('open'));
+      expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({ fallback: 'unavailable' });
+      expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
+    });
+  });
+
   describe('the five outcomes', () => {
     it('answered: the asking member gets the answer, no person sees the question', async () => {
       const { inboxItemId } = await ask('Which font?');

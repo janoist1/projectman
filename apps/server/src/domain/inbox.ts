@@ -50,11 +50,10 @@ import type {
 import { ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { engineIdOf } from '../runtime/sessions';
+import type { InboxPermissionPolicy } from '../core/inbox/ports';
 import { conflict, forbidden, invalid, notFound } from '../kernel';
 import type { ProjectService } from './projects';
 import type { TimelineService } from './timeline';
-import { commandVerdict, readableRootsFor } from '../runtime/sessions';
 import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from '../kernel';
 
 /** How many screened questions the screened-questions list returns (PM-558). */
@@ -213,6 +212,7 @@ export class InboxService {
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
+  private readonly policy: InboxPermissionPolicy;
   private readonly engines: EngineDirectory;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
@@ -297,6 +297,7 @@ export class InboxService {
     ctx: DomainContext;
     timeline: TimelineService;
     projects: ProjectService;
+    policy: InboxPermissionPolicy;
     /**
      * The engines (PM-311): a session's worktrees root, and where its member workspaces live (PM-138:
      * routine steps there run without asking, as in a worktree), are its engine's.
@@ -308,6 +309,7 @@ export class InboxService {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
+    this.policy = deps.policy;
     this.engines = deps.engines;
     this.attachmentDirectory = deps.attachmentDirectory;
     this.broker = {
@@ -1045,10 +1047,10 @@ export class InboxService {
         ? await this.attachmentDirectory?.(session.projectKey, task.parentKey).catch(() => null)
         : null;
     // The places of the engine the session runs on (an engine that is gone has none).
-    const engine = this.engines.get(engineIdOf(session));
+    const engine = this.engines.get(this.policy.engineIdOf(session));
     const worktreesRootDir = engine?.paths().worktreesRoot ?? undefined;
     const workspacesRootDir = (engine?.memberWorkspaces ? engine.paths().workspacesRoot : null) ?? undefined;
-    const readableRoots = readableRootsFor({
+    const readableRoots = this.policy.readableRootsFor({
       config,
       cwd: session.cwd,
       projectKey: session.projectKey,
@@ -1080,7 +1082,7 @@ export class InboxService {
     }
     const verdict =
       member?.kind === 'ai' && validToolCwd
-        ? commandVerdict({
+        ? this.policy.commandVerdict({
             config,
             session: {
               cwd: typeof toolCwd === 'string' ? toolCwd : session.cwd,

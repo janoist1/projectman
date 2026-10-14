@@ -6,6 +6,7 @@ export const coreInbox: ModuleEntry = {
   target: 'core/inbox',
   pass: 'split',
   paths: [
+    'core/inbox/ports.ts',
     'domain/inbox.ts',
     'domain/approval-questions.ts',
     'domain/card-questions.ts',

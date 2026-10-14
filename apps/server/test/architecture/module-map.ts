@@ -360,16 +360,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     removedBy: 'auth',
   },
   {
-    from: 'core/inbox',
-    to: 'runtime/sessions',
-    removedBy: 'core/inbox',
-  },
-  {
-    from: 'core/inbox',
-    to: 'runtime/admission',
-    removedBy: 'core/inbox',
-  },
-  {
     from: 'instance',
     to: 'entry',
     removedBy: 'instance',

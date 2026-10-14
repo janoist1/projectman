@@ -4,7 +4,7 @@ import type { ToolCaller } from '../caller';
 import type { SessionToolsHandler } from '../../contracts/team-tools';
 import type { WorkDoing } from '@projectman/shared';
 import type { DomainContext } from '../../domain/context';
-import type { SessionOrchestrator } from '../../domain/sessions';
+import type { SessionOrchestrator } from '../../runtime/sessions';
 
 export class SessionTools implements SessionToolsHandler {
   private readonly calls: ToolCaller;

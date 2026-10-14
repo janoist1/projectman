@@ -50,11 +50,11 @@ import type {
 import { ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { engineIdOf } from './engines';
+import { engineIdOf } from '../runtime/sessions';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
 import type { TimelineService } from './timeline';
-import { commandVerdict, readableRootsFor } from './session-policy';
+import { commandVerdict, readableRootsFor } from '../runtime/sessions';
 import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
 
 /** How many screened questions the screened-questions list returns (PM-558). */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSandbox, SessionPolicy } from '../src/contracts';
-import { sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
-import { describeSandbox } from '../src/domain/unattended-commands';
+import { sensitivePaths, sessionSandbox } from '../src/runtime/sessions';
+import { describeSandbox } from '../src/runtime/permissions';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 

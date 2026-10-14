@@ -13,7 +13,7 @@ import type { DomainContext } from './context';
 import type { DiskGuard } from './disk-guard';
 import type { InboxService } from './inbox';
 import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
+import type { SessionOrchestrator } from '../runtime/sessions';
 import { MergeCardLock } from '../kernel';
 
 /** A closed card's worktree stays this long: a done card may come back, and the developer may look again. */

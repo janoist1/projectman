@@ -30,14 +30,14 @@ import type {
 } from '@projectman/shared';
 import type { TaskFixLimitRecord } from '../db';
 import { ownerHandles } from './access';
-import type { Admission, TaskStarts } from './admission';
+import type { Admission, TaskStarts } from '../runtime/admission';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, forbidden } from './errors';
 import type { InboxService } from './inbox';
 import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
+import type { SessionOrchestrator } from '../runtime/sessions';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from './util';

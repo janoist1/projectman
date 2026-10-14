@@ -14,7 +14,7 @@ import type { DomainContext } from '../context';
 import type { InboxService } from '../inbox';
 import type { Messaging } from '../messaging';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../sessions';
+import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TimelineService } from '../timeline';
 import { KeyedMutex, SYSTEM_ACTOR, unique } from '../util';
 

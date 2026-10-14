@@ -23,7 +23,7 @@ import type {
 import type { EngineDirectory, ProviderStatus, SessionRunner } from '../contracts';
 import { ENGINE_OFFLINE_AFTER_MS } from '../contracts';
 import type { ProjectAccess } from './access';
-import type { DeferredStarts } from './admission';
+import type { DeferredStarts } from '../runtime/admission';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, forbidden } from './errors';

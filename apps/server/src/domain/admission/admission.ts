@@ -31,12 +31,12 @@ import type {
 import type { EngineDirectory } from '../../contracts';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import type { DiskGuard } from '../disk-guard';
+import type { DiskGuard } from '../../runtime/watchers';
 import { conflict } from '../errors';
-import { highestUsagePercent } from '../plan-usage';
-import type { PlanUsageCache } from '../plan-usage';
+import { highestUsagePercent } from '../../runtime/usage';
+import type { PlanUsageCache } from '../../runtime/usage';
 import type { ProjectService } from '../projects';
-import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
+import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../../runtime/sessions';
 import type { TaskService } from '../tasks';
 import { KeyedMutex } from '../util';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';

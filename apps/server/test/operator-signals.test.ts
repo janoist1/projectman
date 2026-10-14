@@ -8,7 +8,7 @@ import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from '.
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';
 import { canSeeProjectEvent } from '../src/domain/visibility';
-import { WorkOutages } from '../src/domain/outages';
+import { WorkOutages } from '../src/runtime/watchers';
 
 let h: DomainHarness;
 let app: AppHarness | undefined;

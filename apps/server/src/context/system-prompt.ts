@@ -26,7 +26,7 @@ import {
   describeSessionFolder,
   describeSessionTmpDir,
   describeUnattendedCommands,
-} from '../domain';
+} from '../runtime/permissions';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';

@@ -33,7 +33,7 @@ import { ownerHandles } from '../access';
 import { conflict, forbidden, invalid, notFound, themeRefused } from '../errors';
 import type { MemberService } from '../members';
 import type { Author, ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../sessions';
+import type { SessionOrchestrator } from '../../runtime/sessions';
 import { approvalRequestedError, gateBlockedError } from '../tasks';
 import type { StageChange, TaskService } from '../tasks';
 import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';

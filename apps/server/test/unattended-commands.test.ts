@@ -10,7 +10,7 @@ import {
   PROJECT_CHECK_COMMANDS,
   readableRootsFor,
 } from '../src/domain';
-import { READ_ONLY_GIT, READ_ONLY_PROGRAMS } from '../src/domain/read-only-commands';
+import { READ_ONLY_GIT, READ_ONLY_PROGRAMS } from '../src/runtime/permissions';
 
 /**
  * The "Commands that run without asking" section of the system prompt is generated from the

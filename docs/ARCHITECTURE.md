@@ -813,7 +813,7 @@ immediate refusal with no inbox item, a `permission_refused` event `by: 'approve
 AI decider of PM-169, below). The auto mode's own refusals arrive as the
 `PermissionDenied` hook, through `PermissionBroker.refused`, as `permission_refused` `by:
 'classifier'`. The hard denials (credentials, the live instance's data, `WebFetch` of localhost,
-publishing) are deny rules computed in `domain/session-policy.ts` and rendered in `--settings` by
+publishing) are deny rules computed in `runtime/sessions` (session policy) and rendered in `--settings` by
 the Claude adapter; see `PROVIDERS.md` for the server-side decisions and their reasons.
 
 **The AI decider on the host (PM-169).** With approver `ai` (and the owner's `team.boundary.enabled`) a
@@ -873,7 +873,7 @@ The existing PM-134 Claude shell sandbox remains a separate legacy setting. This
 preserves it and does not certify it as the strict filesystem and network boundary.
 
 The CLI's own sandbox of a legacy session (PM-167, decision 28) is `sessionSandbox(policy, …)` in
-`domain/session-policy.ts`, from the policy's actual paths; the runner gets it as
+`runtime/sessions` (`session policy`), from the policy's actual paths; the runner gets it as
 `StartSessionSpec.sandbox` and the context pack as `ContextPackInput.sandbox`. A developer's
 worktree session (PM-134) gets one computed per session from `SandboxPaths` too (PM-153: the user's
 home, the app home, the repository's default branch): `denyRead` closes the user's home and the
@@ -1248,7 +1248,7 @@ workers follow the machine's size.
   dependencies and queue. Only the command and result need to cross the existing full-test boundary.
   **Module:** `scripts`
 
-- **Provider and engine outage watch (PM-449)** — `domain/outages.ts`, `runner/runner.ts`
+- **Provider and engine outage watch (PM-449)** — `runtime/watchers` (`WorkOutages`), `runner/runner.ts`
   (`providerStatus`). Every 30 seconds the server checks the used providers' login
   (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
   and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
@@ -1265,7 +1265,7 @@ workers follow the machine's size.
   **Module:** `runtime/watchers`
 
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
-  `domain/engine-registry.ts`, `db/engines.ts`, `api/engines.ts` (PM-313).
+  `runtime/sessions` (`EngineRegistry`), `db/engines.ts`, `api/engines.ts` (PM-313).
   Engines connect outward to `/engine/link` with a bearer machine key; the cloud stores only
   its SHA-256 hash and display prefix. Remote requests require HTTPS; forwarded protocol headers
   are trusted only from a loopback reverse proxy. Plain sockets are restricted to local requests.
@@ -1373,7 +1373,7 @@ workers follow the machine's size.
 
 - **Cloud composition** — `engine-link/remote/{hub,transfers,runner,transcripts,host,attachments,machine,github,handlers,index}.ts`,
   `engine-link/index.ts` (`EngineLinks.authenticate`), `app.ts` (`parseMode`, `createCloudRemote`),
-  `domain/{sessions,engine-registry,messaging/messaging,machine}.ts`,
+  `runtime/sessions` (`SessionOrchestrator`, `EngineRegistry`), `domain/messaging/messaging.ts`, `runtime/watchers` (`MachineMonitor`),
   `services/full-tests/{full-tests,screenshot-runs}.ts` (PM-315, PM-601).
   `PROJECTMAN_MODE=cloud` runs the UI, the API and the database and no machine-dependent part: the
   runner, the transcripts, the plan usage, the machine probe, the engine directory (worktrees, workspaces,
@@ -1444,7 +1444,7 @@ workers follow the machine's size.
   **Module:** `deploy`
 
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
-  `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
+  `db/integrator-keys.ts`, `runtime/sessions` (`session policy`), `runner/env.ts` (PM-251).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
   Authentication accepts it only on a local connection or HTTPS, using the existing loopback
   proxy protocol rules in `kernel/local-request.ts`.
@@ -1463,7 +1463,7 @@ workers follow the machine's size.
 
 - **Codex project layer check** — `runner/ambient-config.ts` (`inspectProjectCodex`,
   `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
-  `runner/providers/codex/index.ts` (`launch`), `domain/sessions.ts` (PM-357).
+  `runner/providers/codex/index.ts` (`launch`), `runtime/sessions` (`SessionOrchestrator`) (PM-357).
   The server reads the CLI's canonical working directory and each `.codex` layer from the
   nearest ancestor with a `.git` entry. Member starts and resumes allow only `config.toml`
   with model and project-document roots; confined reads reject links and nonregular files.
@@ -1493,13 +1493,13 @@ workers follow the machine's size.
   that end (PM-377, `runner/providers/codex/transcript.ts`). The engine must parse these
   events beside the CLI and forward the resulting session state to the server.
   NanoGPT-only quota detection emits `rate_limited` over the existing RunnerEvent boundary;
-  `domain/provider-quota-hold.ts` keeps a provider-wide, in-memory hold on the server,
+  `runtime/usage` (`ProviderQuotaHolds`) keeps a provider-wide, in-memory hold on the server,
   blocking starts and message wakeups until the measured weekly reset. The adapter's
   `planUsage.get()` reads `GET https://api.nano-gpt.com/api/subscription/v1/usage` with the
   managed key, without logging credentials or response bodies (10-second timeout, no
   redirects). Unknown usage holds inference while only usage probes retry; initially
   known lower usage gives a fifteen-minute rate hold. Owners receive one alert per hold.
-  `domain/admission/message-starts.ts` persists the affected task's deferred continuation.
+  `runtime/admission` (`MessageStarts`) persists the affected task's deferred continuation.
   Server restart loses the hold, but stored quota deferrals restore an unknown hold
   without an alert and require a usage probe before inference. **Remote engine:** usage HTTP runs on the server where the managed key
   is stored, as the key check already does, using the existing `api.nano-gpt.com` host;
@@ -1543,7 +1543,7 @@ workers follow the machine's size.
   rather than opening engine paths on the server.
   **Module:** `runner`
 
-- **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
+- **NanoGPT secret store** — `runtime/usage` (`ProviderKeys`, `createNanogptKeyCheck`) (PM-328).
   See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
@@ -1642,7 +1642,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Module:** `logging`
 - **Session output folders** — `index.ts`, `engine-host/session-folders.ts` (`SessionFolders`),
   `engine-host/disk.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
-  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339, PM-312). Legacy Claude
+  `runtime/sessions` (`SessionOrchestrator`, session policy) (PM-268, PM-333, PM-339, PM-312). Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
   folders are not supplied to read-only Codex sessions. A Codex session also gets its
@@ -1732,7 +1732,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and Codex render an MCP `image` result), gemini and nanogpt false (the Gemini CLI has no place for
   one yet; NanoGPT is Codex over a custom provider, so it depends on the model): the first reading of
   an image gives them the file. **Gemini and NanoGPT sessions have no session folder today**
-  (`ownFolders` in `domain/sessions.ts`: Claude, and Codex with a writing sandbox), so they get the
+  (`ownFolders` in `runtime/sessions` (`SessionOrchestrator`): Claude, and Codex with a writing sandbox), so they get the
   entry, and the image only where the CLI shows it.
   **Remote engine:** the local engine copies from the server's disk (`O_NOFOLLOW`, a regular file,
   size and SHA-256 checked, staged in the folders root and linked into place). A remote engine gets
@@ -1742,7 +1742,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   allows the call only for a session whose folder `folders.make` created on it, with a plain name and a
   valid token. An engine without the method answers `unknown_method`, which counts as a failure above.
   **Module:** `team-tools`
-- **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
+- **Browser installation and screenshots** — `index.ts`, `runtime/sessions` (`session policy`),
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).
   Playwright loads local Chromium binaries from the configured browser directory (default
@@ -1767,7 +1767,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `EngineHost.screenshotExecutor` of the requesting session's engine (`contracts/engine.ts`).
   **Module:** `engine-host`
 - **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
-  `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
+  `runtime/watchers` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
   ownership checks and signals use its UID and PID namespace, with process start times
   checked against PID reuse. **Remote engine (engine mode, PM-314: runs in the engine process):** use `machine.snapshot/processes/env_values/signal` (PM-313), measure and stop on the owning engine,
@@ -1793,7 +1793,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   is not evidence that a remote session has stopped.
   **Module:** `runner`
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
-  `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
+  `runner/session.ts`, `runtime/sessions` (`SessionOrchestrator`), `runner/providers/{claude,codex}/transcript.ts`
   (PM-340). NanoGPT uses the separate home in **NanoGPT Codex home and key delivery** (PM-329).
   The reader selects the shared Codex transcript format with `usesCodexCli` from
   `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
@@ -1817,7 +1817,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   engine (`transcript.has_content/read/summary`); the transcript text crosses as a single-use transfer.
   **Module:** `runner`
 - **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
-  `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
+  `runtime/sessions` (`SessionOrchestrator`), `runner/runner.ts`, `runner/hook-forwarder.ts`,
   `kernel/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
@@ -1837,13 +1837,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   session runs on another engine.
   **Module:** `runner`
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
-  `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `domain/worktree-sweep.ts`,
+  `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `runtime/watchers` (`WorktreeSweep`),
   `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
   operations. PM-368's `domain/messaging/messaging.ts` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
-  PM-342's `domain/handoffs.ts` uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
+  PM-342's `runtime/admission` (`HandoffService`) uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
@@ -1853,8 +1853,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
   is required.
   **Module:** `worktree`
-- **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
-  `domain/admission/` (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
+- **Free-disk admission guard** — `runtime/watchers` (`DiskGuard`, engine `freeDiskBytes`),
+  `runtime/admission` (`Admission`) (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
   value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
   hosts or even every local worktree volume. **Remote engine (engine mode, PM-314: runs in the engine process):** use `host.free_disk` (PM-313), report capacity for the
   engine's execution/storage volumes and plan admission against those as well as server
@@ -1863,7 +1863,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   since PM-312 the `statfs` itself is `freeBytesOf` in `engine-host/disk.ts`, not in `domain/`.
   **Cloud mode (PM-315):** the engine directory answers with `host.free_disk` of the target engine.
   **Module:** `runtime/watchers`
-- **Control socket, pause and deployment** — `control/socket.ts`, `domain/pause.ts`,
+- **Control socket, pause and deployment** — `control/socket.ts`, `runtime/sessions` (`PauseService`),
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
   `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
   access. Pause and shutdown act through the local runner; activation checks local instance
@@ -1886,7 +1886,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   holds the cloud's `engines` row, so that a stale pre-hybrid database never replaces the cloud's work;
   `--discard-cloud-data` states the opposite on purpose.)
   **Module:** `control`
-- **Native sandbox and canonical paths** — `domain/session-policy.ts`,
+- **Native sandbox and canonical paths** — `runtime/sessions` (`session policy`),
   `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
   engine's `realpath`, `isDirectory`, `isRealDirectory`).
@@ -1945,7 +1945,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Module:** `runtime/sessions`
 - **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
-  `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
+  `runner/session.ts`, `runtime/usage` (`PlanUsageMonitor`) (PM-341; PM-286, PM-310).
   See **NanoGPT Codex home and key delivery** (PM-329): token usage is parsed as Codex,
   but NanoGPT rollouts never feed the ChatGPT plan gauge.
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
@@ -1978,8 +1978,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
   **Module:** `services/full-tests`
-- **Merge conflict fix worktrees** — `services/merges/`, `domain/{sessions,worktree-sweep}.ts`,
-  `worktree/worktree-manager.ts`, `domain/session-policy.ts`, `engine-link` (PM-471).
+- **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`), `runtime/watchers` (`WorktreeSweep`),
+  `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
   a file-changing duty, only while the card is `fixing`. Placement changes when its session
   restarts after the turn. The checkout starts at the approved commit; the merger merges the
@@ -2112,7 +2112,7 @@ Running sessions finish their step. A measurement that fails never blocks anythi
 
 ### Loop watch
 
-`LoopWatch` (`apps/server/src/domain/loop-watch.ts`, PM-261; it replaced the message storm alert of PM-186 and
+`LoopWatch` (`runtime/watchers`, PM-261; it replaced the message storm alert of PM-186 and
 its `team.limits.messageBurst`, dropped from old configurations by the `dropMessageBurst` migration) catches AI
 members writing to each other on a card without progress. The rules are pure and live in
 `packages/shared/src/domain/loop-watch.ts` (`countsForLoop`, `findLoop`, `loopWatchers`, `loopDeciders`), also
@@ -2136,7 +2136,7 @@ The phase `let_run` and the `let_run` event only remain for loops let run before
 
 ### Fix round limit
 
-`FixLimitWatch` (`apps/server/src/domain/fix-limit.ts`, PM-262) puts an upper limit on a card's fix rounds. The
+`FixLimitWatch` (`runtime/watchers`, PM-262) puts an upper limit on a card's fix rounds. The
 rules are pure and live in `packages/shared/src/domain/fix-limit.ts` (`countFixRounds`, `fixLimitReached`,
 `fixLimitLead`, `fixLimitPlanner`, `fixLimitDeciders`), also used by the web's fake backend. A round is a
 `code-review-changes` label put on the card, a `design-review-changes` label (the project's label list gets it
@@ -2172,7 +2172,7 @@ A card in a `step` or `release` stage whose next gate lacks nothing but humans' 
 The rule is pure, `stageAdvance` in `packages/shared/src/config/gates.ts` (also used by the web's status line):
 `move` when no condition is missing, `approve` when only human-only labels are, `null` otherwise (never from a
 `work` or `queue` stage, never for a gate with unmet conditions). `AutoAdvance`
-(`apps/server/src/domain/tasks/auto-advance.ts`) acts on it as the system: it calls `moveToStage`, which moves the
+(`runtime/watchers`) acts on it as the system: it calls `moveToStage`, which moves the
 card or opens the same "Döntés" inbox item a person's move attempt opens (source `system`; the item names the
 label). It looks at a card when its labels or stage change, when a session of it goes idle or ends, and at every
 open card once after the start. It does not move a card a session works on (an idle one does not count), does not
@@ -2185,7 +2185,7 @@ left that stay is discarded, so it cannot undo a human's move or reopen a finish
 
 ### Assignee handoff (PM-342)
 
-`HandoffService` (`apps/server/src/domain/handoffs.ts`, PM-423) hands a card's work from the old assignee to the new
+`HandoffService` (`runtime/admission`, PM-423) hands a card's work from the old assignee to the new
 one. The plan is pure and in `packages/shared/src/domain/handoff.ts` (`planHandoff`, `handoffBlocksStart`), also used by
 the web's fake backend. A handoff starts when the assignee of a card changes and the old one is an AI member who has a
 conversation on the card: by a person's change (`manual`), a fix-limit `reassign` (`fix_limit_reassign`), the removal of
@@ -2483,7 +2483,7 @@ steps live on the server; the tool calls already cross the MCP boundary); the in
 
 The team's work can be paused so that every session stops at a safe point and goes on from there (a quicker
 deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` / `release` (PM-218,
-[PROVIDERS.md](PROVIDERS.md)); `PauseService` (`apps/server/src/domain/pause.ts`) is the team's.
+[PROVIDERS.md](PROVIDERS.md)); `PauseService` (`runtime/sessions`) is the team's.
 
 - **Scope and storage.** A pause covers the instance or one project, never one member (decision 32). It is a row of
   `pauses` (migration 31; at most one open per scope), and `session_pauses` holds one open row for every session
@@ -2597,7 +2597,7 @@ pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pi
   `app.ts` and given to the runner and to the domain. A process of a session survives a detach (`setsid`,
   `nohup`) with its environment, so the marks follow it. (A session that is not started by this build has no
   tag: its leftovers are not recognised.)
-- **Classification** (`MachineMonitor`, `apps/server/src/domain/machine.ts`). From one process list: the
+- **Classification** (`runtime/watchers`, `MachineMonitor`). From one process list: the
   tree under each running session's CLI is that session's; the server's own tree is `projectman`; an orphan is a
   root that has **both** marks (this instance's tag and a `ses_` session id), belongs to the server's user, lies
   outside every live tree and the server's tree, is not an ancestor of the server, and whose parent is not a

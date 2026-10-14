@@ -16,7 +16,7 @@ import { DomainError } from '../../domain/errors';
 import { sessionFileName } from '../../domain/message-attachments';
 import type { MessageAttachmentService } from '../../domain/message-attachments';
 import type { TaskService } from '../../domain/tasks';
-import { attachmentToolRules } from '../../domain/session-policy';
+import { attachmentToolRules } from '../../runtime/sessions';
 import { aiActor, humanActor } from '../../domain/util';
 
 import { type ToolCaller, toFileToolError } from '../caller';

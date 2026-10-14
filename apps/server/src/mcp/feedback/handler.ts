@@ -9,7 +9,7 @@ import type {
   ToolContext,
 } from '../../contracts';
 import type { DomainContext } from '../../domain/context';
-import { engineIdOf } from '../../domain/engines';
+import { engineIdOf } from '../../runtime/sessions';
 import { DomainError } from '../../domain/errors';
 import type { ProjectService } from '../../domain/projects';
 import { aiActor } from '../../domain/util';

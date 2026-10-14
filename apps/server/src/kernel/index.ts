@@ -1,4 +1,6 @@
 export { abortable, runFork, runPromise } from './effect';
+export { startSweeps } from './sweeps';
+export type { RunningSweeps, Sweep } from './sweeps';
 
 export { MergeCardLock } from './card-lock';
 export {

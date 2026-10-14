@@ -99,7 +99,7 @@ import { ScreenshotTools } from '../mcp/full-tests';
 import { DecisionCandidates, DocWrites } from '../services/project-docs';
 import { ProjectDocTools } from '../mcp/project-docs';
 import { Merges } from '../services/merges';
-import { MergeCardLock } from '../kernel';
+import { MergeCardLock, startSweeps, type RunningSweeps } from '../kernel';
 import { fullTestSandbox } from '../runtime/sessions';
 import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
 import type { ReleaseTarget } from '../services/releases';
@@ -1629,19 +1629,8 @@ export function createDomain(opts: DomainOptions) {
     );
   });
 
-  let retryTimer: ReturnType<typeof setInterval> | undefined;
-  let outageTimer: ReturnType<typeof setInterval> | undefined;
-  let boundaryTimer: ReturnType<typeof setInterval> | undefined;
-  let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
-  let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
-  let operatorSignalTimer: ReturnType<typeof setInterval> | undefined;
-  let questionScreeningTimer: ReturnType<typeof setInterval> | undefined;
-  let seniorWaitTimer: ReturnType<typeof setInterval> | undefined;
-  let diskTimer: ReturnType<typeof setInterval> | undefined;
-  let sweepTimer: ReturnType<typeof setInterval> | undefined;
+  let sweeps: RunningSweeps | undefined;
   let stopMessageSweep: (() => void) | undefined;
-  let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
-  let handoffTimer: ReturnType<typeof setInterval> | undefined;
 
   /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
   const engineCounters = (id: EngineId): EngineCounters => ({
@@ -1772,141 +1761,113 @@ export function createDomain(opts: DomainOptions) {
         () => autoAdvance.sweep(),
         (err) => opts.logger.warn({ err }, 'automatic stage advance sweep failed'),
       );
-      handoffTimer = setInterval(
-        () =>
-          background.run(
-            () => handoffs.sweep(),
-            (err) => opts.logger.warn({ err }, 'handoff sweep failed'),
-          ),
-        opts.handoffSweepMs ?? 15_000,
-      );
-      handoffTimer.unref();
-      // ... and refused hand-overs and message wake-ups retry once admission allows them.
-      retryTimer = setInterval(retryDeferredStarts, opts.handOffRetryMs ?? 30_000);
-      const checkOutages = () =>
-        background.run(
-          () => outages.check(),
-          (err) => opts.logger.warn({ err }, 'outage check failed'),
-        );
-      checkOutages();
-      outageTimer = setInterval(checkOutages, opts.outageCheckMs ?? 30_000);
-      outageTimer.unref();
-      retryTimer.unref();
-      boundaryTimer = setInterval(
-        () =>
-          background.run(
-            async () => {
-              await boundary.sweep();
-              await inbox.sweepDelegations();
-            },
-            () => opts.logger.warn('boundary deadline sweep failed'),
-          ),
-        1000,
-      );
-      boundaryTimer.unref();
-      // The branch of a task in review must stay at the commit handed over (PM-183).
-      reviewWatchTimer = setInterval(
-        () =>
-          background.run(
-            async () => {
-              await reviewWatch.check();
-              // A pin that has no run yet (the server stopped between the move and the queueing) gets one.
-              await fullTests.syncAll();
-            },
-            (err) => opts.logger.warn({ err }, 'review commit check failed'),
-          ),
-        opts.reviewWatchMs ?? 30_000,
-      );
-      reviewWatchTimer.unref();
-      // A loop on a card ends when its branch got a commit or nobody wrote for a whole window (PM-261).
-      loopWatchTimer = setInterval(
-        () =>
-          background.run(
-            () => loopWatch.sweep(),
-            (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
-          ),
-        opts.loopWatchMs ?? 60_000,
-      );
-      loopWatchTimer.unref();
-      operatorSignalTimer = setInterval(
-        () =>
-          background.run(
-            () => operatorSignals.sweep(),
-            (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
-          ),
-        opts.operatorSignalMs ?? 60_000,
-      );
-      operatorSignalTimer.unref();
-      // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
-      // people (PM-558). A question that waited through a restart is looked at now.
-      const sweepQuestionScreening = () =>
-        background.run(
-          () => questionScreening.sweep(),
-          (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
-        );
-      sweepQuestionScreening();
-      questionScreeningTimer = setInterval(sweepQuestionScreening, opts.questionScreeningMs ?? 30_000);
-      questionScreeningTimer.unref();
-      // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
-      seniorWaitTimer = setInterval(
-        () =>
-          background.run(
-            async () => seniorWaits.sweep(),
-            (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
-          ),
-        opts.seniorWaitMs ?? 60_000,
-      );
-      seniorWaitTimer.unref();
-      // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
-      const checkDisk = () =>
-        background.run(
-          () => disk.check(),
-          (err) => opts.logger.warn({ err }, 'free disk space check failed'),
-        );
-      checkDisk();
-      diskTimer = setInterval(checkDisk, opts.diskCheckMs ?? 60_000);
-      diskTimer.unref();
-      // The worktrees of closed cards (PM-243): at startup and then every few hours.
-      const sweepWorktrees = () =>
-        background.run(
-          async () => {
+      sweeps = startSweeps([
+        {
+          name: 'handoffs',
+          everyMs: opts.handoffSweepMs ?? 15_000,
+          run: () => handoffs.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'handoff sweep failed'),
+        },
+        // ... and refused hand-overs and message wake-ups retry once admission allows them.
+        {
+          name: 'deferred-starts',
+          everyMs: opts.handOffRetryMs ?? 30_000,
+          run: () => admission.retryDeferred(),
+          onError: (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
+        },
+        {
+          name: 'outages',
+          everyMs: opts.outageCheckMs ?? 30_000,
+          atStart: true,
+          run: () => outages.check(),
+          onError: (err) => opts.logger.warn({ err }, 'outage check failed'),
+        },
+        {
+          name: 'boundary',
+          everyMs: 1000,
+          run: async () => {
+            await boundary.sweep();
+            await inbox.sweepDelegations();
+          },
+          onError: () => opts.logger.warn('boundary deadline sweep failed'),
+        },
+        // The branch of a task in review must stay at the commit handed over (PM-183).
+        {
+          name: 'review-watch',
+          everyMs: opts.reviewWatchMs ?? 30_000,
+          run: async () => {
+            await reviewWatch.check();
+            // A pin that has no run yet (the server stopped between the move and the queueing) gets one.
+            await fullTests.syncAll();
+          },
+          onError: (err) => opts.logger.warn({ err }, 'review commit check failed'),
+        },
+        // A loop on a card ends when its branch got a commit or nobody wrote for a whole window (PM-261).
+        {
+          name: 'loop-watch',
+          everyMs: opts.loopWatchMs ?? 60_000,
+          run: () => loopWatch.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
+        },
+        {
+          name: 'operator-signals',
+          everyMs: opts.operatorSignalMs ?? 60_000,
+          run: () => operatorSignals.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
+        },
+        // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
+        // people (PM-558). A question that waited through a restart is looked at now.
+        {
+          name: 'question-screening',
+          everyMs: opts.questionScreeningMs ?? 30_000,
+          atStart: true,
+          run: () => questionScreening.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
+        },
+        // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
+        {
+          name: 'senior-waits',
+          everyMs: opts.seniorWaitMs ?? 60_000,
+          run: async () => seniorWaits.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
+        },
+        // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
+        {
+          name: 'disk',
+          everyMs: opts.diskCheckMs ?? 60_000,
+          atStart: true,
+          run: () => disk.check(),
+          onError: (err) => opts.logger.warn({ err }, 'free disk space check failed'),
+        },
+        // The worktrees of closed cards (PM-243): at startup and then every few hours.
+        {
+          name: 'worktrees',
+          everyMs: opts.worktreeSweepMs ?? 6 * 60 * 60_000,
+          atStart: true,
+          run: async () => {
             await worktreeSweep.run();
           },
-          (err) => opts.logger.warn({ err }, 'worktree sweep failed'),
-        );
-      sweepWorktrees();
-      sweepTimer = setInterval(sweepWorktrees, opts.worktreeSweepMs ?? 6 * 60 * 60_000);
-      sweepTimer.unref();
-      // Sessions that sat idle for a quarter of an hour close (PM-295).
-      idleCloseTimer = setInterval(
-        () =>
-          background.run(
-            () => sessionCloser.sweep(),
-            (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
-          ),
-        opts.idleCloseSweepMs ?? 60_000,
-      );
-      idleCloseTimer.unref();
+          onError: (err) => opts.logger.warn({ err }, 'worktree sweep failed'),
+        },
+        // Sessions that sat idle for a quarter of an hour close (PM-295).
+        {
+          name: 'idle-close',
+          everyMs: opts.idleCloseSweepMs ?? 60_000,
+          run: () => sessionCloser.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
+        },
+      ]);
     },
 
     async stop(): Promise<void> {
-      if (outageTimer) clearInterval(outageTimer);
+      // No sweep ticks from here on; running rounds end with the background work (PM-613).
+      const sweepsStopped = sweeps?.stop();
+      sweeps = undefined;
       unsubscribeOutageKeys?.();
       unsubscribeEngines();
       unsubscribeSignalActivity();
       usage.stop();
-      if (retryTimer) clearInterval(retryTimer);
-      if (boundaryTimer) clearInterval(boundaryTimer);
-      if (reviewWatchTimer) clearInterval(reviewWatchTimer);
-      if (loopWatchTimer) clearInterval(loopWatchTimer);
-      if (operatorSignalTimer) clearInterval(operatorSignalTimer);
-      if (questionScreeningTimer) clearInterval(questionScreeningTimer);
-      if (seniorWaitTimer) clearInterval(seniorWaitTimer);
-      if (diskTimer) clearInterval(diskTimer);
-      if (sweepTimer) clearInterval(sweepTimer);
       stopMessageSweep?.();
-      if (idleCloseTimer) clearInterval(idleCloseTimer);
-      if (handoffTimer) clearInterval(handoffTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
@@ -1914,7 +1875,7 @@ export function createDomain(opts: DomainOptions) {
       await merges.stop();
       await screenshotRuns?.stop();
       await outages.stop();
-      await background.stop();
+      await Promise.all([sweepsStopped, background.stop()]);
       await delivery.close();
       pauses.dispose();
       sessions.dispose();

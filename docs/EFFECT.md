@@ -43,7 +43,14 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-613 sweeps**
 
-  Planned.
+  File: `apps/server/src/kernel/sweeps.ts`. Facade: `startSweeps` (same file, exported by
+  `kernel/index.ts`), called by the composition's `start()` and `stop()` (`domain/index.ts`).
+  One ticker fiber per sweep in a `FiberSet` (`Effect.forever(sleep → tick)`, a fixed rate as
+  `setInterval` had) and the rounds in a `FiberMap` keyed by name with `onlyIfMissing`: a tick
+  while its round runs is skipped. A round is `abortable` and ignores the signal, so `stop()`
+  (closing the Scope: the tickers first, then the rounds) waits for the rounds running. The
+  start runs with the kernel `runFork`, so an `atStart` round and every tick's round start on
+  the caller's stack.
 
 - **PM-615 plan usage (runtime/usage)**
 

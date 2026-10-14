@@ -261,25 +261,21 @@ describe('deferred starts across a restart', () => {
   });
 });
 
+// The sweep's round itself; its timer is kernel/sweeps.ts's, tested there (PM-613).
 describe('the retry timer', () => {
   let h: DomainHarness;
-  beforeEach(() => {
-    // Only the retry interval is faked: the domain's other work keeps its real clocks.
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-  });
   afterEach(async () => {
     await h?.cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  const RETRY_MS = 30_000;
   const logged = (info: { mock: { calls: unknown[][] } }, message: string) =>
     info.mock.calls.filter(([, text]) => text === message).map(([fields]) => fields);
 
-  /** One tick of the timer, and the retry it starts run to its end. */
+  /** One retry round, run to its end. */
   async function tick() {
-    await vi.advanceTimersByTimeAsync(RETRY_MS);
+    await h.domain.admission.retryDeferred();
     await flush(20);
     await settle();
   }

@@ -11,7 +11,7 @@ import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import type { TaskStarts } from '../../runtime/admission';
 import { aiActor } from '../../kernel';
-import type { ProjectState, OperatorActions } from '../../services/operator';
+import type { ProjectState, OperatorActions, OperatorSignals } from '../../services/operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 export class OperatorTools implements OperatorToolsHandler {
@@ -24,6 +24,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly projectState: ProjectState;
   private readonly operatorActions: OperatorActions;
   private readonly taskStarts: TaskStarts;
+  private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -35,6 +36,7 @@ export class OperatorTools implements OperatorToolsHandler {
     projectState: ProjectState;
     operatorActions: OperatorActions;
     taskStarts: TaskStarts;
+    operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -45,6 +47,31 @@ export class OperatorTools implements OperatorToolsHandler {
     this.projectState = deps.projectState;
     this.operatorActions = deps.operatorActions;
     this.taskStarts = deps.taskStarts;
+    this.operatorSignals = deps.operatorSignals;
+  }
+
+  async dismissSignal(
+    ctx: ToolContext,
+    args: { signalId: string; note: string },
+  ): Promise<{ signalId: string; state: 'dismissed' }> {
+    return this.calls.guard(async () => {
+      const config = await this.projects.config(ctx.projectKey);
+      if (!isOperator(memberOf(config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may dismiss signals.');
+      await this.calls.callerWithRequest(ctx, 'dismiss_signal');
+      try {
+        const signal = this.operatorSignals.dismissByOperator(
+          ctx.projectKey,
+          args.signalId,
+          ctx.member,
+          args.note,
+        );
+        return { signalId: signal.id, state: 'dismissed' };
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
   }
 
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {

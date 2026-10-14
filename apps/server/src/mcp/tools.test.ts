@@ -61,7 +61,14 @@ describe('team tool registration', () => {
       ),
     ).toEqual({
       'services/github': ['link_pull_request'],
-      'services/operator': ['get_project_state', 'operate', 'screen_question', 'start_task', 'start_member'],
+      'services/operator': [
+        'get_project_state',
+        'operate',
+        'screen_question',
+        'dismiss_signal',
+        'start_task',
+        'start_member',
+      ],
       'services/boundary': ['submit_boundary_request', 'get_boundary_request', 'decide_boundary_request'],
       'services/feedback': [
         'get_feedback',

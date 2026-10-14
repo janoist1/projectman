@@ -352,6 +352,12 @@ export class TeamToolsService implements TeamToolsHandler {
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {
     return this.tools.members.saveMemory(ctx, args);
   }
+  async dismissSignal(
+    ctx: ToolContext,
+    args: { signalId: string; note: string },
+  ): Promise<{ signalId: string; state: 'dismissed' }> {
+    return this.tools.operator.dismissSignal(ctx, args);
+  }
   async withdrawQuestion(
     ctx: ToolContext,
     args: { itemId: string; reason: string },

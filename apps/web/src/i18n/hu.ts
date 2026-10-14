@@ -894,6 +894,7 @@ export const hu = {
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
       operator_signal_closed: 'Ez a jelzés már nem nyitott.',
+      operator_signal_not_dismissible: 'Ezt a jelzést az Operátor nem zárhatja le.',
       operator_signal_budget:
         'Ehhez a jelzéshez az Operátor lépéskerete elfogyott, vagy még nem telt el elég idő az előző lépés óta.',
       not_card_role: 'Erre a kártyára nincs szerepe a címzettnek, ezért nem indítható rajta keresztül.',

@@ -105,6 +105,19 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
 
     defineTool({
+      name: 'dismiss_signal',
+      title: 'Dismiss a system signal',
+      readOnly: false,
+      description:
+        "Only the Operator, not in a guest conversation; needs no owner request. Close a ready_waiting system signal of your wake-up that needs nothing, instead of bringing it to the owners: every card it names waits on purpose (for example no priority and outside the focus, parked, or waiting for a person). Give the reason in note. It does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
+      input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
+      async run({ ctx, args, handler }) {
+        const result = await handler.dismissSignal(ctx, { signalId: args.signal_id, note: args.note });
+        return JSON.stringify({ signal_id: result.signalId, state: result.state });
+      },
+    }),
+
+    defineTool({
       name: 'start_task',
       title: 'Start work on a task',
       readOnly: false,

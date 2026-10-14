@@ -1172,5 +1172,10 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     // the queue puts such merges first, the latest decision first, and the rest by created_at as before.
     sql: `ALTER TABLE task_merges ADD COLUMN prioritized_at TEXT;`,
   },
+  {
+    version: 59,
+    name: 'operator signal dismissal note',
+    sql: 'ALTER TABLE operator_signals ADD COLUMN decision_note TEXT;',
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

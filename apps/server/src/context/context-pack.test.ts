@@ -1360,7 +1360,9 @@ describe('system prompt', () => {
           'up to three steps per signal, at least 30 minutes apart (steps_left, next_step_at)',
         );
         expect(drive).toContain('start the release owner on an unreleased signal (propose a release)');
-        expect(drive).toContain('the project manager on a ready_waiting signal (hand out work)');
+        expect(drive).toContain(
+          'the project manager on a ready_waiting signal whose new_cards should start (hand out work)',
+        );
         expect(drive).toContain('When steps_left is 0, bring the signal to the owners.');
         expect(drive).not.toContain(ban);
       });
@@ -1378,6 +1380,9 @@ describe('system prompt', () => {
           expect(operator).toContain('(signal → step → result)');
           expect(operator).toContain('actionable_signal_ids');
           expect(operator).toContain('if you did nothing and nothing needs a decision, write nothing.');
+          expect(operator).toContain(
+            'A ready_waiting signal whose cards all wait on purpose you close with dismiss_signal and a note instead of bringing it to the owners; new_cards in its facts are the cards that became ready since the last close.',
+          );
           expect(operator).toContain('**Done**');
           expect(operator).toContain('**Decision needed**');
           expect(operator).not.toContain('signal_actionable');

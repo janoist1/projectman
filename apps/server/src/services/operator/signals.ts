@@ -7,6 +7,8 @@ import type {
 } from './ports';
 import {
   dutyMembers,
+  startableCards,
+  OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
   formatInjectedTeamMessage,
   isOperator,
   operatorOf,
@@ -21,7 +23,6 @@ import {
   isOnLeave,
   isWorkPaused,
   memberOf,
-  stageIndex,
   stageOf,
   stageOwners,
   OPERATOR_IDLE_MINUTES,
@@ -72,12 +73,14 @@ const WAKE_ONE_MESSAGE =
 const WAKE_CHECK = 'Projectman system signals. Check get_project_state and session activity first.';
 const WAKE_STEP =
   'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
+const WAKE_DISMISS =
+  'A ready_waiting signal whose cards all wait on purpose you close with dismiss_signal and a note instead of bringing it to the owners; new_cards in its facts are the cards that became ready since the last close.';
 
 /** The wake-up text by level; it says in short what `operatorRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** One notice per system problem episode; notices never authorize a write. */
@@ -123,6 +126,7 @@ export class OperatorSignals {
       raisedAt: isoNow(ctx),
       decidedBy: null,
       decidedAt: null,
+      decisionNote: null,
       resolvedAt: null,
       deliveredAt: null,
       followUpAt: null,
@@ -157,6 +161,31 @@ export class OperatorSignals {
   present(projectKey: string, id: string, messageId: string, actionable: boolean): void {
     const signal = this.presentation(projectKey, id);
     this.save({ ...signal, state: 'open', messageId, actionable });
+  }
+
+  dismissByOperator(projectKey: string, id: string, by: string, note: string): OperatorSignal {
+    const signal = this.deps.ctx.repos.operatorSignals.get(id);
+    if (!signal || signal.projectKey !== projectKey)
+      throw invalid('invalid_request', 'unknown signal in this project');
+    if (!OPERATOR_DISMISSIBLE_SIGNAL_KINDS.includes(signal.kind))
+      throw invalid('operator_signal_not_dismissible', 'the Operator may not dismiss this signal kind');
+    if (
+      !signal.deliveredAt ||
+      signal.messageId ||
+      signal.resolvedAt ||
+      !['pending', 'open'].includes(signal.state) ||
+      !this.caseHolds(this.deps.projects.cachedConfig(projectKey), signal)
+    )
+      throw conflict('operator_signal_closed', 'the signal is no longer open');
+    const updated = {
+      ...signal,
+      state: 'dismissed' as const,
+      decidedBy: by,
+      decidedAt: isoNow(this.deps.ctx),
+      decisionNote: note,
+    };
+    this.save(updated);
+    return OperatorSignal.parse(updated);
   }
 
   decision(projectKey: string, id: string, by: string, accepted: boolean): OperatorSignal {
@@ -306,6 +335,12 @@ export class OperatorSignals {
       }
       for (const input of this.boardCases(config, cards).values()) {
         active.add(input.caseKey);
+        // A card may re-enter between sweeps with the same set key after dismissal.
+        if (
+          input.kind === 'ready_waiting' &&
+          this.deps.ctx.repos.operatorSignals.openByCase(key, input.caseKey)?.state === 'dismissed'
+        )
+          this.resolve(key, input.caseKey);
         this.raise(input);
       }
       const outages = this.deps.activeOutageIds(key);
@@ -491,13 +526,11 @@ export class OperatorSignals {
       });
 
     if (works && !aiLimitReached(config, sessions.busyCount())) {
-      const free = new Set<string>();
-      for (const task of cards) {
-        const index = stageIndex(config.pipeline, task.stageId);
+      const ready: Task[] = [];
+      for (const [index, stage] of config.pipeline.stages.entries()) {
         const next = config.pipeline.stages[index + 1];
-        if (index <= 0 || next?.kind !== 'work' || stageOf(config, task.stageId)?.kind !== 'queue') continue;
-        if (waits.get(task.key)?.reason !== 'ready') continue;
-        for (const handle of stageOwners(config, next)) {
+        if (index <= 0 || next?.kind !== 'work' || stage.kind !== 'queue') continue;
+        const free = stageOwners(config, next).some((handle) => {
           const member = aiMember(handle);
           if (
             member &&
@@ -505,13 +538,59 @@ export class OperatorSignals {
             !member.temp &&
             admission.memberLoad(config, handle) < member.capacity
           )
-            free.add(handle);
-        }
+            return true;
+          return false;
+        });
+        if (free)
+          ready.push(
+            ...startableCards({ config, tasks: cards, fromStageId: stage.id, toStageId: next.id }).filter(
+              (task) => waits.get(task.key)?.reason === 'ready',
+            ),
+          );
       }
-      if (free.size > 0)
-        add({ kind: 'ready_waiting', caseKey: 'ready_waiting', taskKey: null, subject: [...free].join(',') });
+      const ack = ctx.repos.operatorSignals.latestDismissed(projectKey, 'ready_waiting');
+      if (ready.some((task) => !this.acknowledged(task, ack))) {
+        const keys = ready
+          .map((task) => task.key)
+          .sort((a, b) => Number(a.split('-').at(-1)) - Number(b.split('-').at(-1)));
+        add({
+          kind: 'ready_waiting',
+          caseKey: 'ready_waiting:' + keys.join(','),
+          taskKey: null,
+          subject: keys.join(','),
+        });
+      }
     }
     return found;
+  }
+
+  /** The latest dismissal covers cards that have not re-entered their stage since it. */
+  private acknowledged(task: Task, ack: OperatorSignalRecord | null): boolean {
+    return (
+      !!ack?.decidedAt &&
+      !!ack.subject?.split(',').includes(task.key) &&
+      (task.stageEnteredAt ?? task.createdAt) <= ack.decidedAt
+    );
+  }
+
+  private readyFacts(signal: OperatorSignalRecord) {
+    const ack = this.deps.ctx.repos.operatorSignals.latestDismissed(signal.projectKey, 'ready_waiting');
+    const cards = signal.subject?.split(',') ?? [];
+    return {
+      cards,
+      new_cards: cards.filter((key) => {
+        const task = this.deps.ctx.repos.tasks.get(key);
+        return task && !this.acknowledged(task, ack);
+      }),
+      last_dismissed: ack
+        ? {
+            at: ack.decidedAt,
+            by: ack.decidedBy,
+            note: ack.decisionNote,
+            cards: ack.subject?.split(',') ?? [],
+          }
+        : null,
+    };
   }
 
   /** The AI members, not on leave, that hold an idle card: its assignee, or the owners of the step it stands in. */
@@ -580,11 +659,14 @@ export class OperatorSignals {
               );
               return JSON.stringify({
                 ...OperatorSignal.parse(s),
-                facts: s.inboxItemId
-                  ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                  : s.subject
-                    ? ctx.repos.sessions.get(s.subject)?.activity
-                    : null,
+                facts:
+                  s.kind === 'ready_waiting'
+                    ? this.readyFacts(s)
+                    : s.inboxItemId
+                      ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                      : s.subject
+                        ? ctx.repos.sessions.get(s.subject)?.activity
+                        : null,
                 step: this.stepOf(level, config, s),
                 steps_left: budget.left,
                 next_step_at: budget.nextAt,

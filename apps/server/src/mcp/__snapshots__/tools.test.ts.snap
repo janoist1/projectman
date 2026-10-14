@@ -532,6 +532,38 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
+      "title": "Dismiss a system signal",
+    },
+    "description": "Only the Operator, not in a guest conversation; needs no owner request. Close a ready_waiting system signal of your wake-up that needs nothing, instead of bringing it to the owners: every card it names waits on purpose (for example no priority and outside the focus, parked, or waiting for a person). Give the reason in note. It does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "signal_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "signal_id",
+        "note",
+      ],
+      "type": "object",
+    },
+    "name": "dismiss_signal",
+    "title": "Dismiss a system signal",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
       "title": "Forward a feedback mark to the owner",
     },
     "description": "Pass a feedback mark you cannot or should not decide on to the owners (a decision of theirs, a matter beyond the project, something unclear): they get an alert with your reason, and the mark waits for them. After this you do not act on the mark again; the owner or a person who processes feedback settles it. The reason is for the owners only; the reply goes to the marker.",

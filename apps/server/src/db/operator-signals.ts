@@ -1,8 +1,9 @@
-import type { OperatorSignal } from '@projectman/shared';
+import type { OperatorSignal, OperatorSignalKind } from '@projectman/shared';
 import type { Db } from './database';
 
 export interface OperatorSignalRecord extends OperatorSignal {
   projectKey: string;
+  decisionNote: string | null;
   caseKey: string;
   deliveredAt: string | null;
   /** When the signal is shown to the Operator again after an own step on it (PM-545); null: not scheduled. */
@@ -11,7 +12,7 @@ export interface OperatorSignalRecord extends OperatorSignal {
 const columns = `id, project_key AS projectKey, case_key AS caseKey, kind, state, actionable,
   task_key AS taskKey, subject, inbox_item_id AS inboxItemId, message_id AS messageId,
   raised_at AS raisedAt, decided_by AS decidedBy, decided_at AS decidedAt, resolved_at AS resolvedAt,
-  delivered_at AS deliveredAt, follow_up_at AS followUpAt`;
+  delivered_at AS deliveredAt, follow_up_at AS followUpAt, decision_note AS decisionNote`;
 type Row = Omit<OperatorSignalRecord, 'actionable'> & { actionable: number };
 const record = (row: Row): OperatorSignalRecord => ({ ...row, actionable: !!row.actionable });
 
@@ -19,6 +20,16 @@ export function createOperatorSignalRepository(db: Db) {
   const openByCase = db.prepare(`SELECT ${columns} FROM operator_signals
     WHERE project_key = ? AND case_key = ? AND resolved_at IS NULL`);
   return {
+    latestDismissed(projectKey: string, kind: OperatorSignalKind): OperatorSignalRecord | null {
+      const row = db
+        .prepare(
+          `SELECT ${columns} FROM operator_signals
+        WHERE project_key = ? AND kind = ? AND state = 'dismissed'
+        ORDER BY decided_at DESC, rowid DESC LIMIT 1`,
+        )
+        .get(projectKey, kind) as Row | undefined;
+      return row ? record(row) : null;
+    },
     openByCase(projectKey: string, caseKey: string): OperatorSignalRecord | null {
       const row = openByCase.get(projectKey, caseKey) as Row | undefined;
       return row ? record(row) : null;
@@ -38,15 +49,15 @@ export function createOperatorSignalRepository(db: Db) {
     insert(signal: OperatorSignalRecord): void {
       db.prepare(
         `INSERT INTO operator_signals (id, project_key, case_key, kind, state, actionable,
-        task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at)
+        task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note)
         VALUES (@id, @projectKey, @caseKey, @kind, @state, @actionable, @taskKey, @subject,
-        @inboxItemId, @messageId, @raisedAt, @decidedBy, @decidedAt, @resolvedAt, @deliveredAt, @followUpAt)`,
+        @inboxItemId, @messageId, @raisedAt, @decidedBy, @decidedAt, @resolvedAt, @deliveredAt, @followUpAt, @decisionNote)`,
       ).run({ ...signal, actionable: Number(signal.actionable) });
     },
     save(signal: OperatorSignalRecord): void {
       db.prepare(
         `UPDATE operator_signals SET state = @state, actionable = @actionable,
-        message_id = @messageId, decided_by = @decidedBy, decided_at = @decidedAt,
+        message_id = @messageId, decided_by = @decidedBy, decided_at = @decidedAt, decision_note = @decisionNote,
         resolved_at = @resolvedAt, delivered_at = @deliveredAt, follow_up_at = @followUpAt WHERE id = @id`,
       ).run({ ...signal, actionable: Number(signal.actionable) });
     },

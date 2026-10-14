@@ -133,6 +133,10 @@ tests use the SDK's own client, which behaves the same way here):
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
+- `dismiss_signal { signal_id, note }` (PM-679) closes a delivered, unpresented `ready_waiting` signal
+  whose cards all wait on purpose. Only the Operator, outside guest conversations, without an owner
+  request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
+  `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
 - `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558) is the Operator's tool for
   the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
   `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`

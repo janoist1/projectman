@@ -791,4 +791,8 @@ export interface OperatorToolsHandler {
       todo?: QuestionTodo;
     },
   ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
+  dismissSignal(
+    ctx: ToolContext,
+    args: { signalId: string; note: string },
+  ): Promise<{ signalId: string; state: 'dismissed' }>;
 }

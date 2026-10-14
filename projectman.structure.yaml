@@ -1,0 +1,679 @@
+# The projectman structure descriptor: the Structure view of the Map draws from it.
+# Names, summaries and link labels are UI text (Hungarian); ids stay English.
+# apps/server/test/architecture/structure-map.test.ts keeps it in line with module-map.ts.
+version: 1
+
+areas:
+  - id: contracts
+    name: Szerződések
+    summary: A szerver közös interfészei és a motor portjai.
+  - id: infra
+    name: Alapréteg
+    summary: Tárolás, beállítások, naplózás és közös segédek.
+  - id: core
+    name: Mag
+    summary: A projektek, kártyák, tagok, üzenetek és postaláda szabályai.
+  - id: runtime
+    name: Futtatás
+    summary: A tagi munkamenetek indítása, kézbesítése és felügyelete.
+  - id: service
+    name: Szolgáltatások
+    summary: Önálló képességek – összefésülés, tesztek, kiadás, GitHub és a többi.
+  - id: engine
+    name: Motor
+    summary: A CLI-k, a munkafák és a gépműveletek helye, a szerverrel RPC-n át.
+  - id: connector
+    name: Csatlakozók
+    summary: A szerver külső kapui – API, MCP, websocket, HTTP, vezérlés és belépés.
+  - id: assembly
+    name: Összeállítás
+    summary: Az indítás és a függőségek összekötése.
+  - id: ui
+    name: Felület
+    summary: A webalkalmazás és a beágyazható visszajelző-modul.
+  - id: shared
+    name: Közös csomagok
+    summary: A szerver és a felület közös sémái, szabályai és sablonjai.
+  - id: tools
+    name: Eszközök
+    summary: Szkriptek, tesztek, telepítés és dokumentáció.
+  - id: outside
+    name: Külső rendszerek
+    summary: Azok a rendszerek, amelyekkel a projectman beszélget.
+
+modules:
+  # Server: contracts
+  - id: contracts
+    area: contracts
+    name: Szerződések
+    summary: A szerver közös interfészei és a motor portjai.
+    paths:
+      - apps/server/src/contracts/
+
+  # Server: infra
+  - id: db
+    area: infra
+    kind: store
+    name: Adatbázis
+    summary: SQLite tárolás, tárolók (repository-k) és migrációk.
+    paths:
+      - apps/server/src/db/
+  - id: config
+    area: infra
+    name: Beállítások
+    summary: A projektbeállítások betöltése, ellenőrzése és migrálása.
+    paths:
+      - apps/server/src/config/
+  - id: logging
+    area: infra
+    name: Naplózás
+    summary: Strukturált szerver- és motornaplózás, fájlforgatással.
+    paths:
+      - apps/server/src/logging/
+  - id: instance
+    area: infra
+    name: Példányazonosító
+    summary: A telepítés azonosítója és aktiválási állapota.
+    paths:
+      - apps/server/src/instance/
+  - id: kernel
+    area: infra
+    name: Alapmag
+    summary: Közös hibák, segédek, háttérmunkák, söprések és összefésülési zárak.
+    paths:
+      - apps/server/src/kernel/
+  - id: agent-text
+    area: infra
+    name: Ügynökszöveg
+    summary: Az ügynököknek szánt szövegek formázása.
+    paths:
+      - apps/server/src/agent-text/
+
+  # Server: core
+  - id: core/base
+    area: core
+    kind: core
+    name: Magalap
+    summary: Tartományi környezet, munkaegységek, tartományi események és a websocket-eseménybusz.
+    paths:
+      - apps/server/src/core/base/
+  - id: core/projects
+    area: core
+    kind: core
+    name: Projektek
+    summary: Projektek, szerepkörök, szakaszfelelősök és láthatóság.
+    paths:
+      - apps/server/src/core/projects/
+  - id: core/tasks
+    area: core
+    kind: core
+    name: Kártyák
+    summary: Kártyák, PR-rekordok, tábla, fókusz, érintettség és kártyamérők.
+    paths:
+      - apps/server/src/core/tasks/
+  - id: core/members
+    area: core
+    kind: core
+    name: Tagok
+    summary: Tagi hozzáférés, meghívók, jelenlét és elnevezés.
+    paths:
+      - apps/server/src/core/members/
+  - id: core/timeline
+    area: core
+    kind: core
+    name: Idővonal
+    summary: A kártyák és a projekt csak bővülő idővonalának elérése.
+    paths:
+      - apps/server/src/core/timeline/
+  - id: core/messages
+    area: core
+    kind: core
+    name: Üzenetek
+    summary: Tárolt üzenetek, útválasztás és beszélgetési szabályok.
+    paths:
+      - apps/server/src/core/messages/
+  - id: core/inbox
+    area: core
+    kind: core
+    name: Postaláda
+    summary: Emberi kérdések, jóváhagyások, engedélydöntések és a kérdések életciklusa.
+    paths:
+      - apps/server/src/core/inbox/
+  - id: core/attachments
+    area: core
+    kind: core
+    name: Mellékletek
+    summary: Kártya- és üzenetmellékletek tárolása és feldolgozása.
+    paths:
+      - apps/server/src/core/attachments/
+
+  # Server: runtime
+  - id: runtime/admission
+    area: runtime
+    name: Indítás-engedélyezés
+    summary: Beengedés, halasztott indítások, átadások és kidolgozás.
+    paths:
+      - apps/server/src/runtime/admission/
+  - id: runtime/sessions
+    area: runtime
+    name: Munkamenetek
+    summary: Munkamenet-életciklus, körök, tömörítés, szabályzat, szüneteltetés és munkaterületek.
+    paths:
+      - apps/server/src/runtime/sessions/
+  - id: runtime/delivery
+    area: runtime
+    name: Kézbesítés
+    summary: Üzenetek kézbesítése a tagok munkameneteinek.
+    paths:
+      - apps/server/src/runtime/delivery/
+  - id: runtime/permissions
+    area: runtime
+    name: Futtatási engedélyek
+    summary: Parancselemzés és a végrehajtási engedélyek szabályai.
+    paths:
+      - apps/server/src/runtime/permissions/
+  - id: runtime/watchers
+    area: runtime
+    name: Figyelők
+    summary: Futásállapot, gépmérés, kiesés, átnézés és takarítás figyelése.
+    paths:
+      - apps/server/src/runtime/watchers/
+  - id: runtime/usage
+    area: runtime
+    name: Használat és keretek
+    summary: Szolgáltatói keretek, csomaghasználat és kezelt szolgáltatókulcsok.
+    paths:
+      - apps/server/src/runtime/usage/
+  - id: context
+    area: runtime
+    name: Környezetcsomag
+    summary: Az ügynökök környezetcsomagjai, promptjai és a tagi emlékezet.
+    paths:
+      - apps/server/src/context/
+
+  # Server: service
+  - id: services/merges
+    area: service
+    name: Összefésülések
+    summary: A kártyák összefésülésének vezénylése, sora és zárai.
+    paths:
+      - apps/server/src/services/merges/
+  - id: services/full-tests
+    area: service
+    name: Teljes tesztek
+    summary: A teljes tesztek és a képernyőkép-futtatások vezénylése.
+    paths:
+      - apps/server/src/services/full-tests/
+  - id: services/releases
+    area: service
+    name: Kiadások
+    summary: Kiadási javaslatok és az ütemterv-értesítések.
+    paths:
+      - apps/server/src/services/releases/
+  - id: services/structure
+    area: service
+    name: Szerkezet
+    summary: A repók szerkezetleírója, a modulméretek és a kártyák fájljainak elhelyezése.
+    paths:
+      - apps/server/src/services/structure/
+  - id: services/github
+    area: service
+    name: GitHub-szinkron
+    summary: GitHub-szinkronizálás, pull requestek és közzététel.
+    paths:
+      - apps/server/src/services/github/
+  - id: services/feedback
+    area: service
+    name: Visszajelzések
+    summary: Visszajelzés-jelölések, képernyőképek és a widget munkamenetei.
+    paths:
+      - apps/server/src/services/feedback/
+  - id: services/project-docs
+    area: service
+    name: Projektdokumentumok
+    summary: Az Operátor dokumentumírásai és a döntésjelöltek.
+    paths:
+      - apps/server/src/services/project-docs/
+  - id: services/boundary
+    area: service
+    name: Külső műveletek
+    summary: Külső műveletek engedélyezése és határkérések.
+    paths:
+      - apps/server/src/services/boundary/
+  - id: services/schedules
+    area: service
+    name: Ütemezések
+    summary: Ütemezett tagi munkák.
+    paths:
+      - apps/server/src/services/schedules/
+  - id: services/email-login
+    area: service
+    name: E-mailes belépés
+    summary: Belépési kódok küldése és ellenőrzése e-mailben.
+    paths:
+      - apps/server/src/services/email-login/
+  - id: services/operator
+    area: service
+    name: Operátor
+    summary: Operátori műveletek, jelzések, kérések és projektkezelés.
+    paths:
+      - apps/server/src/services/operator/
+
+  # Server: engine
+  - id: runner
+    area: engine
+    name: Futtató
+    summary: Szolgáltatói CLI-k, PTY-k, engedélyre várás, átiratok, használatmérés és bizalom.
+    paths:
+      - apps/server/src/runner/
+  - id: worktree
+    area: engine
+    name: Munkafák
+    summary: Kártya- és tagi munkafák létrehozása és a függőségek frissítése.
+    paths:
+      - apps/server/src/worktree/
+  - id: engine-host
+    area: engine
+    name: Motorgazda
+    summary: Motorlokális fájlok, munkamenet-gyökerek, gazdaműveletek és ágak összefésülése.
+    paths:
+      - apps/server/src/engine-host/
+  - id: full-test
+    area: engine
+    name: Tesztkörnyezet
+    summary: Homokozóban futó tesztek és a nehézfutás-sor.
+    paths:
+      - apps/server/src/full-test/
+  - id: machine
+    area: engine
+    name: Gépfigyelés
+    summary: Gépmérések és a folyamatok elemzése.
+    paths:
+      - apps/server/src/machine/
+  - id: engine-link
+    area: engine
+    name: Motorkapocs
+    summary: A szerver és a motor közötti RPC, szállítás és távoli adapterek.
+    paths:
+      - apps/server/src/engine-link/
+
+  # Server: connector
+  - id: api
+    area: connector
+    name: HTTP API
+    summary: A HTTP API végpontjai – a webes felület és a widget ezt hívja.
+    paths:
+      - apps/server/src/api/
+  - id: mcp
+    area: connector
+    name: MCP
+    summary: MCP-szállítás, eszközdeklarációk és kezelők – ezen át dolgoznak a tagok.
+    paths:
+      - apps/server/src/mcp/
+  - id: ws
+    area: connector
+    name: Websocket
+    summary: Websocket-szállítás és szétküldés a böngészőknek.
+    paths:
+      - apps/server/src/ws/
+  - id: http
+    area: connector
+    name: HTTP-védelem
+    summary: HTTP-szállítási védelmek és infrastruktúra.
+    paths:
+      - apps/server/src/http/
+  - id: control
+    area: connector
+    name: Vezérlőcsatorna
+    summary: Az adminisztrációs vezérlő-socket.
+    paths:
+      - apps/server/src/control/
+  - id: auth
+    area: connector
+    name: Hitelesítés
+    summary: Hitelesítés és integrátor-hitelesítők.
+    paths:
+      - apps/server/src/auth/
+
+  # Server: assembly
+  - id: assembly
+    area: assembly
+    name: Összeállítás
+    summary: A tartományi szolgáltatások összeállítása és bekötése.
+    paths:
+      - apps/server/src/assembly.ts
+  - id: entry
+    area: assembly
+    name: Belépési pont
+    summary: A szerver és a motor indítása, összeállítása és leállítása.
+    paths:
+      - apps/server/src/app.ts
+      - apps/server/src/index.ts
+      - apps/server/src/engine-app.ts
+      - apps/server/src/shutdown.ts
+
+  # UI: web features
+  - id: web/auth
+    area: ui
+    name: Belépés
+    summary: A belépési és regisztrációs képernyők.
+    paths:
+      - apps/web/src/features/auth/
+  - id: web/board
+    area: ui
+    name: Tábla
+    summary: A kártyatábla, a kártyák részletei és a szerkesztésük.
+    paths:
+      - apps/web/src/features/board/
+  - id: web/engines
+    area: ui
+    name: Motorok
+    summary: A motorok és a gépek állapotának nézete.
+    paths:
+      - apps/web/src/features/engines/
+  - id: web/feedback
+    area: ui
+    name: Visszajelzések
+    summary: A beérkezett visszajelzések nézete.
+    paths:
+      - apps/web/src/features/feedback/
+  - id: web/how-we-work
+    area: ui
+    name: Így dolgozunk
+    summary: A csapat működési szabályait bemutató oldal.
+    paths:
+      - apps/web/src/features/how-we-work/
+  - id: web/inbox
+    area: ui
+    name: Postaláda
+    summary: A kérdések, jóváhagyások és engedélykérések felülete.
+    paths:
+      - apps/web/src/features/inbox/
+  - id: web/invites
+    area: ui
+    name: Meghívók
+    summary: A meghívó elfogadásának oldala.
+    paths:
+      - apps/web/src/features/invites/
+  - id: web/machine
+    area: ui
+    name: Gép
+    summary: A gép terhelésének és folyamatainak jelzője és panelje.
+    paths:
+      - apps/web/src/features/machine/
+  - id: web/map
+    area: ui
+    name: Térkép
+    summary: A térkép nézet – a kártyák a modulok dobozain.
+    paths:
+      - apps/web/src/features/map/
+  - id: web/messages
+    area: ui
+    name: Üzenetek
+    summary: A csapat üzenetei és beszélgetései.
+    paths:
+      - apps/web/src/features/messages/
+  - id: web/operator
+    area: ui
+    name: Operátor
+    summary: Az Operátor beszélgetése, jelzései és kérései.
+    paths:
+      - apps/web/src/features/operator/
+  - id: web/pause
+    area: ui
+    name: Szüneteltetés
+    summary: A munka szüneteltetésének szalagja, megerősítése és jegyzete.
+    paths:
+      - apps/web/src/features/pause/
+  - id: web/projects
+    area: ui
+    name: Projektek
+    summary: A projektek listája, létrehozása és beállításai.
+    paths:
+      - apps/web/src/features/projects/
+  - id: web/session
+    area: ui
+    name: Munkamenet
+    summary: Egy tag munkamenetének élő nézete.
+    paths:
+      - apps/web/src/features/session/
+  - id: web/settings
+    area: ui
+    name: Beállítások
+    summary: A projektbeállítások nézete – kötelességek, szerepkörök és konfigurációs hibák.
+    paths:
+      - apps/web/src/features/settings/
+  - id: web/team
+    area: ui
+    name: Csapat
+    summary: A csapat tagjai, szerepkörei és hozzáférései.
+    paths:
+      - apps/web/src/features/team/
+  - id: web/shell
+    area: ui
+    name: Webes keret
+    summary: A webalkalmazás kerete – útvonalak, API-kliens, közös elemek és fordítások.
+    paths:
+      - apps/web/
+  - id: widget
+    area: ui
+    name: Visszajelző-widget
+    summary: A beágyazható visszajelző-modul, amelyet más oldalakba lehet tenni.
+    paths:
+      - apps/feedback-widget/
+
+  # Shared packages
+  - id: shared/domain
+    area: shared
+    name: Közös tartomány
+    summary: A tiszta tartományi szabályok és sémák – címkék, kapuk, kötelezettségek.
+    paths:
+      - packages/shared/src/domain/
+  - id: shared/config
+    area: shared
+    name: Közös beállítássémák
+    summary: A projektbeállítások és a projektdokumentumok sémái.
+    paths:
+      - packages/shared/src/config/
+  - id: shared/api
+    area: shared
+    name: Közös API-sémák
+    summary: A HTTP API kérés- és válaszsémái a szerver és a felület között.
+    paths:
+      - packages/shared/src/api/
+  - id: shared
+    area: shared
+    name: Közös csomag
+    summary: A közös csomag további részei – websocket-, csevegés-, ütemezés- és telepítéssémák.
+    paths:
+      - packages/shared/
+  - id: templates
+    area: shared
+    name: Sablonok
+    summary: Projektsablonok, szerepkörök és az alapértelmezett megjelenített nevek.
+    paths:
+      - packages/templates/
+
+  # Tools
+  - id: scripts
+    area: tools
+    name: Szkriptek
+    summary: Fejlesztői és üzemeltetői szkriptek – összeállítás, élő példány, képernyőképek.
+    paths:
+      - scripts/
+      - apps/server/scripts/
+  - id: server-tests
+    area: tools
+    name: Szervertesztek
+    summary: A szerver tesztjei, segédei, a hamis CLI-k és az architektúra-őrtesztek.
+    paths:
+      - apps/server/test/
+  - id: deploy
+    area: tools
+    name: Telepítés
+    summary: Telepítési fájlok – Mac, felhő, VM, Cloudflare és GitHub.
+    paths:
+      - deploy/
+  - id: docs
+    area: tools
+    name: Dokumentáció
+    summary: Az architektúra, a döntések, az ütemterv és a tanulságok dokumentumai.
+    paths:
+      - docs/
+
+  # Outside systems
+  - id: github
+    area: outside
+    kind: external
+    name: GitHub
+    summary: A kód és a pull requestek külső tárhelye.
+  - id: ai-providers
+    area: outside
+    kind: external
+    name: AI-szolgáltatók
+    summary: A Claude, a Codex, a Gemini és a többi CLI, amelyeket a tagok futtatnak.
+  - id: email
+    area: outside
+    kind: external
+    name: E-mail (SES)
+    summary: Az AWS SES, amelyen át a belépési kódok és értesítések mennek.
+
+links:
+  # UI to server
+  - from: web/shell
+    to: api
+    label: HTTP
+  - from: web/shell
+    to: ws
+    label: Élő események
+  - from: widget
+    to: api
+    label: Visszajelzések (HTTP)
+  - from: web/shell
+    to: shared/api
+    label: Közös sémák
+  - from: widget
+    to: shared/api
+    label: Közös sémák
+  - from: contracts
+    to: shared/domain
+    label: Közös típusok
+
+  # Connectors to the core and the rest
+  - from: api
+    to: core/projects
+  - from: api
+    to: core/tasks
+  - from: api
+    to: core/members
+  - from: api
+    to: core/messages
+  - from: api
+    to: core/inbox
+  - from: api
+    to: core/timeline
+  - from: api
+    to: core/attachments
+  - from: api
+    to: runtime/admission
+  - from: api
+    to: services/merges
+  - from: api
+    to: services/structure
+  - from: mcp
+    to: core/tasks
+  - from: mcp
+    to: core/messages
+  - from: mcp
+    to: services/merges
+  - from: ws
+    to: core/base
+    label: Eseménybusz
+  - from: http
+    to: auth
+    label: Védelem
+  - from: auth
+    to: core/members
+
+  # Runtime and services
+  - from: runtime/admission
+    to: core/tasks
+  - from: runtime/sessions
+    to: core/tasks
+  - from: runtime/sessions
+    to: contracts
+    label: Motorportok
+  - from: runtime/delivery
+    to: core/messages
+  - from: runtime/sessions
+    to: context
+  - from: services/merges
+    to: contracts
+    label: Motorportok
+  - from: services/structure
+    to: contracts
+    label: Git-olvasás a motoron
+  - from: services/github
+    to: github
+    label: GitHub-hívások
+  - from: services/github
+    to: core/tasks
+  - from: services/email-login
+    to: email
+    label: Levélküldés
+  - from: services/email-login
+    to: core/members
+
+  # Engine
+  - from: runner
+    to: ai-providers
+    label: CLI-k indítása
+  - from: engine-host
+    to: runner
+  - from: engine-host
+    to: worktree
+  - from: engine-link
+    to: engine-host
+    label: RPC
+  - from: engine-link
+    to: contracts
+    label: Portok megvalósítása
+
+  # Storage and wiring
+  - from: core/base
+    to: db
+    label: Tár
+  - from: assembly
+    to: runner
+    label: Összekötés
+  - from: entry
+    to: assembly
+
+ignore:
+  - package.json
+  - package-lock.json
+  - tsconfig.base.json
+  - .prettierrc.json
+  - .gitignore
+  - .dockerignore
+  - .editorconfig
+  - .prettierignore
+  - README.md
+  - CLAUDE.md
+  - projectman.structure.yaml
+  - apps/server/package.json
+  - apps/server/tsconfig.json
+  - apps/server/vitest.config.ts
+  - apps/web/package.json
+  - apps/web/tsconfig.json
+  - apps/web/vitest.config.ts
+  - apps/feedback-widget/package.json
+  - apps/feedback-widget/tsconfig.json
+  - apps/feedback-widget/vitest.config.ts
+  - packages/shared/package.json
+  - packages/shared/tsconfig.json
+  - packages/shared/vitest.config.ts
+  - packages/templates/package.json
+  - packages/templates/tsconfig.json
+  - packages/templates/vitest.config.ts
+  - apps/server/src/shutdown.test.ts

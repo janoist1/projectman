@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { PROJECT_MANAGER_ROLE, isUnreadBy } from '@projectman/shared';
 import type {
@@ -98,9 +98,11 @@ export function OperatorThread({
       if (signal.messageId) map.set(signal.messageId, [...(map.get(signal.messageId) ?? []), signal]);
     return map;
   }, [channel.signals]);
+  // Only decisions made in this mounted thread retain feedback without a presenting message.
+  const [dismissedHere, setDismissedHere] = useState<ReadonlySet<string>>(() => new Set());
   const trailingSignals = channel.signals.filter(
     (signal) =>
-      signal.state === 'open' &&
+      (signal.state === 'open' || (signal.state === 'dismissed' && dismissedHere.has(signal.id))) &&
       (!signal.messageId || !messages.some((message) => message.id === signal.messageId)),
   );
   const pmHandle = [...members.values()].find(
@@ -300,6 +302,7 @@ export function OperatorThread({
           message={null}
           operatorHandle={handle}
           readOnly={readOnly}
+          onDismiss={(id) => setDismissedHere((previous) => new Set([...previous, id]))}
         />
       ))}
       {failed ? (

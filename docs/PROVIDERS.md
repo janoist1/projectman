@@ -284,7 +284,7 @@ prompts from naming a tool that is left out.
 
 A session in a task's own worktree (a developer's) runs its shell commands in Claude Code's
 sandbox, the first step of PM-87: the session spec carries `sandbox` (`sessionSandbox` in
-`domain/session-policy.ts`, computed per session) and the runner turns it into the `sandbox`
+`runtime/sessions` (`session-policy`), computed per session) and the runner turns it into the `sandbox`
 settings probed in PM-126 (see Sandboxes below). Commands then run without asking as long as they
 read only their own work below the home (PM-153), write only the worktree (with the shared git
 directory, minus hooks, config, the default branch and the integrating checkout's `HEAD` and
@@ -306,7 +306,7 @@ PTY tests cannot run in the sandbox yet; that needs a newer CLI. The server ther
 itself (PM-217): when a card enters review, `src/full-test` runs the repository's `reviewTest`
 command in its own sandbox, the Anthropic Sandbox Runtime (`@anthropic-ai/sandbox-runtime`, `srt`,
 macOS Seatbelt) with `allowPty`, outside every member's session (see "Full test before review" in
-ARCHITECTURE.md). Its settings come from `fullTestSandbox` in `domain/session-policy.ts`: reads only
+ARCHITECTURE.md). Its settings come from `fullTestSandbox` in `runtime/sessions` (`session-policy`): reads only
 the checkout and its git directory below the home, writes only its own run directory in the temp
 directory, no network (but listening on local ports), and a small allow list of environment variables.
 
@@ -400,7 +400,7 @@ on its own only where the CLI does not cover a case or the owner asked for it.
   `~/.codex`, `~/.npmrc`, `~/.aws`, `~/.cloudflared`; not the whole `~/.claude`: the member's saved tool outputs under
   `projects/` and the plan mode's `plans/` live there) and of the sensitive parts of the app home (database,
   cookie secret, logs, customization repository, members' memory, publishing identity, spool), and
-  `WebFetch` of `localhost` and `127.0.0.1`. `contracts/sandbox.ts` (`sensitivePaths`) and `domain/session-policy.ts`
+  `WebFetch` of `localhost` and `127.0.0.1`. `contracts/sandbox.ts` (`sensitivePaths`) and `runtime/sessions` (`session-policy`)
   (`HARD_DENIED_HOSTS`) list them, `SessionPolicy.filesystem.deniedPaths` and
   `network.deniedHosts` carry them, `contracts/claude-rules.ts` renders the rules. The
   whole app home is not denied: worktrees, workspaces and attachments live there, and deny wins
@@ -971,7 +971,7 @@ sandbox's network rules.
   the checkbox tells the user that other addresses are refused; a Gemini mapping needs its own
   card.
 
-The session policy (`apps/server/src/domain/session-policy.ts`) is the union of the member's
+The session policy in `runtime/sessions` (`session-policy`) is the union of the member's
 duties: editing duties work in the task worktree, read-only duties pre-approve reading tools,
 and developer roles get everyday git and npm commands pre-approved. Reviewers get the
 developer's worktree as an extra readable directory. The team tools are pre-approved for
@@ -1047,7 +1047,7 @@ session's working directory, or where a `cd` of the chain has led), however it i
 `-C` to any other directory, a second `-C`, `-c`, `--git-dir` and `--work-tree` are not
 followed, and neither is a `-C` in front of what `xargs` runs.
 
-The allow rules read the command with a strict parser (`domain/shell-words.ts`): quotes are
+The allow rules read the command with a strict parser (`runtime/permissions` (`shell-words`)): quotes are
 understood, every `$`, backtick, subshell, unknown redirection or unclear construct refuses the
 rule, and anything it does not recognise goes to a human. A newline inside quotes is text (a
 commit message of several lines); a backslash before one in double quotes is a line
@@ -1191,7 +1191,7 @@ not strict isolation. PM-134's transitional Claude setup is not the final PM-128
 
 ### The sandboxes the server hands out (PM-167)
 
-`sessionSandbox(policy)` (`domain/session-policy.ts`) computes them per session from the actual
+`sessionSandbox(policy)` in `runtime/sessions` (`session-policy`) computes them per session from the actual
 paths; `buildSandboxSettings` renders them, and `test/cli-sandbox.integration.test.ts` checks the
 exact `--settings` the fake CLI receives:
 
@@ -1199,7 +1199,7 @@ exact `--settings` the fake CLI receives:
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
 | Developer (`task_worktree`, PM-153, PM-193)           | `allowWrite`: the member's npm cache and development data (`<app home>/member-caches/<KEY>/<handle>/npm-cache`, `…/projectman-dev`) and the session folder (PM-268, a Claude session only); `denyRead`: the user's home, the app home (when not below it), `sensitivePaths`; `allowRead`: the worktree, the task's attachments, the member's two directories, the session folders' root (every member's folder of this instance is read, PM-333) and the browsers directory (PM-268), the shared git directory, `~/.gitconfig`, `~/.config/git`, `~/.claude/shell-snapshots`, the user's `core.excludesfile` (PM-216); `denyWrite`: see below | `registry.npmjs.org`, local binding allowed | none                                                           | `GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` unset; `env`: `npm_config_cache`, `PROJECTMAN_HOME` to the member's directories, `PROJECTMAN_SESSION_DIR` and `PLAYWRIGHT_BROWSERS_PATH` (PM-268), `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `GIT_CONFIG_SYSTEM` to a read-only file in the member's directory with `gc.auto=0`, `maintenance.auto=false` and `core.packedRefsTimeout=0`; the "Unable to create packed-refs.lock" message after a commit stays (known, harmless, see SECURITY.md) (PM-216) | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
 | Reader (`read_only`, review copy without test opt-in) | `allowWrite`: the session folder (PM-268; else temp only); `denyWrite`: working directory, every `--add-dir` directory, the project's workspace, the app home, the server's own checkout; `denyRead`: `sensitivePaths`                                                                                                                                                                                                                                                                                                                                                                                                                        | `registry.npmjs.org`, local binding allowed | `gh pr view:*`, `gh pr diff:*`, only on a repository on GitHub | `env`: `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `PROJECTMAN_SESSION_DIR`, `PLAYWRIGHT_BROWSERS_PATH` (PM-268)                                                                                                                                                                                                                                                                                                                                                                                                                         | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
-| Codex                                                 | local `projectman` permission profile: sensitive paths denied, portable writer roots granted (PM-356)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
+| Codex                                                 | local `projectman` permission profile: sensitive paths denied, portable writer roots granted (PM-356)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
 
 All paths are absolute, from the actual user home and app home. A developer in a task worktree
 gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<default branch>`,

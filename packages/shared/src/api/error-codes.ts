@@ -4,6 +4,10 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'operator_knowledge_invalid',
+  'operator_knowledge_unavailable',
+  'operator_knowledge_stale',
+  'operator_knowledge_limit',
   'card_busy',
   'operator_signal_closed',
   'operator_signal_not_dismissible',
@@ -82,6 +86,13 @@ export const ERROR_CODES = [
   'invite_invalid',
   'invite_used',
   'login_required',
+  // E-mail login of invited clients (PM-670)
+  'email_login_unavailable',
+  'email_login_rate_limited',
+  'email_code_invalid',
+  'email_login_name_required',
+  'email_login_no_access',
+  'invite_password_account_required',
   // Tasks, labels and gates
   'unknown_stage',
   'unknown_repo',

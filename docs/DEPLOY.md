@@ -562,6 +562,11 @@ the switch, the backup, the rollback and the configuration check.
 
 ## Cloud deployment of the hybrid mode (PM-317)
 
+The EC2 cutover from the owner's Mac, including stopping both live LaunchAgents,
+separate public approval and the data-preserving rollback, is in
+[CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The live watcher continues to support
+single mode only; cloud and engine updates are separate owner-approved operations.
+
 The cloud side of a hybrid installation (`PROJECTMAN_MODE=cloud`, no AI session of its own, the
 engine on your Mac does the work) is a container: `deploy/cloud/Dockerfile`, with the Cloudflare
 tunnel, Litestream (the database) and restic (the rest of the home) inside it. It has no public

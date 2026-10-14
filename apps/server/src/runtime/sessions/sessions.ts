@@ -1,5 +1,5 @@
 import { wakesFor } from '../../core/messages';
-import { LIVE_SESSION_STATES } from '@projectman/shared';
+import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
@@ -1450,7 +1450,14 @@ export class SessionOrchestrator {
           return;
         }
         case 'chat': {
-          this.ctx.repos.sessions.update(session.id, { lastActivityAt: at });
+          const workMetadata = workMetadataAfterChat(session.workMetadata, event.items, {
+            state: session.state,
+            now: this.ctx.now().getTime(),
+          });
+          this.ctx.repos.sessions.update(session.id, {
+            lastActivityAt: at,
+            ...(workMetadata ? { workMetadata } : {}),
+          });
           this.ctx.bus.publish({
             type: 'chat_appended',
             projectKey: session.projectKey,

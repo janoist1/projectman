@@ -815,7 +815,7 @@ changes) belong in `packages/shared`, so the server and the web's test fake use 
 
 ```
 db.sqlite                 runtime state
-secret                    cookie signing key
+secret                    cookie signing key; the e-mail login's HMAC key derives from it (PM-670)
 secrets/nanogpt.json       installation NanoGPT key (0700 directory, 0600 file; PM-328)
 customization/            git repo: projects/<KEY>/{project,team,pipeline}.yaml
 memory/<KEY>/<handle>.md  AI member memory (durable learnings)
@@ -1129,6 +1129,30 @@ pumps the queue. The mark is cleared when the merge starts running. A merge alre
 event). The running merge is not interrupted. Remote engine: the queue is on the server and the engine is not
 involved; no new machine-dependent part.
 
+**Durable train foundation (PM-659, part of PM-652).** `db/merge-trains.ts`, exposed as
+`Repositories.mergeTrains`, stores a Zod-validated manifest in `merge_trains` (migration 60).
+Its SQL identity, project, repository and state match the JSON record. A unique partial index
+allows one `running` train per project/repository. The manifest keeps 2–8 unique members in
+fixed order, their source commits/branches, starting members and timestamps, and the optional
+priority snapshots, check, candidate commits and parent train. It starts `running` at
+`merging`, landed `nowhere`; later `landed` may also be `remote` or `local`. The nullable
+`task_merges.train_id` maps to internal `MergeRecord.trainId`; older rows stay null and neither
+`TaskMergeState` nor `TaskMerged` exposes it. Train and member writes share the existing
+`unitOfWork` transaction, so a failed reservation rolls them all back.
+
+`services/merges/train-selection.ts` exports the pure `selectMergeTrain`: the caller supplies
+queued candidates in the existing `QUEUE_ORDER`, with readiness and solo facts already evaluated.
+It takes only the compatible prefix, at most eight, comparing project/repository/base/engine and
+the review command, worker count and timeout. An ineligible head selects nothing; a solo head
+or one without a review test selects only itself. An incompatible, ineligible or solo follower
+ends the prefix. Diagnostic candidates never mix with normal candidates or another parent;
+every selected diagnostic member's integer 1–8 limit bounds the group. A singleton uses the
+individual merge path. Selection neither sorts nor rewrites timestamps and reads no DB or engine.
+This slice does not activate grouped git/check execution; that follows in PM-660.
+The manifest and selection run on the server with remote engines too, grouped by `engineId`;
+they add no machine-dependent operation or RPC. Execution belongs to the existing
+"Member initiated merge" inventory entry when enabled.
+
 Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
 retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
 releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
@@ -1232,8 +1256,29 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Private Operator knowledge (PM-687)** — `apps/server/src/config/operator-knowledge-store.ts`,
+  injected by `app.ts` through `assembly.ts` as `OperatorKnowledgeStore`. Stores the approved
+  agreement (summary, involvement and extra-critical steps), up to 20 approved learned principles
+  (example, principle and effect), and each member's enumerated conversational preferences in
+  `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
+  These records are outside the public repository and the customization git history; no HTTP or
+  MCP writer is exposed. Missing documents start at revision zero; invalid documents are refused
+  without overwriting. **Machine assumption:** one server process owns a private writable home,
+  with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
+  rename. Target-file CAS writes are serialized within that process, including multiple store
+  instances. A synced temporary file is renamed only after the full JSON is written.
+  The shared `contracts/sandbox.ts` `sensitivePaths` app-home list denies the entire `operator-data`
+  root to member file tools and the existing session-policy/provider consumers; no separate
+  provider rule or new permission is added.
+  **Remote engine:** storage stays on the server, with no file mount on an engine. Later context/MCP
+  services may send filtered prompt data across the existing boundary; this card adds no such API.
+
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
-  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
+  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
+  PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,
+  separate AWS/SES/edge approvals and retention of existing Cloudflare DNS/mail. It adds no
+  CLI/config contract; credentials stay on the administration machine, outside member sessions.
+  A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
@@ -1386,13 +1431,30 @@ workers follow the machine's size.
   `packages/templates/src/locales`) through the SES v2 `SendEmail` operation with explicit keys and an
   endpoint pinned to the region; no `AWS_*` variable, profile or credential chain is read. It keeps no
   state and logs no address or code; a provider failure is a sanitized `EmailCodeDeliveryError`. The
-  login itself (PM-670) is the first consumer; until then `BuildAppOptions.emailCodeMailer` is unused.
+  login itself (PM-670, the next entry) is its consumer through `BuildAppOptions.emailCodeMailer`.
   **Machine assumptions:** the keys are lines of the owner's `cloud.env` (the secrets store of the entry
   "Cloud provisioning"), which `deploy` sends to the machine; inside the container the entrypoint gives
   `PROJECTMAN_*` to the server process only, the restore rehearsal switches the mailer off, and the runner's
   child environment drops every `PROJECTMAN_` name. **Does this work on a remote engine?** Yes: sending and
   the keys live only in the cloud board; the engine, its link and its protocol do not change, and a
   disconnected engine does not stop the mail.
+
+- **The e-mail login of invited clients (PM-670, part of PM-664)** —
+  `apps/server/src/auth/email-login-routes.ts` (`POST /api/auth/email/request` and `/verify`, public),
+  `apps/server/src/services/email-login/login-service.ts` (codes, limits, redemption),
+  `apps/server/src/core/members/client-standing.ts` (who is eligible; accepts the open client
+  invitations), `apps/server/src/db/email-login.ts` (tables `email_login_codes`, `email_login_events`,
+  migration 60), `auth/secret.ts` (`deriveEmailLoginKey`). **What it does:** a person who is a client and
+  nothing else (a client account or an open client invitation, not the host owner, no other access in any
+  project) gets a six-digit code by mail and redeems it for a session; a first redemption creates a
+  passwordless account and accepts every open client invitation of the address. Addresses, client IPs
+  and codes are stored only as HMAC-SHA-256 hashes; the key is derived (HKDF, own label) from the
+  `secret` file, so a copied database alone cannot be tested against guessed addresses. All limits count
+  durable rows, so a restart does not reset them. **Machine assumptions:** the client address comes from
+  `PROJECTMAN_CLIENT_IP_HEADER` (a trusted loopback proxy sets it; without it every client counts as
+  `127.0.0.1` and shares the IP limits), the `secret` file in the home, and the SQLite database. **Does this
+  work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
+  and no engine protocol or payload changes.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -1680,6 +1742,11 @@ workers follow the machine's size.
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
+  requires a stopped-source seed into empty host/buckets, first successful file backup and
+  isolated recovery checks. Public activation waits for completed auth/edge code and independent
+  security results plus a separate owner decision. Deployment and backup remain on EC2;
+  the single-Mac live watcher does not update either the cloud or the separate engine checkout.
   On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
   The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
@@ -2375,7 +2442,11 @@ assumption or remote-engine RPC.
   off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The
   repository is found from the engine's own binding (`engine.json` `repos[].path`, in single-machine mode the
   project's config), never from the call; branch, commit and merge ids are checked in `engine-limit.ts` and
-  again in the merger. **Does this work on a remote engine?** Yes, it is built for it: the git work, the
+  again in the merger. The pure commit/merge-id and branch syntax rules live in
+  `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
+  `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
+  syntax check. No git or process crosses into server-side DB validation.
+  **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
   of the changed files and short results cross the link, and a merge to a repo or branch not named by
   `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the
@@ -2407,6 +2478,11 @@ assumption or remote-engine RPC.
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
+  PM-674's [execution and rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  directories outside the source and repositories, retires both Mac live agents before packaging,
+  and brings final stopped-cloud data back before activation. Package/home is the seed input;
+  seed dry-run checks buckets, while the live host check precedes upload. No second writer or
+  automatic clearing of used targets is allowed; data transport is the owner's administration path.
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
   hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
   (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
@@ -2431,6 +2507,10 @@ assumption or remote-engine RPC.
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
+  PM-674's [owner runbook](CLOUD-CUTOVER.md) checks the same accepted cloud/engine SHA,
+  installs the protected Access header file, verifies foreground startup before launchd,
+  and uninstalls KeepAlive before hybrid back. Updates are manual owner-approved steps in
+  the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the
   `PATH` of the installing shell, without the `node_modules/.bin` folders `npm run` puts in front) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the

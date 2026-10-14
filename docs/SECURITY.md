@@ -245,6 +245,14 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   path. Symlinked project paths are rejected. Git hooks/signing are disabled for
   customization commits. YAML is limited to 1 MiB per file, 50 levels and no aliases;
   parse errors do not echo source text. The application home is owner-only (0700).
+- Private Operator agreements, learned principles and conversational preferences (PM-687) live
+  under `PROJECTMAN_HOME/operator-data`, outside customization git history. The shared
+  `sensitivePaths` list denies this entire root to member sessions through the existing policy
+  consumers. Storage validates keys and strict document schemas, refuses symbolic links and
+  non-regular or hard-linked files, and writes complete JSON through a synced 0600 temporary file
+  and same-directory atomic rename in 0700 directories. Target-file CAS is serialized within the
+  server process; corrupt files and stale revisions are refused without overwriting. This storage
+  adds no HTTP/MCP writer, authorization grant or engine file mount.
 - Request logging omits bodies, credentials and query strings, and redacts hook,
   MCP and invitation URL tokens. Unknown-route/parser errors do not echo request
   secrets. Authentication records are not broadcast. Markdown builds escaped React
@@ -759,6 +767,40 @@ hostile input. The boundary:
   its folder is written by its file tools under the pre-tool-use hook's gate (its own folder
   outside plan mode; another member's folder asks), and its commands, which run unsandboxed, can
   write there like anywhere else they may. The folder stays hostile input for all of them.
+
+## E-mail login of invited clients (PM-670)
+
+A client (a person who holds `client` access and nothing else) can log in with a one-time code sent
+to their address instead of a password. It is a second way to a session, so its limits are part of
+the account boundary.
+
+- **Who.** Only an address that has a client account or an open client invitation, is not the host
+  owner, has `client` access in every project it belongs to and has no open invitation of another
+  access. A project whose configuration cannot be read makes the address not eligible (it fails
+  closed). The same check runs again at redemption, so access given after the code was sent is not
+  widened by it, and `email_login_no_access` consumes the code.
+- **No oracle.** A code request always answers `202` with the same body, for an unknown, internal,
+  viewer, host-owner, eligible or mail-failing address. Eligibility, the address limits, the code and
+  the letter run in a queued background step, so the answer's time does not tell either. Only the
+  client-address and the global limits can refuse a request (`429`, `Retry-After`), never because of an
+  address. Redemption answers one `email_code_invalid` for a wrong, expired, used or never-sent code.
+- **The code.** Six digits from `crypto.randomInt`, valid 10 minutes, single-use, stored as an
+  HMAC; one live code per address (a new one voids the old). Five wrong tries void it. Redemption of
+  one address runs under a lock, so of parallel requests exactly one wins. A missing name for a new
+  account (`email_login_name_required`) does not use the code up.
+- **Limits** (durable, counted from the database, so a restart does not reset them): one code per
+  address per minute, 5 per hour, 10 per day; 20 requests per client address per hour; 200 letters per
+  day in all; 30 redemptions per client address per hour. The client address is the trusted
+  `PROJECTMAN_CLIENT_IP_HEADER` value; without it all clients share one address.
+- **Storage and logs.** Addresses, IPs and codes are kept only as HMAC-SHA-256 with a key derived from
+  the `secret` file; the events are pruned after a day. Logs carry fixed codes and counts only: never
+  an address, a code, an IP or a provider error text.
+- **Passwordless accounts.** A first redemption creates an account with no password. It cannot use
+  `/api/auth/login` (the dummy hash runs, the answer is `invalid_credentials`), holds no integrator key
+  (`resolveIntegratorKey` and the key routes refuse it) and cannot accept a non-client invitation link
+  (`invite_password_account_required`). A client with a password keeps it and may use either way.
+- **Sessions.** A successful redemption revokes the presented session and starts a new one, like the
+  password login. The routes are public and same-origin only.
 
 ## Findings
 

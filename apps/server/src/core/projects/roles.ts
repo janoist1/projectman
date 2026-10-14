@@ -8,7 +8,7 @@ import type {
   RolesView,
 } from '@projectman/shared';
 import { roleViews } from '@projectman/templates';
-import { conflict, invalid, notFound } from '../kernel';
+import { conflict, invalid, notFound } from '../../kernel';
 import type { Author, ProjectService } from './projects';
 
 /** The role catalogue of a project (built-in roles in its language, then custom roles). */

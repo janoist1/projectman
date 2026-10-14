@@ -31,15 +31,15 @@ import type {
   ProjectPreview,
   ProjectSummary,
 } from '@projectman/shared';
-import { ConfigStoreError } from '../config/errors';
-import type { ConfigStore } from '../contracts';
-import type { ProjectRecord } from '../db';
-import { projectAccessFor } from '../core/members';
-import { isoNow } from '../core/base';
-import type { DomainContext, TemplateRegistry } from '../core/base';
-import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from '../kernel';
-import type { TimelineService } from '../core/timeline';
-import { humanActor, KeyedMutex } from '../kernel';
+import { ConfigStoreError } from '../../config';
+import type { ConfigStore } from '../../contracts';
+import type { ProjectRecord } from '../../db';
+import { projectAccessFor } from '../members';
+import { isoNow } from '../base';
+import type { DomainContext, TemplateRegistry } from '../base';
+import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from '../../kernel';
+import type { TimelineService } from '../timeline';
+import { humanActor, KeyedMutex } from '../../kernel';
 
 /** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */
 function assertOperatorFixed(previous: ProjectConfig | null, next: ProjectConfig): void {

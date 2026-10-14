@@ -83,6 +83,17 @@ export function createInvitationRepository(db: Db) {
           .all(projectKey, now, recentSince, recentSince, recentSince) as InvitationRow[]
       ).map(fromRow);
     },
+    /** The open invitations of an address (case-insensitive), any access, oldest first (PM-670). */
+    openByEmail(email: string, now: string): InvitationRecord[] {
+      return (
+        db
+          .prepare(
+            `SELECT * FROM invitations WHERE email = ? AND accepted_at IS NULL AND revoked_at IS NULL
+             AND expires_at > ? ORDER BY created_at, id`,
+          )
+          .all(email, now) as InvitationRow[]
+      ).map(fromRow);
+    },
     accept(id: string, at: string): void {
       db.prepare('UPDATE invitations SET accepted_at = ? WHERE id = ?').run(at, id);
     },

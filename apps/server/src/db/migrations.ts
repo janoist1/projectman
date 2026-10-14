@@ -1192,13 +1192,38 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   },
   {
     version: 61,
+    name: 'email login',
+    // PM-670: the one-time e-mail login code of invited clients and the durable limits around it. Only
+    // keyed hashes are stored (HMAC of the address, of the client IP and of the code): never an open
+    // address, IP or code. One live code per address; a new one overwrites the old.
+    sql: `CREATE TABLE email_login_codes (
+      address_hash TEXT PRIMARY KEY,
+      id TEXT NOT NULL UNIQUE,
+      code_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      used_at TEXT
+    );
+    CREATE TABLE email_login_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL CHECK (kind IN ('request', 'send', 'verify')),
+      subject TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX email_login_events_subject ON email_login_events(kind, subject, at);
+    CREATE INDEX email_login_events_at ON email_login_events(at);
+    CREATE INDEX invitations_email ON invitations(email);`,
+  },
+  {
+    version: 62,
     name: 'session work metadata',
     // PM-694: what a session's chat proves about its work (last step, last tool, last error code), kept
     // without any chat text as JSON; NULL for every session from before it.
     sql: 'ALTER TABLE sessions ADD COLUMN work_metadata TEXT;',
   },
   {
-    version: 62,
+    version: 63,
     name: 'answer stalled signal kind',
     // PM-694: the kind CHECK grows by 'answer_stalled', so the table is rebuilt as in version 56, with
     // the columns added since (follow_up_at, decision_note).

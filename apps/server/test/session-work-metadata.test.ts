@@ -107,11 +107,11 @@ describe('session work metadata', () => {
   });
 });
 
-describe('migrations 61 and 62', () => {
+describe('migrations 62 and 63', () => {
   it('keep the signals with their columns, allow the new kind and keep the open-case rule', () => {
     const db = new Database(':memory:');
     try {
-      const before = migrations.filter((item) => item.version < 61);
+      const before = migrations.filter((item) => item.version < 62);
       for (const migration of before) db.exec(migration.sql);
       db.pragma(`user_version = ${Math.max(...before.map((item) => item.version))}`);
       db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');

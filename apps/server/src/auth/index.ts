@@ -8,6 +8,8 @@ import { AuthService } from './auth-service';
 import type { AuthUser } from './auth-service';
 import { clientAddress, isLocalRequest, requestProtocol, sameOrigin } from '../kernel';
 import type { SetupCode } from './setup-code';
+import type { EmailLoginService } from '../services/email-login';
+import { registerEmailLoginRoutes } from './email-login-routes';
 
 export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
 export type { AttemptLimiter } from '../kernel';
@@ -16,7 +18,7 @@ export type { AuthUser } from './auth-service';
 export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
 export { createSetupCode, generateSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
 export type { SetupCode } from './setup-code';
-export { loadOrCreateSecret } from './secret';
+export { deriveEmailLoginKey, loadOrCreateSecret } from './secret';
 
 export interface AuthDomain {
   handlesFor(email: string): Promise<Record<string, string>>;
@@ -43,6 +45,8 @@ const PUBLIC_ROUTES = new Set([
   `GET ${routes.setupStatus()}`,
   `POST ${routes.setup()}`,
   `POST ${routes.login()}`,
+  `POST ${routes.emailLoginRequest()}`,
+  `POST ${routes.emailLoginVerify()}`,
   `POST ${routes.logout()}`,
 ]);
 
@@ -107,9 +111,11 @@ export function registerAuth(
     /** `cloud` mode: a non-local first setup is possible, with the setup code (PM-317). */
     cloud?: boolean;
     setupCode?: SetupCode;
+    /** The e-mail login of invited clients (PM-670); null or absent: it is unavailable. */
+    emailLogin?: EmailLoginService | null;
   },
 ): void {
-  const { auth, domain, clientIpHeader, cloud = false, setupCode } = deps;
+  const { auth, domain, clientIpHeader, cloud = false, setupCode, emailLogin = null } = deps;
   const loginAttempts = createAttemptLimiter({
     max: MAX_FAILED_LOGINS,
     sharedMax: MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
@@ -167,7 +173,21 @@ export function registerAuth(
 
   app.get(routes.setupStatus(), async (): Promise<SetupStatus> => {
     const needsSetup = auth.needsSetup();
-    return { needsSetup, ...(cloud && needsSetup ? { needsSetupCode: true } : {}) };
+    return {
+      needsSetup,
+      ...(cloud && needsSetup ? { needsSetupCode: true } : {}),
+      ...(emailLogin && !needsSetup ? { emailLoginEnabled: true } : {}),
+    };
+  });
+
+  registerEmailLoginRoutes(app, {
+    auth,
+    emailLogin,
+    clientIpHeader,
+    startSessionFor: async (request, reply, user) => {
+      startSession(auth, request, reply, user.id);
+      return meOf(domain, user, auth);
+    },
   });
 
   app.post(routes.setup(), async (request, reply) => {
@@ -228,7 +248,8 @@ export function registerAuth(
   const keyOwner = (request: FastifyRequest): string => {
     if (request.via)
       throw forbidden('integrator_not_allowed', 'Only the owner may manage this key using their own login');
-    if (!request.user || !auth.isHostOwner(request.user.id))
+    // A passwordless (e-mail login) account never holds an integrator key (PM-670).
+    if (!request.user || !auth.isHostOwner(request.user.id) || !auth.hasPassword(request.user.id))
       throw forbidden('owner_only', 'Only the host owner may manage this key');
     return request.user.id;
   };

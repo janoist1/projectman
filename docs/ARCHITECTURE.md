@@ -646,7 +646,7 @@ recipients get the message.
 
 A module's team tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements its handler contract, and `index.ts` exports both. The first
-groups are `members`, `tasks`, `attachments`, `feedback` and `boundary`. `mcp/tools.ts` collects the definitions
+groups are `members`, `tasks`, `attachments`, `feedback`, `boundary` and `operator`. `mcp/tools.ts` collects the definitions
 in `TEAM_TOOL_GROUPS`; `domain/team-tools.ts` collects the handlers through
 `TeamToolsService` forwarding methods. New tools belong in their module's group and
 handler, never in either collector. The tools not moved yet move with their own
@@ -660,6 +660,13 @@ REST routes already register by module: `api/<module>.ts` exports
 `register<X>Routes(app, deps)`, collected by `registerApiRoutes` in `api/index.ts`.
 No REST contract changes. This refactor moves server code only; engine calls and
 file-transfer boundaries stay unchanged.
+
+The Operator slice (PM-605) lives in `services/operator/`, with one entry point and
+structural ports for sessions, admission, delivery, pauses and releases. Its five tools
+(`get_project_state`, `operate`, `screen_question`, `start_task`, `start_member`) live in
+`mcp/operator/`; signal decisions and manager/Operator channels register in `api/operator.ts`.
+This module needs no Effect program: retries belong to admission, reply relay uses
+`background.run`, and the 60-second signal sweep stays in domain assembly.
 
 **Effect (PM-590, a trial on a branch):** two programs are written with the `effect` package, each
 behind a plain TypeScript facade, so nothing outside them sees an Effect type: the runner's input
@@ -2292,7 +2299,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   and AI messages are data, the three levels, `get_project_state` for "why is it stuck", the report after each request
   (`operatorReport` labels in the locales).
 - **State reports (PM-465).** The read-only MCP tool `get_project_state { task_key? }` is available only to the
-  Operator (`operator_only`, 403), without an open owner request. `ProjectState` in `domain/project-state.ts`
+  Operator (`operator_only`, 403), without an open owner request. `ProjectState` in `services/operator/project-state.ts`
   reads the task service's admission waiting reason, fix limit and loop view, shared start/gate rules,
   open Senior waits, inbox questions, pause records and live sessions. Its task report names each recorded reason;
   its overview counts cards by stage (themes excluded), lists live and idle sessions with `lastActivityAt`,
@@ -2377,7 +2384,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
   conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
   `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
-- **Owner requests** (migration 47, `OperatorRequests` in `domain/operator-requests.ts`). A request opens when an
+- **Owner requests** (migration 47, `OperatorRequests` in `services/operator/requests.ts`). A request opens when an
   owner's message, or the owner's answer to the Operator's question, is delivered into its session
   (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on
   the session's `idle` or `ended` (the listener is registered before the delivery's own idle listener, so the next
@@ -2397,7 +2404,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   channel plus the last 50 requests with their steps, the newest last) to a person's own login (the owners' requests
   to an owner, their own to anyone else; PM-475); no new WebSocket event.
 
-- **Operations and approvals** (PM-464, `domain/operator-actions.ts`). `operate` and `start_task` are Operator-only
+- **Operations and approvals** (PM-464, `services/operator/actions.ts`). `operate` and `start_task` are Operator-only
   MCP tools and need an open owner request. Configuration previews reuse the member service's draft mutations;
   `operatorConfigVerdict` chooses immediate execution, an owner approval item, or refusal. Configuration commits
   recheck the verdict and the approved change rows under the project's configuration lock. Approval decisions
@@ -2414,7 +2421,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
   remain approval operations.
 
-- **System signals** (PM-476, migration 50, `domain/operator-signals.ts`). Provider/engine outages,
+- **System signals** (PM-476, migration 50, `services/operator/signals.ts`). Provider/engine outages,
   cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
   create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
   The sweep checks `WorkOutages.activeIds` only after its first evaluation (`null` means not yet observed),

@@ -1,4 +1,5 @@
 import { FeedbackTools } from '../mcp/feedback';
+import { OperatorTools } from '../mcp/operator';
 import { MemberTools } from '../mcp/members';
 import { TaskTools } from '../mcp/tasks';
 import { AttachmentTools } from '../mcp/attachments';
@@ -68,13 +69,13 @@ import { AttachmentService } from './attachments';
 import { MessageAttachmentService } from './message-attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
-import { OperatorRequests, OperatorSteps } from './operator-requests';
-import { OperatorSignals } from './operator-signals';
+import { OperatorRequests, OperatorSteps } from '../services/operator';
+import { OperatorSignals } from '../services/operator';
 import { QuestionScreening } from './question-screening';
-import { ProjectManagerChannels } from './project-manager';
-import { ProjectState } from './project-state';
-export { ProjectState } from './project-state';
-import { PmReplyRelay } from './pm-reply-relay';
+import { ProjectManagerChannels } from '../services/operator';
+import { ProjectState } from '../services/operator';
+export { ProjectState } from '../services/operator';
+import { PmReplyRelay } from '../services/operator';
 import { BoundaryService } from '../services/boundary';
 import { BoundaryTools } from '../mcp/boundary';
 import { CardQuestions } from './card-questions';
@@ -83,7 +84,7 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
-import { OperatorActions, OperatorApprovals } from './operator-actions';
+import { OperatorActions, OperatorApprovals } from '../services/operator';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { DecisionCandidates } from './decision-candidates';
@@ -1090,6 +1091,17 @@ export function createDomain(opts: DomainOptions) {
     calls: toolCaller,
     tools: {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
+      operator: new OperatorTools({
+        calls: toolCaller,
+        ctx,
+        projects,
+        tasks,
+        inbox,
+        messaging,
+        projectState,
+        operatorActions,
+        taskStarts,
+      }),
       members: new MemberTools({ calls: toolCaller, members }),
       releases: new ReleaseTools({ calls: toolCaller, releases }),
       tasks: new TaskTools({
@@ -1117,13 +1129,10 @@ export function createDomain(opts: DomainOptions) {
       merges: new MergeTools({ calls: toolCaller, merges }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
     },
-    projectState,
     docWrites,
     decisionCandidates,
     operatorRequests,
     operatorSteps,
-    operatorActions,
-    taskStarts,
     questionScreening,
     screenshots: screenshotRuns,
     openQuestionLabel,

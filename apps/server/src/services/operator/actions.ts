@@ -1,3 +1,4 @@
+import type { OperatorPauses, OperatorSessions } from './ports';
 import {
   applyConfigPatch,
   canonical,
@@ -17,20 +18,18 @@ import type {
   OperatorConsequence,
   ProjectConfig,
 } from '@projectman/shared';
-import type { OperatorRequestRecord } from '../db';
-import { ownerHandles } from './access';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import { conflict, DomainError, forbidden, invalid, notFound } from './errors';
-import { DECISION_OPTIONS } from './inbox';
-import type { InboxService, Resolver } from './inbox';
-import type { MemberService } from './members';
-import type { MessageService } from './messaging';
-import type { OperatorSteps } from './operator-requests';
-import type { PauseService } from './pause';
-import type { Author, ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
-import { aiActor, newId, SYSTEM_ACTOR } from './util';
+import type { OperatorRequestRecord } from '../../db';
+import { ownerHandles } from '../../domain/access';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import { conflict, DomainError, forbidden, invalid, notFound } from '../../domain/errors';
+import { DECISION_OPTIONS } from '../../domain/inbox';
+import type { InboxService, Resolver } from '../../domain/inbox';
+import type { MemberService } from '../../domain/members';
+import type { MessageService } from '../../domain/messaging';
+import type { OperatorSteps } from './requests';
+import type { Author, ProjectService } from '../../domain/projects';
+import { aiActor, newId, SYSTEM_ACTOR } from '../../domain/util';
 
 interface Dependencies {
   ctx: DomainContext;
@@ -38,8 +37,8 @@ interface Dependencies {
   members: MemberService;
   inbox: InboxService;
   steps: OperatorSteps;
-  sessions: SessionOrchestrator;
-  pauses: PauseService;
+  sessions: OperatorSessions;
+  pauses: OperatorPauses;
   messages: MessageService;
 }
 

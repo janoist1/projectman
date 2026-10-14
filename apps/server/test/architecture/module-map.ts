@@ -333,16 +333,9 @@ export const MODULES: readonly ModuleEntry[] = [
     id: 'services/operator',
     layer: 'service',
     target: 'services/operator',
-    pass: 'split-tool',
-    paths: [
-      'domain/operator-signals.ts',
-      'domain/operator-actions.ts',
-      'domain/operator-requests.ts',
-      'domain/project-state.ts',
-      'domain/project-manager.ts',
-      'domain/pm-reply-relay.ts',
-    ],
-    sealed: false,
+    pass: 'split',
+    paths: ['services/operator/'],
+    sealed: true,
   },
   {
     id: 'runner',
@@ -558,21 +551,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'core/messages',
     to: 'runtime/sessions',
     removedBy: 'core/messages',
-  },
-  {
-    from: 'services/operator',
-    to: 'runtime/sessions',
-    removedBy: 'services/operator',
-  },
-  {
-    from: 'services/operator',
-    to: 'runtime/admission',
-    removedBy: 'services/operator',
-  },
-  {
-    from: 'services/operator',
-    to: 'services/releases',
-    removedBy: 'services/operator',
   },
   {
     from: 'runtime/watchers',

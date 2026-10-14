@@ -1,24 +1,14 @@
-export { Admission } from '../../domain/admission/admission';
-export type { AdmissionRequest } from '../../domain/admission/admission';
-export { DeferredStarts, StartSpec } from '../../domain/admission/deferred-starts';
-export type {
-  AutomaticStart,
-  DeferredStart,
-  DeferredStartStore,
-} from '../../domain/admission/deferred-starts';
-export { FocusPull } from '../../domain/admission/focus-pull';
-export { StageHandOver } from '../../domain/admission/hand-over';
-export { MessageStarts } from '../../domain/admission/message-starts';
-export { RefinementSteps } from '../../domain/admission/refinement';
-export {
-  assertAiEnabled,
-  assertNotOnLeave,
-  assertNotPaused,
-  assertRepoChosen,
-  isDeferrable,
-} from '../../domain/admission/rules';
-export { SeniorWaits } from '../../domain/admission/senior-waits';
-export { TaskStarts } from '../../domain/admission/task-starts';
-export type { StartTaskOptions, StartTaskResult } from '../../domain/admission/task-starts';
-export { WorkStarts } from '../../domain/admission/work-starts';
-export { HandoffService } from '../../domain/handoffs';
+export { Admission } from './admission';
+export type { AdmissionRequest } from './admission';
+export { DeferredStarts, StartSpec } from './deferred-starts';
+export type { AutomaticStart, DeferredStart, DeferredStartStore } from './deferred-starts';
+export { FocusPull } from './focus-pull';
+export { StageHandOver } from './hand-over';
+export { MessageStarts } from './message-starts';
+export { RefinementSteps } from './refinement';
+export { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen, isDeferrable } from './rules';
+export { SeniorWaits } from './senior-waits';
+export { TaskStarts } from './task-starts';
+export type { StartTaskOptions, StartTaskResult } from './task-starts';
+export { WorkStarts } from './work-starts';
+export { HandoffService } from './handoffs';

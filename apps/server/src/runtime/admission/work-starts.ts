@@ -1,10 +1,10 @@
 import { evaluateStart, stageOf } from '@projectman/shared';
 import type { StagePull, Task } from '@projectman/shared';
-import { DomainError } from '../errors';
-import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../../runtime/sessions';
-import type { StageChange, TaskService } from '../tasks';
-import { SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';
+import { DomainError } from '../../domain/errors';
+import type { ProjectService } from '../../domain/projects';
+import type { SessionOrchestrator } from '../sessions';
+import type { StageChange, TaskService } from '../../domain/tasks';
+import { SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../domain/util';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
 import type { LabelWait, LabelWaitRequest, SeniorWait, SeniorWaitRequest, TaskStarts } from './task-starts';

@@ -13,14 +13,14 @@ import {
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, SeniorWaitDecisionPayload, Task } from '@projectman/shared';
 import type { SeniorWaitEndReason, SeniorWaitRecord } from '../../db';
-import { ownerHandles } from '../access';
-import { isoNow } from '../context';
-import type { DomainContext } from '../context';
-import type { InboxService } from '../inbox';
-import type { ConfigChange, ProjectService } from '../projects';
-import type { TaskService } from '../tasks';
-import type { TimelineService } from '../timeline';
-import { SYSTEM_ACTOR, newId } from '../util';
+import { ownerHandles } from '../../domain/access';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import type { InboxService } from '../../domain/inbox';
+import type { ConfigChange, ProjectService } from '../../domain/projects';
+import type { TaskService } from '../../domain/tasks';
+import type { TimelineService } from '../../domain/timeline';
+import { SYSTEM_ACTOR, newId } from '../../domain/util';
 
 const MINUTE_MS = 60_000;
 

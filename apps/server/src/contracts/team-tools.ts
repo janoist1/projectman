@@ -471,8 +471,46 @@ export interface MergeToolsHandler {
   ): Promise<{ task: Task; moved: boolean }>;
 }
 
+/** The tools of services/feedback (PM-608). */
+export interface FeedbackToolsHandler {
+  /**
+   * get_feedback (PM-512, feedback processors only; else `forbidden` with `feedback_processor_only`):
+   * the marks that wait for a decision.
+   */
+  getFeedbackList(
+    ctx: ToolContext,
+    args: { status: 'todo' | 'open' | 'all'; limit: number },
+  ): Promise<FeedbackToolList>;
+  /** get_feedback with `mark_id`: one mark in full. */
+  getFeedbackMark(ctx: ToolContext, args: { markId: string }): Promise<FeedbackToolMark>;
+  /** reply_feedback: an answer in the mark's thread, in the processor's name. */
+  replyFeedback(ctx: ToolContext, args: { markId: string; body: string }): Promise<FeedbackToolResult>;
+  /** create_task_from_feedback: a card from the mark (the screenshot becomes its attachment). */
+  createTaskFromFeedback(
+    ctx: ToolContext,
+    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
+  ): Promise<FeedbackToolResult>;
+  /** link_feedback: the mark belongs to an existing card. */
+  linkFeedback(
+    ctx: ToolContext,
+    args: { markId: string; taskKey: string; reply?: string },
+  ): Promise<FeedbackToolResult>;
+  /** forward_feedback: the mark goes to the owners, who are alerted; the mark then waits for them. */
+  forwardFeedback(
+    ctx: ToolContext,
+    args: { markId: string; reason: string; reply: string },
+  ): Promise<FeedbackToolResult>;
+  /** close_feedback: the mark is closed, with an optional last reply. */
+  closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
+}
+
 export interface TeamToolsHandler
-  extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler, MergeToolsHandler {
+  extends
+    MemberToolsHandler,
+    TaskToolsHandler,
+    AttachmentToolsHandler,
+    MergeToolsHandler,
+    FeedbackToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -683,36 +721,6 @@ export interface TeamToolsHandler
   setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }>;
   /** save_memory: append a durable learning to this member's memory. */
   saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
-
-  /**
-   * get_feedback (PM-512, feedback processors only; else `forbidden` with `feedback_processor_only`):
-   * the marks that wait for a decision.
-   */
-  getFeedbackList(
-    ctx: ToolContext,
-    args: { status: 'todo' | 'open' | 'all'; limit: number },
-  ): Promise<FeedbackToolList>;
-  /** get_feedback with `mark_id`: one mark in full. */
-  getFeedbackMark(ctx: ToolContext, args: { markId: string }): Promise<FeedbackToolMark>;
-  /** reply_feedback: an answer in the mark's thread, in the processor's name. */
-  replyFeedback(ctx: ToolContext, args: { markId: string; body: string }): Promise<FeedbackToolResult>;
-  /** create_task_from_feedback: a card from the mark (the screenshot becomes its attachment). */
-  createTaskFromFeedback(
-    ctx: ToolContext,
-    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
-  ): Promise<FeedbackToolResult>;
-  /** link_feedback: the mark belongs to an existing card. */
-  linkFeedback(
-    ctx: ToolContext,
-    args: { markId: string; taskKey: string; reply?: string },
-  ): Promise<FeedbackToolResult>;
-  /** forward_feedback: the mark goes to the owners, who are alerted; the mark then waits for them. */
-  forwardFeedback(
-    ctx: ToolContext,
-    args: { markId: string; reason: string; reply: string },
-  ): Promise<FeedbackToolResult>;
-  /** close_feedback: the mark is closed, with an optional last reply. */
-  closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
 }
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */

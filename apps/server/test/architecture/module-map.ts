@@ -302,8 +302,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/feedback',
     pass: 'split',
-    paths: ['domain/feedback/'],
-    sealed: false,
+    paths: ['services/feedback/'],
+    sealed: true,
   },
   {
     id: 'services/project-docs',

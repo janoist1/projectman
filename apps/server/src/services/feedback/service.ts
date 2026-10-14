@@ -43,17 +43,17 @@ import type {
   FeedbackMarkStats,
   StoredFeedbackScreenshot,
 } from '../../db';
-import { isoNow } from '../context';
-import type { DomainContext } from '../context';
-import { DomainError, forbidden, invalid, notFound } from '../errors';
-import type { InboxService } from '../inbox';
-import type { ProjectService } from '../projects';
-import type { TaskService } from '../tasks';
-import type { TimelineService } from '../timeline';
-import { KeyedMutex, newId } from '../util';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import { DomainError, forbidden, invalid, notFound } from '../../domain/errors';
+import type { InboxService } from '../../domain/inbox';
+import type { ProjectService } from '../../domain/projects';
+import type { TaskService } from '../../domain/tasks';
+import type { TimelineService } from '../../domain/timeline';
+import { KeyedMutex, newId } from '../../domain/util';
 import { prepareScreenshot } from './screenshots';
 import type { FeedbackScreenshotStore } from './screenshots';
-import type { AttachmentService } from '../attachments';
+import type { AttachmentService } from '../../domain/attachments';
 
 /** The most marks one list returns. */
 export const MAX_FEEDBACK_LIST = 1000;

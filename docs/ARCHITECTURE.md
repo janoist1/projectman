@@ -900,6 +900,13 @@ and are typed in after the restart, which gets no continue message. Grants "for 
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
 
+The Operator's approver stays `human`, with source `member` (PM-691), even with a historical
+`none`/`ai` member setting or any session override. `SessionPermissionMember` preserves its identity
+for `isOperator`; ordinary and missing members retain their session settings. The shared
+`sessionApproverChangeRefusal` rejects Operator `none`/`ai` updates with 403 `operator_fixed` before
+any write, restart or event; `human`/`null` clears the override. Mixed mode/forbidden-approver patches
+are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
+
 ## Session policy migration (PM-87 / PM-127)
 
 `contracts/session-policy.ts` is the provider-neutral session intent: placement, semantic team,
@@ -2219,6 +2226,12 @@ assumption or remote-engine RPC.
   uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
   policy functions through `InboxPermissionPolicy` (`core/inbox`); path validation still
   runs on the session's engine and requires no new RPC.
+  PM-691 fixes the Operator's effective approver to `human` on the server through
+  `packages/shared/src/config/permission-level.ts`, including historical session overrides.
+  `runtime/sessions/{sessions,launch}.ts` checks updates and carries the effective member into
+  the existing start/context path; `core/inbox` uses it for human routing. Local and remote
+  engines consume the same start intent. This changes no OS assumption or RPC and never
+  turns a CLI escalation into boundary authorization.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a

@@ -122,6 +122,7 @@ import {
   ownerOnlyChanges,
   permissionView,
   effectiveSessionPermissions,
+  sessionApproverChangeRefusal,
   duplicateMarkRefusal,
   planLabelChange,
   planRelations,
@@ -5738,6 +5739,8 @@ export class MockBackend {
     if (!session) return error(404, 'not_found', 'Unknown session');
     const member = memberOf(this.config, session.member);
     if (member?.kind !== 'ai') return error(404, 'not_found', 'Unknown member');
+    const refusal = sessionApproverChangeRefusal(member, input.approver);
+    if (refusal) return error(403, refusal, 'The Operator approver is fixed to human');
     if (input.approver) {
       const blocker = approverBlocker(this.config, member.handle, input.approver);
       if (blocker) return error(422, 'approver_unavailable', 'This approver is not available', { blocker });
@@ -5749,7 +5752,7 @@ export class MockBackend {
       else next.permissionModeOverride = input.permissionMode;
     }
     if (input.approver !== undefined) {
-      if (input.approver === null) delete next.approverOverride;
+      if (isOperator(member) || input.approver === null) delete next.approverOverride;
       else next.approverOverride = input.approver;
     }
     const to = effectiveSessionPermissions(member, next);

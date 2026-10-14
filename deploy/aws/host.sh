@@ -20,6 +20,8 @@
 #   seed-check                {"container":"running|stopped","dataEmpty":true|false}
 #   receive-data              unpack a tar stream into the empty data directory (the container must stand)
 #   send-data                 write the data directory as a tar stream (the container must stand)
+#   guard-check <hostname>    {"plain":"404","port":"404"}: the status codes the running board gives that hostname
+#                             (the feedback guard, PM-510); refused while the board is not running
 #
 # The container never gets a published port, the host network, extra privileges or the Docker socket: the
 # Cloudflare tunnel inside it connects outwards.
@@ -297,6 +299,21 @@ seed_check() {
   printf '{"container":"%s","dataEmpty":%s}\n' "$running" "$empty"
 }
 
+# What the running board answers an unknown hostname (the feedback hostname's guard, PM-510): the status
+# code of /api/setup with `Host: <name>` and with `Host: <name>:443`; both must be 404 (`npm run cloud --
+# publish --feedback` refuses otherwise). Nothing leaves the machine: the request goes to the port inside
+# the container.
+guard_check() {
+  local name=${1:-} plain port
+  [[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || die "not a hostname: ${name:-<none>}"
+  board_running || refuse "the board is not running; deploy it before the guard can be checked"
+  plain=$(docker exec "$CONTAINER" curl -s -o /dev/null -w '%{http_code}' -H "Host: $name" http://127.0.0.1:4700/api/setup || true)
+  port=$(docker exec "$CONTAINER" curl -s -o /dev/null -w '%{http_code}' -H "Host: $name:443" http://127.0.0.1:4700/api/setup || true)
+  [[ "$plain" =~ ^[0-9]{3}$ ]] || plain=000
+  [[ "$port" =~ ^[0-9]{3}$ ]] || port=000
+  printf '{"plain":"%s","port":"%s"}\n' "$plain" "$port"
+}
+
 receive_data() {
   [ ! -t 0 ] || die "receive-data needs a tar stream on the standard input"
   board_running && refuse "the board is running; a seed goes in before the first start"
@@ -334,7 +351,8 @@ main() {
     seed-check) seed_check ;;
     receive-data) receive_data ;;
     send-data) send_data ;;
-    *) die "usage: host.sh bootstrap|receive-env|build|start|stop|status|logs|rehearse|seed-check|receive-data|send-data" ;;
+    guard-check) guard_check "$@" ;;
+    *) die "usage: host.sh bootstrap|receive-env|build|start|stop|status|logs|rehearse|seed-check|receive-data|send-data|guard-check" ;;
   esac
 }
 

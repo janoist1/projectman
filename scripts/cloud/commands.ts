@@ -1,9 +1,13 @@
 import path from 'node:path';
 import { awsPreflight, runAws } from './aws';
+import { runCheck } from './cloudflare-check';
+import { runPublish } from './cloudflare-publish';
+import { cloudflareApi, cloudflarePreflight, findZone, resolveAccount, runEdge } from './cloudflare';
 import { defaultConfigPath, expandHome, loadConfig } from './config';
 import type { CloudContext } from './context';
 import type { CloudDeps } from './deps';
 import { badUsage, CloudError } from './errors';
+import { runDnsPlan, runDnsStatus, runDnsSwitch, runDnsVerify } from './dns';
 import {
   runDeploy,
   runLogs,
@@ -36,19 +40,36 @@ commands:
                                      fill an empty machine with the package of \`npm run migrate -- hybrid package\`, then deploy
   pull-data --to <new dir> [--dry-run]
                                      copy the stopped board's data to a new directory on this computer
+  edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token]
+                                     set up Cloudflare: zone, edge settings, Access, service tokens, tunnel
+  publish [--feedback] [--dry-run]   point the hostname at the tunnel (after the checks); --feedback: the feedback hostname too
+  check --login-json <file>          verify the public board: Access, edge, origin rules, the engine's doors
+  dns plan|import|verify|status       migrate and verify Route 53 DNS; import accepts --update and --dry-run
+  dns switch [--back] [--dry-run]     change registrar name servers after verification; --back: restore Route 53
+  up [--login-json <file>] [--dry-run] run preflight, aws, edge, deploy, publish, then check with a login file
 options:
   --config <file>                    the configuration (default ~/.config/projectman/cloud/config.json)
   --dry-run                          only read; print what would change
   --rotate-keys                      replace the IAM access keys (the machine needs a deploy afterwards)
+  --rotate-engine-token              replace the secret of the engine's service token (the engine needs the new file)
+  --rotate-integrator-token          replace the secret of the integrator's service token
 exit status: 0 done, 1 failed, 2 refused (a precondition is missing or the state is dangerous), 64 bad usage
 `;
 
-type Flag = 'dry-run' | 'rotate-keys';
-type ValueOption = 'ref' | 'lines' | 'from' | 'to';
+type Flag =
+  | 'dry-run'
+  | 'rotate-keys'
+  | 'rotate-engine-token'
+  | 'rotate-integrator-token'
+  | 'feedback'
+  | 'update'
+  | 'back';
+type ValueOption = 'ref' | 'lines' | 'from' | 'to' | 'login-json';
 
 interface Invocation {
   dryRun: boolean;
   rotateKeys: boolean;
+  flags: ReadonlySet<Flag>;
   values: Partial<Record<ValueOption, string>>;
 }
 
@@ -68,9 +89,10 @@ function logLines(value: string | undefined): number {
   return Number(value);
 }
 
-/** The checks `preflight` runs one after the other; the Cloudflare part is added by a later card. */
+/** The checks `preflight` runs one after the other. */
 const PREFLIGHT_CHECKS: { name: string; run(context: CloudContext): Promise<void> }[] = [
   { name: 'aws', run: awsPreflight },
+  { name: 'cloudflare', run: cloudflarePreflight },
 ];
 
 async function preflight(context: CloudContext): Promise<void> {
@@ -93,6 +115,47 @@ async function preflight(context: CloudContext): Promise<void> {
 
 /** The command table: a later card adds a row and its module. */
 export const COMMANDS: Record<string, CommandSpec> = {
+  'dns plan': { summary: 'plan DNS migration', flags: [], run: (context) => runDnsPlan(context) },
+  'dns import': {
+    summary: 'import DNS records without deleting',
+    flags: ['dry-run', 'update'],
+    run: (context, invocation) =>
+      runDnsPlan(context, { dryRun: invocation.dryRun, update: invocation.flags.has('update') }),
+  },
+  'dns verify': { summary: 'compare authoritative DNS answers', flags: [], run: runDnsVerify },
+  'dns status': { summary: 'show delegation and domain status', flags: [], run: runDnsStatus },
+  'dns switch': {
+    summary: 'change registrar name servers',
+    flags: ['dry-run', 'back'],
+    run: (context, invocation) =>
+      runDnsSwitch(context, { dryRun: invocation.dryRun, back: invocation.flags.has('back') }),
+  },
+  up: {
+    summary: 'set up the cloud board',
+    flags: ['dry-run'],
+    values: ['login-json'],
+    run: async (context, invocation) => {
+      for (const command of ['preflight', 'aws', 'edge', 'deploy']) {
+        context.report.line(`up: ${command}`);
+        await COMMANDS[command]!.run(context, invocation);
+      }
+      const api = cloudflareApi(context, true);
+      const account = await resolveAccount(api, context.config);
+      const zone = await findZone(api, context.config, account.id);
+      if (zone?.status !== 'active') {
+        context.report.line(
+          'Next: dns plan, dns import, dns verify, dns switch --dry-run, dns switch; dns status until active, then up again (docs/AWS.md)',
+        );
+        return;
+      }
+      context.report.line('up: publish');
+      await COMMANDS.publish!.run(context, invocation);
+      if (invocation.values['login-json'] && !invocation.dryRun) {
+        context.report.line('up: check');
+        await COMMANDS.check!.run(context, invocation);
+      }
+    },
+  },
   preflight: {
     summary: 'check the preconditions',
     flags: [],
@@ -167,6 +230,29 @@ export const COMMANDS: Record<string, CommandSpec> = {
     run: (context, invocation) =>
       runPullData(context, { to: invocation.values.to!, dryRun: invocation.dryRun }),
   },
+  edge: {
+    summary: 'set up the Cloudflare side',
+    flags: ['dry-run', 'rotate-engine-token', 'rotate-integrator-token'],
+    run: (context, invocation) =>
+      runEdge(context, {
+        dryRun: invocation.dryRun,
+        rotateEngineToken: invocation.flags.has('rotate-engine-token'),
+        rotateIntegratorToken: invocation.flags.has('rotate-integrator-token'),
+      }),
+  },
+  publish: {
+    summary: 'make the board reachable',
+    flags: ['dry-run', 'feedback'],
+    run: (context, invocation) =>
+      runPublish(context, { dryRun: invocation.dryRun, feedback: invocation.flags.has('feedback') }),
+  },
+  check: {
+    summary: 'verify the public board',
+    flags: [],
+    values: ['login-json'],
+    required: ['login-json'],
+    run: (context, invocation) => runCheck(context, { loginJson: invocation.values['login-json']! }),
+  },
 };
 
 interface Parsed {
@@ -177,7 +263,9 @@ interface Parsed {
 }
 
 function parse(argv: readonly string[]): Parsed {
-  const [command, ...rest] = argv;
+  const [first, ...args] = argv;
+  const command = first === 'dns' ? `dns ${args[0] ?? ''}` : first;
+  const rest = first === 'dns' ? args.slice(1) : args;
   if (!command) throw badUsage(`no command\n${USAGE}`);
   const spec = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
   if (!spec) throw badUsage(`unknown command "${command}"\n${USAGE}`);
@@ -232,6 +320,7 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
     await COMMANDS[parsed.command]!.run(context, {
       dryRun: parsed.flags.has('dry-run'),
       rotateKeys: parsed.flags.has('rotate-keys'),
+      flags: parsed.flags,
       values: parsed.values,
     });
     return 0;

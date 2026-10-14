@@ -186,6 +186,16 @@ export function updateEnvFile(file: string, updates: EnvValues): string[] {
   return changed;
 }
 
+/** Removes some names (every line of each) and keeps all other lines. Returns the names that were there. */
+export function removeEnvNames(file: string, names: readonly string[]): string[] {
+  const { lines, values } = parseEnv(readSecret(file) ?? '', file);
+  const present = names.filter((name) => values.has(name));
+  if (present.length === 0) return [];
+  const kept = lines.filter((line) => !present.some((name) => line.startsWith(`${name}=`)));
+  writeSecret(path.dirname(file), path.basename(file), kept.length === 0 ? '' : `${kept.join('\n')}\n`);
+  return present;
+}
+
 /** A fresh restic repository password: 32 random bytes, base64url. */
 export function newResticPassword(): string {
   return randomBytes(32).toString('base64url');

@@ -163,6 +163,13 @@ Behind `tailscale serve` there is no such header: leave the variable unset.
 
 ## Public entry through Cloudflare Tunnel and Access (PM-200)
 
+> **Ended (2026-10-12, decision 51, PM-532):** the board moved to the cloud and the Mac's tunnel
+> is no longer the public entrance. The cloud board's Cloudflare side is made by
+> `npm run cloud -- edge`, `publish` and `check` ([AWS.md](AWS.md), "Cloudflare" and
+> "Verification"). The security conditions below stay binding there: the Access application before the
+> hostname, the exact e-mail list, no `/hooks` or `/mcp` through the tunnel, no edge caching or
+> rewriting, no framing. The steps below describe the old Mac setup and remain as the reasoning for it.
+
 The owner's live instance (the Mac, `127.0.0.1:4800`) is reached publicly at
 `https://chopper.istvan.io`, behind **Cloudflare Access** (who may come in) and a **Cloudflare
 Tunnel** (how the request gets to the Mac). The server and the UI stay on the Mac: there is no

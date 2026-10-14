@@ -176,7 +176,7 @@ else
 fi
 
 # The edge's headers, on a page, an API answer and an answer the tunnel made itself.
-acurl -o /dev/null -D "$tmp/root.headers" "$origin/"
+acurl -o "$tmp/root.body" -D "$tmp/root.headers" "$origin/"
 acurl -o /dev/null -D "$tmp/api.headers" "$origin/api/setup"
 for name in root api hooks; do
   file="$tmp/$name.headers"
@@ -192,6 +192,25 @@ for name in root api hooks; do
   has_header "$file" 'x-frame-options: *deny'
   check "$where: X-Frame-Options is DENY" $?
 done
+
+# The edge keeps nothing of the board (PM-536): a page and an API answer behind a login must never come from
+# Cloudflare's cache, so a cached copy cannot outlive a logout or reach someone without a session.
+for name in root api; do
+  case "$name" in
+    root) where=/ ;;
+    *) where=/api/setup ;;
+  esac
+  has_header "$tmp/$name.headers" 'cf-cache-status: *hit'
+  if [ $? -eq 0 ]; then fail "$where: cf-cache-status is HIT; the edge caches the board"; else pass "$where: cf-cache-status is not HIT"; fi
+done
+
+# The edge adds nothing to the page: no analytics beacon, Rocket Loader, e-mail decoding or Zaraz (they would
+# need script sources the board's Content-Security-Policy does not allow, and they read the page).
+if grep -qiE 'cloudflareinsights|rocket-loader|email-decode|/cdn-cgi/zaraz|/cdn-cgi/scripts' "$tmp/root.body"; then
+  fail 'the page has an edge-injected script (cloudflareinsights, rocket-loader, email-decode, zaraz or cdn-cgi/scripts)'
+else
+  pass 'the page has no edge-injected script'
+fi
 
 # End the session this script made.
 if [ "$login_ok" -eq 0 ]; then

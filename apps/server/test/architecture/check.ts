@@ -23,10 +23,26 @@ export interface Violation {
 }
 
 export function importSpecifiers(source: string): string[] {
-  // Consume comments and ordinary strings too, so their examples cannot become edges.
+  return sourceImports(source).specifiers;
+}
+
+/** Parse dependencies without evaluating either revision's code. */
+export function sourceImports(source: string): { specifiers: string[]; uncertain: boolean } {
+  // Consume comments and ordinary strings so examples cannot become edges.
+  // A dynamic literal prefix followed by an expression is still uncertain.
   const pattern =
-    /\/\/[^\n]*|\/\*[\s\S]*?\*\/|\b(?:import\s*(?:\(\s*)?|(?:import|export)\s+[^;'"`]*?\bfrom\s*)(['"])([^'"\n]+)\1|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g;
-  return [...source.matchAll(pattern)].flatMap((match) => (match[2] === undefined ? [] : [match[2]]));
+    /\/\/[^\n]*|\/\*[\s\S]*?\*\/|\bimport\s*\(\s*(['"`])([^'"`\n]*)\1\s*\)|\b(?:import\s*|(?:import|export)\s+[^;'"`]*?\bfrom\s*)(['"])([^'"\n]+)\3|\bimport\s*\.\s*meta\b|\b(import)\b|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g;
+  const specifiers: string[] = [];
+  let uncertain = false;
+  for (const match of source.matchAll(pattern)) {
+    const specifier = match[2] ?? match[4];
+    if (match[5] || (specifier !== undefined && (specifier.includes('\\') || specifier.includes('${'))))
+      uncertain = true;
+    else if (specifier !== undefined) specifiers.push(specifier);
+    else if (match[0].startsWith('`') && match[0].includes('${') && /\bimport\s*\(/.test(match[0]))
+      uncertain = true;
+  }
+  return { specifiers, uncertain };
 }
 
 function matches(path: string, pattern: string): boolean {

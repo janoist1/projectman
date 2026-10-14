@@ -15,6 +15,9 @@ describe('merge test scope', () => {
     'apps/server/package.json',
     'apps/web/tsconfig.app.json',
     'apps/server/vitest.config.ts',
+    'apps/server/test/architecture/modules/core-base.ts',
+    'apps/server/src/contracts/tasks.ts',
+    'apps/server/src/config/migrations.ts',
   ])('runs everything for %s', (file) => {
     expect(mergeTestScope(['docs/a.md', 'apps/server/src/a.ts', file])).toEqual({
       kind: 'all',
@@ -41,7 +44,7 @@ describe('merge test scope', () => {
       ['test', '-w', 'apps/server'],
     ]);
     expect(scopeLine({ kind: 'all', reason: 'packages/shared/src/x.ts' })).toBe(
-      'merge-test scope: all (packages/shared/src/x.ts)',
+      'merge-test scope: all (packages/shared/src/x.ts); modules: all; tests: all; fallback: packages/shared/src/x.ts',
     );
   });
 });

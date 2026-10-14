@@ -54,6 +54,8 @@ describe('workspace Codex preflight (PM-357)', () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', item);
     h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/fictional/${session.id}.jsonl` });
     await h.domain.sessions.stop('AR', session.id);
+    // A read-only Codex member has a session folder too; its removal after the stop runs in the background.
+    await h.domain.sessions.settleFolderRemovals();
     ready = false;
     await expect(h.domain.sessions.ensureSession('AR', 'dev-1', item)).rejects.toMatchObject({
       code: 'workspace_codex_config',

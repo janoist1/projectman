@@ -370,6 +370,11 @@ export const en: TemplateLocale = {
         'The card is worked out before development, one step at a time, by one member at a time; the system takes the label off when it is done.',
     },
   },
+  emailLoginCode: {
+    subject: 'Your login code',
+    text: ({ code, validUntil }) =>
+      `Your login code: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message.\n`,
+  },
   stageApproval: (stageName) => `${stageName}: approved`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

@@ -81,12 +81,13 @@ Plain settings (in `fly.toml` `[env]`, or the host's environment):
 
 Secrets (the host's secret store, never a file in the repository, never a message or a task):
 
-| Secret                                                     | Meaning                                                                                                                                                           |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TUNNEL_TOKEN`                                             | The Cloudflare tunnel's token                                                                                                                                     |
-| `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` | A storage key that can read and write the database bucket only                                                                                                    |
-| `RESTIC_ACCESS_KEY_ID`, `RESTIC_SECRET_ACCESS_KEY`         | A storage key that can read and write the backup bucket only                                                                                                      |
-| `RESTIC_PASSWORD`                                          | The backup repository's password: separate from the storage key, and **kept outside the cloud as well** (a password manager); without it the backup is unreadable |
+| Secret                                                                                              | Meaning                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TUNNEL_TOKEN`                                                                                      | The Cloudflare tunnel's token                                                                                                                                                           |
+| `PROJECTMAN_SES_ACCESS_KEY_ID`, `PROJECTMAN_SES_SECRET_ACCESS_KEY` (`PROJECTMAN_SES_SESSION_TOKEN`) | The sending-only key of the e-mail login code mailer (PM-669, [AWS.md](AWS.md)); needed only with `PROJECTMAN_EMAIL_LOGIN_ENABLED=1` and `PROJECTMAN_SES_REGION`, `PROJECTMAN_SES_FROM` |
+| `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY`                                          | A storage key that can read and write the database bucket only                                                                                                                          |
+| `RESTIC_ACCESS_KEY_ID`, `RESTIC_SECRET_ACCESS_KEY`                                                  | A storage key that can read and write the backup bucket only                                                                                                                            |
+| `RESTIC_PASSWORD`                                                                                   | The backup repository's password: separate from the storage key, and **kept outside the cloud as well** (a password manager); without it the backup is unreadable                       |
 
 Keep the `RESTIC_PASSWORD` somewhere other than the host that runs the container: a restore after
 losing the host needs it.

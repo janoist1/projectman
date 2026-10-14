@@ -52,6 +52,22 @@ describe('child environment', () => {
     });
   });
 
+  it('removes every PROJECTMAN_ variable, the e-mail login keys among them, and brings no AWS_ variable (PM-669)', () => {
+    const env = buildChildEnv({
+      PATH: '/usr/bin',
+      PROJECTMAN_EMAIL_LOGIN_ENABLED: '1',
+      PROJECTMAN_SES_REGION: 'eu-central-1',
+      PROJECTMAN_SES_FROM: 'belepes@istvan.io',
+      PROJECTMAN_SES_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+      PROJECTMAN_SES_SECRET_ACCESS_KEY: 'secret-example',
+      PROJECTMAN_SES_SESSION_TOKEN: 'token-example',
+    });
+    expect(env).toEqual({ PATH: '/usr/bin' });
+    const session = buildSessionEnv({ PROJECTMAN_SES_SECRET_ACCESS_KEY: 'secret-example' }, 'ses_1');
+    expect(Object.keys(session).filter((name) => name.startsWith('PROJECTMAN_SES_'))).toEqual([]);
+    expect(Object.keys(session).filter((name) => name.startsWith('AWS_'))).toEqual([]);
+  });
+
   it('removes the Gemini and NanoGPT variables and the Antigravity markers, whatever the server has (PM-324)', () => {
     const names = [
       'GEMINI_API_KEY',

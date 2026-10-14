@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
 import { CF_ACCOUNT, CloudflareWorld } from './helpers/fake-cloudflare';
@@ -81,6 +81,28 @@ describe('edge on a fresh account', () => {
     expect(world.cf.mutations()).toEqual([]);
     expect(world.lines.filter((line) => /^(created|updated) /.test(line))).toEqual([]);
     expect(world.lines.some((line) => line.startsWith('note: cloud.env changed'))).toBe(false);
+  });
+
+  it('keeps the e-mail login settings the owner added to cloud.env (PM-669)', async () => {
+    const owned = [
+      'PROJECTMAN_EMAIL_LOGIN_ENABLED=1',
+      'PROJECTMAN_SES_REGION=eu-central-1',
+      'PROJECTMAN_SES_SECRET_ACCESS_KEY=ses-secret-example-value',
+    ];
+    appendFileSync(world.envFile, `\n${owned.join('\n')}\n`);
+    const kept = () => {
+      const lines = readFileSync(world.envFile, 'utf8').split('\n');
+      for (const line of owned) expect(lines).toContain(line);
+    };
+    // Writing the feedback address, then taking it out again, rewrites the file twice.
+    world.writeConfig({ cloudflare: FEEDBACK });
+    expect(await edge()).toBe(0);
+    kept();
+    world.writeConfig();
+    expect(await edge()).toBe(0);
+    kept();
+    expect(readFileSync(world.envFile, 'utf8')).toContain('TUNNEL_TOKEN=');
+    expect(world.output).not.toContain('ses-secret-example-value');
   });
 
   it('only reads under --dry-run and writes no file', async () => {

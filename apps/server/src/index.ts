@@ -15,6 +15,12 @@ import { createServerLogStream, serverLogFile } from './logging';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './runtime/usage';
 import { createAppTagReader, resolveAppVersion, EngineConfigError } from './engine-link';
+import {
+  createSesEmailCodeMailer,
+  EmailLoginNotConfiguredError,
+  parseEmailLoginEnv,
+  scrubEmailLoginEnv,
+} from './services/email-login';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:
@@ -56,6 +62,10 @@ import { createAppTagReader, resolveAppVersion, EngineConfigError } from './engi
  *   Its settings are `<home>/engine.json` (`npm run engine -- init`).
  *   PROJECTMAN_ENGINE_PORT (4801): the engine's loopback port (engine mode only).
  *   PROJECTMAN_VERSION (unset): shared cloud/engine version; otherwise the installation git HEAD, then dev.
+ *   PROJECTMAN_EMAIL_LOGIN_ENABLED (0): `1` turns the mailer of the one-time e-mail login code on (PM-669,
+ *   docs/AWS.md); then PROJECTMAN_SES_REGION, PROJECTMAN_SES_FROM, PROJECTMAN_SES_ACCESS_KEY_ID and
+ *   PROJECTMAN_SES_SECRET_ACCESS_KEY are required (PROJECTMAN_SES_SESSION_TOKEN is optional), or the start stops
+ *   with `email_login_not_configured`. They are read once and removed from the process environment.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -150,12 +160,15 @@ async function configFromEnv(
   const releaseTarget = env.PROJECTMAN_RELEASE_TARGET?.trim()
     ? parseReleaseTarget(env.PROJECTMAN_RELEASE_TARGET.trim())
     : undefined;
+  // The e-mail login mailer (PM-669): off unless switched on; a wrong or incomplete setting stops the start.
+  const emailLogin = parseEmailLoginEnv(env);
   return {
     port,
     host,
     machineFixture: machineFixture !== undefined,
     app: {
       engineMode,
+      ...(emailLogin ? { emailCodeMailer: createSesEmailCodeMailer(emailLogin) } : {}),
       appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
       appTag: createAppTagReader(installDir, env.PROJECTMAN_VERSION),
       ...(releaseTarget ? { releaseTarget } : {}),
@@ -284,6 +297,8 @@ async function main(): Promise<void> {
   const mode = parseMode(process.env.PROJECTMAN_MODE);
   if (mode === 'engine') return engineMain(process.env);
   const config = await configFromEnv(process.env, mode);
+  // The mailer holds the keys now; no process the server starts later inherits them.
+  scrubEmailLoginEnv(process.env);
   const app = await buildApp({
     ...config.app,
     // Always wire the live checker here; buildApp and domain harnesses never contact NanoGPT.
@@ -324,6 +339,7 @@ async function main(): Promise<void> {
 main().catch((err: unknown) => {
   // A problem the person starting the engine can fix: the message, not a stack.
   if (err instanceof EngineConfigError) console.error(`projectman engine: ${err.message}`);
+  else if (err instanceof EmailLoginNotConfiguredError) console.error(`projectman: ${err.message}`);
   else console.error(err);
   process.exit(1);
 });

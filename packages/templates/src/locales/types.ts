@@ -98,6 +98,11 @@ export interface TemplateLocale {
     nothing: string;
   };
   labels: Record<StandardLabelId, { name: string; meaning: string }>;
+  /** The mail that carries a one-time login code (PM-669); `validUntil` is a date and time in `timezone`. */
+  emailLoginCode: {
+    subject: string;
+    text: (input: { code: string; validUntil: string }) => string;
+  };
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
   stageApproval: (stageName: string) => string;
   /** Display name of a specialist, e.g. ("Frontend", "Developer") -> "Frontend developer". */

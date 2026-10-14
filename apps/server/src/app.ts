@@ -27,6 +27,7 @@ import type {
   MessageAttachmentStorage,
   BoundaryOperationAdapter,
   ContextPackBuilder,
+  EmailCodeMailer,
   FullTestExecutor,
   ScreenshotExecutor,
   GithubService,
@@ -175,6 +176,11 @@ export interface BuildAppOptions {
    * its releases are proposed, approved and deployed. Absent: releases are off.
    */
   releaseTarget?: { projectKey: string; repo: string };
+  /**
+   * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off. Nothing reads it
+   * yet: the login itself (PM-670) is the first consumer.
+   */
+  emailCodeMailer?: EmailCodeMailer;
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
   /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */

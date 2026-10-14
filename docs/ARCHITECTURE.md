@@ -1264,6 +1264,23 @@ workers follow the machine's size.
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
 
+- **The e-mail login code mailer on AWS SES (PM-669)** —
+  `apps/server/src/services/email-login/{ses-mailer,config}.ts` (facade `index.ts`),
+  `apps/server/src/contracts/email-login.ts`, the six `PROJECTMAN_EMAIL_LOGIN_ENABLED` / `PROJECTMAN_SES_*`
+  variables (read in `apps/server/src/index.ts` only, then removed from `process.env`),
+  `deploy/cloud/entrypoint.sh`, `docs/AWS.md` ("The e-mail login code mailer"). **What it does:**
+  `createSesEmailCodeMailer` sends one Hungarian message (the text is `emailLoginCode` in
+  `packages/templates/src/locales`) through the SES v2 `SendEmail` operation with explicit keys and an
+  endpoint pinned to the region; no `AWS_*` variable, profile or credential chain is read. It keeps no
+  state and logs no address or code; a provider failure is a sanitized `EmailCodeDeliveryError`. The
+  login itself (PM-670) is the first consumer; until then `BuildAppOptions.emailCodeMailer` is unused.
+  **Machine assumptions:** the keys are lines of the owner's `cloud.env` (the secrets store of the entry
+  "Cloud provisioning"), which `deploy` sends to the machine; inside the container the entrypoint gives
+  `PROJECTMAN_*` to the server process only, the restore rehearsal switches the mailer off, and the runner's
+  child environment drops every `PROJECTMAN_` name. **Does this work on a remote engine?** Yes: sending and
+  the keys live only in the cloud board; the engine, its link and its protocol do not change, and a
+  disconnected engine does not stop the mail.
+
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
   `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/index.ts` only), the table family

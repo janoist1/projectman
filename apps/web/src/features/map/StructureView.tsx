@@ -306,7 +306,9 @@ export function StructureView() {
         </>
       ) : null}
       {card.truncated ? <p>{t('map.structure.cardTruncated')}</p> : null}
-      <ButtonLink to={drawerBase.card(card.taskKey)}>{t('map.structure.open')}</ButtonLink>
+      <ButtonLink to={drawerBase.card(card.taskKey)} variant="primary">
+        {t('map.structure.open')}
+      </ButtonLink>
     </>
   ) : module ? (
     <>

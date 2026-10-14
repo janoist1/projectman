@@ -107,7 +107,12 @@ export default async ({ instance, open, shoot, step, log }) => {
     if (!(await plot.evaluate((el) => document.activeElement === el)))
       throw new Error('Escape did not restore the initiating plot focus');
     log('Keyboard Enter and Escape restore plot focus.');
+  });
+  await step('Card list keyboard focus', async () => {
+    // Start from the settled list, independently of the preceding Escape navigation.
+    await show();
     const listRow = page.getByRole('complementary').locator(`[data-card-row="${taskKeys[0]}"]`);
+    await listRow.waitFor();
     await listRow.focus();
     await page.keyboard.press('Enter');
     await page.waitForFunction(

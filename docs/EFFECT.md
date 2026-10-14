@@ -62,7 +62,11 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-617 machine and outages**
 
-  Planned.
+  Files: `apps/server/src/runtime/watchers/machine-rounds.ts` (facade: `MachineRounds` and
+  `sleepFor`, same file, used by `MachineMonitor`) and
+  `apps/server/src/runtime/watchers/provider-status-wait.ts` (facade: `waitForStatus`, same file,
+  used by `WorkOutages`). `MachineMonitor` and `WorkOutages` are exported by
+  `runtime/watchers/index.ts`.
 
 - **PM-618 pause**
 

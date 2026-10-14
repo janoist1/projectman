@@ -1253,6 +1253,8 @@ workers follow the machine's size.
   (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
   and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
   rounds. The CLI and its login must live on the machine that runs the sessions.
+  The bounded status wait runs on the server in `runtime/watchers/provider-status-wait.ts`
+  (Effect, PM-617).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
   connectivity comes from the server's engine registry. No new engine code is needed.
   A remote engine that has not connected since server startup gets the same 120-second
@@ -1771,6 +1773,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Module:** `engine-host`
 - **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
   `runtime/watchers` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
+  Demand-driven rounds and bounded request waits run on the server in
+  `runtime/watchers/machine-rounds.ts` (Effect, PM-617); measurement and signalling stay
+  behind the existing machine probe boundary.
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
   ownership checks and signals use its UID and PID namespace, with process start times
   checked against PID reuse. **Remote engine (engine mode, PM-314: runs in the engine process):** use `machine.snapshot/processes/env_values/signal` (PM-313), measure and stop on the owning engine,

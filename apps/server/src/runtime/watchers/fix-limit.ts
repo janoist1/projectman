@@ -28,19 +28,19 @@ import type {
   TaskFixLimit,
   TimelineEventData,
 } from '@projectman/shared';
-import type { TaskFixLimitRecord } from '../db';
-import { ownerHandles } from './access';
-import type { Admission, TaskStarts } from '../runtime/admission';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import { conflict, forbidden } from './errors';
-import type { InboxService } from './inbox';
-import type { MessageDelivery, Messaging } from './messaging';
-import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from '../runtime/sessions';
-import type { TaskService } from './tasks';
-import type { TimelineService } from './timeline';
-import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from './util';
+import type { TaskFixLimitRecord } from '../../db';
+import { ownerHandles } from '../../domain/access';
+import type { Admission, TaskStarts } from '../admission';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import { conflict, forbidden } from '../../domain/errors';
+import type { InboxService } from '../../domain/inbox';
+import type { MessageDelivery, Messaging } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import type { SessionOrchestrator } from '../sessions';
+import type { TaskService } from '../../domain/tasks';
+import type { TimelineService } from '../../domain/timeline';
+import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from '../../domain/util';
 
 type FixLimitEvent = TimelineEventData['task_fix_limit'];
 type Phase = NonNullable<TaskFixLimitRecord['holdPhase']>;

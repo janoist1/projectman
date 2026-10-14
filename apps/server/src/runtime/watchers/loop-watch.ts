@@ -23,18 +23,18 @@ import type {
   TimelineEvent,
   TimelineEventData,
 } from '@projectman/shared';
-import type { TaskLoopRecord } from '../db';
-import { ownerHandles } from './access';
-import type { Admission, AutomaticStart, StartSpec } from '../runtime/admission';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import type { InboxService } from './inbox';
-import type { MessageDelivery } from './messaging';
-import type { ConfigChange, ProjectService } from './projects';
-import type { SessionOrchestrator } from '../runtime/sessions';
-import type { TaskService } from './tasks';
-import type { TimelineService } from './timeline';
-import { KeyedMutex, SYSTEM_ACTOR, humanActor, newId } from './util';
+import type { TaskLoopRecord } from '../../db';
+import { ownerHandles } from '../../domain/access';
+import type { Admission, AutomaticStart, StartSpec } from '../admission';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import type { InboxService } from '../../domain/inbox';
+import type { MessageDelivery } from '../../domain/messaging';
+import type { ConfigChange, ProjectService } from '../../domain/projects';
+import type { SessionOrchestrator } from '../sessions';
+import type { TaskService } from '../../domain/tasks';
+import type { TimelineService } from '../../domain/timeline';
+import { KeyedMutex, SYSTEM_ACTOR, humanActor, newId } from '../../domain/util';
 
 /** The most entries of a card read at once: far more than a threshold (50 at most) needs. */
 const TALK_LIMIT = 1000;

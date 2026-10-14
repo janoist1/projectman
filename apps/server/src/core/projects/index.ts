@@ -1,7 +1,7 @@
-export { ProjectService, createProjectService, OWNER_HANDLE, configInvalid } from '../../domain/projects';
-export type { Author, LoadedProject, ConfigChange } from '../../domain/projects';
-export { RoleService, roleUsage, roleViews } from '../../domain/roles';
-export { stopStageReviewers, workStageBefore } from '../../domain/stage-reviewers';
+export { ProjectService, createProjectService, OWNER_HANDLE, configInvalid } from './projects';
+export type { Author, LoadedProject, ConfigChange } from './projects';
+export { RoleService, roleUsage, roleViews } from './roles';
+export { stopStageReviewers, workStageBefore } from './stage-reviewers';
 export {
   canSeeTask,
   canSeeInboxItem,
@@ -16,6 +16,6 @@ export {
   visibleTaskDetail,
   visibleProjectEvent,
   canSeeProjectEvent,
-} from '../../domain/visibility';
-export type { Viewer, ProjectEvent } from '../../domain/visibility';
+} from './visibility';
+export type { Viewer, ProjectEvent } from './visibility';
 export type { StageReviewerSessions } from './ports';

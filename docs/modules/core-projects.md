@@ -6,7 +6,10 @@ Project configuration, templates, role management, stage reviewers and visibilit
 
 ## Facade
 
-`ProjectService`, `RoleService` and the visibility/stage-reviewer helpers currently live in `domain/` files. The planned entry point is `core/projects/index.ts`; current exports and behavior remain unchanged here.
+`core/projects/index.ts` is the sealed entry point. It exports `ProjectService`,
+`createProjectService`, `OWNER_HANDLE`, `configInvalid`, `RoleService`, `roleUsage`,
+`roleViews`, the stage-reviewer and visibility helpers, and their public types.
+Implementations live beside the facade; public names, signatures and behavior are unchanged.
 
 ## Ports
 
@@ -14,16 +17,17 @@ Project configuration, templates, role management, stage reviewers and visibilit
 
 `core/projects/ports.ts` defines the consumer-owned `StageReviewerSessions` interface (`list`, `isRunning`, `stop`) used by `stopStageReviewers`. Assembly passes the existing session orchestrator. Live session states come directly from shared contracts; this module has no runtime imports (PM-632).
 
-## Current and planned files
+## Files
 
-Current paths under `apps/server/src`: `core/projects/ports.ts`, `domain/projects.ts`, `domain/roles.ts`, `domain/stage-reviewers.ts`, `domain/visibility.ts`.
-The planned folder is `apps/server/src/core/projects/`.
+Paths under `apps/server/src/core/projects/`: `index.ts`, `ports.ts`, `projects.ts`,
+`roles.ts`, `stage-reviewers.ts` and `visibility.ts`. There are no forwarding files
+at the former implementation paths in `domain/`.
 The authoritative descriptor is
 [`core-projects.ts`](../../apps/server/test/architecture/modules/core-projects.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
-Its paths, pass, layer and sealed state are preserved by PM-631; later module slices
-update their own descriptor and this document, removing their dependency exceptions
-from the central map without changing the architecture table.
+Its only path is `core/projects/`, and it is sealed. Its id, layer, target and pass
+remain unchanged (PM-638). Existing tests live under `apps/server/test/` and consume
+the facade.
 
 ## Remote engine
 
@@ -31,5 +35,5 @@ Configuration and access rules stay on the server. Directory validation executes
 
 Reviewer stopping uses the existing runtime to stop sessions on the appropriate engine; the session machine inventory boundary is unchanged (PM-632).
 
-PM-631 only prepares file ownership for parallel refactor slices. It changes no
-shared contract, database schema, configuration or timeline event.
+PM-638 moves the four implementations behind the facade. It changes no shared
+contract, database schema, configuration or timeline event.

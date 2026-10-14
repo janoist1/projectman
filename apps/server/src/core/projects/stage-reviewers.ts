@@ -1,6 +1,6 @@
 import { LIVE_SESSION_STATES, stageIndex, stageOwners } from '@projectman/shared';
 import type { ProjectConfig, Stage, Task } from '@projectman/shared';
-import type { StageReviewerSessions } from '../core/projects/ports';
+import type { StageReviewerSessions } from './ports';
 
 /** The work stage before `stageId` that a task sent back from it goes to; none when there is no such stage. */
 export function workStageBefore(config: ProjectConfig, stageId: string): Stage | undefined {

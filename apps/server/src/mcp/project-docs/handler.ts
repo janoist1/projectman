@@ -2,9 +2,9 @@ import { ERROR_CODES, isOperator, memberOf } from '@projectman/shared';
 import type { ProjectDoc } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { ProjectDocToolsHandler, ProjectDocRead, ProjectDocWrite, ToolContext } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import type { OperatorSteps } from '../../services/operator';
 import { docLines, type DocWrites, type DecisionCandidates } from '../../services/project-docs';
 import {

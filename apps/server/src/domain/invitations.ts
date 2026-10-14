@@ -11,13 +11,14 @@ import type {
 } from '@projectman/shared';
 import type { InvitationAccounts, InvitationUser } from '../core/members/ports';
 import type { InvitationRecord } from '../db/invitations';
-import { findHumanByEmail, hasAccess, requireMemberAccess } from './access';
-import type { DomainContext } from './context';
+import { findHumanByEmail, requireMemberAccess } from './access';
+import { hasAccess } from '@projectman/shared';
+import type { DomainContext } from '../core/base';
 import { conflict, DomainError, forbidden, invalid, notFound } from '../kernel';
 import { assertRoleFor } from './members';
 import type { MemberService } from './members';
-import type { ProjectService } from './projects';
-import { roleViews } from './roles';
+import type { ProjectService } from '../core/projects';
+import { roleViews } from '../core/projects';
 import { KeyedMutex, newId } from '../kernel';
 import { humanMemberHandle } from './naming';
 

@@ -1,11 +1,11 @@
 import { dutyMembers, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { MemberConfig, Session } from '@projectman/shared';
 import type { FeedbackMarkRecord } from '../../db';
-import type { DomainContext } from '../../domain/context';
-import { isoNow } from '../../domain/context';
-import type { DomainEventMap } from '../../domain/events';
-import type { Messaging } from '../../domain/messaging';
-import type { ProjectService } from '../../domain/projects';
+import type { DomainContext } from '../../core/base';
+import { isoNow } from '../../core/base';
+import type { DomainEventMap } from '../../core/base';
+import type { Messaging } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
 import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
 
 /**

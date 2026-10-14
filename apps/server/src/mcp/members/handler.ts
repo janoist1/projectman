@@ -1,7 +1,7 @@
 import type { MemberView } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { MemberMemoryStore, ToolContext } from '../../contracts';
-import type { MemberService } from '../../domain/members';
+import type { MemberService } from '../../core/members';
 
 import type { ToolCaller } from '../caller';
 import type { MemberToolsHandler } from '../../contracts';

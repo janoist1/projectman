@@ -5,6 +5,6 @@ export const coreTimeline: ModuleEntry = {
   layer: 'core',
   target: 'core/timeline',
   pass: 'move',
-  paths: ['domain/timeline.ts'],
-  sealed: false,
+  paths: ['core/timeline/', 'domain/timeline.ts'],
+  sealed: true,
 };

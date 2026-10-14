@@ -1,5 +1,5 @@
 import { Effect, Exit, FiberMap, Scope } from 'effect';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { runFork } from '../../kernel';
 
 /**

@@ -1,9 +1,9 @@
 import { ALERT_SEEN_OPTION, alertPayloadOf } from '@projectman/shared';
 import type { InboxItem, SessionInputAlert } from '@projectman/shared';
-import { ownerHandles } from '../../domain/access';
-import type { DomainContext } from '../../domain/context';
-import type { InboxService } from '../../domain/inbox';
-import type { ProjectService } from '../../domain/projects';
+import { ownerHandles } from '@projectman/shared';
+import type { DomainContext } from '../../core/base';
+import type { InboxService } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
 
 /**
  * A session that waits for input at its terminal for long (PM-199): messages for it are held back

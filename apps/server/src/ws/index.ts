@@ -4,8 +4,9 @@ import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../kernel';
 import type { AuthService, AuthUser } from '../auth/auth-service';
 import type { Domain } from '../domain';
-import { DomainError, forbidden, hasAccess, notFound } from '../domain';
-import { canSeeProjectEvent, visibleProjectEvent } from '../domain/visibility';
+import { DomainError, forbidden, notFound } from '../domain';
+import { hasAccess } from '@projectman/shared';
+import { canSeeProjectEvent, visibleProjectEvent } from '../core/projects';
 
 /** The part of the `ws` WebSocket API this module uses. */
 interface WsSocket {

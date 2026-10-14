@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
-import { AgentQuestions, agentQuestionsOf } from '../src/domain/agent-question';
+import { AgentQuestions, agentQuestionsOf } from '../src/core/inbox';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

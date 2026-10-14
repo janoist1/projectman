@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { InboxKind, InboxState, ResolveInboxRequest, routes } from '@projectman/shared';
 import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
 import type { Domain } from '../domain';
-import { canSeeInboxItem } from '../domain/visibility';
+import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from './validation';
 

@@ -22,16 +22,16 @@ import type {
 } from '@projectman/shared';
 import type { EngineDirectory, ProviderStatus, SessionRunner } from '../../contracts';
 import { ENGINE_OFFLINE_AFTER_MS } from '../../contracts';
-import type { ProjectAccess } from '../../domain/access';
+import type { ProjectAccess } from '../../core/members';
 import type { DeferredStarts } from '../admission';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { conflict, forbidden } from '../../kernel';
-import type { InboxService } from '../../domain/inbox';
-import type { MemberService } from '../../domain/members';
-import type { Messaging } from '../../domain/messaging';
-import type { ProjectService } from '../../domain/projects';
-import type { TaskService } from '../../domain/tasks';
+import type { InboxService } from '../../core/inbox';
+import type { MemberService } from '../../core/members';
+import type { Messaging } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
 import { waitForStatus } from './provider-status-wait';
 
 type Target =

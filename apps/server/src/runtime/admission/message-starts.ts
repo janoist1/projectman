@@ -9,15 +9,15 @@ import {
 import type { Actor, Session, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
 import type { WakeStart } from '../../contracts';
 import { encodeWorkItem } from '../../db';
-import { requireAiMember } from '../../domain/access';
-import { isoNow } from '../../domain/context';
+import { requireAiMember } from '../../core/members';
+import { isoNow } from '../../core/base';
 import { DomainError } from '../../kernel';
-import type { MessageService } from '../../domain/messaging';
+import type { MessageService } from '../../core/messages';
 import type { MessageDelivery } from '../delivery';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import { LIVE_SESSION_STATES } from '../sessions';
 import type { SessionStartCause } from '../sessions';
-import type { TaskService } from '../../domain/tasks';
+import type { TaskService } from '../../core/tasks';
 import { unique } from '../../kernel';
 import type { Admission, AttemptOutcome } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
@@ -29,7 +29,7 @@ import type { AutomaticStart, StartSpec } from './deferred-starts';
  * their open card across stage changes; ordinary messages expire when the stage changes.
  */
 export class MessageStarts {
-  private readonly ctx: import('../../domain/context').DomainContext;
+  private readonly ctx: import('../../core/base').DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly admission: Admission;
@@ -39,7 +39,7 @@ export class MessageStarts {
   private readonly failures = new Map<string, { code: string; at: string }>();
 
   constructor(deps: {
-    ctx: import('../../domain/context').DomainContext;
+    ctx: import('../../core/base').DomainContext;
     projects: ProjectService;
     tasks: TaskService;
     admission: Admission;

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ProjectConfig, RevertConfigRequest, routes, PatchConfigRequest } from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
 import type { Domain } from '../domain';
-import { configInvalid } from '../domain/projects';
+import { configInvalid } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 

@@ -7,10 +7,10 @@ import type {
   FeedbackWidgetListResponse,
   ProjectConfig,
 } from '@projectman/shared';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
-import type { ConfigChange, ProjectService } from '../../domain/projects';
+import type { ConfigChange, ProjectService } from '../../core/projects';
 import { humanActor, newId } from '../../kernel';
 import type { FeedbackService } from './service';
 

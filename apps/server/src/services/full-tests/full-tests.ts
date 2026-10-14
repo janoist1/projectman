@@ -18,18 +18,18 @@ import type {
 } from '@projectman/shared';
 import type { EngineDirectory, EngineHost, FullTestResult } from '../../contracts';
 import type { FullTestRunRecord, ReviewPinRecord } from '../../db';
-import type { DomainContext } from '../../domain/context';
-import { isoNow } from '../../domain/context';
-import type { Messaging } from '../../domain/messaging';
-import type { ProjectService } from '../../domain/projects';
+import type { DomainContext } from '../../core/base';
+import { isoNow } from '../../core/base';
+import type { Messaging } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
 import { Effect, Exit, Scope } from 'effect';
 import { runFork, runPromise } from '../../kernel';
 import type { FullTestSessions, FullTestRunSandbox } from './ports';
 import { makeFullTestQueue } from './queue';
 import type { FullTestQueueEffects } from './queue';
-import { stopStageReviewers, workStageBefore } from '../../domain/stage-reviewers';
-import type { TaskService } from '../../domain/tasks';
-import type { TimelineService } from '../../domain/timeline';
+import { stopStageReviewers, workStageBefore } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** How much of a failed run's output the developer's message carries. */

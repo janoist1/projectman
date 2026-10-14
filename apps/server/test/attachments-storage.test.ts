@@ -21,7 +21,7 @@ import {
   createAttachmentStorage,
   sanitizeFileName,
   sniffMediaType,
-} from '../src/domain/attachments';
+} from '../src/core/attachments';
 import { pngBytes } from './helpers/attachments';
 
 describe('sanitizeFileName', () => {

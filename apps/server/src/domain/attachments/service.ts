@@ -19,12 +19,12 @@ import type {
   LocatedAttachment,
 } from '../../contracts';
 import type { AttachmentRecord } from '../../db';
-import { isoNow } from '../context';
-import type { DomainContext } from '../context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { DomainError, forbidden, notFound } from '../../kernel';
-import type { ProjectService } from '../projects';
-import type { TaskService } from '../tasks';
-import type { TimelineService } from '../timeline';
+import type { ProjectService } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../kernel';
 import { sanitizeFileName } from './file-name';
 import { sniffMediaType } from './media-type';

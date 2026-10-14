@@ -19,11 +19,11 @@ import type {
   StagePull,
   Task,
 } from '@projectman/shared';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
-import type { ProjectFocusService } from '../../domain/project-focus';
-import type { ProjectService } from '../../domain/projects';
-import type { TaskService } from '../../domain/tasks';
+import type { ProjectFocusService } from '../../core/tasks';
+import type { ProjectService } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
 import type { Admission, FocusPulling } from './admission';
 import { isDeferrable } from './rules';
 import type { SeniorWaits } from './senior-waits';

@@ -1,8 +1,8 @@
 import { operatorOf, projectDocsOf, SYSTEM_SENDER } from '@projectman/shared';
-import type { DomainContext } from '../../domain/context';
-import type { DomainEventMap } from '../../domain/events';
-import type { Messaging } from '../../domain/messaging';
-import type { ProjectService } from '../../domain/projects';
+import type { DomainContext } from '../../core/base';
+import type { DomainEventMap } from '../../core/base';
+import type { Messaging } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
 import { SYSTEM_ACTOR } from '../../kernel';
 
 /**

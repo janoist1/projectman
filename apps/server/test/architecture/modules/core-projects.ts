@@ -6,11 +6,11 @@ export const coreProjects: ModuleEntry = {
   target: 'core/projects',
   pass: 'split',
   paths: [
-    'core/projects/ports.ts',
+    'core/projects/',
     'domain/projects.ts',
     'domain/roles.ts',
     'domain/stage-reviewers.ts',
     'domain/visibility.ts',
   ],
-  sealed: false,
+  sealed: true,
 };

@@ -1,6 +1,6 @@
 import { expiredLabels, labelDefinition, planLabelChange } from '@projectman/shared';
 import type { Actor, LabelChangeReason, LabelClearTrigger, ProjectConfig, Task } from '@projectman/shared';
-import { isoNow } from '../context';
+import { isoNow } from '../../core/base';
 import { forbidden, invalid } from '../../kernel';
 import { SYSTEM_ACTOR } from '../../kernel';
 import { runEffects } from './store';

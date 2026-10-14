@@ -1,10 +1,10 @@
 import { isOpenTask, isTheme, reviewReturnedWork, stageOf } from '@projectman/shared';
-import type { Messaging } from '../../domain/messaging';
-import type { DomainContext } from '../../domain/context';
-import type { ProjectService } from '../../domain/projects';
+import type { Messaging } from '../../core/messages';
+import type { DomainContext } from '../../core/base';
+import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import { stopStageReviewers, workStageBefore } from '../../domain/stage-reviewers';
-import type { TaskService } from '../../domain/tasks';
+import { stopStageReviewers, workStageBefore } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
 import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
 
 /**

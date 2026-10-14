@@ -10,7 +10,7 @@ import type { ToolContext } from '../src/contracts';
 import { OPERATOR_GUEST_TOOLS } from '../src/services/operator';
 import { humanActor } from '../src/kernel';
 import { buildClaudeArgs, buildSettings } from '../src/runner/providers/claude/args';
-import { canSeeProjectEvent } from '../src/domain/visibility';
+import { canSeeProjectEvent } from '../src/core/projects';
 import { waitFor } from '../src/runner/test-helpers';
 import { pdfBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';

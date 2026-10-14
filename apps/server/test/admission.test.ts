@@ -14,7 +14,9 @@ import type {
 import { createRepositories, openDatabase } from '../src/db';
 import { Admission, conflict, DeferredStarts, DomainError } from '../src/domain';
 import { isDeferrable } from '../src/runtime/admission';
-import type { AutomaticStart, DomainContext, SessionOrchestrator, TaskService } from '../src/domain';
+import type { AutomaticStart, SessionOrchestrator } from '../src/domain';
+import type { DomainContext } from '../src/core/base';
+import type { TaskService } from '../src/core/tasks';
 import { capturingLogger, planUsage } from './helpers/fakes';
 import { makeRepoless, testConfig } from './helpers/test-template';
 

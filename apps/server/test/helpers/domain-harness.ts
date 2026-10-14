@@ -15,14 +15,9 @@ import type {
   ScreenshotExecutor,
   MemberWorkspaceManager,
 } from '../../src/contracts';
-import {
-  attachmentToolRules,
-  createAttachmentStorage,
-  createDomain,
-  createMessageAttachmentStorage,
-  createTemplateRegistry,
-  humanActor,
-} from '../../src/domain';
+import { attachmentToolRules, createDomain, humanActor } from '../../src/domain';
+import { createAttachmentStorage, createMessageAttachmentStorage } from '../../src/core/attachments';
+import { createTemplateRegistry } from '../../src/core/base';
 import type { ScheduleTimer } from '../../src/services/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';

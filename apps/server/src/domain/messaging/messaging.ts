@@ -1,3 +1,7 @@
+export function createMessaging(deps: ConstructorParameters<typeof Messaging>[0]): Messaging {
+  return new Messaging(deps);
+}
+
 import {
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
@@ -39,14 +43,14 @@ import type {
 import { roleLabel, truncate } from '../../agent-text';
 import type { EngineDirectory, SentMessageHold, SentMessageRecipient, WakeStart } from '../../contracts';
 import type { MessageDeliveryPort, MessageRefinement, MessageSessions } from '../../core/messages/ports';
-import { isoNow } from '../context';
-import type { DomainContext } from '../context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { DomainError, forbidden, invalid, conflict } from '../../kernel';
-import type { MessageAttachmentService } from '../message-attachments';
-import type { DomainEventMap } from '../events';
-import { answerText } from '../inbox';
-import type { ProjectService } from '../projects';
-import type { TaskService } from '../tasks';
+import type { MessageAttachmentService } from '../../core/attachments';
+import type { DomainEventMap } from '../../core/base';
+import { answerText } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
 import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';

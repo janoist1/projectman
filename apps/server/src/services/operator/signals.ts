@@ -40,10 +40,10 @@ import type {
   TaskWait,
 } from '@projectman/shared';
 import type { OperatorSignalRecord } from '../../db';
-import type { DomainContext } from '../../domain/context';
-import { isoNow } from '../../domain/context';
-import type { ProjectService } from '../../domain/projects';
-import type { TaskWaits } from '../../domain/tasks';
+import type { DomainContext } from '../../core/base';
+import { isoNow } from '../../core/base';
+import type { ProjectService } from '../../core/projects';
+import type { TaskWaits } from '../../core/tasks';
 import { conflict, invalid } from '../../kernel';
 import { newId } from '../../kernel';
 

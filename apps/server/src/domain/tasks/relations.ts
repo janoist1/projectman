@@ -19,10 +19,10 @@ import type {
   Task,
   TaskRelation,
 } from '@projectman/shared';
-import { hasAccess } from '../access';
-import { isoNow } from '../context';
+import { hasAccess } from '@projectman/shared';
+import { isoNow } from '../../core/base';
 import { forbidden, invalid } from '../../kernel';
-import type { AddedRelation } from '../events';
+import type { AddedRelation } from '../../core/base';
 import type { Effect, TaskStore } from './store';
 
 /** Why a task may not become a subtask: the message of each refusal of the shared rule. */

@@ -13,12 +13,12 @@ import {
 import type { ProjectConfig, RelationCheckAlert, Task, TaskRelationKind } from '@projectman/shared';
 import { oneLine, relationNoticeText } from '../../agent-text';
 import type { RelationNoticeRelation } from '../../agent-text';
-import type { DomainContext } from '../context';
-import type { DomainEventMap } from '../events';
-import type { InboxService } from '../inbox';
-import type { ProjectService } from '../projects';
+import type { DomainContext } from '../../core/base';
+import type { DomainEventMap } from '../../core/base';
+import type { InboxService } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
 import type { MessageSessions } from '../../core/messages/ports';
-import type { TaskService } from '../tasks';
+import type { TaskService } from '../../core/tasks';
 import { SYSTEM_ACTOR, unique } from '../../kernel';
 import type { Messaging } from './messaging';
 

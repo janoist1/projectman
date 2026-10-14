@@ -20,11 +20,11 @@ import type {
   ProjectConfig,
 } from '@projectman/shared';
 import type { BoundaryOperationAdapter, BoundaryRequester } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
-import type { InboxService } from '../../domain/inbox';
-import type { ProjectService, LoadedProject } from '../../domain/projects';
-import type { TimelineService } from '../../domain/timeline';
+import type { InboxService } from '../../core/inbox';
+import type { ProjectService, LoadedProject } from '../../core/projects';
+import type { TimelineService } from '../../core/timeline';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 
 const pending = (r: BoundaryRequest) => r.state === 'pending_lead' || r.state === 'pending_owner';

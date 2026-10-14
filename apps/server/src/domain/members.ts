@@ -1,3 +1,7 @@
+export function createMemberService(deps: ConstructorParameters<typeof MemberService>[0]): MemberService {
+  return new MemberService(deps);
+}
+
 import {
   AiMemberConfig,
   DEFAULT_OUTBOUND_NETWORK,
@@ -39,18 +43,19 @@ import type {
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
 import type { MemberCapacity, MemberProfileSessions } from '../core/members/ports';
-import { findHumanByEmail, ownerHandles, requireAiMember, requireHuman } from './access';
+import { findHumanByEmail, requireAiMember, requireHuman } from './access';
+import { ownerHandles } from '@projectman/shared';
 import type { ProjectAccess } from './access';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
+import { isoNow } from '../core/base';
+import type { DomainContext } from '../core/base';
 import { conflict, DomainError, invalid, notFound } from '../kernel';
-import type { InboxService } from './inbox';
+import type { InboxService } from '../core/inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
-import type { Author, ConfigChange, ProjectService } from './projects';
-import { isOpenTask, isTheme } from './tasks';
-import type { TaskService } from './tasks';
-import type { TimelineService } from './timeline';
+import type { Author, ConfigChange, ProjectService } from '../core/projects';
+import { isOpenTask, isTheme } from '@projectman/shared';
+import type { TaskService } from '../core/tasks';
+import type { TimelineService } from '../core/timeline';
 import { unique } from '../kernel';
 import {
   canSeeTask,
@@ -59,8 +64,8 @@ import {
   visibleSession,
   visibleTimelineEvent,
   visibleTasks as visibleTasksOf,
-} from './visibility';
-import type { Viewer } from './visibility';
+} from '../core/projects';
+import type { Viewer } from '../core/projects';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
 

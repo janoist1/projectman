@@ -8,11 +8,11 @@ import {
 } from '@projectman/shared';
 import type { ProjectConfig, Task, WorktreeKeptAlert } from '@projectman/shared';
 import type { EngineDirectory, WorktreeManager } from '../../contracts';
-import { ownerHandles } from '../../domain/access';
-import type { DomainContext } from '../../domain/context';
+import { ownerHandles } from '@projectman/shared';
+import type { DomainContext } from '../../core/base';
 import type { DiskGuard } from './disk-guard';
-import type { InboxService } from '../../domain/inbox';
-import type { ProjectService } from '../../domain/projects';
+import type { InboxService } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
 import { MergeCardLock } from '../../kernel';
 

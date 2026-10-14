@@ -8,10 +8,10 @@ import type {
   FeedbackToolResult,
   ToolContext,
 } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { engineIdOf } from '../../runtime/sessions';
 import { DomainError } from '../../kernel';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import { aiActor } from '../../kernel';
 import type { FeedbackService } from '../../services/feedback';
 import { toToolError, type ToolCaller } from '../caller';

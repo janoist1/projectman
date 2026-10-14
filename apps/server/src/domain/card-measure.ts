@@ -6,8 +6,8 @@ import {
   measureClosedCard,
 } from '@projectman/shared';
 import type { CardRounds, ClosedCardsMeasure, ProjectConfig, Task, TaskDetail } from '@projectman/shared';
-import type { DomainContext } from './context';
-import type { ProjectService } from './projects';
+import type { DomainContext } from '../core/base';
+import type { ProjectService } from '../core/projects';
 
 /** A card's fix rounds and the limit that holds it now (PM-262). */
 export interface FixRoundsMeasure {

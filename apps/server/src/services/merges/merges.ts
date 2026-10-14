@@ -12,8 +12,8 @@ import type { Actor, ProjectConfig, RepoConfig, Task } from '@projectman/shared'
 import { Effect, Exit, Scope } from 'effect';
 import { mergedState } from '../../db';
 import type { MergeRecord } from '../../db';
-import { isoNow } from '../../domain/context';
-import { ownerHandles } from '../../domain/access';
+import { isoNow } from '../../core/base';
+import { ownerHandles } from '@projectman/shared';
 import { conflict, DomainError, forbidden } from '../../kernel';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import { runFork, runPromise } from '../../kernel';

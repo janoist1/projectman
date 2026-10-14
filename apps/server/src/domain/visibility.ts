@@ -14,7 +14,7 @@ import type {
   TaskDetail,
   TimelineEvent,
 } from '@projectman/shared';
-import type { ProjectAccess } from './access';
+import type { ProjectAccess } from '../core/members';
 
 /**
  * What a member sees of their project. Client members (access "client") see only what is

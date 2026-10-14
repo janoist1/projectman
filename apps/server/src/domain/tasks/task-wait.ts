@@ -6,8 +6,8 @@ import {
   waitWorkers,
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, Task, TaskWait } from '@projectman/shared';
-import type { DomainContext } from '../context';
-import type { MemberService } from '../members';
+import type { DomainContext } from '../../core/base';
+import type { MemberService } from '../../core/members';
 
 /**
  * Why cards stand still (PM-460), from the shared rule `taskWait`: this is the server's side of it, the

@@ -6,15 +6,20 @@ import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_ATTACHMENT_BYTES, MAX_UNSENT_MESSAGE_ATTACHMENTS } from '@projectman/shared';
 import type { Actor, ServerEvent } from '@projectman/shared';
-import { MESSAGE_IMAGE_MAX_BYTES, TeamToolError } from '../src/contracts';
-import type { ToolContext } from '../src/contracts';
-import { aiActor } from '../src/domain';
-import { MessageImageRenderer } from '../src/domain/message-attachments/image';
-import { pdfBytes, pngBytes } from './helpers/attachments';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
-import type { DomainHarness } from './helpers/domain-harness';
-import { rejection } from './helpers/errors';
-import { flush } from './helpers/fakes';
+import { MESSAGE_IMAGE_MAX_BYTES, TeamToolError } from '../../../contracts';
+import type { ToolContext } from '../../../contracts';
+import { aiActor } from '../../../domain';
+import { MessageImageRenderer } from '../../../domain/message-attachments/image';
+import { pdfBytes, pngBytes } from '../../../../test/helpers/attachments';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  restartDomainHarness,
+} from '../../../../test/helpers/domain-harness';
+import type { DomainHarness } from '../../../../test/helpers/domain-harness';
+import { rejection } from '../../../../test/helpers/errors';
+import { flush } from '../../../../test/helpers/fakes';
 
 const dev1 = aiActor('dev-1');
 const aiViewer = (handle: string) => ({ access: 'ai' as const, handle });

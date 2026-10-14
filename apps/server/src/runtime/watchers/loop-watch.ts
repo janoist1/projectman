@@ -24,16 +24,16 @@ import type {
   TimelineEventData,
 } from '@projectman/shared';
 import type { TaskLoopRecord } from '../../db';
-import { ownerHandles } from '../../domain/access';
+import { ownerHandles } from '@projectman/shared';
 import type { Admission, AutomaticStart, StartSpec } from '../admission';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
-import type { InboxService } from '../../domain/inbox';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
+import type { InboxService } from '../../core/inbox';
 import type { MessageDelivery } from '../delivery';
-import type { ConfigChange, ProjectService } from '../../domain/projects';
+import type { ConfigChange, ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import type { TaskService } from '../../domain/tasks';
-import type { TimelineService } from '../../domain/timeline';
+import type { TaskService } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR, humanActor, newId } from '../../kernel';
 
 /** The most entries of a card read at once: far more than a threshold (50 at most) needs. */

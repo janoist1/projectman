@@ -1,6 +1,6 @@
 import type { EngineId, Session, SessionStop } from '@projectman/shared';
 import type { EngineDirectory, SessionRunner } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { engineIdOf } from './engines';
 import { errorCode } from './launch';
 import type { SessionTimers } from './session-timers';

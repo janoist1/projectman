@@ -16,8 +16,8 @@ import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '
 import { notFound } from '../domain';
 import type { Domain } from '../domain';
 import { forbidden } from '../kernel';
-import { canSeeTask, teamMessageParticipant, visibleSession } from '../domain/visibility';
-import type { Viewer } from '../domain/visibility';
+import { canSeeTask, teamMessageParticipant, visibleSession } from '../core/projects';
+import type { Viewer } from '../core/projects';
 import { actorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 

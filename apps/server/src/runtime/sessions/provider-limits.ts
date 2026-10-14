@@ -1,11 +1,11 @@
 import { ALERT_SEEN_OPTION } from '@projectman/shared';
 import type { AgentProvider, PlanUsage, Session } from '@projectman/shared';
 import type { RunnerEvent, SessionRunner } from '../../contracts';
-import { ownerHandles } from '../../domain/access';
+import { ownerHandles } from '@projectman/shared';
 import { conflict } from '../../kernel';
-import type { DomainContext } from '../../domain/context';
-import type { InboxService } from '../../domain/inbox';
-import type { ProjectService } from '../../domain/projects';
+import type { DomainContext } from '../../core/base';
+import type { InboxService } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
 import { ProviderQuotaHolds } from '../usage';
 import type { PlanUsageCache, UsageAlerts } from '../usage';
 import { engineIdOf, engineOption } from './engines';

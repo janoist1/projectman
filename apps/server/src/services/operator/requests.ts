@@ -8,8 +8,8 @@ import type {
   OperatorStepStatus,
 } from '@projectman/shared';
 import type { OperatorRequestRecord, OperatorStepRecord } from '../../db';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { newId } from '../../kernel';
 
 /** An owner's request to the Operator stays open this long at most; the end of its turn closes it sooner. */

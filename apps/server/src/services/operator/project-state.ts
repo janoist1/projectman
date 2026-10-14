@@ -15,13 +15,13 @@ import {
 } from '@projectman/shared';
 import type { Session } from '@projectman/shared';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
-import type { DomainContext } from '../../domain/context';
-import type { ProjectService } from '../../domain/projects';
-import type { TaskService, TaskWaits } from '../../domain/tasks';
+import type { DomainContext } from '../../core/base';
+import type { ProjectService } from '../../core/projects';
+import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { OperatorSignals } from './signals';
 import { LIVE_SESSION_STATES } from '@projectman/shared';
 import { invalid, notFound } from '../../kernel';
-import { staleReasonFor, wakeFactsFor } from '../../domain/messaging';
+import { staleReasonFor, wakeFactsFor } from '../../core/messages';
 
 /** Read-only reports over the server's existing work records. */
 export class ProjectState {

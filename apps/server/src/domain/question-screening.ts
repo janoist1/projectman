@@ -7,11 +7,11 @@ import {
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import type { ScreeningAdmission, ScreeningAttempt, ScreeningSessions } from '../core/inbox/ports';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
+import { isoNow } from '../core/base';
+import type { DomainContext } from '../core/base';
 import type { InboxService } from './inbox';
-import type { MessageDeliveryPort } from './messaging';
-import type { ProjectService } from './projects';
+import type { MessageDeliveryPort } from '../core/messages';
+import type { ProjectService } from '../core/projects';
 
 /** The first lines of the notice the Operator gets for the questions it screens. */
 const SCREENING_NOTICE =

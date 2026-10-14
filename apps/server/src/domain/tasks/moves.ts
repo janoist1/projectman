@@ -35,11 +35,11 @@ import type {
 } from '@projectman/shared';
 import type { SourceHead } from '../../contracts';
 import type { TaskPatch } from '../../db';
-import { isoNow } from '../context';
-import { requireHuman } from '../access';
+import { isoNow } from '../../core/base';
+import { requireHuman } from '../../core/members';
 import { conflict, DomainError, projectManagerMoveRefused, themeRefused } from '../../kernel';
-import { DECISION_OPTIONS } from '../inbox';
-import type { InboxService } from '../inbox';
+import { DECISION_OPTIONS } from '../../core/inbox';
+import type { InboxService } from '../../core/inbox';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
 import type { BoardOrder } from './board-order';
 import type { TaskLabels } from './labels';

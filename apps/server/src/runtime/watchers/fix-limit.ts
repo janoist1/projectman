@@ -29,18 +29,18 @@ import type {
   TimelineEventData,
 } from '@projectman/shared';
 import type { TaskFixLimitRecord } from '../../db';
-import { ownerHandles } from '../../domain/access';
+import { ownerHandles } from '@projectman/shared';
 import type { Admission, TaskStarts } from '../admission';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { conflict, forbidden } from '../../kernel';
-import type { InboxService } from '../../domain/inbox';
-import type { Messaging } from '../../domain/messaging';
+import type { InboxService } from '../../core/inbox';
+import type { Messaging } from '../../core/messages';
 import type { MessageDelivery } from '../delivery';
-import type { ProjectService } from '../../domain/projects';
+import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import type { TaskService } from '../../domain/tasks';
-import type { TimelineService } from '../../domain/timeline';
+import type { TaskService } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from '../../kernel';
 
 type FixLimitEvent = TimelineEventData['task_fix_limit'];

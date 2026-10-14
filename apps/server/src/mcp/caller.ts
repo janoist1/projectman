@@ -14,8 +14,8 @@ import type { ErrorCode, OperatorAction, ProjectConfig, Session } from '@project
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type { EngineHost, WorkspaceFile, ToolContext } from '../contracts';
 import { isWithin } from '../runtime/permissions';
-import type { DomainContext } from '../domain/context';
-import { isoNow } from '../domain/context';
+import type { DomainContext } from '../core/base';
+import { isoNow } from '../core/base';
 import { DomainError } from '../kernel';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import {
@@ -26,11 +26,11 @@ import {
   OPERATOR_TOOL_ACTIONS,
 } from '../services/operator';
 import type { OperatorRequests, OperatorSteps } from '../services/operator';
-import { canSeeTask } from '../domain/visibility';
-import type { Viewer } from '../domain/visibility';
+import { canSeeTask } from '../core/projects';
+import type { Viewer } from '../core/projects';
 import type { OperatorSignals } from '../services/operator';
-import type { ProjectService } from '../domain/projects';
-import type { TaskService } from '../domain/tasks';
+import type { ProjectService } from '../core/projects';
+import type { TaskService } from '../core/tasks';
 
 /** Explains a blocked stage move to the agent in plain English. */
 function describeGateBlock(err: DomainError): string {

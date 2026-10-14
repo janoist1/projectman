@@ -1,3 +1,7 @@
+export function createTaskService(deps: ConstructorParameters<typeof TaskService>[0]): TaskService {
+  return new TaskService(deps);
+}
+
 import type {
   Actor,
   BoardMoveRequest,
@@ -45,15 +49,15 @@ import type {
 } from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
 import type { TaskPatch } from '../../db';
-import { requireHuman } from '../access';
-import { isoNow } from '../context';
-import type { DomainContext } from '../context';
+import { requireHuman } from '../../core/members';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { conflict, forbidden, invalid, projectManagerMoveRefused, themeRefused } from '../../kernel';
-import type { AddedRelation } from '../events';
-import type { InboxService } from '../inbox';
-import type { ProjectService } from '../projects';
+import type { AddedRelation } from '../../core/base';
+import type { InboxService } from '../../core/inbox';
+import type { ProjectService } from '../../core/projects';
 import { PullRequestRecords } from './pull-request-records';
-import type { TimelineService } from '../timeline';
+import type { TimelineService } from '../../core/timeline';
 import { actorHandle, newId, unique } from '../../kernel';
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';

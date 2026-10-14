@@ -1,3 +1,7 @@
+export function createInboxService(deps: ConstructorParameters<typeof InboxService>[0]): InboxService {
+  return new InboxService(deps);
+}
+
 import { isAbsolute, resolve, sep } from 'node:path';
 import {
   approvalRefusal,
@@ -47,13 +51,13 @@ import type {
   PermissionRefusedInfo,
   PermissionRequestInfo,
 } from '../contracts';
-import { ownerHandles } from './access';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
+import { ownerHandles } from '@projectman/shared';
+import { isoNow } from '../core/base';
+import type { DomainContext } from '../core/base';
 import type { InboxPermissionPolicy } from '../core/inbox/ports';
 import { conflict, forbidden, invalid, notFound } from '../kernel';
-import type { ProjectService } from './projects';
-import type { TimelineService } from './timeline';
+import type { ProjectService } from '../core/projects';
+import type { TimelineService } from '../core/timeline';
 import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from '../kernel';
 
 /** How many screened questions the screened-questions list returns (PM-558). */

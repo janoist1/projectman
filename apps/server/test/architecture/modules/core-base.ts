@@ -5,6 +5,6 @@ export const coreBase: ModuleEntry = {
   layer: 'core',
   target: 'core/base',
   pass: 'split',
-  paths: ['domain/context.ts', 'domain/events.ts', 'domain/event-bus.ts'],
-  sealed: false,
+  paths: ['core/base/', 'domain/context.ts', 'domain/events.ts', 'domain/event-bus.ts'],
+  sealed: true,
 };

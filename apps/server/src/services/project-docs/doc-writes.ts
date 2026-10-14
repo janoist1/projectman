@@ -7,12 +7,12 @@ import type { ErrorCode, OperatorStepStatus, ProjectDoc, RepoConfig } from '@pro
 import { MergeError } from '../../contracts';
 import type { BranchMerger, EngineDirectory } from '../../contracts';
 import type { DocWriteEdit, DocWritePatch, DocWriteRecord } from '../../db';
-import { isoNow } from '../../domain/context';
-import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
 import { applyDocEdits, isAppendOnly } from './doc-edits';
 import { conflict, DomainError } from '../../kernel';
-import type { Messaging } from '../../domain/messaging';
-import type { ProjectService } from '../../domain/projects';
+import type { Messaging } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** Why a write of the Operator's documents did not go up. */

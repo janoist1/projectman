@@ -1,8 +1,8 @@
 import type { InvolvementQuery, InvolvementsResponse } from '@projectman/shared';
-import type { DomainContext } from './context';
+import type { DomainContext } from '../core/base';
 import { invalid } from '../kernel';
-import { visibleTimelineEvent } from './visibility';
-import type { Viewer } from './visibility';
+import { visibleTimelineEvent } from '../core/projects';
+import type { Viewer } from '../core/projects';
 
 export class InvolvementService {
   constructor(ctx: DomainContext) {

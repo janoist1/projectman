@@ -9,11 +9,11 @@ import {
 import type { ProjectConfig, Session, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { Cause, Data, Effect, Exit, FiberMap, Scope } from 'effect';
 import { encodeWorkItem } from '../../db';
-import type { DomainContext } from '../../domain/context';
+import type { DomainContext } from '../../core/base';
 import { runPromise } from '../../kernel';
-import type { MessageService } from '../../domain/messaging/messages';
-import { senderResultLabelFor, staleReasonFor } from '../../domain/messaging/staleness';
-import type { ProjectService } from '../../domain/projects';
+import type { MessageService } from '../../core/messages';
+import { senderResultLabelFor, staleReasonFor } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
 import { MAX_FIRST_INPUT_CHARS, MESSAGE_SEPARATOR } from '../sessions';
 import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
 

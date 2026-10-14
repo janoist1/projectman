@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { RefObject } from 'react';
 import { CardBusyDetails } from '@projectman/shared';
 import { isApiError } from '../../api/client';
@@ -53,7 +53,17 @@ export function CardBusyWarning({
   const { members } = useProjectIndexes(key);
   const roles = useRoles(key);
   const anyWorking = details.groups.some((group) => group.working.length > 0);
-  const focusBack = useCallback((element: HTMLButtonElement | null) => element?.focus(), []);
+  // The first focus is on the harmless way out. A native <dialog> only takes focus once it is open, and
+  // `showModal()` (in the Dialog's effect) moves it to the first control, so it is set again here after
+  // the Dialog's effect, and when the footer button mounts after it.
+  const backRef = useRef<HTMLButtonElement | null>(null);
+  const focusBack = useCallback((element: HTMLButtonElement | null) => {
+    backRef.current = element;
+    element?.focus();
+  }, []);
+  useEffect(() => {
+    backRef.current?.focus();
+  }, []);
   const returnFocusRef = useMemo(
     () =>
       ({

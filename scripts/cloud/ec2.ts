@@ -29,6 +29,7 @@ const imageSchema = z.looseObject({
     z.looseObject({
       DeviceName: z.string(),
       Ebs: z.looseObject({ VolumeSize: z.number().int() }).optional(),
+      VirtualName: z.string().optional(),
     }),
   ),
   ProductCodes: z.array(z.unknown()).optional(),
@@ -190,6 +191,8 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
     z.looseObject({ Images: z.array(imageSchema) }),
   );
   const image = answer.Images[0];
+  const ebsMappings = image?.BlockDeviceMappings.filter((mapping) => mapping.Ebs) ?? [];
+  const ephemeralMappings = image?.BlockDeviceMappings.filter((mapping) => !mapping.Ebs) ?? [];
   if (
     answer.Images.length !== 1 ||
     !image ||
@@ -201,13 +204,20 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
     image.VirtualizationType !== 'hvm' ||
     image.RootDeviceType !== 'ebs' ||
     image.ProductCodes?.length ||
-    image.BlockDeviceMappings.length !== 1 ||
-    image.BlockDeviceMappings[0]?.DeviceName !== image.RootDeviceName ||
-    !image.BlockDeviceMappings[0].Ebs ||
-    image.BlockDeviceMappings[0].Ebs.VolumeSize > ec2.volumeGiB
+    ebsMappings.length !== 1 ||
+    ebsMappings[0]?.DeviceName !== image.RootDeviceName ||
+    !ebsMappings[0].Ebs ||
+    ebsMappings[0].VirtualName !== undefined ||
+    ebsMappings[0].Ebs.VolumeSize > ec2.volumeGiB ||
+    ephemeralMappings.some(
+      (mapping) => !/^ephemeral(?:[0-9]|1[0-9]|2[0-3])$/.test(mapping.VirtualName ?? ''),
+    ) ||
+    new Set(image.BlockDeviceMappings.map((mapping) => mapping.DeviceName)).size !==
+      image.BlockDeviceMappings.length ||
+    new Set(ephemeralMappings.map((mapping) => mapping.VirtualName)).size !== ephemeralMappings.length
   )
     throw refused(
-      'the AMI must be a Canonical Ubuntu 24.04 amd64 HVM/EBS server image with one root disk that fits volumeGiB',
+      'the AMI must be a Canonical Ubuntu 24.04 amd64 HVM/EBS server image with one root EBS disk that fits volumeGiB; additional mappings must be ephemeral instance-store devices',
     );
 
   const vpcs = await cli.callAs(
@@ -714,6 +724,7 @@ export async function runEc2(
   if (resources.instance?.State.Name === 'pending')
     resources = await waitForInstance(context, cli, account, image.RootDeviceName);
   await ensureHostRole(context, cli, account, resources);
+  let createdGroupId: string | undefined;
   if (!resources.group) {
     const name = `${context.config.aws.instanceName}-cloud`;
     const result = await cli.callAs(
@@ -731,10 +742,25 @@ export async function runEc2(
       ],
       z.looseObject({ GroupId: z.string() }),
     );
+    createdGroupId = result.GroupId;
     context.report.step('created', 'ec2-security-group', `${result.GroupId}, no inbound rules`);
   }
   // Recheck after partial creation and before RunInstances. Never launch next to a machine created by another run.
-  const checked = await inspect(context, cli, account, image.RootDeviceName);
+  let checked = await inspect(context, cli, account, image.RootDeviceName);
+  if (createdGroupId) {
+    for (let attempt = 0; !checked.group && attempt < 7; attempt += 1) {
+      await context.deps.sleep(Math.min(2_000 * 2 ** attempt, 30_000));
+      checked = await inspect(context, cli, account, image.RootDeviceName);
+    }
+    if (!checked.group)
+      throw new CloudError(
+        'the new EC2 security group is not visible yet; rerun to rediscover it before launching an instance',
+      );
+    if (checked.group.GroupId !== createdGroupId)
+      throw refused('the security group name now points to a different group than the one just created');
+  }
+  if (!checked.group)
+    throw refused('the EC2 security group disappeared before launch; no instance is created');
   let instance = checked.instance;
   if (!instance) {
     const userData = fs.readFileSync(path.join(context.deps.repoRoot, 'deploy/aws/ec2-bootstrap.sh'), 'utf8');
@@ -747,7 +773,7 @@ export async function runEc2(
         {
           DeviceIndex: 0,
           SubnetId: ec2.subnetId,
-          Groups: [checked.group!.GroupId],
+          Groups: [checked.group.GroupId],
           AssociatePublicIpAddress: true,
           DeleteOnTermination: true,
         },
@@ -798,11 +824,14 @@ export async function runEc2(
         context.report.step('created', 'ec2-instance', result.Instances[0]!.InstanceId);
         break;
       } catch (error) {
-        // New IAM profiles propagate asynchronously. All retries use exactly the same ClientToken/request.
+        // IAM profiles and security groups propagate asynchronously. Retries keep the same ClientToken/request.
         if (
           !(error instanceof AwsCallError) ||
-          error.awsCode !== 'InvalidParameterValue' ||
-          !error.message.includes('Invalid IAM Instance Profile') ||
+          !(
+            error.awsCode === 'InvalidGroup.NotFound' ||
+            (error.awsCode === 'InvalidParameterValue' &&
+              error.message.includes('Invalid IAM Instance Profile'))
+          ) ||
           attempt === 11
         )
           throw error;

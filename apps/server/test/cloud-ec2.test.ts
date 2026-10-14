@@ -152,6 +152,52 @@ describe('EC2 provisioning and the account boundary', () => {
     expect(world.aws.ec2.instances).toHaveLength(1);
   });
 
+  it('accepts Canonical AMI ephemeral mappings in any order and launches one persistent root EBS disk', async () => {
+    world.aws.ec2.image.BlockDeviceMappings.reverse();
+    expect(await run()).toBe(0);
+    expect(world.aws.ec2.request!.BlockDeviceMappings).toHaveLength(1);
+    expect(world.aws.ec2.request!.BlockDeviceMappings[0]).toMatchObject({
+      DeviceName: '/dev/sda1',
+      Ebs: { VolumeSize: 40, Encrypted: true, VolumeType: 'gp3' },
+    });
+    world.aws.clearCalls();
+    expect(await run()).toBe(0);
+    expect(world.aws.mutations()).toEqual([]);
+  });
+
+  it('waits for the tagged security group to be visible before launching, without creating it twice', async () => {
+    world.aws.ec2.groupVisibilityPolls = 3;
+    expect(await run()).toBe(0);
+    expect(world.aws.callsTo('create-security-group')).toHaveLength(1);
+    expect(world.aws.callsTo('run-instances')).toHaveLength(1);
+    const calls = world.aws.calls;
+    const created = calls.findIndex((call) => call.args[1] === 'create-security-group');
+    const launched = calls.findIndex((call) => call.args[1] === 'run-instances');
+    expect(
+      calls.slice(created + 1, launched).filter((call) => call.args[1] === 'describe-security-groups'),
+    ).toHaveLength(4);
+  });
+
+  it('stops safely if the new security group stays invisible and rediscovers it on a later run', async () => {
+    world.aws.ec2.groupVisibilityPolls = 100;
+    expect(await run()).toBe(1);
+    expect(world.output).toContain('security group is not visible yet');
+    expect(world.aws.callsTo('run-instances')).toHaveLength(0);
+    world.aws.ec2.groupVisibilityPolls = 0;
+    expect(await run()).toBe(0);
+    expect(world.aws.callsTo('create-security-group')).toHaveLength(1);
+    expect(world.aws.ec2.instances).toHaveLength(1);
+  });
+
+  it('retries launch-time security group propagation with an identical request and ClientToken', async () => {
+    world.aws.ec2.groupPropagationFailures = 2;
+    expect(await run()).toBe(0);
+    const calls = world.aws.callsTo('run-instances');
+    expect(calls).toHaveLength(3);
+    expect(new Set(calls.map((call) => call.args.at(-1))).size).toBe(1);
+    expect(world.aws.ec2.instances).toHaveLength(1);
+  });
+
   it('waits for a pending launch to reveal disk drift before filling missing IAM permissions', async () => {
     expect(await run()).toBe(0);
     world.aws.ec2.instances[0]!.State.Name = 'pending';
@@ -216,6 +262,48 @@ describe('EC2 provisioning and the account boundary', () => {
       'wrong AMI owner',
       (fake: typeof world.aws.ec2) => {
         fake.image.OwnerId = FOREIGN_ACCOUNT;
+      },
+    ],
+    [
+      'missing root EBS mapping',
+      (fake: typeof world.aws.ec2) => {
+        fake.image.BlockDeviceMappings.shift();
+      },
+    ],
+    [
+      'extra persistent AMI disk',
+      (fake: typeof world.aws.ec2) => {
+        fake.image.BlockDeviceMappings.push({ DeviceName: '/dev/sdd', Ebs: { VolumeSize: 20 } });
+      },
+    ],
+    [
+      'duplicate root AMI mapping',
+      (fake: typeof world.aws.ec2) => {
+        fake.image.BlockDeviceMappings.push(structuredClone(fake.image.BlockDeviceMappings[0]!));
+      },
+    ],
+    [
+      'oversized AMI root disk',
+      (fake: typeof world.aws.ec2) => {
+        fake.image.BlockDeviceMappings[0]!.Ebs!.VolumeSize = 80;
+      },
+    ],
+    [
+      'unknown AMI virtual device',
+      (fake: typeof world.aws.ec2) => {
+        fake.image.BlockDeviceMappings[1]!.VirtualName = 'unexpected';
+      },
+    ],
+    [
+      'ambiguous EBS/ephemeral mapping',
+      (fake: typeof world.aws.ec2) => {
+        fake.image.BlockDeviceMappings[0]!.VirtualName = 'ephemeral2';
+      },
+    ],
+    [
+      'duplicate ephemeral AMI device',
+      (fake: typeof world.aws.ec2) => {
+        fake.image.BlockDeviceMappings[2]!.VirtualName = 'ephemeral0';
       },
     ],
     [

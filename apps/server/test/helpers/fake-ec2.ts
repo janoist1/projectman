@@ -30,7 +30,11 @@ export class FakeEc2 {
     VirtualizationType: 'hvm',
     RootDeviceType: 'ebs',
     RootDeviceName: '/dev/sda1',
-    BlockDeviceMappings: [{ DeviceName: '/dev/sda1', Ebs: { VolumeSize: 8 } }],
+    BlockDeviceMappings: [
+      { DeviceName: '/dev/sda1', Ebs: { VolumeSize: 8 } },
+      { DeviceName: '/dev/sdb', VirtualName: 'ephemeral0' },
+      { DeviceName: '/dev/sdc', VirtualName: 'ephemeral1' },
+    ],
     ProductCodes: [] as unknown[],
   };
   subnet = {
@@ -61,6 +65,8 @@ export class FakeEc2 {
   tokens = new Map<string, string>();
   pendingPolls = 0;
   profilePropagationFailures = 0;
+  groupVisibilityPolls = 0;
+  groupPropagationFailures = 0;
   /** Simulates the response getting lost after RunInstances succeeded at AWS. */
   loseLaunchResponse = false;
   /** An operation that fails before mutating, once. */
@@ -146,6 +152,10 @@ export class FakeEc2 {
             : [],
         });
       case 'describe-security-groups':
+        if (this.groups.length && this.groupVisibilityPolls > 0) {
+          this.groupVisibilityPolls -= 1;
+          return ok({ SecurityGroups: [] });
+        }
         return ok({ SecurityGroups: this.groups });
       case 'create-security-group': {
         const name = flag(args, '--group-name');
@@ -205,6 +215,14 @@ export class FakeEc2 {
       }
       case 'run-instances': {
         this.request = JSON.parse(flag(args, '--cli-input-json'));
+        if (this.groupPropagationFailures > 0) {
+          this.groupPropagationFailures -= 1;
+          return {
+            code: 254,
+            stdout: '',
+            stderr: 'An error occurred (InvalidGroup.NotFound) when calling RunInstances: group not found',
+          };
+        }
         if (this.profilePropagationFailures > 0) {
           this.profilePropagationFailures -= 1;
           return {

@@ -1229,13 +1229,16 @@ workers follow the machine's size.
   configured central profile/region, existing VPC/public subnet, dedicated empty-inbound security
   group, EC2-only SSM host role/profile, and the shared private S3/backup-user resources. EC2 type,
   AMI and encrypted gp3 volume size are explicit, never paid defaults. Catalogue/preflight checks
-  Canonical image ownership, VPC/subnet/account, DNS, effective IGW route, conservative IPv4 NACL
+  Canonical image ownership and exactly one persistent root EBS mapping (ephemeral AMI mappings
+  are accepted), VPC/subnet/account, DNS, effective IGW route, conservative IPv4 NACL
   reachability and type support/AZ offering. Public IPv4 is outbound access for apt/Docker/SSM/tunnel;
   no NAT/LB/extra host, no public ingress. IMDSv2/hop-limit 1, termination protection and shutdown=stop.
   **Machine assumptions:** owner logins `aroom`/`i`, AWS CLI, selected existing internet network,
   Ubuntu apt/snap/systemd; public bootstrap installs sshd/EIC/SSM with no secret or board payload.
   The script prints instance/EBS/IPv4 cost components before launch; the owner records regional
-  rates and approves execution. Names/managed tags and a deterministic public-request ClientToken
+  rates and approves execution. The newly created security group is read/validated with bounded
+  propagation waits before launch; launch-time group/profile propagation retries keep the same token.
+  Names/managed tags and a deterministic public-request ClientToken
   recover partial runs/restarts; ambiguity, foreign ownership or dangerous drift refuses creation,
   with no automatic destructive repair. `--dry-run` writes nothing. **Remote engine:** provisioning
   remains on the owner's machine for the central server, never on an engine; the Mac engine gets

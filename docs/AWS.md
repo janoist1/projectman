@@ -29,7 +29,8 @@ to the board and receives no AWS profile credentials. Provisioning does not chan
    Other explicit central profiles are accepted; the name check supplements STS/owner checks.
 3. Run `npm run cloud -- preflight`. It prints the STS account, available Canonical Ubuntu 24.04
    amd64 server AMIs and subnet choices. It checks the chosen AMI owner, OS, architecture, HVM/EBS
-   root and minimum disk size; enabled region; VPC/subnet ownership, free IPv4 and DNS support;
+   root and minimum disk size (AMI ephemeral instance-store mappings are allowed; additional EBS
+   mappings are refused); enabled region; VPC/subnet ownership, free IPv4 and DNS support;
    subnet's effective default route directly to an attached internet gateway; IPv4 network ACL;
    and encrypted-EBS/x86_64 support plus availability of the type in the subnet's zone. This proves
    the configured network prerequisites; installed SSM and application connectivity are verified
@@ -55,15 +56,21 @@ to the board and receives no AWS profile credentials. Provisioning does not chan
    provisioning steps documented below. The host role has SSM rights only; backup keys remain
    bucket-scoped in the protected `cloud.env`. Save the new `RESTIC_PASSWORD` separately.
 6. If a command fails, read its failed step and rerun the same config after resolving the cause.
-   IAM profile propagation retries the identical request/token. A lost launch response is recovered
+   Security group creation waits for the tagged group to become visible; a propagation timeout stops
+   before instance launch and a later run rediscovers it. IAM profile/launch-time group propagation
+   retries the identical request/token. A lost launch response is recovered
    by rediscovering the instance; no local state file is used. Every resource has ownership tags;
    instances are searched by Name alone to detect unmanaged namesakes. A unique instance must have
    `Name=<instanceName>` and `ProjectmanManaged=true`. Multiple instances/groups, foreign tags,
    changed VPC/image/type/disk/role/profile/IMDS, extra NICs or any inbound rule refuse the operation.
    The script never repairs those states destructively or launches a replacement. A stopped instance
    remains stopped. A terminated namesake refuses creation while visible: an intentional replacement
-   needs a separately reviewed name/config. The deterministic `ClientToken` hashes the namespace,
-   account, region and complete public launch request; AWS also enforces one instance per retry.
+   needs a separately reviewed name/config. A terminated instance eventually disappears from AWS
+   discovery; absence then does not prove that the name was never used. This tool has no permanent
+   termination history. The deterministic `ClientToken` hashes the namespace, account, region and
+   complete public launch request: it protects retries of that request, not reuse of a name forever.
+   After termination, review a new instance name/config explicitly instead of assuming the old token
+   will create a replacement. See [EC2 idempotency](https://docs.aws.amazon.com/ec2/latest/devguide/ec2-api-idempotency.html).
 
 The only UserData is `deploy/aws/ec2-bootstrap.sh`: it installs/enables sshd, EC2 Instance Connect
 and the SSM agent. Credentials, `cloud.env`, board data and engine keys are absent. Ubuntu's snap

@@ -115,11 +115,29 @@ export default async ({ instance, open, shoot, step, log }) => {
     await listRow.waitFor();
     await listRow.focus();
     await page.keyboard.press('Enter');
-    await page.waitForFunction(
-      () => document.activeElement?.tagName === 'H2' && document.activeElement.closest('aside'),
-    );
+    const reportFocus = async (error) => {
+      log(
+        JSON.stringify(
+          await page.evaluate(() => ({
+            search: location.search,
+            activeTag: document.activeElement?.tagName,
+            activeCard: document.activeElement?.dataset.cardRow,
+            activeModule: document.activeElement?.dataset.module,
+            panelTitle: document.querySelector('aside h2')?.textContent,
+          })),
+        ),
+      );
+      throw error;
+    };
+    await page
+      .waitForFunction(
+        () => document.activeElement?.tagName === 'H2' && document.activeElement.closest('aside'),
+      )
+      .catch(reportFocus);
     await page.keyboard.press('Escape');
-    await page.waitForFunction((key) => document.activeElement?.dataset.cardRow === key, taskKeys[0]);
+    await page
+      .waitForFunction((key) => document.activeElement?.dataset.cardRow === key, taskKeys[0])
+      .catch(reportFocus);
     log('Keyboard Enter from the card list and Escape restore the recreated card row focus.');
   });
   await step('Card, completed work and outside files', async () => {

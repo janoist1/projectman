@@ -91,6 +91,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   await step('Landscape and keyboard focus', async () => {
     await show();
     await page.locator('[data-module="orders"]').waitFor();
+    await page.locator('[data-structure-roads] > path').first().waitFor();
     await shoot(page, '01-landscape', { widths: [1512, 390] });
     await page.setViewportSize({ width: 1512, height: 982 });
     const plot = page.locator('[data-module="orders"]');
@@ -119,7 +120,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.getByRole('dialog').waitFor();
     await shoot(page, '05-phone-sheet', { widths: [390] });
     await page.keyboard.press('Escape');
-    if (await page.getByRole('dialog').count()) throw new Error('Escape did not close phone sheet');
+    await page.getByRole('dialog').waitFor({ state: 'detached' });
   });
   await step('Missing repositories', async () => {
     await show('?repo=mobile');

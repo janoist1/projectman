@@ -76,6 +76,7 @@ describe('structure map', () => {
     expect(plot('database').dataset.kind).toBe('store');
     expect(plot('payment').dataset.kind).toBe('external');
     expect(plot('orders').dataset.clash).toBe('true');
+    await waitFor(() => expect(document.querySelectorAll('[data-structure-roads] > path')).toHaveLength(4));
     expect(plot('shop').dataset.clash).toBe('false');
     expect(cardButton('AC-17').textContent).toContain(t('map.structure.clashTag'));
     expect(within(side()).queryByRole('button', { name: /AC-19/ })).toBeNull();

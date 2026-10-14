@@ -510,6 +510,7 @@
   color: var(--c-ink-3);
   line-height: 1.5;
 }
+.side .clashBox,
 .panel .clashBox {
   color: var(--c-needs-text);
   background: var(--c-needs-bg);

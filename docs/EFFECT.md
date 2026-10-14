@@ -75,7 +75,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-622 hooks and permission gate**
 
-  Planned.
+  File: `apps/server/src/runner/permission-wait.ts`. Facade: `PermissionGate` (`runner/permission-gate.ts`). Interrupting a wait aborts the broker's signal and does not wait for its promise (not `abortable`): the denial must reach the CLI before its hook timeout, and the broker withdraws on its own. The hooks route, the hook forwarder and the tool decision stay plain TypeScript (a route handler; a script the CLI runs; synchronous).
 
 - **PM-623 transcript tailer, plan usage and trust**
 

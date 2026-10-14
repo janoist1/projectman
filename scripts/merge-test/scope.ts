@@ -1,7 +1,8 @@
 export type MergeTestWorkspace = 'apps/server' | 'apps/web';
 export type MergeTestScope =
   | { kind: 'all'; reason: string }
-  | { kind: 'workspaces'; workspaces: MergeTestWorkspace[] }
+  | { kind: 'workspaces'; workspaces: MergeTestWorkspace[]; fallback?: string }
+  | { kind: 'modules'; modules: string[]; tests: string[]; workspaces: MergeTestWorkspace[] }
   | { kind: 'none' };
 
 export function mergeTestScope(changed: readonly string[]): MergeTestScope {
@@ -12,6 +13,9 @@ export function mergeTestScope(changed: readonly string[]): MergeTestScope {
     if (
       file.startsWith('packages/') ||
       file.startsWith('scripts/') ||
+      file.startsWith('apps/server/test/architecture/') ||
+      file.startsWith('apps/server/src/contracts/') ||
+      file.startsWith('apps/server/src/config/') ||
       name === 'package.json' ||
       name === 'package-lock.json' ||
       /^tsconfig.*\.json$/.test(name) ||

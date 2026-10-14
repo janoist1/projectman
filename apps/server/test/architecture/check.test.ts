@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { checkDependencies, importSpecifiers, moduleOf } from './check';
+import { checkDependencies, importSpecifiers, moduleOf, sourceImports } from './check';
 import type { SourceFile } from './check';
 import { LAYER_RULES } from './module-map';
 import type { DependencyException, ModuleEntry } from './module-map';
@@ -30,6 +30,24 @@ const check = (source: string, exceptions: readonly DependencyException[] = [], 
   checkDependencies(files(source), modules, LAYER_RULES, exceptions);
 
 describe('importSpecifiers', () => {
+  test.each([
+    'import(name)',
+    "import('./prefix' + name)",
+    'import(`./${name}`)',
+    'import /* comment */ (name)',
+  ])('marks dynamic expressions uncertain: %s', (source) => {
+    expect(sourceImports(source)).toEqual({ specifiers: [], uncertain: true });
+  });
+  test('accepts literal templates and ignores ordinary method calls', () => {
+    expect(
+      sourceImports(
+        'const value = import(`./literal`); this.themes.require(key); const url = import.meta.url;',
+      ),
+    ).toEqual({
+      specifiers: ['./literal'],
+      uncertain: false,
+    });
+  });
   test('reads type, multiline, re-export, side-effect and dynamic imports', () => {
     expect(
       importSpecifiers(`

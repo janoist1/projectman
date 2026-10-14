@@ -1184,8 +1184,19 @@ workers follow the machine's size.
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
   still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
 - **The server's merge check** runs the repository's `npm run merge-test` in the full test sandbox
-  before the default branch moves (PM-386, PM-490). The first-parent diff selects server/web checks;
-  shared code, scripts, configuration or unknown paths require all workspaces. The executor holds
+  before the default branch moves (PM-386, PM-490, PM-657). The first-parent diff and the union of
+  both git trees' import graphs select changed server modules and their transitive dependents.
+  A module check runs one server typecheck and one Vitest invocation with explicit test paths:
+  adjacent tests, external tests reached through helpers, uncertain test dependencies, architecture
+  tests, integration tests and golden paths.
+  Tests reaching process creation, runtime code loaders or filesystem access through source/helper
+  imports remain in the uncertain baseline: runtime entrypoints need not appear in static imports.
+  Unresolved source dependencies, unmapped sources,
+  changed tests/helpers/fixtures, empty selection or ambiguous Vitest substring filters fall back
+  to the full server workspace. Web changes retain full web checks; documentation-only changes skip.
+  Shared code, scripts, configuration, contracts, architecture guards or unknown paths require all
+  workspaces; `--all` forces them. Scope, selected modules, test count and fallback reason are logged
+  before and after execution. The executor holds
   the machine's lock, so the nested root scripts do not queue again.
 
 ## Machine-dependent parts (PM-341)
@@ -1345,6 +1356,11 @@ workers follow the machine's size.
   paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
   **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
   dependencies and queue. Only the command and result need to cross the existing full-test boundary.
+  `scripts/merge-test/{run,scope,impact}.ts` (PM-657) selects checks in that detached checkout using
+  argv-based git first-parent diff (`--no-renames -z`) and batched blob reads of both revisions.
+  It uses the architecture module map, never evaluates old TypeScript or writes a selection cache,
+  and retains the configured worker limits. **Remote engine:** selection runs on the engine with
+  its two git trees; no engine files or new selection API cross the server/engine boundary.
   **Module:** `scripts`
 
 - **Provider and engine outage watch (PM-449)** — `runtime/watchers` (`WorkOutages`), `runner/runner.ts`

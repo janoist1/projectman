@@ -59,6 +59,16 @@ describe('server test impact', () => {
     expect(result.fallback).toBeUndefined();
     expect(result.modules).toContain('logging');
     expect(result.tests.length).toBeGreaterThan(0);
+    for (const changed of ['apps/server/src/index.ts', 'apps/server/src/db/migrations.ts']) {
+      const entryImpact = serverTestImpact({
+        changed: [changed],
+        before: files,
+        after: files,
+        modules: MODULES,
+      });
+      expect(entryImpact.fallback).toBeUndefined();
+      expect(entryImpact.tests).toContain('apps/server/test/removed-vm-settings.test.ts');
+    }
   });
   it('selects reverse transitive modules, helper consumers and the safety baseline', () => {
     const result = impact();
@@ -139,6 +149,36 @@ describe('server test impact', () => {
       file('test/unknown-helper.test.ts', "import './helpers/unknown';"),
     ];
     expect(impact(undefined, tree, after).tests).toContain('apps/server/test/unknown-helper.test.ts');
+  });
+  it.each([
+    'node:child_process',
+    'child_process',
+    'node:worker_threads',
+    'node:module',
+    'node:vm',
+    'node:fs/promises',
+    '@lydell/node-pty',
+  ])('keeps tests reaching runtime dependencies through helpers: %s', (specifier) => {
+    const after = [
+      ...tree,
+      file('test/helpers/runtime.ts', `import '${specifier}'; import '../../src/d';`),
+      file('test/runtime.test.ts', "import './helpers/runtime';"),
+    ];
+    const result = impact(undefined, after, after);
+    expect(result.fallback).toBeUndefined();
+    expect(result.modules).not.toContain('d');
+    expect(result.tests).toContain('apps/server/test/runtime.test.ts');
+    expect(result.tests).not.toContain('apps/server/test/independent.test.ts');
+  });
+  it('keeps tests whose production dependency hides a spawned entrypoint', () => {
+    const after = tree.map((f) =>
+      f.path === 'apps/server/src/d/index.ts'
+        ? { ...f, source: "import { spawn } from 'node:child_process'; spawn('node', ['src/index.ts']);" }
+        : f,
+    );
+    const result = impact(undefined, after, after);
+    expect(result.fallback).toBeUndefined();
+    expect(result.tests).toContain('apps/server/test/independent.test.ts');
   });
   it('refuses substring collisions instead of running a different test set', () => {
     expect(

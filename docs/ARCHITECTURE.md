@@ -1188,7 +1188,10 @@ workers follow the machine's size.
   both git trees' import graphs select changed server modules and their transitive dependents.
   A module check runs one server typecheck and one Vitest invocation with explicit test paths:
   adjacent tests, external tests reached through helpers, uncertain test dependencies, architecture
-  tests, integration tests and golden paths. Unresolved source dependencies, unmapped sources,
+  tests, integration tests and golden paths.
+  Tests reaching process creation, runtime code loaders or filesystem access through source/helper
+  imports remain in the uncertain baseline: runtime entrypoints need not appear in static imports.
+  Unresolved source dependencies, unmapped sources,
   changed tests/helpers/fixtures, empty selection or ambiguous Vitest substring filters fall back
   to the full server workspace. Web changes retain full web checks; documentation-only changes skip.
   Shared code, scripts, configuration, contracts, architecture guards or unknown paths require all

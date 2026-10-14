@@ -44,6 +44,14 @@ export function serverTestImpact(input: {
       }
       for (const specifier of imports.specifiers) {
         if (!specifier.startsWith('.')) {
+          // Processes, runtime loaders and filesystem access can reach code outside
+          // static imports. Keep every test reaching these capabilities in the baseline,
+          // including when a source module or helper hides the runtime operation.
+          if (
+            /^(?:node:)?(?:child_process|worker_threads|vm|module|fs(?:\/promises)?)$/.test(specifier) ||
+            specifier === '@lydell/node-pty'
+          )
+            uncertain.add(file.path);
           // Node builtins and packages are external; aliases cannot be resolved safely.
           if (specifier.startsWith('/') || specifier.startsWith('#') || specifier.startsWith('@/')) {
             if (production) return fail(`unresolved internal import: ${file.path}: ${specifier}`);

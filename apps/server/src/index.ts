@@ -162,6 +162,8 @@ async function configFromEnv(
     : undefined;
   // The e-mail login mailer (PM-669): off unless switched on; a wrong or incomplete setting stops the start.
   const emailLogin = parseEmailLoginEnv(env);
+  // Keep the keys in the mailer options only, before even the version lookup can start a child process.
+  scrubEmailLoginEnv(env);
   return {
     port,
     host,
@@ -297,8 +299,6 @@ async function main(): Promise<void> {
   const mode = parseMode(process.env.PROJECTMAN_MODE);
   if (mode === 'engine') return engineMain(process.env);
   const config = await configFromEnv(process.env, mode);
-  // The mailer holds the keys now; no process the server starts later inherits them.
-  scrubEmailLoginEnv(process.env);
   const app = await buildApp({
     ...config.app,
     // Always wire the live checker here; buildApp and domain harnesses never contact NanoGPT.

@@ -1267,7 +1267,8 @@ workers follow the machine's size.
 - **The e-mail login code mailer on AWS SES (PM-669)** —
   `apps/server/src/services/email-login/{ses-mailer,config}.ts` (facade `index.ts`),
   `apps/server/src/contracts/email-login.ts`, the six `PROJECTMAN_EMAIL_LOGIN_ENABLED` / `PROJECTMAN_SES_*`
-  variables (read in `apps/server/src/index.ts` only, then removed from `process.env`),
+  variables (read in `apps/server/src/index.ts` only, then immediately removed from `process.env`
+  before the application version lookup can start a git child process),
   `deploy/cloud/entrypoint.sh`, `docs/AWS.md` ("The e-mail login code mailer"). **What it does:**
   `createSesEmailCodeMailer` sends one Hungarian message (the text is `emailLoginCode` in
   `packages/templates/src/locales`) through the SES v2 `SendEmail` operation with explicit keys and an

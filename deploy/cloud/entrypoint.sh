@@ -28,7 +28,7 @@ if [ "$(id -u)" = 0 ]; then
   exec setpriv --reuid="$RUN_UID" --regid="$RUN_GID" --clear-groups --no-new-privs "$0" "$@"
 fi
 
-base_env=(PATH="$PATH" HOME="${HOME:-/home/projectman}" TZ="${TZ:-UTC}" LANG=C.UTF-8)
+base_env=(PATH="$PATH" HOME="${HOME:-/home/projectman}" TMPDIR="${TMPDIR:-/tmp}" TZ="${TZ:-UTC}" LANG=C.UTF-8)
 
 require() {
   local missing=0 name
@@ -172,6 +172,10 @@ rehearse() {
   require_storage
   local scratch="${REHEARSAL_DIR:-$(mktemp -d)}"
   local port="${REHEARSAL_PORT:-4701}"
+  if [ "$scratch" = "$DATA_DIR" ] || { [ -e "$scratch" ] && [ -n "$(ls -A "$scratch")" ]; }; then
+    echo "entrypoint: rehearsal requires an empty directory separate from PROJECTMAN_HOME" >&2
+    exit 64
+  fi
   echo "entrypoint: rehearsal in $scratch (no tunnel, no replication, a standby copy)"
   restore_state "$scratch" no
   if [ ! -e "$scratch/db.sqlite" ]; then
@@ -191,7 +195,7 @@ rehearse() {
     exit 1
   }
   terminate
-  echo "entrypoint: REHEARSAL PASSED: the replica and the snapshot restored and the server started on them"
+  echo "entrypoint: REHEARSAL PASSED: restore and smoke checks passed; verify file references and recovery times before activation"
 }
 
 case "${1:-serve}" in

@@ -31,6 +31,17 @@ EXCLUDES=(
   --exclude "$PROJECTMAN_HOME/logs"
   --exclude "$PROJECTMAN_HOME/browsers"
   --exclude "$PROJECTMAN_HOME/.restore-staging"
+  --exclude "$PROJECTMAN_HOME/.cloud-volume"
+  --exclude "$PROJECTMAN_HOME/providers"
+  --exclude "$PROJECTMAN_HOME/engine.key"
+  --exclude "$PROJECTMAN_HOME/engine.json"
+  --exclude "$PROJECTMAN_HOME/engine-spool"
+  --exclude "$PROJECTMAN_HOME/worktrees"
+  --exclude "$PROJECTMAN_HOME/workspaces"
+  --exclude "$PROJECTMAN_HOME/member-caches"
+  --exclude "$PROJECTMAN_HOME/github-publish"
+  --exclude "$PROJECTMAN_HOME/spool"
+  --exclude "$PROJECTMAN_HOME/attachments-cache"
 )
 
 repository_exists() {
@@ -63,7 +74,11 @@ case "$command_name" in
     # A repository that was created but never got a snapshot (the first backup failed) is as empty as none.
     snapshots="$(restic snapshots --tag projectman-cloud --host projectman-cloud --json)"
     case "$snapshots" in
-      '[]' | null | '')
+      null | '')
+        echo "backup: invalid snapshot listing" >&2
+        exit 1
+        ;;
+      '[]')
         echo "backup: the restic repository has no snapshot yet; nothing to restore" >&2
         exit 0
         ;;

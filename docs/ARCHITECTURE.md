@@ -592,7 +592,7 @@ packages count as contracts and are accessible to every layer.
 | `services/feedback`     | Feedback marks, screenshots and widget sessions.                                               |
 | `services/project-docs` | Operator project-document writes and decision candidates.                                      |
 | `services/boundary`     | External operation authorization and boundary requests.                                        |
-| `services/schedules`    | Scheduled member work.                                                                         |
+| `services/schedules`    | Scheduled member work; the minute timer is an Effect program (see EFFECT.md); sealed (`index.ts`). |
 | `services/operator`     | Operator actions, signals, requests and project management.                                    |
 | `runner`                | Provider CLIs, PTYs, hooks and transcript handling.                                            |
 | `worktree`              | Task and member worktree creation and dependency refresh.                                      |

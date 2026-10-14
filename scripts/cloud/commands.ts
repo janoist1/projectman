@@ -22,6 +22,7 @@ import {
 } from './machine';
 import { Report } from './report';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
+import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 
 export const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
@@ -46,6 +47,10 @@ commands:
   check --login-json <file>          verify the public board: Access, edge, origin rules, the engine's doors
   dns plan|import|verify|status       migrate and verify Route 53 DNS; import accepts --update and --dry-run
   dns switch [--back] [--dry-run]     change registrar name servers after verification; --back: restore Route 53
+  ses plan                           read the SES identity/account/DNS and preview sender provisioning
+  ses configure [--dry-run]          configure SES DKIM, sending-only IAM and protected cloud.env
+  ses request-production [--dry-run] request production access separately after owner approval
+  ses check                          verify SES production, DKIM, DNS and the sender scope without sending mail
   up [--login-json <file>] [--dry-run] run preflight, aws, edge, deploy, publish, then check with a login file
 options:
   --config <file>                    the configuration (default ~/.config/projectman/cloud/config.json)
@@ -115,6 +120,18 @@ async function preflight(context: CloudContext): Promise<void> {
 
 /** The command table: a later card adds a row and its module. */
 export const COMMANDS: Record<string, CommandSpec> = {
+  'ses plan': { summary: 'preview SES provisioning', flags: [], run: runSesPlan },
+  'ses configure': {
+    summary: 'configure SES and DKIM',
+    flags: ['dry-run'],
+    run: (context, invocation) => runSesConfigure(context, invocation.dryRun),
+  },
+  'ses request-production': {
+    summary: 'request SES production access',
+    flags: ['dry-run'],
+    run: (context, invocation) => runSesRequestProduction(context, invocation.dryRun),
+  },
+  'ses check': { summary: 'verify SES readiness', flags: [], run: runSesCheck },
   'dns plan': { summary: 'plan DNS migration', flags: [], run: (context) => runDnsPlan(context) },
   'dns import': {
     summary: 'import DNS records without deleting',
@@ -264,8 +281,9 @@ interface Parsed {
 
 function parse(argv: readonly string[]): Parsed {
   const [first, ...args] = argv;
-  const command = first === 'dns' ? `dns ${args[0] ?? ''}` : first;
-  const rest = first === 'dns' ? args.slice(1) : args;
+  const grouped = first === 'dns' || first === 'ses';
+  const command = grouped ? `${first} ${args[0] ?? ''}` : first;
+  const rest = grouped ? args.slice(1) : args;
   if (!command) throw badUsage(`no command\n${USAGE}`);
   const spec = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
   if (!spec) throw badUsage(`unknown command "${command}"\n${USAGE}`);

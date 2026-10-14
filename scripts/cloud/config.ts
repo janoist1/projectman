@@ -121,6 +121,12 @@ const route53Schema = z.strictObject({
     .optional(),
 });
 
+const sesSchema = z.strictObject({
+  region: z.string().regex(REGION, 'an explicit AWS SES region'),
+  domain: z.string().max(253).regex(ZONE, 'a lowercase domain name'),
+  from: z.email().max(254),
+});
+
 const configSchema = z
   .strictObject({
     version: z.literal(1),
@@ -129,11 +135,23 @@ const configSchema = z
     cloudflare: cloudflareSchema,
     access: accessSchema,
     route53: route53Schema.prefault({}),
+    ses: sesSchema.optional(),
   })
   .superRefine((config, context) => {
     const issue = (pathParts: (string | number)[], message: string) =>
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
+    if (config.ses) {
+      if (config.ses.from.split('@')[1] !== config.ses.domain)
+        issue(['ses', 'from'], 'must be an address of exactly ses.domain');
+      if (config.ses.domain !== cloudflare.zone && !config.ses.domain.endsWith(`.${cloudflare.zone}`))
+        issue(['ses', 'domain'], 'must belong to the configured Cloudflare zone');
+      if (aws.profile === 'i')
+        issue(
+          ['aws', 'profile'],
+          'SES requires an explicit central-account profile; registrar profile i is refused',
+        );
+    }
     if (aws.compute === 'ec2' && !aws.ec2)
       issue(['aws', 'ec2'], 'required for EC2; explicitly choose the type, AMI, VPC, subnet and disk size');
     if (aws.databaseBucket === aws.backupBucket)
@@ -186,6 +204,7 @@ export interface CloudConfig {
   };
   access: { emails: string[]; sessionDuration: string; integratorServiceToken: boolean };
   route53: { profile: string; hostedZoneId?: string };
+  ses?: NonNullable<ParsedCloudConfig['ses']>;
 }
 
 export function defaultConfigPath(homeDir: string): string {
@@ -230,6 +249,7 @@ export function parseConfig(raw: unknown, homeDir: string): CloudConfig {
     },
     access: parsed.access,
     route53: { ...parsed.route53, profile: parsed.route53.profile ?? parsed.aws.profile },
+    ...(parsed.ses ? { ses: parsed.ses } : {}),
   };
 }
 

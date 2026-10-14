@@ -8,7 +8,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { ProjectConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
 import type { MemberWorkspaceKey, MemberWorkspaceManager } from '../contracts';
-import { createMemberWorkspaceManager, MemberWorkspaceError } from './index';
+import { createMemberWorkspaceManager } from './index';
+import { MemberWorkspaceError } from './member-workspace-manager';
 
 /*
  * Every test builds its own repositories in a temp directory: a bare "remote", the project

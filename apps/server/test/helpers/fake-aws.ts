@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import type { CloudDeps, RunResult } from '../../../../scripts/cloud/deps';
+import { FakeEc2 } from './fake-ec2';
 
 /**
  * A fake of the `aws` CLI v2 that keeps state (PM-534): it answers by service, operation and argv, like the
@@ -81,6 +82,8 @@ function ok(value: unknown = {}): RunResult {
 }
 
 export class FakeAws {
+  readonly ec2 = new FakeEc2();
+  readonly accounts = new Map([['i', ACCOUNT]]);
   version = 'aws-cli/2.17.1 Python/3.11.9 Darwin/23.6.0 exe/arm64';
   regions = [{ name: 'eu-west-1', zones: ['eu-west-1a', 'eu-west-1b'] }];
   bundles = [
@@ -196,8 +199,19 @@ export class FakeAws {
     }
     const args = argv.slice(6);
     this.calls.push({ args, argv });
-    if (argv.slice(0, 6).join(' ') !== '--profile i --region eu-west-1 --output json')
+    const account = this.accounts.get(argv[1]!);
+    if (
+      argv[0] !== '--profile' ||
+      !account ||
+      argv[2] !== '--region' ||
+      argv[3] !== 'eu-west-1' ||
+      argv[4] !== '--output' ||
+      argv[5] !== 'json'
+    )
       return { code: 255, stdout: '', stderr: `unexpected global options: ${argv.slice(0, 6).join(' ')}\n` };
+    if (args[0] === 'sts' && !this.loginError)
+      return ok({ UserId: 'AIDAFAKE', Account: account, Arn: `arn:aws:iam::${account}:user/${argv[1]}` });
+    if (this.ec2.handles(args)) return this.ec2.run(args, account);
     return this.dispatch(args);
   };
 
@@ -477,7 +491,7 @@ export class CloudWorld {
       sleep: async () => undefined,
       onInterrupt: () => () => undefined,
       homeDir: this.home,
-      repoRoot: process.cwd(),
+      repoRoot: path.resolve(import.meta.dirname, '../../../..'),
       ...overrides,
     };
   }

@@ -185,6 +185,7 @@ export async function withHost<T>(
   body: (host: HostSession) => Promise<T>,
 ): Promise<T> {
   const { deps, config, report } = context;
+  if (config.aws.compute === 'ec2') throw refused('EC2 host sessions require the SSH/SSM adapter (PM-677)');
   const cli = new AwsCli(deps, config.aws);
   const controller = new AbortController();
   let reject: (error: Error) => void = () => undefined;

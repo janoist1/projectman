@@ -6,7 +6,7 @@ import { cloudflareApi, cloudflarePreflight, findZone, resolveAccount, runEdge }
 import { defaultConfigPath, expandHome, loadConfig } from './config';
 import type { CloudContext } from './context';
 import type { CloudDeps } from './deps';
-import { badUsage, CloudError } from './errors';
+import { badUsage, CloudError, refused } from './errors';
 import { runDnsPlan, runDnsStatus, runDnsSwitch, runDnsVerify } from './dns';
 import {
   runDeploy,
@@ -26,7 +26,7 @@ import { ENV_FILE_NAME, secretsDir } from './secrets';
 export const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
-  aws [--dry-run] [--rotate-keys]    create the Lightsail machine, the S3 buckets, the IAM users and their keys
+  aws [--dry-run] [--rotate-keys]    create the EC2 or Lightsail machine, the S3 buckets, the IAM users and their keys
   deploy [--ref <tag|sha>] [--dry-run]
                                      install or update the board on the machine (default: the newest release tag)
   rollback [--dry-run]               go back to the previous image
@@ -135,6 +135,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
     flags: ['dry-run'],
     values: ['login-json'],
     run: async (context, invocation) => {
+      if (context.config.aws.compute === 'ec2')
+        throw refused(
+          'EC2 up requires the SSH/SSM host adapter (PM-677); use preflight and aws for provisioning',
+        );
       for (const command of ['preflight', 'aws', 'edge', 'deploy']) {
         context.report.line(`up: ${command}`);
         await COMMANDS[command]!.run(context, invocation);
@@ -309,6 +313,25 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
       ? path.resolve(expandHome(parsed.config, deps.homeDir))
       : defaultConfigPath(deps.homeDir);
     const config = loadConfig(configFile, deps.homeDir);
+    // Until PM-677 supplies the EC2 transport, never operate on a Lightsail namesake in the central account.
+    if (
+      config.aws.compute === 'ec2' &&
+      [
+        'deploy',
+        'rollback',
+        'status',
+        'logs',
+        'ssh',
+        'stop',
+        'start',
+        'rehearse',
+        'seed',
+        'pull-data',
+      ].includes(parsed.command)
+    )
+      throw refused(
+        'EC2 host commands require the SSH/SSM adapter (PM-677); provisioning supports preflight and aws',
+      );
     const dir = secretsDir(deps.homeDir);
     const context: CloudContext = {
       deps,

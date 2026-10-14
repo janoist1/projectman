@@ -27,27 +27,54 @@ const bucketName = z
   .refine((name) => !RESERVED_BUCKET_PARTS.some((part) => part.test(name)), 'a reserved S3 bucket name part')
   .refine((name) => !/^\d+-\d+-\d+-\d+$/.test(name), 'a bucket name must not look like an IP address');
 
-const awsSchema = z.strictObject({
-  profile: z.string().min(1).default('i'),
-  region: z.string().regex(REGION, 'an AWS region such as eu-west-1'),
-  availabilityZone: z
-    .string()
-    .regex(/^[a-z]{2}(?:-[a-z]+)+-\d{1,2}[a-z]$/, 'an availability zone such as eu-west-1a')
-    .optional(),
-  instanceName: z
-    .string()
-    .regex(INSTANCE_NAME, 'letters, digits, hyphens and underscores, at most 50 characters')
-    .default('projectman-cloud'),
-  bundleId: z.string().regex(IDENTIFIER, 'a Lightsail bundle id such as small_3_0').default('small_3_0'),
-  blueprintId: z
-    .string()
-    .regex(IDENTIFIER, 'a Lightsail blueprint id such as ubuntu_24_04')
-    .default('ubuntu_24_04'),
-  databaseBucket: bucketName,
-  backupBucket: bucketName,
-  /** Only a fallback for the machine part (PM-535). */
-  sshIdentityFile: z.string().min(1).optional(),
-});
+const awsSchema = z
+  .strictObject({
+    compute: z.enum(['lightsail', 'ec2']).default('lightsail'),
+    profile: z
+      .string()
+      .min(1)
+      .refine((value) => value.trim().length > 0, 'a non-empty profile')
+      .optional(),
+    region: z.string().regex(REGION, 'an AWS region such as eu-west-1'),
+    availabilityZone: z
+      .string()
+      .regex(/^[a-z]{2}(?:-[a-z]+)+-\d{1,2}[a-z]$/, 'an availability zone such as eu-west-1a')
+      .optional(),
+    instanceName: z
+      .string()
+      .regex(INSTANCE_NAME, 'letters, digits, hyphens and underscores, at most 50 characters')
+      .default('projectman-cloud'),
+    bundleId: z.string().regex(IDENTIFIER, 'a Lightsail bundle id such as small_3_0').default('small_3_0'),
+    blueprintId: z
+      .string()
+      .regex(IDENTIFIER, 'a Lightsail blueprint id such as ubuntu_24_04')
+      .default('ubuntu_24_04'),
+    databaseBucket: bucketName,
+    backupBucket: bucketName,
+    /** Only a fallback for the machine part (PM-535). */
+    sshIdentityFile: z.string().min(1).optional(),
+    ec2: z
+      .strictObject({
+        instanceType: z
+          .string()
+          .max(64)
+          .regex(/^[a-z][a-z0-9-]*\.[a-z0-9]+$/, 'an EC2 instance type such as t3.small'),
+        amiId: z.string().regex(/^ami-[0-9a-f]{8,17}$/, 'an AMI id'),
+        vpcId: z.string().regex(/^vpc-(?:[0-9a-f]{8}|[0-9a-f]{17})$/, 'a VPC id'),
+        subnetId: z.string().regex(/^subnet-(?:[0-9a-f]{8}|[0-9a-f]{17})$/, 'a subnet id'),
+        volumeGiB: z.number().int().min(20).max(1024),
+      })
+      .optional(),
+  })
+  .superRefine((aws, context) => {
+    if (aws.compute === 'ec2' && (aws.profile === undefined || aws.profile === 'i'))
+      context.addIssue({
+        code: 'custom',
+        path: ['profile'],
+        message: 'EC2 requires an explicit central-account profile; the registrar profile i is refused',
+      });
+  })
+  .transform((aws) => ({ ...aws, profile: aws.profile ?? 'i' }));
 
 const repositorySchema = z.strictObject({
   url: z
@@ -87,6 +114,7 @@ const accessSchema = z.strictObject({
 });
 
 const route53Schema = z.strictObject({
+  profile: z.string().min(1).optional(),
   hostedZoneId: z
     .string()
     .regex(/^Z[A-Z0-9]{4,31}$/, 'a hosted zone id such as Z0123456789ABC')
@@ -106,6 +134,8 @@ const configSchema = z
     const issue = (pathParts: (string | number)[], message: string) =>
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
+    if (aws.compute === 'ec2' && !aws.ec2)
+      issue(['aws', 'ec2'], 'required for EC2; explicitly choose the type, AMI, VPC, subnet and disk size');
     if (aws.databaseBucket === aws.backupBucket)
       issue(['aws', 'backupBucket'], 'must differ from databaseBucket');
     if (aws.availabilityZone && !aws.availabilityZone.startsWith(aws.region))
@@ -133,6 +163,7 @@ export type ParsedCloudConfig = z.output<typeof configSchema>;
 export interface CloudConfig {
   version: 1;
   aws: {
+    compute: 'lightsail' | 'ec2';
     profile: string;
     region: string;
     availabilityZone: string;
@@ -142,6 +173,7 @@ export interface CloudConfig {
     databaseBucket: string;
     backupBucket: string;
     sshIdentityFile?: string;
+    ec2?: NonNullable<ParsedCloudConfig['aws']['ec2']>;
   };
   repository: { url: string };
   cloudflare: {
@@ -153,7 +185,7 @@ export interface CloudConfig {
     tunnelName: string;
   };
   access: { emails: string[]; sessionDuration: string; integratorServiceToken: boolean };
-  route53: { hostedZoneId?: string };
+  route53: { profile: string; hostedZoneId?: string };
 }
 
 export function defaultConfigPath(homeDir: string): string {
@@ -197,7 +229,7 @@ export function parseConfig(raw: unknown, homeDir: string): CloudConfig {
       tunnelName: parsed.cloudflare.tunnelName ?? parsed.aws.instanceName,
     },
     access: parsed.access,
-    route53: parsed.route53,
+    route53: { ...parsed.route53, profile: parsed.route53.profile ?? parsed.aws.profile },
   };
 }
 

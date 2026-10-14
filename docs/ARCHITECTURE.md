@@ -1213,7 +1213,7 @@ workers follow the machine's size.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
-  that creates and maintains the cloud board on AWS Lightsail: `preflight` and `aws` (PM-534: the machine,
+  that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
   `scripts/cloud/dns.ts`: Route 53 read/import, authoritative verification using `CloudDeps.resolve`
@@ -1222,13 +1222,38 @@ workers follow the machine's size.
   orchestration). Forward switching requires successful verification in the same run and no DNSSEC
   keys or public DS; rollback targets the retained AWS delegation set. It calls the `aws` CLI v2 with argv (profile and
   region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
-  assumptions: the `aws` CLI v2 with the profile `i` on the owner's Mac, later `ssh`/`scp`, and the secrets
+  assumptions: the `aws` CLI v2 with explicit profiles on the owner's Mac (PM-664: central resources
+  in `aroom`, registrar/retained Route 53 source reads in `i` through `route53.profile`; absent:
+  `aws.profile`), later `ssh`/`scp`, and the secrets
   store `~/.config/projectman/cloud/` (directory 700, files 600, symbolic links and wider modes refused;
   `config.json`, `cloudflare-token`, `cloud.env`), which sits under `~/.config/projectman`, a path the AI
-  sessions' sandboxes deny. No state file: resources are found by name. **Remote engine:** nothing runs on
+  sessions' sandboxes deny. No state file: resources are found by name/ownership tags. **Remote engine:** nothing runs on
   an engine; this is the owner's tool and the cloud machine it provisions is the server side. The
   `cloud.env` it writes is what the container of "Cloud deployment and backup" reads.
   **Module:** `scripts`
+
+- **EC2 provisioning and account boundary (PM-676, part of PM-664)** — `scripts/cloud/{config,aws,aws-cli,ec2,commands}.ts`,
+  `deploy/aws/{config.example.json,ec2-bootstrap.sh}`, `apps/server/test/cloud-ec2.test.ts`,
+  `apps/server/test/helpers/fake-ec2.ts`, `docs/AWS.md`. **What runs where:** owner-only AWS CLI v2
+  on the Mac reads STS identity and provisions one Ubuntu 24.04 amd64 HVM/EBS EC2 instance in the
+  configured central profile/region, existing VPC/public subnet, dedicated empty-inbound security
+  group, EC2-only SSM host role/profile, and the shared private S3/backup-user resources. EC2 type,
+  AMI and encrypted gp3 volume size are explicit, never paid defaults. Catalogue/preflight checks
+  Canonical image ownership and exactly one persistent root EBS mapping (ephemeral AMI mappings
+  are accepted), VPC/subnet/account, DNS, effective IGW route, conservative IPv4 NACL
+  reachability and type support/AZ offering. Public IPv4 is outbound access for apt/Docker/SSM/tunnel;
+  no NAT/LB/extra host, no public ingress. IMDSv2/hop-limit 1, termination protection and shutdown=stop.
+  **Machine assumptions:** owner logins `aroom`/`i`, AWS CLI, selected existing internet network,
+  Ubuntu apt/snap/systemd; public bootstrap installs sshd/EIC/SSM with no secret or board payload.
+  The script prints instance/EBS/IPv4 cost components before launch; the owner records regional
+  rates and approves execution. The newly created security group is read/validated with bounded
+  propagation waits before launch; launch-time group/profile propagation retries keep the same token.
+  Names/managed tags and a deterministic public-request ClientToken
+  recover partial runs/restarts; ambiguity, foreign ownership or dangerous drift refuses creation,
+  with no automatic destructive repair. `--dry-run` writes nothing. **Remote engine:** provisioning
+  remains on the owner's machine for the central server, never on an engine; the Mac engine gets
+  no AWS credentials, and no new server/engine RPC or payload crosses the boundary. SSH over SSM
+  host operation follows in PM-677; the Lightsail host adapter below remains its compatibility path.
 
 - **The Lightsail machine and its operation (PM-535)** — `scripts/cloud/{host,machine}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,

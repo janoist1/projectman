@@ -185,6 +185,31 @@ describe('Route 53 mapping', () => {
 });
 
 describe('DNS commands', () => {
+  it('reads the source zone and registrar from i while compute is configured for aroom', async () => {
+    world.writeConfig({
+      aws: {
+        region: 'eu-west-1',
+        profile: 'aroom',
+        databaseBucket: 'acme-projectman-db',
+        backupBucket: 'acme-projectman-backup',
+      },
+      route53: { profile: 'i' },
+    });
+    expect(await run('plan')).toBe(0);
+    expect(awsCalls.length).toBeGreaterThan(0);
+    expect(awsCalls.every((call) => call.slice(0, 4).join(' ') === '--profile i --region eu-west-1')).toBe(
+      true,
+    );
+    awsCalls.length = 0;
+    expect(await run('status')).toBe(0);
+    expect(
+      awsCalls
+        .filter((call) => call[6] === 'route53domains')
+        .every((call) => call.slice(0, 4).join(' ') === '--profile i --region us-east-1'),
+    ).toBe(true);
+    expect(awsCalls.some((call) => call[7] === 'update-domain-nameservers')).toBe(false);
+  });
+
   it('normalizes hostnames and SRV/CAA API metadata while preserving TXT case', async () => {
     sources = [
       rr('CNAME', ['target.test.'], 'alias.example.com.'),

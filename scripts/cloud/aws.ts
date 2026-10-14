@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import { z } from 'zod';
 import { AwsCallError, AwsCli } from './aws-cli';
 import type { CloudContext } from './context';
+import { ec2Preflight, runEc2 } from './ec2';
 import { CloudError, refused } from './errors';
 import type { StepResult } from './report';
 import { checkSecretsDir, inspectSecrets, newResticPassword, readEnvFile, updateEnvFile } from './secrets';
 
 /**
- * The AWS steps of the cloud commands (PM-534): `preflight` (the AWS part) and `aws`, which creates the Lightsail
- * machine, the two S3 buckets, the two IAM users and their access keys. Everything is found by name, so a second
+ * The AWS steps of the cloud commands (PM-534, PM-676): `preflight` (the AWS part) and `aws`, which creates the
+ * EC2 or Lightsail machine, the two S3 buckets, the two IAM users and their access keys. Resources are found by name, so a second
  * run changes nothing; `--dry-run` runs only reading calls and prints what it would change.
  */
 
@@ -203,51 +204,74 @@ export async function awsPreflight(context: CloudContext): Promise<void> {
   });
 
   if (versionOk) {
+    let account = '';
     const identified = await check('aws-login', async () => {
       const identity = await cli.callAs(['sts', 'get-caller-identity'], identitySchema);
+      account = identity.Account;
       return {
         status: 'ok',
-        detail: `profile ${config.aws.profile}, account ${identity.Account}${identity.Arn ? ` (${identity.Arn})` : ''}`,
+        detail: `profile ${config.aws.profile}, account ${identity.Account}${identity.Arn ? ` (${identity.Arn})` : ''}${config.aws.compute === 'ec2' ? `, region ${config.aws.region}` : ''}`,
       };
     });
     if (identified) {
-      await check('aws-region', async () => {
-        const answer = await cli.callAs(
-          ['lightsail', 'get-regions', '--include-availability-zones'],
-          regionsSchema,
-        );
-        const region = answer.regions.find((item) => item.name === config.aws.region);
-        if (!region) throw refused(`Lightsail has no region ${config.aws.region}`);
-        const zones = region.availabilityZones?.map((zone) => zone.zoneName) ?? [];
-        if (zones.length > 0 && !zones.includes(config.aws.availabilityZone))
-          throw refused(`${config.aws.availabilityZone} is not an availability zone of ${config.aws.region}`);
-        return { status: 'ok', detail: `${config.aws.region}, ${config.aws.availabilityZone}` };
-      });
-      await check('aws-bundle', async () => {
-        const bundles = await pages(cli, ['lightsail', 'get-bundles'], bundlesSchema, (page) => page.bundles);
-        const bundle = bundles.find((item) => item.bundleId === config.aws.bundleId);
-        if (!bundle || bundle.isActive === false)
-          throw refused(`the Lightsail bundle ${config.aws.bundleId} does not exist or is not active`);
-        return { status: 'ok', detail: config.aws.bundleId };
-      });
-      await check('aws-blueprint', async () => {
-        const blueprints = await pages(
-          cli,
-          ['lightsail', 'get-blueprints'],
-          blueprintsSchema,
-          (page) => page.blueprints,
-        );
-        const blueprint = blueprints.find((item) => item.blueprintId === config.aws.blueprintId);
-        if (!blueprint || blueprint.isActive === false)
-          throw refused(`the Lightsail blueprint ${config.aws.blueprintId} does not exist or is not active`);
-        return { status: 'ok', detail: config.aws.blueprintId };
-      });
+      if (config.aws.compute === 'ec2') {
+        await check('aws-ec2', async () => {
+          await ec2Preflight(context, cli, account);
+          return { status: 'ok', detail: 'Ubuntu 24.04 amd64, public subnet, outbound only' };
+        });
+      } else {
+        await check('aws-region', async () => {
+          const answer = await cli.callAs(
+            ['lightsail', 'get-regions', '--include-availability-zones'],
+            regionsSchema,
+          );
+          const region = answer.regions.find((item) => item.name === config.aws.region);
+          if (!region) throw refused(`Lightsail has no region ${config.aws.region}`);
+          const zones = region.availabilityZones?.map((zone) => zone.zoneName) ?? [];
+          if (zones.length > 0 && !zones.includes(config.aws.availabilityZone))
+            throw refused(
+              `${config.aws.availabilityZone} is not an availability zone of ${config.aws.region}`,
+            );
+          return { status: 'ok', detail: `${config.aws.region}, ${config.aws.availabilityZone}` };
+        });
+        await check('aws-bundle', async () => {
+          const bundles = await pages(
+            cli,
+            ['lightsail', 'get-bundles'],
+            bundlesSchema,
+            (page) => page.bundles,
+          );
+          const bundle = bundles.find((item) => item.bundleId === config.aws.bundleId);
+          if (!bundle || bundle.isActive === false)
+            throw refused(`the Lightsail bundle ${config.aws.bundleId} does not exist or is not active`);
+          return { status: 'ok', detail: config.aws.bundleId };
+        });
+        await check('aws-blueprint', async () => {
+          const blueprints = await pages(
+            cli,
+            ['lightsail', 'get-blueprints'],
+            blueprintsSchema,
+            (page) => page.blueprints,
+          );
+          const blueprint = blueprints.find((item) => item.blueprintId === config.aws.blueprintId);
+          if (!blueprint || blueprint.isActive === false)
+            throw refused(
+              `the Lightsail blueprint ${config.aws.blueprintId} does not exist or is not active`,
+            );
+          return { status: 'ok', detail: config.aws.blueprintId };
+        });
+      }
     }
     if (!identified)
-      for (const step of ['aws-region', 'aws-bundle', 'aws-blueprint'])
+      for (const step of config.aws.compute === 'ec2'
+        ? ['aws-ec2']
+        : ['aws-region', 'aws-bundle', 'aws-blueprint'])
         context.report.step('skipped', step, 'the login failed');
   } else {
-    for (const step of ['aws-login', 'aws-region', 'aws-bundle', 'aws-blueprint'])
+    for (const step of [
+      'aws-login',
+      ...(config.aws.compute === 'ec2' ? ['aws-ec2'] : ['aws-region', 'aws-bundle', 'aws-blueprint']),
+    ])
       context.report.step('skipped', step, 'the aws CLI check failed');
   }
 
@@ -314,13 +338,21 @@ export async function runAws(context: CloudContext, options: AwsOptions): Promis
 
   const account = await report.guard('identity', async () => {
     const identity = await cli.callAs(['sts', 'get-caller-identity'], identitySchema);
-    report.step('ok', 'identity', `profile ${config.aws.profile}, account ${identity.Account}`);
+    report.step(
+      'ok',
+      'identity',
+      `profile ${config.aws.profile}, account ${identity.Account}${config.aws.compute === 'ec2' ? `, region ${config.aws.region}` : ''}`,
+    );
     return identity.Account;
   });
 
-  const instanceFound = await ensureInstance(context, cli, options);
-  await ensureMetadataOptions(context, cli, options, instanceFound);
-  await ensureFirewall(context, cli, options, instanceFound);
+  if (config.aws.compute === 'ec2') {
+    await report.guard('ec2', () => runEc2(context, cli, account, options.dryRun));
+  } else {
+    const instanceFound = await ensureInstance(context, cli, options);
+    await ensureMetadataOptions(context, cli, options, instanceFound);
+    await ensureFirewall(context, cli, options, instanceFound);
+  }
   for (const bucket of [config.aws.databaseBucket, config.aws.backupBucket])
     await ensureBucket(context, cli, options, account, bucket);
   const existing: Record<string, boolean> = {};

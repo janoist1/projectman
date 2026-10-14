@@ -5,13 +5,6 @@ export const coreMembers: ModuleEntry = {
   layer: 'core',
   target: 'core/members',
   pass: 'split',
-  paths: [
-    'core/members/',
-    'domain/members.ts',
-    'domain/access.ts',
-    'domain/invitations.ts',
-    'domain/presence.ts',
-    'domain/naming.ts',
-  ],
+  paths: ['core/members/'],
   sealed: true,
 };

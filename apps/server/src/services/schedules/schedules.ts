@@ -1,10 +1,10 @@
 import { cronMatches, memberOf, nextCronRun, ScheduleSkipReason } from '@projectman/shared';
 import type { Actor, ScheduleRun, SchedulesView, Session } from '@projectman/shared';
 import type { DomainContext } from '../../domain/context';
-import { DomainError, invalid, notFound, unavailable } from '../../domain/errors';
+import { DomainError, invalid, notFound, unavailable } from '../../kernel';
 import type { ProjectService } from '../../domain/projects';
 import type { TimelineService } from '../../domain/timeline';
-import { excerpt, newId, SYSTEM_ACTOR } from '../../domain/util';
+import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { ScheduleAdmission, ScheduleTimer } from './ports';
 import { MinuteTimer } from './timer';
 

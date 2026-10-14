@@ -33,9 +33,9 @@ import type { ProjectRecord } from '../db';
 import { projectAccessFor } from './access';
 import { isoNow } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
-import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from './errors';
+import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from '../kernel';
 import type { TimelineService } from './timeline';
-import { humanActor, KeyedMutex } from './util';
+import { humanActor, KeyedMutex } from '../kernel';
 
 /** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */
 function assertOperatorFixed(previous: ProjectConfig | null, next: ProjectConfig): void {

@@ -21,11 +21,11 @@ import type {
 import type { AttachmentRecord } from '../../db';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { DomainError, forbidden, notFound } from '../errors';
+import { DomainError, forbidden, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TaskService } from '../tasks';
 import type { TimelineService } from '../timeline';
-import { KeyedMutex, SYSTEM_ACTOR, newId } from '../util';
+import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../kernel';
 import { sanitizeFileName } from './file-name';
 import { sniffMediaType } from './media-type';
 import { TEMPORARY_SUFFIX, thumbnailOwner, viewOwner } from './storage';

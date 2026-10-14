@@ -9,7 +9,7 @@ import type {
   MemberConfig,
   ProjectConfig,
 } from '@projectman/shared';
-import { forbidden, invalid, notFound } from './errors';
+import { forbidden, invalid, notFound } from '../kernel';
 
 /** A logged-in user's membership in one project. */
 export interface ProjectAccess {

@@ -28,7 +28,7 @@ import type {
 import type { DomainContext } from '../../domain/context';
 import { QUESTION_LIMIT } from '../../domain/card-questions';
 import type { CardQuestions } from '../../domain/card-questions';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import {
   canSeeTask,
   clientCanSeeTimelineEvent,
@@ -41,7 +41,7 @@ import type { SessionCloser } from '../../runtime/sessions';
 import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TaskService, TaskWaits } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import { aiActor, humanActor, unique } from '../../domain/util';
+import { aiActor, humanActor, unique } from '../../kernel';
 
 import type { ToolCaller, GuestView } from '../caller';
 import type { TaskToolsHandler } from '../../contracts';

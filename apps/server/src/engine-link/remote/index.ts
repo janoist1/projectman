@@ -9,7 +9,7 @@ import type {
   RunnerModule,
   ToolContext,
 } from '../../contracts';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import type { EngineLinks } from '../index';
 import { createAttachmentMaterializer } from './attachments';
 import { createRemoteGithub } from './github';

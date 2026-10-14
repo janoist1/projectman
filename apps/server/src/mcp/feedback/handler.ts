@@ -10,9 +10,9 @@ import type {
 } from '../../contracts';
 import type { DomainContext } from '../../domain/context';
 import { engineIdOf } from '../../runtime/sessions';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { ProjectService } from '../../domain/projects';
-import { aiActor } from '../../domain/util';
+import { aiActor } from '../../kernel';
 import type { FeedbackService } from '../../services/feedback';
 import { toToolError, type ToolCaller } from '../caller';
 

@@ -9,7 +9,7 @@ import type {
   Task,
   TaskStartWaiting,
 } from '@projectman/shared';
-import { conflict, DomainError } from '../../domain/errors';
+import { conflict, DomainError } from '../../kernel';
 
 /** The project's AI master switch: while it is off, no AI session starts or resumes. */
 export function assertAiEnabled(config: ProjectConfig): void {

@@ -22,14 +22,14 @@ import type { OperatorRequestRecord } from '../../db';
 import { ownerHandles } from '../../domain/access';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { conflict, DomainError, forbidden, invalid, notFound } from '../../domain/errors';
+import { conflict, DomainError, forbidden, invalid, notFound } from '../../kernel';
 import { DECISION_OPTIONS } from '../../domain/inbox';
 import type { InboxService, Resolver } from '../../domain/inbox';
 import type { MemberService } from '../../domain/members';
 import type { MessageService } from '../../domain/messaging';
 import type { OperatorSteps } from './requests';
 import type { Author, ProjectService } from '../../domain/projects';
-import { aiActor, newId, SYSTEM_ACTOR } from '../../domain/util';
+import { aiActor, newId, SYSTEM_ACTOR } from '../../kernel';
 
 interface Dependencies {
   ctx: DomainContext;

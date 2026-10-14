@@ -7,8 +7,8 @@ import type {
   TaskDeveloperLevel,
   TimelineEventData,
 } from '@projectman/shared';
-import { conflict, forbidden, invalid, themeRefused } from '../errors';
-import { actorHandle } from '../util';
+import { conflict, forbidden, invalid, themeRefused } from '../../kernel';
+import { actorHandle } from '../../kernel';
 
 /** A change of the card's recommended developer that passed the rules: what to store and what to record. */
 export interface DeveloperLevelChange {

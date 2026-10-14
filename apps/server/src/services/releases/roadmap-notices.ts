@@ -3,7 +3,7 @@ import type { DomainContext } from '../../domain/context';
 import type { DomainEventMap } from '../../domain/events';
 import type { Messaging } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
-import { SYSTEM_ACTOR } from '../../domain/util';
+import { SYSTEM_ACTOR } from '../../kernel';
 
 /**
  * A proposed release is a moment to compare the roadmap with the board (PM-497). The Operator is told with

@@ -4,7 +4,7 @@ import type { Me, SetupStatus } from '@projectman/shared';
 import { apiError } from '../api/errors';
 import { parseBody } from '../api/validation';
 import type { Domain } from '../domain';
-import { DomainError, forbidden } from '../domain/errors';
+import { DomainError, forbidden } from '../kernel';
 import { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
 import { AuthService } from './auth-service';
 import type { AuthUser } from './auth-service';

@@ -9,7 +9,7 @@ import type { DomainContext } from '../../domain/context';
 import type { Messaging } from '../../domain/messaging';
 import type { MessageAttachmentService } from '../../domain/message-attachments';
 import { RELAY_WINDOW_MS, type OperatorRequests } from '../../services/operator';
-import { aiActor } from '../../domain/util';
+import { aiActor } from '../../kernel';
 import { toMessageToolError, toFileToolError, isOwner, OWNER_ONLY } from '../caller';
 
 export class MessageTools implements MessageToolsHandler {

@@ -1,4 +1,4 @@
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 
 /** The lines of a text: none for an empty one; the line break that ends the last line does not start another. */
 export function docLines(text: string): string[] {

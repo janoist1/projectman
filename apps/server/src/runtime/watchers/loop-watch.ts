@@ -34,7 +34,7 @@ import type { ConfigChange, ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import { KeyedMutex, SYSTEM_ACTOR, humanActor, newId } from '../../domain/util';
+import { KeyedMutex, SYSTEM_ACTOR, humanActor, newId } from '../../kernel';
 
 /** The most entries of a card read at once: far more than a threshold (50 at most) needs. */
 const TALK_LIMIT = 1000;

@@ -15,7 +15,7 @@ import {
 import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
 import { notFound } from '../domain';
 import type { Domain } from '../domain';
-import { forbidden } from '../domain/errors';
+import { forbidden } from '../kernel';
 import { canSeeTask, teamMessageParticipant, visibleSession } from '../domain/visibility';
 import type { Viewer } from '../domain/visibility';
 import { actorOf, requireAccess } from './context';

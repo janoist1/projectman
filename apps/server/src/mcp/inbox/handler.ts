@@ -20,14 +20,14 @@ import type {
 } from '@projectman/shared';
 import type { InboxToolsHandler } from '../../contracts/team-tools';
 import type { DomainContext } from '../../domain/context';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import { ANSWER_OPTION, sponsorOrOwners } from '../../domain/inbox';
 import type { InboxService } from '../../domain/inbox';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
 import type { QuestionScreening } from '../../domain/question-screening';
 import type { OpenQuestionLabel } from '../../domain/open-question-label';
-import { aiActor, unique } from '../../domain/util';
+import { aiActor, unique } from '../../kernel';
 
 export class InboxTools implements InboxToolsHandler {
   private readonly calls: ToolCaller;

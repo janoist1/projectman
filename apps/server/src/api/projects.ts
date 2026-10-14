@@ -4,7 +4,7 @@ import type { BoardView, ProjectPreview, ProjectSummary, TemplateSummary } from 
 import { summarizeTemplate } from '@projectman/templates';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
-import { forbidden } from '../domain/errors';
+import { forbidden } from '../kernel';
 import { authorOf, currentUser, requireAccess } from './context';
 import { parseBody } from './validation';
 

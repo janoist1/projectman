@@ -11,13 +11,13 @@ import type { WakeStart } from '../../contracts';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../../domain/access';
 import { isoNow } from '../../domain/context';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { MessageDelivery, MessageService } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
 import { LIVE_SESSION_STATES } from '../sessions';
 import type { SessionStartCause } from '../sessions';
 import type { TaskService } from '../../domain/tasks';
-import { unique } from '../../domain/util';
+import { unique } from '../../kernel';
 import type { Admission, AttemptOutcome } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
 

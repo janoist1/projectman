@@ -8,7 +8,7 @@ import type { ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { OPERATOR_GUEST_TOOLS } from '../src/services/operator';
-import { humanActor } from '../src/domain/util';
+import { humanActor } from '../src/kernel';
 import { buildClaudeArgs, buildSettings } from '../src/runner/providers/claude/args';
 import { canSeeProjectEvent } from '../src/domain/visibility';
 import { waitFor } from '../src/runner/test-helpers';

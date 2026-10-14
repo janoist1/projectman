@@ -32,13 +32,13 @@ import type { EngineDirectory } from '../../contracts';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
 import type { DiskGuard } from '../watchers';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import { highestUsagePercent } from '../usage';
 import type { PlanUsageCache } from '../usage';
 import type { ProjectService } from '../../domain/projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../../domain/tasks';
-import { KeyedMutex } from '../../domain/util';
+import { KeyedMutex } from '../../kernel';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
 import {
   assertAiEnabled,

@@ -10,10 +10,10 @@ import type { DocWriteEdit, DocWritePatch, DocWriteRecord } from '../../db';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
 import { applyDocEdits, isAppendOnly } from './doc-edits';
-import { conflict, DomainError } from '../../domain/errors';
+import { conflict, DomainError } from '../../kernel';
 import type { Messaging } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
-import { newId, SYSTEM_ACTOR } from '../../domain/util';
+import { newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** Why a write of the Operator's documents did not go up. */
 export type DocWriteFailure =

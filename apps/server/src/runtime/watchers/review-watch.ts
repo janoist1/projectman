@@ -5,7 +5,7 @@ import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import { stopStageReviewers, workStageBefore } from '../../domain/stage-reviewers';
 import type { TaskService } from '../../domain/tasks';
-import { KeyedMutex, SYSTEM_ACTOR } from '../../domain/util';
+import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
 
 /**
  * Reviews and tests work on the commit that was handed over (PM-183): the task's review pin. This

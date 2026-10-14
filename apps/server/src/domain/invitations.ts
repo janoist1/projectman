@@ -13,12 +13,12 @@ import type { AuthService, AuthUser } from '../auth/auth-service';
 import type { InvitationRecord } from '../db/invitations';
 import { findHumanByEmail, hasAccess, requireMemberAccess } from './access';
 import type { DomainContext } from './context';
-import { conflict, DomainError, forbidden, invalid, notFound } from './errors';
+import { conflict, DomainError, forbidden, invalid, notFound } from '../kernel';
 import { assertRoleFor } from './members';
 import type { MemberService } from './members';
 import type { ProjectService } from './projects';
 import { roleViews } from './roles';
-import { KeyedMutex, newId } from './util';
+import { KeyedMutex, newId } from '../kernel';
 import { humanMemberHandle } from './naming';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

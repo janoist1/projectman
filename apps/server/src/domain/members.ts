@@ -42,7 +42,7 @@ import { findHumanByEmail, ownerHandles, requireAiMember, requireHuman } from '.
 import type { ProjectAccess } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict, DomainError, invalid, notFound } from './errors';
+import { conflict, DomainError, invalid, notFound } from '../kernel';
 import type { InboxService } from './inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
@@ -52,7 +52,7 @@ import type { SessionOrchestrator } from '../runtime/sessions';
 import { isOpenTask, isTheme } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
-import { unique } from './util';
+import { unique } from '../kernel';
 import {
   canSeeTask,
   isClient,

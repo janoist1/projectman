@@ -32,9 +32,9 @@ import { ThumbnailMaker } from '../attachments/thumbnail';
 import { receiveUpload, storageFailed } from '../attachments/upload';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { DomainError, forbidden, invalid, notFound } from '../errors';
+import { DomainError, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
-import { KeyedMutex, SYSTEM_ACTOR, newId } from '../util';
+import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../kernel';
 import { MessageImageRenderer } from './image';
 import { messageFileOwner } from './storage';
 

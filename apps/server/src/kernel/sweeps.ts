@@ -1,5 +1,5 @@
 import { Data, Effect, Exit, FiberMap, FiberSet, Scope } from 'effect';
-import { abortable, runFork, runPromise } from './index';
+import { abortable, runFork, runPromise } from './effect';
 
 /** One periodic sweep of the composition (PM-613). */
 export interface Sweep {

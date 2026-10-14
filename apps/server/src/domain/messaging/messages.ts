@@ -24,8 +24,8 @@ import type { DomainContext } from '../context';
 import type { OperatorRequests } from '../../services/operator';
 import type { TimelineService } from '../timeline';
 import type { ProjectService } from '../projects';
-import { forbidden, notFound } from '../errors';
-import { excerpt, newId, SYSTEM_ACTOR } from '../util';
+import { forbidden, notFound } from '../../kernel';
+import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 
 export interface RecordMessageInput {
   id?: string;

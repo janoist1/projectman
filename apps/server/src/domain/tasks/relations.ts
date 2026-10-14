@@ -21,7 +21,7 @@ import type {
 } from '@projectman/shared';
 import { hasAccess } from '../access';
 import { isoNow } from '../context';
-import { forbidden, invalid } from '../errors';
+import { forbidden, invalid } from '../../kernel';
 import type { AddedRelation } from '../events';
 import type { Effect, TaskStore } from './store';
 

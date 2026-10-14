@@ -26,7 +26,7 @@ import type { TaskPatch } from '../../db';
 import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../context';
 import { requireHuman } from '../access';
-import { invalid, notFound } from '../errors';
+import { invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
 import { LIVE_SESSION_STATES } from '../../runtime/sessions';
 import type { TimelineService } from '../timeline';

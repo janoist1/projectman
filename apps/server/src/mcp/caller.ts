@@ -16,7 +16,7 @@ import type { EngineHost, WorkspaceFile, ToolContext } from '../contracts';
 import { isWithin } from '../runtime/permissions';
 import type { DomainContext } from '../domain/context';
 import { isoNow } from '../domain/context';
-import { DomainError } from '../domain/errors';
+import { DomainError } from '../kernel';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import {
   OPERATOR_GUEST_TOOLS,

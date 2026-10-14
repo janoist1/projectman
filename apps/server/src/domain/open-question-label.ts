@@ -10,7 +10,7 @@ import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
-import { excerpt, SYSTEM_ACTOR } from './util';
+import { excerpt, SYSTEM_ACTOR } from '../kernel';
 
 /**
  * The waiting label of an open AI question (PM-185, rule 3 of PM-176). While an AI member's

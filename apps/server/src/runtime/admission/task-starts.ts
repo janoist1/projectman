@@ -30,13 +30,13 @@ import type {
   Task,
 } from '@projectman/shared';
 import { ownerHandles } from '../../domain/access';
-import { conflict, forbidden, invalid, notFound, themeRefused } from '../../domain/errors';
+import { conflict, forbidden, invalid, notFound, themeRefused } from '../../kernel';
 import type { MemberService } from '../../domain/members';
 import type { Author, ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import { approvalRequestedError, gateBlockedError } from '../../domain/tasks';
 import type { StageChange, TaskService } from '../../domain/tasks';
-import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../domain/util';
+import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../kernel';
 import type { Admission } from './admission';
 import { assertPrerequisitesClosed } from './rules';
 import type { SeniorWaits } from './senior-waits';

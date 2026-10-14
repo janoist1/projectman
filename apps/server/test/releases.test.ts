@@ -6,7 +6,7 @@ import { sendControlRequest } from '../../../scripts/control/client';
 import { serveControlConnection } from '../src/control';
 import type { ControlRelease } from '../src/control';
 import type { BranchMerger, MergeBaseState } from '../src/contracts';
-import { conflict } from '../src/domain/errors';
+import { conflict } from '../src/kernel';
 import type { Resolver } from '../src/domain/inbox';
 import type { Messaging } from '../src/domain/messaging';
 import type { ProjectService } from '../src/domain/projects';

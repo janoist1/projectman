@@ -30,7 +30,7 @@ import type { FullTestQueueEffects } from './queue';
 import { stopStageReviewers, workStageBefore } from '../../domain/stage-reviewers';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import { newId, SYSTEM_ACTOR } from '../../domain/util';
+import { newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** How much of a failed run's output the developer's message carries. */
 const MESSAGE_OUTPUT_CHARS = 3000;

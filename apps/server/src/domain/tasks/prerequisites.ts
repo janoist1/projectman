@@ -2,7 +2,7 @@ import { isOpenTask, openPrerequisites } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import type { DomainContext } from '../context';
 import type { TimelineService } from '../timeline';
-import { SYSTEM_ACTOR } from '../util';
+import { SYSTEM_ACTOR } from '../../kernel';
 
 /**
  * What closing a card means to the cards that need it first (PM-192, PM-204). A card closes when it

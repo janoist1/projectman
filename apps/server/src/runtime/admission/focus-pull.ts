@@ -20,7 +20,7 @@ import type {
   Task,
 } from '@projectman/shared';
 import type { DomainContext } from '../../domain/context';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { ProjectFocusService } from '../../domain/project-focus';
 import type { ProjectService } from '../../domain/projects';
 import type { TaskService } from '../../domain/tasks';

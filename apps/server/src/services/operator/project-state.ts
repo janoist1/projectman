@@ -20,7 +20,7 @@ import type { ProjectService } from '../../domain/projects';
 import type { TaskService, TaskWaits } from '../../domain/tasks';
 import type { OperatorSignals } from './signals';
 import { LIVE_SESSION_STATES } from '@projectman/shared';
-import { invalid, notFound } from '../../domain/errors';
+import { invalid, notFound } from '../../kernel';
 import { staleReasonFor, wakeFactsFor } from '../../domain/messaging';
 
 /** Read-only reports over the server's existing work records. */

@@ -1,7 +1,7 @@
 import { isOperator, memberOf } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { ToolContext, ReleaseToolsHandler, ProposedRelease, ReleaseCheckResult } from '../../contracts';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { ReleaseService } from '../../services/releases';
 import type { ToolCaller } from '../caller';
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { memberOf, operatorApprovalOf, operatorWatchOf } from '@projectman/shared';
-import { humanActor } from '../src/domain/util';
+import { humanActor } from '../src/kernel';
 import type { AiMemberConfig, OperatorOperation, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';

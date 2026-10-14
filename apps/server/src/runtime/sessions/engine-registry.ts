@@ -4,7 +4,7 @@ import type { CreateEngineResponse, EngineId, EngineStatusView, EngineView } fro
 import { z } from 'zod';
 import type { EventBus } from '../../contracts';
 import type { EngineRecord, Repositories } from '../../db';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 
 const StoredHello = z.object({
   hostname: z.string(),

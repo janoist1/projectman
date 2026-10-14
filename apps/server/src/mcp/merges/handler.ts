@@ -1,7 +1,7 @@
 import { isOperator, memberOf } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import type { MergeToolsHandler, ToolContext } from '../../contracts';
-import { aiActor } from '../../domain/util';
+import { aiActor } from '../../kernel';
 import type { Merges } from '../../services/merges';
 import type { ToolCaller } from '../caller';
 

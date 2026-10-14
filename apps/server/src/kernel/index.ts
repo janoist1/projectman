@@ -1,3 +1,29 @@
+export {
+  DomainError,
+  notFound,
+  forbidden,
+  ownerLoginRequired,
+  projectManagerMoveRefused,
+  invalid,
+  conflict,
+  themeRefused,
+  unavailable,
+} from './errors';
+export {
+  newId,
+  newUuid,
+  newToken,
+  SYSTEM_ACTOR,
+  SYSTEM_AUTHOR,
+  humanActor,
+  aiActor,
+  actorHandle,
+  unique,
+  KeyedMutex,
+  excerpt,
+} from './util';
+export { BackgroundTasks } from './background';
+
 export { abortable, runFork, runPromise } from './effect';
 export { startSweeps } from './sweeps';
 export type { RunningSweeps, Sweep } from './sweeps';

@@ -3,7 +3,7 @@ import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import type { DecisionCandidate, DecisionMark } from '../../contracts';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 
 /** The most characters of a question (title and body) a candidate carries. */
 export const MAX_CANDIDATE_QUESTION_CHARS = 2000;

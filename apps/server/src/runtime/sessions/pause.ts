@@ -29,7 +29,7 @@ import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from './sessions';
 import { waitForShutdownStops } from './shutdown-wait';
 import type { AppendTimelineInput, TimelineService } from '../../domain/timeline';
-import { humanActor, newId, SYSTEM_ACTOR } from '../../domain/util';
+import { humanActor, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** Catches up the scheduled runs a pause skipped; services/schedules supplies it, the assembly passes it. */
 export interface MissedRunCatchUp {

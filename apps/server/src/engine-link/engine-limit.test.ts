@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
-import { newId } from '../domain/util';
+import { newId } from '../kernel';
 import { createEngineLimit } from './engine-limit';
 import type { EngineLimit } from './engine-limit';
 import type { ResolvedEngineConfig } from './engine-config';

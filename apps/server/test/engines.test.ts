@@ -24,7 +24,7 @@ import type {
   ScreenshotExecutor,
   ScreenshotRunSpec,
 } from '../src/contracts';
-import { DomainError } from '../src/domain/errors';
+import { DomainError } from '../src/kernel';
 import { createLocalEngine } from '../src/engine-host';
 import { engineIdOf, engineOption, LocalEngineDirectory } from '../src/runtime/sessions';
 import { memberSandboxDir } from '../src/runtime/sessions';

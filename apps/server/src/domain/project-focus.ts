@@ -14,7 +14,7 @@ import type {
 } from '@projectman/shared';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { DomainError, conflict, forbidden, notFound } from './errors';
+import { DomainError, conflict, forbidden, notFound } from '../kernel';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';

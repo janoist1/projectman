@@ -13,7 +13,7 @@ import type {
   Stage,
   Task,
 } from '@projectman/shared';
-import { DomainError } from '../errors';
+import { DomainError } from '../../kernel';
 import type { BoardOrder } from './board-order';
 import type { PreparedMove, TaskMoves } from './moves';
 import type { Effect, TaskStore } from './store';

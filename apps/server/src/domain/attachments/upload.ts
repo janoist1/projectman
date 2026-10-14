@@ -2,7 +2,7 @@ import { Transform } from 'node:stream';
 import type { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { MAX_ATTACHMENT_BYTES } from '@projectman/shared';
-import { DomainError, invalid } from '../errors';
+import { DomainError, invalid } from '../../kernel';
 import { SNIFF_BYTES } from './media-type';
 
 export const storageFailed = (message: string) =>

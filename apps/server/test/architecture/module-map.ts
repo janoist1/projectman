@@ -1,3 +1,12 @@
+import { coreBase } from './modules/core-base';
+import { coreProjects } from './modules/core-projects';
+import { coreTasks } from './modules/core-tasks';
+import { coreMembers } from './modules/core-members';
+import { coreTimeline } from './modules/core-timeline';
+import { coreMessages } from './modules/core-messages';
+import { coreInbox } from './modules/core-inbox';
+import { coreAttachments } from './modules/core-attachments';
+
 export type Layer =
   'contracts' | 'infra' | 'core' | 'runtime' | 'service' | 'engine' | 'connector' | 'assembly';
 
@@ -81,8 +90,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'kernel',
     pass: 'move',
-    paths: ['kernel/', 'domain/errors.ts', 'domain/util.ts', 'domain/background.ts'],
-    sealed: false,
+    paths: ['kernel/'],
+    sealed: true,
   },
   {
     id: 'agent-text',
@@ -92,90 +101,14 @@ export const MODULES: readonly ModuleEntry[] = [
     paths: ['agent-text/'],
     sealed: false,
   },
-  {
-    id: 'core/base',
-    layer: 'core',
-    target: 'core/base',
-    pass: 'split',
-    paths: ['domain/context.ts', 'domain/events.ts', 'domain/event-bus.ts'],
-    sealed: false,
-  },
-  {
-    id: 'core/projects',
-    layer: 'core',
-    target: 'core/projects',
-    pass: 'split',
-    paths: ['domain/projects.ts', 'domain/roles.ts', 'domain/stage-reviewers.ts', 'domain/visibility.ts'],
-    sealed: false,
-  },
-  {
-    id: 'core/tasks',
-    layer: 'core',
-    target: 'core/tasks',
-    pass: 'split',
-    paths: [
-      'domain/tasks/',
-      'domain/board.ts',
-      'domain/project-focus.ts',
-      'domain/involvements.ts',
-      'domain/card-measure.ts',
-    ],
-    sealed: false,
-  },
-  {
-    id: 'core/members',
-    layer: 'core',
-    target: 'core/members',
-    pass: 'split',
-    paths: [
-      'domain/members.ts',
-      'domain/access.ts',
-      'domain/invitations.ts',
-      'domain/presence.ts',
-      'domain/naming.ts',
-    ],
-    sealed: false,
-  },
-  {
-    id: 'core/timeline',
-    layer: 'core',
-    target: 'core/timeline',
-    pass: 'move',
-    paths: ['domain/timeline.ts'],
-    sealed: false,
-  },
-  {
-    id: 'core/messages',
-    layer: 'core',
-    target: 'core/messages',
-    pass: 'split',
-    paths: ['domain/messaging/'],
-    sealed: false,
-  },
-  {
-    id: 'core/inbox',
-    layer: 'core',
-    target: 'core/inbox',
-    pass: 'split',
-    paths: [
-      'domain/inbox.ts',
-      'domain/approval-questions.ts',
-      'domain/card-questions.ts',
-      'domain/agent-question.ts',
-      'domain/question-closing.ts',
-      'domain/question-screening.ts',
-      'domain/open-question-label.ts',
-    ],
-    sealed: false,
-  },
-  {
-    id: 'core/attachments',
-    layer: 'core',
-    target: 'core/attachments',
-    pass: 'move',
-    paths: ['domain/attachments/', 'domain/message-attachments/'],
-    sealed: false,
-  },
+  coreBase,
+  coreProjects,
+  coreTasks,
+  coreMembers,
+  coreTimeline,
+  coreMessages,
+  coreInbox,
+  coreAttachments,
   {
     id: 'runtime/admission',
     layer: 'runtime',

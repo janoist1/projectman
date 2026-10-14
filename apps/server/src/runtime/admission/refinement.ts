@@ -30,7 +30,7 @@ import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { StageChange, TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import { KeyedMutex, SYSTEM_ACTOR } from '../../domain/util';
+import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
 

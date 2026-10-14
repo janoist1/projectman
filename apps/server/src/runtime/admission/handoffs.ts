@@ -27,16 +27,16 @@ import type { ContextPackBuilder, SessionRunner } from '../../contracts';
 import type { TaskHandoffRow } from '../../db';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
-import type { BackgroundTasks } from '../../domain/background';
+import type { BackgroundTasks } from '../../kernel';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { conflict, DomainError, notFound } from '../../domain/errors';
+import { conflict, DomainError, notFound } from '../../kernel';
 import type { MessageService, Messaging } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { HandoffTrigger, TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import { aiActor, newId, SYSTEM_ACTOR } from '../../domain/util';
+import { aiActor, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** The most characters of the waiting messages that are forwarded to the receiver in one message. */
 const FORWARDED_MESSAGES_MAX = 20_000;

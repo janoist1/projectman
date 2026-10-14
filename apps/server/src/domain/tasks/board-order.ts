@@ -1,6 +1,6 @@
 import { isChronologicalColumn, planRanks, stagesOfColumn } from '@projectman/shared';
 import type { BoardMoveResult, BoardPlacement, ProjectConfig, RankedCard, Task } from '@projectman/shared';
-import { conflict } from '../errors';
+import { conflict } from '../../kernel';
 import type { TaskStore } from './store';
 
 /**

@@ -53,7 +53,7 @@ import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } 
 import { QUESTION_LIMIT } from '../../domain/card-questions';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { conflict, DomainError, themeRefused } from '../../domain/errors';
+import { conflict, DomainError, themeRefused } from '../../kernel';
 import {
   allowedToolsFor,
   attachmentToolRules,
@@ -67,7 +67,7 @@ import {
   usesWorktree,
   withSessionFolders,
 } from './session-policy';
-import { aiActor, newId, newUuid, SYSTEM_ACTOR } from '../../domain/util';
+import { aiActor, newId, newUuid, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import type { LiveSessions } from './live-sessions';
 import type { MemberWorkspaces, WorkspacePlacement } from './workspaces';

@@ -16,7 +16,7 @@ import type { Messaging } from '../messaging';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TimelineService } from '../timeline';
-import { KeyedMutex, SYSTEM_ACTOR, unique } from '../util';
+import { KeyedMutex, SYSTEM_ACTOR, unique } from '../../kernel';
 
 /** How many `task_parts_left` events of a card are read back. */
 const EVENTS = 100;

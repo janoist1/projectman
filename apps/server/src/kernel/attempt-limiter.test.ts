@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DomainError } from '../domain/errors';
+import { DomainError } from './errors';
 import { createAttemptLimiter } from './attempt-limiter';
 
 function limiter(max = 3) {

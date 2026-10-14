@@ -454,6 +454,56 @@ export interface AttachmentToolsHandler {
   ): Promise<{ attachmentId: string; fileName: string | null }>;
 }
 
+/** The tools of services/merges. */
+export interface MergeToolsHandler {
+  /** merge_task: the card's merger starts (or retries, or continues after a fix) the merge of the approved commit. */
+  mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }>;
+  /**
+   * prioritize_merge (PM-576): the card's merger or the Operator puts the card's merge at the front of its
+   * repository's queue, with the reason; `moved` is false when it was first already.
+   */
+  prioritizeMerge(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task: Task; moved: boolean }>;
+}
+
+/** The tools of services/feedback (PM-608). */
+export interface FeedbackToolsHandler {
+  /**
+   * get_feedback (PM-512, feedback processors only; else `forbidden` with `feedback_processor_only`):
+   * the marks that wait for a decision.
+   */
+  getFeedbackList(
+    ctx: ToolContext,
+    args: { status: 'todo' | 'open' | 'all'; limit: number },
+  ): Promise<FeedbackToolList>;
+  /** get_feedback with `mark_id`: one mark in full. */
+  getFeedbackMark(ctx: ToolContext, args: { markId: string }): Promise<FeedbackToolMark>;
+  /** reply_feedback: an answer in the mark's thread, in the processor's name. */
+  replyFeedback(ctx: ToolContext, args: { markId: string; body: string }): Promise<FeedbackToolResult>;
+  /** create_task_from_feedback: a card from the mark (the screenshot becomes its attachment). */
+  createTaskFromFeedback(
+    ctx: ToolContext,
+    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
+  ): Promise<FeedbackToolResult>;
+  /** link_feedback: the mark belongs to an existing card. */
+  linkFeedback(
+    ctx: ToolContext,
+    args: { markId: string; taskKey: string; reply?: string },
+  ): Promise<FeedbackToolResult>;
+  /** forward_feedback: the mark goes to the owners, who are alerted; the mark then waits for them. */
+  forwardFeedback(
+    ctx: ToolContext,
+    args: { markId: string; reason: string; reply: string },
+  ): Promise<FeedbackToolResult>;
+  /** close_feedback: the mark is closed, with an optional last reply. */
+  closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
+}
+
 /** The tools of services/releases (PM-606). */
 export interface ReleaseToolsHandler {
   /**
@@ -469,7 +519,13 @@ export interface ReleaseToolsHandler {
 }
 
 export interface TeamToolsHandler
-  extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler, ReleaseToolsHandler {
+  extends
+    MemberToolsHandler,
+    TaskToolsHandler,
+    AttachmentToolsHandler,
+    MergeToolsHandler,
+    FeedbackToolsHandler,
+    ReleaseToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -601,18 +657,6 @@ export interface TeamToolsHandler
     operator: boolean;
   }>;
 
-  mergeTask(
-    ctx: ToolContext,
-    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
-  ): Promise<{ task: Task }>;
-  /**
-   * prioritize_merge (PM-576): the card's merger or the Operator puts the card's merge at the front of its
-   * repository's queue, with the reason; `moved` is false when it was first already.
-   */
-  prioritizeMerge(
-    ctx: ToolContext,
-    args: { taskKey: string; reason: string },
-  ): Promise<{ task: Task; moved: boolean }>;
   /** link_pull_request: attach a GitHub PR to the task. */
   linkPullRequest(
     ctx: ToolContext,
@@ -681,36 +725,6 @@ export interface TeamToolsHandler
   setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }>;
   /** save_memory: append a durable learning to this member's memory. */
   saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
-
-  /**
-   * get_feedback (PM-512, feedback processors only; else `forbidden` with `feedback_processor_only`):
-   * the marks that wait for a decision.
-   */
-  getFeedbackList(
-    ctx: ToolContext,
-    args: { status: 'todo' | 'open' | 'all'; limit: number },
-  ): Promise<FeedbackToolList>;
-  /** get_feedback with `mark_id`: one mark in full. */
-  getFeedbackMark(ctx: ToolContext, args: { markId: string }): Promise<FeedbackToolMark>;
-  /** reply_feedback: an answer in the mark's thread, in the processor's name. */
-  replyFeedback(ctx: ToolContext, args: { markId: string; body: string }): Promise<FeedbackToolResult>;
-  /** create_task_from_feedback: a card from the mark (the screenshot becomes its attachment). */
-  createTaskFromFeedback(
-    ctx: ToolContext,
-    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
-  ): Promise<FeedbackToolResult>;
-  /** link_feedback: the mark belongs to an existing card. */
-  linkFeedback(
-    ctx: ToolContext,
-    args: { markId: string; taskKey: string; reply?: string },
-  ): Promise<FeedbackToolResult>;
-  /** forward_feedback: the mark goes to the owners, who are alerted; the mark then waits for them. */
-  forwardFeedback(
-    ctx: ToolContext,
-    args: { markId: string; reason: string; reply: string },
-  ): Promise<FeedbackToolResult>;
-  /** close_feedback: the mark is closed, with an optional last reply. */
-  closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
 }
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */

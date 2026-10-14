@@ -1,6 +1,8 @@
+import { FeedbackTools } from '../mcp/feedback';
 import { MemberTools } from '../mcp/members';
 import { TaskTools } from '../mcp/tasks';
 import { AttachmentTools } from '../mcp/attachments';
+import { MergeTools } from '../mcp/merges';
 import { ReleaseTools } from '../mcp/releases';
 import { ToolCaller } from '../mcp/caller';
 import {
@@ -85,10 +87,10 @@ import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { DecisionCandidates } from './decision-candidates';
 import { DocWrites } from './doc-writes';
-import { Merges } from './merges';
+import { MergeCardLock, Merges } from '../services/merges';
+import { fullTestSandbox } from './session-policy';
 import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
 import type { ReleaseTarget } from '../services/releases';
-import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { ApprovalQuestions } from './approval-questions';
@@ -116,7 +118,12 @@ import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } 
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
-import { FeedbackNotices, FeedbackScreenshotStore, FeedbackService, FeedbackWidgetService } from './feedback';
+import {
+  FeedbackNotices,
+  FeedbackScreenshotStore,
+  FeedbackService,
+  FeedbackWidgetService,
+} from '../services/feedback';
 import { ProjectFocusService } from './project-focus';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
@@ -202,8 +209,8 @@ export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
-export { FeedbackService, FeedbackWidgetService } from './feedback';
-export type { FeedbackWidgetSession } from './feedback';
+export { FeedbackService, FeedbackWidgetService } from '../services/feedback';
+export type { FeedbackWidgetSession } from '../services/feedback';
 export { ProjectFocusService } from './project-focus';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
@@ -876,10 +883,11 @@ export function createDomain(opts: DomainOptions) {
     github: opts.github,
     inbox,
     background,
+    checkSandbox: fullTestSandbox,
     afterMerge: (task) => autoAdvance.check(task),
   });
   const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges });
-  merges.useDocWrites(docWrites);
+  merges.registerSlotPeer(docWrites);
   inbox.registerDecider('merge_request', async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
   });
@@ -1080,6 +1088,7 @@ export function createDomain(opts: DomainOptions) {
   const teamTools = new TeamToolsService({
     calls: toolCaller,
     tools: {
+      feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       members: new MemberTools({ calls: toolCaller, members }),
       releases: new ReleaseTools({ calls: toolCaller, releases }),
       tasks: new TaskTools({
@@ -1104,11 +1113,11 @@ export function createDomain(opts: DomainOptions) {
         materializeAttachment: opts.engineAttachments?.materialize,
         sessionEngine,
       }),
+      merges: new MergeTools({ calls: toolCaller, merges }),
     },
     projectState,
     docWrites,
     decisionCandidates,
-    merges,
     operatorRequests,
     operatorSteps,
     operatorActions,
@@ -1130,7 +1139,6 @@ export function createDomain(opts: DomainOptions) {
     github: opts.github,
     githubSync,
     messageAttachments,
-    feedback,
   });
   const agentQuestions = new AgentQuestions({
     ctx,

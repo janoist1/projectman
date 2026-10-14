@@ -22,6 +22,7 @@ import { registerMachineRoutes } from './machine';
 import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
+import { registerMergeRoutes } from './merges';
 
 export { apiError, registerErrorHandling, toApiError } from './errors';
 export { parseBody } from './validation';
@@ -44,6 +45,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerProviderRoutes(app, domain);
   registerProjectRoutes(app, services);
   registerTaskRoutes(app, domain);
+  registerMergeRoutes(app, domain);
   registerAttachmentRoutes(app, services);
   registerMessageAttachmentRoutes(app, services);
   registerMemberRoutes(app, domain);

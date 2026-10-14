@@ -7,7 +7,7 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { applyDocEdits, isAppendOnly } from './doc-edits';
 import { conflict, DomainError } from './errors';
-import type { Merges } from './merges';
+import type { Merges } from '../services/merges';
 import type { Messaging } from './messaging';
 import type { ProjectService } from './projects';
 import { newId, SYSTEM_ACTOR } from './util';

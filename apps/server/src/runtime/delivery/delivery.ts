@@ -7,9 +7,10 @@ import {
   stageOf,
 } from '@projectman/shared';
 import type { ProjectConfig, Session, TeamMessage, WorkItemRef } from '@projectman/shared';
-import { Cause, Context, Data, Effect, Exit, FiberMap, Scheduler, Scope } from 'effect';
+import { Cause, Data, Effect, Exit, FiberMap, Scope } from 'effect';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../domain/context';
+import { runPromise } from '../../kernel';
 import type { MessageService } from '../../domain/messaging/messages';
 import { senderResultLabelFor, staleReasonFor } from '../../domain/messaging/staleness';
 import type { ProjectService } from '../../domain/projects';
@@ -632,45 +633,8 @@ function failure(cause: Cause.Cause<unknown>): unknown {
   return error instanceof TypeIntoFailed || error instanceof StartFailed ? error.cause : error;
 }
 
-/**
- * Fibers started with `runFork` run at once on the caller's stack (tasks queue while one runs), as
- * resolving a Promise ran its callbacks before (docs/EFFECT.md). `Effect.runSync` always brings its
- * own synchronous scheduler, so it takes no part in it.
- */
-const inlineDispatcher = ((): Scheduler.SchedulerDispatcher => {
-  const tasks: Array<() => void> = [];
-  let running = false;
-  const flush = () => {
-    if (running) return;
-    running = true;
-    try {
-      for (let task = tasks.shift(); task; task = tasks.shift()) task();
-    } finally {
-      running = false;
-    }
-  };
-  return {
-    scheduleTask: (task) => {
-      tasks.push(task);
-      flush();
-    },
-    flush,
-  };
-})();
-const inline = Context.make(Scheduler.Scheduler, {
-  executionMode: 'sync',
-  shouldYield: () => false,
-  makeDispatcher: () => inlineDispatcher,
-});
+// `Effect.runSync` brings its own synchronous scheduler; the inline one (`runPromise`) is in kernel.
 const runSync = Effect.runSync;
-const runFork = Effect.runForkWith(inline);
-/** Like `Effect.runPromise` (a failure rejects with the original error), but settles the promise at once. */
-const runPromise = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
-  new Promise((resolve, reject) => {
-    runFork(effect).addObserver((exit) =>
-      Exit.isSuccess(exit) ? resolve(exit.value) : reject(Cause.squash(exit.cause)),
-    );
-  });
 
 /** Facade: the same members as before, plus `close()`. */
 export class MessageDelivery {

@@ -60,6 +60,14 @@ describe('team tool registration', () => {
         TEAM_TOOL_GROUPS.map((group) => [group.module, group.tools.map((tool) => tool.name)]),
       ),
     ).toEqual({
+      'services/feedback': [
+        'get_feedback',
+        'reply_feedback',
+        'create_task_from_feedback',
+        'link_feedback',
+        'forward_feedback',
+        'close_feedback',
+      ],
       'core/members': ['list_members'],
       'services/releases': ['propose_release', 'check_release'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
@@ -70,6 +78,7 @@ describe('team tool registration', () => {
         'attach_file',
         'delete_attachment',
       ],
+      'services/merges': ['merge_task', 'prioritize_merge'],
     });
   });
 });

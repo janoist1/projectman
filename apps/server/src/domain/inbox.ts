@@ -26,6 +26,7 @@ import {
 import type {
   Actor,
   DelegatedPermissionDecision,
+  GateRequestPayload,
   HumanAccess,
   InboxItem,
   InboxKind,
@@ -221,6 +222,7 @@ export class InboxService {
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
   private readonly deciders = new Map<InboxDeciderKey, InboxDecider>();
+  private readonly resolvingGates = new Map<string, { projectKey: string; gate: GateRequestPayload }>();
   private questionAnswer?: QuestionAnswerer;
 
   registerQuestionAnswer(answer: QuestionAnswerer): void {
@@ -420,6 +422,21 @@ export class InboxService {
     return this.ctx.repos.inbox.listOpenGateRequests(projectKey, taskKey, fromStageId, toStageId);
   }
 
+  /** A closed gate decision still owns its move until all resolution listeners have finished. */
+  isResolvingGate(projectKey: string, taskKey: string, fromStageId: string, toStageId: string): boolean {
+    for (const resolving of this.resolvingGates.values()) {
+      const gate = resolving.gate;
+      if (
+        resolving.projectKey === projectKey &&
+        gate.taskKey === taskKey &&
+        gate.fromStageId === fromStageId &&
+        gate.toStageId === toStageId
+      )
+        return true;
+    }
+    return false;
+  }
+
   countOpenFor(projectKey: string, handle: string): number {
     return this.ctx.repos.inbox.countOpenFor(projectKey, handle);
   }
@@ -571,11 +588,17 @@ export class InboxService {
         : null;
     if (!answered && req.attachmentIds?.length)
       throw invalid('invalid_request', 'only AI questions accept attachments', { field: 'attachmentIds' });
-    const resolved = answered ?? this.ctx.unitOfWork(close);
+    const resolvingGate = item.kind === 'decision' ? gateRequestOf(item) : null;
+    if (resolvingGate) this.resolvingGates.set(id, { projectKey, gate: resolvingGate });
+    try {
+      const resolved = answered ?? this.ctx.unitOfWork(close);
 
-    this.waiters.get(id)?.(resolved);
-    await this.ctx.events.emit('inbox_resolved', resolved);
-    return resolved;
+      this.waiters.get(id)?.(resolved);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    } finally {
+      if (resolvingGate) this.resolvingGates.delete(id);
+    }
   }
 
   /**

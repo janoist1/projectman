@@ -19,7 +19,7 @@ const INVITE_TOKEN = 'demo-invite-token';
 const invitation = (requiresLogin) => ({
   projectKey: 'AC',
   projectName: 'Acme webshop',
-  inviterName: 'Te',
+  inviterName: 'Nagy Anna',
   displayName: requiresLogin ? 'Kata' : 'Kata Kovács',
   access: 'client',
   roles: [],

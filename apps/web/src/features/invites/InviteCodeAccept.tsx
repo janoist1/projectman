@@ -119,7 +119,10 @@ export function InviteCodeAccept({ token, invite }: { token: string; invite: Pub
         </form>
         {!isNewClient ? (
           <div className={authStyles.alt}>
-            {t('auth.emailLogin.hasPassword')} <Link to={loginPath}>{t('auth.emailLogin.usePassword')}</Link>
+            {t('auth.emailLogin.hasPassword')}{' '}
+            <Link to={loginPath} className={authStyles.linkButton}>
+              {t('auth.emailLogin.usePassword')}
+            </Link>
           </div>
         ) : null}
       </div>

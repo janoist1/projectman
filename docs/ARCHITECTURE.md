@@ -1642,8 +1642,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   engine's log, read it on the engine's machine.
   **Module:** `logging`
 - **Session output folders** — `index.ts`, `engine-host/session-folders.ts` (`SessionFolders`),
-  `engine-host/disk.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
-  `runtime/sessions` (`SessionOrchestrator`, session policy) (PM-268, PM-333, PM-339, PM-312). Legacy Claude
+  `engine-host/sandbox-dirs.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
+  `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
+  preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
+  folder), `runtime/sessions` (`SessionOrchestrator`, session policy) (PM-268, PM-333, PM-339, PM-312). Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
   folders are not supplied to read-only Codex sessions. A Codex session also gets its

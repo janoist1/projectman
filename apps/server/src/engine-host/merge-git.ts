@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { MergeError } from '../contracts';
 import { BILLING_ENV_VARS } from '../runner';
 
 /**
@@ -132,8 +131,6 @@ export function runGitBytes(
     child.stdin?.end();
   });
 }
-
-export { MergeError };
 
 /** The end of a git output, at most `max` characters, without credentials. */
 export function outputTail(text: string, max = 2000): string {

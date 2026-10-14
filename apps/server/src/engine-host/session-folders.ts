@@ -1,10 +1,9 @@
-import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, constants, createWriteStream, lstatSync, mkdirSync, realpathSync } from 'node:fs';
-import { link, lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { link, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
-import { Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import type { EngineSessionFolders } from '../contracts';
+import { copyChecked, isSameFile } from './checked-copy';
+import { assertOwnDirectory } from './session-roots';
 
 /**
  * The session folders (PM-268): a Claude session's own writable directory for what its commands
@@ -22,115 +21,6 @@ const TMP_NAME = /^[0-9a-f]{12}$/;
 const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
 
 /**
- * Whether `file`, which the agent can write, is a regular file with exactly the size and checksum of
- * `source` (PM-523). It is opened without following a link and without blocking (a FIFO opens at
- * once and is refused by `fstat`), and everything is read through that one descriptor, at most
- * `size + 1` bytes: a name swapped for a FIFO or a link to a device, or a file that keeps growing,
- * cannot stop the server's read or keep it hashing. Anything that is not that file is `false`.
- */
-async function isSameFile(file: string, source: { size: number; sha256: string }): Promise<boolean> {
-  let handle;
-  try {
-    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  } catch {
-    return false;
-  }
-  try {
-    const stat = await handle.stat();
-    if (!stat.isFile() || stat.size !== source.size) return false;
-    const hash = createHash('sha256');
-    let bytes = 0;
-    for await (const chunk of handle.createReadStream({ start: 0, end: source.size, autoClose: false })) {
-      bytes += (chunk as Buffer).length;
-      if (bytes > source.size) return false;
-      hash.update(chunk as Buffer);
-    }
-    return bytes === source.size && hash.digest('hex') === source.sha256;
-  } finally {
-    await handle.close().catch(() => undefined);
-  }
-}
-
-/**
- * Copies a regular file (a link is refused) to `dest`, which must not exist, with mode 0600, and checks
- * that it has exactly the size and checksum the caller named; a copy that fails the check is removed.
- */
-async function copyChecked(
-  source: { path: string; size: number; sha256: string },
-  dest: string,
-): Promise<void> {
-  const handle = await open(source.path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const stat = await handle.stat();
-    if (!stat.isFile()) throw new Error('The file is not a regular file');
-    if (stat.size !== source.size) throw new Error('The file does not have the size it was given with');
-    const hash = createHash('sha256');
-    let bytes = 0;
-    const meter = new Transform({
-      transform(chunk: Buffer, _encoding, done) {
-        hash.update(chunk);
-        bytes += chunk.length;
-        done(null, chunk);
-      },
-    });
-    try {
-      await pipeline(handle.createReadStream(), meter, createWriteStream(dest, { flags: 'wx', mode: 0o600 }));
-      if (bytes !== source.size || hash.digest('hex') !== source.sha256)
-        throw new Error('The file does not match its size and checksum');
-    } catch (err) {
-      await rm(dest, { force: true });
-      throw err;
-    }
-  } finally {
-    await handle.close();
-  }
-}
-
-function assertOwnDirectorySync(dir: string, mustExist = false): void {
-  const stat = lstatSync(dir, { throwIfNoEntry: false });
-  checkOwnDirectory(dir, stat, mustExist);
-}
-
-async function assertOwnDirectory(dir: string, mustExist = false): Promise<void> {
-  const stat = await lstat(dir).catch((err: unknown) => {
-    if (code(err) === 'ENOENT') return undefined;
-    throw err;
-  });
-  checkOwnDirectory(dir, stat, mustExist);
-}
-
-function checkOwnDirectory(
-  dir: string,
-  stat: ReturnType<typeof lstatSync> | undefined,
-  mustExist: boolean,
-): void {
-  if (!stat) {
-    if (mustExist) throw new Error(`${dir} is gone`);
-    return;
-  }
-  if (stat.isSymbolicLink()) throw new Error(`${dir} is a symbolic link`);
-  if (!stat.isDirectory()) throw new Error(`${dir} is not a directory`);
-  if (typeof process.getuid === 'function' && stat.uid !== process.getuid())
-    throw new Error(`${dir} belongs to another user`);
-}
-
-/**
- * Makes the root (0700) and checks it and its parent: a real directory (no symbolic link) owned
- * by the server's user. A root with group or other bits is made 0700. The root is predictable and
- * the parent may be a shared `/tmp`, where another user could have made it first (a link to a
- * directory the sweep would then empty). Throws with the reason.
- */
-export function prepareSessionFoldersRoot(root: string): void {
-  // Before the mkdir as well: nothing is made behind a link that is already there.
-  assertOwnDirectorySync(path.dirname(root));
-  assertOwnDirectorySync(root);
-  mkdirSync(root, { recursive: true, mode: 0o700 });
-  assertOwnDirectorySync(path.dirname(root));
-  assertOwnDirectorySync(root);
-  if ((lstatSync(root).mode & 0o077) !== 0) chmodSync(root, 0o700);
-}
-
-/**
  * Removes `dir` (a direct child of `root`) with everything in it. It is renamed away first, inside
  * the root and to a name that is no session's, so a command of the old run that is still writing
  * in it cannot swap a directory for a link while the removal walks it; its sandbox rule does not
@@ -146,72 +36,6 @@ async function removeTree(root: string, dir: string): Promise<void> {
     return;
   }
   await rm(trash, { recursive: true, force: true });
-}
-
-/**
- * The parent of the sessions' own temporary directories (PM-339): a short path below the real
- * `/tmp` (macOS: `/private/tmp/...`). A sibling of the heavy-run queue folder
- * (`projectman-<uid>`), never below it: the sandbox of every member's commands writes that one, so
- * a path in it could be pre-empted or read by any member. This folder is 0700 and no sandbox rule
- * names it. An installation's root is a folder of its own in it (like its session folders root:
- * one's sweep must not remove another's).
- */
-export function defaultSessionTmpRoot(): string {
-  return path.join(realpathSync('/tmp'), `projectman-${process.getuid?.() ?? 'user'}-tmp`);
-}
-
-/**
- * Claude Code's temporary roots every Claude Code process of the user shares (PM-353): its
- * `<base>/claude-<uid>` (the base is `CLAUDE_CODE_TMPDIR`, else `/tmp`), where the scratchpads, the
- * background commands' `tasks/*.output` and the `bash-edit-diff` of every session of every project
- * live, and the sandbox runtime's default `/tmp/claude`. Each as given and as its canonical path
- * (macOS: `/private/tmp/...`), once.
- */
-export function sharedClaudeTmpRoots(
-  input: { claudeTmpBase?: string; uid?: number | string } = {},
-): string[] {
-  const uid = input.uid ?? process.getuid?.() ?? 'user';
-  const given = [
-    path.join('/tmp', `claude-${uid}`),
-    ...(input.claudeTmpBase ? [path.join(input.claudeTmpBase, `claude-${uid}`)] : []),
-    '/tmp/claude',
-  ];
-  return [...new Set(given.flatMap((root) => [root, realpathOfNearest(root)]))];
-}
-
-/**
- * The canonical path of `target`, which need not exist: the nearest existing ancestor is resolved
- * (links followed, macOS `/tmp` is `/private/tmp`) and the rest is appended. The sandboxes
- * canonicalize the paths they are given, so overlaps are compared on these.
- */
-export function realpathOfNearest(target: string): string {
-  const missing: string[] = [];
-  let current = path.resolve(target);
-  for (;;) {
-    try {
-      return path.join(realpathSync(current), ...missing.reverse());
-    } catch (err) {
-      const parent = path.dirname(current);
-      // Only a path that is not there (or not a directory) is climbed past; anything else is a real error.
-      if (parent === current || (code(err) !== 'ENOENT' && code(err) !== 'ENOTDIR')) throw err;
-      missing.push(path.basename(current));
-      current = parent;
-    }
-  }
-}
-
-/**
- * Makes an installation's temporary directories root (`<defaultSessionTmpRoot()>/<instance>`, both
- * 0700) and checks it and the folder above it: real directories of the server's user, none a link.
- * Throws with the reason.
- */
-export function prepareSessionTmpRoot(root: string): void {
-  const base = path.dirname(root);
-  assertOwnDirectorySync(base);
-  mkdirSync(base, { recursive: true, mode: 0o700 });
-  assertOwnDirectorySync(base, true);
-  if ((lstatSync(base).mode & 0o077) !== 0) chmodSync(base, 0o700);
-  prepareSessionFoldersRoot(root);
 }
 
 /**

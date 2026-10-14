@@ -1111,6 +1111,30 @@ pumps the queue. The mark is cleared when the merge starts running. A merge alre
 event). The running merge is not interrupted. Remote engine: the queue is on the server and the engine is not
 involved; no new machine-dependent part.
 
+**Durable train foundation (PM-659, part of PM-652).** `db/merge-trains.ts`, exposed as
+`Repositories.mergeTrains`, stores a Zod-validated manifest in `merge_trains` (migration 60).
+Its SQL identity, project, repository and state match the JSON record. A unique partial index
+allows one `running` train per project/repository. The manifest keeps 2–8 unique members in
+fixed order, their source commits/branches, starting members and timestamps, and the optional
+priority snapshots, check, candidate commits and parent train. It starts `running` at
+`merging`, landed `nowhere`; later `landed` may also be `remote` or `local`. The nullable
+`task_merges.train_id` maps to internal `MergeRecord.trainId`; older rows stay null and neither
+`TaskMergeState` nor `TaskMerged` exposes it. Train and member writes share the existing
+`unitOfWork` transaction, so a failed reservation rolls them all back.
+
+`services/merges/train-selection.ts` exports the pure `selectMergeTrain`: the caller supplies
+queued candidates in the existing `QUEUE_ORDER`, with readiness and solo facts already evaluated.
+It takes only the compatible prefix, at most eight, comparing project/repository/base/engine and
+the review command, worker count and timeout. An ineligible head selects nothing; a solo head
+or one without a review test selects only itself. An incompatible, ineligible or solo follower
+ends the prefix. Diagnostic candidates never mix with normal candidates or another parent;
+every selected diagnostic member's integer 1–8 limit bounds the group. A singleton uses the
+individual merge path. Selection neither sorts nor rewrites timestamps and reads no DB or engine.
+This slice does not activate grouped git/check execution; that follows in PM-660.
+The manifest and selection run on the server with remote engines too, grouped by `engineId`;
+they add no machine-dependent operation or RPC. Execution belongs to the existing
+"Member initiated merge" inventory entry when enabled.
+
 Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
 retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
 releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
@@ -2327,7 +2351,11 @@ assumption or remote-engine RPC.
   off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The
   repository is found from the engine's own binding (`engine.json` `repos[].path`, in single-machine mode the
   project's config), never from the call; branch, commit and merge ids are checked in `engine-limit.ts` and
-  again in the merger. **Does this work on a remote engine?** Yes, it is built for it: the git work, the
+  again in the merger. The pure commit/merge-id and branch syntax rules live in
+  `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
+  `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
+  syntax check. No git or process crosses into server-side DB validation.
+  **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
   of the changed files and short results cross the link, and a merge to a repo or branch not named by
   `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the

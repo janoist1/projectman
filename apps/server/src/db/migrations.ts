@@ -1177,5 +1177,18 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     name: 'operator signal dismissal note',
     sql: 'ALTER TABLE operator_signals ADD COLUMN decision_note TEXT;',
   },
+  {
+    version: 60,
+    name: 'durable merge trains',
+    sql: `CREATE TABLE merge_trains (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      state TEXT NOT NULL,
+      record_json TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX merge_trains_running ON merge_trains(project_key, repo) WHERE state = 'running';
+    ALTER TABLE task_merges ADD COLUMN train_id TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

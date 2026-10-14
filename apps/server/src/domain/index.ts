@@ -2,6 +2,7 @@ import { FeedbackTools } from '../mcp/feedback';
 import { MemberTools } from '../mcp/members';
 import { TaskTools } from '../mcp/tasks';
 import { AttachmentTools } from '../mcp/attachments';
+import { MergeTools } from '../mcp/merges';
 import { ToolCaller } from '../mcp/caller';
 import {
   canManageInstancePause,
@@ -86,11 +87,11 @@ import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { DecisionCandidates } from './decision-candidates';
 import { DocWrites } from './doc-writes';
-import { Merges } from './merges';
+import { MergeCardLock, Merges } from '../services/merges';
+import { fullTestSandbox } from './session-policy';
 import { ReleaseRoadmapNotices } from './release-roadmap-notices';
 import { ReleaseService } from './releases';
 import type { ReleaseTarget } from './releases';
-import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { ApprovalQuestions } from './approval-questions';
@@ -883,10 +884,11 @@ export function createDomain(opts: DomainOptions) {
     github: opts.github,
     inbox,
     background,
+    checkSandbox: fullTestSandbox,
     afterMerge: (task) => autoAdvance.check(task),
   });
   const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges });
-  merges.useDocWrites(docWrites);
+  merges.registerSlotPeer(docWrites);
   inbox.registerDecider('merge_request', async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
   });
@@ -1111,12 +1113,12 @@ export function createDomain(opts: DomainOptions) {
         materializeAttachment: opts.engineAttachments?.materialize,
         sessionEngine,
       }),
+      merges: new MergeTools({ calls: toolCaller, merges }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
     },
     projectState,
     docWrites,
     decisionCandidates,
-    merges,
     releases,
     operatorRequests,
     operatorSteps,

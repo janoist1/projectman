@@ -54,7 +54,7 @@ describe('team tool registration', () => {
     }
   });
 
-  it('registers the nineteen moved tools with their owning modules', () => {
+  it('registers the twenty-one moved tools with their owning modules', () => {
     expect(
       Object.fromEntries(
         TEAM_TOOL_GROUPS.map((group) => [group.module, group.tools.map((tool) => tool.name)]),
@@ -78,6 +78,7 @@ describe('team tool registration', () => {
         'attach_file',
         'delete_attachment',
       ],
+      'services/merges': ['merge_task', 'prioritize_merge'],
     });
   });
 });

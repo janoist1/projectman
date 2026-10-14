@@ -2,6 +2,7 @@ import type {
   MemberToolsHandler,
   TaskToolsHandler,
   AttachmentToolsHandler,
+  MergeToolsHandler,
   FeedbackToolsHandler,
   BoundaryToolsHandler,
 } from '../contracts';
@@ -147,6 +148,7 @@ export class TeamToolsService implements TeamToolsHandler {
     members: MemberToolsHandler;
     tasks: TaskToolsHandler;
     attachments: AttachmentToolsHandler;
+    merges: MergeToolsHandler;
     feedback: FeedbackToolsHandler;
     boundary: BoundaryToolsHandler;
   };
@@ -235,7 +237,6 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly ctx: DomainContext;
   private readonly sessions: Pick<SessionOrchestrator, 'setDoing'>;
   private readonly projects: ProjectService;
-  private readonly merges: import('./merges').Merges;
   private readonly releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose' | 'check'>;
   private readonly tasks: TaskService;
   private readonly messaging: Messaging;
@@ -259,6 +260,7 @@ export class TeamToolsService implements TeamToolsHandler {
       members: MemberToolsHandler;
       tasks: TaskToolsHandler;
       attachments: AttachmentToolsHandler;
+      merges: MergeToolsHandler;
       feedback: FeedbackToolsHandler;
       boundary: BoundaryToolsHandler;
     };
@@ -267,7 +269,6 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The session service: set_current_work records the sentence on the caller's session. */
     sessions: Pick<SessionOrchestrator, 'setDoing'>;
     projects: ProjectService;
-    merges: import('./merges').Merges;
     /** The instance's releases (PM-491): propose_release. */
     releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose' | 'check'>;
     tasks: TaskService;
@@ -313,7 +314,6 @@ export class TeamToolsService implements TeamToolsHandler {
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.projects = deps.projects;
-    this.merges = deps.merges;
     this.releases = deps.releases;
     this.tasks = deps.tasks;
     this.messaging = deps.messaging;
@@ -628,31 +628,14 @@ export class TeamToolsService implements TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; fixConflict?: boolean; resolution?: string },
   ): Promise<{ task: Task }> {
-    return this.guard(async () => {
-      await this.caller(ctx, 'merge_task');
-      return {
-        task: await this.merges.start(
-          ctx.projectKey,
-          this.validTaskKey(ctx, args.taskKey),
-          aiActor(ctx.member),
-          args,
-        ),
-      };
-    });
+    return this.tools.merges.mergeTask(ctx, args);
   }
 
   async prioritizeMerge(
     ctx: ToolContext,
     args: { taskKey: string; reason: string },
   ): Promise<{ task: Task; moved: boolean }> {
-    return this.guard(async () => {
-      const caller = await this.callerWithRequest(ctx, 'prioritize_merge');
-      const taskKey = this.validTaskKey(ctx, args.taskKey);
-      const operator = isOperator(memberOf(caller.config, ctx.member));
-      return this.recorded(caller, operator ? { action: 'task_update', taskKey } : null, () =>
-        this.merges.prioritize(ctx.projectKey, taskKey, aiActor(ctx.member), args.reason),
-      );
-    });
+    return this.tools.merges.prioritizeMerge(ctx, args);
   }
 
   async proposeRelease(

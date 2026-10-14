@@ -568,7 +568,7 @@ packages count as contracts and are accessible to every layer.
 | `config`                | Project configuration loading, validation and migrations.                                      |
 | `logging`               | Structured server and engine logging and file rotation.                                        |
 | `instance`              | Installation identity and activation state.                                                    |
-| `kernel`                | Common errors, utilities and background work helpers.                                          |
+| `kernel`                | Common errors, utilities, background work helpers and the shared Effect helper (`effect.ts`).  |
 | `agent-text`            | Text formatting for agent-facing context.                                                      |
 | `core/base`             | Domain context, events and the event bus.                                                      |
 | `core/projects`         | Projects, roles, stage reviewers and visibility.                                               |
@@ -585,7 +585,7 @@ packages count as contracts and are accessible to every layer.
 | `runtime/watchers`      | Runtime health, review, disk and worktree watches.                                             |
 | `runtime/usage`         | Provider quota, plan usage and managed provider keys.                                          |
 | `context`               | Agent context packs and prompts.                                                               |
-| `services/merges`       | Card merge orchestration and merge locks.                                                      |
+| `services/merges`       | Card merge orchestration, the merge queue (Effect) and merge locks; sealed (`index.ts`).       |
 | `services/full-tests`   | Full-test and screenshot-run orchestration.                                                    |
 | `services/releases`     | Release proposals and release roadmap notices.                                                 |
 | `services/github`       | GitHub synchronization, pull requests and publishing.                                          |
@@ -1003,8 +1003,15 @@ configuration rules determine readiness and the forward moves that need the appr
 default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
 pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.merged`.
 
-`domain/merges.ts` persists requested, queued, running, failed and blocked states in `task_merges`,
-with one running merge per project/repository in FIFO order. The card engine's `BranchMerger` prepares
+`services/merges/` (PM-600; `Merges` in `merges.ts` is the facade, exported by `index.ts` with `MergeCardLock`)
+persists requested, queued, running, failed and blocked states in `task_merges`,
+with one running merge per project/repository in FIFO order. The slot is an Effect program
+(`queue.ts`, `makeMergeQueue`: a `FiberMap` keyed `projectKey:repo`; `docs/EFFECT.md`); the merge itself is
+the sequential async program of `steps.ts` (`MergeSteps`), which stops at its own checkpoints when its
+abort signal fires (`kernel/effect.ts` `abortable`: an interrupted slot is free only after the merge settled
+and released its check worktree). `notify.ts` holds the messages to the merger, `ports.ts` the structural
+interfaces to the sessions, the slot peer and the check sandbox. The tools `merge_task` and
+`prioritize_merge` are `mcp/merges/`, the two routes `api/merges.ts`. The card engine's `BranchMerger` prepares
 the base, validates linked PRs, builds without changing the base, checks local checkout conflicts,
 runs or reuses the approved commit's full check, checks readiness again, pushes and advances locally.
 The check goes through two steps (PM-489): `check_waiting` while the full test waits for the machine's
@@ -1068,8 +1075,8 @@ repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null
 writes a row of `doc_writes` and runs it in the same repository slot as a merge: `Merges.pump` skips a
 repository while `DocWrites.busy` says a write runs there, and a merge's `finally` calls `docWrites.pump()`
 before its own `pump()`, so a waiting write goes first when the slot frees (`DocWrites.pump` skips a repository
-for which `Merges.busy`, and calls `merges.pump()` when it ends). `Merges.useDocWrites` ties the two (as
-`useFullTests` does). At most one write is open (`queued` or `running`) per project (unique index
+for which `Merges.busy`, and calls `merges.pump()` when it ends). `Merges.registerSlotPeer` ties the two (the peer
+is the `MergeSlotPeer` port: `busy` and `pump`). At most one write is open (`queued` or `running`) per project (unique index
 `doc_writes_open`). Its git work is the engine's (`prepare`, `readFile`, `commitFiles`, `checkoutConflicts`,
 `push`, `advance`), run in the order of the card's merge: a `non_fast_forward` push is built again once, on the
 new head. The built commit is saved (`commit_sha`) before the push; a `running` row from before a restart is
@@ -1961,7 +1968,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
   **Module:** `services/full-tests`
-- **Merge conflict fix worktrees** — `domain/{merges,sessions,worktree-sweep}.ts`,
+- **Merge conflict fix worktrees** — `services/merges/`, `domain/{sessions,worktree-sweep}.ts`,
   `worktree/worktree-manager.ts`, `domain/session-policy.ts`, `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
   a file-changing duty, only while the card is `fixing`. Placement changes when its session
@@ -1980,7 +1987,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
   with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
   `MemberWorkspaces` retains its existing work/review choices. The server's shared
-  `domain/merge-card-lock.ts` lock serializes fix creation, session placement and cleanup;
+  `services/merges/card-lock.ts` lock serializes fix creation, session placement and cleanup;
   cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
   Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
   at startup and periodically. The engine revalidates the canonical fix path under its
@@ -1989,7 +1996,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 
 - **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
-  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`
+  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on

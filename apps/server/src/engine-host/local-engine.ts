@@ -10,7 +10,8 @@ import type {
   WorktreeManager,
   ProcessProbe,
 } from '../contracts';
-import { createLocalBranchMerger, createLocalEngineHost } from './index';
+import { createLocalBranchMerger } from './branch-merger';
+import { createLocalEngineHost } from './local-host';
 
 /** The real probe: signal 0 to the process group, then to the process; EPERM still means it exists. */
 const processExists: ProcessProbe = (pid) => {

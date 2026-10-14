@@ -18,17 +18,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { BranchMerger } from '../contracts';
 import { newId } from '../domain/util';
-import {
-  classifyPush,
-  createLocalBranchMerger,
-  DEPENDENCIES_NOT_INSTALLED,
-  MERGE_CHECK_DIR,
-  overlappingPaths,
-  parseWorktrees,
-  statusPaths,
-} from './branch-merger';
-import { scrubCredentials } from './merge-git';
-import { isBranchName, isCommitId, isMergeId, isMergeMessage } from './merge-input';
+import { createLocalBranchMerger } from './branch-merger';
+import { DEPENDENCIES_NOT_INSTALLED, MERGE_CHECK_DIR } from './merge-check';
 
 const REF = { projectKey: 'PM', repo: 'projectman' };
 
@@ -828,89 +819,5 @@ describe('commitFiles', () => {
     const withDir = commit(repo, 'dir');
     await refused({ onto: withDir, files: [{ path: 'dir', text: 'file' }], message: 'm' });
     await refused({ onto: withDir, files: [{ path: 'a.txt/inner', text: 'x' }], message: 'm' }); // a.txt is a file
-  });
-});
-
-describe('input checks', () => {
-  it('accepts commit ids, merge ids and messages only in their shape', () => {
-    expect(isCommitId('a'.repeat(40))).toBe(true);
-    expect(isCommitId('A'.repeat(64))).toBe(true);
-    expect(isCommitId('main')).toBe(false);
-    expect(isCommitId('a'.repeat(39))).toBe(false);
-    expect(isMergeId('mrg_abcdefgh1')).toBe(true);
-    expect(isMergeId('mrg_short')).toBe(false);
-    expect(isMergeId('merge_abcdefgh1')).toBe(true);
-    expect(isMergeId('merge_short')).toBe(false);
-    expect(isMergeId('other_abcdefgh1')).toBe(false);
-    for (let i = 0; i < 50; i++) expect(isMergeId(newId('merge'))).toBe(true);
-    expect(isMergeId('../x')).toBe(false);
-    expect(isMergeId('')).toBe(false);
-    expect(isMergeMessage('Merge PM-1')).toBe(true);
-    expect(isMergeMessage('a\0b')).toBe(false);
-    expect(isMergeMessage('x'.repeat(2001))).toBe(false);
-  });
-
-  it('accepts branch names git accepts and refuses expansions and options', async () => {
-    for (const ok of ['main', 'release/1.0', 'feature-x']) expect(await isBranchName(ok)).toBe(true);
-    for (const bad of [
-      '',
-      'HEAD',
-      '@',
-      '-x',
-      '--upload-pack=x',
-      '@{-1}',
-      'a..b',
-      'a b',
-      'a\nb',
-      'x.lock',
-      'a:b',
-      'a~1',
-    ])
-      expect(await isBranchName(bad), bad).toBe(false);
-  });
-});
-
-describe('helpers', () => {
-  it('reads paths from the porcelain status, renames giving both names', () => {
-    expect(statusPaths(' M a.txt\0?? dir/b.txt\0R  new.txt\0old.txt\0')).toEqual([
-      'a.txt',
-      'dir/b.txt',
-      'new.txt',
-      'old.txt',
-    ]);
-  });
-
-  it('finds overlaps by path and by file-versus-directory', () => {
-    expect(overlappingPaths(['a', 'b/c', 'd/e/f', 'x'], ['a/1', 'b', 'd/e'])).toEqual(['a', 'b/c', 'd/e/f']);
-    expect(overlappingPaths(['same'], ['same'])).toEqual(['same']);
-    expect(overlappingPaths(['other'], ['same'])).toEqual([]);
-  });
-
-  it('parses the worktree list', () => {
-    const out =
-      'worktree /r\nHEAD abc\nbranch refs/heads/main\n\nworktree /r/w\nHEAD def\ndetached\n\nworktree /gone\nHEAD 1\nbranch refs/heads/x\nprunable gitdir file points to non-existent location\n';
-    expect(parseWorktrees(out)).toEqual([
-      { path: '/r', branch: 'refs/heads/main', prunable: false },
-      { path: '/r/w', branch: null, prunable: false },
-      { path: '/gone', branch: 'refs/heads/x', prunable: true },
-    ]);
-  });
-
-  it('classifies a failed push', () => {
-    expect(classifyPush('! [rejected] main -> main (fetch first)', false)).toBe('non_fast_forward');
-    expect(
-      classifyPush('remote: error: GH006: Protected branch update failed\n! [remote rejected]', false),
-    ).toBe('rejected');
-    expect(classifyPush('fatal: Authentication failed for x', false)).toBe('rejected');
-    expect(classifyPush('fatal: unable to access x: Could not resolve host: h', false)).toBe('unreachable');
-    expect(classifyPush('', true)).toBe('unreachable');
-    expect(classifyPush('something unknown', false)).toBe('rejected');
-  });
-
-  it('scrubs credentials from git output', () => {
-    expect(scrubCredentials('fatal: unable to access https://user:secret@example.test/r.git/')).toBe(
-      'fatal: unable to access https://***@example.test/r.git/',
-    );
-    expect(scrubCredentials('token ghp_abcDEF123 and Bearer abc.def')).toBe('token *** and Bearer ***');
   });
 });

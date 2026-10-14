@@ -180,6 +180,6 @@ describe('the heavy CLI', () => {
     expect(lines[0]).toMatch(/^heavy: the machine's heavy-run queue cannot be used, so this did not run: /);
     expect(lines[1]).toMatch(/^heavy: .+/);
     expect(lines[2]).toContain('would overload the machine');
-    expect(lines[3]).toContain('ask for the command to run outside your sandbox');
+    expect(lines[3]).toContain('do not ask for it to run outside your sandbox');
   });
 });

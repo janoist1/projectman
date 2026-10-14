@@ -104,6 +104,37 @@ describe('deploy', () => {
     expect(world.machine.envText).toBe(received.input);
   });
 
+  it('sends the e-mail login settings of cloud.env with it and never prints their secrets (PM-669)', async () => {
+    world.writeEnv(
+      [
+        'TUNNEL_TOKEN=tunnel-token-value-0123456789',
+        'PROJECTMAN_EMAIL_LOGIN_ENABLED=1',
+        'PROJECTMAN_SES_REGION=eu-central-1',
+        'PROJECTMAN_SES_FROM=belepes@istvan.io',
+        'PROJECTMAN_SES_ACCESS_KEY_ID=AKIASESEXAMPLE000001',
+        'PROJECTMAN_SES_SECRET_ACCESS_KEY=ses-secret-example-value',
+        'PROJECTMAN_SES_SESSION_TOKEN=ses-session-token-example',
+        '',
+      ].join('\n'),
+    );
+    expect(await run('deploy')).toBe(0);
+    const received = world.hostCalls.find((call) => call.subcommand === 'receive-env')!;
+    for (const line of [
+      'PROJECTMAN_EMAIL_LOGIN_ENABLED=1',
+      'PROJECTMAN_SES_REGION=eu-central-1',
+      'PROJECTMAN_SES_SECRET_ACCESS_KEY=ses-secret-example-value',
+      'PROJECTMAN_SES_SESSION_TOKEN=ses-session-token-example',
+    ])
+      expect(received.input).toContain(line);
+    expect(received.args).toEqual([]);
+    for (const call of world.hostCalls) {
+      expect(call.remote).not.toContain('ses-secret-example-value');
+      expect(call.sshArgs.join(' ')).not.toContain('ses-');
+    }
+    expect(everything()).not.toContain('ses-secret-example-value');
+    expect(everything()).not.toContain('ses-session-token-example');
+  });
+
   it('sends the systemd unit to bootstrap on the standard input', async () => {
     expect(await run('deploy')).toBe(0);
     const bootstrap = world.hostCalls.find((call) => call.subcommand === 'bootstrap')!;

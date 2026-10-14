@@ -375,6 +375,11 @@ export const hu: TemplateLocale = {
         'A kártyát a fejlesztés előtt kidolgozzák, lépésenként, egyszerre egy taggal; a címkét a rendszer leveszi, amikor kész.',
     },
   },
+  emailLoginCode: {
+    subject: 'Belépési kódod',
+    text: ({ code, validUntil }) =>
+      `A belépési kódod: ${code}\n\nA kód egyszer használható, és eddig érvényes: ${validUntil}.\n\nHa nem te kérted, hagyd figyelmen kívül ezt a levelet.\n`,
+  },
   stageApproval: (stageName) => `${stageName}: jóváhagyva`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

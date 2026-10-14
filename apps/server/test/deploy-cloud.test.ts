@@ -281,6 +281,18 @@ describe('deploy/cloud shell scripts', () => {
     );
   });
 
+  it('the server gets the PROJECTMAN_* settings of cloud.env (the e-mail login ones too), the rehearsal copy sends no mail (PM-669)', () => {
+    const allowlist = entrypoint.split('\n').find((line) => line.startsWith('load_env server_env'))!;
+    expect(allowlist).toContain("'PROJECTMAN_*'");
+    // Only the server's own environment holds the SES keys: the other processes get their own allowlists.
+    for (const name of ['restic_run', 'litestream_run']) {
+      expect(shellFunction(entrypoint, name)).not.toContain('server_env');
+    }
+    expect(shellFunction(entrypoint, 'rehearse')).toContain(
+      'start_server "$scratch" "$port" PROJECTMAN_EMAIL_LOGIN_ENABLED=0',
+    );
+  });
+
   it('the server is forced into cloud mode on the loopback', () => {
     const start = shellFunction(entrypoint, 'start_server');
     expect(start).toContain('HOST=127.0.0.1');

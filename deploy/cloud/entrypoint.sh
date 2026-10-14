@@ -188,7 +188,8 @@ rehearse() {
   chmod 600 "$scratch/instance.json"
 
   trap 'terminate; exit 143' TERM INT
-  start_server "$scratch" "$port"
+  # The standby copy sends no login mail from the production sender (PM-669), whatever cloud.env says.
+  start_server "$scratch" "$port" PROJECTMAN_EMAIL_LOGIN_ENABLED=0
   wait_for_server "$port"
   "$APP_DIR/deploy/cloud/smoke.sh" "http://127.0.0.1:$port" || {
     terminate

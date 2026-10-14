@@ -230,6 +230,14 @@ export const MODULES: readonly ModuleEntry[] = [
     sealed: true,
   },
   {
+    id: 'services/email-login',
+    layer: 'service',
+    target: 'services/email-login',
+    pass: 'split',
+    paths: ['services/email-login/'],
+    sealed: true,
+  },
+  {
     id: 'services/operator',
     layer: 'service',
     target: 'services/operator',

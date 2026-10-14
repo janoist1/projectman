@@ -1,0 +1,35 @@
+/**
+ * The mailer of the one-time e-mail login code (PM-664, PM-669). The adapter only delivers a code the
+ * caller made; it keeps no state and decides nothing about accounts, limits or the HTTP answer.
+ */
+export interface EmailCodeMailInput {
+  to: string;
+  code: string;
+  /** UTC ISO date-time (`2026-10-14T17:42:00.000Z`) after which the code no longer works. */
+  expiresAt: string;
+}
+
+export interface EmailCodeMailer {
+  send(input: EmailCodeMailInput): Promise<void>;
+}
+
+export const EMAIL_CODE_DELIVERY_FAILED = 'email_code_delivery_failed';
+
+/** A coarse, fixed vocabulary for the operator's logs; nothing of the provider's text. */
+export type EmailCodeDeliveryReason = 'rejected' | 'throttled' | 'credentials' | 'unavailable';
+
+/**
+ * The provider did not take the message. The message is fixed text and there is no `cause`: the raw
+ * provider error carries the address and may carry more, so it is never attached or logged (the caller
+ * decides the HTTP answer and logs only the code and the reason).
+ */
+export class EmailCodeDeliveryError extends Error {
+  readonly code = EMAIL_CODE_DELIVERY_FAILED;
+  readonly reason: EmailCodeDeliveryReason;
+
+  constructor(reason: EmailCodeDeliveryReason = 'unavailable') {
+    super('the login code could not be delivered');
+    this.name = 'EmailCodeDeliveryError';
+    this.reason = reason;
+  }
+}

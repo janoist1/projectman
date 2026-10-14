@@ -654,6 +654,78 @@ projectman-cloud --profile i --region <region>`). Its firewall goes with it.
 
 `npm run cloud` has no command that deletes anything: that is deliberate.
 
+## The e-mail login code mailer (SES, PM-669)
+
+The later e-mail login of customers (PM-670) needs a mailer. PM-669 builds only that: the adapter
+`createSesEmailCodeMailer` (`apps/server/src/services/email-login/`) sends one message through the
+Amazon SES v2 `SendEmail` operation. It creates no SES identity, no account, no endpoint and offers no
+login yet; the board's `emailCodeMailer` option stays empty until the login uses it.
+
+**Settings** (lines in `cloud.env`, so they travel with `deploy`; a server started without them has the
+mailer off):
+
+| Variable                           | Meaning                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------------------- |
+| `PROJECTMAN_EMAIL_LOGIN_ENABLED`   | `0` (default) or `1`. Anything else stops the start.                          |
+| `PROJECTMAN_SES_REGION`            | The SES region of the identity, for example `eu-central-1`. Required when on. |
+| `PROJECTMAN_SES_FROM`              | The sender, an address of the verified identity. Required when on.            |
+| `PROJECTMAN_SES_ACCESS_KEY_ID`     | The access key of the sending-only IAM user. Required when on.                |
+| `PROJECTMAN_SES_SECRET_ACCESS_KEY` | Its secret. Required when on.                                                 |
+| `PROJECTMAN_SES_SESSION_TOKEN`     | Only for temporary credentials. Optional.                                     |
+
+When it is on and one required name is empty, the server does not start and says
+`email_login_not_configured: missing <names>` (names only, never a value). The adapter uses these keys
+and nothing else: no `AWS_*` variable, no profile, no instance role and no credential chain; the SES
+endpoint is pinned to the region. The server reads the variables once and removes them from its own
+environment, so a process it starts later (git, a shell) does not inherit the keys; the runner drops every
+`PROJECTMAN_*` variable from the environment of an AI member's session as well, and the container's
+entrypoint gives them to the server process only (not to Litestream, restic or the tunnel). A restore
+rehearsal starts its standby copy with `PROJECTMAN_EMAIL_LOGIN_ENABLED=0`. The mailer never logs an
+address or a code; a provider failure becomes an `EmailCodeDeliveryError` (`code`
+`email_code_delivery_failed`) with a fixed message and a coarse `reason` (`rejected`, `throttled`,
+`credentials`, `unavailable`), and the caller decides the HTTP answer.
+
+**The owner's steps** (nothing here is done by an AI session, and no key goes into a card or a message;
+PM-678 scripts the identity and DKIM part):
+
+1. In the SES region you chose, create the **domain identity** `istvan.io` and publish its three DKIM
+   records in the DNS (the zone is in Cloudflare after PM-537). Wait until the identity says
+   _Verified_ and DKIM _Successful_. Identities, DKIM and account state are **per region**.
+2. Ask for **production access** in that region ([request production
+   access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html)). Until it is granted
+   the account is in the SES **sandbox**: it sends only to verified addresses (and to the SES mailbox
+   simulator), so a customer's address gets nothing. Check the region's availability in the
+   [list of SES regions](https://docs.aws.amazon.com/ses/latest/dg/regions.html).
+3. Make a dedicated IAM user, for example `projectman-cloud-ses` (not the Litestream or restic user),
+   with no other right than this policy; `<sender>` is the exact `PROJECTMAN_SES_FROM` address:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": "ses:SendEmail",
+         "Resource": "arn:aws:ses:<region>:<account id>:identity/istvan.io",
+         "Condition": { "StringEquals": { "ses:FromAddress": "<sender>" } }
+       }
+     ]
+   }
+   ```
+
+4. Create one access key for that user and write the six lines above into
+   `~/.config/projectman/cloud/cloud.env` yourself (mode 600, a path the AI sessions cannot read). The
+   `aws`, `edge` and `deploy` commands keep these lines when they rewrite the file; a test checks it.
+5. `npm run cloud -- deploy`: `cloud.env` goes to the machine on the standard input and the board restarts
+   with the mailer on. To rotate the key, make a new one, replace the two lines, deploy, then delete the old
+   key.
+6. Nothing sends a real mail in an automated test (a fake SES endpoint is used); try the first real
+   delivery by hand after PM-670 is released, to a verified address while the account is in the sandbox.
+
+**Does this work on a remote engine?** Yes. The sending and the keys exist only in the board
+(the cloud server); the engine, the engine link and the engine protocol do not change, and the board
+sends the mail whether the engine is connected or not.
+
 ## What this does not cover
 
 - A live trial: nothing here was run against a real AWS account by the team. The first real run is

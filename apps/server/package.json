@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.78",
+    "@aws-sdk/client-sesv2": "^3.1151.0",
     "@fastify/cookie": "^11.1.2",
     "@fastify/multipart": "^10.1.2",
     "@fastify/static": "^10.1.5",

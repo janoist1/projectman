@@ -391,6 +391,29 @@ describe('aws: cloud.env', () => {
     expect(world.lines.some((line) => line.startsWith('updated cloud-env'))).toBe(true);
   });
 
+  it('keeps the e-mail login settings the owner added (PM-669) through a repair and a key rotation', async () => {
+    expect(await run()).toBe(0);
+    const owned = [
+      'PROJECTMAN_EMAIL_LOGIN_ENABLED=1',
+      'PROJECTMAN_SES_REGION=eu-central-1',
+      'PROJECTMAN_SES_FROM=belepes@istvan.io',
+      'PROJECTMAN_SES_ACCESS_KEY_ID=AKIASESEXAMPLE000001',
+      'PROJECTMAN_SES_SECRET_ACCESS_KEY=ses-secret-example-value',
+      'PROJECTMAN_SES_SESSION_TOKEN=ses-session-token-example',
+    ];
+    writeFileSync(
+      world.envFile,
+      `${envText().replace('LITESTREAM_BUCKET=acme-projectman-db', 'LITESTREAM_BUCKET=old')}${owned.join('\n')}\n`,
+      { mode: 0o600 },
+    );
+    expect(await run()).toBe(0);
+    expect(envValues().get('LITESTREAM_BUCKET')).toBe('acme-projectman-db');
+    expect(await run('--rotate-keys')).toBe(0);
+    for (const line of owned) expect(envText().split('\n')).toContain(line);
+    expect(world.output).not.toContain('ses-secret-example-value');
+    expect(world.output).not.toContain('ses-session-token-example');
+  });
+
   it('refuses an env file that others can read, before any call changes anything', async () => {
     expect(await run()).toBe(0);
     chmodSync(world.envFile, 0o644);

@@ -5,6 +5,7 @@ import type {
   MergeToolsHandler,
   FeedbackToolsHandler,
   BoundaryToolsHandler,
+  ReleaseToolsHandler,
   OperatorToolsHandler,
 } from '../contracts';
 import {
@@ -133,6 +134,7 @@ export class TeamToolsService implements TeamToolsHandler {
     merges: MergeToolsHandler;
     feedback: FeedbackToolsHandler;
     boundary: BoundaryToolsHandler;
+    releases: ReleaseToolsHandler;
     operator: OperatorToolsHandler;
   };
   private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
@@ -204,7 +206,6 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly ctx: DomainContext;
   private readonly sessions: Pick<SessionOrchestrator, 'setDoing'>;
   private readonly projects: ProjectService;
-  private readonly releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose' | 'check'>;
   private readonly tasks: TaskService;
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
@@ -230,14 +231,13 @@ export class TeamToolsService implements TeamToolsHandler {
       merges: MergeToolsHandler;
       feedback: FeedbackToolsHandler;
       boundary: BoundaryToolsHandler;
+      releases: ReleaseToolsHandler;
       operator: OperatorToolsHandler;
     };
     ctx: DomainContext;
     /** The session service: set_current_work records the sentence on the caller's session. */
     sessions: Pick<SessionOrchestrator, 'setDoing'>;
     projects: ProjectService;
-    /** The instance's releases (PM-491): propose_release. */
-    releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose' | 'check'>;
     tasks: TaskService;
     messaging: Messaging;
     inbox: InboxService;
@@ -276,7 +276,6 @@ export class TeamToolsService implements TeamToolsHandler {
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.projects = deps.projects;
-    this.releases = deps.releases;
     this.tasks = deps.tasks;
     this.messaging = deps.messaging;
     this.inbox = deps.inbox;
@@ -604,45 +603,11 @@ export class TeamToolsService implements TeamToolsHandler {
     ctx: ToolContext,
     args: { title: string; summary: string; commit?: string; preview?: boolean },
   ): Promise<ProposedRelease> {
-    return this.guard(async () => {
-      await this.caller(ctx, 'propose_release');
-      try {
-        if (args.preview) {
-          const candidate = await this.releases.preview(ctx.projectKey, ctx.member, args.commit);
-          return { commit: candidate.commit, baseCommit: candidate.baseCommit, tasks: candidate.tasks };
-        }
-        const { release, candidate } = await this.releases.propose(ctx.projectKey, ctx.member, {
-          title: args.title,
-          summary: args.summary,
-          commit: args.commit,
-        });
-        return {
-          releaseId: release.id,
-          taskKey: release.taskKey,
-          commit: release.commit,
-          baseCommit: release.baseCommit,
-          tasks: candidate.tasks,
-        };
-      } catch (err) {
-        // The agent reads the code: it says what to do (wait for the open release, nothing to release).
-        if (err instanceof DomainError && err.code.startsWith('release_'))
-          throw new TeamToolError(
-            err.status === 403 ? 'forbidden' : 'invalid',
-            `${err.code}: ${err.message}`,
-          );
-        throw err;
-      }
-    });
+    return this.tools.releases.proposeRelease(ctx, args);
   }
 
   async checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult> {
-    return this.guard(async () => {
-      const config = await this.caller(ctx, 'check_release');
-      const member = memberOf(config, ctx.member);
-      if (!member || !isOperator(member))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may check a release.');
-      return this.releases.check(ctx.projectKey, args.commit);
-    });
+    return this.tools.releases.checkRelease(ctx, args);
   }
 
   async updateTask(

@@ -1887,7 +1887,8 @@ assumption or remote-engine RPC.
   downscale: the image is a WebP of at most 1568 px a side and 1 500 000 bytes (about 2 MB as
   base64), made on each request (`MessageImageRenderer`, `sharp`, the server's libvips). A text is
   at most 100 000 bytes. The home directory itself must be on one machine with the server, as for the
-  card attachments.
+  card attachments. The hybrid move (PM-666) carries the store to the cloud's home as the entry
+  `message-attachments` and brings it back with `hybrid back`, byte for byte.
   **Module:** `core/attachments`
 - **Message file in the session folder (PM-518)** — `mcp/attachments/handler.ts` (`readMessageAttachment`,
   `sessionFileTarget`), `core/attachments/message-attachments/` (`source`, `locate`,
@@ -2233,7 +2234,9 @@ assumption or remote-engine RPC.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
   hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
-  (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `feedback`, `memory`, `HYBRID_CLOUD_ENTRIES`);
+  (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
+  database and `core/attachments` reference), `feedback`, `memory`, `HYBRID_CLOUD_ENTRIES`; a package made before
+  PM-666 has no `message-attachments`, which is accepted, and `REPLACED_ENTRIES` of the way back lists it too);
   it never holds a CLI home, provider logins, worktrees, workspaces, repositories, `github-publish`,
   `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
   (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine

@@ -375,6 +375,15 @@ describe('seed', () => {
     expect(world.firewallIsClosed()).toBe(true);
   });
 
+  it('accepts the message attachments of a hybrid package and uploads them with it', async () => {
+    mkdirSync(path.join(source, 'message-attachments', 'AR'), { recursive: true });
+    writeFileSync(path.join(source, 'message-attachments', 'AR', 'msg_1'), 'file of a team message');
+    expect(await run('seed', '--from', source)).toBe(0);
+    expect(everything()).not.toContain('message-attachments');
+    expect(world.pipes).toHaveLength(1);
+    expect(world.pipes[0]!.from).toMatchObject({ command: 'tar', args: ['-C', source, '-c', '.'] });
+  });
+
   it('needs --from', async () => {
     expect(await run('seed')).toBe(64);
   });

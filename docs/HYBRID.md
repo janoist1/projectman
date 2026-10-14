@@ -330,10 +330,15 @@ read, a package is a secret, only one copy works). The engine's own commands are
 | ----------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `engine.key` (the machine key), `engine.json` (the engine's config)     | `db.sqlite` (a consistent copy), `secret` (the cookie key)      |
 | `providers/` (the CLIs' logins and conversation directories)            | `secrets/`, `customization/`, `attachments/`, `memory/`         |
+|                                                                         | `message-attachments/`, `feedback/` (when the home has them)    |
 | repositories, `workspaces/`, `worktrees/`, `member-caches/`, `browsers` | the engine's row (only the **hash** of the key) in the database |
 | `github-publish/`, `spool/`, `logs/`, `instance.json`                   |                                                                 |
 
-The package holds exactly the six entries on the right and nothing else; the list is
+The package holds exactly the entries on the right and nothing else (`db.sqlite`, `secret`, `secrets`,
+`customization`, `attachments`, `message-attachments`, `feedback`, `memory`; an entry the home does not have
+is left out, so a package made before `message-attachments` was carried is still good). The way back
+(`hybrid back`) moves the Mac's own `message-attachments/` into `pre-hybrid/<date>/` with the other replaced
+entries and puts the cloud's in its place, and a failed replacement puts all of them back. The list is
 `HYBRID_CLOUD_ENTRIES` in `scripts/migrate/hybrid-entries.ts`, and `verify --hybrid-cloud` refuses a
 package that holds anything more (`forbidden_entry`). No CLI login, no repository, no key travels.
 The machine key is made on the Mac, written to `engine.key` (mode 0600) and shown nowhere; the cloud

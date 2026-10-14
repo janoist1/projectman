@@ -1344,6 +1344,8 @@ describe('system prompt', () => {
           'On an idle, merge_waiting or merge_blocked signal you may take one step yourself',
         );
         expect(unblock).toContain(step);
+        expect(unblock).toContain('An answer_stalled signal has no step at any level');
+        expect(unblock).not.toContain('answer_stalled signal you may take');
         expect(unblock).toContain("with the signal's signal_id");
         expect(unblock).toContain('Weigh it first: the focus, the priorities, and the check before a start.');
         expect(unblock).toContain('When you do not step, say why.');

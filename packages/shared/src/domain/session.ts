@@ -96,6 +96,17 @@ export const WorkDoing = z.object({
 });
 export type WorkDoing = z.infer<typeof WorkDoing>;
 
+/**
+ * What the session's chat proves about its work (PM-694), kept without any text of the chat. `lastWorkAt` is
+ * the time of the last real step (a tool call or a sent team message); `lastError.code` is a code, never a message.
+ */
+export const SessionWorkMetadata = z.object({
+  lastWorkAt: z.string().datetime().nullable(),
+  lastTool: z.object({ name: z.string().min(1).max(120), at: z.string().datetime() }).nullable(),
+  lastError: z.object({ code: z.string().min(1).max(120), at: z.string().datetime() }).nullable(),
+});
+export type SessionWorkMetadata = z.infer<typeof SessionWorkMetadata>;
+
 export const Session = z.object({
   /** Our id ("ses_..."). */
   id: z.string(),
@@ -166,6 +177,8 @@ export const Session = z.object({
   startCause: SessionStartCause.optional(),
   /** The engine the session runs on (PM-311). Absent: `local`, a row from before engines. */
   engineId: EngineId.optional(),
+  /** The proven work of the session (PM-694); absent: nothing proven, or a row from before it. */
+  workMetadata: SessionWorkMetadata.optional(),
 });
 export type Session = z.infer<typeof Session>;
 

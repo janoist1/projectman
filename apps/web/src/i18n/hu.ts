@@ -2842,6 +2842,7 @@ export const hu = {
         merge_blocked: '{key}: elakadt a beolvasztás',
         unreleased: 'Kiadásra váró munka',
         ready_waiting: 'Indítható kártyák várnak',
+        answer_stalled: '{key}: megérkezett a válasz, de a tag nem dolgozik tovább',
       },
       bodies: {
         outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
@@ -2853,6 +2854,8 @@ export const hu = {
         merge_blocked: 'A beolvasztás ütközés, elbukott ellenőrzés vagy hiba miatt áll.',
         unreleased: 'A fő ágon egy napnál régebben beolvasztott munka vár kiadásra.',
         ready_waiting: 'Indításra kész kártya vár, és van szabad fejlesztő.',
+        answer_stalled:
+          'A tagnak már kézbesítettek egy választ vagy üzenetet, de azóta nem tett munkalépést.',
       },
     },
   },

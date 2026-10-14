@@ -24,11 +24,11 @@ import {
   OPERATOR_READ_TOOLS,
   OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
-} from '../domain/operator-requests';
-import type { OperatorRequests, OperatorSteps } from '../domain/operator-requests';
+} from '../services/operator';
+import type { OperatorRequests, OperatorSteps } from '../services/operator';
 import { canSeeTask } from '../domain/visibility';
 import type { Viewer } from '../domain/visibility';
-import type { OperatorSignals } from '../domain/operator-signals';
+import type { OperatorSignals } from '../services/operator';
 import type { ProjectService } from '../domain/projects';
 import type { TaskService } from '../domain/tasks';
 
@@ -487,4 +487,20 @@ export class ToolCaller {
     const access = person?.kind === 'human' ? person.access : 'client';
     return { handle, viewer: { access, handle } };
   }
+}
+
+/** The send_message refusals of the messaging module, in the words the agent reads. */
+export function toMessageToolError(err: unknown): unknown {
+  if (!(err instanceof DomainError)) return err;
+  const details = (err.details ?? {}) as { field?: string; what?: string; ids?: string[] };
+  if (err.code === 'invalid_request' && details.field === 'text')
+    return new TeamToolError('invalid', 'The message text is empty.');
+  if (err.code === 'invalid_request' && details.field === 'to')
+    return new TeamToolError('invalid', 'No recipients: name at least one team member other than yourself.');
+  if (err.code === 'not_found' && details.what === 'member' && details.ids)
+    return new TeamToolError(
+      'not_found',
+      `Unknown team members: ${details.ids.join(', ')}. Use list_members to see the handles.`,
+    );
+  return err;
 }

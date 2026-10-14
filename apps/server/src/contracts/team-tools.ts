@@ -454,6 +454,22 @@ export interface AttachmentToolsHandler {
   ): Promise<{ attachmentId: string; fileName: string | null }>;
 }
 
+/** The tools of services/boundary (PM-607). */
+export interface BoundaryToolsHandler {
+  /** submit_boundary_request: one registered external operation; the requester is the calling session. */
+  submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
+  /** get_boundary_request: a request the caller raised or may decide, with its grant. */
+  getBoundaryRequest(
+    ctx: ToolContext,
+    args: { requestId: string },
+  ): Promise<{ request: BoundaryRequest; grant: BoundaryGrant | null }>;
+  /** decide_boundary_request: delegated requests only; owner exceptions stay with the owner. */
+  decideBoundaryRequest(
+    ctx: ToolContext,
+    args: DecideBoundaryRequest & { requestId: string },
+  ): Promise<BoundaryRequest>;
+}
+
 /** The tools of services/merges. */
 export interface MergeToolsHandler {
   /** merge_task: the card's merger starts (or retries, or continues after a fix) the merge of the approved commit. */
@@ -511,39 +527,9 @@ export interface TeamToolsHandler
     AttachmentToolsHandler,
     MergeToolsHandler,
     FeedbackToolsHandler,
+    BoundaryToolsHandler,
+    OperatorToolsHandler,
     ProjectDocToolsHandler {
-  getProjectState(
-    ctx: ToolContext,
-    args: { taskKey?: string; messageId?: string },
-  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
-  operate(
-    ctx: ToolContext,
-    args: { title: string; operation: OperatorOperation },
-  ): Promise<{
-    status: 'done' | 'awaiting_approval' | 'refused';
-    step_id: string;
-    changes: ConfigChangeRow[];
-    config_version?: string | null;
-    inbox_item_id?: string;
-  }>;
-  startTask(
-    ctx: ToolContext,
-    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
-  ): Promise<{
-    task_key: string;
-    session_id: string | null;
-    hired: string | null;
-    /** The card's assignee after the start. */
-    assignee: string | null;
-    /** Gate labels and the members started to set them (PM-236). */
-    awaiting?: { labels: string[]; members: string[] };
-    /** Seniors the card waits for, without an assigned developer (PM-348). */
-    senior_wait?: { seniors: string[] };
-  }>;
-  startMember(
-    ctx: ToolContext,
-    args: { member: string; text: string; taskKey?: string; signalId?: string },
-  ): Promise<MemberStartResult>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
@@ -552,15 +538,6 @@ export interface TeamToolsHandler
   takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
   /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
   getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
-  submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
-  getBoundaryRequest(
-    ctx: ToolContext,
-    args: { requestId: string },
-  ): Promise<{ request: BoundaryRequest; grant: BoundaryGrant | null }>;
-  decideBoundaryRequest(
-    ctx: ToolContext,
-    args: DecideBoundaryRequest & { requestId: string },
-  ): Promise<BoundaryRequest>;
   /**
    * decide_permission_request: the AI decider answers a member's tool question delegated to it
    * (PM-169), or hands it to a person (`escalate`). The reason is required.
@@ -660,23 +637,6 @@ export interface TeamToolsHandler
     screening?: true;
   }>;
   /**
-   * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
-   * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
-   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
-   * guest conversation; needs no open request.
-   */
-  screenQuestion(
-    ctx: ToolContext,
-    args: {
-      itemId: string;
-      outcome: ScreeningOutcome;
-      note: string;
-      answer?: string;
-      forwardTo?: MemberHandle;
-      todo?: QuestionTodo;
-    },
-  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
-  /**
    * withdraw_question (PM-559): the asking member closes its own pending question (open, or still with the
    * Operator for screening) because it became moot, with a short `reason`. Errors: `not_found` (no such
    * question in the project), `forbidden` `not_your_question` (the caller did not ask it), `invalid`
@@ -748,4 +708,57 @@ export interface ProjectDocToolsHandler {
    * Operator, in the owner's own conversation, during an open owner request.
    */
   markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
+}
+
+/** The tools of services/operator (PM-605). */
+export interface OperatorToolsHandler {
+  getProjectState(
+    ctx: ToolContext,
+    args: { taskKey?: string; messageId?: string },
+  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
+  operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation },
+  ): Promise<{
+    status: 'done' | 'awaiting_approval' | 'refused';
+    step_id: string;
+    changes: ConfigChangeRow[];
+    config_version?: string | null;
+    inbox_item_id?: string;
+  }>;
+  startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
+  ): Promise<{
+    task_key: string;
+    session_id: string | null;
+    hired: string | null;
+    /** The card's assignee after the start. */
+    assignee: string | null;
+    /** Gate labels and the members started to set them (PM-236). */
+    awaiting?: { labels: string[]; members: string[] };
+    /** Seniors the card waits for, without an assigned developer (PM-348). */
+    senior_wait?: { seniors: string[] };
+  }>;
+  startMember(
+    ctx: ToolContext,
+    args: { member: string; text: string; taskKey?: string; signalId?: string },
+  ): Promise<MemberStartResult>;
+  /**
+   * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
+   * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
+   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
+   * guest conversation; needs no open request.
+   */
+  screenQuestion(
+    ctx: ToolContext,
+    args: {
+      itemId: string;
+      outcome: ScreeningOutcome;
+      note: string;
+      answer?: string;
+      forwardTo?: MemberHandle;
+      todo?: QuestionTodo;
+    },
+  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
 }

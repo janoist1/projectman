@@ -1,11 +1,11 @@
+import type { OperatorSessions } from './ports';
 import { isOperator, isProjectManager, memberOf, SYSTEM_SENDER } from '@projectman/shared';
 import type { Session, TeamMessage } from '@projectman/shared';
-import type { DomainContext } from './context';
-import type { BackgroundTasks } from './background';
-import type { MessageService } from './messaging';
-import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
-import { aiActor, KeyedMutex } from './util';
+import type { DomainContext } from '../../domain/context';
+import type { BackgroundTasks } from '../../domain/background';
+import type { MessageService } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import { aiActor, KeyedMutex } from '../../domain/util';
 
 export const RELAY_WINDOW_MS = 2 * 60 * 60 * 1000;
 
@@ -16,7 +16,7 @@ export class PmReplyRelay {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: SessionOrchestrator;
+    sessions: Pick<OperatorSessions, 'detail'>;
     messages: MessageService;
     background: BackgroundTasks;
   };

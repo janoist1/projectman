@@ -1,26 +1,20 @@
 import { cronMatches, memberOf, nextCronRun, ScheduleSkipReason } from '@projectman/shared';
 import type { Actor, ScheduleRun, SchedulesView, Session } from '@projectman/shared';
-import type { Admission } from './admission';
-import type { DomainContext } from './context';
-import { DomainError, invalid, notFound, unavailable } from './errors';
-import type { ProjectService } from './projects';
-import type { TimelineService } from './timeline';
-import { excerpt, newId, SYSTEM_ACTOR } from './util';
+import type { DomainContext } from '../../domain/context';
+import { DomainError, invalid, notFound, unavailable } from '../../domain/errors';
+import type { ProjectService } from '../../domain/projects';
+import type { TimelineService } from '../../domain/timeline';
+import { excerpt, newId, SYSTEM_ACTOR } from '../../domain/util';
+import type { ScheduleAdmission, ScheduleTimer } from './ports';
+import { MinuteTimer } from './timer';
 
-export interface ScheduleTimer {
-  set(callback: () => void, delayMs: number): unknown;
-  clear(handle: unknown): void;
+export interface ScheduleDeps {
+  ctx: DomainContext;
+  projects: ProjectService;
+  admission: ScheduleAdmission;
+  timeline: TimelineService;
+  timer?: ScheduleTimer;
 }
-const defaultTimer: ScheduleTimer = {
-  set(callback, delay) {
-    const timer = setTimeout(callback, delay);
-    timer.unref();
-    return timer;
-  },
-  clear(handle) {
-    clearTimeout(handle as NodeJS.Timeout);
-  },
-};
 
 /**
  * Member schedules: one current-minute attempt per member, started through admission; missed
@@ -32,23 +26,14 @@ export class ScheduleService {
   private pending: Promise<void> = Promise.resolve();
   private readonly unsubscribe: () => void;
   private readonly timer: ScheduleTimer;
+  private readonly ownTimer: MinuteTimer | null;
   private readonly inFlight = new Set<Promise<unknown>>();
-  private readonly deps: {
-    ctx: DomainContext;
-    projects: ProjectService;
-    admission: Admission;
-    timeline: TimelineService;
-  };
+  private readonly deps: Omit<ScheduleDeps, 'timer'>;
 
-  constructor(deps: {
-    ctx: DomainContext;
-    projects: ProjectService;
-    admission: Admission;
-    timeline: TimelineService;
-    timer?: ScheduleTimer;
-  }) {
+  constructor(deps: ScheduleDeps) {
     this.deps = deps;
-    this.timer = deps.timer ?? defaultTimer;
+    this.ownTimer = deps.timer ? null : new MinuteTimer();
+    this.timer = deps.timer ?? this.ownTimer!;
     this.unsubscribe = deps.ctx.events.on('session_ended', (session) => this.finishRun(session));
   }
 
@@ -80,7 +65,7 @@ export class ScheduleService {
     this.active = false;
     this.timer.clear(this.timerHandle);
     this.unsubscribe();
-    return Promise.allSettled([this.pending, ...this.inFlight]).then(() => undefined);
+    return Promise.allSettled([this.pending, ...this.inFlight, this.ownTimer?.close()]).then(() => undefined);
   }
 
   private arm(): void {

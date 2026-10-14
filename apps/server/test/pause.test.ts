@@ -4,7 +4,7 @@ import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
-import type { ScheduleTimer } from '../src/domain/schedules';
+import type { ScheduleTimer } from '../src/services/schedules';
 
 const paused = { code: 'team_paused', status: 409 };
 const BY = { userId: null, source: 'system' } as const;

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
@@ -64,20 +64,16 @@ describe('a session while its engine is offline', () => {
 });
 
 describe('the machine panel while the engine is offline', () => {
-  it('says the engine is away, with its name, and offers no retry', async () => {
+  it('hides the machine indicator in cloud mode without requesting machine data', async () => {
     const project = cloud((backend) => {
       const engine = backend.addEngine({ name: 'Mac Studio', lastSeenAt: '2026-10-01T10:00:00.000Z' });
       backend.setEngineOnline(engine.id, false);
       backend.machineError = 'engine_offline';
     });
     project.render(<MachineIndicator />);
-    fireEvent.click(await screen.findByRole('button', { name: /Gép/ }));
-    const panel = await screen.findByRole('dialog');
-    await waitFor(() => expect(within(panel).getByText(t('machine.engineOfflineTitle'))).toBeTruthy());
-    expect(within(panel).getByText(t('machine.engineOfflineBody'), { exact: false })).toBeTruthy();
-    expect(
-      within(panel).getByText(t('machine.engineName', { name: 'Mac Studio' }), { exact: false }),
-    ).toBeTruthy();
-    expect(within(panel).queryByRole('button', { name: t('app.retry') })).toBeNull();
+    await waitFor(() => expect(project.requests.some((r) => r.path === '/api/engines/status')).toBe(true));
+    expect(screen.queryByRole('button', { name: /Gép/ })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(project.requests.some((r) => r.path.startsWith('/api/machine'))).toBe(false);
   });
 });

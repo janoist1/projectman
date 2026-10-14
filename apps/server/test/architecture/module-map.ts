@@ -251,14 +251,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/usage',
     pass: 'split-tool',
-    paths: [
-      'runtime/usage/',
-      'domain/plan-usage.ts',
-      'domain/provider-quota-hold.ts',
-      'domain/provider-keys.ts',
-      'domain/nanogpt-key-check.ts',
-      'domain/usage-alerts.ts',
-    ],
+    paths: ['runtime/usage/'],
     sealed: true,
   },
   {

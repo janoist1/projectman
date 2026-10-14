@@ -172,7 +172,9 @@ export class CloudflareApi {
     const all: T[] = [];
     for (let page = 1; page <= MAX_PAGES; page += 1) {
       const envelope = await this.send('GET', apiPath, { query: { ...query, page, per_page: PAGE_SIZE } });
-      const items = Array.isArray(envelope.result) ? (envelope.result as T[]) : [];
+      if (!Array.isArray(envelope.result))
+        throw new CloudError(`Cloudflare GET ${apiPath} answered in an unexpected list shape`);
+      const items = envelope.result as T[];
       all.push(...items);
       const pages = envelope.result_info?.total_pages;
       if (items.length === 0 || (pages !== undefined ? page >= pages : items.length < PAGE_SIZE)) break;

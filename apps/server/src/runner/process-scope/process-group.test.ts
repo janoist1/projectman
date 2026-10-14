@@ -99,7 +99,8 @@ describe('engine process groups', () => {
       return new Map([...h.marks].filter(([pid]) => pids.includes(pid)));
     });
     expect(await scope.close('stop', { force: false })).toMatchObject({
-      outcome: 'unverified',
+      outcome: 'failed',
+      survivors: 1,
       killed: true,
     });
     expect(h.signal).toHaveBeenCalledWith(21, 'SIGTERM');
@@ -146,10 +147,40 @@ describe('engine process groups', () => {
           return new Map([...h.marks].filter(([pid]) => pids.includes(pid)));
         });
       }
-      expect(await scope.close('exit', { force: false })).toMatchObject({ outcome: 'unverified' });
+      expect(await scope.close('exit', { force: false })).toMatchObject({
+        outcome: failure === 'transient' ? 'failed' : 'unverified',
+        survivors: failure === 'transient' ? 1 : 0,
+      });
       expect(h.list()?.map((p) => p.pid)).toEqual([21]);
     },
   );
+  it('reports verified KILL-resistant survivors despite a transient environment failure', async () => {
+    const h = harness();
+    const scope = await h.driver.open('ses_a');
+    h.add(21, scope.scopeId);
+    h.signal.mockImplementation(() => {});
+    let calls = 0;
+    h.envValues.mockImplementation(async (pids) => {
+      if (++calls === 3) throw new Error('temporary environment failure');
+      return new Map([...h.marks].filter(([pid]) => pids.includes(pid)));
+    });
+    expect(await scope.close('stop', { force: false })).toMatchObject({
+      outcome: 'failed',
+      survivors: 1,
+      killed: true,
+      durationMs: 7000,
+    });
+    expect(h.list()?.map((p) => p.pid)).toEqual([21]);
+    h.envValues.mockImplementation(
+      async (pids) => new Map([...h.marks].filter(([pid]) => pids.includes(pid))),
+    );
+    h.signal.mockImplementation((pid, sig) => {
+      if (sig === 'SIGKILL') h.setList(h.list()!.filter((p) => p.pid !== pid));
+    });
+    expect(await h.driver.closeScopes([{ sessionId: 'ses_a', scopeId: scope.scopeId }])).toMatchObject([
+      { cleanup: { outcome: 'clean' } },
+    ]);
+  });
   it('continues tracking a previously verified detached identity when its environment becomes unreadable', async () => {
     const h = harness();
     const scope = await h.driver.open('ses_a');

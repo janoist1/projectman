@@ -193,6 +193,7 @@ export function createProcessScopeDriver(opts: {
       });
       if (captured === null) return result('unverified');
       let remaining = await targets();
+      let lastVerified = remaining ?? [];
       let unverified = remaining === null;
       if (remaining === null && (await list(closeDeadline)) === null) {
         // Older/unsupported engines cannot verify the group. Never report this as clean.
@@ -228,12 +229,17 @@ export function createProcessScopeDriver(opts: {
           if (clock.now() >= deadline) break;
           remaining = await targets();
           if (remaining === null) unverified = true;
-          else if (!remaining.length) return result(unverified ? 'unverified' : 'clean');
+          else {
+            lastVerified = remaining;
+            if (!remaining.length) return result(unverified ? 'unverified' : 'clean');
+          }
           if (clock.now() >= deadline) break;
           await clock.sleep(Math.min(100, deadline - clock.now()));
         } while (true);
       }
-      return unverified || remaining === null ? result('unverified') : result('failed', remaining.length);
+      // Positive survivor evidence takes precedence over uncertainty and must retain the workspace.
+      if (lastVerified.length) return result('failed', lastVerified.length);
+      return result(unverified ? 'unverified' : 'clean');
     }
     const trackedClose = async (reason: ScopeCloseReason, force: boolean) => {
       const cleanup = await close(reason, force);

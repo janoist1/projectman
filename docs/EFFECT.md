@@ -91,7 +91,11 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-626 heavy-run lock and sandboxed run**
 
-  Planned.
+  Files: `apps/server/src/full-test/heavy-lock-core.ts`, `apps/server/src/full-test/run-sandboxed-core.ts`.
+  Facades: `acquireHeavyLock` (`full-test/heavy-lock.ts`, imported directly by `scripts/heavy/run.ts`)
+  and `runSandboxed` (`full-test/run-sandboxed.ts`), exported by `full-test/index.ts`.
+  The abort signal is cooperative, not an interruption: a round that takes the lock is never cut.
+  A held lock's heartbeat keeps the process alive until `release()`.
 
 Everything else stays plain TypeScript. Do not start using Effect in another module, in a route
 handler, in `packages/shared` or in the web app without a card that says so. **No Effect type crosses

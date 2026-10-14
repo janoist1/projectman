@@ -26,6 +26,13 @@ import type { HeavyLock, HeavyLockEntry } from './heavy-lock';
 
 const FIXTURE = fileURLToPath(new URL('../../test/fixtures/heavy-holder.ts', import.meta.url));
 
+it('lets a holder process exit naturally after release', async () => {
+  const child = holder('released', path.join(root, 'released.log'), 100);
+  await until(() => child.exitCode !== null, 'holder exit after release', 5000);
+  expect(child.exitCode).toBe(0);
+  expect(child.signalCode).toBeNull();
+});
+
 describe('heavy-run sessions', () => {
   it('includes live holders and waiters once and does not remove stale entries', async () => {
     writeHolder({ sessionId: 'holder' });

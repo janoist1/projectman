@@ -24,7 +24,7 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { FixLimitWatch } from './fix-limit';
 import type { HandoffService } from './handoffs';
-import type { ScheduleService } from './schedules';
+import type { ScheduleService } from '../services/schedules';
 import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';

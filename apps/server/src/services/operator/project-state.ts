@@ -1,3 +1,4 @@
+import type { OperatorPauses, OperatorReleases, WaitingStarts, OperatorMessageStarts } from './ports';
 import {
   conditionHolds,
   isOpenTask,
@@ -13,17 +14,14 @@ import {
   startBlock,
 } from '@projectman/shared';
 import type { Session } from '@projectman/shared';
-import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../contracts';
-import type { DomainContext } from './context';
-import type { ProjectService } from './projects';
-import type { TaskService, TaskWaits } from './tasks';
-import type { OperatorSignals } from './operator-signals';
-import type { PauseService } from './pause';
-import type { ReleaseService } from './releases';
-import { LIVE_SESSION_STATES } from './sessions';
-import type { DeferredStarts, MessageStarts } from './admission';
-import { invalid, notFound } from './errors';
-import { staleReasonFor, wakeFactsFor } from './messaging';
+import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
+import type { DomainContext } from '../../domain/context';
+import type { ProjectService } from '../../domain/projects';
+import type { TaskService, TaskWaits } from '../../domain/tasks';
+import type { OperatorSignals } from './signals';
+import { LIVE_SESSION_STATES } from '@projectman/shared';
+import { invalid, notFound } from '../../domain/errors';
+import { staleReasonFor, wakeFactsFor } from '../../domain/messaging';
 
 /** Read-only reports over the server's existing work records. */
 export class ProjectState {
@@ -31,12 +29,12 @@ export class ProjectState {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
-    pauses: Pick<PauseService, 'projectView'>;
-    deferred: DeferredStarts;
+    pauses: Pick<OperatorPauses, 'projectView'>;
+    deferred: WaitingStarts;
     taskWaits: Pick<TaskWaits, 'ofCard'>;
     operatorSignals: Pick<OperatorSignals, 'active'>;
-    messageStarts: Pick<MessageStarts, 'wakeKey' | 'lastFailure'>;
-    releases: Pick<ReleaseService, 'overview'>;
+    messageStarts: OperatorMessageStarts;
+    releases: Pick<OperatorReleases, 'overview'>;
   };
 
   constructor(deps: ProjectState['deps']) {

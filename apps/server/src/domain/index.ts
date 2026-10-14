@@ -1,4 +1,5 @@
 import { FeedbackTools } from '../mcp/feedback';
+import { OperatorTools } from '../mcp/operator';
 import { MemberTools } from '../mcp/members';
 import { TaskTools } from '../mcp/tasks';
 import { AttachmentTools } from '../mcp/attachments';
@@ -67,13 +68,13 @@ import { AttachmentService } from './attachments';
 import { MessageAttachmentService } from './message-attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
-import { OperatorRequests, OperatorSteps } from './operator-requests';
-import { OperatorSignals } from './operator-signals';
+import { OperatorRequests, OperatorSteps } from '../services/operator';
+import { OperatorSignals } from '../services/operator';
 import { QuestionScreening } from './question-screening';
-import { ProjectManagerChannels } from './project-manager';
-import { ProjectState } from './project-state';
-export { ProjectState } from './project-state';
-import { PmReplyRelay } from './pm-reply-relay';
+import { ProjectManagerChannels } from '../services/operator';
+import { ProjectState } from '../services/operator';
+export { ProjectState } from '../services/operator';
+import { PmReplyRelay } from '../services/operator';
 import { BoundaryService } from '../services/boundary';
 import { BoundaryTools } from '../mcp/boundary';
 import { CardQuestions } from './card-questions';
@@ -83,7 +84,7 @@ import { createEventBus } from './event-bus';
 import { GithubSync } from '../services/github';
 import { GithubTools } from '../mcp/github';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
-import { OperatorActions, OperatorApprovals } from './operator-actions';
+import { OperatorActions, OperatorApprovals } from '../services/operator';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { DecisionCandidates } from './decision-candidates';
@@ -105,8 +106,8 @@ import { PresenceService } from './presence';
 import { OWNER_HANDLE, ProjectService } from './projects';
 import { ReviewWatch } from './review-watch';
 import { RoleService } from './roles';
-import { ScheduleService } from './schedules';
-import type { ScheduleTimer } from './schedules';
+import { ScheduleService } from '../services/schedules';
+import type { ScheduleTimer } from '../services/schedules';
 import { HandoffService } from './handoffs';
 import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
@@ -188,8 +189,8 @@ export type { Author, LoadedProject, ConfigChange } from './projects';
 export { DiskGuard } from './disk-guard';
 export { CLOSED_WORKTREE_KEEP_MS, WorktreeSweep } from './worktree-sweep';
 export type { WorktreeSweepReport } from './worktree-sweep';
-export { ScheduleService } from './schedules';
-export type { ScheduleTimer } from './schedules';
+export { ScheduleService } from '../services/schedules';
+export type { ScheduleTimer } from '../services/schedules';
 export * from './session-policy';
 export {
   describeSandbox,
@@ -1091,6 +1092,17 @@ export function createDomain(opts: DomainOptions) {
     tools: {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
+      operator: new OperatorTools({
+        calls: toolCaller,
+        ctx,
+        projects,
+        tasks,
+        inbox,
+        messaging,
+        projectState,
+        operatorActions,
+        taskStarts,
+      }),
       members: new MemberTools({ calls: toolCaller, members }),
       tasks: new TaskTools({
         calls: toolCaller,
@@ -1117,14 +1129,11 @@ export function createDomain(opts: DomainOptions) {
       merges: new MergeTools({ calls: toolCaller, merges }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
     },
-    projectState,
     docWrites,
     decisionCandidates,
     releases,
     operatorRequests,
     operatorSteps,
-    operatorActions,
-    taskStarts,
     questionScreening,
     screenshots: screenshotRuns,
     openQuestionLabel,

@@ -54,13 +54,14 @@ describe('team tool registration', () => {
     }
   });
 
-  it('registers the twenty-one moved tools with their owning modules', () => {
+  it('registers the twenty-six moved tools with their owning modules', () => {
     expect(
       Object.fromEntries(
         TEAM_TOOL_GROUPS.map((group) => [group.module, group.tools.map((tool) => tool.name)]),
       ),
     ).toEqual({
       'services/github': ['link_pull_request'],
+      'services/operator': ['get_project_state', 'operate', 'screen_question', 'start_task', 'start_member'],
       'services/boundary': ['submit_boundary_request', 'get_boundary_request', 'decide_boundary_request'],
       'services/feedback': [
         'get_feedback',

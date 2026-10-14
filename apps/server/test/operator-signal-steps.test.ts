@@ -12,7 +12,7 @@ import type { ToolContext } from '../src/contracts';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
 import type { MergeRecord } from '../src/db';
 import { migrations } from '../src/db/migrations';
-import { OperatorRequests } from '../src/domain/operator-requests';
+import { OperatorRequests } from '../src/services/operator';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

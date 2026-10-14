@@ -1,3 +1,4 @@
+import type { WaitingStarts, OperatorPauses } from './ports';
 import {
   isOnLeave,
   OPERATOR_SIGNAL_ROUND_FROM,
@@ -7,21 +8,19 @@ import {
   projectManagerOf,
 } from '@projectman/shared';
 import type { AiMemberConfig, OperatorChannel, ProjectManagerChannel, WorkItemRef } from '@projectman/shared';
-import { encodeWorkItem } from '../db';
-import type { DomainContext } from './context';
-import type { DeferredStarts } from './admission';
-import type { OperatorRequests } from './operator-requests';
-import type { OperatorSignals } from './operator-signals';
-import type { PauseService } from './pause';
-import type { ProjectService } from './projects';
+import { encodeWorkItem } from '../../db';
+import type { DomainContext } from '../../domain/context';
+import type { OperatorRequests } from './requests';
+import type { OperatorSignals } from './signals';
+import type { ProjectService } from '../../domain/projects';
 
 /** The project's permanent project-manager conversation and why it may have to wait. */
 export class ProjectManagerChannels {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    deferred: DeferredStarts;
-    pauses: PauseService;
+    deferred: WaitingStarts;
+    pauses: Pick<OperatorPauses, 'projectView'>;
     operatorRequests: OperatorRequests;
     operatorSignals: OperatorSignals;
   };

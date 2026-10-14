@@ -25,11 +25,11 @@ import type {
 } from '@projectman/shared';
 import type { TaskPatch } from '../../db';
 import { mergeState, mergedState } from '../../db';
-import type { DomainContext } from '../../core/base';
-import { requireHuman } from '../../core/members';
+import type { DomainContext } from '../base';
+import { requireHuman } from '../members';
 import { invalid, notFound } from '../../kernel';
-import type { ProjectService } from '../../core/projects';
-import type { TimelineService } from '../../core/timeline';
+import type { ProjectService } from '../projects';
+import type { TimelineService } from '../timeline';
 
 /** Why the start of AI work on a task waits (the admission's deferred starts). */
 export interface StartWaitingReader {

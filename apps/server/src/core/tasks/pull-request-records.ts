@@ -1,9 +1,9 @@
 import type { Task, TaskLink, TaskPullRequest } from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
-import { isoNow } from '../../core/base';
-import type { DomainContext } from '../../core/base';
-import type { ProjectService } from '../../core/projects';
-import type { TimelineService } from '../../core/timeline';
+import { isoNow } from '../base';
+import type { DomainContext } from '../base';
+import type { ProjectService } from '../projects';
+import type { TimelineService } from '../timeline';
 import { SYSTEM_ACTOR } from '../../kernel';
 
 /**

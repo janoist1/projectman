@@ -10,12 +10,12 @@ import {
 } from '@projectman/shared';
 import type { PartsLeftAlert, ProjectConfig, Session, Task, TimelineEventData } from '@projectman/shared';
 import { partsLeftText } from '../../agent-text';
-import type { DomainContext } from '../../core/base';
-import type { InboxService } from '../../core/inbox';
-import type { Messaging } from '../../core/messages';
-import type { ProjectService } from '../../core/projects';
-import type { TaskPauseReader } from '../../core/tasks/ports';
-import type { TimelineService } from '../../core/timeline';
+import type { DomainContext } from '../base';
+import type { InboxService } from '../inbox';
+import type { Messaging } from '../messages';
+import type { ProjectService } from '../projects';
+import type { TaskPauseReader } from './ports';
+import type { TimelineService } from '../timeline';
 import { KeyedMutex, SYSTEM_ACTOR, unique } from '../../kernel';
 
 /** How many `task_parts_left` events of a card are read back. */

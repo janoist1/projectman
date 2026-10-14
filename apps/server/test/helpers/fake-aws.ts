@@ -31,6 +31,8 @@ interface BucketState {
   encryption: unknown;
   lifecycle: { Rules: unknown[] } | null;
   versioning: string | null;
+  /** How many objects `list-objects-v2` finds in it. */
+  objects: number;
 }
 
 interface PortState {
@@ -94,6 +96,14 @@ export class FakeAws {
   readonly calls: AwsCall[] = [];
   /** Every secret access key this fake handed out. */
   readonly issuedSecrets: string[] = [];
+  /** The public address `get-instance` reports. */
+  publicIpAddress = '203.0.113.7';
+  /** What `get-instance-access-details` returns apart from the key and certificate it makes up. */
+  accessHostKeys: { algorithm: string; publicKey: string }[] = [
+    { algorithm: 'ssh-ed25519', publicKey: 'AAAAC3NzaC1lZDI1NTE5AAAAIFakeHostKeyForTests0123456789abcdef' },
+  ];
+  /** How many temporary key pairs were handed out. */
+  accessDetailsIssued = 0;
   private keyCounter = 0;
 
   /** The calls that change something, as `service operation`. */
@@ -151,6 +161,7 @@ export class FakeAws {
       encryption: null,
       lifecycle: null,
       versioning: null,
+      objects: 0,
       ...overrides,
     };
     this.buckets.set(name, bucket);
@@ -210,6 +221,27 @@ export class FakeAws {
         return ok({ blueprints: this.blueprints });
       case 'lightsail get-instance':
         return this.getInstance(args);
+      case 'lightsail get-instance-state': {
+        const name = flagValue(args, '--instance-name');
+        return this.instance && this.instance.name === name
+          ? ok({ state: { name: this.instance.state, code: 16 } })
+          : failure('NotFoundException', 'GetInstanceState', `Instance ${name} not found`);
+      }
+      case 'lightsail get-instance-access-details': {
+        if (!this.instance) return failure('NotFoundException', 'GetInstanceAccessDetails', 'not found');
+        this.accessDetailsIssued += 1;
+        return ok({
+          accessDetails: {
+            instanceName: this.instance.name,
+            username: 'ubuntu',
+            ipAddress: this.publicIpAddress,
+            protocol: 'ssh',
+            privateKey: `-----BEGIN OPENSSH PRIVATE KEY-----\nFAKEPRIVATEKEYBODY${this.accessDetailsIssued}\n-----END OPENSSH PRIVATE KEY-----\n`,
+            certKey: `ssh-ed25519-cert-v01@openssh.com AAAAFAKECERTIFICATE${this.accessDetailsIssued} temporary`,
+            hostKeys: this.accessHostKeys,
+          },
+        });
+      }
       case 'lightsail create-instances':
         return this.createInstance(args);
       case 'lightsail update-instance-metadata-options':
@@ -243,6 +275,7 @@ export class FakeAws {
         bundleId,
         blueprintId,
         state: { name: state, code: 16 },
+        publicIpAddress: this.publicIpAddress,
         metadataOptions: {
           state: 'applied',
           httpTokens: metadata.httpTokens,
@@ -309,6 +342,10 @@ export class FakeAws {
     }
     if (!bucket) return failure('NoSuchBucket', 'S3', 'The specified bucket does not exist');
     switch (operation) {
+      case 'list-objects-v2':
+        return bucket.objects > 0
+          ? ok({ Contents: [{ Key: 'some-object', Size: 1 }], KeyCount: 1 })
+          : ok({ KeyCount: 0 });
       case 'get-bucket-versioning':
         return ok(bucket.versioning ? { Status: bucket.versioning } : {});
       case 'get-public-access-block':
@@ -426,7 +463,7 @@ export class CloudWorld {
     return [...this.lines, ...this.errors].join('\n');
   }
 
-  deps(): CloudDeps {
+  deps(overrides: Partial<CloudDeps> = {}): CloudDeps {
     return {
       run: (command, args) => this.aws.run(command, args),
       pipe: async () => ({ code: 127, stdout: '', stderr: 'no pipe in this fake' }),
@@ -438,8 +475,10 @@ export class CloudWorld {
       err: (line) => this.errors.push(line),
       now: () => new Date('2026-10-12T12:00:00Z'),
       sleep: async () => undefined,
+      onInterrupt: () => () => undefined,
       homeDir: this.home,
       repoRoot: process.cwd(),
+      ...overrides,
     };
   }
 

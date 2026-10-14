@@ -2,7 +2,7 @@
 # Cloudflare tunnel to reach it, Litestream for the database and restic for the rest of /data.
 # Guide: docs/HYBRID.md. Build from the repository root:
 #
-#   docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION=$(git rev-parse --short HEAD) -t projectman-cloud .
+#   docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION=$(git rev-parse HEAD) -t projectman-cloud .
 #
 # Deliberately NOT in this image: the `claude`, `codex` and `gh` CLIs. The cloud runs no AI session
 # and no machine-dependent part; the engine on the owner's Mac does (docs/ARCHITECTURE.md,

@@ -1,0 +1,20 @@
+# The cloud board on the Lightsail machine (PM-532, PM-535, docs/AWS.md): Docker runs the image that
+# deploy/aws/host.sh built, systemd supervises it. The container publishes no port (the Cloudflare tunnel
+# inside it connects outwards) and mounts only its data directory.
+[Unit]
+Description=projectman cloud board
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/etc/projectman/image.env
+ExecStartPre=-/usr/bin/docker rm -f projectman-cloud
+ExecStart=/usr/bin/docker run --rm --name projectman-cloud --env-file /etc/projectman/cloud.env -v /var/lib/projectman/data:/data --log-driver journald ${IMAGE}
+ExecStop=/usr/bin/docker stop -t 60 projectman-cloud
+Restart=always
+RestartSec=5
+TimeoutStopSec=75
+
+[Install]
+WantedBy=multi-user.target

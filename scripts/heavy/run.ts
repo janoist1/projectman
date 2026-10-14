@@ -142,7 +142,7 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
           `heavy: the machine's heavy-run queue cannot be used, so this did not run: ${label}\n` +
             `heavy: ${err.message}\n` +
             'heavy: running it without the queue would overload the machine; do not run it another way.\n' +
-            'heavy: note this on your task, and ask for the command to run outside your sandbox, where the queue works.\n',
+            'heavy: note on your task that this did not run and why, and hand over; do not ask for it to run outside your sandbox: the full test runs on the server.\n',
         );
         return EXIT_QUEUE_UNAVAILABLE;
       }

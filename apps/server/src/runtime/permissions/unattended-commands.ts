@@ -206,7 +206,7 @@ export function describeSandbox(input: {
     );
   }
   lines.push(
-    '- A refusal by the sandbox or by a rule is final: do not retry it in another form or look for a way around it. If you really need it, ask a human with ask_human and say why.',
+    '- A refusal by the sandbox or by a rule is final: do not retry it in another form or look for a way around it. A test or a check that does not run here goes on the card as a note, not into a question. Anything else you really need, ask a human with ask_human and say why.',
   );
   return lines;
 }

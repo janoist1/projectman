@@ -108,6 +108,61 @@ it('explains member initiated merging and forbids manual git merging or pushing'
 });
 
 describe('team rules in the system prompt', () => {
+  it.each([
+    ['claude', 'send no ask_human question about it'],
+    ['codex', 'request no escalation for it (it waits in a human inbox)'],
+    ['nanogpt', 'request no escalation for it (it waits in a human inbox)'],
+    ['gemini', 'do not repeat it as a command that waits for a permission decision'],
+  ] as const)('tells %s developers to record checks that cannot run without asking', (provider, instead) => {
+    const project = buildProject();
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider };
+    const prompt = builder.build(
+      input({ project, member, task: makeTask({ repo: 'app' }) }),
+    ).appendSystemPrompt;
+    const text = section(prompt, '# Tests that do not run here');
+    expect(text).toContain(instead);
+    expect(text).toContain('Do not ask anyone to run them outside your sandbox, and do not wait for it');
+    expect(text).toContain(
+      'note on the card with update_task which tests or commands did not run and their error line',
+    );
+    if (provider !== 'claude') {
+      expect(prompt.indexOf('# Tests that do not run here')).toBeGreaterThan(
+        prompt.indexOf('# Heavy commands'),
+      );
+    }
+  });
+
+  it.each(['merge', 'review', 'none'] as const)(
+    'describes %s testing for checks that cannot run here',
+    (mode) => {
+      const project = buildProject();
+      const repo = project.project.repos.find((entry) => entry.name === 'app')!;
+      if (mode !== 'none') {
+        repo.reviewTest = { command: 'npm test', maxWorkers: 4, timeoutMinutes: 5 };
+      }
+      repo.fullTestAtMerge = mode === 'merge';
+      const text = section(
+        builder.build(input({ project, task: makeTask({ repo: 'app' }) })).appendSystemPrompt,
+        '# Tests that do not run here',
+      );
+      expect(text).toContain('reviewer reads your note.');
+      if (mode === 'none') {
+        expect(text).toContain('The reviewer reads your note.');
+        expect(text).not.toContain('full test');
+      } else {
+        expect(text).toContain(mode === 'merge' ? 'full test at the merge' : 'full test before the review');
+        expect(text).toContain("outside the members' sandboxes");
+      }
+    },
+  );
+
+  it('omits untested check instructions in general chats and tasks without repositories', () => {
+    const chat = builder.build(input({ task: null, workItem: { type: 'general' } })).appendSystemPrompt;
+    const task = builder.build(input({ project: buildProjectWithoutRepos() })).appendSystemPrompt;
+    expect(chat).not.toContain('# Tests that do not run here');
+    expect(task).not.toContain('# Tests that do not run here');
+  });
+
   it.each(['codex', 'gemini', 'nanogpt'] as const)('requires %s to await heavy commands', (provider) => {
     const project = buildProject();
     const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider };
@@ -592,9 +647,10 @@ describe('token economy (PM-181)', () => {
   // operator role is now called owner, three characters shorter).
   // PM-486 adds 70 characters: answering ask_human never grants an approval label.
   // PM-559 adds 106 characters: a question that became moot is withdrawn with withdraw_question.
+  // PM-656 adds 522 characters: record checks that cannot run instead of asking for escalation.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 16453, brief: 865 },
-    { name: 'code reviewer', handle: 'code-review', system: 14553, brief: 1903 },
+    { name: 'developer', handle: 'fe-1', system: 16975, brief: 865 },
+    { name: 'code reviewer', handle: 'code-review', system: 15075, brief: 1903 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'
@@ -871,6 +927,7 @@ describe('system prompt', () => {
       '# Team rules',
       '# Current work item',
       '# Commands that run without asking',
+      '# Tests that do not run here',
       '# Guardrails',
       '# Your role instructions',
       '# Your memory',
@@ -3188,6 +3245,7 @@ describe("the CLI's own sandbox (PM-167)", () => {
       '# Your sandbox',
     );
     expect(text).toContain('Writing: your working directory `/pm/worktrees/AR/AR-21-app`');
+    expect(text).toContain('goes on the card as a note, not into a question');
     expect(text).toContain(
       'and `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`',
     );

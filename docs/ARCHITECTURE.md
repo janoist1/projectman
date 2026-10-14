@@ -1193,8 +1193,13 @@ workers follow the machine's size.
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS Lightsail: `preflight` and `aws` (PM-534: the machine,
-  the firewall, the two S3 buckets, the two IAM users and their access keys), later the machine part
-  (PM-535), Cloudflare (PM-536) and the DNS move (PM-537). It calls the `aws` CLI v2 with argv (profile and
+  the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
+  (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
+  `scripts/cloud/dns.ts`: Route 53 read/import, authoritative verification using `CloudDeps.resolve`
+  with name-server IPs resolved locally first, public delegation/DS through Cloudflare and Google DoH,
+  Route 53 Domains registration status and explicit `dns switch [--back]` in `us-east-1`, and `up`
+  orchestration). Forward switching requires successful verification in the same run and no DNSSEC
+  keys or public DS; rollback targets the retained AWS delegation set. It calls the `aws` CLI v2 with argv (profile and
   region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
   assumptions: the `aws` CLI v2 with the profile `i` on the owner's Mac, later `ssh`/`scp`, and the secrets
   store `~/.config/projectman/cloud/` (directory 700, files 600, symbolic links and wider modes refused;
@@ -1203,6 +1208,50 @@ workers follow the machine's size.
   an engine; this is the owner's tool and the cloud machine it provisions is the server side. The
   `cloud.env` it writes is what the container of "Cloud deployment and backup" reads.
   **Module:** `scripts`
+
+- **The Lightsail machine and its operation (PM-535)** — `scripts/cloud/{host,machine}.ts`,
+  `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
+  `apps/server/test/helpers/fake-host.ts`. The commands `deploy`, `rollback`, `status`, `logs`, `ssh`,
+  `stop`, `start`, `rehearse`, `seed` and `pull-data` of `npm run cloud`. **What runs where:** on the
+  Mac `ssh` (and `git ls-remote`, `tar`, the `aws` CLI); on the Ubuntu machine, as root through
+  `sudo bash -c '<host.sh>' host.sh <subcommand>` (the script travels as the `-c` argument, so the
+  standard input carries the payload: the unit file, `cloud.env`, a tar stream), Docker, git, `jq`
+  and systemd. The unit `projectman-cloud.service` runs `docker run` of the image
+  `projectman-cloud:<commit id>` with `/etc/projectman/cloud.env` and only `/var/lib/projectman/data`
+  mounted; it publishes no port (the Cloudflare tunnel connects outwards), uses no host network, no
+  extra privilege and no Docker socket (`deploy-aws.test.ts` checks it). State on the machine:
+  `/etc/projectman/{cloud.env,image.env}`, `/var/lib/projectman/{data,deploy.json}` (`current`,
+  `previous`, `lastStoppedAt`), the checkout `/opt/projectman/src`. **Machine assumptions:** the
+  machine is Ubuntu 24.04 with `apt`, `systemd` and Docker from the distribution; the owner's Mac has
+  `ssh` (OpenSSH with certificate support) and reaches the machine on its public IPv4 address; the
+  session opens `22/tcp` for the Mac's own address only for the length of a command and puts the
+  firewall back afterwards (also on a failure or Ctrl-C), with host keys taken from Lightsail
+  (`StrictHostKeyChecking=yes`; `aws.sshIdentityFile` is the fallback for the identity, not for the
+  host keys). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
+  image is tagged with the full commit id, which is also `PROJECTMAN_VERSION`. **Does this work on a
+  remote engine?** Nothing in it runs on an engine: it is the owner's own tool for the server side, and
+  the engine neither calls nor depends on it. The entries "Cloud provisioning" and "Cloud deployment
+  and backup" are the other parts of the same chain.
+
+- **The Cloudflare side of the cloud board (PM-536)** — `scripts/cloud/cloudflare{,-api,-publish,-check}.ts`,
+  the `guard-check` subcommand of `deploy/aws/host.sh`, `deploy/cloudflare/check.sh`,
+  `apps/server/test/cloud-cloudflare*.test.ts`, `apps/server/test/helpers/fake-cloudflare.ts`. The commands
+  `edge`, `publish`, `check` and the Cloudflare part of `preflight` of `npm run cloud`: they call the
+  Cloudflare API v4 over HTTPS with the owner's own API token (`CloudflareApi`: one `fetch` through the
+  injected `CloudDeps`, a read-only mode for `--dry-run`, retry on 429) and make the zone, its edge
+  settings, a header transform rule, the One-time PIN provider, the two service tokens, the Access
+  policies and applications, the tunnel with its ingress, `TUNNEL_TOKEN` in `cloud.env`, and last the
+  proxied CNAME. `check` runs `check.sh` (`cloudflared` and `curl` on the Mac), the three engine doors
+  and `deploy/cloud/smoke.sh`. **Machine assumptions:** the commands run on the owner's Mac; the token
+  file `cloudflare-token` and the two service token files (`engine-access-token.json`,
+  `integrator-access-token.json`) are in the secrets store `~/.config/projectman/cloud/` (mode 600, a path
+  the AI sessions' sandboxes deny); the owner has done `cloudflared access login` for `check`. Secrets
+  never go into an argument: the service token secrets and the login file travel in the environment of
+  the child process, and the output masks them. **Does this work on a remote engine?** Nothing here runs
+  on an engine and no engine holds the API token. What crosses the boundary: `cloud.env` to the machine
+  (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
+  `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
+  engine by the owner.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -1281,8 +1330,9 @@ workers follow the machine's size.
   then a 404 rule) and `deploy/cloudflare/check.sh` (`FEEDBACK_ORIGIN`). Machine assumption: the tunnel
   (`cloudflared`) runs on the server's machine and forwards to its loopback port with the original `Host`
   (no `httpHostHeader`), which the guard reads; the Cloudflare account and the DNS record are outside the
-  repository. The hybrid cloud image uses a token-managed tunnel set in the dashboard, with the variable
-  given by whoever installs it (`docs/HYBRID.md`). **Remote engine:** the entrance belongs to the server
+  repository. The hybrid cloud image uses a token-managed tunnel, with the variable given by whoever
+  installs it (`docs/HYBRID.md`); on Lightsail `npm run cloud -- edge` sets the tunnel, the ingress and the
+  variable through the Cloudflare API (PM-536). **Remote engine:** the entrance belongs to the server
   (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
   Security notes: `docs/SECURITY.md` "The widget's public hostname".
   **Module:** `http`
@@ -1465,6 +1515,8 @@ workers follow the machine's size.
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
+  `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
   The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
   unprivileged user (the entrypoint starts as root only to hand the mounted volume over, then drops
   with `setpriv --no-new-privs`). Its processes: the server (`HOST=127.0.0.1`), Litestream

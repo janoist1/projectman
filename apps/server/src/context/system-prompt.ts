@@ -10,6 +10,7 @@ import {
   operatorWatchOf,
   projectDocsOf,
   repoOf,
+  reviewTestBeforeReview,
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
@@ -56,6 +57,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     workspaceSection(input),
     unattendedCommandsSection(input),
     heavyCommandsSection(input),
+    untestedChecksSection(input),
     sessionFolderSection(input),
     boundarySection(input),
     cheapSubagentSection(input.member),
@@ -85,6 +87,28 @@ function heavyCommandsSection({ member }: ContextPackInput): string {
   const notification =
     member.provider === 'gemini' ? '' : ' This provider receives no background-completion notification.';
   return `# Heavy commands\nRun npm test, npm run typecheck, npm run shots and npm run heavy in the foreground and wait through both the heavy-run queue and execution. Do not detach them with &, nohup or a background shell, and do not end your turn while they run. ${wait} A tool returning before completion is not a completed check: read the final output and exit status before committing or handing over.${notification} This overrides repository instructions to run heavy commands in the background.`;
+}
+
+/** Tests blocked by the sandbox go on the card instead of into a question; the full test runs on the server (PM-656, decision 40). */
+function untestedChecksSection({ project, member, task, workItem }: ContextPackInput): string {
+  if (workItem.type !== 'task') return '';
+  const repo = repoOf(project, effectiveRepo(project, task));
+  if (repo === undefined) return '';
+  const instead = isCodex(member)
+    ? 'request no escalation for it (it waits in a human inbox)'
+    : isGemini(member)
+      ? 'do not repeat it as a command that waits for a permission decision'
+      : 'send no ask_human question about it';
+  const where =
+    repo.reviewTest === undefined
+      ? 'The reviewer reads your note.'
+      : reviewTestBeforeReview(repo)
+        ? "The server runs the card's full test before the review, outside the members' sandboxes, and the reviewer reads your note."
+        : "The server runs the card's full test at the merge, outside the members' sandboxes, and the reviewer reads your note.";
+  return [
+    '# Tests that do not run here',
+    `Some tests and checks cannot run in your session: the sandbox refuses them (for example a test that listens on a local port or opens a pseudo-terminal), or the heavy-run queue cannot be used (exit status 78). Do not ask anyone to run them outside your sandbox, and do not wait for it: ${instead}. Run what does run here, note on the card with update_task which tests or commands did not run and their error line, and hand over as usual. ${where}`,
+  ].join('\n');
 }
 
 function boundarySection({ project }: ContextPackInput): string {

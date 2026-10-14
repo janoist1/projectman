@@ -1190,5 +1190,30 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     CREATE UNIQUE INDEX merge_trains_running ON merge_trains(project_key, repo) WHERE state = 'running';
     ALTER TABLE task_merges ADD COLUMN train_id TEXT;`,
   },
+  {
+    version: 61,
+    name: 'email login',
+    // PM-670: the one-time e-mail login code of invited clients and the durable limits around it. Only
+    // keyed hashes are stored (HMAC of the address, of the client IP and of the code): never an open
+    // address, IP or code. One live code per address; a new one overwrites the old.
+    sql: `CREATE TABLE email_login_codes (
+      address_hash TEXT PRIMARY KEY,
+      id TEXT NOT NULL UNIQUE,
+      code_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      used_at TEXT
+    );
+    CREATE TABLE email_login_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL CHECK (kind IN ('request', 'send', 'verify')),
+      subject TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX email_login_events_subject ON email_login_events(kind, subject, at);
+    CREATE INDEX email_login_events_at ON email_login_events(at);
+    CREATE INDEX invitations_email ON invitations(email);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -86,6 +86,13 @@ export const ERROR_CODES = [
   'invite_invalid',
   'invite_used',
   'login_required',
+  // E-mail login of invited clients (PM-670)
+  'email_login_unavailable',
+  'email_login_rate_limited',
+  'email_code_invalid',
+  'email_login_name_required',
+  'email_login_no_access',
+  'invite_password_account_required',
   // Tasks, labels and gates
   'unknown_stage',
   'unknown_repo',

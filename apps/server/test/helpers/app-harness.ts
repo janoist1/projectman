@@ -46,6 +46,7 @@ export interface AppHarnessOptions {
     | 'screenQuestions'
     | 'doneTurnLimitMs'
     | 'clientIpHeader'
+    | 'emailCodeMailer'
     | 'freeDiskBytes'
     | 'controlSocket'
     | 'shutdownPauseMs'

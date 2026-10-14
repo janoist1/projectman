@@ -259,7 +259,9 @@ export type LoginRequest = z.infer<typeof LoginRequest>;
 
 const LoginEmail = z.string().trim().min(3).max(254);
 const InviteToken = z.string().min(1).max(200);
-const LoginCode = z.string().regex(/^\d{6}$/);
+/** The digits of the one-time code; the code form shows and checks the same number. */
+export const EMAIL_LOGIN_CODE_LENGTH = 6;
+export const LoginCode = z.string().regex(new RegExp(`^\\d{${EMAIL_LOGIN_CODE_LENGTH}}$`));
 const NewAccountName = z.string().trim().min(1).max(100);
 
 /** Asks for a code by the address, or by an invitation token (the code goes to the invited address). */

@@ -133,8 +133,9 @@ before hand-over and in fix rounds. They never run the full suite. The merger (`
 before `main` moves: `npm run merge-test` in the full test sandbox, in the machine's queue.
 Shared code or configuration changes require the whole suite; workspace checks do not queue
 (decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
-(exit status 78), it did not run: note this on your card and ask for the command to run outside
-your sandbox; never run it another way (PM-346).
+(exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not
+run: note on your card what did not run and why, and hand over; the merge test runs it.
+Never run it another way, and do not ask anyone to run it outside your sandbox (PM-346, PM-656).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
 owner's live instance is a separate checkout (`~/projectman-live`, port 4800, data in

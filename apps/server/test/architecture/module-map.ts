@@ -326,8 +326,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/schedules',
     pass: 'split-tool',
-    paths: ['domain/schedules.ts'],
-    sealed: false,
+    paths: ['services/schedules/'],
+    sealed: true,
   },
   {
     id: 'services/operator',
@@ -583,11 +583,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'runtime/sessions',
     to: 'services/schedules',
     removedBy: 'runtime/sessions',
-  },
-  {
-    from: 'services/schedules',
-    to: 'runtime/admission',
-    removedBy: 'services/schedules',
   },
   {
     from: 'services/full-tests',

@@ -104,8 +104,8 @@ import { PresenceService } from './presence';
 import { OWNER_HANDLE, ProjectService } from './projects';
 import { ReviewWatch } from './review-watch';
 import { RoleService } from './roles';
-import { ScheduleService } from './schedules';
-import type { ScheduleTimer } from './schedules';
+import { ScheduleService } from '../services/schedules';
+import type { ScheduleTimer } from '../services/schedules';
 import { HandoffService } from './handoffs';
 import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
@@ -188,8 +188,8 @@ export type { Author, LoadedProject, ConfigChange } from './projects';
 export { DiskGuard } from './disk-guard';
 export { CLOSED_WORKTREE_KEEP_MS, WorktreeSweep } from './worktree-sweep';
 export type { WorktreeSweepReport } from './worktree-sweep';
-export { ScheduleService } from './schedules';
-export type { ScheduleTimer } from './schedules';
+export { ScheduleService } from '../services/schedules';
+export type { ScheduleTimer } from '../services/schedules';
 export * from './session-policy';
 export {
   describeSandbox,

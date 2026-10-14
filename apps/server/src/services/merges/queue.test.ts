@@ -102,6 +102,16 @@ describe('merge queue', () => {
     expect(t.held.get('1')!.run.signal?.aborted).toBe(false);
   });
 
+  it('recovers a train before a newer prioritized request in the same repository', async () => {
+    const t = setup();
+    t.rows.push(t.row('new', 'web'), t.row('recovery', 'web', { trainId: 'mrg_recovery0001' }));
+    t.pump();
+    expect(t.started).toEqual(['recovery']);
+    await t.finish('recovery');
+    expect(t.started).toEqual(['recovery', 'new']);
+    await t.finish('new');
+  });
+
   it('interrupts a running merge by aborting it and waits until it settled', async () => {
     const t = setup();
     t.rows.push(t.row('1', 'web'));

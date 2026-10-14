@@ -543,12 +543,7 @@ export class MergeSteps {
     if (task) await this.deps.afterMerge(task);
   }
 
-  private async block(
-    running: MergeRun,
-    reason: MergeBlockReason,
-    message: string,
-    detail?: string,
-  ): Promise<void> {
+  async block(running: MergeRun, reason: MergeBlockReason, message: string, detail?: string): Promise<void> {
     const { ctx, timeline, inbox, projects } = this.deps;
     const row = running.row;
     const config = await projects.config(row.projectKey);

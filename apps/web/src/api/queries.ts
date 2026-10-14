@@ -21,6 +21,8 @@ import type {
   PatchConfigRequest,
   CreateInviteRequest,
   AcceptInviteRequest,
+  EmailLoginCodeRequest,
+  EmailLoginVerifyRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
@@ -963,6 +965,24 @@ export function useAcceptInvite(token: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: AcceptInviteRequest) => api.acceptInvite(token, body),
+    onSuccess: (me) => {
+      client.clear();
+      client.setQueryData(queryKeys.me, me);
+    },
+  });
+}
+
+/* ---------- e-mail login of invited clients (PM-671) ---------- */
+
+export function useRequestEmailLoginCode() {
+  return useMutation({ mutationFn: (body: EmailLoginCodeRequest) => api.requestEmailLoginCode(body) });
+}
+
+/** A redeemed code starts the session like an accepted invitation does: a fresh cache with `Me`. */
+export function useVerifyEmailLogin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: EmailLoginVerifyRequest) => api.verifyEmailLogin(body),
     onSuccess: (me) => {
       client.clear();
       client.setQueryData(queryKeys.me, me);

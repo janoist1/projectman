@@ -1603,7 +1603,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
   **Module:** `worktree`
-- **Heavy-run queue and worker limits** — `full-test/heavy-lock.ts`,
+- **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core}.ts`,
   `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
   `/tmp/projectman-<uid>/heavy` uses local atomic directory operations, PID liveness and
@@ -1749,7 +1749,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
   and writes images to local output storage. For a Codex member, whose sandbox cannot start
   Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
-  PM-351): `services/full-tests/{screenshot-runs,screenshot-core}.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
+  PM-351): `services/full-tests/{screenshot-runs,screenshot-core}.ts`, `full-test/{screenshots,run-sandboxed,run-sandboxed-core}.ts` start it in the
   member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
   the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
@@ -1962,7 +1962,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Module:** `runner`
 - **Server full test before review** — `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine),
-  `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
+  `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
   it is unavailable without macOS/`srt`. Its sandbox

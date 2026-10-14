@@ -9,7 +9,7 @@ import {
   pathsInside,
   resolveWord,
   withoutOwnDirectory,
-} from '../src/domain/command-paths';
+} from './command-paths';
 
 describe('command paths', () => {
   it('tells what lies inside a directory, by its text', () => {

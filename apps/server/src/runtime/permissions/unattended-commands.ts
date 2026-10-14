@@ -1,14 +1,14 @@
 import path from 'node:path';
 import type { AgentProvider } from '@projectman/shared';
-import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from '../contracts';
-import type { AgentSandbox } from '../contracts';
+import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from '../../contracts';
+import type { AgentSandbox } from '../../contracts';
 import { isWithin } from './command-paths';
 import {
   GIT_SETTINGS_VARIABLE,
   HEAVY_LOCK_DIR_VARIABLE,
   PREFER_OFFLINE_VARIABLE,
   PTY_SKIP_VARIABLE,
-} from '../runtime/sessions';
+} from '../sessions';
 import { SHELL_REDIRECTIONS } from './shell-words';
 import {
   NPM_CHECKS,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { hasShortOption, namesOption, parseOptions } from '../src/domain/command-options';
-import type { OptionList } from '../src/domain/command-options';
+import { hasShortOption, namesOption, parseOptions } from './command-options';
+import type { OptionList } from './command-options';
 
 const list: OptionList = {
   letters: 'lrvi',

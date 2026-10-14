@@ -2,8 +2,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { ServerEvent } from '@projectman/shared';
 import { getTemplate, templates } from '@projectman/templates';
 import type { ProjectTemplate } from '@projectman/templates';
-import type { EventBus } from '../contracts';
-import type { Repositories } from '../db';
+import type { EventBus } from '../../contracts';
+import type { Repositories } from '../../db';
 import { createDomainEvents } from './events';
 import type { DomainEvents } from './events';
 

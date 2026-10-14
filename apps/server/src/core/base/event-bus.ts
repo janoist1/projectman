@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { ServerEvent } from '@projectman/shared';
-import type { EventBus } from '../contracts';
+import type { EventBus } from '../../contracts';
 
 /** Synchronous in-process pub/sub. A failing listener never breaks the publisher. */
 export function createEventBus(logger?: FastifyBaseLogger): EventBus {

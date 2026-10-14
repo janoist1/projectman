@@ -99,7 +99,7 @@ describe('structure map', () => {
     await screen.findByTestId('drawer');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.getByTestId('location').textContent).toContain('card=AC-17');
-    fireEvent.click(within(side()).getByRole('button', { name: /←/ }));
+    fireEvent.click(within(side()).getByRole('button', { name: t('map.structure.back') }));
     expect(plot('shop').dataset.lit).toBe('false');
   });
   it('shows the module responsibility, directed relationships and file counts', async () => {
@@ -123,6 +123,63 @@ describe('structure map', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(plot('orders').getAttribute('aria-pressed')).toBe('false');
     expect(document.activeElement).toBe(plot('orders'));
+  });
+  it('focuses the card panel after list activation and returns to the recreated row on Escape', async () => {
+    mockProject().render(routes, '/p/AC/map');
+    await screen.findByRole('heading', { name: 'Vásárlói élmény' });
+    const original = cardButton('AC-17');
+    original.focus();
+    fireEvent.keyDown(original, { key: 'Enter' });
+    // Native Enter dispatches click on a button; jsdom does not implement that default action.
+    fireEvent.click(original);
+    const heading = within(side()).getByRole('heading', { level: 2 });
+    expect(document.activeElement).toBe(heading);
+    expect(original.isConnected).toBe(false);
+    fireEvent.keyDown(heading, { key: 'Escape' });
+    const restored = side().querySelector('[data-card-row="AC-17"]');
+    expect(restored).not.toBe(original);
+    expect(document.activeElement).toBe(restored);
+  });
+  it('moves focus through replacement module and card panels and preserves the original list target', async () => {
+    mockProject().render(routes, '/p/AC/map');
+    await screen.findByRole('heading', { name: 'Vásárlói élmény' });
+    cardButton('AC-17').focus();
+    fireEvent.click(cardButton('AC-17'));
+    const moduleLink = side().querySelector<HTMLButtonElement>('[data-module-link="orders"]')!;
+    moduleLink.focus();
+    fireEvent.click(moduleLink);
+    expect(document.activeElement).toBe(
+      within(side()).getByRole('heading', { name: 'Rendelések', level: 2 }),
+    );
+    const incoming = side().querySelector<HTMLButtonElement>('[data-module-link="shop"]')!;
+    incoming.focus();
+    fireEvent.click(incoming);
+    expect(document.activeElement).toBe(within(side()).getByRole('heading', { name: 'Webáruház', level: 2 }));
+    const row = cardButton('AC-17');
+    row.focus();
+    fireEvent.click(row);
+    expect(document.activeElement).toBe(within(side()).getByRole('heading', { level: 2 }));
+    fireEvent.click(within(side()).getByRole('button', { name: t('map.structure.back') }));
+    expect(document.activeElement).toBe(side().querySelector('[data-card-row="AC-17"]'));
+  });
+  it('falls back to the list heading when the originating row disappears during refresh', async () => {
+    const project = mockProject();
+    const view = project.render(routes, '/p/AC/map');
+    await screen.findByRole('heading', { name: 'Vásárlói élmény' });
+    const row = cardButton('AC-17');
+    row.focus();
+    fireEvent.click(row);
+    project.backend.structure.repos[0]!.cards = project.backend.structure.repos[0]!.cards.filter(
+      (card) => card.taskKey !== 'AC-17',
+    );
+    await act(async () => {
+      await view.client.invalidateQueries({ queryKey: ['structure', 'AC'] });
+    });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(side()).getByRole('heading', { name: t('map.structure.list') }),
+      ),
+    );
   });
   it('toggles completed cards and clears a hidden card selection', async () => {
     mockProject().render(routes, '/p/AC/map');

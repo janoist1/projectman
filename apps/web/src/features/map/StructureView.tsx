@@ -13,6 +13,7 @@ import type { MapState, StructureCard, StructureRepoView } from '@projectman/sha
 import { useProject } from '../../app/contexts';
 import { Dialog } from '../../components/Dialog';
 import { Fold } from '../../components/Fold';
+import { Icon } from '../../components/Icon';
 import { Button, ButtonLink } from '../../components/Button';
 import { EmptyState, ErrorState } from '../../components/States';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -30,6 +31,7 @@ import styles from './StructureView.module.css';
 const colors = ['blue', 'yellow', 'teal', 'green', 'orange', 'purple', 'gray'];
 const sizes = [0, 118, 148, 190, 250];
 const filesText = (count: number) => t('map.structure.files', { count });
+type FocusOrigin = { kind: 'card' | 'module' | 'outside'; id: string };
 
 function RepoState({
   repo,
@@ -102,7 +104,12 @@ export function StructureView() {
   const [params, setParams] = useSearchParams();
   const drawerOpen = Boolean(useMatch('/p/:projectKey/map/tasks/:taskKey/*'));
   const mobile = useIsMobile();
-  const trigger = useRef<HTMLElement | null>(null);
+  const trigger = useRef<FocusOrigin | null>(null);
+  const sideRef = useRef<HTMLElement | null>(null);
+  const panelHeading = useRef<HTMLHeadingElement | null>(null);
+  const listHeading = useRef<HTMLHeadingElement | null>(null);
+  const focusPanelPending = useRef(false);
+  const restoreFocusPending = useRef(false);
   const landscape = useRef<HTMLDivElement | null>(null);
   const repo = query.data?.repos.find((r) => r.repo === params.get('repo')) ?? query.data?.repos[0];
   const map = repo?.status === 'ok' ? repo.map : null;
@@ -142,20 +149,59 @@ export function StructureView() {
     const next = new URLSearchParams(params);
     clearParams(next);
     setParams(next);
-    trigger.current?.focus();
+    restoreFocusPending.current = true;
   };
   const select = (kind: 'card' | 'module' | 'outside', value: string) => {
-    if (!selected && document.activeElement instanceof HTMLElement) trigger.current = document.activeElement;
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if ((!selected || !trigger.current) && active) {
+      if (active.dataset.cardRow) trigger.current = { kind: 'card', id: active.dataset.cardRow };
+      else if (active.dataset.module || active.dataset.moduleLink)
+        trigger.current = { kind: 'module', id: active.dataset.module ?? active.dataset.moduleLink! };
+      else if (active.hasAttribute('data-outside')) trigger.current = { kind: 'outside', id: '1' };
+    }
     const next = new URLSearchParams(params);
     const same = params.get(kind) === value;
+    focusPanelPending.current = !same && Boolean(active && sideRef.current?.contains(active));
+    if (same) restoreFocusPending.current = true;
     clearParams(next);
     if (!same) next.set(kind, value);
     setParams(next);
   };
+  const returnFocusTarget = () => {
+    const origin = trigger.current;
+    if (origin?.kind === 'card')
+      return (
+        [...(sideRef.current?.querySelectorAll<HTMLElement>('[data-card-row]') ?? [])].find(
+          (element) => element.dataset.cardRow === origin.id,
+        ) ?? listHeading.current
+      );
+    if (origin?.kind === 'module')
+      return (
+        [...(landscape.current?.querySelectorAll<HTMLElement>('[data-module]') ?? [])].find(
+          (element) => element.dataset.module === origin.id,
+        ) ?? listHeading.current
+      );
+    if (origin?.kind === 'outside')
+      return landscape.current?.querySelector<HTMLElement>('[data-outside]') ?? listHeading.current;
+    return listHeading.current;
+  };
+  // Query changes replace panel buttons; resolve the new DOM nodes only after the render.
+  useEffect(() => {
+    if (restoreFocusPending.current && !selected) {
+      returnFocusTarget()?.focus();
+      restoreFocusPending.current = false;
+      focusPanelPending.current = false;
+    } else if (focusPanelPending.current && selected && !mobile && !drawerOpen) {
+      panelHeading.current?.focus();
+      focusPanelPending.current = false;
+    }
+  });
   useEffect(() => {
     if (!query.data) return;
     const invalid = cardKey ? !card : moduleId ? !module : outside ? !repo?.unmapped.count : false;
     if (invalid) {
+      if (document.activeElement === document.body || sideRef.current?.contains(document.activeElement))
+        restoreFocusPending.current = true;
       const next = new URLSearchParams(params);
       clearParams(next);
       setParams(next, { replace: true });
@@ -203,7 +249,7 @@ export function StructureView() {
     [base, search],
   );
   const moduleButton = (id: string, detail?: string) => (
-    <button type="button" className={styles.row} onClick={() => select('module', id)}>
+    <button type="button" data-module-link={id} className={styles.row} onClick={() => select('module', id)}>
       {nameOf(id)}
       {detail ? <small>{detail}</small> : null}
     </button>
@@ -214,6 +260,7 @@ export function StructureView() {
       <button
         type="button"
         className={styles.cardRow}
+        data-card-row={c.taskKey}
         data-merged={c.source === 'merge'}
         aria-pressed={cardKey === c.taskKey}
         onClick={() => select('card', c.taskKey)}
@@ -258,7 +305,9 @@ export function StructureView() {
     ) : null;
   const cardList = (
     <>
-      <h2>{t('map.structure.list')}</h2>
+      <h2 ref={listHeading} tabIndex={-1}>
+        {t('map.structure.list')}
+      </h2>
       <p>{t('map.structure.hint')}</p>
       {cards.length ? (
         <ul className={styles.list}>
@@ -286,7 +335,9 @@ export function StructureView() {
         ) : null;
       })()}
       <p className={styles.key}>{card.taskKey}</p>
-      <h2>{model?.byKey.get(card.taskKey)?.task.title ?? card.taskKey}</h2>
+      <h2 ref={panelHeading} tabIndex={-1}>
+        {model?.byKey.get(card.taskKey)?.task.title ?? card.taskKey}
+      </h2>
       <p>
         {t(`map.structure.${card.source}`)} · {t('map.structure.changed', { count: card.files })}
       </p>
@@ -319,7 +370,9 @@ export function StructureView() {
           <span className={styles.chip}>{filesText(countOf(module.id))}</span>
         ) : null}
       </div>
-      <h2>{module.name}</h2>
+      <h2 ref={panelHeading} tabIndex={-1}>
+        {module.name}
+      </h2>
       <p>{module.summary}</p>
       {clashBox(module.id)}
       {(['outgoing', 'incoming'] as const).map((direction) => {
@@ -356,7 +409,9 @@ export function StructureView() {
     </>
   ) : outside ? (
     <>
-      <h2>{t('map.structure.outsideTitle')}</h2>
+      <h2 ref={panelHeading} tabIndex={-1}>
+        {t('map.structure.outsideTitle')}
+      </h2>
       <p>{t('map.structure.outsideBody')}</p>
       <h3>{t('map.structure.examples')}</h3>
       {examples(repo?.unmapped.examples ?? [])}
@@ -565,6 +620,7 @@ export function StructureView() {
                 {repo?.unmapped.count ? (
                   <button
                     type="button"
+                    data-outside=""
                     className={styles.outside}
                     aria-pressed={outside}
                     onClick={() => select('outside', '1')}
@@ -573,10 +629,11 @@ export function StructureView() {
                   </button>
                 ) : null}
               </div>
-              <aside className={styles.side} aria-label={t('map.structure.details')}>
+              <aside ref={sideRef} className={styles.side} aria-label={t('map.structure.details')}>
                 {selected && !mobile ? (
                   <button type="button" className={styles.back} onClick={clear}>
-                    ← {t('map.structure.back')}
+                    <Icon name="chevronLeft" size={14} />
+                    {t('map.structure.back')}
                   </button>
                 ) : null}
                 {mobile ? cardList : panel}
@@ -588,7 +645,7 @@ export function StructureView() {
                 onClose={clear}
                 title={t('map.structure.details')}
                 size="sm"
-                returnFocusRef={trigger}
+                returnFocusFallback={returnFocusTarget}
               >
                 <div className={styles.panel}>{panel}</div>
               </Dialog>

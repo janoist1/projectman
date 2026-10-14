@@ -9,6 +9,7 @@ import {
 import type { AiMemberConfig, ProjectConfig, Session, Task } from '@projectman/shared';
 import type {
   ProcessProbe,
+  SessionCleanup,
   MemberWorkspaceInfo,
   MemberWorkspaceKey,
   MemberWorkspaceManager,
@@ -105,6 +106,7 @@ export class MemberWorkspaces {
     const repo = effectiveRepo(config, task)!;
     const record = this.ctx.repos.memberWorkspaces.find(config.project.key, member.handle, repo);
     const holder = record?.holder;
+    if (holder?.cleanupFailed) throw this.busy(member.handle, repo, holder);
     if (!holder || holder.taskKey === task.key || !this.holds(holder)) return;
     if (this.yieldingSession(config, holder)) return;
     throw this.busy(member.handle, repo, holder);
@@ -190,19 +192,29 @@ export class MemberWorkspaces {
   }
 
   /** The session's process started: its process group now holds the workspace. */
-  started(sessionId: string, pid: number): void {
+  started(sessionId: string, pid: number, scopeId?: string): void {
     this.starting.delete(sessionId);
     for (const record of this.ctx.repos.memberWorkspaces.heldBy(sessionId))
-      this.ctx.repos.memberWorkspaces.setHolderPid(record.id, sessionId, pid);
+      this.ctx.repos.memberWorkspaces.setHolderPid(record.id, sessionId, pid, scopeId);
   }
 
   /**
    * The session ended or did not start: its workspaces are free once its process group is gone.
    * Processes it left running keep the workspace until they are gone too.
    */
-  ended(sessionId: string): void {
+  ended(sessionId: string, cleanup?: SessionCleanup): void {
     this.starting.delete(sessionId);
     for (const record of this.ctx.repos.memberWorkspaces.heldBy(sessionId)) {
+      if (cleanup && record.holder?.scopeId !== cleanup.scopeId) continue;
+      if (cleanup?.outcome === 'failed') {
+        this.ctx.repos.memberWorkspaces.failCleanup(record.id, sessionId, cleanup.scopeId);
+        continue;
+      }
+      if (cleanup?.outcome === 'clean') {
+        this.ctx.repos.memberWorkspaces.release(record.id, sessionId);
+        continue;
+      }
+      if (record.holder?.cleanupFailed) continue;
       if (this.deps.isRunning(sessionId)) continue;
       const pid = record.holder?.pid ?? null;
       if (pid !== null && this.alive(pid)) {
@@ -488,6 +500,7 @@ export class MemberWorkspaces {
     taskKey: string,
   ): Promise<void> {
     const holder = record.holder;
+    if (holder?.cleanupFailed) throw this.busy(record.member, record.repo, holder);
     if (holder && holder.sessionId !== sessionId && this.holds(holder)) {
       const yielding = this.yieldingSession(config, holder);
       if (!yielding) throw this.busy(record.member, record.repo, holder);
@@ -504,12 +517,20 @@ export class MemberWorkspaces {
   }
 
   private hold(record: MemberWorkspaceRecord, sessionId: string, taskKey: string): void {
-    const holder: WorkspaceHolder = { sessionId, taskKey, pid: null, since: isoNow(this.ctx) };
+    const holder: WorkspaceHolder = {
+      sessionId,
+      taskKey,
+      pid: null,
+      scopeId: null,
+      cleanupFailed: false,
+      since: isoNow(this.ctx),
+    };
     this.ctx.repos.memberWorkspaces.hold(record.id, holder);
   }
 
   /** Whether the holder's process still holds the workspace (proven gone otherwise). */
   private holds(holder: WorkspaceHolder): boolean {
+    if (holder.cleanupFailed) return true;
     if (this.starting.has(holder.sessionId) || this.deps.isRunning(holder.sessionId)) return true;
     return holder.pid !== null && this.alive(holder.pid);
   }

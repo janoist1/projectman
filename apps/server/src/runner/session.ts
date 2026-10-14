@@ -11,7 +11,10 @@ import type {
   RunnerEvent,
   RunningSessionInfo,
   StartSessionSpec,
+  ScopeCloseReason,
+  SessionCleanup,
 } from '../contracts';
+import type { OpenScope, ProcessScopeDriver } from './process-scope';
 import type { HookPayload } from './hook-payload';
 import { InputQueue, NotSubmittedError } from './input-queue';
 import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL, PauseState } from './pause';
@@ -71,12 +74,13 @@ export interface PtySpawnOptions {
 export type SpawnPty = (file: string, args: string[], options: PtySpawnOptions) => PtyProcess;
 
 export interface SessionDeps {
+  processScopes?: ProcessScopeDriver;
   refreshDependencies?: (cwd: string) => Promise<void>;
   logger: FastifyBaseLogger;
   broker: PermissionBroker;
   permissionTimeoutMs: number;
   emit(event: RunnerEvent): void;
-  /** Called as soon as the process has exited, before the final chat, state and exit events. */
+  /** Called after scope cleanup and final reads, immediately before the exit event. */
   onExited(session: AgentSession): void;
   /** The CLI lost its login mid-session (before the session is stopped). */
   onAuthError?(session: AgentSession, message: string): void;
@@ -103,6 +107,8 @@ export class AgentSession {
   private readonly log: FastifyBaseLogger;
   private readonly timing: SessionTiming;
   private proc: PtyProcess | null = null;
+  private scope: OpenScope | null = null;
+  private cleanup: Promise<SessionCleanup> | null = null;
   private readonly clock = new SessionClock();
   private interruptSeq = 0;
   private current: StateSnapshot = { state: 'starting', activity: null };
@@ -144,6 +150,7 @@ export class AgentSession {
 
   /** The pause asked for, until it is released (PM-218). */
   private pauseState: PauseState | null = null;
+  private pauseExitOutcome: PauseOutcome | null = null;
   /** The main agent's running tools, by call id: what a pause waits for. */
   private readonly runningTools = new Map<string, string>();
   private toolSeq = 0;
@@ -252,6 +259,7 @@ export class AgentSession {
     return {
       sessionId: this.id,
       pid: this.proc?.pid ?? -1,
+      ...(this.scope ? { scopeId: this.scope.scopeId } : {}),
       state: this.current.state,
       cols: this.screen.cols,
       rows: this.screen.rows,
@@ -259,22 +267,31 @@ export class AgentSession {
   }
 
   /** Starts the process. Throws when it cannot be started. */
-  spawn(file: string, args: string[], env: Record<string, string>): void {
+  async spawn(file: string, args: string[], env: Record<string, string>): Promise<void> {
+    if (this.deps.processScopes) this.scope = await this.deps.processScopes.open(this.id);
+    const cmd = this.scope?.launch({ file, args, env }) ?? { file, args, env };
     const spawnPty: SpawnPty = this.deps.spawnPty ?? pty.spawn;
-    this.attach(
-      spawnPty(file, args, {
-        name: 'xterm-256color',
-        cols: this.screen.cols,
-        rows: this.screen.rows,
-        cwd: this.spec.cwd,
-        env,
-      }),
-    );
+    try {
+      this.attach(
+        spawnPty(cmd.file, cmd.args, {
+          name: 'xterm-256color',
+          cols: this.screen.cols,
+          rows: this.screen.rows,
+          cwd: this.spec.cwd,
+          env: cmd.env,
+        }),
+      );
+    } catch (err) {
+      if (this.scope) await this.scope.close('start_failed', { force: true });
+      throw err;
+    }
   }
 
   /** Drives a process started elsewhere (a relayed terminal). */
   attach(proc: PtyProcess): void {
     this.proc = proc;
+    this.scope?.attached(proc.pid);
+    if (proc.pid <= 1 && this.scope) this.cleanup ??= this.scope.close('start_failed', { force: true });
     proc.onData((data) => {
       this.screen.write(data);
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
@@ -640,6 +657,12 @@ export class AgentSession {
         ? { point: state, tool: this.waitingTool }
         : (p.halt ?? { point: 'idle', tool: null });
     this.clearPauseTimers();
+    if (this.scope) {
+      // Report the safe point only after this process generation has closed.
+      this.pauseExitOutcome = outcome;
+      void this.stop(false);
+      return;
+    }
     this.deps.emit({ type: 'session_paused', sessionId: this.id, point: outcome.point, tool: outcome.tool });
     p.settle(outcome);
   }
@@ -1285,11 +1308,18 @@ export class AgentSession {
   }
 
   /** Graceful stop (SIGTERM, then SIGKILL after a timeout), or an immediate kill. */
-  async stop(force = false): Promise<void> {
+  async stop(force = false, reason: ScopeCloseReason = force ? 'kill' : 'stop'): Promise<void> {
     if (this.hasExited) return this.exited;
     this.stopRequested = true;
-    this.kill(force ? 'SIGKILL' : 'SIGTERM');
-    if (!force) this.clock.once(this.timing.stopTimeoutMs, () => this.kill('SIGKILL'));
+    if (this.scope) {
+      this.cleanup ??= this.scope.close(reason, { force });
+      await this.cleanup;
+      // A failed kill or a missed OS exit callback must not leave stop awaiting forever.
+      if (!this.hasExited) await this.onExit(null, null);
+    } else {
+      this.kill(force ? 'SIGKILL' : 'SIGTERM');
+      if (!force) this.clock.once(this.timing.stopTimeoutMs, () => this.kill('SIGKILL'));
+    }
     return this.exited;
   }
 
@@ -1302,11 +1332,10 @@ export class AgentSession {
     }
   }
 
-  private async onExit(exitCode: number, signal: number | null): Promise<void> {
+  private async onExit(exitCode: number | null, signal: number | null): Promise<void> {
     if (this.hasExited) return;
     this.hasExited = true;
     this.clock.cancel('process-probe');
-    this.deps.onExited(this);
     this.clock.close();
     this.permissions.close();
     this.input.close();
@@ -1314,10 +1343,14 @@ export class AgentSession {
 
     // Pick up the last transcript lines before announcing the exit.
     const tailer = this.tailer;
-    if (tailer) {
-      await waitAtMost(() => tailer.poll(), this.timing.finalReadMs);
-      tailer.stop();
-    }
+    const finalRead = async () => {
+      if (tailer) {
+        await waitAtMost(() => tailer.poll(), this.timing.finalReadMs);
+        tailer.stop();
+      }
+    };
+    if (this.scope) this.cleanup ??= this.scope.close('exit', { force: false });
+    const [cleanup] = await Promise.all([this.cleanup, finalRead()]);
 
     const failed =
       this.rateLimitFailure !== null || (!this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0));
@@ -1334,10 +1367,18 @@ export class AgentSession {
     // A pause still stopping the session ends with it.
     const p = this.pauseState;
     if (p?.phase === 'stopping') {
-      this.deps.emit({ type: 'session_paused', sessionId: this.id, point: 'exited', tool: null });
-      p.settle(EXITED);
+      const outcome = this.pauseExitOutcome ?? EXITED;
+      this.deps.emit({ type: 'session_paused', sessionId: this.id, ...outcome });
+      p.settle(outcome);
     }
-    this.deps.emit({ type: 'exit', sessionId: this.id, exitCode, signal: signal || null });
+    this.deps.onExited(this);
+    this.deps.emit({
+      type: 'exit',
+      sessionId: this.id,
+      exitCode,
+      signal: signal || null,
+      ...(cleanup ? { cleanup } : {}),
+    });
     this.proc = null;
     this.resolveExited();
   }

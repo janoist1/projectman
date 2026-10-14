@@ -20,6 +20,14 @@ not touched by anything here.
 
 ## What you need
 
+When upgrading to session process scopes (PM-698), update the cloud hub before the engines.
+Protocol version remains 1 and the new hub accepts engines without `processScope`, `scopeId` or
+exit `cleanup`; their cleanup remains unverified and uses the existing process probe. New engines
+send these additive fields and `scope_recovered`, which an older hub's strict schema rejects.
+Process inspection, signals and recovery always run on the owning engine, including during a link
+outage; buffered exit results are delivered after reconnect. `process_group` means best effort,
+not contained execution (PM-701).
+
 - A Cloudflare account with a zone, and Zero Trust (the free plan is enough): the tunnel, and
   Access in front of it ([DEPLOY.md](DEPLOY.md), "Public entry through Cloudflare Tunnel and
   Access", steps 1 to 3, applies as is).

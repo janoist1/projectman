@@ -2,6 +2,7 @@ import { constants } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { pipeSpawn } from './pipe-spawn';
 import type { PtyProcess } from './session';
+import { waitFor } from './test-helpers';
 
 const NODE = process.execPath;
 const options = {
@@ -26,6 +27,36 @@ function run(script: string) {
 }
 
 describe('pipeSpawn', () => {
+  it('reports the CLI exit even when a detached child still holds its output pipes open', async () => {
+    const { proc, output, exited } = run(
+      "const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); process.stdout.write(String(child.pid)); child.unref(); process.exit(0);",
+    );
+    const finished = exited();
+    let pid: number | undefined;
+    try {
+      pid = await waitFor(() => (/^\d+$/.test(output()) ? Number(output()) : undefined));
+      expect(
+        await Promise.race([finished, new Promise((resolve) => setTimeout(() => resolve('blocked'), 500))]),
+      ).toMatchObject({ exitCode: 0 });
+      expect(proc.pid).not.toBe(pid);
+    } finally {
+      if (pid) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+  });
+  it('starts the pipe process as its own group leader', async () => {
+    const { proc, output, exited } = run(
+      "process.stdout.write(require('node:child_process').execFileSync('ps', ['-p', String(process.pid), '-o', 'pgid='], { encoding: 'utf8' }).trim());",
+    );
+    await exited();
+    expect(output()).toMatch(/^\d+$/);
+    expect(Number(output())).toBe(proc.pid);
+  });
   it('returns what is written to the standard input, and the standard error too', async () => {
     const { proc, output, exited } = run(
       "process.stdin.setEncoding('utf8'); process.stdin.on('data', (d) => { process.stdout.write('out:' + d); process.stderr.write('err:' + d); process.exit(0); });",

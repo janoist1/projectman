@@ -322,6 +322,98 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(await branchOf(await workspaceOf('dev-1'))).toBe('AR-2-signup-page');
   });
 
+  const scopeCleanup = (scopeId: string, outcome: 'clean' | 'failed' | 'unverified') => ({
+    scopeId,
+    kind: 'process_group' as const,
+    outcome,
+    reason: 'stop' as const,
+    killed: true,
+    survivors: outcome === 'failed' ? 1 : 0,
+    durationMs: 7000,
+  });
+  function scopeStarts() {
+    const original = h.runner.start.bind(h.runner);
+    vi.spyOn(h.runner, 'start').mockImplementation(async (spec) => {
+      const info = await original(spec);
+      info.scopeId = 'scp_0123456789abcdef';
+      return info;
+    });
+  }
+  it('waits for exit cleanup and releases a clean scope even when the pid probe is alive', async () => {
+    const liveProcesses = new Set([1001]);
+    await setup({ liveProcesses });
+    scopeStarts();
+    await startTask('AR-1', 'dev-1');
+    const sessionId = h.runner.lastStarted().sessionId;
+    h.runner.setState(sessionId, 'exited');
+    expect(h.domain.sessions.get('AR', sessionId).state).toBe('starting');
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(1);
+    h.runner.emit({
+      type: 'exit',
+      sessionId,
+      exitCode: 0,
+      signal: null,
+      cleanup: scopeCleanup('scp_0123456789abcdef', 'clean'),
+    });
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
+    await ensure('dev-1', 'AR-2');
+  });
+  it('persists failed cleanup across restart and blocks resume until the matching scope recovers', async () => {
+    await setup();
+    scopeStarts();
+    await startTask('AR-1', 'dev-1');
+    const sessionId = h.runner.lastStarted().sessionId;
+    const scopeId = 'scp_0123456789abcdef';
+    h.runner.emit({
+      type: 'exit',
+      sessionId,
+      exitCode: 0,
+      signal: null,
+      cleanup: scopeCleanup(scopeId, 'failed'),
+    });
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)[0]?.holder).toMatchObject({
+      scopeId,
+      cleanupFailed: true,
+    });
+    await expect(ensure('dev-1', 'AR-1')).rejects.toMatchObject({ code: 'workspace_busy' });
+    h = await restartDomainHarness(h, { memberWorkspaces: true });
+    await expect(ensure('dev-1', 'AR-2')).rejects.toMatchObject({ code: 'workspace_busy' });
+    h.runner.emit({
+      type: 'scope_recovered',
+      sessionId,
+      cleanup: scopeCleanup('scp_1111111111111111', 'clean'),
+    });
+    h.runner.emit({ type: 'scope_recovered', sessionId, cleanup: scopeCleanup(scopeId, 'unverified') });
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)[0]?.holder?.cleanupFailed).toBe(true);
+    h.runner.emit({ type: 'scope_recovered', sessionId, cleanup: scopeCleanup(scopeId, 'clean') });
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
+    await ensure('dev-1', 'AR-2');
+  });
+  it('retries persisted cleanup on the owning runner at startup', async () => {
+    await setup();
+    scopeStarts();
+    await startTask('AR-1', 'dev-1');
+    const sessionId = h.runner.lastStarted().sessionId;
+    const scopeId = 'scp_0123456789abcdef';
+    h.runner.emit({
+      type: 'exit',
+      sessionId,
+      exitCode: 0,
+      signal: null,
+      cleanup: scopeCleanup(scopeId, 'failed'),
+    });
+    h = await restartDomainHarness(h, { memberWorkspaces: true });
+    const closeScopes = vi.fn(async () => [{ sessionId, cleanup: scopeCleanup(scopeId, 'clean') }]);
+    Object.assign(h.runner, { closeScopes });
+    await h.domain.sessions.reconcileAfterRestart();
+    expect(closeScopes).toHaveBeenCalledWith([{ sessionId, scopeId }]);
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
+    expect(
+      h.repos.operatorSignals.list('AR').find((signal) => signal.kind === 'process_cleanup_failed')
+        ?.resolvedAt,
+    ).not.toBeNull();
+  });
+
   it('starts a new conversation when the workspace had to be made again', async () => {
     await setup();
     await startTask('AR-1', 'dev-1');

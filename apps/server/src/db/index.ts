@@ -46,6 +46,8 @@ export type { MergeRecord } from './task-merges';
 import { createScheduleRepository } from './schedules';
 import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
+import { createSessionCleanupRepository } from './session-cleanups';
+export type { SessionCleanupFailure } from './session-cleanups';
 import { createTaskCoverRepository } from './task-covers';
 import { createTaskFixLimitRepository } from './fix-limits';
 import { createTaskHandoffRepository } from './task-handoffs';
@@ -114,6 +116,7 @@ export function createRepositories(db: Db) {
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),
+    sessionCleanups: createSessionCleanupRepository(db),
     messages: createMessageRepository(db),
     inbox: createInboxRepository(db),
     boundary: createBoundaryRepository(db),

@@ -23,6 +23,41 @@ async function setup() {
   now = new Date('2026-10-11T10:00:00Z');
   h = await createDomainHarness({ now: () => now });
 }
+it('raises a failed process cleanup signal and resolves it on confirmed recovery', async () => {
+  await setup();
+  await h.domain.tasks.create('AR', { title: 'Cleanup test' }, OWNER_ACTOR);
+  await h.domain.taskStarts.start('AR', 'AR-1', {
+    assignee: 'dev-1',
+    actor: OWNER_ACTOR,
+    author: { name: 'Owner', email: 'owner@example.com' },
+  });
+  const sessionId = h.runner.lastStarted().sessionId;
+  const cleanup = {
+    scopeId: 'scp_0123456789abcdef',
+    kind: 'process_group' as const,
+    outcome: 'failed' as const,
+    reason: 'stop' as const,
+    killed: true,
+    survivors: 1,
+    durationMs: 7000,
+  };
+  h.runner.emit({ type: 'exit', sessionId, exitCode: 0, signal: null, cleanup });
+  await flush();
+  const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'process_cleanup_failed');
+  expect(signal).toMatchObject({
+    caseKey: `cleanup:${cleanup.scopeId}`,
+    subject: sessionId,
+    taskKey: 'AR-1',
+    resolvedAt: null,
+  });
+  h.runner.emit({
+    type: 'scope_recovered',
+    sessionId,
+    cleanup: { ...cleanup, outcome: 'clean', reason: 'recovery', survivors: 0 },
+  });
+  await flush();
+  expect(h.repos.operatorSignals.get(signal!.id)?.resolvedAt).not.toBeNull();
+});
 function raise(caseKey = 'outage:test') {
   return h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'outage', caseKey, subject: 'test' });
 }

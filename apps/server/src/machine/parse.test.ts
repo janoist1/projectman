@@ -57,6 +57,7 @@ describe('parsePsList', () => {
     expect(records[1]).toEqual({
       pid: 412,
       ppid: 1,
+      pgid: null,
       uid: 501,
       rssBytes: 120304 * 1024,
       cpuSeconds: 12 * 60 + 34.56,

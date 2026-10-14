@@ -11,6 +11,8 @@ import { geminiSpec } from './providers/gemini/test-helpers';
 import type { ProviderAdapter } from './providers/types';
 import { AgentSession, type PtyProcess, type PtySpawnOptions } from './session';
 import { silentLogger } from './test-helpers';
+import type { ProcessScopeDriver, OpenScope } from './process-scope';
+import type { SessionCleanup } from '../contracts';
 import { ENTER_KEY, PASTE_END, PASTE_START } from './typing';
 
 /**
@@ -55,6 +57,117 @@ class FakePty implements PtyProcess {
 }
 
 const PERMISSION_TIMEOUT_MS = 60_000;
+describe('session process scope lifecycle', () => {
+  function scoped() {
+    const events: RunnerEvent[] = [];
+    const cleanup: SessionCleanup = {
+      scopeId: 'scp_0123456789abcdef',
+      kind: 'process_group',
+      outcome: 'clean',
+      reason: 'exit',
+      killed: false,
+      survivors: 0,
+      durationMs: 0,
+    };
+    let finish!: (cleanup: SessionCleanup) => void;
+    const closed = new Promise<SessionCleanup>((resolve) => {
+      finish = resolve;
+    });
+    const close = vi.fn(() => closed);
+    const scope: OpenScope = {
+      scopeId: cleanup.scopeId,
+      openedAt: 0,
+      launch: (cmd) => ({ ...cmd, env: { ...cmd.env, PROJECTMAN_SCOPE_ID: cleanup.scopeId } }),
+      attached: vi.fn(),
+      close,
+    };
+    const driver: ProcessScopeDriver = {
+      kind: 'process_group',
+      open: vi.fn(async () => scope),
+      recover: async () => [],
+      closeScopes: async () => [],
+    };
+    const proc = new FakePty();
+    const spawnPty = vi.fn(() => proc);
+    const session = new AgentSession({
+      spec,
+      hookToken: 'scope',
+      adapter: createClaudeAdapter({ bin: 'unused', logger: silentLogger() }),
+      deps: {
+        processScopes: driver,
+        logger: silentLogger(),
+        broker: { decide: async () => ({ behavior: 'deny' }) },
+        permissionTimeoutMs: 1000,
+        emit: (event) => events.push(event),
+        onExited: () => {},
+        spawnPty,
+      },
+    });
+    sessions.push(session);
+    return { session, proc, close, finish: () => finish(cleanup), events, spawnPty, scope };
+  }
+  it('waits for cleanup before stop emits exit and carries the result', async () => {
+    const s = scoped();
+    await s.session.spawn('fake', [], {});
+    const stopped = s.session.stop();
+    s.proc.exit();
+    expect(s.close).toHaveBeenCalledWith('stop', { force: false });
+    expect(s.events.some((e) => e.type === 'exit')).toBe(false);
+    s.finish();
+    await stopped;
+    expect(s.events.at(-1)).toMatchObject({ type: 'exit', cleanup: { outcome: 'clean' } });
+    expect(s.scope.attached).toHaveBeenCalledWith(s.proc.pid);
+    expect(s.spawnPty.mock.calls[0]).toBeDefined();
+  });
+  it('closes a natural CLI exit', async () => {
+    const s = scoped();
+    await s.session.spawn('fake', [], {});
+    s.proc.exit();
+    expect(s.close).toHaveBeenCalledWith('exit', { force: false });
+    s.finish();
+    await s.session.exited;
+  });
+  it.each([
+    [true, 'kill'],
+    [false, 'shutdown'],
+  ] as const)('closes force=%s with reason %s', async (force, reason) => {
+    const s = scoped();
+    await s.session.spawn('fake', [], {});
+    const stopped = s.session.stop(force, reason);
+    expect(s.close).toHaveBeenCalledWith(reason, { force });
+    s.finish();
+    await stopped;
+  });
+  it('closes startup failures before rejecting spawn', async () => {
+    const s = scoped();
+    s.spawnPty.mockImplementation(() => {
+      throw new Error('spawn failed');
+    });
+    const started = s.session.spawn('fake', [], {});
+    await Promise.resolve();
+    expect(s.close).toHaveBeenCalledWith('start_failed', { force: true });
+    s.finish();
+    await expect(started).rejects.toThrow('spawn failed');
+  });
+  it('keeps an idle turn open', async () => {
+    const s = scoped();
+    await s.session.spawn('fake', [], {});
+    await s.session.handleHook({ hook_event_name: 'SessionStart' }, new AbortController().signal);
+    await s.session.handleHook({ hook_event_name: 'Stop' }, new AbortController().signal);
+    expect(s.close).not.toHaveBeenCalled();
+  });
+  it('ends a safe pause only after cleanup', async () => {
+    const s = scoped();
+    await s.session.spawn('fake', [], {});
+    await s.session.handleHook({ hook_event_name: 'SessionStart' }, new AbortController().signal);
+    const paused = s.session.pause();
+    expect(s.close).toHaveBeenCalledWith('stop', { force: false });
+    expect(s.events.some((e) => e.type === 'session_paused')).toBe(false);
+    s.finish();
+    expect(await paused).toMatchObject({ point: 'idle' });
+    await s.session.exited;
+  });
+});
 describe('Gemini pre-tool gate', () => {
   const adapter = () => createGeminiAdapter({ bin: 'unused', logger: silentLogger() });
   const payload = (command: string): HookPayload => ({

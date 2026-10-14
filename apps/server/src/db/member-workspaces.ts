@@ -6,6 +6,8 @@ export interface WorkspaceHolder {
   taskKey: string;
   /** The process of the session (the leader of its process group); null until it started. */
   pid: number | null;
+  scopeId: string | null;
+  cleanupFailed: boolean;
   since: string;
 }
 
@@ -60,6 +62,8 @@ interface WorkspaceRow {
   holder_session_id: string | null;
   holder_task_key: string | null;
   holder_pid: number | null;
+  holder_scope_id: string | null;
+  holder_cleanup_failed: number;
   held_since: string | null;
 }
 
@@ -95,6 +99,8 @@ const toWorkspace = (r: WorkspaceRow): MemberWorkspaceRecord => ({
           sessionId: r.holder_session_id,
           taskKey: r.holder_task_key,
           pid: r.holder_pid,
+          scopeId: r.holder_scope_id,
+          cleanupFailed: r.holder_cleanup_failed !== 0,
           since: r.held_since ?? '',
         }
       : null,
@@ -129,15 +135,15 @@ export function createMemberWorkspaceRepository(db: Db) {
     ),
     relocate: db.prepare('UPDATE member_workspaces SET path = ?, generation = ? WHERE id = ?'),
     hold: db.prepare(
-      `UPDATE member_workspaces SET holder_session_id = ?, holder_task_key = ?, holder_pid = ?, held_since = ?
+      `UPDATE member_workspaces SET holder_session_id = ?, holder_task_key = ?, holder_pid = ?, held_since = ?, holder_scope_id = ?, holder_cleanup_failed = ?
        WHERE id = ?`,
     ),
     holderPid: db.prepare(
-      'UPDATE member_workspaces SET holder_pid = ? WHERE id = ? AND holder_session_id = ?',
+      'UPDATE member_workspaces SET holder_pid = ?, holder_scope_id = ?, holder_cleanup_failed = 0 WHERE id = ? AND holder_session_id = ?',
     ),
     release: db.prepare(
       `UPDATE member_workspaces SET holder_session_id = NULL, holder_task_key = NULL, holder_pid = NULL,
-         held_since = NULL WHERE id = ? AND holder_session_id = ?`,
+         held_since = NULL, holder_scope_id = NULL, holder_cleanup_failed = 0 WHERE id = ? AND holder_session_id = ?`,
     ),
     heldBy: db.prepare('SELECT * FROM member_workspaces WHERE holder_session_id = ?'),
     binding: db.prepare(
@@ -196,11 +202,33 @@ export function createMemberWorkspaceRepository(db: Db) {
     },
     /** Records the holder, replacing whoever held it (the caller checked that it may). */
     hold(id: string, holder: WorkspaceHolder): void {
-      statements.hold.run(holder.sessionId, holder.taskKey, holder.pid, holder.since, id);
+      statements.hold.run(
+        holder.sessionId,
+        holder.taskKey,
+        holder.pid,
+        holder.since,
+        holder.scopeId,
+        Number(holder.cleanupFailed),
+        id,
+      );
     },
     /** The started process of the session that holds the workspace. */
-    setHolderPid(id: string, sessionId: string, pid: number): void {
-      statements.holderPid.run(pid, id, sessionId);
+    setHolderPid(id: string, sessionId: string, pid: number, scopeId?: string): void {
+      statements.holderPid.run(pid, scopeId ?? null, id, sessionId);
+    },
+    failCleanup(id: string, sessionId: string, scopeId: string): void {
+      db.prepare(
+        'UPDATE member_workspaces SET holder_cleanup_failed = 1 WHERE id = ? AND holder_session_id = ? AND holder_scope_id = ?',
+      ).run(id, sessionId, scopeId);
+    },
+    failedCleanups(): MemberWorkspaceRecord[] {
+      return (
+        db
+          .prepare(
+            'SELECT * FROM member_workspaces WHERE holder_cleanup_failed = 1 AND holder_session_id IS NOT NULL',
+          )
+          .all() as WorkspaceRow[]
+      ).map(toWorkspace);
     },
     /** Frees the workspace when the session holds it; another holder is left alone. */
     release(id: string, sessionId: string): void {

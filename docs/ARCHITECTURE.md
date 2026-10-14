@@ -1495,6 +1495,9 @@ workers follow the machine's size.
 
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
   `runtime/sessions` (`EngineRegistry`), `db/engines.ts`, `api/engines.ts` (PM-313).
+  PM-698 adds optional `hello.processScope`, running-session `scopeId`, exit `cleanup` and
+  `scope_recovered`. All scope inspection and signals stay on the owning engine; only generation
+  identifiers and cleanup results cross the boundary. Protocol version stays 1; update the hub first.
   Engines connect outward to `/engine/link` with a bearer machine key; the cloud stores only
   its SHA-256 hash and display prefix. Remote requests require HTTPS; forwarded protocol headers
   are trusted only from a loopback reverse proxy. Plain sockets are restricted to local requests.
@@ -2104,17 +2107,33 @@ assumption or remote-engine RPC.
 - **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
   `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
   `PROJECTMAN_SESSION_ID` (PM-320). This identifies a local installation by its home path,
-  not a host-independent engine identity. **Remote engine:** plan instance/engine attribution
+  not a host-independent engine identity. PM-698 adds
+  `PROJECTMAN_SCOPE_ID=scp_<16 random hex digits>` for each process start.
+  A resumed conversation gets a new scope generation. Engine recovery requires the engine's own
+  instance tag and uid; nested installations cannot adopt one another's marked scopes.
+  **Remote engine:** plan instance/engine attribution
   explicitly, including reconnects and moves; equal paths on different hosts must not imply
   equal ownership.
   **Module:** `entry`
 - **Session process termination** — `runner/session.ts` (`stop`, `kill`),
-  `runner/runner.ts` (PM-341; PM-320). The runner owns a local process handle and sends
-  SIGTERM, then SIGKILL after a timeout (or SIGKILL immediately for a forced stop).
-  In local mode stopping the CLI does not itself prove that detached children are gone.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.stop` and runner exit events (PM-313), execute stop/kill on the engine owning that process, return its exit
-  acknowledgement, and plan descendant cleanup there; a server-side PID or closed transport
-  is not evidence that a remote session has stopped.
+  `runner/runner.ts`, `runner/process-scope/{types,process-group,index}.ts` (PM-698).
+  Each engine owns the scope of every session, including marked detached children. Pipe sessions
+  start as process-group leaders; PTY sessions use forkpty/setsid. Closing sends TERM, polls for
+  up to 5 s, then KILL and polls for up to 2 s. Individual signals recheck uid, pid/start time
+  and generation; group signals require verified current members. Natural exit, stop, forced stop,
+  startup failure and shutdown all close; idle turns do not. Startup recovery adopts this instance's
+  marked scopes. `db/session-cleanups.ts` and `runtime/sessions/cleanup-failures.ts` retain every
+  unresolved scope in `session_cleanups` (including chat, Operator and legacy worktree sessions),
+  atomically with any member-workspace failure flag. The server retries at startup and every
+  minute through `session.close_scopes` on the owning engine. Dismissing an Operator notification
+  cannot clear this fact. Session folders and task worktrees stay while cleanup is unresolved.
+  Resume is refused while cleanup failed; only a matching clean generation releases the holder.
+  The `process_group` driver is `best_effort`: a child that escapes the group and clears its marker
+  cannot be attributed. Without a process list cleanup is `unverified`, never `clean`; PM-701 adds
+  contained Linux cgroups. **Remote engine:** inspection, signals and recovery run on the engine.
+  Exit carries `SessionCleanup` only after closure; failed cleanup holds the workspace and raises an
+  owner-facing Operator signal, later `scope_recovered` releases it. Old engines without cleanup
+  retain the process-probe fallback. A remote pid is never signalled on the server.
   **Module:** `runner`
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runner/providers/{claude,codex}/transcript.ts`
@@ -2967,7 +2986,7 @@ display is PM-322.
 
 - **Probe.** `MachineProbe` (`apps/server/src/contracts/machine.ts`) is the only thing that touches the
   operating system: `machine()` (processor counters, memory, swap, pressure), `processes()` (one `ps -axww -o
-pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pids, names)` and
+pid=,ppid=,pgid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pids, names)` and
   `signal(pid, 'SIGTERM'|'SIGKILL')`. The real one (`apps/server/src/machine`) runs `vm_stat`, `sysctl`, `ps` with
   `execFile`, a 5 s limit and `LC_ALL=C` on macOS, and reads `/proc` on Linux; elsewhere the process list is
   unavailable (`null`) and the page says so. A reading that fails is `null`, never an error. The probe

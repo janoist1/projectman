@@ -38,7 +38,13 @@ import type {
   WorkspaceFileRefusal,
 } from '../contracts';
 import { EngineStartSpec } from './session-schemas';
-import { EngineUploaded, ENGINE_UPLOAD_MAX_BYTES, PullRequest, RunningSession } from './protocol';
+import {
+  EngineUploaded,
+  ENGINE_UPLOAD_MAX_BYTES,
+  PullRequest,
+  RunningSession,
+  SessionCleanupWire,
+} from './protocol';
 
 const text = z.string();
 const texts = z.array(text);
@@ -171,6 +177,7 @@ const snapshot: z.ZodType<MachineSnapshot> = z.strictObject({
 const processRecord: z.ZodType<ProcessRecord> = z.strictObject({
   pid: int,
   ppid: int,
+  pgid: int.nullable().default(null),
   uid: int,
   rssBytes: z.number(),
   cpuSeconds: z.number(),
@@ -188,6 +195,7 @@ type ContractResults = {
   'session.send': SessionRunner['sendUserMessage'];
   'session.compact': NonNullable<SessionRunner['compact']>;
   'session.stop': SessionRunner['stop'];
+  'session.close_scopes': NonNullable<SessionRunner['closeScopes']>;
   'session.pause': SessionRunner['pause'];
   'session.force_pause': SessionRunner['forcePause'];
   'session.release': SessionRunner['release'];
@@ -428,6 +436,12 @@ export const methods = {
   'session.send': method(session.extend({ message: text }), done),
   'session.compact': method(session.extend({ instruction: text }), z.boolean()),
   'session.stop': method(session.extend({ force: z.boolean().optional() }), done),
+  'session.close_scopes': method(
+    z.strictObject({
+      scopes: z.array(z.strictObject({ sessionId: text, scopeId: text.regex(/^scp_[0-9a-f]{16}$/) })).max(50),
+    }),
+    z.array(z.strictObject({ sessionId: text, cleanup: SessionCleanupWire })).max(50),
+  ),
   'session.pause': method(session.extend({ forceAfterMs: int.optional() }), pause),
   'session.force_pause': method(session, pause),
   'session.release': method(session.extend({ nudge: text.optional() }), z.boolean()),
@@ -603,6 +617,7 @@ export const methods = {
         pid: int,
         values: z.strictObject({
           PROJECTMAN_SESSION_ID: text.optional(),
+          PROJECTMAN_SCOPE_ID: text.optional(),
           PROJECTMAN_INSTANCE: text.optional(),
         }),
       }),

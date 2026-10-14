@@ -237,6 +237,8 @@ export function formatReleaseCheck(check: ReleaseCheckResult): string {
 
 function signalLine(signal: OperatorSignal): string {
   const explanations: Record<OperatorSignal['kind'], string> = {
+    process_cleanup_failed:
+      "An ended session still has running processes; its workspace remains reserved. Bring this to the owners; never stop another member's processes yourself.",
     outage: 'A provider or engine outage needs attention.',
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',

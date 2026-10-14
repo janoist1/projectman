@@ -212,6 +212,28 @@ export function readTerminalInput({ onKey, onPaste }) {
  * Returns `exit(reason)`; later calls do nothing.
  */
 export function exitOnSignals({ sessionEnd, restore }) {
+  // Disposable lifecycle scenario: a detached, marked grandchild survives the CLI and ignores TERM.
+  if (process.env.FAKE_SCOPE_CHILD_FILE) {
+    const grandchild = `
+      const { writeFileSync } = require('node:fs');
+      process.on('SIGTERM', () => {});
+      writeFileSync(process.env.FAKE_SCOPE_CHILD_FILE, JSON.stringify({ pid: process.pid, scopeId: process.env.PROJECTMAN_SCOPE_ID }));
+      setInterval(() => {}, 1000);
+    `;
+    const intermediate = spawn(
+      process.execPath,
+      [
+        '-e',
+        `
+      const { spawn } = require('node:child_process');
+      const child = spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { detached: true, stdio: 'ignore' });
+      child.unref();
+    `,
+      ],
+      { stdio: 'ignore' },
+    );
+    intermediate.unref();
+  }
   let exiting = false;
   async function exit(reason = 'other') {
     if (exiting) return;

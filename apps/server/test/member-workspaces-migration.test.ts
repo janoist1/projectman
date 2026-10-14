@@ -4,6 +4,39 @@ import { createRepositories, LATEST_SCHEMA_VERSION, migrate, schemaVersion } fro
 import { migrations } from '../src/db/migrations';
 
 describe('member workspaces migration (PM-138)', () => {
+  it('preserves older reservations and operator signal metadata when adding cleanup state', () => {
+    const db = new Database(':memory:');
+    try {
+      for (const migration of migrations.filter((item) => item.version <= 59)) db.exec(migration.sql);
+      db.pragma('user_version = 59');
+      db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');
+        INSERT INTO member_workspaces (id, project_key, member, repo, path, generation, created_at, holder_session_id, holder_task_key, holder_pid, held_since)
+        VALUES ('wsp_old', 'AR', 'dev-1', 'web', '/old', 1, '2026-01-01', 'ses_old', 'AR-1', 4242, '2026-01-01');
+        INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at, follow_up_at, decision_note)
+        VALUES ('sig_old', 'AR', 'outage', 'outage:old', 'pending', '2026-01-01', '2026-01-02', 'kept');`);
+      migrate(db);
+      const repos = createRepositories(db);
+      expect(repos.memberWorkspaces.get('wsp_old')?.holder).toMatchObject({
+        sessionId: 'ses_old',
+        pid: 4242,
+        scopeId: null,
+        cleanupFailed: false,
+      });
+      expect(repos.operatorSignals.get('sig_old')).toMatchObject({
+        followUpAt: '2026-01-02',
+        decisionNote: 'kept',
+      });
+      repos.memberWorkspaces.setHolderPid('wsp_old', 'ses_old', 4242, 'scp_0123456789abcdef');
+      repos.memberWorkspaces.failCleanup('wsp_old', 'ses_old', 'scp_1111111111111111');
+      expect(repos.memberWorkspaces.failedCleanups()).toEqual([]);
+      repos.memberWorkspaces.failCleanup('wsp_old', 'ses_old', 'scp_0123456789abcdef');
+      expect(repos.memberWorkspaces.failedCleanups()).toHaveLength(1);
+      repos.memberWorkspaces.release('wsp_old', 'ses_old');
+      expect(repos.memberWorkspaces.failedCleanups()).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
   it('adds the tables beside older sessions, which keep reading as they were, and holds one reservation', () => {
     const db = new Database(':memory:');
     try {
@@ -44,6 +77,8 @@ describe('member workspaces migration (PM-138)', () => {
         sessionId: 'ses_example',
         taskKey: 'AR-1',
         pid: null,
+        scopeId: null,
+        cleanupFailed: false,
         since: '2026-01-02',
       });
       repos.memberWorkspaces.setHolderPid('wsp_1', 'ses_example', 4242);
@@ -51,6 +86,8 @@ describe('member workspaces migration (PM-138)', () => {
         sessionId: 'ses_example',
         taskKey: 'AR-1',
         pid: 4242,
+        scopeId: null,
+        cleanupFailed: false,
         since: '2026-01-02',
       });
       // Another session cannot release it.

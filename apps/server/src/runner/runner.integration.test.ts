@@ -8,7 +8,7 @@ import {
   type ChatItem,
   type SessionState,
 } from '@projectman/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   PermissionBroker,
   PermissionDecision,
@@ -19,6 +19,7 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import { createRunnerModule } from './index';
+import { createMachineProbe } from '../machine';
 import { FAKE_CLAUDE, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
 
 /**
@@ -73,6 +74,7 @@ async function setup(
     claudeConfigPath: configFile,
     trustWorkspaces: options.trustWorkspaces,
     instanceTag: 'tag-of-this-test',
+    scopeProcesses: createMachineProbe(),
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });
@@ -154,6 +156,39 @@ const waitSnapshot = (id: string, text: string) =>
   );
 
 describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
+  it('closes a marked, detached TERM-resistant grandchild before PTY exit', async () => {
+    const file = path.join(cwd, 'grandchild.json');
+    process.env.FAKE_SCOPE_CHILD_FILE = file;
+    await setup();
+    const session = await runner.runner.start(spec());
+    let child: { pid: number; scopeId: string } | undefined;
+    try {
+      await vi.waitFor(
+        async () => {
+          child = await readFile(file, 'utf8').then(
+            (text) => JSON.parse(text),
+            () => undefined,
+          );
+          expect(child).toBeDefined();
+        },
+        { timeout: 5000 },
+      );
+      expect(child!.scopeId).toBe(session.scopeId);
+      await runner.runner.stop(session.sessionId);
+      expect(() => process.kill(child!.pid, 0)).toThrow();
+      expect(
+        events.find((event) => event.type === 'exit' && event.sessionId === session.sessionId),
+      ).toMatchObject({ cleanup: { outcome: 'clean', killed: true } });
+    } finally {
+      if (child) {
+        try {
+          process.kill(child.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+  });
   it('starts the session with the cheap subagent on its model (PM-179)', async () => {
     await setup();
     const reader = {
@@ -564,7 +599,9 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await runner.runner.start(s);
       await waitState(s.sessionId, 'idle');
       await expect(runner.runner.pause(s.sessionId)).resolves.toEqual({ point: 'idle', tool: null });
-      expect(runner.runner.release(s.sessionId)).toBe(true);
+      expect(runner.runner.release(s.sessionId)).toBe(false);
+      await runner.runner.start({ ...s, resume: true });
+      await waitState(s.sessionId, 'idle');
 
       answers = ['wait'];
       await runner.runner.sendUserMessage(s.sessionId, 'PERMISSION please');
@@ -573,7 +610,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
         point: 'waiting_permission',
         tool: 'Bash',
       });
-      expect(runner.runner.release(s.sessionId)).toBe(true);
+      expect(runner.runner.release(s.sessionId)).toBe(false);
     });
 
     it('lets a running tool finish and halts the turn after it (after_tool)', async () => {
@@ -595,7 +632,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       expect(pausedEvents(s.sessionId).map((e) => e.type)).toEqual(['session_pausing', 'session_paused']);
       // The tool ran to its end; the model did not answer afterwards.
       expect(await toolResult(s.sessionId)).toEqual(expect.objectContaining({ ok: true }));
-      await waitState(s.sessionId, 'idle');
+      await waitState(s.sessionId, 'exited');
       expect(chatOf(s.sessionId).some((i) => i.kind === 'assistant_text')).toBe(false);
     });
 
@@ -616,8 +653,8 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await finishWriting();
       const outcome = await pause;
       expect(outcome).toEqual({ point: 'before_tool', tool: 'Bash' });
-      expect(await toolResult(s.sessionId)).toEqual(expect.objectContaining({ ok: false }));
-      await waitState(s.sessionId, 'idle');
+      expect(chatOf(s.sessionId).some((item) => item.kind === 'tool_result' && item.ok)).toBe(false);
+      await waitState(s.sessionId, 'exited');
     });
 
     it('interrupts with Esc when the deadline passes or forcePause is called', async () => {
@@ -634,15 +671,17 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
         point: 'interrupted',
         tool: 'Bash',
       });
+      await waitState(s.sessionId, 'exited');
+      expect(runner.runner.release(s.sessionId)).toBe(false);
+      await runner.runner.start({ ...s, resume: true });
       await waitState(s.sessionId, 'idle');
-      expect(runner.runner.release(s.sessionId)).toBe(true);
 
       await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL again');
       await waitSnapshot(s.sessionId, 'Long tool running: LONGTOOL again');
       const pause = runner.runner.pause(s.sessionId);
       await runner.runner.forcePause(s.sessionId);
       await expect(pause).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
-      await waitState(s.sessionId, 'idle');
+      await waitState(s.sessionId, 'exited');
       await waitFor(
         () =>
           chatOf(s.sessionId).filter((i) => i.kind === 'system_note' && i.text === 'Interrupted by user')
@@ -652,19 +691,22 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       expect(chatOf(s.sessionId).some((i) => i.kind === 'tool_result')).toBe(false);
     });
 
-    it('types a message queued during the pause only after the release, the nudge first', async () => {
+    it('resumes a fresh generation with the nudge before later input', async () => {
       await setup();
       const s = spec();
-      await runner.runner.start(s);
+      const first = await runner.runner.start(s);
       await waitState(s.sessionId, 'idle');
       await runner.runner.pause(s.sessionId);
 
-      void runner.runner.sendUserMessage(s.sessionId, 'queued during the pause').catch(() => undefined);
-      // Holding the input is synchronous; the delivery order below also checks that it stays held.
+      await expect(runner.runner.sendUserMessage(s.sessionId, 'queued during the pause')).rejects.toThrow(
+        /not running/,
+      );
       expect(chatOf(s.sessionId).some((i) => i.kind === 'user_text')).toBe(false);
 
-      runner.runner.release(s.sessionId, { nudge: 'Carry on.' });
+      const resumed = await runner.runner.start({ ...s, resume: true, initialMessage: 'Carry on.' });
+      expect(resumed.scopeId).not.toBe(first.scopeId);
       await assistantSaid(s.sessionId, 'Echo: Carry on.');
+      await runner.runner.sendUserMessage(s.sessionId, 'queued during the pause');
       await assistantSaid(s.sessionId, 'Echo: queued during the pause');
       const typed = chatOf(s.sessionId).filter((i) => i.kind === 'user_text');
       expect(typed.map((i) => (i.kind === 'user_text' ? i.text : ''))).toEqual([
@@ -795,9 +837,9 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await expect(runner.runner.pause(s.sessionId, { forceAfterMs: 0 })).resolves.toEqual(
         expect.objectContaining({ point: expect.stringMatching(/^(turn_end|idle|interrupted)$/) }),
       );
-      expect(stateOf(s.sessionId)).toBe('idle');
+      expect(stateOf(s.sessionId)).toBe('exited');
       expect(noteCount(s.sessionId)).toBe(0);
-      expect(runner.runner.release(s.sessionId)).toBe(true);
+      expect(runner.runner.release(s.sessionId)).toBe(false);
     });
   });
 

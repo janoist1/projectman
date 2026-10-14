@@ -946,6 +946,20 @@ export function createDomain(opts: DomainOptions) {
     });
     wakeOperatorSignals(projectKey);
   });
+  events.on('session_cleanup_failed', ({ projectKey, sessionId, scopeId }) => {
+    const session = sessions.find(sessionId);
+    operatorSignals.raise({
+      projectKey,
+      kind: 'process_cleanup_failed',
+      caseKey: `cleanup:${scopeId}`,
+      subject: sessionId,
+      taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
+    });
+    wakeOperatorSignals(projectKey);
+  });
+  events.on('session_cleanup_recovered', ({ projectKey, scopeId }) =>
+    operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
+  );
   events.on('work_outage_ended', ({ projectKey, outageId }) =>
     operatorSignals.resolve(projectKey, `outage:${outageId}`),
   );

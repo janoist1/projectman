@@ -58,7 +58,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'db',
     pass: 'none',
-    paths: ['db/'],
+    paths: ['db/', 'db/session-cleanups.ts'],
     sealed: true,
   },
   {
@@ -122,7 +122,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/sessions',
     pass: 'split-tool',
-    paths: ['runtime/sessions/'],
+    paths: ['runtime/sessions/', 'runtime/sessions/cleanup-failures.ts'],
     sealed: true,
   },
   {
@@ -250,7 +250,12 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'runner',
     pass: 'split-tool',
-    paths: ['runner/'],
+    paths: [
+      'runner/',
+      'runner/process-scope/types.ts',
+      'runner/process-scope/process-group.ts',
+      'runner/process-scope/index.ts',
+    ],
     sealed: true,
   },
   {

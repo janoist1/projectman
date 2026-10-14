@@ -5,6 +5,7 @@ import {
   operatorSignalStepRefusal,
 } from './operator-watch';
 import type { OperatorSignalStepTargets } from './operator-watch';
+import { OperatorSignalKind } from '../api/dto';
 
 const NOW = '2026-10-12T10:00:00.000Z';
 const minutesAgo = (minutes: number) => new Date(Date.parse(NOW) - minutes * 60_000).toISOString();
@@ -43,6 +44,13 @@ describe('operatorSignalStepRefusal', () => {
     stepsAt: [],
     now: NOW,
   } as const;
+  it('accepts cleanup signals but gives the Operator no autonomous step for them', () => {
+    expect(OperatorSignalKind.parse('process_cleanup_failed')).toBe('process_cleanup_failed');
+    expect(operatorSignalStepRefusal({ ...base, kind: 'process_cleanup_failed', level: 'drive' })).toEqual({
+      code: 'operator_no_request',
+      reason: 'kind',
+    });
+  });
 
   it('lets the step through on the right card at a level that allows the kind', () => {
     expect(operatorSignalStepRefusal(base)).toBeNull();

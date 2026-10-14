@@ -139,6 +139,68 @@ describe('cloud mode remote parts', () => {
   };
 
   describe('runner', () => {
+    it('relays cleanup and recovery without changing a resumed running generation', async () => {
+      const engine = await online('eng_a', { processScope: 'process_group' });
+      engine.answer('session.start', (params) => ({
+        ...running(params.sessionId),
+        scopeId: 'scp_0123456789abcdef',
+      }));
+      await remote.runner.start(spec());
+      const seen: RunnerEvent[] = [];
+      remote.runner.onEvent((event) => seen.push(event));
+      const cleanup = {
+        scopeId: 'scp_1111111111111111',
+        kind: 'process_group' as const,
+        outcome: 'clean' as const,
+        reason: 'recovery' as const,
+        killed: true,
+        survivors: 0,
+        durationMs: 5000,
+      };
+      await engine.emit({ kind: 'runner', event: { type: 'scope_recovered', sessionId: 's1', cleanup } });
+      expect(remote.runner.isRunning('s1')).toBe(true);
+      expect(remote.runner.list()[0]?.scopeId).toBe('scp_0123456789abcdef');
+      await engine.emit({
+        kind: 'runner',
+        event: { type: 'exit', sessionId: 's1', exitCode: 0, signal: null, cleanup },
+      });
+      expect(remote.runner.isRunning('s1')).toBe(false);
+      expect(seen).toEqual([
+        expect.objectContaining({ type: 'scope_recovered', cleanup }),
+        expect.objectContaining({ type: 'exit', cleanup }),
+      ]);
+    });
+    it('routes failed-scope retries to the recorded session engine after exit', async () => {
+      const engine = await online();
+      engine.answer('session.start', (params) => running(params.sessionId));
+      await remote.runner.start(spec());
+      sessionEngines.set('s1', 'eng_a');
+      await engine.emit({
+        kind: 'runner',
+        event: { type: 'exit', sessionId: 's1', exitCode: 0, signal: null },
+      });
+      expect(remote.runner.isRunning('s1')).toBe(false);
+      const scopeId = 'scp_0123456789abcdef';
+      const cleanup = {
+        scopeId,
+        kind: 'process_group' as const,
+        outcome: 'clean' as const,
+        reason: 'recovery' as const,
+        killed: false,
+        survivors: 0,
+        durationMs: 0,
+      };
+      engine.answer('session.close_scopes', (params) =>
+        params.scopes.map((scope) => ({ sessionId: scope.sessionId, cleanup })),
+      );
+      expect(await remote.runner.closeScopes!([{ sessionId: 's1', scopeId }])).toEqual([
+        { sessionId: 's1', cleanup },
+      ]);
+      expect(engine.requests.at(-1)).toMatchObject({
+        method: 'session.close_scopes',
+        params: { scopes: [{ sessionId: 's1', scopeId }] },
+      });
+    });
     it('reads heavy-run sessions and falls back for old or disconnected engines', async () => {
       const engine = await online();
       const host = remote.directory.host('eng_a' as never)!;

@@ -197,7 +197,12 @@ deadline, the timeline) is PM-219; this is what the runner does and relies on in
   is not forced.
 - **Refused tools.** A tool whose approval is denied (a decision, the timeout, a failure) sends no
   PostToolUse, so it stops counting as running at the denial; the pause does not wait for it.
-- **Release.** `release` lets the input through again. A stopped session types the `nudge` first, then
+- **Process generation (PM-698).** Once the safe point is reached, the owning engine closes the
+  session's process scope before reporting the pause. Its CLI and marked background children end;
+  the runtime resumes the conversation in a new CLI and scope generation when the recorded point
+  requires a restart. An idle paused conversation wakes on its next message. A closed generation
+  rejects new input and `release` returns false; the runtime holds waiting messages across restart.
+- **Release before closure.** `release` lets the input through again. A stopped legacy-engine session types the `nudge` first, then
   what waited. A session still stopping has its pause taken back: pending `pause` promises resolve to
   `null`; if a halting answer or Esc already went out (the turn is ending) the nudge is typed after the
   turn, otherwise it is dropped (the session never stopped, so nothing needs a nudge). `release` returns

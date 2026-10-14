@@ -53,6 +53,7 @@ import type {
   RunnerEvent,
   ScreenshotScope,
   SessionRunner,
+  SessionCleanup,
   SourceHead,
   ToolContext,
   TranscriptReader,
@@ -70,6 +71,7 @@ import type { ProjectFocusService } from '../../core/tasks';
 import type { ConfigChange, ProjectService } from '../../core/projects';
 import { RoundCompaction } from './compaction';
 import { DoneCleanup } from './done-cleanup';
+import { CleanupFailures } from './cleanup-failures';
 import { DONE_TASK_CLEANUP_DELAY_MS, DONE_TASK_TURN_LIMIT_MS } from './session-policy';
 import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
@@ -190,6 +192,9 @@ export class SessionOrchestrator {
 
   private readonly ctx: DomainContext;
   private readonly locks = new KeyedMutex();
+  private readonly endingStates = new Map<string, { state: SessionState; activity: string | null }>();
+  private scopeRetryRunning = false;
+  private readonly cleanupFailures: CleanupFailures;
   private readonly mergeCards: MergeCardLock;
   /** What is held for each session's current process: tokens, first input, modes, stop reasons. */
   readonly live = new LiveSessions();
@@ -230,6 +235,7 @@ export class SessionOrchestrator {
     this.mergeCards = deps.mergeCards ?? new MergeCardLock();
     this.deps = deps;
     this.ctx = deps.ctx;
+    this.cleanupFailures = new CleanupFailures(this.ctx);
     this.lifecycle = new SessionLifecycle({
       subscribe: () => deps.runner.onEvent((event) => this.handleRunnerEvent(event)),
       onClose: () => {
@@ -332,6 +338,47 @@ export class SessionOrchestrator {
     });
     this.workspaceSets.set(engineId, { manager, workspaces });
     return workspaces;
+  }
+
+  /** Server-owned retries survive runner restarts and never signal a remote pid locally. */
+  private async retryScopeCleanup(): Promise<void> {
+    if (this.scopeRetryRunning) return;
+    this.scopeRetryRunning = true;
+    try {
+      const groups = new Map<EngineId, Array<{ sessionId: string; scopeId: string }>>();
+      for (const record of this.cleanupFailures.pending()) {
+        const session = this.find(record.sessionId);
+        if (!session) continue;
+        const engineId = engineIdOf(session);
+        const scopes = groups.get(engineId) ?? [];
+        scopes.push({ sessionId: session.id, scopeId: record.scopeId });
+        groups.set(engineId, scopes);
+      }
+      await Promise.all(
+        [...groups.values()].map(async (scopes) => {
+          try {
+            if (!this.deps.runner.closeScopes) return;
+            for (let offset = 0; offset < scopes.length; offset += 50) {
+              const batch = scopes.slice(offset, offset + 50);
+              for (const scope of batch) this.cleanupFailures.attempted(scope.scopeId);
+              for (const result of await this.deps.runner.closeScopes(batch))
+                this.handleRunnerEvent({ type: 'scope_recovered', ...result });
+            }
+          } catch (err) {
+            this.ctx.logger.warn(
+              { err },
+              'process scope cleanup retry unavailable; workspace remains reserved',
+            );
+          }
+        }),
+      );
+      if (this.cleanupFailures.pending().length)
+        this.timers.arm('cleanup', 'process-scopes', 60_000, () => {
+          void this.lifecycle.run(() => this.retryScopeCleanup());
+        });
+    } finally {
+      this.scopeRetryRunning = false;
+    }
   }
 
   /** The member workspaces of every engine that has them. */
@@ -568,6 +615,12 @@ export class SessionOrchestrator {
       const member = requireAiMember(config, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
+      if (existing && this.cleanupFailures.hasSession(existing.id))
+        throw conflict('workspace_busy', 'session process cleanup is unresolved', {
+          sessionId: existing.id,
+          member: handle,
+          taskKey: task?.key ?? null,
+        });
       // A resumed conversation is told first who works on the card and what was asked (PM-249), except
       // a review session that restarts on a new commit: its message is the new round's.
       let announce = true;
@@ -1097,12 +1150,15 @@ export class SessionOrchestrator {
       if (this.isRunning(session.id)) continue;
       this.markEnded(session.id, null, null, { kind: 'server_restart' });
     }
-    // No process of an earlier run survives: what is left of the session folders is removed (PM-268).
+    await this.retryScopeCleanup();
+    // Failed process scopes retain their folders until the owning engine confirms closure.
     for (const engineId of this.deps.engines.ids()) {
       const folders = this.deps.engines.get(engineId)?.sessionFolders;
       if (!folders) continue;
       try {
-        const removed = await folders.sweep((id) => this.isRunning(id));
+        const removed = await folders.sweep(
+          (id) => this.isRunning(id) || this.cleanupFailures.hasSession(id),
+        );
         if (removed.length > 0)
           this.ctx.logger.info({ count: removed.length }, 'removed old session folders');
       } catch (err) {
@@ -1149,7 +1205,7 @@ export class SessionOrchestrator {
     const folders = this.deps.engines.get(engineId)?.sessionFolders;
     if (!folders) return;
     try {
-      await folders.sweep((id) => reported.has(id) || starting(id));
+      await folders.sweep((id) => reported.has(id) || starting(id) || this.cleanupFailures.hasSession(id));
     } catch (err) {
       this.ctx.logger.warn({ err, engineId }, 'could not sweep the session folders of the engine');
     }
@@ -1241,6 +1297,7 @@ export class SessionOrchestrator {
    * stops the caller.
    */
   private removeSessionFolderOf(sessionId: string): void {
+    if (this.cleanupFailures.hasSession(sessionId)) return;
     this.screenshotScopes.delete(sessionId);
     for (const listener of this.folderListeners) {
       try {
@@ -1319,8 +1376,10 @@ export class SessionOrchestrator {
     exitCode: number | null,
     reason: string | null = null,
     stop?: SessionStop,
+    cleanup?: SessionCleanup,
   ): Session | null {
     const session = this.ctx.repos.sessions.get(sessionId);
+    if (session) this.cleanupFailures.observe(session, cleanup, this.workspacesOfSession(session));
     const failed = exitCode !== null && exitCode !== 0;
     const { stop: recordedStop, resuming } = this.live.ended(sessionId);
     // A session a pause held ends as paused, unless it failed; the other ends without a reason are PM-274's.
@@ -1335,7 +1394,7 @@ export class SessionOrchestrator {
     const resumeFailed = failed && session?.state === 'starting' && resuming && !stop;
     this.limits.ended(sessionId);
     this.closeStates.ended(sessionId);
-    this.removeSessionFolderOf(sessionId);
+    if (cleanup?.outcome !== 'failed') this.removeSessionFolderOf(sessionId);
     this.turns.ended(sessionId);
     this.inputWaits.ended(sessionId);
     if (!session || ENDED.has(session.state)) return null;
@@ -1358,7 +1417,6 @@ export class SessionOrchestrator {
         { sessionId, member: ended.member, exitCode },
         'a resumed conversation exited before it was ready: the next start begins a new one',
       );
-    this.workspacesOfSession(ended)?.ended(sessionId);
     this.deps.timeline.append({
       projectKey: ended.projectKey,
       taskKey: ended.workItem.type === 'task' ? ended.workItem.taskKey : null,
@@ -1404,6 +1462,11 @@ export class SessionOrchestrator {
         }
         case 'state': {
           if (ENDED.has(event.state)) {
+            // The owning runner still holds the scope until exit carries its cleanup result.
+            if (this.deps.runner.list().some((info) => info.sessionId === session.id && info.scopeId)) {
+              this.endingStates.set(session.id, { state: event.state, activity: event.activity });
+              return;
+            }
             const lostLogin = this.limits.lostLogin(session.id);
             const ended = this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
             if (ended && lostLogin && ended.lastStop?.kind === 'login_lost')
@@ -1460,7 +1523,58 @@ export class SessionOrchestrator {
           return;
         }
         case 'exit': {
-          this.markEnded(session.id, event.exitCode);
+          const pending = this.endingStates.get(session.id);
+          this.endingStates.delete(session.id);
+          const lostLogin = this.limits.lostLogin(session.id);
+          const ended = this.markEnded(
+            session.id,
+            pending?.state === 'failed' ? 1 : event.exitCode,
+            pending?.activity ?? null,
+            undefined,
+            event.cleanup,
+          );
+          if (ended && lostLogin && ended.lastStop?.kind === 'login_lost')
+            void this.lifecycle
+              .run(() => this.limits.resumeAfterLoginLost(ended, lostLogin))
+              .catch((err: unknown) =>
+                this.ctx.logger.error({ err, sessionId: session.id }, 'provider login deferral failed'),
+              );
+          if (event.cleanup?.outcome === 'failed')
+            void this.ctx.events.emit('session_cleanup_failed', {
+              projectKey: session.projectKey,
+              sessionId: session.id,
+              scopeId: event.cleanup.scopeId,
+              kind: event.cleanup.kind,
+              survivors: event.cleanup.survivors,
+            });
+          if (event.cleanup?.outcome === 'failed')
+            this.timers.arm('cleanup', 'process-scopes', 60_000, () => {
+              void this.lifecycle.run(() => this.retryScopeCleanup());
+            });
+          return;
+        }
+        case 'scope_recovered': {
+          this.cleanupFailures.observe(session, event.cleanup, this.workspacesOfSession(session));
+          if (event.cleanup.outcome === 'failed')
+            void this.ctx.events.emit('session_cleanup_failed', {
+              projectKey: session.projectKey,
+              sessionId: session.id,
+              scopeId: event.cleanup.scopeId,
+              kind: event.cleanup.kind,
+              survivors: event.cleanup.survivors,
+            });
+          if (event.cleanup.outcome === 'failed')
+            this.timers.arm('cleanup', 'process-scopes', 60_000, () => {
+              void this.lifecycle.run(() => this.retryScopeCleanup());
+            });
+          if (event.cleanup.outcome === 'clean' && ENDED.has(session.state) && !this.isRunning(session.id))
+            this.removeSessionFolderOf(session.id);
+          if (event.cleanup.outcome === 'clean')
+            void this.ctx.events.emit('session_cleanup_recovered', {
+              projectKey: session.projectKey,
+              sessionId: session.id,
+              scopeId: event.cleanup.scopeId,
+            });
           return;
         }
         case 'provider_session_id': {

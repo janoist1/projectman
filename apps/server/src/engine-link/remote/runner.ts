@@ -8,6 +8,7 @@ import type {
   RunnerEvent,
   RunningSessionInfo,
   SessionRunner,
+  SessionCleanup,
   StartSessionSpec,
 } from '../../contracts';
 import { conflict } from '../../kernel';
@@ -250,6 +251,25 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
         sessionId,
         ...(opts?.force === undefined ? {} : { force: opts.force }),
       });
+    },
+    async closeScopes(scopes) {
+      const groups = new Map<EngineId, typeof scopes>();
+      for (const scope of scopes) {
+        const engineId = needEngine(scope.sessionId);
+        const group = groups.get(engineId) ?? [];
+        group.push(scope);
+        groups.set(engineId, group);
+      }
+      const results: Array<{ sessionId: string; cleanup: SessionCleanup }> = [];
+      await Promise.all(
+        [...groups].map(async ([id, group]) => {
+          for (let offset = 0; offset < group.length; offset += 50)
+            results.push(
+              ...(await hub.call(id, 'session.close_scopes', { scopes: group.slice(offset, offset + 50) })),
+            );
+        }),
+      );
+      return results;
     },
     isRunning(sessionId) {
       const id = owners.get(sessionId);

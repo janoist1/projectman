@@ -143,7 +143,7 @@ export const NON_INTERACTIVE_EDITOR_ENV = {
 export function buildSessionEnv(
   base: NodeJS.ProcessEnv,
   sessionId: string,
-  opts: { instanceTag?: string } = {},
+  opts: { instanceTag?: string; scopeId?: string } = {},
 ): Record<string, string> {
   const env = withLocalNoProxy(
     buildChildEnv(base, {
@@ -151,6 +151,7 @@ export function buildSessionEnv(
       COLORTERM: 'truecolor',
       ...NON_INTERACTIVE_EDITOR_ENV,
       PROJECTMAN_SESSION_ID: sessionId,
+      ...(opts.scopeId ? { PROJECTMAN_SCOPE_ID: opts.scopeId } : {}),
       // With the session id it marks every process of the session as this instance's (PM-320).
       ...(opts.instanceTag ? { PROJECTMAN_INSTANCE: opts.instanceTag } : {}),
     }),

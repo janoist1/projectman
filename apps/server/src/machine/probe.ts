@@ -9,6 +9,7 @@ import {
   parseMemoryPressure,
   parsePsCommands,
   parsePsList,
+  parseProcPgid,
   parseSwapUsage,
   parseVmStat,
 } from './parse';
@@ -75,7 +76,7 @@ async function outputOf(system: ProbeSystem, file: string, args: string[]): Prom
   }
 }
 
-const PS_COLUMNS = 'pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=';
+const PS_COLUMNS = 'pid=,ppid=,pgid=,uid=,rss=,%cpu=,time=,lstart=,args=';
 
 /**
  * The real probe: Node's `os` for the processor and the memory total, `vm_stat` and `sysctl` on
@@ -187,7 +188,14 @@ export function createMachineProbe(system: ProbeSystem = realSystem()): MachineP
       if (system.platform !== 'darwin' && system.platform !== 'linux') return null;
       const output = await attempt(() => system.exec('ps', ['-axww', '-o', PS_COLUMNS]));
       if (output === null) return null;
-      const records = parsePsList(output);
+      const records = parsePsList(output, true);
+      if (system.platform === 'linux')
+        await Promise.all(
+          records.map(async (record) => {
+            const stat = await attempt(() => system.readFile(`/proc/${record.pid}/stat`));
+            if (stat !== null) record.pgid = parseProcPgid(stat);
+          }),
+        );
       return records.length > 0 ? records : null;
     },
 

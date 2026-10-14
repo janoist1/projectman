@@ -164,6 +164,117 @@ describe('message attachment in the session folder (PM-518)', () => {
   });
 });
 
+/** Sessions of every provider that has a folder get the file, started for real (PM-522). */
+describe('message attachment in the folder of a started Gemini, NanoGPT and read-only Codex session (PM-522)', () => {
+  let h: DomainHarness | undefined;
+  afterEach(async () => {
+    await h?.cleanup();
+    h = undefined;
+  });
+
+  const startAs = async (provider: 'codex' | 'gemini' | 'nanogpt', mode?: string) => {
+    h = await createDomainHarness({
+      sessionFolders: true,
+      sessionTmp: true,
+      adjust: (config) => {
+        const dev = config.team.members.find((m) => m.handle === 'dev-1');
+        if (dev?.kind !== 'ai') return;
+        dev.provider = provider;
+        if (mode) dev.permissionMode = mode as typeof dev.permissionMode;
+      },
+    });
+    await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+    const ctx: ToolContext = {
+      sessionId: started.session!.id,
+      projectKey: 'AR',
+      member: 'dev-1',
+      taskKey: 'AR-1',
+    };
+    return { ctx, folder: h.runner.lastStarted().policy!.filesystem.sessionFolder! };
+  };
+  const send = async (content: Buffer, fileName: string) => {
+    const file = await h!.domain.messageAttachments.upload({
+      projectKey: 'AR',
+      actor: OWNER_ACTOR,
+      fileName,
+      content: Readable.from([content]),
+    });
+    await h!.domain.messaging.send(
+      'AR',
+      'owner',
+      { to: ['dev-1'], text: 'See the file.', taskKey: null, attachmentIds: [file.id] },
+      { actor: OWNER_ACTOR },
+    );
+    return file;
+  };
+  const read = (ctx: ToolContext, id: string) =>
+    h!.domain.teamTools.readMessageAttachment(ctx, { attachmentId: id });
+  const realPng = () =>
+    sharp({ create: { width: 64, height: 48, channels: 3, background: '#3366ff' } })
+      .png()
+      .toBuffer();
+
+  it.each([
+    ['Gemini', 'gemini', undefined],
+    ['NanoGPT with a writing sandbox', 'nanogpt', 'acceptEdits'],
+    ['NanoGPT with a read-only sandbox', 'nanogpt', undefined],
+    ['Codex with a read-only sandbox', 'codex', undefined],
+  ] as const)('puts a PDF into the own folder of a %s session', async (_name, provider, mode) => {
+    const { ctx, folder } = await startAs(provider, mode);
+    const bytes = pdfBytes();
+    const file = await send(bytes, 'plan.pdf');
+    const reading = await read(ctx, file.id);
+    expect(reading.content).toEqual({ kind: 'none', reason: 'type' });
+    const expected = join(folder, `${file.id}-plan.pdf`);
+    expect(reading.file).toEqual({ path: expected });
+    expect(readFileSync(expected).equals(bytes)).toBe(true);
+    expect(lstatSync(expected).mode & 0o777).toBe(0o600);
+  });
+
+  it.each([
+    ['Gemini', 'gemini', undefined],
+    ['NanoGPT with a writing sandbox', 'nanogpt', 'acceptEdits'],
+    ['NanoGPT with a read-only sandbox', 'nanogpt', undefined],
+  ] as const)('puts an image into the own folder of a %s session', async (_name, provider, mode) => {
+    const { ctx, folder } = await startAs(provider, mode);
+    const png = await realPng();
+    const image = await send(png, 'shot.png');
+    const reading = await read(ctx, image.id);
+    expect(reading.content).toEqual({ kind: 'none', reason: 'type' });
+    expect(reading.file!.path.startsWith(`${folder}/`)).toBe(true);
+    expect(readFileSync(reading.file!.path).equals(png)).toBe(true);
+  });
+
+  it('puts nothing into the folder of a Gemini session that is not a recipient of the message', async () => {
+    const { ctx, folder } = await startAs('gemini');
+    const file = await h!.domain.messageAttachments.upload({
+      projectKey: 'AR',
+      actor: OWNER_ACTOR,
+      fileName: 'plan.pdf',
+      content: Readable.from([pdfBytes()]),
+    });
+    await h!.domain.messaging.send(
+      'AR',
+      'owner',
+      { to: ['dev-2'], text: 'Not for dev-1.', taskKey: null, attachmentIds: [file.id] },
+      { actor: OWNER_ACTOR },
+    );
+    const reading = await read(ctx, file.id).catch((err: unknown) => err);
+    expect(reading).toMatchObject({ code: 'not_found' });
+    expect(readdirSync(folder).filter((entry) => entry.startsWith('msa_'))).toEqual([]);
+  });
+
+  it('shows an image inline to a read-only Codex session, with no file', async () => {
+    const { ctx, folder } = await startAs('codex');
+    const image = await send(await realPng(), 'shot.png');
+    const reading = await read(ctx, image.id);
+    expect(reading.content.kind).toBe('image');
+    expect(reading.file).toBeUndefined();
+    expect(readdirSync(folder).filter((entry) => entry.startsWith('msa_'))).toEqual([]);
+  });
+});
+
 describe('which providers show an image in a tool result (PM-518)', () => {
   it('lists claude and codex, and not gemini or nanogpt', () => {
     expect(PROVIDER_MCP_IMAGE_RESULTS).toEqual({

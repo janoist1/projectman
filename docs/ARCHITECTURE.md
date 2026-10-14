@@ -1597,6 +1597,12 @@ workers follow the machine's size.
   events end the runner's turn even without a Stop hook; a later `task_started` supersedes
   that end (PM-377, `runner/providers/codex/transcript.ts`). The engine must parse these
   events beside the CLI and forward the resulting session state to the server.
+  **Session folder and own TMPDIR (PM-522):** a NanoGPT session gets a session folder like a Codex
+  one (`sessionFolderAccess`): with a writing sandbox (`workspace-write`, short tmp root present) the
+  folder is writable, it gets its own `TMPDIR`, the browsers and the screenshot scope, and the shared
+  `/tmp` is closed for its commands as for Codex; with a read-only sandbox the folder is read-only
+  and only the server writes it. Without a safe tmp root a writing NanoGPT sandbox gets no folder
+  and keeps the shared `/tmp` open as before.
   NanoGPT-only quota detection emits `rate_limited` over the existing RunnerEvent boundary;
   `runtime/usage` (`ProviderQuotaHolds`) keeps a provider-wide, in-memory hold on the server,
   blocking starts and message wakeups until the measured weekly reset. The adapter's
@@ -1646,6 +1652,14 @@ workers follow the machine's size.
   transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
   transcript access must stay confined to the provider's conversation root on the engine,
   rather than opening engine paths on the server.
+  **Session folder (PM-522):** a Gemini session gets the per-process session folder (see **Session
+  output folders**), named in `PROJECTMAN_SESSION_DIR` through the environment `launch` returns
+  (`runner.ts` merges `launch.env`). Gemini has no OS sandbox, so the folder is written by its file
+  tools under the pre-tool-use hook's gate (its own folder is allowed outside plan mode, another
+  member's is asked about, reading is allowed), not by a sandboxed command; no tmp directory, browsers
+  or screenshot scope. On a remote engine the environment is built on the engine side; an older
+  engine without this launch environment leaves the variable unset (the folder is then not named, the
+  path in a tool answer still works).
   **Module:** `runner`
 
 - **NanoGPT secret store** — `runtime/usage` (`ProviderKeys`, `createNanogptKeyCheck`) (PM-328).
@@ -1759,8 +1773,20 @@ assumption or remote-engine RPC.
   `core/inbox/ports.ts` exposes the existing readable-root calculation through `InboxPermissionPolicy`
   (PM-635); policy rendering and folder operations remain in runtime and on the engine. Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
-  writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
-  folders are not supplied to read-only Codex sessions. A Codex session also gets its
+  writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. Since
+  PM-522 Gemini, NanoGPT and read-only Codex sessions get one too (`sessionFolderAccess`):
+
+  | Session                                                        | Folder                                                     | Own TMPDIR, browsers, screenshots |
+  | -------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------- |
+  | Claude; Codex or NanoGPT with `workspace-write` and a tmp root | write                                                      | yes                               |
+  | Codex or NanoGPT read-only (`default`, `plan`, reader)         | read; only the server writes it                            | no                                |
+  | Gemini                                                         | write by file tools under the hook gate (not in plan mode) | no                                |
+  | `workspace-write` without a tmp root, `danger-full-access`     | none                                                       | –                                 |
+
+  A read-only Codex or NanoGPT sandbox names the folder in `PROJECTMAN_SESSION_DIR`, reads it and
+  opens its images with `view_image`, but does not write it. **Remote engine:** `folders.make` and
+  `files.materialize_into_session` do not depend on the provider; an older engine's Codex adapter
+  lacks the read-only `view_image` and the Gemini environment. A Codex session also gets its
   own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<12 random hex>`
   (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
   removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
@@ -1818,6 +1844,7 @@ assumption or remote-engine RPC.
   `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
   ignored (the engine cleans up when it is back).
   **Module:** `engine-host`
+
 - **Card attachments (PM-644)** — `core/attachments/attachments/{service,storage,thumbnail}.ts`
   (through `core/attachments/index.ts`) and `contracts/attachments.ts`. Records and the private
   `<PROJECTMAN_HOME>/attachments` store belong to the server; local storage uses 0700 directories,
@@ -1860,9 +1887,11 @@ assumption or remote-engine RPC.
   answers as before, without a path. `mcpImageResults` per provider: claude and codex true (Claude Code
   and Codex render an MCP `image` result), gemini and nanogpt false (the Gemini CLI has no place for
   one yet; NanoGPT is Codex over a custom provider, so it depends on the model): the first reading of
-  an image gives them the file. **Gemini and NanoGPT sessions have no session folder today**
-  (`ownFolders` in `runtime/sessions` (`SessionLauncher`, `launch.ts`): Claude, and Codex with a writing sandbox), so they get the
-  entry, and the image only where the CLI shows it.
+  an image gives them the file. Since PM-522 every provider has a session folder where the sandbox
+  allows one (`sessionFolderAccess` in `runtime/sessions/session-policy.ts`: Gemini; Codex and NanoGPT with a
+  writing sandbox or a read-only one), so a Gemini or NanoGPT session gets the path too. **Open:** that
+  Gemini's `view_file` shows a PDF or an image to the model, and that a NanoGPT model uses
+  `view_image`, are unproven; the path is returned either way.
   **Remote engine:** the local engine copies from the server's disk (`O_NOFOLLOW`, a regular file,
   size and SHA-256 checked, staged in the folders root and linked into place). A remote engine gets
   the file with a single-use download token (`transfers.issueDownload`, the same way as

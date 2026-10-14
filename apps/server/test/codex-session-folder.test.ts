@@ -275,22 +275,46 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     });
   });
 
-  it('gives a default-mode session (read-only sandbox) neither', async () => {
-    await start({});
-    expect(h!.runner.lastStarted().policy!.permissions.sandbox).toBe('read-only');
-    expect(h!.runner.lastStarted().sandbox!.portable?.tmpDir).toBeUndefined();
-    expect(h!.runner.lastStarted().sandbox!.env).not.toHaveProperty('PROJECTMAN_SESSION_DIR');
-    expect(readdirSync(h!.sessionFoldersDir!)).toEqual([]);
+  /** A session whose sandbox only reads its folder (PM-522): the folder, and no tmp, browsers or screenshots. */
+  const expectReadOnlyFolder = (spec: ReturnType<DomainHarness['runner']['lastStarted']>) => {
+    const folder = spec.policy!.filesystem.sessionFolder!;
+    expect(folder).toMatch(new RegExp(`^${h!.sessionFoldersDir}/`));
+    expect(spec.policy!.filesystem.sessionFoldersRoot).toBe(h!.sessionFoldersDir);
+    expect(spec.sandbox!.portable!.env.PROJECTMAN_SESSION_DIR).toBe(folder);
+    expect(spec.sandbox!.portable!.env).not.toHaveProperty('PLAYWRIGHT_BROWSERS_PATH');
+    expect(spec.sandbox!.portable!.tmpDir).toBeUndefined();
+    expect(existsSync(folder)).toBe(true);
+    return folder;
+  };
+
+  it('gives a default-mode session (read-only sandbox) a folder it only reads, and no tmp (PM-522)', async () => {
+    const { session } = await start({});
+    const spec = h!.runner.lastStarted();
+    expect(spec.policy!.permissions.sandbox).toBe('read-only');
+    const folder = expectReadOnlyFolder(spec);
     expect(readdirSync(h!.sessionTmpDir!)).toEqual([]);
+    // Its commands do not write the folder, and the browser run is not for it.
+    const { args } = buildCodexArgs({
+      spec,
+      hookUrl: 'http://127.0.0.1:4700/hooks/secret',
+      permissionTimeoutMs: 40_000,
+      realCwd: spec.cwd,
+    });
+    const profile = args.find((arg) => arg.startsWith('permissions.projectman='))!;
+    expect(profile).not.toContain(`"${folder}"="write"`);
+    expect(args.join('\n')).toContain(`shell_environment_policy.set.PROJECTMAN_SESSION_DIR="${folder}"`);
+    expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
+    await h!.runner.stop(session.id);
+    await h!.domain.sessions.settleFolderRemovals();
+    expect(existsSync(folder)).toBe(false);
   });
 
-  it('gives a plan-mode session neither', async () => {
+  it('gives a plan-mode session a folder it only reads, and no tmp (PM-522)', async () => {
     await start({ mode: 'plan' });
-    expect(h!.runner.lastStarted().sandbox!.portable?.env ?? {}).not.toHaveProperty('PROJECTMAN_SESSION_DIR');
-    expect(h!.runner.lastStarted().sandbox!.portable?.tmpDir).toBeUndefined();
+    expectReadOnlyFolder(h!.runner.lastStarted());
   });
 
-  it('gives a reader (a read-only placement) neither, whatever its mode', async () => {
+  it('gives a reader (a read-only placement) a folder it only reads, whatever its mode (PM-522)', async () => {
     await start({
       mode: 'acceptEdits',
       adjust: (config) => {
@@ -301,11 +325,121 @@ describe('the session folder and the temporary directory of a Codex session (PM-
         }
       },
     });
-    await h!.domain.sessions.ensureSession('AR', 'cr', task);
+    const { session } = await h!.domain.sessions.ensureSession('AR', 'cr', task);
     const spec = h!.runner.lastStarted();
     expect(spec.policy!.access).toBe('read_only');
-    expect(spec.sandbox!.portable?.tmpDir).toBeUndefined();
-    expect(spec.sandbox!.env).not.toHaveProperty('PROJECTMAN_SESSION_DIR');
+    expectReadOnlyFolder(spec);
+    expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
+  });
+
+  it('gives a read-only session a folder also without a safe temporary root (PM-522)', async () => {
+    await start({ tmp: false });
+    expect(h!.runner.lastStarted().policy!.filesystem.sessionFolder).toBeDefined();
+  });
+
+  describe('NanoGPT (PM-522)', () => {
+    const startNano = (mode?: string) =>
+      start({
+        adjust: (config) => {
+          const dev = config.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind === 'ai') {
+            dev.provider = 'nanogpt';
+            if (mode) dev.permissionMode = mode as typeof dev.permissionMode;
+          }
+        },
+      });
+
+    it('gives an acceptEdits session the folder and the own tmp, removed when its process ends', async () => {
+      const { session } = await startNano('acceptEdits');
+      const spec = h!.runner.lastStarted();
+      expect(spec.policy!.permissions.sandbox).toBe('workspace-write');
+      const { env, tmpDir, allowWrite } = portable();
+      const folder = env.PROJECTMAN_SESSION_DIR!;
+      expect(folder).toMatch(new RegExp(`^${h!.sessionFoldersDir}/${session.id}\\.[0-9a-f]{16}$`));
+      expect(tmpDir).toMatch(new RegExp(`^${h!.sessionTmpDir}/[0-9a-f]{12}$`));
+      expect(allowWrite).toContain(folder);
+      expect(spec.policy!.filesystem.sessionFolder).toBe(folder);
+      expect(h!.domain.sessions.screenshotScope(session.id)).toMatchObject({ sessionDir: folder });
+      await h!.runner.stop(session.id);
+      await h!.domain.sessions.settleFolderRemovals();
+      expect(existsSync(folder)).toBe(false);
+      expect(existsSync(tmpDir!)).toBe(false);
+    });
+
+    it('gives a default-mode session a folder it only reads, and may not take screenshots', async () => {
+      const executor: ScreenshotExecutor = {
+        run: () => Promise.resolve({ exitCode: 0, timedOut: false, aborted: false, output: '' }),
+      };
+      const { session } = await start({
+        screenshots: executor,
+        adjust: (config) => {
+          const dev = config.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind === 'ai') dev.provider = 'nanogpt';
+        },
+      });
+      expectReadOnlyFolder(h!.runner.lastStarted());
+      const ctx = { sessionId: session.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+      const err = await rejection(
+        h!.domain.teamTools.takeScreenshots(ctx, { scenario: 'a.mjs' }),
+        TeamToolError,
+      );
+      expect(err.code).toBe('forbidden');
+    });
+
+    it('gives no folder to a writing session without a safe temporary root', async () => {
+      await start({
+        mode: 'acceptEdits',
+        tmp: false,
+        adjust: (config) => {
+          const dev = config.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind === 'ai') dev.provider = 'nanogpt';
+        },
+      });
+      expect(h!.runner.lastStarted().policy!.filesystem.sessionFolder).toBeUndefined();
+    });
+  });
+
+  describe('Gemini (PM-522)', () => {
+    const geminiMember = (config: ProjectConfig, handle: string, mode: string) => {
+      const member = config.team.members.find((m) => m.handle === handle);
+      if (member?.kind === 'ai') {
+        member.provider = 'gemini';
+        member.permissionMode = mode as typeof member.permissionMode;
+      }
+    };
+
+    it('gives a developer and a reader a folder, and no tmp, browsers or screenshots', async () => {
+      const { session } = await start({
+        adjust: (config) => {
+          geminiMember(config, 'dev-1', 'default');
+          geminiMember(config, 'cr', 'default');
+        },
+      });
+      const expectFolder = (id: string, spec: ReturnType<DomainHarness['runner']['lastStarted']>) => {
+        const folder = spec.policy!.filesystem.sessionFolder!;
+        expect(folder).toMatch(new RegExp(`^${h!.sessionFoldersDir}/${id}\\.[0-9a-f]{16}$`));
+        expect(spec.policy!.filesystem.sessionFoldersRoot).toBe(h!.sessionFoldersDir);
+        expect(spec.sandbox?.portable?.tmpDir).toBeUndefined();
+        expect(spec.sandbox?.portable?.env).not.toHaveProperty('PLAYWRIGHT_BROWSERS_PATH');
+        expect(existsSync(folder)).toBe(true);
+        expect(h!.domain.sessions.screenshotScope(id)).toBeUndefined();
+      };
+      expectFolder(session.id, h!.runner.lastStarted());
+      expect(readdirSync(h!.sessionTmpDir!)).toEqual([]);
+
+      // A reader: a read-only placement.
+      const { session: reader } = await h!.domain.sessions.ensureSession('AR', 'cr', task);
+      expect(h!.runner.lastStarted().policy!.access).toBe('read_only');
+      expectFolder(reader.id, h!.runner.lastStarted());
+    });
+
+    it('removes the folder when the process ends', async () => {
+      const { session } = await start({ adjust: (config) => geminiMember(config, 'dev-1', 'acceptEdits') });
+      const folder = h!.runner.lastStarted().policy!.filesystem.sessionFolder!;
+      await h!.runner.stop(session.id);
+      await h!.domain.sessions.settleFolderRemovals();
+      expect(existsSync(folder)).toBe(false);
+    });
   });
 
   it('gives no folder when there is no safe temporary root: /tmp would stay open', async () => {

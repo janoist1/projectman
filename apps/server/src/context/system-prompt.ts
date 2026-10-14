@@ -23,6 +23,7 @@ import { getLocale } from '@projectman/templates';
 import { roleLabel } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
 import {
+  describeReadOnlySessionFolder,
   describeSandbox,
   describeSessionFolder,
   describeSessionTmpDir,
@@ -57,7 +58,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     unattendedCommandsSection(input),
     heavyCommandsSection(input),
     untestedChecksSection(input),
-    codexSessionFolderSection(input),
+    sessionFolderSection(input),
     boundarySection(input),
     cheapSubagentSection(input.member),
     guardrailsSection(input),
@@ -397,14 +398,18 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
 }
 
 /**
- * A Codex member's own session folder and temporary directory (PM-339), when its sandbox has them
- * (`portable.env` carries the folder: only a writing Codex sandbox gets
- * one). No browsers and no screenshots yet: the image-making path comes with its own card.
+ * A Codex, NanoGPT or Gemini member's own session folder (PM-339, PM-522), when the session has one
+ * (the policy names it; a Codex sandbox without a safe temporary root gets none), and the temporary
+ * directory of a writing Codex CLI sandbox. A Codex CLI sandbox that does not write only reads the
+ * folder. A Claude member's folder is told with its sandbox (`describeSandbox`).
  */
-function codexSessionFolderSection({ member, sandbox }: ContextPackInput): string {
-  if (!isCodex(member)) return '';
-  const folder = sandbox?.portable?.env['PROJECTMAN_SESSION_DIR'];
+function sessionFolderSection({ member, sandbox, sessionPolicy }: ContextPackInput): string {
+  const folder = sessionPolicy?.filesystem.sessionFolder ?? sandbox?.portable?.env['PROJECTMAN_SESSION_DIR'];
   if (!folder) return '';
+  if (isGemini(member)) return ['# Your session folder', describeSessionFolder(folder, 'gemini')].join('\n');
+  if (!isCodex(member)) return '';
+  if (sessionPolicy?.permissions.sandbox === 'read-only')
+    return ['# Your session folder', describeReadOnlySessionFolder(folder)].join('\n');
   const tmpDir = sandbox?.portable?.tmpDir;
   return [
     '# Your session folder',

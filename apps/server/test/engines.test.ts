@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { EngineId as EngineIdSchema, LOCAL_ENGINE_ID } from '@projectman/shared';
-import type { EngineId, MemberHandle, Session } from '@projectman/shared';
+import type { EngineId, MemberHandle, ProjectConfig, Session } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/db';
 import { MEMBER_SANDBOX_DIRS, SANDBOX_GIT_CONFIG, SANDBOX_GIT_CONFIG_FILE } from '../src/contracts';
@@ -731,6 +731,7 @@ describe("the disk work of the session's engine (PM-312)", () => {
   async function open(
     places: Partial<Parameters<typeof createLocalEngine>[0]>,
     adjust: (host: EngineHost) => EngineHost = (host) => host,
+    configure?: (config: ProjectConfig) => void,
   ) {
     const engines = new TestEngines();
     const host = createLocalEngine(
@@ -743,7 +744,7 @@ describe("the disk work of the session's engine (PM-312)", () => {
       capturingLogger().logger,
     );
     engines.add(adjust({ ...host, id: LOCAL_ENGINE_ID }));
-    h = await createDomainHarness({ engines });
+    h = await createDomainHarness({ engines, ...(configure ? { adjust: configure } : {}) });
     await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
   }
 
@@ -812,6 +813,63 @@ describe("the disk work of the session's engine (PM-312)", () => {
     await expect(create('BZ', 'relative/dir')).rejects.toMatchObject({ code: 'workspace_not_found' });
     expect(asked).toHaveLength(2);
   });
+
+  it.each([
+    ['Gemini', 'gemini', undefined],
+    ['NanoGPT with a writing sandbox', 'nanogpt', 'acceptEdits'],
+    ['NanoGPT with a read-only sandbox', 'nanogpt', undefined],
+    ['Codex with a read-only sandbox', 'codex', undefined],
+  ] as const)(
+    'makes the folder of a %s session on the engine (PM-522)',
+    async (_name, provider, permissionMode) => {
+      const made: string[] = [];
+      await open(
+        {
+          userHome: join(root, 'user'),
+          sessionFoldersDir: join(root, 'folders'),
+          sessionTmpDir: join(root, 'tmp'),
+        },
+        (host) => {
+          const real = host.sessionFolders!;
+          return {
+            ...host,
+            sessionFolders: {
+              ...real,
+              root: real.root,
+              tmpRoot: real.tmpRoot,
+              allocate: (id) => real.allocate(id),
+              allocateTmp: (id) => real.allocateTmp(id),
+              of: (id) => real.of(id),
+              make: async (id, dir, tmpDir) => {
+                if (dir) made.push(dir);
+                await real.make(id, dir, tmpDir);
+              },
+              remove: (id) => real.remove(id),
+              sweep: (keep) => real.sweep(keep),
+              releaseTmpRoot: () => real.releaseTmpRoot(),
+              materializeFile: (id, input) => real.materializeFile(id, input),
+            },
+          };
+        },
+        (config) => {
+          const dev = config.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind !== 'ai') return;
+          dev.provider = provider;
+          if (permissionMode) dev.permissionMode = permissionMode;
+        },
+      );
+
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+      const folder = h.runner.lastStarted().policy!.filesystem.sessionFolder!;
+      expect(folder.startsWith(`${join(root, 'folders')}/`)).toBe(true);
+      expect(made).toEqual([folder]);
+      expect(existsSync(folder)).toBe(true);
+      await h.runner.stop(session.id);
+      await h.domain.sessions.settleFolderRemovals();
+      expect(existsSync(folder)).toBe(false);
+    },
+  );
 
   it("removes a session's old folder on the engine before it makes the new one at a restart", async () => {
     const order: string[] = [];

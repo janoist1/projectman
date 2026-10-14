@@ -559,8 +559,16 @@ by the server before the process starts and removed with the session:
   path itself: a process of an earlier run could re-make a removed path, even as a link. It is removed when
   the process ends, swept at the server's start, and the empty root is removed at the server's stop.
 
-A read-only session (the default mode, `plan`) gets neither: Codex's read-only sandbox takes no
-writable root, and the mode changes only with a restart. A tool that writes a hard-coded `/tmp` path stops
+NanoGPT is Codex over a custom provider and gets the same (PM-522; it had none before): with a
+writing sandbox and a tmp root, the folder, the browsers and its own `TMPDIR`; without a tmp root it
+keeps the shared `/tmp` and gets no folder.
+
+A read-only session (the default mode, `plan`, a reader; Codex or NanoGPT) gets **no temporary
+directory and no browsers**, but since PM-522 it does get the **session folder to read**: the
+server puts the files of a message there (`read_message_attachment`), `$PROJECTMAN_SESSION_DIR`
+names it (`shell_environment_policy.set`), the read-only profile reads it and `tools.view_image`
+opens its images. The sandbox writes nothing there (no writable root) and no screenshot is taken.
+Codex's read-only sandbox takes no writable root, and the mode changes only with a restart. A tool that writes a hard-coded `/tmp` path stops
 after the closing; give it a targeted writable root, do not reopen `/tmp`. The PM-356
 native probe allowed own TMPDIR writes and denied shared `/tmp` and the original CLI tmp.
 The member-level development acceptance still checks attachments, caches and the heavy-run
@@ -591,6 +599,13 @@ and temporarily allow role shell rules without a sandbox (PM-361). The fake CLI 
 
 The projectman `PreToolUse` hook enforces these modes; agy's `--mode` flag is not the gate.
 Commands currently run without a sandbox (PM-326, owner decision T4).
+
+Since PM-522 a Gemini session also has its own **session folder** (`$PROJECTMAN_SESSION_DIR`, in the
+process environment `launch` returns): the file tools write there under the same gate (own folder
+allowed outside `plan`, another member's folder asks, reading is allowed), the server puts message
+files there, and the model opens one with `view_file` or `attach_file`s a result. No temporary
+directory, browsers or screenshots. **Open:** whether `view_file` shows a PDF or an image to the
+model is unproven; the prompt names the path either way.
 
 | Mode                | Hook behavior                                                                                                                                                                                                                                      |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

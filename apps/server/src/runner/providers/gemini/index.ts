@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
+import { PROVIDER_MCP_IMAGE_RESULTS, SESSION_DIR_VARIABLE } from '../../../contracts';
 import { DENY_DEFAULT } from '../../hook-payload';
 import { resolveCommand } from '../../cli';
 import { CODEX_TIMING } from '../codex';
@@ -35,11 +35,14 @@ export function createGeminiAdapter(opts: {
       buildGeminiArgs(input.spec, '');
       const dir = await prepareGeminiDir(opts.configDir, input);
       const args = buildGeminiArgs(input.spec, dir);
+      // The session's own folder (PM-522): the commands and the file tools find it in the variable.
+      const sessionFolder = input.spec.policy?.filesystem.sessionFolder;
       return {
         ...resolveCommand(opts.bin, args),
         cliArgs: args,
         initialMessageSent: false,
         conversationRoot: dir,
+        ...(sessionFolder ? { env: { [SESSION_DIR_VARIABLE]: sessionFolder } } : {}),
       };
     },
     parseHook: parseGeminiHook,

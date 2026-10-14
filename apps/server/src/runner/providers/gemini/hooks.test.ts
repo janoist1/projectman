@@ -213,4 +213,35 @@ describe('Gemini hooks', () => {
     );
     expect(check('read_url_content', { Url: 'http://127.0.0.1' }).decision).toBe('deny');
   });
+
+  describe('the session folder (PM-522)', () => {
+    const own = '/instance/folders/ses_gemini.0123456789abcdef';
+    const other = '/instance/folders/ses_other.fedcba9876543210';
+    const check = (name: string, args: Record<string, unknown>, plan = false) => {
+      const policy = geminiSpec().policy!;
+      policy.filesystem.sessionFolder = own;
+      policy.filesystem.sessionFoldersRoot = '/instance/folders';
+      if (plan) policy.permissions.claude = 'plan';
+      return decideGeminiToolCall(
+        policy,
+        parseGeminiHook(
+          { conversationId: CONVERSATION_ID, stepIdx: 1, toolCall: { name, args } },
+          'PreToolUse',
+        )!,
+        null,
+      ).decision;
+    };
+
+    it('opens a file in its own folder and in another member’s without asking', () => {
+      expect(check('view_file', { AbsolutePath: `${own}/msa_1-plan.pdf` })).toBe('allow');
+      expect(check('view_file', { AbsolutePath: `${other}/shot.png` })).toBe('allow');
+      expect(check('view_file', { AbsolutePath: `${own}/msa_1-plan.pdf` }, true)).toBe('allow');
+    });
+
+    it('writes its own folder in default mode, not in plan mode, and asks for another member’s', () => {
+      expect(check('write_to_file', { TargetFile: `${own}/notes.md` })).toBe('allow');
+      expect(check('write_to_file', { TargetFile: `${own}/notes.md` }, true)).toBe('deny');
+      expect(check('write_to_file', { TargetFile: `${other}/notes.md` })).toBe('ask');
+    });
+  });
 });

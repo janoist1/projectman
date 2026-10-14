@@ -26,12 +26,14 @@ export {
   SANDBOX_DENIED_ENV_VARS,
   SANDBOX_PTY_ENV,
   sensitivePaths,
+  sessionFolderAccess,
   sessionPolicyFor,
   sessionSandbox,
   TEAM_TOOLS_ALLOWED,
   usesWorktree,
   withSessionFolders,
 } from './session-policy';
+export type { SessionFolderAccess } from './session-policy';
 export {
   BUSY_SESSION_STATES,
   COMPACT_MIN_CONTEXT_TOKENS,

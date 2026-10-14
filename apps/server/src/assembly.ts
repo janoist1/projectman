@@ -61,6 +61,7 @@ import type {
   GithubService,
   MachineProbe,
   MemberMemoryStore,
+  OperatorKnowledgeStore,
   MemberWorkspaceManager,
   PermissionBroker,
   RunnerModule,
@@ -178,6 +179,7 @@ export interface DomainOptions {
   github: GithubService;
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
+  operatorKnowledge: OperatorKnowledgeStore;
   worktrees: WorktreeManager;
   /**
    * The machines the sessions run on (PM-311). Absent: the one this server runs on, `local`, built from
@@ -1563,6 +1565,7 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
+    operatorKnowledge: opts.operatorKnowledge,
     projectState,
     structure: createStructureService({
       projects,

@@ -1,4 +1,5 @@
 export * from './domain/member';
+export * from './domain/operator-knowledge';
 export * from './domain/pipeline';
 export * from './domain/label';
 export * from './domain/task';

@@ -1256,6 +1256,23 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Private Operator knowledge (PM-687)** — `apps/server/src/config/operator-knowledge-store.ts`,
+  injected by `app.ts` through `assembly.ts` as `OperatorKnowledgeStore`. Stores the approved
+  agreement (summary, involvement and extra-critical steps), up to 20 approved learned principles
+  (example, principle and effect), and each member's enumerated conversational preferences in
+  `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
+  These records are outside the public repository and the customization git history; no HTTP or
+  MCP writer is exposed. Missing documents start at revision zero; invalid documents are refused
+  without overwriting. **Machine assumption:** one server process owns a private writable home,
+  with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
+  rename. Target-file CAS writes are serialized within that process, including multiple store
+  instances. A synced temporary file is renamed only after the full JSON is written.
+  The shared `contracts/sandbox.ts` `sensitivePaths` app-home list denies the entire `operator-data`
+  root to member file tools and the existing session-policy/provider consumers; no separate
+  provider rule or new permission is added.
+  **Remote engine:** storage stays on the server, with no file mount on an engine. Later context/MCP
+  services may send filtered prompt data across the existing boundary; this card adds no such API.
+
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
   PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,

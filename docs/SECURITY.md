@@ -245,6 +245,14 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   path. Symlinked project paths are rejected. Git hooks/signing are disabled for
   customization commits. YAML is limited to 1 MiB per file, 50 levels and no aliases;
   parse errors do not echo source text. The application home is owner-only (0700).
+- Private Operator agreements, learned principles and conversational preferences (PM-687) live
+  under `PROJECTMAN_HOME/operator-data`, outside customization git history. The shared
+  `sensitivePaths` list denies this entire root to member sessions through the existing policy
+  consumers. Storage validates keys and strict document schemas, refuses symbolic links and
+  non-regular or hard-linked files, and writes complete JSON through a synced 0600 temporary file
+  and same-directory atomic rename in 0700 directories. Target-file CAS is serialized within the
+  server process; corrupt files and stale revisions are refused without overwriting. This storage
+  adds no HTTP/MCP writer, authorization grant or engine file mount.
 - Request logging omits bodies, credentials and query strings, and redacts hook,
   MCP and invitation URL tokens. Unknown-route/parser errors do not echo request
   secrets. Authentication records are not broadcast. Markdown builds escaped React

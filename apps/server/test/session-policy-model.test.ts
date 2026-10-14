@@ -518,6 +518,7 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.projectman/logs',
         '/Users/anna/.projectman/customization',
         '/Users/anna/.projectman/memory',
+        '/Users/anna/.projectman/operator-data',
         // Message files follow recipient visibility; sessions get authorized copies (PM-524).
         '/Users/anna/.projectman/message-attachments',
         // The control socket pauses the whole team (PM-219): not for the members.
@@ -565,6 +566,9 @@ describe('provider-neutral session policy', () => {
           'Read(//Users/anna/.projectman/secrets/**)',
           'Edit(//Users/anna/.projectman/providers/**)',
           'Read(//Users/anna/.projectman/message-attachments)',
+          'Read(//Users/anna/.projectman/operator-data)',
+          'Read(//Users/anna/.projectman/operator-data/**)',
+          'Edit(//Users/anna/.projectman/operator-data/**)',
           'Read(//Users/anna/.projectman/message-attachments/**)',
           'Edit(//Users/anna/.projectman/message-attachments/**)',
           'WebFetch(domain:localhost)',

@@ -119,9 +119,10 @@ import type { UsageAlerts } from '../usage';
 import { ProviderQuotaHolds } from '../usage';
 import type { PlanUsageCache } from '../usage';
 import type { InboxService } from '../../domain/inbox';
-import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from '../../domain/util';
+import { aiActor, KeyedMutex, newId, newUuid, SYSTEM_ACTOR } from '../../domain/util';
 import { MergeCardLock } from '../../kernel';
 import { CloseStates } from './close-states';
+import { LiveSessions } from './live-sessions';
 import { MemberWorkspaces } from './workspaces';
 import type { WorkspacePlacement } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
@@ -313,8 +314,8 @@ export class SessionOrchestrator {
   private readonly ctx: DomainContext;
   private readonly locks = new KeyedMutex();
   private readonly mergeCards: MergeCardLock;
-  private readonly tokens = new Map<string, ToolContext>();
-  private readonly tokenBySession = new Map<string, string>();
+  /** What is held for each session's current process: tokens, first input, modes, stop reasons. */
+  readonly live = new LiveSessions();
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
   /** The wait of each session that waits for input at its terminal (PM-199), until it is over. */
   private readonly inputWaits = new Map<string, { since: string; timer: NodeJS.Timeout }>();
@@ -326,33 +327,11 @@ export class SessionOrchestrator {
     string,
     { projectKey: string; taskKey: string; timer: NodeJS.Timeout }
   >();
-  /** The provider each session's current process runs, for the transcript it reports. */
-  private readonly processProviders = new Map<string, AgentProvider>();
-  /** Sessions whose current process resumes a conversation: one that exits before it is ready gives it up (PM-340). */
-  private readonly resumingProcesses = new Set<string>();
-  /** Sessions whose first input (with messages in it) is not known to have reached them: settles it. */
-  private readonly firstInputWaiters = new Map<string, (typed: boolean) => void>();
-  /**
-   * Sessions started with an opening input whose first turn has not begun: their CLI reports `idle`
-   * once it can take input, before the input is typed (PM-242).
-   */
-  private readonly awaitingFirstTurn = new Set<string>();
-  /** The permission mode each session's current process runs in (PM-170): another one restarts it. */
-  private readonly processModes = new Map<string, string | undefined>();
-  /** The dedicated merge-fix placement granted to each current process. */
-  private readonly processMergeFixes = new Map<string, { branch: string; cwd: string }>();
-  /** The session's grants "for this session" when its current process started (`sessionGrants`). */
-  private readonly processGrants = new Map<string, number>();
   /**
    * Where each session stands on closing (PM-288): marked, waiting for a fix, held by a heavy run,
    * closing. Only the `runtime/sessions` module uses it (`SessionCloser` reaches it through here).
    */
   readonly closeStates = new CloseStates();
-  /**
-   * The reason of a stop in progress, for `markEnded` to record when the runner's own exit event
-   * reaches it first.
-   */
-  private readonly stopReasons = new Map<string, SessionStop>();
   /** What a screenshot run of each live session with a folder in its worktree needs (PM-351). */
   private readonly screenshotScopes = new Map<string, ScreenshotScope>();
   /** Told when a session's folder is removed (the session ended), before it is (PM-351). */
@@ -532,7 +511,7 @@ export class SessionOrchestrator {
 
   /** MCP: maps /mcp/:token to the calling session; null rejects the call. */
   resolveToken(token: string): ToolContext | null {
-    return this.tokens.get(token) ?? null;
+    return this.live.resolveToken(token);
   }
 
   /** A session of any project, or null. */
@@ -570,7 +549,7 @@ export class SessionOrchestrator {
    * about to work although its CLI may report `idle` meanwhile (counts against the member's capacity).
    */
   awaitsFirstTurn(sessionId: string): boolean {
-    return this.awaitingFirstTurn.has(sessionId);
+    return this.live.awaitingFirstTurn.has(sessionId);
   }
 
   /** Whether text typed into the session has not started a turn yet (the runner still holds it). */
@@ -692,7 +671,7 @@ export class SessionOrchestrator {
         // Its review round is over: no live process while the workspace moves to the new commit.
         // Not while paused: the start would be refused after the stop.
         assertNotPaused(this.ctx.repos.pauses, projectKey);
-        this.stopReasons.set(existing.id, { kind: 'restart', restartFor: 'new_round' });
+        this.live.stopReasons.set(existing.id, { kind: 'restart', restartFor: 'new_round' });
         await this.deps.runner.stop(existing.id);
         this.markEnded(existing.id, null);
         announce = false;
@@ -737,7 +716,7 @@ export class SessionOrchestrator {
       if (!this.mayWorkNow(config, member)) return false;
       const task =
         session.workItem.type === 'task' ? this.deps.tasks.get(projectKey, session.workItem.taskKey) : null;
-      this.stopReasons.set(session.id, { kind: 'restart', restartFor: 'description' });
+      this.live.stopReasons.set(session.id, { kind: 'restart', restartFor: 'description' });
       await this.deps.runner.stop(session.id);
       this.markEnded(session.id, null);
       await this.start(
@@ -852,8 +831,8 @@ export class SessionOrchestrator {
 
   /** Whether the session's process runs with another permission mode. */
   private modeNeedsRestart(sessionId: string, mode: string | undefined): boolean {
-    if (!this.processModes.has(sessionId)) return false;
-    const current = this.processModes.get(sessionId);
+    if (!this.live.modes.has(sessionId)) return false;
+    const current = this.live.modes.get(sessionId);
     return (current ?? 'default') !== (mode ?? 'default');
   }
 
@@ -893,7 +872,7 @@ export class SessionOrchestrator {
       sessionId,
       'session_permission_changed',
     );
-    this.stopReasons.set(session.id, { kind: 'restart', restartFor: 'permission' });
+    this.live.stopReasons.set(session.id, { kind: 'restart', restartFor: 'permission' });
     await this.deps.runner.stop(session.id);
     this.markEnded(session.id, null);
     await this.start(
@@ -941,7 +920,7 @@ export class SessionOrchestrator {
 
   /** A person allowed something "for this session" since the session's process started. */
   private grantedForSession(session: Session): boolean {
-    const before = this.processGrants.get(session.id);
+    const before = this.live.grants.get(session.id);
     return before !== undefined && this.sessionGrants(session) > before;
   }
 
@@ -974,7 +953,7 @@ export class SessionOrchestrator {
     const session = this.get(projectKey, sessionId);
     this.dropPause(session);
     // The runner's exit event may end the session before this call does: it takes the reason from here.
-    if (stop) this.stopReasons.set(session.id, stop);
+    if (stop) this.live.stopReasons.set(session.id, stop);
     if (this.isRunning(session.id)) await this.deps.runner.stop(session.id);
     return this.markEnded(session.id, null, null, stop) ?? this.get(projectKey, sessionId);
   }
@@ -1025,7 +1004,7 @@ export class SessionOrchestrator {
       )
         return null;
       this.closeStates.beginClose(session.id);
-      this.stopReasons.set(session.id, stop);
+      this.live.stopReasons.set(session.id, stop);
       try {
         await this.deps.runner.stop(session.id);
       } catch (err) {
@@ -1104,7 +1083,7 @@ export class SessionOrchestrator {
     for (const session of this.ctx.repos.sessions.list(projectKey, { member: handle })) {
       this.dropPause(session);
       try {
-        if (stop) this.stopReasons.set(session.id, stop);
+        if (stop) this.live.stopReasons.set(session.id, stop);
         if (this.isRunning(session.id)) await this.deps.runner.stop(session.id);
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session');
@@ -1274,7 +1253,7 @@ export class SessionOrchestrator {
         continue;
       }
       const stop: SessionStop = { kind: 'card_done', taskKey };
-      this.stopReasons.set(session.id, stop);
+      this.live.stopReasons.set(session.id, stop);
       try {
         await this.deps.runner.stop(session.id);
       } catch (err) {
@@ -1942,11 +1921,11 @@ export class SessionOrchestrator {
       this.ctx.repos.sessions.insert(session);
       session = this.ctx.repos.sessions.update(session.id, { usageSince: at })!;
     }
-    const token = this.issueToken(session);
-    this.processProviders.set(session.id, provider);
-    if (resume) this.resumingProcesses.add(session.id);
+    const token = this.live.issueToken(session);
+    this.live.providers.set(session.id, provider);
+    if (resume) this.live.resuming.add(session.id);
     // Before the process starts: Codex reports its first input as it starts.
-    const firstInput = messages.length > 0 ? this.awaitFirstInput(session.id) : Promise.resolve(true);
+    const firstInput = messages.length > 0 ? this.live.awaitFirstInput(session.id) : Promise.resolve(true);
     // A pause's nudge (PM-219) goes first on a resumed conversation: before the messages, or in place of
     // the continue message. A new conversation has nothing to be nudged about.
     const resumedInput = resume
@@ -1961,12 +1940,12 @@ export class SessionOrchestrator {
         ? [pack.standing, resumedInput].filter((part) => part?.trim()).join(MESSAGE_SEPARATOR)
         : resumedInput
       : newConversationInput(pack.initialMessage, messages);
-    if (initialMessage?.trim()) this.awaitingFirstTurn.add(session.id);
+    if (initialMessage?.trim()) this.live.awaitingFirstTurn.add(session.id);
 
     try {
       if (mergeFix && placed)
-        this.processMergeFixes.set(session.id, { branch: placed.branch, cwd: placed.path });
-      else this.processMergeFixes.delete(session.id);
+        this.live.mergeFixes.set(session.id, { branch: placed.branch, cwd: placed.path });
+      else this.live.mergeFixes.delete(session.id);
       const info = await this.deps.runner.start({
         sessionId: session.id,
         claudeSessionId: session.claudeSessionId,
@@ -2018,22 +1997,15 @@ export class SessionOrchestrator {
       // The commit a reviewer works on this round: the next wake-up names it as the last reviewed.
       if (task?.reviewPin && task.assignee !== member.handle)
         this.ctx.repos.sessions.setReviewedCommit(session.id, task.reviewPin.commit);
-      this.processModes.set(session.id, permissionMode);
-      this.processGrants.set(session.id, this.sessionGrants(session));
+      this.live.modes.set(session.id, permissionMode);
+      this.live.grants.set(session.id, this.sessionGrants(session));
       workspaces?.started(session.id, info.pid);
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {
         this.ctx.repos.sessions.update(session.id, { state: info.state, stateSince: isoNow(this.ctx) });
       }
     } catch (err) {
-      this.settleFirstInput(session.id, false);
-      this.awaitingFirstTurn.delete(session.id);
-      this.revokeToken(session.id);
-      this.processProviders.delete(session.id);
-      this.resumingProcesses.delete(session.id);
-      this.processModes.delete(session.id);
-      this.processMergeFixes.delete(session.id);
-      this.processGrants.delete(session.id);
+      this.live.startFailed(session.id);
       const failed = this.ctx.repos.sessions.update(session.id, {
         state: 'failed',
         stateSince: isoNow(this.ctx),
@@ -2247,18 +2219,6 @@ export class SessionOrchestrator {
     return found;
   }
 
-  /** A promise for the session's first input: see `EnsureSessionResult.firstInput`. */
-  private awaitFirstInput(sessionId: string): Promise<boolean> {
-    this.settleFirstInput(sessionId, false);
-    return new Promise<boolean>((resolve) => this.firstInputWaiters.set(sessionId, resolve));
-  }
-
-  private settleFirstInput(sessionId: string, typed: boolean): void {
-    const settle = this.firstInputWaiters.get(sessionId);
-    this.firstInputWaiters.delete(sessionId);
-    settle?.(typed);
-  }
-
   /** The attachments of a card the member may read (empty when it may not, or on a failure). */
   private async readableAttachments(
     projectKey: string,
@@ -2467,25 +2427,6 @@ export class SessionOrchestrator {
       });
   }
 
-  private issueToken(session: Session): string {
-    this.revokeToken(session.id);
-    const token = newToken();
-    this.tokens.set(token, {
-      sessionId: session.id,
-      projectKey: session.projectKey,
-      member: session.member,
-      taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-    });
-    this.tokenBySession.set(session.id, token);
-    return token;
-  }
-
-  private revokeToken(sessionId: string): void {
-    const token = this.tokenBySession.get(sessionId);
-    if (token) this.tokens.delete(token);
-    this.tokenBySession.delete(sessionId);
-  }
-
   /**
    * Marks a live session as ended (exit, stop, retire); returns the updated row or null if it
    * had ended. `reason` (e.g. a lost login) stays as the session's activity.
@@ -2498,29 +2439,20 @@ export class SessionOrchestrator {
   ): Session | null {
     const session = this.ctx.repos.sessions.get(sessionId);
     const failed = exitCode !== null && exitCode !== 0;
+    const { stop: recordedStop, resuming } = this.live.ended(sessionId);
     // A session a pause held ends as paused, unless it failed; the other ends without a reason are PM-274's.
     const why =
       stop ??
-      this.stopReasons.get(sessionId) ??
+      recordedStop ??
       (session && !failed && this.isPaused(session)
         ? ({ kind: 'pause' } as const)
         : ({ kind: failed ? (reason ? 'login_lost' : 'failed') : 'exited' } as const));
     // A resumed conversation whose CLI failed before it was ready cannot be resumed (PM-340): the next
     // start begins a new conversation, so it does not fail again and again with the same resume.
-    const resumeFailed =
-      failed && session?.state === 'starting' && this.resumingProcesses.has(sessionId) && !stop;
-    this.resumingProcesses.delete(sessionId);
+    const resumeFailed = failed && session?.state === 'starting' && resuming && !stop;
     this.lostLogins.delete(sessionId);
-    this.stopReasons.delete(sessionId);
     this.closeStates.ended(sessionId);
-    this.settleFirstInput(sessionId, false);
-    this.awaitingFirstTurn.delete(sessionId);
-    this.revokeToken(sessionId);
     this.removeSessionFolderOf(sessionId);
-    this.processProviders.delete(sessionId);
-    this.processModes.delete(sessionId);
-    this.processMergeFixes.delete(sessionId);
-    this.processGrants.delete(sessionId);
     this.turnEnded(sessionId);
     const wait = this.inputWaits.get(sessionId);
     if (wait) clearTimeout(wait.timer);
@@ -2577,7 +2509,7 @@ export class SessionOrchestrator {
       const at = isoNow(this.ctx);
       switch (event.type) {
         case 'first_input_sent': {
-          this.settleFirstInput(session.id, true);
+          this.live.settleFirstInput(session.id, true);
           return;
         }
         case 'first_input_failed': {
@@ -2586,7 +2518,7 @@ export class SessionOrchestrator {
             { sessionId: session.id, member: session.member },
             'the first input was typed but the session did not take it',
           );
-          this.settleFirstInput(session.id, false);
+          this.live.settleFirstInput(session.id, false);
           return;
         }
         case 'state': {
@@ -2601,7 +2533,8 @@ export class SessionOrchestrator {
           }
           // A late event from a process that already ended must not revive the session.
           if (ENDED.has(session.state) && !this.isRunning(session.id)) return;
-          if (event.state !== 'starting' && event.state !== 'idle') this.awaitingFirstTurn.delete(session.id);
+          if (event.state !== 'starting' && event.state !== 'idle')
+            this.live.awaitingFirstTurn.delete(session.id);
           const updated = this.ctx.repos.sessions.update(session.id, {
             state: event.state,
             activity: event.activity,
@@ -2627,7 +2560,7 @@ export class SessionOrchestrator {
         }
         case 'transcript_path': {
           // The conversation at this path is the one the current process runs.
-          const provider = this.processProviders.get(session.id) ?? session.provider;
+          const provider = this.live.providers.get(session.id) ?? session.provider;
           if (session.transcriptPath === event.path && session.provider === provider) return;
           this.publishSession(
             this.ctx.repos.sessions.update(session.id, { transcriptPath: event.path, provider })!,
@@ -2867,7 +2800,7 @@ export class SessionOrchestrator {
           return;
         const task = this.deps.tasks.find(current.projectKey, current.workItem.taskKey);
         if (!task) return;
-        const placement = this.processMergeFixes.get(current.id);
+        const placement = this.live.mergeFixes.get(current.id);
         if (!isMergeFixer(task.merge, current.member)) {
           if (placement) {
             // The resolution is in and the server runs the merge now: the same reason the closer gives (PM-552).
@@ -2882,7 +2815,7 @@ export class SessionOrchestrator {
         const config = await this.deps.projects.config(current.projectKey);
         const member = memberOf(config, current.member);
         if (!this.mayWorkNow(config, member)) return;
-        this.stopReasons.set(current.id, { kind: 'restart', restartFor: 'description' });
+        this.live.stopReasons.set(current.id, { kind: 'restart', restartFor: 'description' });
         await this.deps.runner.stop(current.id);
         this.markEnded(current.id, null);
         await this.start(

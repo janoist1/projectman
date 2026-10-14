@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, symlink, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +50,34 @@ describe('resolveCliPath', () => {
 });
 
 describe('runQuietly', () => {
+  it('kills a timed-out command and preserves its collected output', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'pm-cli-timeout-'));
+    let pid: number | undefined;
+    try {
+      const script = path.join(tmp, 'forever.mjs');
+      await writeFile(
+        script,
+        'console.log(process.pid); console.error("running"); setInterval(() => {}, 1000);',
+      );
+      const out = await runQuietly(script, [], { PATH: process.env.PATH ?? '' }, 200);
+      expect(out).toMatchObject({ code: null, error: 'timed out after 200 ms', stderr: 'running\n' });
+      pid = Number(out.stdout.trim());
+      expect(pid).toBeGreaterThan(0);
+      await vi.waitFor(() => {
+        expect(() => process.kill(pid!, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
+      });
+    } finally {
+      if (pid) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          /* Already gone. */
+        }
+      }
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('collects the output and exit code of a short command', async () => {
     const out = await runQuietly(FAKE_CLAUDE, ['--version'], { PATH: process.env.PATH ?? '' });
     expect(out).toMatchObject({ code: 0, error: null });

@@ -71,7 +71,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-621 runner session and CLI**
 
-  Planned.
+  File: `apps/server/src/runner/session-clock.ts`. Facade: `SessionClock` (same file), which holds every timer of `AgentSession` (`runner/session.ts`). Also `apps/server/src/runner/cli.ts` (`runQuietly`, same file). A timer callback runs from the fiber's `addObserver`, outside the fiber, so it may arm, replace or cancel any timer, its own included; a repeating timer arms its next tick before its callback, as `setInterval` did. A delay below 1 ms is 1 ms, as for a Node timer. The timers are not unref'd (the 30 s process probe was): a running session keeps the process alive, and the server and the engine end with `process.exit`.
 
 - **PM-622 hooks and permission gate**
 

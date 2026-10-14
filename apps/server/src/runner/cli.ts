@@ -3,6 +3,8 @@ import { constants } from 'node:fs';
 import { access, realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Duration, Effect } from 'effect';
+import { runPromise } from '../kernel';
 
 /** Starting an agent CLI (Claude Code, Codex, or a fake CLI in tests). */
 
@@ -63,37 +65,36 @@ export function runQuietly(
   env: Record<string, string>,
   timeoutMs = 15_000,
 ): Promise<CommandOutput> {
-  return new Promise((resolve) => {
-    const { file, args: argv } = resolveCommand(bin, args);
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    const finish = (code: number | null, error: string | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ code, stdout, stderr, error });
-    };
-    let child;
-    try {
-      child = spawn(file, argv, { cwd: os.tmpdir(), env, stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      resolve({ code: null, stdout, stderr, error: (err as Error).message });
-      return;
-    }
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      finish(null, `timed out after ${timeoutMs} ms`);
-    }, timeoutMs);
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      if (stdout.length < MAX_OUTPUT) stdout += chunk;
-    });
-    child.stderr.on('data', (chunk: string) => {
-      if (stderr.length < MAX_OUTPUT) stderr += chunk;
-    });
-    child.on('error', (err) => finish(null, err.message));
-    child.on('close', (code) => finish(code, null));
+  const { file, args: argv } = resolveCommand(bin, args);
+  let stdout = '';
+  let stderr = '';
+  let child;
+  try {
+    child = spawn(file, argv, { cwd: os.tmpdir(), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    return Promise.resolve({ code: null, stdout, stderr, error: (err as Error).message });
+  }
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => {
+    if (stdout.length < MAX_OUTPUT) stdout += chunk;
   });
+  child.stderr.on('data', (chunk: string) => {
+    if (stderr.length < MAX_OUTPUT) stderr += chunk;
+  });
+  return runPromise(
+    Effect.callback<CommandOutput>((resume) => {
+      child.on('error', (err) => resume(Effect.succeed({ code: null, stdout, stderr, error: err.message })));
+      child.on('close', (code) => resume(Effect.succeed({ code, stdout, stderr, error: null })));
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: Duration.millis(Math.max(1, timeoutMs)),
+        orElse: () =>
+          Effect.sync(() => {
+            child.kill('SIGKILL');
+            return { code: null, stdout, stderr, error: `timed out after ${timeoutMs} ms` };
+          }),
+      }),
+    ),
+  );
 }

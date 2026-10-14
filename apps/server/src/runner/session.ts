@@ -16,6 +16,7 @@ import type { HookPayload } from './hook-payload';
 import { InputQueue, NotSubmittedError } from './input-queue';
 import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL, PauseState } from './pause';
 import { PermissionGate } from './permission-gate';
+import { SessionClock, waitAtMost } from './session-clock';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
@@ -46,7 +47,6 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
  */
 interface Compaction {
   phase: 'queued' | 'typed' | 'started';
-  timer: NodeJS.Timeout | null;
 }
 
 /** The pseudo-terminal process of a session: node-pty's IPty, or a fake in tests. */
@@ -89,8 +89,6 @@ export interface SessionDeps {
   transcriptRoot?: string;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /** One interactive agent CLI process (Claude Code or Codex) in a pseudo-terminal. */
 export class AgentSession {
   readonly id: string;
@@ -105,7 +103,8 @@ export class AgentSession {
   private readonly log: FastifyBaseLogger;
   private readonly timing: SessionTiming;
   private proc: PtyProcess | null = null;
-  private processTimer: NodeJS.Timeout | null = null;
+  private readonly clock = new SessionClock();
+  private interruptSeq = 0;
   private current: StateSnapshot = { state: 'starting', activity: null };
   private resolveExited!: () => void;
   private hasExited = false;
@@ -138,12 +137,10 @@ export class AgentSession {
   private authFailure: string | null = null;
   private rateLimitFailure: string | null = null;
 
-  private readonly timers = new Set<NodeJS.Timeout>();
   /** The compaction the server asked for, until PostCompact or until it is given up (PM-213). */
   private compaction: Compaction | null = null;
   /** Tool calls whose questions went to the inbox already (see forwardQuestion). */
   private readonly forwardedQuestions = new Set<string>();
-  private watchTimer: NodeJS.Timeout | null = null;
 
   /** The pause asked for, until it is released (PM-218). */
   private pauseState: PauseState | null = null;
@@ -380,7 +377,7 @@ export class AgentSession {
    */
   async compact(instruction: string): Promise<boolean> {
     if (this.hasExited || this.compaction || !COMPACTING_PROVIDERS.has(this.adapter.provider)) return false;
-    const compaction: Compaction = { phase: 'queued', timer: null };
+    const compaction: Compaction = { phase: 'queued' };
     this.compaction = compaction;
     try {
       await this.input.enqueue(`/compact ${instruction.replace(/\s+/g, ' ').trim()}`);
@@ -398,8 +395,7 @@ export class AgentSession {
   }
 
   private watchCompaction(compaction: Compaction, ms: number): void {
-    if (compaction.timer) clearTimeout(compaction.timer);
-    compaction.timer = this.timer(() => this.abandonCompaction(compaction), ms);
+    this.clock.after('compaction', ms, () => this.abandonCompaction(compaction));
   }
 
   /**
@@ -420,7 +416,7 @@ export class AgentSession {
     const compaction = this.compaction;
     const asked = compaction?.phase === 'started' && trigger !== 'auto';
     if (asked) {
-      if (compaction.timer) clearTimeout(compaction.timer);
+      this.clock.cancel('compaction');
       this.compaction = null;
     }
     this.deps.emit({ type: 'compaction', sessionId: this.id, phase: 'finished', trigger, requested: asked });
@@ -486,7 +482,7 @@ export class AgentSession {
     const p = this.pauseState;
     if (!p) return false;
     this.pauseState = null;
-    this.clearPauseTimers(p);
+    this.clearPauseTimers();
     if (p.phase === 'stopping') p.cancel();
     this.input.unhold(p.phase === 'stopped' || p.turnEnding ? opts.nudge : undefined);
     return true;
@@ -501,10 +497,10 @@ export class AgentSession {
   async interrupt(): Promise<'confirmed' | 'prompt' | 'unconfirmed'> {
     if (this.hasExited) return 'unconfirmed';
     const confirmed = await new Promise<boolean>((resolve) => {
-      const t = this.timer(() => waiter(false), this.timing.interruptConfirmMs);
+      const key = `interrupt-${++this.interruptSeq}` as const;
+      this.clock.after(key, this.timing.interruptConfirmMs, () => waiter(false));
       const waiter = (value: boolean) => {
-        clearTimeout(t);
-        this.timers.delete(t);
+        this.clock.cancel(key);
         this.interruptWaiters.delete(waiter);
         resolve(value);
       };
@@ -542,11 +538,10 @@ export class AgentSession {
     this.deps.emit({ type: 'session_pausing', sessionId: this.id, waitingFor: this.runningToolName() });
     if (forceAfterMs === 0) p.forceRequested = true;
     else if (forceAfterMs !== undefined && forceAfterMs > 0) {
-      p.deadline = this.timer(() => {
-        p.deadline = null;
+      this.clock.after('pause-deadline', forceAfterMs, () => {
         p.forceRequested = true;
         this.evaluatePause();
-      }, forceAfterMs);
+      });
     }
     return p;
   }
@@ -583,18 +578,19 @@ export class AgentSession {
     if (!p || p.phase !== 'stopping' || !this.adapter.haltOutput || payload.agent_id) return undefined;
     p.noteHalt({ point, tool });
     p.turnEnding = true;
-    p.stopCheck ??= this.timer(() => this.checkHaltedTurnEnded(p), this.timing.haltStopMs);
+    this.clock.after('pause-stop-check', this.timing.haltStopMs, () => this.checkHaltedTurnEnded(p), {
+      ifMissing: true,
+    });
     return this.adapter.haltOutput(point === 'before_tool' ? PAUSED_BEFORE_TOOL : PAUSED_AFTER_TOOL);
   }
 
   /** The Stop hook should have followed the halting answer; if it did not but the prompt is up, close the turn. */
   private checkHaltedTurnEnded(p: PauseState): void {
-    p.stopCheck = null;
     if (this.pauseState !== p || p.phase !== 'stopping' || this.hasExited) return;
     if (this.current.state === 'idle') return;
     if (this.runningTools.size > 0) {
       // Parallel tools: the turn goes on until the last of them is through.
-      p.stopCheck = this.timer(() => this.checkHaltedTurnEnded(p), this.timing.haltStopMs);
+      this.clock.after('pause-stop-check', this.timing.haltStopMs, () => this.checkHaltedTurnEnded(p));
       return;
     }
     if (this.screenIdle()) {
@@ -643,19 +639,14 @@ export class AgentSession {
       state === 'waiting_permission' || state === 'waiting_input'
         ? { point: state, tool: this.waitingTool }
         : (p.halt ?? { point: 'idle', tool: null });
-    this.clearPauseTimers(p);
+    this.clearPauseTimers();
     this.deps.emit({ type: 'session_paused', sessionId: this.id, point: outcome.point, tool: outcome.tool });
     p.settle(outcome);
   }
 
-  private clearPauseTimers(p: PauseState): void {
-    for (const t of [p.deadline, p.stopCheck]) {
-      if (!t) continue;
-      clearTimeout(t);
-      this.timers.delete(t);
-    }
-    p.deadline = null;
-    p.stopCheck = null;
+  private clearPauseTimers(): void {
+    this.clock.cancel('pause-deadline');
+    this.clock.cancel('pause-stop-check');
   }
 
   /** A working session is being stopped: sends the Esc where the way needs one. */
@@ -693,9 +684,9 @@ export class AgentSession {
       p.turnEnding = true;
       p.noteHalt({ point: 'before_tool', tool: null });
       // After the hook's response went out, which the hook that brought us here still has to give.
-      this.timer(() => {
+      this.clock.once(0, () => {
         if (this.pauseState === p && this.current.state === 'working') void this.interrupt();
-      }, 0);
+      });
     }
   }
 
@@ -1156,7 +1147,7 @@ export class AgentSession {
         this.closeEndedTurn();
         return;
       }
-      this.timer(() => this.checkTurnEndClosed(), this.timing.turnEndGraceMs);
+      this.clock.once(this.timing.turnEndGraceMs, () => this.checkTurnEndClosed());
     }
   }
 
@@ -1227,13 +1218,12 @@ export class AgentSession {
   // ---------------------------------------------------------------- blocking dialogs
 
   private startWatch(): void {
-    if (this.watchTimer || this.hasExited) return;
-    this.watchTimer = setInterval(() => this.checkScreen(), this.timing.startupCheckMs);
+    if (this.hasExited) return;
+    this.clock.every('startup-watch', this.timing.startupCheckMs, () => this.checkScreen());
   }
 
   private stopWatch(): void {
-    if (this.watchTimer) clearInterval(this.watchTimer);
-    this.watchTimer = null;
+    this.clock.cancel('startup-watch');
   }
 
   /**
@@ -1279,7 +1269,7 @@ export class AgentSession {
 
   /** Recover a missed PTY exit event, including after host sleep (PM-376). */
   private watchProcess(): void {
-    this.processTimer = setInterval(() => {
+    this.clock.every('process-probe', 30_000, () => {
       if (this.hasExited || !this.proc) return;
       try {
         process.kill(this.proc.pid, 0);
@@ -1291,8 +1281,7 @@ export class AgentSession {
           return;
         }
       }
-    }, 30_000);
-    this.processTimer.unref();
+    });
   }
 
   /** Graceful stop (SIGTERM, then SIGKILL after a timeout), or an immediate kill. */
@@ -1300,7 +1289,7 @@ export class AgentSession {
     if (this.hasExited) return this.exited;
     this.stopRequested = true;
     this.kill(force ? 'SIGKILL' : 'SIGTERM');
-    if (!force) this.timer(() => this.kill('SIGKILL'), this.timing.stopTimeoutMs);
+    if (!force) this.clock.once(this.timing.stopTimeoutMs, () => this.kill('SIGKILL'));
     return this.exited;
   }
 
@@ -1316,12 +1305,9 @@ export class AgentSession {
   private async onExit(exitCode: number, signal: number | null): Promise<void> {
     if (this.hasExited) return;
     this.hasExited = true;
-    if (this.processTimer) clearInterval(this.processTimer);
-    this.processTimer = null;
+    this.clock.cancel('process-probe');
     this.deps.onExited(this);
-    for (const t of this.timers) clearTimeout(t);
-    this.timers.clear();
-    this.stopWatch();
+    this.clock.close();
     this.permissions.close();
     this.input.close();
     this.compaction = null;
@@ -1329,7 +1315,7 @@ export class AgentSession {
     // Pick up the last transcript lines before announcing the exit.
     const tailer = this.tailer;
     if (tailer) {
-      await Promise.race([tailer.poll(), sleep(this.timing.finalReadMs)]);
+      await waitAtMost(() => tailer.poll(), this.timing.finalReadMs);
       tailer.stop();
     }
 
@@ -1358,8 +1344,7 @@ export class AgentSession {
 
   /** Frees the headless terminal (after the session is no longer needed for snapshots). */
   dispose(): void {
-    if (this.processTimer) clearInterval(this.processTimer);
-    this.processTimer = null;
+    this.clock.close();
     this.screen.dispose();
   }
 
@@ -1420,15 +1405,6 @@ export class AgentSession {
       state: this.current.state,
       activity: this.current.activity,
     });
-  }
-
-  private timer(fn: () => void, ms: number): NodeJS.Timeout {
-    const t = setTimeout(() => {
-      this.timers.delete(t);
-      fn();
-    }, ms);
-    this.timers.add(t);
-    return t;
   }
 }
 

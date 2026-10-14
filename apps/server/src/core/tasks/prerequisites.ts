@@ -1,7 +1,7 @@
 import { isOpenTask, openPrerequisites } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
-import type { DomainContext } from '../../core/base';
-import type { TimelineService } from '../../core/timeline';
+import type { DomainContext } from '../base';
+import type { TimelineService } from '../timeline';
 import { SYSTEM_ACTOR } from '../../kernel';
 
 /**

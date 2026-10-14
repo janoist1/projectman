@@ -6,26 +6,22 @@ Task lifecycle, labels, moves, relations, themes, board ordering, focus, involve
 
 ## Facade
 
-`TaskService` and its task helpers, `BoardService`, `ProjectFocusService`, `InvolvementService` and `CardMeasure` currently live under `domain/`. The planned entry point is `core/tasks/index.ts`; exact future exports and runtime boundary changes belong to the subsequent slice plans.
+`core/tasks/index.ts` is the sealed entry point. It exports `TaskService`, `createTaskService`, `PrerequisiteClosures`, `TaskWaits`, `LeftParts`, `approvalRequestedError`, `gateBlockedError`, `BoardService`, `ProjectFocusService`, `InvolvementService` and `CardMeasure`. Public types are `HandoffTrigger`, `TaskUpdate`, `MergeGate`, `MoveResult`, `StageChange`, `TaskPauseReader`, `BoardPlanUsage` and `BoardPauses`. The factory dependency shape and all public signatures are unchanged from PM-636.
 
 ## Ports
 
 `TaskService` receives the domain context, timeline, projects and inbox. Existing contracts include `StartWaitingReader` and `SourceHeadReader`; callbacks provide hand-on notifications, outage/fix-limit state and handoffs. `core/tasks/ports.ts` defines the consumer-owned `TaskPauseReader` for `LeftParts` and `BoardPlanUsage` / `BoardPauses` for `BoardService`. Assembly supplies the existing runtime objects without casts. Live session states come directly from shared contracts. `TaskService` owns one internal `PullRequestRecords` instance; GitHub synchronization calls the existing task methods to record snapshots and apply link updates. No runtime or GitHub service import remains in this module (PM-632).
 
-## Current and planned files
+## Files
 
-Current paths under `apps/server/src`: `core/tasks/ports.ts`, `domain/tasks/` (including `pull-request-records.ts`), `domain/board.ts`, `domain/project-focus.ts`, `domain/involvements.ts`, `domain/card-measure.ts`.
-The planned folder is `apps/server/src/core/tasks/`.
+All implementations live directly under `apps/server/src/core/tasks/`: `service.ts`, `store.ts`, `moves.ts`, `labels.ts`, `relations.ts`, `themes.ts`, `developer-level.ts`, `board-order.ts`, `group-move.ts`, `prerequisites.ts`, `task-wait.ts`, `left-parts.ts`, `pull-request-records.ts`, `board.ts`, `project-focus.ts`, `involvements.ts` and `card-measure.ts`. `index.ts` provides the facade, `ports.ts` retains the consumer-owned ports, and `tests/merges.test.ts` retains the merge-gate tests. Internal dependencies use direct relative imports; no legacy domain shim remains. AutoAdvance belongs to `runtime/watchers`.
 The authoritative descriptor is
 [`core-tasks.ts`](../../apps/server/test/architecture/modules/core-tasks.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
-Its paths, pass, layer and sealed state are preserved by PM-631; later module slices
-update their own descriptor and this document, removing their dependency exceptions
-from the central map without changing the architecture table.
+Its only path is `core/tasks/`; the module remains sealed with the same id, layer, target and pass. PM-639 changes only this descriptor and module document, leaving the central map and architecture table to the closing slice.
 
 ## Remote engine
 
 Task rows, pull-request snapshots and lifecycle rules remain on the server. Board plan usage reads the existing server-side cache. Branch head and workspace state come from the existing engine/runtime ports, on the engine holding the checkout. The session and plan-usage machine inventory boundaries remain unchanged. No engine contract, RPC method or payload changes here.
 
-PM-631 only prepares file ownership for parallel refactor slices. It changes no
-shared contract, database schema, configuration or timeline event.
+PM-639 relocates implementations without changing behavior, shared contracts, database schemas, configuration or timeline events.

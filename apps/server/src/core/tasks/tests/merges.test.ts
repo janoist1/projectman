@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateRequestOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
-import type { TaskMoves } from '../../../domain/tasks/moves';
+import type { TaskMoves } from '../moves';
 import type { BranchMerger, FullTestExecutor, FullTestResult, MergeBaseState } from '../../../contracts';
 import { withVisibleCardLinks, clientCanSeeTimelineEvent } from '../../projects';
 import {

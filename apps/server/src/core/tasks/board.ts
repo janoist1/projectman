@@ -1,12 +1,12 @@
 import { DEFAULT_AGENT_PROVIDER, hasPlanUsage, labelHolders, resolvedStages } from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
-import type { InboxService } from '../core/inbox';
-import type { MemberService } from '../core/members';
-import type { BoardPauses, BoardPlanUsage } from '../core/tasks/ports';
-import type { ProjectService } from '../core/projects';
-import type { TaskService } from './tasks';
-import { isClient, visibleTasks } from '../core/projects';
-import type { Viewer } from '../core/projects';
+import type { InboxService } from '../inbox';
+import type { MemberService } from '../members';
+import type { BoardPauses, BoardPlanUsage } from './ports';
+import type { ProjectService } from '../projects';
+import type { TaskService } from './service';
+import { isClient, visibleTasks } from '../projects';
+import type { Viewer } from '../projects';
 
 /** A project's board as one member sees it. */
 export class BoardService {

@@ -1,6 +1,7 @@
 export { MemberService, createMemberService, MemberProfiles } from './members';
 export { InvitationService } from './invitations';
 export { PresenceService } from './presence';
+export { createEmailLoginDirectory } from './client-standing';
 export {
   requireMemberAccess,
   requireHuman,

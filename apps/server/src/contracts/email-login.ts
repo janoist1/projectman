@@ -13,6 +13,33 @@ export interface EmailCodeMailer {
   send(input: EmailCodeMailInput): Promise<void>;
 }
 
+/**
+ * What the e-mail login may ask of the members' side (PM-670). Eligible means the address has a client
+ * account or at least one open client invitation, and holds no other access anywhere.
+ */
+export type EmailLoginStanding =
+  | { eligible: false }
+  | {
+      eligible: true;
+      /** The existing account, or null when the first login creates it. */
+      userId: string | null;
+      clientProjects: number;
+      openClientInvites: number;
+      /** The first non-empty display name of the open client invitations, oldest first. */
+      inviteDisplayName: string | null;
+    };
+
+export interface EmailLoginDirectory {
+  standing(email: string): Promise<EmailLoginStanding>;
+  /** The address of an open client invitation by its token, else null. */
+  inviteEmail(token: string): string | null;
+  /** Accepts all open client invitations of the address; a new account is passwordless and named `newAccountName`. */
+  acceptOpenClientInvites(
+    email: string,
+    newAccountName: string | null,
+  ): Promise<{ userId: string | null; accepted: number }>;
+}
+
 export const EMAIL_CODE_DELIVERY_FAILED = 'email_code_delivery_failed';
 
 /** A coarse, fixed vocabulary for the operator's logs; nothing of the provider's text. */

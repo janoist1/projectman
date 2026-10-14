@@ -20,6 +20,9 @@ export type {
   StoredFeedbackScreenshot,
 } from './feedback';
 import { createFullTestRunRepository } from './full-test-runs';
+import { createEmailLoginRepository } from './email-login';
+export { EMAIL_LOGIN_MAX_FAILED_ATTEMPTS } from './email-login';
+export type { EmailLoginCodeRecord, EmailLoginEventKind } from './email-login';
 import { createInvitationRepository } from './invitations';
 export type { InvitationRecord } from './invitations';
 import type { Db } from './database';
@@ -85,6 +88,7 @@ export function createRepositories(db: Db) {
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
     invitations: createInvitationRepository(db),
+    emailLogin: createEmailLoginRepository(db),
     authSessions: createAuthSessionRepository(db),
     projects: createProjectRepository(db),
     counters: createCounterRepository(db),

@@ -797,7 +797,7 @@ changes) belong in `packages/shared`, so the server and the web's test fake use 
 
 ```
 db.sqlite                 runtime state
-secret                    cookie signing key
+secret                    cookie signing key; the e-mail login's HMAC key derives from it (PM-670)
 secrets/nanogpt.json       installation NanoGPT key (0700 directory, 0600 file; PM-328)
 customization/            git repo: projects/<KEY>/{project,team,pipeline}.yaml
 memory/<KEY>/<handle>.md  AI member memory (durable learnings)
@@ -1341,13 +1341,30 @@ workers follow the machine's size.
   `packages/templates/src/locales`) through the SES v2 `SendEmail` operation with explicit keys and an
   endpoint pinned to the region; no `AWS_*` variable, profile or credential chain is read. It keeps no
   state and logs no address or code; a provider failure is a sanitized `EmailCodeDeliveryError`. The
-  login itself (PM-670) is the first consumer; until then `BuildAppOptions.emailCodeMailer` is unused.
+  login itself (PM-670, the next entry) is its consumer through `BuildAppOptions.emailCodeMailer`.
   **Machine assumptions:** the keys are lines of the owner's `cloud.env` (the secrets store of the entry
   "Cloud provisioning"), which `deploy` sends to the machine; inside the container the entrypoint gives
   `PROJECTMAN_*` to the server process only, the restore rehearsal switches the mailer off, and the runner's
   child environment drops every `PROJECTMAN_` name. **Does this work on a remote engine?** Yes: sending and
   the keys live only in the cloud board; the engine, its link and its protocol do not change, and a
   disconnected engine does not stop the mail.
+
+- **The e-mail login of invited clients (PM-670, part of PM-664)** —
+  `apps/server/src/auth/email-login-routes.ts` (`POST /api/auth/email/request` and `/verify`, public),
+  `apps/server/src/services/email-login/login-service.ts` (codes, limits, redemption),
+  `apps/server/src/core/members/client-standing.ts` (who is eligible; accepts the open client
+  invitations), `apps/server/src/db/email-login.ts` (tables `email_login_codes`, `email_login_events`,
+  migration 60), `auth/secret.ts` (`deriveEmailLoginKey`). **What it does:** a person who is a client and
+  nothing else (a client account or an open client invitation, not the host owner, no other access in any
+  project) gets a six-digit code by mail and redeems it for a session; a first redemption creates a
+  passwordless account and accepts every open client invitation of the address. Addresses, client IPs
+  and codes are stored only as HMAC-SHA-256 hashes; the key is derived (HKDF, own label) from the
+  `secret` file, so a copied database alone cannot be tested against guessed addresses. All limits count
+  durable rows, so a restart does not reset them. **Machine assumptions:** the client address comes from
+  `PROJECTMAN_CLIENT_IP_HEADER` (a trusted loopback proxy sets it; without it every client counts as
+  `127.0.0.1` and shares the IP limits), the `secret` file in the home, and the SQLite database. **Does this
+  work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
+  and no engine protocol or payload changes.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,

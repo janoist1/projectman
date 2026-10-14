@@ -60,12 +60,15 @@ export function OperatorSignalCard({
   message,
   operatorHandle,
   readOnly,
+  onDismiss,
 }: {
   signal: OperatorSignal;
   /** The Operator's message that presented the signal, if the thread holds it. */
   message: TeamMessage | null;
   operatorHandle: string;
   readOnly: boolean;
+  /** Keep feedback visible for a dismissal made in the current thread. */
+  onDismiss?: (id: string) => void;
 }) {
   const { key } = useProject();
   const client = useQueryClient();
@@ -127,7 +130,7 @@ export function OperatorSignalCard({
             size="md"
             loading={dismiss.isPending}
             disabled={busy}
-            onClick={() => dismiss.mutate(signal.id)}
+            onClick={() => dismiss.mutate(signal.id, { onSuccess: () => onDismiss?.(signal.id) })}
           >
             {t('operator.signal.dismiss')}
           </Button>

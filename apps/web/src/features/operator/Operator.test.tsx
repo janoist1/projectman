@@ -679,8 +679,36 @@ describe('a signal the Operator raised', () => {
           screen.getByRole('button', { name: t('operator.signal.accept') }),
         );
       }
+      if (presentation === 'no message') {
+        fireEvent.click(screen.getByRole('button', { name: t('operator.panel.close') }));
+        fireEvent.click(operator);
+        await screen.findByRole('textbox', { name: t('operator.composer.label') });
+        expect(screen.queryByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' })).toBeNull();
+        expect(screen.queryByText(new RegExp(t('operator.signal.dismissed')))).toBeNull();
+      }
     },
   );
+
+  it('keeps historical and Operator dismissals without messages out of the thread', async () => {
+    const project = mockProject();
+    project.backend.operatorSignals = [
+      signal({ id: 'sig_old', kind: 'silent', actionable: false, state: 'dismissed', decidedBy: 'owner' }),
+      signal({
+        id: 'sig_operator',
+        kind: 'ready_waiting',
+        actionable: false,
+        state: 'dismissed',
+        decidedBy: 'operator',
+      }),
+      signal({ id: 'sig_open', kind: 'nobody', actionable: false }),
+    ];
+    renderLayout(project);
+    fireEvent.click(await button());
+    await screen.findByRole('heading', { name: 'AC-20: senki nem viheti' });
+    expect(screen.queryByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: t('operator.signal.kinds.ready_waiting') })).toBeNull();
+    expect(screen.queryByText(new RegExp(t('operator.signal.dismissed')))).toBeNull();
+  });
 
   it.each(['summary', 'card'] as const)('hides every signal decision in a read-only %s', (presentation) => {
     const project = mockProject();

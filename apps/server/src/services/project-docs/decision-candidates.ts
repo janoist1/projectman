@@ -1,9 +1,9 @@
 import { isOperator, memberOf, ownerHandles, projectDocsOf } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
-import type { DecisionCandidate, DecisionMark } from '../contracts';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import { DomainError } from './errors';
+import type { DecisionCandidate, DecisionMark } from '../../contracts';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import { DomainError } from '../../domain/errors';
 
 /** The most characters of a question (title and body) a candidate carries. */
 export const MAX_CANDIDATE_QUESTION_CHARS = 2000;

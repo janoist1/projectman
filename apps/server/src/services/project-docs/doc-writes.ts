@@ -1,16 +1,19 @@
+import { Effect, Exit, Scope } from 'effect';
+import { runFork, runPromise } from '../../kernel';
+import { makeDocWriteQueue, type DocWriteQueueEffects } from './write-queue';
+import type { DocWriteSlotPeer } from './ports';
 import { LOCAL_ENGINE_ID, projectDocsOf, SYSTEM_SENDER } from '@projectman/shared';
 import type { ErrorCode, OperatorStepStatus, ProjectDoc, RepoConfig } from '@projectman/shared';
-import { MergeError } from '../contracts';
-import type { BranchMerger, EngineDirectory } from '../contracts';
-import type { DocWriteEdit, DocWritePatch, DocWriteRecord } from '../db';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
+import { MergeError } from '../../contracts';
+import type { BranchMerger, EngineDirectory } from '../../contracts';
+import type { DocWriteEdit, DocWritePatch, DocWriteRecord } from '../../db';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
 import { applyDocEdits, isAppendOnly } from './doc-edits';
-import { conflict, DomainError } from './errors';
-import type { Merges } from '../services/merges';
-import type { Messaging } from './messaging';
-import type { ProjectService } from './projects';
-import { newId, SYSTEM_ACTOR } from './util';
+import { conflict, DomainError } from '../../domain/errors';
+import type { Messaging } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import { newId, SYSTEM_ACTOR } from '../../domain/util';
 
 /** Why a write of the Operator's documents did not go up. */
 export type DocWriteFailure =
@@ -56,12 +59,10 @@ type Deps = {
   projects: ProjectService;
   engines: EngineDirectory;
   messaging: Pick<Messaging, 'send'>;
-  merges: Pick<Merges, 'busy' | 'holder' | 'pump'>;
+  merges: DocWriteSlotPeer;
   /** How long `request` waits for a write that runs at once (default `DOC_WRITE_WAIT_MS`). */
   waitMs?: number;
 };
-
-type Running = { row: DocWriteRecord; promise: Promise<void> };
 
 /** An engine call that failed for a reason the caller reads: a refused path, an unknown commit, a git error. */
 function readable(err: unknown): unknown {
@@ -79,18 +80,20 @@ const pending = () =>
  */
 export class DocWrites {
   private readonly deps: Deps;
-  private readonly active = new Map<string, Running>();
+  private scope = Scope.makeUnsafe();
+  private queue: DocWriteQueueEffects;
   /** Writes whose caller still waits for the result: the answer is the tool's, so no message follows. */
   private readonly waiting = new Set<string>();
   private stopped = false;
 
   constructor(deps: Deps) {
     this.deps = deps;
+    this.queue = this.makeQueue();
   }
 
   /** Whether a write runs in the repository's slot. */
   busy(projectKey: string, repo: string): boolean {
-    return this.active.has(`${projectKey}:${repo}`);
+    return this.queue.slot(projectKey, repo) !== undefined;
   }
 
   /** The text of the project document on the default branch's head, on the Operator's engine. */
@@ -194,21 +197,17 @@ export class DocWrites {
 
     this.waiting.add(id);
     this.pump();
-    const running = this.active.get(`${projectKey}:${docs.repo.name}`);
+    const running = this.queue.slot(projectKey, docs.repo.name);
     if (running?.row.id !== id) {
       this.waiting.delete(id);
       return { id, state: 'queued', waitingFor: merges.holder(projectKey, docs.repo.name) ?? '' };
     }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const late = new Promise<void>((resolve) => {
-      timer = setTimeout(() => {
+    await runPromise(
+      this.queue.wait(running, this.deps.waitMs ?? DOC_WRITE_WAIT_MS, () => {
         // From here the result comes as a message: no tool answer will carry it.
         this.waiting.delete(id);
-        resolve();
-      }, this.deps.waitMs ?? DOC_WRITE_WAIT_MS);
-    });
-    await Promise.race([running.promise, late]);
-    clearTimeout(timer);
+      }),
+    );
     const wasWaiting = this.waiting.delete(id);
     return this.outcomeOf(ctx.repos.docWrites.get(id)!, wasWaiting);
   }
@@ -229,33 +228,40 @@ export class DocWrites {
 
   async stop(): Promise<void> {
     this.stopped = true;
-    await Promise.all([...this.active.values()].map((running) => running.promise));
+    await runPromise(Scope.close(this.scope, Exit.void));
+    this.scope = Scope.makeUnsafe();
+    this.queue = this.makeQueue();
+  }
+
+  private makeQueue(): DocWriteQueueEffects {
+    return Effect.runSync(
+      Scope.provide(
+        makeDocWriteQueue({
+          ctx: this.deps.ctx,
+          start: (row) => this.save(row.id, { state: 'running' }),
+          run: (row) => this.run(row),
+          peer: this.deps.merges,
+          stopped: () => this.stopped,
+        }),
+        this.scope,
+      ),
+    );
   }
 
   /** Starts the queued writes whose repository slot is free. */
   pump(): void {
-    if (this.stopped) return;
-    for (const row of this.deps.ctx.repos.docWrites.list('queued')) {
-      const key = `${row.projectKey}:${row.repo}`;
-      if (this.active.has(key) || this.deps.merges.busy(row.projectKey, row.repo)) continue;
-      this.save(row.id, { state: 'running' });
-      const running: Running = { row, promise: Promise.resolve() };
-      this.active.set(key, running);
-      running.promise = this.execute(row)
-        .catch((err: unknown) => {
-          this.deps.ctx.logger.warn({ err, writeId: row.id }, 'a document write failed');
-          this.end(row, {
-            state: 'failed',
-            failure: 'git_failed',
-            message: err instanceof Error ? err.message : 'the write failed',
-          });
-        })
-        .finally(() => {
-          this.active.delete(key);
-          this.pump();
-          this.deps.merges.pump();
-        });
-    }
+    runFork(this.queue.pump);
+  }
+
+  private run(row: DocWriteRecord): Promise<void> {
+    return this.execute(row).catch((err: unknown) => {
+      this.deps.ctx.logger.warn({ err, writeId: row.id }, 'a document write failed');
+      this.end(row, {
+        state: 'failed',
+        failure: 'git_failed',
+        message: err instanceof Error ? err.message : 'the write failed',
+      });
+    });
   }
 
   private engineOf(projectKey: string, member: string): string {

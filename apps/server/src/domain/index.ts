@@ -89,8 +89,8 @@ import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns, ScreenshotRuns } from '../services/full-tests';
 import { outputTail } from '../full-test';
 import { ScreenshotTools } from '../mcp/full-tests';
-import { DecisionCandidates } from './decision-candidates';
-import { DocWrites } from './doc-writes';
+import { DecisionCandidates, DocWrites } from '../services/project-docs';
+import { ProjectDocTools } from '../mcp/project-docs';
 import { MergeCardLock, Merges } from '../services/merges';
 import { fullTestSandbox } from './session-policy';
 import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
@@ -1092,6 +1092,14 @@ export function createDomain(opts: DomainOptions) {
   const teamTools = new TeamToolsService({
     calls: toolCaller,
     tools: {
+      projectDocs: new ProjectDocTools({
+        calls: toolCaller,
+        ctx,
+        projects,
+        operatorSteps,
+        docWrites,
+        decisionCandidates,
+      }),
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       operator: new OperatorTools({
         calls: toolCaller,
@@ -1132,8 +1140,6 @@ export function createDomain(opts: DomainOptions) {
       screenshots: new ScreenshotTools({ calls: toolCaller, screenshots: screenshotRuns }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
     },
-    docWrites,
-    decisionCandidates,
     operatorRequests,
     operatorSteps,
     questionScreening,

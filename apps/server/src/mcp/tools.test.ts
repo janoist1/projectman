@@ -80,6 +80,12 @@ describe('team tool registration', () => {
         'attach_file',
         'delete_attachment',
       ],
+      'services/project-docs': [
+        'read_project_doc',
+        'write_project_docs',
+        'list_decision_candidates',
+        'mark_decision_candidates',
+      ],
       'services/merges': ['merge_task', 'prioritize_merge'],
       'services/full-tests': ['take_screenshots', 'get_screenshot_run'],
     });

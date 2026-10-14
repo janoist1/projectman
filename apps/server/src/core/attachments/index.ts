@@ -4,9 +4,9 @@ export {
   contentDisposition,
   sanitizeFileName,
   sniffMediaType,
-} from '../../domain/attachments';
+} from './attachments';
 export {
   MessageAttachmentService,
   createMessageAttachmentStorage,
   sessionFileName,
-} from '../../domain/message-attachments';
+} from './message-attachments';

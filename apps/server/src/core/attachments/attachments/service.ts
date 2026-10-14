@@ -17,15 +17,15 @@ import type {
   AttachmentUploadInput,
   AttachmentWriter,
   LocatedAttachment,
-} from '../../contracts';
-import type { AttachmentRecord } from '../../db';
-import { isoNow } from '../../core/base';
-import type { DomainContext } from '../../core/base';
-import { DomainError, forbidden, notFound } from '../../kernel';
-import type { ProjectService } from '../../core/projects';
-import type { TaskService } from '../../core/tasks';
-import type { TimelineService } from '../../core/timeline';
-import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../kernel';
+} from '../../../contracts';
+import type { AttachmentRecord } from '../../../db';
+import { isoNow } from '../../base';
+import type { DomainContext } from '../../base';
+import { DomainError, forbidden, notFound } from '../../../kernel';
+import type { ProjectService } from '../../projects';
+import type { TaskService } from '../../tasks';
+import type { TimelineService } from '../../timeline';
+import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../../kernel';
 import { sanitizeFileName } from './file-name';
 import { sniffMediaType } from './media-type';
 import { TEMPORARY_SUFFIX, thumbnailOwner, viewOwner } from './storage';

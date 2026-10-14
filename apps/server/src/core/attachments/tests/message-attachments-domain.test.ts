@@ -9,7 +9,7 @@ import type { Actor, ServerEvent } from '@projectman/shared';
 import { MESSAGE_IMAGE_MAX_BYTES, TeamToolError } from '../../../contracts';
 import type { ToolContext } from '../../../contracts';
 import { aiActor } from '../../../domain';
-import { MessageImageRenderer } from '../../../domain/message-attachments/image';
+import { MessageImageRenderer } from '../message-attachments/image';
 import { pdfBytes, pngBytes } from '../../../../test/helpers/attachments';
 import {
   createDomainHarness,

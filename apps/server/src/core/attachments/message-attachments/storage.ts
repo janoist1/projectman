@@ -10,7 +10,7 @@ import type {
   MessageAttachmentFileRef,
   MessageAttachmentStorage,
   StoredMessageFile,
-} from '../../contracts';
+} from '../../../contracts';
 import {
   createWritableFile,
   isMissing,

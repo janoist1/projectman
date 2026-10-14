@@ -5,6 +5,6 @@ export const coreAttachments: ModuleEntry = {
   layer: 'core',
   target: 'core/attachments',
   pass: 'move',
-  paths: ['core/attachments/', 'domain/attachments/', 'domain/message-attachments/'],
+  paths: ['core/attachments/'],
   sealed: true,
 };

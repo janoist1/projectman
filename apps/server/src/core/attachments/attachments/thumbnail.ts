@@ -1,7 +1,7 @@
 import { finished } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
-import type { AttachmentWriter } from '../../contracts';
+import type { AttachmentWriter } from '../../../contracts';
 
 /** The longest side of a thumbnail, in pixels. */
 export const THUMBNAIL_MAX_SIDE = 640;

@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { MESSAGE_IMAGE_MAX_BYTES, MESSAGE_IMAGE_MAX_SIDE } from '../../contracts';
+import { MESSAGE_IMAGE_MAX_BYTES, MESSAGE_IMAGE_MAX_SIDE } from '../../../contracts';
 import { MAX_INPUT_PIXELS, TIMEOUT_SECONDS } from '../attachments/thumbnail';
 
 const FIRST_QUALITY = 85;

@@ -1,4 +1,4 @@
-import type { MessageAttachmentStorage } from '../../contracts';
+import type { MessageAttachmentStorage } from '../../../contracts';
 import { FileMessageAttachmentStorage } from './storage';
 
 export { MessageAttachmentService, sessionFileName } from './service';

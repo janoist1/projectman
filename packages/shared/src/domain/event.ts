@@ -172,6 +172,8 @@ export interface TimelineEventData {
     testsFailed?: { runId: string; branch: string; commit: string };
     /** The card was pulled into this stage ahead of its turn (PM-427); hidden from clients. */
     pulled?: StagePull;
+    /** The card went to the done stage without the gates because its subtasks are all closed (PM-647); hidden from clients. */
+    partsClosed?: PartsClosed;
   };
   /** `reason`: the assignee left the team, or handed the task over (`from` is the one who left). */
   task_assigned: {
@@ -513,6 +515,12 @@ export interface TimelineEventData {
     position: number | null;
     previous: number | null;
   };
+}
+
+/** The subtasks of a collecting card that went to the done stage without the gates (PM-647), by outcome, sorted by key number. */
+export interface PartsClosed {
+  done: string[];
+  cancelled: string[];
 }
 
 /**

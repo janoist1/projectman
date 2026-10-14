@@ -1,4 +1,4 @@
-import { stageOf } from '@projectman/shared';
+import { developmentStage, stageOf } from '@projectman/shared';
 import type { ProjectConfig, TeamRule } from '@projectman/shared';
 import { code, codeList, labelRef, stageLabel } from './format';
 
@@ -10,8 +10,14 @@ export function describeTeamRule(rule: TeamRule, project: ProjectConfig): string
   switch (rule.id) {
     case 'new_card':
       return `New tasks: every AI member (create_task) and every human with ${code(rule.minimumAccess)} access or more may create a task. It starts unassigned in the first stage, ${stage(rule.firstStageId)}.`;
-    case 'gates_in_order':
-      return `Moves: a move forward enters every stage on the way, so all their gates must hold and none is skipped. A move back enters only the target stage${rule.clearedOnMoveBack.length ? ` and takes off ${labels(rule.clearedOnMoveBack)}` : ''}.`;
+    case 'gates_in_order': {
+      const done = project.pipeline.stages.find((s) => s.kind === 'done');
+      const development = developmentStage(project);
+      const closing = done
+        ? ` Exception: a collecting card whose subtasks are all closed, at least one of them done, goes to ${stageLabel(done)} without the gates; the system closes it itself when its last subtask closes${development ? `, while the card stands before ${stageLabel(development)}` : ''}.`
+        : '';
+      return `Moves: a move forward enters every stage on the way, so all their gates must hold and none is skipped. A move back enters only the target stage${rule.clearedOnMoveBack.length ? ` and takes off ${labels(rule.clearedOnMoveBack)}` : ''}.${closing}`;
+    }
     case 'approvals':
       return `Approvals: ${labels(rule.labels)} are set only by humans; when a gate needs one, the app asks its holders in their inbox. Never ask for an approval with ask_human: an answer puts no label on.`;
     case 'self_review':

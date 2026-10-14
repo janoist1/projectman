@@ -51,8 +51,14 @@ export function describeEvent(
       return text('title') ? `created the task "${text('title')}"` : 'created the task';
     case 'task_updated':
       return describeTaskUpdate(data, text, list, style);
-    case 'task_stage_changed':
+    case 'task_stage_changed': {
+      const closed = data.partsClosed as { done?: string[]; cancelled?: string[] } | undefined;
+      if (closed) {
+        const keys = [...(closed.done ?? []), ...(closed.cancelled ?? [])];
+        return `moved it from ${stage('from')} to ${stage('to')} without the gates: every subtask is closed (${keys.join(', ')})`;
+      }
       return `moved it from ${stage('from')} to ${stage('to')}${data.testsFailed ? ' (the full test failed)' : ''}`;
+    }
     case 'task_full_test': {
       const commit = text('commit')?.slice(0, 12) ?? '?';
       if (text('outcome') === 'passed') return `the full test passed on commit ${commit}`;

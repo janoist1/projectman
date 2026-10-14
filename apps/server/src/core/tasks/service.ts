@@ -36,11 +36,13 @@ import {
   isTheme,
   LIVE_SESSION_STATES,
   memberOf,
+  partsClosedWaiver,
   priorityRefusal,
   repoOf,
   subtaskParentRefusal,
 } from '@projectman/shared';
 import type {
+  GateEvaluation,
   LabelChangeReason,
   LabelClearTrigger,
   RelationsChange,
@@ -650,12 +652,17 @@ export class TaskService {
       const moveRefusal = actorMoveRefusal(config, actor, task.stageId, change.stageId!);
       if (moveRefusal) throw projectManagerMoveRefused();
       const prospective = { ...task, ...patch, labels: labels.labels };
-      const evaluation = evaluateMove(
-        prospective,
+      const target = requireStage(config, change.stageId!);
+      // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
+      const waived = partsClosedWaiver(
         config,
-        task.stageId,
-        requireStage(config, change.stageId!).id,
+        prospective,
+        this.ctx.repos.tasks.children(task.projectKey, task.key),
+        target.id,
       );
+      const evaluation: GateEvaluation = waived
+        ? { unmet: [], approvals: [] }
+        : evaluateMove(prospective, config, task.stageId, target.id);
       if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     }
 
@@ -969,7 +976,7 @@ export class TaskService {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled'>,
+    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed'>,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);
   }

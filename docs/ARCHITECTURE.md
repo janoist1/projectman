@@ -2321,6 +2321,33 @@ machine-dependent part: it is server state only. Automatic moves carry their sou
 time into the write transaction (PM-477); an asynchronous preparation that finishes after the card has
 left that stay is discarded, so it cannot undo a human's move or reopen a finished card.
 
+### Collecting card closes with its parts (PM-647)
+
+A collecting card's work is its subtasks' work, so the gates of the stages on the way to Done (a plan, a review of
+work nobody did on the card itself) say nothing once every subtask is closed. The rule is pure and in
+`packages/shared/src/config/collecting-close.ts`, used by the server and the web's fake backend:
+
+- `partsClosedWaiver`: an open card (not a theme) may enter a `done` stage without the gates when it has subtasks,
+  every one is `done` or `cancelled`, at least one is `done`, and no blocking label (an open question) is on it. When
+  every subtask was cancelled the plan fell, not the work, and a person decides. `TaskMoves.move` and `prepareMove`
+  (`core/tasks/moves.ts`) and `TaskService.update` use it for every move path, a person's or the system's, so the
+  board drop, the card update and the hand-on decision need no rule of their own. The waiver skips only the gates: the
+  merge check stays, so a card with its own unmerged branch is still refused (`task_not_merged`). The
+  `task_stage_changed` event carries `partsClosed` (the subtasks by outcome); clients do not see it.
+- `collectingAutoClose`: the system closes the card itself when the waiver holds, the card is `active` or `waiting`
+  and it stands before the development stage (before Done when there is no development stage). A card somebody
+  works on is not closed under them; a person's move gets the waiver anyway.
+
+`CollectingCloser` (`core/tasks/collecting-close.ts`) acts on it as the system, in the background, one card at a time
+(a keyed mutex): when a subtask enters the done stage or is cancelled, and when a card loses its last blocking label.
+It reads the card fresh, then calls `moveToStage` with `expectedFrom` (the stage stay it read) and `partsClosed`
+(valid only while the waiver holds, never falling back to the gates), so two parts closing at once make one move and
+a person's move in between wins. A refusal (`gate_blocked`, `task_not_merged`, `task_closed`, `approval_requested`)
+is logged and the card stays for a person to move. There is deliberately no periodic or start-up sweep: it would close
+again a card a person reopened. What a lost trigger leaves open (a restart between the commit and the background
+work) the person's move fixes. It touches no machine-dependent part; the only machine-near step is the merge check
+every move to Done already makes (`engine_unavailable` leaves the card open).
+
 ### Assignee handoff (PM-342)
 
 `HandoffService` (`runtime/admission`, PM-423) hands a card's work from the old assignee to the new

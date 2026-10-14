@@ -84,6 +84,7 @@ import {
   coverAttachmentId,
   TaskCoverRequest,
   evaluateMove,
+  partsClosedWaiver,
   evaluateStart,
   expiredLabels,
   gateRequestOf,
@@ -194,6 +195,7 @@ import {
   waitWorkers,
 } from '@projectman/shared';
 import type {
+  PartsClosed,
   MessageAttachment,
   MessageAttachmentRef,
   CapacityHolder,
@@ -3337,12 +3339,10 @@ export class MockBackend {
       if (!target) return error(400, 'unknown_stage', 'Unknown stage');
       const unmerged = this.mergeGate(task, target.id, labels.labels);
       if (unmerged) return unmerged;
-      const evaluation = evaluateMove(
-        { ...task, ...patch, labels: labels.labels },
-        this.config,
-        task.stageId,
-        target.id,
-      );
+      const prospective = { ...task, ...patch, labels: labels.labels };
+      const evaluation = this.partsClosedOf(prospective, target.id)
+        ? { unmet: [], approvals: [] }
+        : evaluateMove(prospective, this.config, task.stageId, target.id);
       if (evaluation.unmet.length) return gateBlockedError(evaluation);
       const nobody = this.noApproverError(
         { ...task, ...patch, labels: labels.labels },
@@ -3668,6 +3668,16 @@ export class MockBackend {
     if (expired.length) this.applyLabels(task, { remove: expired }, SYSTEM_ACTOR, { reason: trigger });
   }
 
+  /** The waiver of a move into the done stage (PM-647): the rule is the server's, the subtasks are the mock's own. */
+  private partsClosedOf(task: Task, targetId: string): PartsClosed | null {
+    return partsClosedWaiver(
+      this.config,
+      task,
+      this.tasks.filter((child) => child.parentKey === task.key),
+      targetId,
+    );
+  }
+
   /** A stage move under the gates: blocked, an approval request in the inbox, or the move itself. */
   private move(task: Task, stageId: string, actor: Actor, placement?: BoardPlacement): MockResponse {
     if (isTheme(task)) return error(409, 'task_is_theme', 'A theme does not move between stages');
@@ -3677,14 +3687,17 @@ export class MockBackend {
     if (task.stageId === target.id) return ok(clone(task));
     const unmerged = this.mergeGate(task, target.id);
     if (unmerged) return unmerged;
-    const evaluation = evaluateMove(task, this.config, task.stageId, target.id);
+    const partsClosed = this.partsClosedOf(task, target.id);
+    const evaluation = partsClosed
+      ? { unmet: [], approvals: [] }
+      : evaluateMove(task, this.config, task.stageId, target.id);
     if (evaluation.unmet.length) return gateBlockedError(evaluation);
     if (evaluation.approvals.length)
       return this.requestApproval(task, target, evaluation.approvals, actor, placement);
     // An AI member finishing a step in front of a human-owned stage asks the card mover to take the card on.
     const decision = handOnDecision(this.config, actor, task.stageId, target.id);
     if (decision.kind === 'request') return this.requestHandOn(task, target, decision.mover, actor);
-    this.applyMove(task, target, actor, {}, placement);
+    this.applyMove(task, target, actor, partsClosed ? { partsClosed } : {}, placement);
     return ok(clone(task));
   }
 
@@ -4407,7 +4420,7 @@ export class MockBackend {
     task: Task,
     target: Stage,
     actor: Actor,
-    extra: Pick<TimelineEventData['task_stage_changed'], 'approvedBy' | 'inboxItemIds'>,
+    extra: Pick<TimelineEventData['task_stage_changed'], 'approvedBy' | 'inboxItemIds' | 'partsClosed'>,
     placement?: BoardPlacement,
   ): void {
     const from = task.stageId;

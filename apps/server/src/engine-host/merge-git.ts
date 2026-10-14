@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { MergeError } from '../contracts';
-import { BILLING_ENV_VARS } from '../runner/env';
+import { BILLING_ENV_VARS } from '../runner';
 
 /**
  * The git runner of the merger (PM-451). Every call is an argument array without a shell, with the

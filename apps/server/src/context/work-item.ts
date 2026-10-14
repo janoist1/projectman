@@ -97,7 +97,7 @@ function repositoryFolder(repo: RepoConfig): string | null {
  * from the reviewer's own directory. The commands are the read-only ones the server allows without
  * asking (plain `git branch --list`, `git log` and `git diff`, never `-C`; a repository in a folder of
  * the workspace is entered with `cd`). The worktree manager names the branch after the task key and
- * the title, `<TASKKEY>-<slug of the title>` (worktree/branch-name.ts).
+ * the title, `<TASKKEY>-<slug of the title>` (packages/shared/src/domain/branch-name.ts).
  */
 function reviewBranch(repo: RepoConfig, taskKey: string): string {
   const base = repo.defaultBranch;

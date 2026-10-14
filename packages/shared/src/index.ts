@@ -75,3 +75,7 @@ export * from './deploy/instance-role';
 export * from './config/card-mover';
 export * from './config/merger';
 export * from './config/task-wait';
+
+export * from './domain/branch-name';
+export * from './domain/process-name';
+export * from './domain/github-refs';

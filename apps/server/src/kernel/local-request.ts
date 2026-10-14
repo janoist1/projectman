@@ -1,6 +1,6 @@
 import { isIP } from 'node:net';
 import type { FastifyRequest } from 'fastify';
-import { isLoopbackAddress, isLoopbackHostHeader, isLoopbackHostname } from '../http/local-guard';
+import { isLoopbackAddress, isLoopbackHostHeader, isLoopbackHostname } from './local-guard';
 
 function headerValues(value: string | string[] | undefined): string[] {
   if (value === undefined) return [];
@@ -12,7 +12,7 @@ function headerValues(value: string | string[] | undefined): string[] {
  * rebinding) and, if a local proxy (e.g. the Vite dev server) forwarded it, only loopback
  * hops. Requests arriving through `tailscale serve` carry the remote client's address or
  * Tailscale identity headers and are therefore not local. Loopback means what the internal
- * endpoints' guard accepts (src/http/local-guard): 127.0.0.0/8, ::1 and IPv4-mapped loopback.
+ * endpoints' guard accepts (src/kernel/local-guard): 127.0.0.0/8, ::1 and IPv4-mapped loopback.
  */
 export function isLocalRequest(request: Pick<FastifyRequest, 'socket' | 'headers'>): boolean {
   if (!isLoopbackAddress(request.socket.remoteAddress)) return false;

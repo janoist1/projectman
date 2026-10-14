@@ -460,7 +460,7 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   the plan mode's plan file are there) and the sensitive parts of the app home (database, cookie
   secret, logs, customization repository, members' memory, publishing identity, spool, `secrets`,
   `providers`); `WebFetch` may not reach
-  `localhost` or `127.0.0.1`. The list is `sensitivePaths` and `HARD_DENIED_HOSTS` in
+  `localhost` or `127.0.0.1`. The lists are `sensitivePaths` in `contracts/sandbox.ts` and `HARD_DENIED_HOSTS` in
   `domain/session-policy.ts`.
 - **A question the CLI still asks** goes through `commandVerdict`, then to the member's approver.
   Approver `none` (the default of a new member) refuses it without an inbox item and tells the agent

@@ -24,12 +24,16 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { FixLimitWatch } from './fix-limit';
 import type { HandoffService } from './handoffs';
-import type { ScheduleService } from '../services/schedules';
 import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
 import type { AppendTimelineInput, TimelineService } from './timeline';
 import { humanActor, newId, SYSTEM_ACTOR } from './util';
+
+/** Catches up the scheduled runs a pause skipped; services/schedules supplies it, the assembly passes it. */
+export interface MissedRunCatchUp {
+  catchUp(projectKey: string, since: Date, until: Date): Promise<void>;
+}
 
 /** How long a shutdown waits for the answers of sessions the runner cut at its deadline. */
 export const SHUTDOWN_CUT_GRACE_MS = 10_000;
@@ -77,7 +81,7 @@ export class PauseService {
   private readonly messaging: Pick<Messaging, 'holdsMessagesOf' | 'wakeWaiting' | 'send'>;
   private readonly timeline: TimelineService;
   private readonly fixLimit: Pick<FixLimitWatch, 'afterResume'>;
-  private readonly schedules: Pick<ScheduleService, 'catchUp'>;
+  private readonly schedules: MissedRunCatchUp;
   private readonly refinement: Pick<RefinementSteps, 'turnEnded'>;
   private readonly handoffs: Pick<HandoffService, 'paused' | 'resumed'>;
   private readonly unsubscribe: () => void;
@@ -92,7 +96,7 @@ export class PauseService {
     messaging: Pick<Messaging, 'holdsMessagesOf' | 'wakeWaiting' | 'send'>;
     timeline: TimelineService;
     fixLimit: Pick<FixLimitWatch, 'afterResume'>;
-    schedules: Pick<ScheduleService, 'catchUp'>;
+    schedules: MissedRunCatchUp;
     refinement: Pick<RefinementSteps, 'turnEnded'>;
     handoffs: Pick<HandoffService, 'paused' | 'resumed'>;
   }) {

@@ -34,7 +34,15 @@ export type { WorkspaceFileHooks } from './workspace-file';
 export { userExcludesFile } from './git-excludes';
 export { createLocalBranchMerger } from './branch-merger';
 export type { LocalBranchMergerOptions } from './branch-merger';
-export { isBranchName, isCommitId, isMergeId, isMergeMessage, MERGE_MESSAGE_MAX } from './merge-input';
+export {
+  isCommitFileSet,
+  isRepoFilePath,
+  isBranchName,
+  isCommitId,
+  isMergeId,
+  isMergeMessage,
+  MERGE_MESSAGE_MAX,
+} from './merge-input';
 export { listImages, resolveScenario } from './screenshots';
 export {
   defaultSessionTmpRoot,
@@ -152,3 +160,6 @@ export function createLocalEngineHost(
     listImages,
   };
 }
+
+export { isWithin } from './within';
+export { createLocalEngine, type LocalEngineOptions } from './local-engine';

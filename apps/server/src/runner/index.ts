@@ -4,8 +4,6 @@ import { createProviderAdapters } from './providers';
 import { SessionManager } from './runner';
 import { createTranscriptReader } from './transcript/reader';
 
-/** Legacy callers may request rendered tool grants during the policy migration. */
-export { claudeShellRule, claudeToolRules, directoryRulePaths } from './providers/claude/policy';
 /** The variables that would move billing off the subscription. */
 export { BILLING_ENV_VARS, NON_INTERACTIVE_EDITOR_ENV } from './env';
 /** Records Claude Code's workspace trust. */

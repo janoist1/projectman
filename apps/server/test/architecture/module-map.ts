@@ -343,7 +343,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'runner',
     pass: 'split-tool',
     paths: ['runner/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'worktree',
@@ -351,7 +351,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'worktree',
     pass: 'split-tool',
     paths: ['worktree/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'engine-host',
@@ -359,7 +359,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'engine-host',
     pass: 'split-tool',
     paths: ['engine-host/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'full-test',
@@ -367,7 +367,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'full-test',
     pass: 'split-tool',
     paths: ['full-test/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'machine',
@@ -375,7 +375,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'machine',
     pass: 'split',
     paths: ['machine/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'engine-link',
@@ -475,11 +475,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     removedBy: 'core/tasks',
   },
   {
-    from: 'runtime/sessions',
-    to: 'engine-host',
-    removedBy: 'runtime/sessions',
-  },
-  {
     from: 'core/base',
     to: 'runtime/sessions',
     removedBy: 'core/base',
@@ -498,11 +493,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'core/members',
     to: 'auth',
     removedBy: 'core/members',
-  },
-  {
-    from: 'runtime/watchers',
-    to: 'machine',
-    removedBy: 'runtime/watchers',
   },
   {
     from: 'core/members',
@@ -535,26 +525,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     removedBy: 'core/messages',
   },
   {
-    from: 'runtime/watchers',
-    to: 'engine-link',
-    removedBy: 'runtime/watchers',
-  },
-  {
-    from: 'runtime/sessions',
-    to: 'services/schedules',
-    removedBy: 'runtime/sessions',
-  },
-  {
-    from: 'runtime/sessions',
-    to: 'runner',
-    removedBy: 'runtime/sessions',
-  },
-  {
-    from: 'runtime/sessions',
-    to: 'services/merges',
-    removedBy: 'runtime/sessions',
-  },
-  {
     from: 'core/projects',
     to: 'runtime/sessions',
     removedBy: 'core/projects',
@@ -570,49 +540,9 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     removedBy: 'core/tasks',
   },
   {
-    from: 'runtime/sessions',
-    to: 'worktree',
-    removedBy: 'runtime/sessions',
-  },
-  {
-    from: 'runtime/watchers',
-    to: 'services/merges',
-    removedBy: 'runtime/watchers',
-  },
-  {
-    from: 'engine-link',
-    to: 'http',
-    removedBy: 'engine-link',
-  },
-  {
-    from: 'engine-link',
-    to: 'runtime/sessions',
-    removedBy: 'engine-link',
-  },
-  {
-    from: 'engine-link',
-    to: 'auth',
-    removedBy: 'engine-link',
-  },
-  {
-    from: 'engine-link',
-    to: 'assembly',
-    removedBy: 'engine-link',
-  },
-  {
-    from: 'engine-link',
-    to: 'services/github',
-    removedBy: 'engine-link',
-  },
-  {
     from: 'instance',
     to: 'entry',
     removedBy: 'instance',
-  },
-  {
-    from: 'runner',
-    to: 'http',
-    removedBy: 'runner',
   },
   {
     from: 'ws',

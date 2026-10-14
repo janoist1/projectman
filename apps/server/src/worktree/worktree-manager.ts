@@ -8,7 +8,7 @@ import type {
   WorktreeManager,
   WorktreeManagerOptions,
 } from '../contracts';
-import { isTaskBranch, taskBranchName } from './branch-name';
+import { isTaskBranch, taskBranchName } from '@projectman/shared';
 import { cloneDependencies, dependencyState } from './dependencies';
 import { git, gitSucceeds, isoOrNull, tryGit } from './git';
 import { canonical, createKeyedLock, isInside } from './paths';

@@ -1,47 +1,5 @@
-/** Why a GitHub call failed. Callers branch on `code`; `message` is meant for logs. */
-export type GithubErrorCode =
-  /** A bad repo, pull request number or branch was passed in; gh was not run. */
-  | 'invalid_argument'
-  /** The gh binary could not be started (not installed or not executable). */
-  | 'not_installed'
-  /** gh is not logged in, or its token is no longer valid. */
-  | 'not_authenticated'
-  /** GitHub API rate limit (primary or secondary). */
-  | 'rate_limited'
-  /** The repository or pull request does not exist, or the login cannot see it. */
-  | 'not_found'
-  /** gh did not finish in time and was killed. */
-  | 'timeout'
-  /** GitHub could not be reached (offline, DNS, connection refused …); usually temporary. */
-  | 'unreachable'
-  /** GitHub answered with a server error (5xx, failed query); usually temporary. */
-  | 'server_error'
-  /** gh printed something that is not the JSON we asked for. */
-  | 'invalid_response'
-  /** The caller cancelled the call (e.g. a watch was unsubscribed). */
-  | 'aborted'
-  /** Anything else. */
-  | 'failed';
-
-export class GithubError extends Error {
-  readonly code: GithubErrorCode;
-  /** Exit code of gh when it ran and failed; null otherwise. */
-  readonly exitCode: number | null;
-  /** Beginning of gh's stderr, for logs. */
-  readonly stderr: string;
-
-  constructor(
-    code: GithubErrorCode,
-    message: string,
-    details: { exitCode?: number | null; stderr?: string; cause?: unknown } = {},
-  ) {
-    super(message, details.cause === undefined ? undefined : { cause: details.cause });
-    this.name = 'GithubError';
-    this.code = code;
-    this.exitCode = details.exitCode ?? null;
-    this.stderr = details.stderr ?? '';
-  }
-}
+import { GithubError, type GithubErrorCode } from '../../contracts';
+export { GithubError, type GithubErrorCode } from '../../contracts';
 
 /** gh exits with 4 when a command needs authentication ("gh auth login"). */
 const GH_EXIT_AUTH_REQUIRED = 4;

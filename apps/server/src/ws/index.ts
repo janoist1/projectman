@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { canSeeOperatorSessions, ClientCommand, routes } from '@projectman/shared';
 import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
-import { sameOrigin } from '../auth/local-request';
+import { sameOrigin } from '../kernel';
 import type { AuthService, AuthUser } from '../auth/auth-service';
 import type { Domain } from '../domain';
 import { DomainError, forbidden, hasAccess, notFound } from '../domain';

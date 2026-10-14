@@ -12,3 +12,6 @@ export * from './event-bus';
 export * from './full-test';
 export * from './engine';
 export * from './machine';
+
+export * from './claude-rules';
+export * from './sandbox';

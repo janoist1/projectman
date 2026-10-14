@@ -10,7 +10,7 @@ import type {
   WorkspaceCheckout,
   WorkspaceSource,
 } from '../contracts';
-import { isTaskBranch } from './branch-name';
+import { isTaskBranch } from '@projectman/shared';
 import { git, GitCommandError, isoOrNull } from './git';
 import { canonical, createKeyedLock, isInside } from './paths';
 import { localWorkspaceAccess, SAFE_GIT_SETTINGS } from './workspace-access';

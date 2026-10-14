@@ -50,7 +50,7 @@ import type {
   WorktreeManager,
 } from '../contracts';
 import type { Repositories } from '../db';
-import type { ProcessProbe } from './workspaces';
+import type { ProcessProbe } from '../contracts';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
 import {
@@ -92,7 +92,8 @@ import { outputTail } from '../full-test';
 import { ScreenshotTools } from '../mcp/full-tests';
 import { DecisionCandidates, DocWrites } from '../services/project-docs';
 import { ProjectDocTools } from '../mcp/project-docs';
-import { MergeCardLock, Merges } from '../services/merges';
+import { Merges } from '../services/merges';
+import { MergeCardLock } from '../kernel';
 import { fullTestSandbox } from './session-policy';
 import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
 import type { ReleaseTarget } from '../services/releases';
@@ -114,7 +115,8 @@ import { HandoffService } from './handoffs';
 import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
 import { createMachineProbe } from '../machine';
-import { createLocalEngine, LocalEngineDirectory } from './engines';
+import { LocalEngineDirectory } from './engines';
+import { createLocalEngine } from '../engine-host';
 import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';

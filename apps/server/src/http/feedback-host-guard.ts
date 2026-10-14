@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { apiError } from '../api/errors';
-import { isLoopbackHostname } from './local-guard';
+import { isLoopbackHostname } from '../kernel';
 
 /**
  * The public entrance of the feedback widget (PM-506, PM-513): a second hostname on the same tunnel,

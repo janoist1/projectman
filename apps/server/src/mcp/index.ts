@@ -1,7 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { McpModule, McpModuleOptions, ToolContext } from '../contracts';
-import { nonLocalReason } from '../http/local-guard';
+import { nonLocalReason } from '../kernel';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, type TeamServerDeps } from './server';
 
 export {

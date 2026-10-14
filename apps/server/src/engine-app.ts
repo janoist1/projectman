@@ -17,7 +17,7 @@ import type {
   RunnerModuleOptions,
   ScreenshotExecutor,
 } from './contracts';
-import { createLocalEngine } from './domain/engines';
+import { createLocalEngine } from './engine-host';
 import { createEngineAudit } from './engine-link/engine-audit';
 import { createEngineClient } from './engine-link/engine-client';
 import type { LinkSocketFactory } from './engine-link/engine-client';
@@ -44,7 +44,7 @@ import {
   readHeavyRunSessions,
 } from './full-test';
 import { freeBytesOf } from './engine-host';
-import { nonLocalReason } from './http/local-guard';
+import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
 import { createRunnerModule } from './runner';

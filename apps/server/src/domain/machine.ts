@@ -15,7 +15,7 @@ import type {
 } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { MachineProbe, MachineSnapshot, ProcessRecord, RunningSessionInfo } from '../contracts';
-import { shortName } from '../machine/parse';
+import { processShortName } from '@projectman/shared';
 import { conflict } from './errors';
 
 /**
@@ -581,7 +581,7 @@ export class MachineMonitor {
           .slice(0, SESSION_TOP)
           .map((record) => ({
             pid: record.pid,
-            name: shortName(record.args),
+            name: processShortName(record.args),
             cpuPercent: round1(usage.get(record.pid)?.cpuPercent ?? 0),
             memoryBytes: record.rssBytes,
           }))
@@ -630,7 +630,7 @@ export class MachineMonitor {
       rows.push({
         pid: orphan.root.pid,
         startedAt: new Date(orphan.root.startedAt).toISOString(),
-        name: shortName(orphan.root.args),
+        name: processShortName(orphan.root.args),
         command: orphan.root.args.slice(0, COMMAND_MAX),
         ...this.totals(orphan.members, usage),
         origin: await this.originOf(orphan.sessionId),
@@ -654,7 +654,7 @@ export class MachineMonitor {
   ): OtherProcessRow[] {
     const groups = new Map<string, ProcessRecord[]>();
     for (const record of classification.others) {
-      const name = shortName(record.args) || '?';
+      const name = processShortName(record.args) || '?';
       const group = groups.get(name);
       if (group) group.push(record);
       else groups.set(name, [record]);
@@ -709,7 +709,13 @@ export class MachineMonitor {
           return result(item, 'refused');
         const outcome = await this.stopTree(orphan);
         this.o.logger.info(
-          { userId, pid: record.pid, name: shortName(record.args), sessionId: orphan.sessionId, outcome },
+          {
+            userId,
+            pid: record.pid,
+            name: processShortName(record.args),
+            sessionId: orphan.sessionId,
+            outcome,
+          },
           'stopped an orphan process of a session',
         );
         return result(item, outcome);

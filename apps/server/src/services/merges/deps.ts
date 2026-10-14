@@ -8,7 +8,7 @@ import type { Messaging } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import type { MergeCardLock } from './card-lock';
+import type { MergeCardLock } from '../../kernel';
 import type { MergeCheckSandbox, MergeSessions } from './ports';
 
 export type MergeDeps = {

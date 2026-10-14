@@ -13,7 +13,7 @@ import { DeferredStarts } from '../src/domain/admission';
 import { WorkOutages } from '../src/domain/outages';
 import { createDomainEvents } from '../src/domain/events';
 import { ENGINE_OFFLINE_AFTER_MS } from '../src/engine-link';
-import { createLocalEngine } from '../src/domain/engines';
+import { createLocalEngine } from '../src/engine-host';
 import type { ProjectAccess } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

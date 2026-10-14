@@ -25,7 +25,8 @@ import type {
   ScreenshotRunSpec,
 } from '../src/contracts';
 import { DomainError } from '../src/domain/errors';
-import { createLocalEngine, engineIdOf, engineOption, LocalEngineDirectory } from '../src/domain/engines';
+import { createLocalEngine } from '../src/engine-host';
+import { engineIdOf, engineOption, LocalEngineDirectory } from '../src/domain/engines';
 import { memberSandboxDir } from '../src/domain/session-policy';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';

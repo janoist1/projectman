@@ -4,6 +4,10 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'operator_knowledge_invalid',
+  'operator_knowledge_unavailable',
+  'operator_knowledge_stale',
+  'operator_knowledge_limit',
   'card_busy',
   'operator_signal_closed',
   'operator_signal_not_dismissible',

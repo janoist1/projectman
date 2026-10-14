@@ -50,7 +50,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'contracts',
     target: 'contracts',
     pass: 'none',
-    paths: ['contracts/'],
+    paths: ['contracts/', 'contracts/operator-knowledge.ts'],
     sealed: true,
   },
   {
@@ -66,7 +66,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'config',
     pass: 'none',
-    paths: ['config/'],
+    paths: ['config/', 'config/operator-knowledge-store.ts'],
     sealed: true,
   },
   {

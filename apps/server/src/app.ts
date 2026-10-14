@@ -17,7 +17,7 @@ import {
   registerAuth,
 } from './auth';
 import { serializeRequest } from './http';
-import { createConfigStore } from './config';
+import { createConfigStore, createOperatorKnowledgeStore } from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
 import type { ControlPause, ControlRelease, ControlSocket } from './control';
@@ -34,6 +34,7 @@ import type {
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
+  OperatorKnowledgeStore,
   MachineProbe,
   MemberWorkspaceManager,
   RunnerModule,
@@ -125,6 +126,7 @@ export interface AppModules {
   github?: GithubService;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
+  operatorKnowledge?: OperatorKnowledgeStore;
   worktrees?: WorktreeManager;
   /** Member workspaces, used when `memberWorkspaces` is on (default: the git-backed manager). */
   memberWorkspaces?: MemberWorkspaceManager;
@@ -486,6 +488,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       github,
       contextBuilder,
       memory,
+      operatorKnowledge:
+        modules.operatorKnowledge ?? createOperatorKnowledgeStore({ rootDir: join(home, 'operator-data') }),
       worktrees,
       attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
       feedbackDir,

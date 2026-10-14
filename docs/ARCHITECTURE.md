@@ -39,6 +39,23 @@ Documentation map:
    protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
    `apps/server/src/services/github/test-fixtures/fake-gh.mjs`.
 
+## Repository structure map (PM-683)
+
+`projectman.structure.yaml` at the repository root on its default branch describes areas,
+modules, directed links and ignored paths. The version 1 schema and longest-path placement
+rules live in `packages/shared/src/domain/structure-map.ts`. The internal-only
+`GET /api/projects/:key/structure` uses `services/structure` to read tracked files and the
+descriptor at the same commit through engine git reads (PM-682).
+Active cards use their review pin or latest branch link; completed cards use merge commits
+from the last 14 days. Reads group cards by engine in batches of 25, with at most 300 cards
+per repository, 20,000 tracked files and 1,000 changed files per card. Unmapped examples are
+limited to 10. Missing, invalid and unavailable repositories retain their own status;
+failed card batches omit only their cards. Project views are cached for 30 seconds and
+concurrent requests share a read; immutable merge paths have a 5,000-entry FIFO cache.
+Placement is recalculated from the current descriptor after each project cache expiry.
+This works on remote engines: git runs on the engine and only file names and descriptor
+text cross the boundary. No new machine-dependent operation is added beyond the engine git reads.
+
 ## Concepts
 
 - **Project** — a workspace directory with one or more git repos (`repos[]`, each optionally
@@ -617,6 +634,7 @@ construction order; the factories return the existing classes without changing b
 | `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
 | `services/full-tests`                             | Full-test and screenshot-run orchestration.                                 |
 | `services/releases`                               | Release proposals and release roadmap notices.                              |
+| `services/structure`                              | Repository structure descriptors, module sizes and card file placement.     |
 | `services/github`                                 | GitHub synchronization, pull requests and publishing.                       |
 | `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
 | `services/project-docs`                           | Operator document writes and decision candidates.                           |
@@ -2339,6 +2357,9 @@ assumption or remote-engine RPC.
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
+  Structure map reads (PM-682, PM-683) reuse this boundary: `services/structure/index.ts`
+  invokes `listPaths`, `readFile` and `changedPaths`. Git and repository registration stay
+  on the selected engine; remote engines return bounded file names and descriptor text.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
   the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made

@@ -19,6 +19,7 @@ import {
   SessionTools,
 } from './mcp';
 import { createInboxService } from './core/inbox';
+import { createStructureService } from './services/structure';
 import { createMessaging } from './core/messages';
 import { createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -1563,6 +1564,14 @@ export function createDomain(opts: DomainOptions) {
   return {
     engineCounters,
     projectState,
+    structure: createStructureService({
+      projects,
+      tasks,
+      engines,
+      sessions,
+      logger: opts.logger.child({ module: 'structure' }),
+      now: () => now().getTime(),
+    }),
     ctx,
     projectManagerChannels: new ProjectManagerChannels({
       ctx,

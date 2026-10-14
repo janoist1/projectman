@@ -16,6 +16,7 @@ it('keeps a login cookie valid after rebuilding the app on the same home', async
     return buildApp({
       home,
       logger: false,
+      claudeTmpRoots: [],
       modules: {
         createRunnerModule: (opts) => runner.create(opts),
         createMcpModule: (opts) => mcp.create(opts),

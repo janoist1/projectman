@@ -1685,6 +1685,11 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   in `deniedPaths`. A Claude session without a safe tmp root (no folders, or an unusable root) runs
   as before and the shared roots are not denied for it (fail-open: the CLI still needs them).
   A session that is already running keeps its old rules until its next start.
+  Fake app tests use `claudeTmpRoots: []` in `test/helpers/app-harness.ts` and
+  `test/auth-restart.test.ts` instead of discovering the executing machine's shared Claude
+  directories (PM-633). Tests that inspect these roots can supply explicit fixtures through
+  the harness's `app` options. This test isolation leaves production root discovery and the
+  server/engine boundary unchanged.
   The tmp root is another machine-dependent assumption: a shared host-local `/tmp`.
   Every Claude session reads all the folders below the instance's root
   (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy

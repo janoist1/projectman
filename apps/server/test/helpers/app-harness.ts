@@ -178,6 +178,8 @@ export async function createAppHarness(
       freeDiskBytes: async () => null,
       // Only the tests of the control command open the socket (PM-219).
       controlSocket: false,
+      // Fake sessions must not discover this machine's shared Claude directories.
+      claudeTmpRoots: [],
       ...opts.app,
       ...(cli
         ? {

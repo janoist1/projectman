@@ -318,8 +318,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/boundary',
     pass: 'split',
-    paths: ['domain/boundary.ts'],
-    sealed: false,
+    paths: ['services/boundary/'],
+    sealed: true,
   },
   {
     id: 'services/schedules',

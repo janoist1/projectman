@@ -591,7 +591,7 @@ packages count as contracts and are accessible to every layer.
 | `services/github`       | GitHub synchronization, pull requests and publishing.                                          |
 | `services/feedback`     | Feedback marks, screenshots and widget sessions.                                               |
 | `services/project-docs` | Operator project-document writes and decision candidates.                                      |
-| `services/boundary`     | External operation authorization and boundary requests.                                        |
+| `services/boundary`     | External operation authorization and boundary requests (`services/boundary/`, sealed).         |
 | `services/schedules`    | Scheduled member work.                                                                         |
 | `services/operator`     | Operator actions, signals, requests and project management.                                    |
 | `runner`                | Provider CLIs, PTYs, hooks and transcript handling.                                            |
@@ -646,7 +646,7 @@ recipients get the message.
 
 A module's team tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements its handler contract, and `index.ts` exports both. The first
-groups are `members`, `tasks`, `attachments` and `feedback`. `mcp/tools.ts` collects the definitions
+groups are `members`, `tasks`, `attachments`, `feedback` and `boundary`. `mcp/tools.ts` collects the definitions
 in `TEAM_TOOL_GROUPS`; `domain/team-tools.ts` collects the handlers through
 `TeamToolsService` forwarding methods. New tools belong in their module's group and
 handler, never in either collector. The tools not moved yet move with their own
@@ -704,7 +704,8 @@ before touching or writing Effect code.
   file storage, content check, file names); inbox; invitations; the board; GitHub
   sync and pull request records; the team tools handler collector (unmoved handlers remain here); domain events.
 - `services/` — feedback marks (`feedback/`: the service, screenshot store, processor notices,
-  and widget service with the tool's sessions and limits; PM-506, PM-509, PM-608).
+  and widget service with the tool's sessions and limits; PM-506, PM-509, PM-608); boundary
+  requests (`boundary/`: `BoundaryService`; PM-607).
 - `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
 - `app.ts` builds the application; `index.ts` reads the environment and starts it.
 

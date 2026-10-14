@@ -65,6 +65,71 @@ function harness(initialNow = 10_000) {
 }
 
 describe('engine process groups', () => {
+  it.each(['throw', 'foreign unreadable'] as const)(
+    'signals the verified leader with TERM and KILL when inspection fails due to %s',
+    async (failure) => {
+      const h = harness();
+      const scope = await h.driver.open('ses_a');
+      h.add(20, scope.scopeId);
+      scope.attached(20);
+      await Promise.resolve();
+      if (failure === 'throw') h.envValues.mockRejectedValue(new Error('environment unavailable'));
+      else {
+        h.add(21, 'scp_1111111111111111');
+        h.marks.delete(21);
+      }
+      expect(await scope.close('stop', { force: false })).toMatchObject({
+        outcome: 'unverified',
+        killed: true,
+      });
+      expect(h.signal).toHaveBeenCalledWith(20, 'SIGTERM');
+      expect(h.signal).toHaveBeenCalledWith(20, 'SIGKILL');
+      expect(h.signal).not.toHaveBeenCalledWith(-20, expect.anything());
+      expect(h.signal).not.toHaveBeenCalledWith(21, expect.anything());
+      expect(h.list()?.some((p) => p.pid === 20)).toBe(false);
+    },
+  );
+  it('signals a known detached child when later environment probes fail', async () => {
+    const h = harness();
+    const scope = await h.driver.open('ses_a');
+    h.add(21, scope.scopeId);
+    let calls = 0;
+    h.envValues.mockImplementation(async (pids) => {
+      if (++calls > 1) throw new Error('environment unavailable');
+      return new Map([...h.marks].filter(([pid]) => pids.includes(pid)));
+    });
+    expect(await scope.close('stop', { force: false })).toMatchObject({
+      outcome: 'unverified',
+      killed: true,
+    });
+    expect(h.signal).toHaveBeenCalledWith(21, 'SIGTERM');
+    expect(h.signal).toHaveBeenCalledWith(21, 'SIGKILL');
+  });
+  it('does not signal a reused known leader when another unreadable process prevents verification', async () => {
+    const h = harness();
+    const scope = await h.driver.open('ses_a');
+    h.add(20, scope.scopeId);
+    scope.attached(20);
+    await Promise.resolve();
+    h.setList([]);
+    h.add(20, scope.scopeId, { startedAt: 11_000 });
+    h.add(21, 'scp_1111111111111111');
+    h.marks.delete(21);
+    expect(await scope.close('stop', { force: false })).toMatchObject({ outcome: 'unverified' });
+    expect(h.signal).not.toHaveBeenCalled();
+  });
+  it.each([NaN, Infinity, -Infinity])(
+    'keeps unknown unreadable scopes unverified with invalid age %s',
+    async (sinceAgeMs) => {
+      const h = harness();
+      const scopeId = 'scp_0000000000000001';
+      h.add(21, scopeId, { startedAt: 1000 });
+      h.marks.delete(21);
+      expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs }])).toMatchObject([
+        { cleanup: { outcome: 'unverified' } },
+      ]);
+    },
+  );
   it.each(['throw', 'omit', 'transient'] as const)(
     'never reports a detached live child clean when environment reads %s',
     async (failure) => {

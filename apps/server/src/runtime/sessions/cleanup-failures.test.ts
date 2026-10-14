@@ -25,6 +25,22 @@ async function start(now?: () => Date) {
   return session;
 }
 describe('durable cleanup facts for sessions without workspace holders', () => {
+  it('omits the retry age when a persisted start timestamp is invalid', async () => {
+    const session = await start();
+    h.runner.emit({
+      type: 'exit',
+      sessionId: session.id,
+      exitCode: 0,
+      signal: null,
+      cleanup: cleanup('failed'),
+    });
+    h.repos.sessions.update(session.id, { startedAt: 'invalid' });
+    const closeScopes = vi.fn(async () => [{ sessionId: session.id, cleanup: cleanup('unverified') }]);
+    Object.assign(h.runner, { closeScopes });
+    await h.domain.sessions.reconcileAfterRestart();
+    expect(closeScopes).toHaveBeenCalledWith([{ sessionId: session.id, scopeId: cleanup('failed').scopeId }]);
+    expect(h.repos.sessionCleanups.forSession(session.id)).toHaveLength(1);
+  });
   it('calculates the retry age from the first start after resuming a session', async () => {
     const firstStart = new Date('2026-01-01T00:00:00Z');
     let at = firstStart;

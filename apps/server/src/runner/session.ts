@@ -1315,7 +1315,10 @@ export class AgentSession {
       this.cleanup ??= this.scope.close(reason, { force });
       await this.cleanup;
       // A failed kill or a missed OS exit callback must not leave stop awaiting forever.
-      if (!this.hasExited) await this.onExit(null, null);
+      if (!this.hasExited) {
+        this.kill('SIGKILL');
+        await this.onExit(null, null);
+      }
     } else {
       this.kill(force ? 'SIGKILL' : 'SIGTERM');
       if (!force) this.clock.once(this.timing.stopTimeoutMs, () => this.kill('SIGKILL'));

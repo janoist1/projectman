@@ -58,12 +58,12 @@ class FakePty implements PtyProcess {
 
 const PERMISSION_TIMEOUT_MS = 60_000;
 describe('session process scope lifecycle', () => {
-  function scoped() {
+  function scoped(outcome: SessionCleanup['outcome'] = 'clean') {
     const events: RunnerEvent[] = [];
     const cleanup: SessionCleanup = {
       scopeId: 'scp_0123456789abcdef',
       kind: 'process_group',
-      outcome: 'clean',
+      outcome,
       reason: 'exit',
       killed: false,
       survivors: 0,
@@ -126,6 +126,16 @@ describe('session process scope lifecycle', () => {
     expect(s.close).toHaveBeenCalledWith('exit', { force: false });
     s.finish();
     await s.session.exited;
+  });
+  it('kills its own PTY before synthesizing exit after unverified cleanup', async () => {
+    const s = scoped('unverified');
+    await s.session.spawn('fake', [], {});
+    const stopped = s.session.stop();
+    expect(s.proc.signals).toEqual([]);
+    s.finish();
+    await stopped;
+    expect(s.proc.signals).toEqual(['SIGKILL']);
+    expect(s.events.at(-1)).toMatchObject({ type: 'exit', cleanup: { outcome: 'unverified' } });
   });
   it.each([
     [true, 'kill'],

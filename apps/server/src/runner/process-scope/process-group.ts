@@ -103,6 +103,15 @@ export function createProcessScopeDriver(opts: {
         (leader?.pid === p.pid && leader.startedAt === p.startedAt) ||
         known.get(p.pid) === p.startedAt ||
         (verifiedGroup && p.pgid === leaderPid);
+      const identified = candidates.filter((p) => {
+        const mark = marks.get(p.pid)?.PROJECTMAN_SCOPE_ID;
+        // A reused pid or an explicitly different generation is never ours.
+        if (mark !== undefined && mark !== scopeId) return false;
+        if (known.has(p.pid) && known.get(p.pid) !== p.startedAt) return false;
+        const own = owned(p);
+        if (own) known.set(p.pid, p.startedAt);
+        return own;
+      });
       const unreadable = candidates.filter((p) => !marks.has(p.pid) && !owned(p));
       if (unreadable.length) {
         const fresh = await list(closeDeadline);
@@ -114,24 +123,20 @@ export function createProcessScopeDriver(opts: {
         )
           return null;
       }
-      return candidates.filter((p) => {
-        const mark = marks.get(p.pid)?.PROJECTMAN_SCOPE_ID;
-        // A reused pid or an explicitly different generation is never ours.
-        if (mark !== undefined && mark !== scopeId) return false;
-        if (known.has(p.pid) && known.get(p.pid) !== p.startedAt) return false;
-        const own = owned(p);
-        if (own) known.set(p.pid, p.startedAt);
-        return own;
-      });
+      return identified;
     }
     async function send(sig: 'SIGTERM' | 'SIGKILL'): Promise<boolean> {
-      const candidates = await targets();
-      if (candidates === null) return false;
+      const inspected = await targets();
       // Only signal a group when every current member is verified. Otherwise use individual pids.
       const records = await list(closeDeadline);
       if (records === null) return false;
+      const candidates =
+        inspected ??
+        records.filter((p) => p.pid > 1 && p.uid === opts.uid && known.get(p.pid) === p.startedAt);
+      let verified = inspected !== null;
       const members = records.filter((p) => p.pgid === leaderPid);
       if (
+        inspected !== null &&
         leaderPid !== null &&
         leaderPid > 1 &&
         members.length &&
@@ -153,9 +158,10 @@ export function createProcessScopeDriver(opts: {
         );
         if (!current) continue;
         const marks = await bounded(() => env([current.pid]), closeDeadline);
-        if (marks === null) return false;
-        const mark = marks.get(current.pid)?.PROJECTMAN_SCOPE_ID;
+        if (marks === null) verified = false;
+        const mark = marks?.get(current.pid)?.PROJECTMAN_SCOPE_ID;
         if (mark !== undefined && mark !== scopeId) continue;
+        if (marks === null && known.get(current.pid) !== current.startedAt) continue;
         if (
           mark !== scopeId &&
           current.pid !== leader?.pid &&
@@ -169,7 +175,7 @@ export function createProcessScopeDriver(opts: {
           /* verification determines the outcome */
         }
       }
-      return true;
+      return verified;
     }
     async function close(reason: ScopeCloseReason, force: boolean): Promise<SessionCleanup> {
       const at = clock.now();
@@ -187,9 +193,8 @@ export function createProcessScopeDriver(opts: {
       });
       if (captured === null) return result('unverified');
       let remaining = await targets();
-      if (remaining === null) {
-        // Environment failures do not justify an unverified group signal when a list is available.
-        if ((await list(closeDeadline)) !== null) return result('unverified');
+      let unverified = remaining === null;
+      if (remaining === null && (await list(closeDeadline)) === null) {
         // Older/unsupported engines cannot verify the group. Never report this as clean.
         if (leaderPid !== null && leaderPid > 1 && clock.now() < closeDeadline) {
           try {
@@ -215,20 +220,20 @@ export function createProcessScopeDriver(opts: {
         ['SIGKILL', SCOPE_KILL_WAIT_MS],
       ] as const) {
         if (sig === 'SIGTERM' && force) continue;
-        if (!remaining.length) return result('clean');
+        if (remaining !== null && !remaining.length) return result(unverified ? 'unverified' : 'clean');
         if (sig === 'SIGKILL') killed = true;
-        if (!(await send(sig))) return result('unverified');
+        if (!(await send(sig))) unverified = true;
         const deadline = sig === 'SIGTERM' ? at + wait : closeDeadline;
         do {
           if (clock.now() >= deadline) break;
           remaining = await targets();
-          if (remaining === null) return result('unverified');
-          if (!remaining.length) return result('clean');
+          if (remaining === null) unverified = true;
+          else if (!remaining.length) return result(unverified ? 'unverified' : 'clean');
           if (clock.now() >= deadline) break;
           await clock.sleep(Math.min(100, deadline - clock.now()));
         } while (true);
       }
-      return result('failed', remaining.length);
+      return unverified || remaining === null ? result('unverified') : result('failed', remaining.length);
     }
     const trackedClose = async (reason: ScopeCloseReason, force: boolean) => {
       const cleanup = await close(reason, force);
@@ -325,8 +330,14 @@ export function createProcessScopeDriver(opts: {
           if (marks === null) return { sessionId, cleanup: unverified };
           // Compute the bound on the engine's clock; the server sends an age, not its wall time.
           // Older servers supply no bound, so unreadable candidates remain unverified.
+          const bound = clock.now() - (sinceAgeMs ?? NaN) - SCOPE_SINCE_MARGIN_MS;
           const lowerBound =
-            sinceAgeMs === undefined ? null : clock.now() - sinceAgeMs - SCOPE_SINCE_MARGIN_MS;
+            typeof sinceAgeMs === 'number' &&
+            Number.isFinite(sinceAgeMs) &&
+            sinceAgeMs >= 0 &&
+            Number.isFinite(bound)
+              ? bound
+              : null;
           const unreadable = candidates.filter(
             (p) => (lowerBound === null || p.startedAt >= lowerBound) && !marks.has(p.pid),
           );

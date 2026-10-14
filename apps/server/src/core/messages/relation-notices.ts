@@ -17,7 +17,7 @@ import type { DomainContext } from '../../core/base';
 import type { DomainEventMap } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
-import type { MessageSessions } from '../../core/messages/ports';
+import type { MessageSessions } from './ports';
 import type { TaskService } from '../../core/tasks';
 import { SYSTEM_ACTOR, unique } from '../../kernel';
 import type { Messaging } from './messaging';

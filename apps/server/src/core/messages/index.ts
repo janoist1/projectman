@@ -1,13 +1,13 @@
-export { MessageService } from '../../domain/messaging/messages';
-export { Messaging, createMessaging } from '../../domain/messaging/messaging';
-export { RelationNotices } from '../../domain/messaging/relation-notices';
+export { MessageService } from './messages';
+export { Messaging, createMessaging } from './messaging';
+export { RelationNotices } from './relation-notices';
 export {
   wakesFor,
   wakeFactsFor,
   recipientHasCardRole,
   staleReasonFor,
   senderResultLabelFor,
-} from '../../domain/messaging/staleness';
+} from './staleness';
 export type {
   MessageSessions,
   MessageDeliveryPort,

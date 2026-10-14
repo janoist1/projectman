@@ -42,7 +42,7 @@ import type {
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
 import type { EngineDirectory, SentMessageHold, SentMessageRecipient, WakeStart } from '../../contracts';
-import type { MessageDeliveryPort, MessageRefinement, MessageSessions } from '../../core/messages/ports';
+import type { MessageDeliveryPort, MessageRefinement, MessageSessions } from './ports';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { DomainError, forbidden, invalid, conflict } from '../../kernel';

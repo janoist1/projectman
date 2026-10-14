@@ -21,7 +21,7 @@ import type {
 import { isoNow } from '../../core/base';
 import { wakeFactsFor, wakesFor } from './staleness';
 import type { DomainContext } from '../../core/base';
-import type { MessageRequests } from '../../core/messages/ports';
+import type { MessageRequests } from './ports';
 import type { TimelineService } from '../../core/timeline';
 import type { ProjectService } from '../../core/projects';
 import { forbidden, notFound } from '../../kernel';

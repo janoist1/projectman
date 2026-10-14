@@ -1215,7 +1215,11 @@ workers follow the machine's size.
 ## Machine-dependent parts (PM-341)
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
-  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
+  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
+  PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,
+  separate AWS/SES/edge approvals and retention of existing Cloudflare DNS/mail. It adds no
+  CLI/config contract; credentials stay on the administration machine, outside member sessions.
+  A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
@@ -1662,6 +1666,11 @@ workers follow the machine's size.
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
+  requires a stopped-source seed into empty host/buckets, first successful file backup and
+  isolated recovery checks. Public activation waits for completed auth/edge code and independent
+  security results plus a separate owner decision. Deployment and backup remain on EC2;
+  the single-Mac live watcher does not update either the cloud or the separate engine checkout.
   On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
   The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
@@ -2378,6 +2387,11 @@ assumption or remote-engine RPC.
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
+  PM-674's [execution and rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  directories outside the source and repositories, retires both Mac live agents before packaging,
+  and brings final stopped-cloud data back before activation. Package/home is the seed input;
+  seed dry-run checks buckets, while the live host check precedes upload. No second writer or
+  automatic clearing of used targets is allowed; data transport is the owner's administration path.
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
   hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
   (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
@@ -2402,6 +2416,10 @@ assumption or remote-engine RPC.
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
+  PM-674's [owner runbook](CLOUD-CUTOVER.md) checks the same accepted cloud/engine SHA,
+  installs the protected Access header file, verifies foreground startup before launchd,
+  and uninstalls KeepAlive before hybrid back. Updates are manual owner-approved steps in
+  the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the
   `PATH` of the installing shell, without the `node_modules/.bin` folders `npm run` puts in front) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the

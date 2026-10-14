@@ -1,6 +1,9 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
+import { Effect, Exit, Scope } from 'effect';
+import { runFork } from '../../kernel';
 import { openConfined } from './confined';
+import { pollEvery } from './poll-ticker';
 
 /**
  * Follows a JSONL file as it grows: reads from a byte offset, hands over complete lines only
@@ -31,7 +34,7 @@ export class TranscriptTailer {
   private readonly opts: TailerOptions;
   private offset = 0;
   private watcher: FSWatcher | null = null;
-  private timer: NodeJS.Timeout | null = null;
+  private readonly scope = Scope.makeUnsafe();
   private current: Promise<void> | null = null;
   private again = false;
   private stopped = false;
@@ -50,9 +53,15 @@ export class TranscriptTailer {
         this.offset = 0;
       }
     }
+    if (this.stopped) return;
     const interval = this.opts.pollIntervalMs ?? DEFAULT_POLL_MS;
-    this.timer = setInterval(() => void this.poll(), interval);
-    this.timer.unref();
+    runFork(
+      Effect.forkIn(
+        pollEvery(interval, () => void this.poll()),
+        this.scope,
+        { startImmediately: true },
+      ),
+    );
     this.ensureWatcher();
     await this.poll();
   }
@@ -81,8 +90,7 @@ export class TranscriptTailer {
 
   stop(): void {
     this.stopped = true;
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    runFork(Scope.close(this.scope, Exit.void));
     this.watcher?.close();
     this.watcher = null;
   }

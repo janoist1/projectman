@@ -5664,16 +5664,24 @@ export class MockBackend {
     const step = this.operatorRequests
       .flatMap((request) => request.steps)
       .find((candidate) => candidate.id === payload.stepId);
+    if (step && step.status !== 'awaiting_approval' && !payload.stale)
+      return error(409, 'operator_approval_used', 'The proposal has already been consumed');
+    const expired = !!payload.expiresAt && Date.parse(payload.expiresAt) <= Date.now();
     if (
       optionId === 'approve' &&
-      (payload.stale || (payload.baseVersion !== null && payload.baseVersion !== this.configVersion))
+      (payload.stale ||
+        expired ||
+        (payload.baseVersion !== null && payload.baseVersion !== this.configVersion))
     ) {
       this.upsertInbox({
         ...item,
         options: [OPERATOR_DISMISS_OPTION],
         payload: {
           ...item.payload,
-          operator: { ...payload, stale: payload.stale ?? { reason: 'config_changed', at: nowIso() } },
+          operator: {
+            ...payload,
+            stale: payload.stale ?? { reason: expired ? 'expired' : 'config_changed', at: nowIso() },
+          },
         },
       });
       if (step) step.status = 'stale';

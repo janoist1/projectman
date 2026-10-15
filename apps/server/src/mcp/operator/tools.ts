@@ -1,4 +1,10 @@
-import { MemberHandle, OperatorOperation, TaskKey } from '@projectman/shared';
+import {
+  MemberHandle,
+  OperatorOperation,
+  OperatorPlan,
+  OperatorPreferenceData,
+  TaskKey,
+} from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import { formatMemberStart, formatProjectState } from '../format';
@@ -7,6 +13,33 @@ import { defineTool, type TeamToolGroup } from '../kit';
 export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
   module: 'services/operator',
   tools: [
+    defineTool({
+      name: 'get_operator_preference',
+      title: 'Read personal conversation preferences',
+      description:
+        'Only the Operator in the current person’s general conversation. Read their personal style and revision. The server chooses the person from the session; no handle, project or path is accepted. These five style fields never authorize project changes.',
+      readOnly: true,
+      input: {},
+      async run({ ctx, handler }) {
+        return JSON.stringify(await handler.getOperatorPreference(ctx));
+      },
+    }),
+    defineTool({
+      name: 'set_operator_preference',
+      title: 'Set personal conversation preferences',
+      description:
+        'Only the Operator, for the person currently speaking in their own conversation, including guests. Read get_operator_preference first and pass its revision as expected_revision. Changes only this person’s five style fields; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal. On operator_knowledge_stale read again before retrying.',
+      readOnly: false,
+      input: { expected_revision: z.number().int().nonnegative(), preference: OperatorPreferenceData },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.setOperatorPreference(ctx, {
+            expectedRevision: args.expected_revision,
+            preference: args.preference,
+          }),
+        );
+      },
+    }),
     defineTool({
       name: 'get_project_state',
       title: 'Read project state',
@@ -47,8 +80,12 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Operate the project',
       readOnly: false,
       description:
-        'Only the Operator, during an open owner request. Propose a configuration, member, session or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Title describes the result in the project language (1–120 characters).',
-      input: { title: z.string().trim().min(1).max(120), operation: OperatorOperation },
+        'Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).',
+      input: {
+        title: z.string().trim().min(1).max(120),
+        operation: OperatorOperation,
+        plan: OperatorPlan.optional(),
+      },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.operate(ctx, args));
       },

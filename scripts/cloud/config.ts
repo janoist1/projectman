@@ -111,6 +111,12 @@ const accessSchema = z.strictObject({
     .regex(/^[1-9]\d*[mh]$/, 'a duration such as 30m or 24h')
     .default('24h'),
   integratorServiceToken: z.boolean().default(false),
+  /**
+   * `private`: Cloudflare Access (the listed e-mail addresses) is in front of the whole board.
+   * `public` (PM-672): the board's own login (the owner's password, the clients' e-mail code) is the
+   * browser boundary; only the engine path keeps a Cloudflare Access service-token guard.
+   */
+  boardMode: z.enum(['private', 'public']).default('private'),
 });
 
 const route53Schema = z.strictObject({
@@ -168,6 +174,8 @@ const configSchema = z
       if (cloudflare.feedbackHostname === cloudflare.hostname)
         issue(['cloudflare', 'feedbackHostname'], 'must differ from hostname');
     }
+    if (access.boardMode === 'public' && !config.ses)
+      issue(['access', 'boardMode'], 'public needs the ses block: clients log in with an e-mailed code');
     const seen = new Set<string>();
     access.emails.forEach((email, index) => {
       if (seen.has(email)) issue(['access', 'emails', index], `${email} is listed twice`);
@@ -202,7 +210,12 @@ export interface CloudConfig {
     feedbackHostname?: string;
     tunnelName: string;
   };
-  access: { emails: string[]; sessionDuration: string; integratorServiceToken: boolean };
+  access: {
+    emails: string[];
+    sessionDuration: string;
+    integratorServiceToken: boolean;
+    boardMode: 'private' | 'public';
+  };
   route53: { profile: string; hostedZoneId?: string };
   ses?: NonNullable<ParsedCloudConfig['ses']>;
 }

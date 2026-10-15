@@ -192,9 +192,24 @@ export class ToolCaller {
         `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
       );
     const operator = isOperator(member);
+    if (operator && (tool === 'get_operator_preference' || tool === 'set_operator_preference')) {
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (
+        !session ||
+        session.projectKey !== ctx.projectKey ||
+        session.member !== ctx.member ||
+        session.workItem.type !== 'general'
+      )
+        throw new TeamToolError(
+          'forbidden',
+          `${OWNER_ONLY}: preferences require your own general conversation.`,
+        );
+    }
     const request = operator ? this.operatorRequests.openFor(ctx.sessionId) : null;
     const guest = operator ? this.guestOf(ctx, config, request) : null;
     if (signal) {
+      if (tool === 'send_message')
+        this.assertOperatorMessageRecipients(ctx.member, { config, request, guest }, signal.to);
       // Signals are the owners' business: never from a guest conversation, never to anyone else.
       if (
         tool !== 'send_message' ||
@@ -211,7 +226,7 @@ export class ToolCaller {
     }
     if (!operator) return { config, request: null, guest: null };
     if (guest) {
-      // A conversation with someone who is not an owner only reads and answers (PM-475).
+      // A guest only reads, answers and changes their own conversational preference (PM-475, PM-688).
       if (!OPERATOR_GUEST_TOOLS.has(tool)) {
         this.recordRefusedWrite({ config, request, guest }, tool);
         throw new TeamToolError(
@@ -254,8 +269,30 @@ export class ToolCaller {
     return (await this.callerWithRequest(ctx, tool)).config;
   }
 
-  /** Logs a write the Operator was refused in a guest's conversation as a refused step of its request. */
-  recordRefusedWrite(who: CallerWithRequest, tool: string, member?: string): void {
+  /** The same recipient guard applies to ordinary sends and signal presentations. */
+  assertOperatorMessageRecipients(source: string, who: CallerWithRequest, to: string[]): void {
+    if (who.guest || !isOperator(memberOf(who.config, source))) return;
+    const recipient = to.find((handle) => {
+      const member = memberOf(who.config, handle);
+      return member?.kind === 'human' && member.access !== 'owner';
+    });
+    if (recipient === undefined) return;
+    const refusal: { code: ErrorCode; message: string } = {
+      code: 'operator_owner_approval',
+      message:
+        'use operate with message_send and a plan; the owner must approve the exact message before it is sent',
+    };
+    this.recordRefusedWrite(who, 'send_message', recipient, refusal);
+    throw new TeamToolError('forbidden', `${refusal.code}: ${refusal.message}.`);
+  }
+
+  /** Logs a write the Operator was refused as a refused step of its request. */
+  recordRefusedWrite(
+    who: CallerWithRequest,
+    tool: string,
+    member?: string,
+    refusal?: { code: ErrorCode; message: string },
+  ): void {
     const action = OPERATOR_TOOL_ACTIONS[tool];
     if (!action || !who.request) return;
     this.operatorSteps.record({
@@ -264,7 +301,10 @@ export class ToolCaller {
       taskKey: null,
       member: member && memberOf(who.config, member) ? member : null,
       status: 'refused',
-      refusal: { code: 'operator_owner_only', message: `${tool} is for the project owner's request` },
+      refusal: refusal ?? {
+        code: 'operator_owner_only',
+        message: `${tool} is for the project owner's request`,
+      },
     });
   }
 

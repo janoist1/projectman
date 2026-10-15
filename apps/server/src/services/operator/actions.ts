@@ -6,8 +6,9 @@ import {
   memberOf,
   operatorApprovalOf,
   operatorConfigVerdict,
+  operatorCriticalOp,
   OperatorOperation,
-  OPERATOR_DISMISS_OPTION,
+  OperatorPlan,
   unknownPatchRepo,
 } from '@projectman/shared';
 import type {
@@ -26,7 +27,7 @@ import { conflict, DomainError, forbidden, invalid, notFound } from '../../kerne
 import { DECISION_OPTIONS } from '../../core/inbox';
 import type { InboxService, Resolver } from '../../core/inbox';
 import type { MemberService } from '../../core/members';
-import type { MessageService } from '../../core/messages';
+import type { MessageService, Messaging } from '../../core/messages';
 import type { OperatorSteps } from './requests';
 import type { Author, ProjectService } from '../../core/projects';
 import { aiActor, newId, SYSTEM_ACTOR } from '../../kernel';
@@ -40,18 +41,30 @@ interface Dependencies {
   sessions: OperatorSessions;
   pauses: OperatorPauses;
   messages: MessageService;
+  messaging: Pick<Messaging, 'send'>;
 }
 
+export const OPERATOR_CRITICAL_TTL_MS = 24 * 60 * 60_000;
+
 const actionOf = (operation: OperatorOperation): OperatorAction =>
-  operation.op === 'config_patch'
-    ? 'config_change'
-    : operation.op === 'member_update'
-      ? 'member_change'
-      : operation.op;
+  operation.op === 'message_send'
+    ? 'message'
+    : operation.op === 'config_patch'
+      ? 'config_change'
+      : operation.op === 'member_update'
+        ? 'member_change'
+        : operation.op;
 
 function consequenceOf(operation: OperatorOperation, changes: ConfigChangeRow[]): OperatorConsequence {
   if (
-    ['member_hire', 'member_retire', 'session_stop', 'project_pause', 'project_resume'].includes(operation.op)
+    [
+      'member_hire',
+      'member_retire',
+      'session_stop',
+      'message_send',
+      'project_pause',
+      'project_resume',
+    ].includes(operation.op)
   )
     return operation.op as OperatorConsequence;
   if (changes.some((r) => r.field === 'outboundNetwork')) return 'network';
@@ -74,7 +87,13 @@ export class OperatorActions {
   }
   private readonly deps: Dependencies;
 
-  async run(projectKey: string, requestId: string, title: string, input: OperatorOperation) {
+  async run(
+    projectKey: string,
+    requestId: string,
+    title: string,
+    input: OperatorOperation,
+    plan?: OperatorPlan,
+  ) {
     const { ctx, projects, steps, inbox, sessions } = this.deps;
     const request = ctx.repos.operatorRequests.get(requestId);
     if (!request || request.projectKey !== projectKey)
@@ -87,6 +106,9 @@ export class OperatorActions {
     let changes: ConfigChangeRow[] = [];
     try {
       const operation = OperatorOperation.parse(input);
+      if (operatorCriticalOp(operation.op) && !plan)
+        throw invalid('operator_plan_required', 'critical operations require a plan');
+      const parsedPlan = plan ? OperatorPlan.parse(plan) : null;
       if (!title.trim() || title.length > 120)
         throw invalid('invalid_request', 'title must have 1 to 120 characters');
       const preview = await this.preview(projectKey, source, request, operation);
@@ -105,6 +127,29 @@ export class OperatorActions {
         });
         return { status: 'done' as const, step_id: step.id, changes, config_version: configVersion };
       }
+      // No await between the persisted lookup and insertion: concurrent submissions share one proposal.
+      const existing = ctx.repos.inbox.listOpen('approval').find((item) => {
+        const payload = operatorApprovalOf(item);
+        return (
+          item.projectKey === projectKey &&
+          item.source === source &&
+          payload &&
+          !payload.stale &&
+          (!payload.expiresAt || Date.parse(payload.expiresAt) > ctx.now().getTime()) &&
+          canonical(payload.operation) === canonical(preview.operation)
+        );
+      });
+      if (existing) {
+        const payload = operatorApprovalOf(existing)!;
+        return {
+          status: 'awaiting_approval' as const,
+          step_id: payload.stepId,
+          changes: payload.changes,
+          config_version: payload.baseVersion,
+          inbox_item_id: existing.id,
+          deduplicated: true as const,
+        };
+      }
       const payload: OperatorApprovalPayload = {
         requestId,
         stepId,
@@ -116,6 +161,10 @@ export class OperatorActions {
         baseVersion: preview.baseVersion,
         session: preview.session,
         stale: null,
+        plan: parsedPlan,
+        expiresAt: operatorCriticalOp(operation.op)
+          ? new Date(ctx.now().getTime() + OPERATOR_CRITICAL_TTL_MS).toISOString()
+          : null,
       };
       const item = inbox.create({
         projectKey,
@@ -134,7 +183,12 @@ export class OperatorActions {
         status: 'awaiting_approval',
         changes,
         inboxItemId: item.id,
-        member: 'handle' in operation ? operation.handle : null,
+        member:
+          preview.operation.op === 'message_send'
+            ? preview.operation.to[0]!
+            : 'handle' in operation
+              ? operation.handle
+              : null,
       });
       // A commit or session end may have happened while the preview waited.
       await this.approvals?.recheck(projectKey).catch((err: unknown) => {
@@ -176,6 +230,26 @@ export class OperatorActions {
     const { projects, members, ctx, sessions } = this.deps;
     const loaded = await projects.load(projectKey);
     let next: ProjectConfig = structuredClone(loaded.config);
+    if (!isOperator(memberOf(next, source)))
+      throw forbidden('operator_only', 'only the Operator may operate');
+    if (operation.op === 'message_send') {
+      for (const handle of operation.to) {
+        const recipient = memberOf(next, handle);
+        if (handle === source || recipient?.kind !== 'human' || recipient.access === 'owner')
+          throw invalid('operator_message_recipient', `invalid message recipient: ${handle}`);
+      }
+      if (operation.taskKey) {
+        const task = ctx.repos.tasks.get(operation.taskKey);
+        if (!task || task.projectKey !== projectKey) throw notFound('task', operation.taskKey);
+      }
+      return {
+        level: 'approval' as const,
+        changes: [] as ConfigChangeRow[],
+        operation: { ...operation, to: [...new Set(operation.to)].sort() },
+        baseVersion: loaded.version,
+        session: null,
+      };
+    }
     if (
       (operation.op === 'member_update' || operation.op === 'member_retire') &&
       memberOf(next, operation.handle)?.kind === 'human'
@@ -299,6 +373,13 @@ export class OperatorActions {
         this.approvals!.assertRuntimeFresh(approval.item);
         await sessions.stop(projectKey, operation.sessionId, { kind: 'manual', by: aiActor(source) });
         return null;
+      case 'message_send':
+        if (!approval) throw forbidden('owner_approval_required', 'sending needs approval');
+        await this.deps.messaging.send(projectKey, source, operation, {
+          actor: aiActor(source),
+          kind: 'info',
+        });
+        return null;
       case 'project_pause':
       case 'project_resume': {
         if (!approval) throw forbidden('owner_approval_required', 'pausing needs approval');
@@ -363,7 +444,11 @@ export class OperatorApprovals {
         request,
         payload.operation,
       );
-      return preview.level !== 'never' && canonical(preview.changes) === canonical(payload.changes);
+      return (
+        preview.level !== 'never' &&
+        canonical(preview.changes) === canonical(payload.changes) &&
+        (payload.operation.op !== 'message_send' || preview.baseVersion === payload.baseVersion)
+      );
     } catch (err) {
       if (err instanceof DomainError) return false;
       throw err;
@@ -376,11 +461,21 @@ export class OperatorApprovals {
     if (by.via || owner?.kind !== 'human' || owner.access !== 'owner')
       throw forbidden('owner_approval_required', 'only an owner using their own login may decide');
     const payload = operatorApprovalOf(item)!;
+    if (this.applying.has(item.id))
+      throw conflict('operator_approval_used', 'the proposal has already been consumed');
     if (payload.stale) {
       if (optionId !== 'dismiss') throw conflict('operator_approval_stale', 'the proposal is stale');
       return;
     }
+    if (optionId !== 'approve' && optionId !== 'reject')
+      throw invalid('unknown_option', `unknown option: ${optionId}`);
+    if (this.expired(payload)) {
+      this.stale(item, 'expired');
+      throw conflict('operator_approval_stale', 'the proposal expired');
+    }
     if (optionId === 'reject') {
+      if (!this.deps.ctx.repos.operatorRequests.claimStep(payload.stepId))
+        throw conflict('operator_approval_used', 'the proposal has already been consumed');
       this.deps.ctx.repos.operatorRequests.updateStep(payload.stepId, 'rejected');
       this.notify(item, 'rejected');
       return;
@@ -389,6 +484,12 @@ export class OperatorApprovals {
       this.stale(item);
       throw conflict('operator_approval_stale', 'the proposal no longer matches');
     }
+    if (this.expired(payload)) {
+      this.stale(item, 'expired');
+      throw conflict('operator_approval_stale', 'the proposal expired');
+    }
+    if (!this.deps.ctx.repos.operatorRequests.claimStep(payload.stepId))
+      throw conflict('operator_approval_used', 'the proposal has already been consumed');
     this.applying.add(item.id);
     try {
       const request = this.deps.ctx.repos.operatorRequests.get(payload.requestId)!;
@@ -402,6 +503,14 @@ export class OperatorApprovals {
       this.deps.ctx.repos.operatorRequests.updateStep(payload.stepId, 'approved', version);
       this.notify(item, `approved by ${by.handle}`);
     } catch (err) {
+      this.deps.ctx.repos.operatorRequests.updateStep(
+        payload.stepId,
+        'stale',
+        null,
+        err instanceof DomainError
+          ? { code: err.code, message: err.message }
+          : { code: 'operator_approval_stale', message: 'execution was interrupted' },
+      );
       if (
         err instanceof DomainError &&
         (err.code === 'operator_approval_stale' || err.code === 'config_conflict')
@@ -409,6 +518,7 @@ export class OperatorApprovals {
         this.stale(item);
         throw conflict('operator_approval_stale', 'the proposal changed before execution');
       }
+      this.stale(item, 'interrupted');
       throw err;
     } finally {
       this.applying.delete(item.id);
@@ -428,30 +538,53 @@ export class OperatorApprovals {
 
   async recheck(projectKey: string): Promise<void> {
     for (const item of this.pending(projectKey)) {
-      if (!(await this.fresh(item))) this.stale(item);
+      if (this.expired(operatorApprovalOf(item)!)) this.stale(item, 'expired');
+      else if (!(await this.fresh(item))) this.stale(item);
     }
   }
 
-  private stale(item: InboxItem): void {
+  private expired(payload: OperatorApprovalPayload): boolean {
+    return !!payload.expiresAt && Date.parse(payload.expiresAt) <= this.deps.ctx.now().getTime();
+  }
+
+  /** Recover consumed but unfinished proposals without replaying a possibly completed side effect. */
+  sweep(): void {
+    for (const item of this.deps.ctx.repos.inbox.listOpen('approval')) {
+      const payload = operatorApprovalOf(item);
+      if (!payload || payload.stale || this.applying.has(item.id)) continue;
+      const step = this.deps.ctx.repos.operatorRequests
+        .steps(payload.requestId)
+        .find((s) => s.id === payload.stepId);
+      if (step?.status !== 'awaiting_approval') this.stale(item, 'interrupted');
+      else if (this.expired(payload)) this.stale(item, 'expired');
+    }
+  }
+
+  private stale(
+    item: InboxItem,
+    explicitReason?: NonNullable<OperatorApprovalPayload['stale']>['reason'],
+  ): void {
     const current = this.deps.ctx.repos.inbox.get(item.id);
     const payload = current ? operatorApprovalOf(current) : null;
     if (!current || current.state !== 'open' || !payload || payload.stale) return;
     const step = this.deps.ctx.repos.operatorRequests
       .steps(payload.requestId)
       .find((s) => s.id === payload.stepId);
-    if (step?.status !== 'awaiting_approval') return;
+    if (step?.status !== 'awaiting_approval' && step?.status !== 'stale' && explicitReason !== 'interrupted')
+      return;
     const reason =
-      payload.operation.op === 'session_stop'
+      explicitReason ??
+      (payload.operation.op === 'session_stop'
         ? 'session_changed'
         : payload.operation.op === 'project_pause' || payload.operation.op === 'project_resume'
           ? 'pause_changed'
-          : 'config_changed';
+          : 'config_changed');
     this.deps.inbox.staleOperator(current.id, {
       ...current.payload,
       operator: { ...payload, stale: { reason, at: isoNow(this.deps.ctx) } },
     });
     this.deps.ctx.repos.operatorRequests.updateStep(payload.stepId, 'stale');
-    this.notify(current, 'stale');
+    this.notify(current, `stale (${reason})`);
   }
 
   private notify(item: InboxItem, status: string): void {

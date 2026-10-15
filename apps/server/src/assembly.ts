@@ -88,7 +88,7 @@ import { AttachmentService } from './core/attachments';
 import { MessageAttachmentService } from './core/attachments';
 import { BackgroundTasks } from './kernel';
 import { BoardService } from './core/tasks';
-import { OperatorRequests, OperatorSteps } from './services/operator';
+import { OperatorPreferences, OperatorRequests, OperatorSteps } from './services/operator';
 import { OperatorSignals } from './services/operator';
 import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
@@ -433,6 +433,12 @@ export function createDomain(opts: DomainOptions) {
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
   const operatorRequests = new OperatorRequests({ ctx });
+  const operatorPreferences = new OperatorPreferences({
+    ctx,
+    projects,
+    requests: operatorRequests,
+    store: opts.operatorKnowledge,
+  });
   const operatorSteps = new OperatorSteps({ ctx });
   const messages = new MessageService({ ctx, timeline, projects, operatorRequests });
   const tasks = createTaskService({
@@ -516,6 +522,7 @@ export function createDomain(opts: DomainOptions) {
     contextBuilder: opts.contextBuilder,
     cardQuestions,
     memory: opts.memory,
+    operatorPreferences,
     engines,
     publicBaseUrl: opts.publicBaseUrl,
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
@@ -1000,7 +1007,17 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_stage_changed', checkOperatorCards);
   events.on('task_labels_changed', checkOperatorCards);
   events.on('task_assigned', checkOperatorCards);
-  const operatorDeps = { ctx, projects, members, inbox, steps: operatorSteps, sessions, pauses, messages };
+  const operatorDeps = {
+    ctx,
+    projects,
+    members,
+    inbox,
+    steps: operatorSteps,
+    sessions,
+    pauses,
+    messages,
+    messaging,
+  };
   const operatorActions = new OperatorActions(operatorDeps);
   const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
   operatorActions.useApprovals(operatorApprovals);
@@ -1051,6 +1068,7 @@ export function createDomain(opts: DomainOptions) {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       operator: new OperatorTools({
+        operatorPreferences,
         calls: toolCaller,
         ctx,
         projects,
@@ -1584,6 +1602,7 @@ export function createDomain(opts: DomainOptions) {
   return {
     engineCounters,
     operatorKnowledge: opts.operatorKnowledge,
+    operatorPreferences,
     projectState,
     structure: createStructureService({
       projects,
@@ -1764,6 +1783,13 @@ export function createDomain(opts: DomainOptions) {
           everyMs: opts.operatorSignalMs ?? 60_000,
           run: () => operatorSignals.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
+        },
+        {
+          name: 'operator-approvals',
+          everyMs: 60_000,
+          atStart: true,
+          run: async () => operatorApprovals.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
         },
         // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
         // people (PM-558). A question that waited through a restart is looked at now.

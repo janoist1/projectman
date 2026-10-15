@@ -13,6 +13,10 @@
 # It is read by curl only; the script never prints it. The origin defaults to
 # https://chopper.istvan.io.
 #
+# BOARD_MODE=public (optional, PM-672) checks the public board instead: the main hostname has no Cloudflare Access
+# in front of it, the board's own login is the boundary (no cloudflared and no Access token needed). The default,
+# private, is the Access setup. `npm run cloud -- check` sets it from access.boardMode.
+#
 # FEEDBACK_ORIGIN (optional, e.g. https://jelolo.example.com) adds the checks of the marking
 # widget's public entrance (PM-513), which has no Access application: they carry neither the Access
 # token nor a login.
@@ -35,11 +39,25 @@ origin="${1:-https://chopper.istvan.io}"
 origin="${origin%/}"
 foreign_origin='https://other.example.com'
 
+# BOARD_MODE=public (PM-672): the board's own login is the browser boundary, with no Cloudflare Access in front of the
+# main hostname. Then the anonymous visitor reaches the login page and the e-mail code request but nothing behind
+# the login, and no Access token (and no cloudflared) is used. The default, private, is the Access setup above.
+board_mode="${BOARD_MODE:-private}"
+case "$board_mode" in
+  private | public) ;;
+  *)
+    echo 'BOARD_MODE must be private or public' >&2
+    exit 2
+    ;;
+esac
+
 if [ -z "${LOGIN_JSON:-}" ] || [ ! -f "$LOGIN_JSON" ]; then
   echo 'set LOGIN_JSON to a file with {"email": "...", "password": "..."}' >&2
   exit 2
 fi
-for tool in curl cloudflared; do
+tools=(curl)
+if [ "$board_mode" = private ]; then tools+=(cloudflared); fi
+for tool in "${tools[@]}"; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "$tool is required" >&2
     exit 2
@@ -65,45 +83,78 @@ ws_headers=(
   -H 'Sec-WebSocket-Key: cHJvamVjdG1hbnNtb2tlIQ=='
 )
 
-echo "== Without Cloudflare Access ($origin) =="
-
-# Expect the Access login (a redirect to <team>.cloudflareaccess.com) or a 403; anything else
-# reached the application, or something in front of it that is not Access.
-anonymous() {
-  local description=$1 path=$2 out code location
-  shift 2
-  out=$(curl -sS -o /dev/null --max-time 10 -w '%{http_code} %{redirect_url}' "$@" "$origin$path" 2>/dev/null)
-  code=${out%% *}
-  location=${out#* }
-  case "$code" in
-    302 | 303 | 307)
-      case "$location" in
-        https://*.cloudflareaccess.com/*) pass "$description: redirected to the Access login" ;;
-        *) fail "$description: redirected to somewhere else than the Access login (HTTP $code)" ;;
-      esac
-      ;;
-    403) pass "$description: refused (HTTP 403)" ;;
-    *) fail "$description: reached something else than the Access login (HTTP ${code:-none})" ;;
-  esac
+# Without a login (curl alone): the public board answers like this.
+# public_anonymous <description> <expected status> <path> [curl options...]
+public_anonymous() {
+  local description=$1 expected=$2 path=$3 code
+  shift 3
+  code=$(curl -sS -o "$tmp/anonymous.body" --max-time 10 -w '%{http_code}' "$@" "$origin$path" 2>/dev/null)
+  if [ "$code" = "$expected" ]; then pass "$description (HTTP $code)"; else fail "$description: HTTP ${code:-none}, expected $expected"; fi
 }
-anonymous 'GET /' /
-anonymous 'GET /api/setup' /api/setup
-anonymous 'GET /ws (websocket upgrade)' /ws --http1.1 "${ws_headers[@]}" -H "Origin: $origin"
 
-echo "== With your Cloudflare Access login =="
+if [ "$board_mode" = public ]; then
+  echo "== Public board, without a login ($origin) =="
+  public_anonymous 'GET / reaches the page' 200 /
+  public_anonymous 'GET /api/setup reaches projectman' 200 /api/setup
+  if grep -q '"publicBoard":true' "$tmp/anonymous.body" && grep -q '"emailLoginEnabled":true' "$tmp/anonymous.body" &&
+    grep -q '"needsSetup":false' "$tmp/anonymous.body"; then
+    pass '/api/setup says: public board, e-mail login enabled, owner set up'
+  else
+    fail '/api/setup does not say publicBoard:true, emailLoginEnabled:true and needsSetup:false'
+  fi
+  public_anonymous 'GET /api/auth/me without a login is refused' 401 /api/auth/me
+  public_anonymous 'GET /ws (websocket upgrade) without a login is refused' 401 /ws --http1.1 "${ws_headers[@]}" \
+    -H "Origin: $origin"
+  # An address nobody invited gets the same answer as any other (no list of who may log in), and no mail.
+  public_anonymous 'POST /api/auth/email/request is reachable' 202 /api/auth/email/request -X POST \
+    -H "Origin: $origin" -H 'Content-Type: application/json' --data '{"email":"public-check@example.invalid"}'
+  public_anonymous 'POST /api/auth/login from a foreign Origin is refused' 403 /api/auth/login -X POST \
+    -H "Origin: $foreign_origin" -H 'Content-Type: application/json' --data '{}'
+  echo
+  echo "== With your own login ($origin) =="
+  # No Access token: the main hostname has no Access in front of it.
+  acurl() { curl -sS --max-time 15 "$@"; }
+else
+  echo "== Without Cloudflare Access ($origin) =="
 
-# `cloudflared access curl` does the same as this: it sends the token in a cf-access-token header.
-# Here the header goes through a file, so the token is not on any command line.
-token=$(cloudflared access token -app="$origin" 2>/dev/null)
-if [ -z "$token" ]; then
-  echo "no Access token: run  cloudflared access login $origin >/dev/null  and start again" >&2
-  exit 2
+  # Expect the Access login (a redirect to <team>.cloudflareaccess.com) or a 403; anything else
+  # reached the application, or something in front of it that is not Access.
+  anonymous() {
+    local description=$1 path=$2 out code location
+    shift 2
+    out=$(curl -sS -o /dev/null --max-time 10 -w '%{http_code} %{redirect_url}' "$@" "$origin$path" 2>/dev/null)
+    code=${out%% *}
+    location=${out#* }
+    case "$code" in
+      302 | 303 | 307)
+        case "$location" in
+          https://*.cloudflareaccess.com/*) pass "$description: redirected to the Access login" ;;
+          *) fail "$description: redirected to somewhere else than the Access login (HTTP $code)" ;;
+        esac
+        ;;
+      403) pass "$description: refused (HTTP 403)" ;;
+      *) fail "$description: reached something else than the Access login (HTTP ${code:-none})" ;;
+    esac
+  }
+  anonymous 'GET /' /
+  anonymous 'GET /api/setup' /api/setup
+  anonymous 'GET /ws (websocket upgrade)' /ws --http1.1 "${ws_headers[@]}" -H "Origin: $origin"
+
+  echo "== With your Cloudflare Access login =="
+
+  # `cloudflared access curl` does the same as this: it sends the token in a cf-access-token header.
+  # Here the header goes through a file, so the token is not on any command line.
+  token=$(cloudflared access token -app="$origin" 2>/dev/null)
+  if [ -z "$token" ]; then
+    echo "no Access token: run  cloudflared access login $origin >/dev/null  and start again" >&2
+    exit 2
+  fi
+  printf 'cf-access-token: %s\n' "$token" >"$tmp/access.hdr"
+  unset token
+
+  # Every request below carries the Access token header and goes to the same origin.
+  acurl() { curl -sS --max-time 15 -H "@$tmp/access.hdr" "$@"; }
 fi
-printf 'cf-access-token: %s\n' "$token" >"$tmp/access.hdr"
-unset token
-
-# Every request below carries the Access token header and goes to the same origin.
-acurl() { curl -sS --max-time 15 -H "@$tmp/access.hdr" "$@"; }
 # The first status line of a header dump, for the messages.
 status_of() { head -n 1 "$1" | tr -d '\r'; }
 # Whether a header dump has a header whose name and value match a (case-insensitive) pattern.
@@ -131,6 +182,10 @@ fi
 if [ "$login_ok" -eq 0 ]; then
   tr -d '\r' <"$tmp/login.headers" | grep -i '^set-cookie:' | grep -qi ';[[:space:]]*secure'
   check 'the session cookie (Set-Cookie) is Secure' $?
+  tr -d '\r' <"$tmp/login.headers" | grep -i '^set-cookie:' | grep -qi ';[[:space:]]*httponly'
+  check 'the session cookie (Set-Cookie) is HttpOnly' $?
+  tr -d '\r' <"$tmp/login.headers" | grep -i '^set-cookie:' | grep -qi ';[[:space:]]*samesite=\(lax\|strict\)'
+  check 'the session cookie (Set-Cookie) is SameSite Lax or Strict' $?
 else
   fail 'the session cookie (Set-Cookie) is Secure: no login'
 fi

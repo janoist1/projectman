@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { parse } from 'yaml';
+import { STRUCTURE_MAP_PATH, StructureMap } from '@projectman/shared';
 import { coreBase } from './modules/core-base';
 import { coreProjects } from './modules/core-projects';
 import { coreTasks } from './modules/core-tasks';
@@ -44,13 +47,18 @@ export const LAYER_RULES: Readonly<Record<Layer, readonly Layer[]>> = {
   assembly: ['contracts', 'infra', 'core', 'runtime', 'service', 'engine', 'connector', 'assembly'],
 };
 
-export const MODULES: readonly ModuleEntry[] = [
+const structure = StructureMap.parse(
+  parse(readFileSync(new URL(`../../../../${STRUCTURE_MAP_PATH}`, import.meta.url), 'utf8')),
+);
+const structureModules = new Map(structure.modules.map((module) => [module.id, module]));
+const SERVER_SRC = 'apps/server/src/';
+
+const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
   {
     id: 'services/structure',
     layer: 'service',
     target: 'services/structure',
     pass: 'none',
-    paths: ['services/structure/'],
     sealed: true,
   },
   {
@@ -58,7 +66,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'contracts',
     target: 'contracts',
     pass: 'none',
-    paths: ['contracts/', 'contracts/operator-knowledge.ts'],
     sealed: true,
   },
   {
@@ -66,7 +73,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'db',
     pass: 'none',
-    paths: ['db/', 'db/merge-trains.ts'],
     sealed: true,
   },
   {
@@ -74,7 +80,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'config',
     pass: 'none',
-    paths: ['config/', 'config/operator-knowledge-store.ts'],
     sealed: true,
   },
   {
@@ -82,7 +87,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'logging',
     pass: 'none',
-    paths: ['logging/'],
     sealed: true,
   },
   {
@@ -90,7 +94,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'instance',
     pass: 'none',
-    paths: ['instance/'],
     sealed: true,
   },
   {
@@ -98,7 +101,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'kernel',
     pass: 'move',
-    paths: ['kernel/'],
     sealed: true,
   },
   {
@@ -106,7 +108,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'agent-text',
     pass: 'none',
-    paths: ['agent-text/'],
     sealed: true,
   },
   coreBase,
@@ -122,7 +123,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/admission',
     pass: 'split',
-    paths: ['runtime/admission/'],
     sealed: true,
   },
   {
@@ -130,7 +130,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/sessions',
     pass: 'split-tool',
-    paths: ['runtime/sessions/'],
     sealed: true,
   },
   {
@@ -138,7 +137,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/delivery',
     pass: 'split-tool',
-    paths: ['runtime/delivery/'],
     sealed: true,
   },
   {
@@ -146,7 +144,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/permissions',
     pass: 'split',
-    paths: ['runtime/permissions/'],
     sealed: true,
   },
   {
@@ -154,7 +151,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/watchers',
     pass: 'split-tool',
-    paths: ['runtime/watchers/'],
     sealed: true,
   },
   {
@@ -162,7 +158,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/usage',
     pass: 'split-tool',
-    paths: ['runtime/usage/'],
     sealed: true,
   },
   {
@@ -170,7 +165,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'context',
     pass: 'split',
-    paths: ['context/'],
     sealed: true,
   },
   {
@@ -178,7 +172,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/merges',
     pass: 'split-tool',
-    paths: ['services/merges/', 'services/merges/train-selection.ts', 'services/merges/train.ts'],
     sealed: true,
   },
   {
@@ -186,7 +179,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/full-tests',
     pass: 'split-tool',
-    paths: ['services/full-tests/'],
     sealed: true,
   },
   {
@@ -194,7 +186,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/releases',
     pass: 'split',
-    paths: ['services/releases/'],
     sealed: true,
   },
   {
@@ -202,7 +193,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/github',
     pass: 'split-tool',
-    paths: ['services/github/'],
     sealed: true,
   },
   {
@@ -210,7 +200,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/feedback',
     pass: 'split',
-    paths: ['services/feedback/'],
     sealed: true,
   },
   {
@@ -218,7 +207,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/project-docs',
     pass: 'split-tool',
-    paths: ['services/project-docs/'],
     sealed: true,
   },
   {
@@ -226,7 +214,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/boundary',
     pass: 'split',
-    paths: ['services/boundary/'],
     sealed: true,
   },
   {
@@ -234,7 +221,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/schedules',
     pass: 'split-tool',
-    paths: ['services/schedules/'],
     sealed: true,
   },
   {
@@ -242,7 +228,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/email-login',
     pass: 'split',
-    paths: ['services/email-login/'],
     sealed: true,
   },
   {
@@ -250,7 +235,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/operator',
     pass: 'split',
-    paths: ['services/operator/'],
     sealed: true,
   },
   {
@@ -258,7 +242,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'runner',
     pass: 'split-tool',
-    paths: ['runner/'],
     sealed: true,
   },
   {
@@ -266,7 +249,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'worktree',
     pass: 'split-tool',
-    paths: ['worktree/', 'worktree/dependency-copy.ts'],
     sealed: true,
   },
   {
@@ -274,7 +256,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'engine-host',
     pass: 'split',
-    paths: ['engine-host/'],
     sealed: true,
   },
   {
@@ -282,7 +263,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'full-test',
     pass: 'split-tool',
-    paths: ['full-test/', 'full-test/npm-dependency-key.ts', 'full-test/npm-ci.ts'],
     sealed: true,
   },
   {
@@ -290,7 +270,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'machine',
     pass: 'split',
-    paths: ['machine/'],
     sealed: true,
   },
   {
@@ -298,7 +277,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'engine-link',
     pass: 'none',
-    paths: ['engine-link/'],
     sealed: true,
   },
   {
@@ -306,7 +284,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'connector',
     target: 'api',
     pass: 'none',
-    paths: ['api/'],
     sealed: true,
   },
   {
@@ -314,7 +291,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'connector',
     target: 'mcp',
     pass: 'split',
-    paths: ['mcp/'],
     sealed: true,
   },
   {
@@ -322,7 +298,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'connector',
     target: 'ws',
     pass: 'none',
-    paths: ['ws/'],
     sealed: true,
   },
   {
@@ -330,7 +305,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'connector',
     target: 'http',
     pass: 'none',
-    paths: ['http/'],
     sealed: true,
   },
   {
@@ -338,7 +312,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'connector',
     target: 'control',
     pass: 'none',
-    paths: ['control/'],
     sealed: true,
   },
   {
@@ -346,7 +319,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'connector',
     target: 'auth',
     pass: 'none',
-    paths: ['auth/'],
     sealed: true,
   },
   {
@@ -354,7 +326,6 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'assembly',
     target: 'assembly.ts',
     pass: 'move',
-    paths: ['assembly.ts'],
     sealed: false,
   },
   {
@@ -362,10 +333,19 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'assembly',
     target: '.',
     pass: 'none',
-    paths: ['app.ts', 'index.ts', 'engine-app.ts', 'shutdown.ts'],
     sealed: false,
   },
 ];
+
+export const MODULES: readonly ModuleEntry[] = definitions.map((entry) => {
+  const module = structureModules.get(entry.id);
+  if (!module) throw new Error(`${entry.id}: missing from the structure map`);
+  const paths = module.paths
+    .filter((path) => path.startsWith(SERVER_SRC))
+    .map((path) => path.slice(SERVER_SRC.length));
+  if (paths.length === 0) throw new Error(`${entry.id}: no server source paths in the structure map`);
+  return { ...entry, paths };
+});
 
 // No dependency exceptions remain. Never add new ones.
 export const EXCEPTIONS: readonly DependencyException[] = [];

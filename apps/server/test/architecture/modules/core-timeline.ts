@@ -1,10 +1,9 @@
 import type { ModuleEntry } from '../module-map';
 
-export const coreTimeline: ModuleEntry = {
+export const coreTimeline: Omit<ModuleEntry, 'paths'> = {
   id: 'core/timeline',
   layer: 'core',
   target: 'core/timeline',
   pass: 'move',
-  paths: ['core/timeline/'],
   sealed: true,
 };

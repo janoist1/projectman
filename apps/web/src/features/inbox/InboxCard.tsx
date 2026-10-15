@@ -428,7 +428,7 @@ export function InboxCard({
         </div>
         {taskRow}
         <Heading className={styles.title}>{item.title}</Heading>
-        <OperatorApprovalBody payload={operatorApproval} stale={stale} />
+        <OperatorApprovalBody payload={operatorApproval} stale={stale} open={item.state === 'open'} />
         {assignedToOthers ? (
           <p className={styles.others}>
             <Icon name="user" size={14} />

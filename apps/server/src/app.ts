@@ -10,6 +10,7 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyServerOptions } from 'f
 import { registerApiRoutes } from './api';
 import { registerErrorHandling } from './http';
 import {
+  assertPublicBoardReady,
   AuthService,
   createSetupCode,
   deriveEmailLoginKey,
@@ -183,6 +184,11 @@ export interface BuildAppOptions {
    * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off (PM-670).
    */
   emailCodeMailer?: EmailCodeMailer;
+  /**
+   * The board is public: no Cloudflare Access in front of its pages, only the application's own login
+   * (PM-672). Absent: false. It starts only in cloud mode, with an owner set up and a working e-mail login.
+   */
+  publicBoard?: boolean;
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
   /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
@@ -431,6 +437,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       : undefined;
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
     const auth = new AuthService({ repos, now: options.now });
+    if (options.publicBoard)
+      assertPublicBoardReady({
+        cloud: options.engineMode === 'cloud',
+        needsSetup: auth.needsSetup(),
+        emailLogin: options.emailCodeMailer !== undefined,
+      });
 
     const domain = createDomain({
       appVersion: options.appVersion ?? 'dev',
@@ -552,6 +564,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       domain,
       clientIpHeader,
       cloud: options.engineMode === 'cloud',
+      publicBoard: options.publicBoard === true,
       setupCode,
       emailLogin: domain.emailLogin,
     });

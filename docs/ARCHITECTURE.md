@@ -656,8 +656,10 @@ construction order; the factories return the existing classes without changing b
 | `assembly` (`assembly.ts`)                        | Domain service composition and wiring.                                      |
 | `entry`                                           | Application and engine startup, composition and shutdown.                   |
 
-The single source of truth for file → module → layer assignments, targets and
-passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
+The source of truth for file → module assignments is
+[projectman.structure.yaml](../projectman.structure.yaml). Layers, targets and passes live in
+[module-map.ts](../apps/server/test/architecture/module-map.ts), which reads server paths
+from the YAML at load time.
 The longest matching path wins; each declared path must exist and appear only once.
 [dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
 enforces the layer rules against all production TypeScript source files.
@@ -732,6 +734,15 @@ structural ports for sessions, admission, delivery, pauses and releases. Its six
 This module needs no Effect program: retries belong to admission, reply relay uses
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
 (`assembly.ts`) declares the sweep list.
+
+Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
+`get_operator_preference` and `set_operator_preference` choose the person from the
+authenticated Operator session and its current human request; they accept no person,
+project or path selector. Guests gain only this personal write. REST exposes self reads
+and owner/admin lists through personal logins, with no preference write route.
+The session launcher requests only its current human's five enum fields through a
+server port; signal and question-screening launches receive none. Guest contexts omit
+member memory. Style is rendered as validated JSON data and grants no authority.
 
 **Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
 behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
@@ -1314,8 +1325,9 @@ workers follow the machine's size.
   agreement (summary, involvement and extra-critical steps), up to 20 approved learned principles
   (example, principle and effect), and each member's enumerated conversational preferences in
   `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
-  These records are outside the public repository and the customization git history; no HTTP or
-  MCP writer is exposed. Missing documents start at revision zero; invalid documents are refused
+  These records are outside the public repository and the customization git history. PM-688 adds
+  only a session-bound personal preference MCP writer and authenticated REST reads; knowledge
+  writes remain private. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -1323,8 +1335,9 @@ workers follow the machine's size.
   The shared `contracts/sandbox.ts` `sensitivePaths` app-home list denies the entire `operator-data`
   root to member file tools and the existing session-policy/provider consumers; no separate
   provider rule or new permission is added.
-  **Remote engine:** storage stays on the server, with no file mount on an engine. Later context/MCP
-  services may send filtered prompt data across the existing boundary; this card adds no such API.
+  **Remote engine:** storage stays on the server, with no file mount on an engine. Context/MCP
+  services send only the current person's five preference enums across the existing boundary
+  (PM-688), with no new engine file or machine assumption.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
@@ -1446,6 +1459,16 @@ workers follow the machine's size.
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
+  **Public board (PM-672):** with `access.boardMode: public` the same commands leave the main hostname
+  without Access (one Bypass policy), keep `/engine` behind its own Access application (the engine service
+  token only; the tunnel's `originRequest.access` for `/engine` names only that application's audience),
+  answer `/hooks` and `/mcp` with 404 at the tunnel, and write `PROJECTMAN_PUBLIC_BOARD=1` into `cloud.env`
+  (the server then refuses to start without cloud mode, an owner and the e-mail login:
+  `apps/server/src/auth/public-board.ts`). `host.sh public-check <hostname>` is a second subcommand run over
+  the same SSH connection as `guard-check`: it asks the running container for its own anonymous answers.
+  `publish` creates the DNS record only on the exact answer, `check` runs `check.sh` with `BOARD_MODE=public`
+  (no `cloudflared` login). **Remote engine:** unchanged; the public side is only the browser login boundary,
+  the engine still connects outward to the protected `/engine`.
 
 - **SES identity/DKIM and sender provisioning (PM-678, part of PM-664)** —
   `scripts/cloud/{ses,config,commands,cli,secrets,aws-cli,cloudflare-api}.ts`,

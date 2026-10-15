@@ -37,6 +37,9 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
   OperatorOperation,
+  OperatorPlan,
+  OperatorPreferenceData,
+  OperatorPreferenceDocument,
   ConfigChangeRow,
   ProjectDoc,
 } from '@projectman/shared';
@@ -743,19 +746,25 @@ export interface ProjectDocToolsHandler {
 
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
+  getOperatorPreference(ctx: ToolContext): Promise<OperatorPreferenceDocument>;
+  setOperatorPreference(
+    ctx: ToolContext,
+    args: { expectedRevision: number; preference: OperatorPreferenceData },
+  ): Promise<OperatorPreferenceDocument>;
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
   ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
   operate(
     ctx: ToolContext,
-    args: { title: string; operation: OperatorOperation },
+    args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
   ): Promise<{
     status: 'done' | 'awaiting_approval' | 'refused';
     step_id: string;
     changes: ConfigChangeRow[];
     config_version?: string | null;
     inbox_item_id?: string;
+    deduplicated?: true;
   }>;
   startTask(
     ctx: ToolContext,

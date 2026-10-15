@@ -122,6 +122,16 @@ export function createOperatorRequestRepository(db: Db) {
     stepsOfSignal(signalId: string): OperatorStepRecord[] {
       return (statements.stepsOfSignal.all(signalId) as StepRow[]).map(toStep);
     },
+    /** Atomically consumes an approval; a claimed step is never replayed after a crash. */
+    claimStep(id: string): boolean {
+      return (
+        db
+          .prepare(
+            "UPDATE operator_steps SET status = 'approved' WHERE id = ? AND status = 'awaiting_approval'",
+          )
+          .run(id).changes === 1
+      );
+    },
     /** Sets a step's status; `refusal` (when given) says why a step ended without doing its work. */
     updateStep(
       id: string,

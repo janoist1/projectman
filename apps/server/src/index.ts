@@ -15,6 +15,7 @@ import { createServerLogStream, serverLogFile } from './logging';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './runtime/usage';
 import { createAppTagReader, resolveAppVersion, EngineConfigError } from './engine-link';
+import { parsePublicBoardEnv, PublicBoardNotReadyError } from './auth';
 import {
   createSesEmailCodeMailer,
   EmailLoginNotConfiguredError,
@@ -66,6 +67,10 @@ import {
  *   docs/AWS.md); then PROJECTMAN_SES_REGION, PROJECTMAN_SES_FROM, PROJECTMAN_SES_ACCESS_KEY_ID and
  *   PROJECTMAN_SES_SECRET_ACCESS_KEY are required (PROJECTMAN_SES_SESSION_TOKEN is optional), or the start stops
  *   with `email_login_not_configured`. They are read once and removed from the process environment.
+ *   PROJECTMAN_PUBLIC_BOARD (0): `1` says the board has no Cloudflare Access in front of its pages and every
+ *   visitor meets the application's own login (PM-672, docs/AWS.md "Public board"). It starts only in cloud
+ *   mode, with an owner set up and the e-mail login on: `public_board_requires_cloud`,
+ *   `public_board_requires_setup`, `public_board_requires_email_login` otherwise.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -162,6 +167,8 @@ async function configFromEnv(
     : undefined;
   // The e-mail login mailer (PM-669): off unless switched on; a wrong or incomplete setting stops the start.
   const emailLogin = parseEmailLoginEnv(env);
+  // The public board (PM-672): off unless switched on; buildApp refuses it where its conditions do not hold.
+  const publicBoard = parsePublicBoardEnv(env);
   // Keep the keys in the mailer options only, before even the version lookup can start a child process.
   scrubEmailLoginEnv(env);
   return {
@@ -170,6 +177,7 @@ async function configFromEnv(
     machineFixture: machineFixture !== undefined,
     app: {
       engineMode,
+      publicBoard,
       ...(emailLogin ? { emailCodeMailer: createSesEmailCodeMailer(emailLogin) } : {}),
       appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
       appTag: createAppTagReader(installDir, env.PROJECTMAN_VERSION),
@@ -344,7 +352,8 @@ async function main(): Promise<void> {
 main().catch((err: unknown) => {
   // A problem the person starting the engine can fix: the message, not a stack.
   if (err instanceof EngineConfigError) console.error(`projectman engine: ${err.message}`);
-  else if (err instanceof EmailLoginNotConfiguredError) console.error(`projectman: ${err.message}`);
+  else if (err instanceof EmailLoginNotConfiguredError || err instanceof PublicBoardNotReadyError)
+    console.error(`projectman: ${err.message}`);
   else console.error(err);
   process.exit(1);
 });

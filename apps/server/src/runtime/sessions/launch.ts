@@ -567,12 +567,12 @@ export class SessionLauncher {
         ? { own: sessionFolder, root: folders.root }
         : undefined,
     );
-    const operatorPreference = await this.deps.operatorPreferences.forConversation(
-      projectKey,
-      member.handle,
-      workItem,
-      cause,
-    );
+    const operatorPreference = await this.deps.operatorPreferences
+      .forConversation(projectKey, member.handle, workItem, cause)
+      .catch((err: unknown) => {
+        this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator preference');
+        return undefined;
+      });
     const pack = this.deps.contextBuilder.build({
       ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,

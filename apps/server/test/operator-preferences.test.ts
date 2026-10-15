@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { DEFAULT_OPERATOR_PREFERENCE, OperatorPreferenceDocument, routes } from '@projectman/shared';
 import type { OperatorPreferenceData, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
@@ -254,6 +256,38 @@ describe('personal preference context boundary', () => {
   afterEach(async () => {
     await h?.cleanup();
   });
+  it.each(['owner', 'dana'])(
+    'launches %s without style when their preference file is corrupt',
+    async (handle) => {
+      h = await createDomainHarness({ adjust: people });
+      const directory = join(h.dir, 'operator-data', 'AR', 'preferences');
+      const file = join(directory, `${handle}.json`);
+      await mkdir(directory, { recursive: true });
+      await writeFile(file, '{partial');
+
+      const { session } = await h.domain.sessions.ensureSession(
+        'AR',
+        'operator',
+        { type: 'general', ...(handle === 'owner' ? {} : { with: handle }) },
+        { cause: { kind: 'message', by: humanActor(handle) } },
+      );
+      expect(h.runner.started.some((start) => start.sessionId === session.id)).toBe(true);
+      const input = h.contextBuilder.inputs.at(-1)!;
+      expect(input).not.toHaveProperty('operatorPreference');
+      expect(createContextPackBuilder().build(input).appendSystemPrompt).not.toContain(
+        '# Personal conversation style',
+      );
+      expect(h.log.warnings).toContainEqual([
+        { err: expect.objectContaining({ code: 'operator_knowledge_invalid' }), member: 'operator' },
+        'could not read operator preference',
+      ]);
+      await expect(h.domain.operatorPreferences.me('AR', handle)).rejects.toMatchObject({
+        code: 'operator_knowledge_invalid',
+        status: 409,
+      });
+      expect(await readFile(file, 'utf8')).toBe('{partial');
+    },
+  );
   it('launches each person with their own enums, omits guest memory, and renders style as JSON data', async () => {
     h = await createDomainHarness({ adjust: people });
     h.memory.notes.set('AR/operator', 'PRIVATE_OWNER_MEMORY');

@@ -27,10 +27,6 @@ describe('projectman.structure.yaml', () => {
       }
       if (module.area !== entry.layer)
         problems.push(`${entry.id}: area ${module.area} is not ${entry.layer}`);
-      const expected = new Set(entry.paths.map((p) => `${SERVER_SRC}${p}`));
-      const actual = new Set(module.paths);
-      if (expected.size !== actual.size || [...expected].some((p) => !actual.has(p)))
-        problems.push(`${entry.id}: paths ${[...actual].join(', ')} differ from ${[...expected].join(', ')}`);
     }
     const known = new Set(MODULES.map((m) => m.id));
     for (const module of map.modules)

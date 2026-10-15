@@ -421,6 +421,10 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       )
         refuse('command_not_allowed', 'The test command is not the one configured on this engine');
       inside(spec.cwd, 'The test directory');
+      if (spec.npmCi) {
+        mergeRepo(spec.npmCi.ref);
+        mergeIdOf(spec.npmCi.mergeId);
+      }
       insideAll(spec.sandbox.allowRead, 'A readable test path', sandboxRoots());
       return {
         ...params,

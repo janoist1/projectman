@@ -607,7 +607,8 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await waitState(s.sessionId, 'idle');
       await expect(runner.runner.pause(s.sessionId)).resolves.toEqual({ point: 'idle', tool: null });
       expect(runner.runner.release(s.sessionId)).toBe(false);
-      await runner.runner.start({ ...s, resume: true });
+      // No turn was submitted, so the CLI has no saved conversation to resume.
+      await runner.runner.start({ ...s, resume: false });
       await waitState(s.sessionId, 'idle');
 
       answers = ['wait'];
@@ -698,7 +699,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       expect(chatOf(s.sessionId).some((i) => i.kind === 'tool_result')).toBe(false);
     });
 
-    it('resumes a fresh generation with the nudge before later input', async () => {
+    it('restarts an empty conversation with the nudge before later input', async () => {
       await setup();
       const s = spec();
       const first = await runner.runner.start(s);
@@ -710,7 +711,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       );
       expect(chatOf(s.sessionId).some((i) => i.kind === 'user_text')).toBe(false);
 
-      const resumed = await runner.runner.start({ ...s, resume: true, initialMessage: 'Carry on.' });
+      const resumed = await runner.runner.start({ ...s, resume: false, initialMessage: 'Carry on.' });
       expect(resumed.scopeId).not.toBe(first.scopeId);
       await assistantSaid(s.sessionId, 'Echo: Carry on.');
       await runner.runner.sendUserMessage(s.sessionId, 'queued during the pause');

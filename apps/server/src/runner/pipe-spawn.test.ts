@@ -1,10 +1,13 @@
 import { constants } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { pipeSpawn } from './pipe-spawn';
-import type { PtyProcess } from './session';
+import { AgentSession, type PtyProcess } from './session';
+import type { RunnerEvent, StartSessionSpec } from '../contracts';
+import { createClaudeAdapter } from './providers/claude';
 import { fixtureScopeProcesses, silentLogger, tempDirs, waitFor, FAKE_CLAUDE } from './test-helpers';
 import { createProcessScopeDriver } from './process-scope';
 
@@ -31,6 +34,109 @@ function run(script: string) {
 }
 
 describe('pipeSpawn', () => {
+  it.each([false, true])(
+    'pauses and immediately restarts a pipe generation with saved conversation=%s',
+    async (saved) => {
+      const dirs = tempDirs();
+      const directory = await dirs.make('scope-resume-');
+      const transcripts = await dirs.make('transcripts-');
+      const spec: StartSessionSpec = {
+        sessionId: 'ses_pipe_resume',
+        claudeSessionId: randomUUID(),
+        resume: false,
+        cwd: directory,
+        displayName: 'Test',
+        appendSystemPrompt: '',
+        mcpUrl: 'http://unused.invalid',
+        allowedTools: [],
+      };
+      const driver = createProcessScopeDriver({
+        config: { kind: 'process_group' },
+        uid: process.getuid?.() ?? null,
+        instanceTag: 'pipe-resume',
+        logger: silentLogger(),
+        processes: fixtureScopeProcesses(directory),
+      });
+      const events: RunnerEvent[] = [];
+      const sessions: AgentSession[] = [];
+      const launch = async (resume: boolean) => {
+        let output = '';
+        let proc!: PtyProcess;
+        const session = new AgentSession({
+          spec: { ...spec, resume },
+          hookToken: randomUUID(),
+          adapter: createClaudeAdapter({ bin: FAKE_CLAUDE, logger: silentLogger() }),
+          deps: {
+            logger: silentLogger(),
+            broker: { decide: async () => ({ behavior: 'deny' }) },
+            permissionTimeoutMs: 1000,
+            processScopes: driver,
+            emit: (event) => events.push(event),
+            onExited: () => {},
+            spawnPty: (file, args, opts) => {
+              proc = pipeSpawn(file, args, opts);
+              proc.onData((data) => {
+                output += data;
+              });
+              return proc;
+            },
+          },
+        });
+        sessions.push(session);
+        await session.spawn(NODE, [FAKE_CLAUDE, resume ? '--resume' : '--session-id', spec.claudeSessionId], {
+          ...options.env,
+          PROJECTMAN_SESSION_ID: spec.sessionId,
+          PROJECTMAN_INSTANCE: 'pipe-resume',
+          FAKE_SCOPE_RECORDS_DIR: directory,
+          FAKE_CLAUDE_TRANSCRIPT_DIR: transcripts,
+          FAKE_CLAUDE_CONFIG_FILE: '',
+          FAKE_CLAUDE_ARGS_FILE: '',
+        });
+        await waitFor(() => output.includes('> '));
+        return { session, proc, output: () => output };
+      };
+      try {
+        const first = await launch(false);
+        await first.session.handleHook({ hook_event_name: 'SessionStart' }, new AbortController().signal);
+        if (saved) {
+          first.proc.write('before pause\r');
+          await waitFor(() => first.output().includes('Echo: before pause'));
+        }
+        expect(
+          await readFile(path.join(transcripts, `${spec.claudeSessionId}.jsonl`), 'utf8').then(
+            () => true,
+            () => false,
+          ),
+        ).toBe(saved);
+        await expect(first.session.pause()).resolves.toEqual({ point: 'idle', tool: null });
+        expect(events.find((e) => e.type === 'exit')).toMatchObject({ cleanup: { outcome: 'clean' } });
+        expect(() => process.kill(first.proc.pid, 0)).toThrow();
+        const second = await launch(saved);
+        expect(second.session.info().scopeId).not.toBe(first.session.info().scopeId);
+        expect(second.proc.pid).not.toBe(first.proc.pid);
+        expect(
+          await driver.closeScopes([{ sessionId: spec.sessionId, scopeId: first.session.info().scopeId! }]),
+        ).toMatchObject([{ cleanup: { outcome: 'clean' } }]);
+        const sent = second.session.send('Carry on.');
+        await second.session.handleHook(
+          { hook_event_name: 'SessionStart', source: saved ? 'resume' : 'startup' },
+          new AbortController().signal,
+        );
+        await waitFor(() => second.output().includes('Echo: Carry on.'));
+        await second.session.handleHook(
+          { hook_event_name: 'UserPromptSubmit', prompt: 'Carry on.' },
+          new AbortController().signal,
+        );
+        await sent;
+        expect(() => process.kill(second.proc.pid, 0)).not.toThrow();
+      } finally {
+        await Promise.all(sessions.map((session) => session.stop(true)));
+        sessions.forEach((session) => session.dispose());
+        await dirs.cleanup();
+      }
+    },
+    15_000,
+  );
   it('closes the fake lifecycle fixture and its marked detached TERM-resistant child without ps', async () => {
     const dirs = tempDirs();
     const directory = await dirs.make('scope-smoke-');

@@ -574,7 +574,7 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
           e.type === 'state' && e.sessionId === id && e.state === 'working' && e.activity?.startsWith('Bash'),
       );
 
-    it('ends the idle generation and resumes with the nudge before later input', async () => {
+    it('ends the empty idle generation and starts its first turn with the nudge before later input', async () => {
       await setup();
       const s = spec();
       await runner.runner.start(s);
@@ -587,7 +587,9 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
       expect(chatOf(s.sessionId).some((i) => i.kind === 'user_text')).toBe(false);
 
       expect(runner.runner.release(s.sessionId, { nudge: 'Carry on.' })).toBe(false);
-      await runner.runner.start({ ...s, resume: true, initialMessage: 'Carry on.' });
+      // An idle CLI that never submitted a turn has no learned id or saved rollout.
+      expect(providerIdOf(s.sessionId)).toBeUndefined();
+      await runner.runner.start({ ...s, resume: false, initialMessage: 'Carry on.' });
       await assistantSaid(s.sessionId, 'Echo: Carry on.');
       await runner.runner.sendUserMessage(s.sessionId, 'queued during the pause');
       await assistantSaid(s.sessionId, 'Echo: queued during the pause');
@@ -607,7 +609,12 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
       expect(chatOf(s.sessionId).some((i) => i.kind === 'assistant_text')).toBe(false);
 
       expect(runner.runner.release(s.sessionId, { nudge: 'Carry on.' })).toBe(false);
-      await runner.runner.start({ ...s, resume: true, initialMessage: 'Carry on.' });
+      await runner.runner.start({
+        ...s,
+        claudeSessionId: providerIdOf(s.sessionId)!,
+        resume: true,
+        initialMessage: 'Carry on.',
+      });
       await assistantSaid(s.sessionId, 'Echo: Carry on.');
     });
 
@@ -626,7 +633,7 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
       });
       await waitState(s.sessionId, 'exited');
       expect(runner.runner.release(s.sessionId)).toBe(false);
-      await runner.runner.start({ ...s, resume: true });
+      await runner.runner.start({ ...s, claudeSessionId: providerIdOf(s.sessionId)!, resume: true });
       await waitState(s.sessionId, 'idle');
 
       const callsBeforeRestartedTurn = toolCalls(s.sessionId).length;

@@ -96,13 +96,21 @@ export function createMergeChecks(
     try {
       const realTarget = await realpath(target);
       const source = await dependencySource(repo, realTarget, input.depsFrom);
-      if (source.path !== null)
-        await copyDependencyTrees({
-          source: source.path,
-          target: realTarget,
-          platform,
-          timeoutMs: options.copyTimeoutMs,
-        });
+      if (source.path !== null) {
+        try {
+          await copyDependencyTrees({
+            source: source.path,
+            target: realTarget,
+            platform,
+            timeoutMs: options.copyTimeoutMs,
+          });
+        } catch (err) {
+          throw new MergeError(
+            'git_failed',
+            err instanceof Error ? err.message : 'copying the dependencies failed',
+          );
+        }
+      }
       if (source.reference !== null && source.lock !== null) {
         const after = await findDependencyReference([source.reference.path], realTarget, source.lock);
         if (!after || after.installedAt !== source.reference.installedAt)

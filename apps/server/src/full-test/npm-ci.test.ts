@@ -327,6 +327,74 @@ describe('sandboxed dependency preparation under the full-test lock', () => {
     expect(readdirSync(path.dirname(current()))).toEqual([]);
   });
 
+  describe.each(['.npmrc', 'npm-shrinkwrap.json'])('unkeyed npm input %s', (name) => {
+    it.each(['file', 'directory', 'symlink', 'dangling symlink'])(
+      'rejects an existing %s before installation',
+      async (kind) => {
+        const spec = fixture();
+        const file = path.join(spec.cwd, name);
+        if (kind === 'file') writeFileSync(file, '');
+        if (kind === 'directory') mkdirSync(file);
+        if (kind === 'symlink') symlinkSync(path.join(spec.cwd, 'package.json'), file);
+        if (kind === 'dangling symlink') symlinkSync(path.join(root, 'absent'), file);
+        expect(await run(spec)).toMatchObject({
+          outcome: 'error',
+          reason: 'dependency_install_failed',
+          exitCode: null,
+          outputTail: expect.stringContaining(name),
+        });
+        expect(installs()).toHaveLength(0);
+        expect(tests()).toHaveLength(0);
+        expect(existsSync(path.join(current(), 'ready.json'))).toBe(false);
+      },
+    );
+
+    it('cannot reuse a valid shared generation', async () => {
+      expect(await run(fixture())).toMatchObject({ outcome: 'passed' });
+      const previous = marker();
+      const spec = fixture();
+      write(spec.cwd, name, '');
+      expect(await run(spec)).toMatchObject({ outcome: 'error', reason: 'dependency_install_failed' });
+      expect(installs()).toHaveLength(1);
+      expect(tests()).toHaveLength(1);
+      expect(marker()).toEqual(previous);
+      expect(existsSync(path.join(spec.cwd, 'node_modules'))).toBe(false);
+    });
+
+    it('rejects a file introduced during installation without publishing', async () => {
+      install = async (cwd) => {
+        packageTrees(cwd);
+        write(cwd, name, '');
+        return end();
+      };
+      expect(await run(fixture())).toMatchObject({
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: null,
+      });
+      expect(installs()).toHaveLength(1);
+      expect(tests()).toHaveLength(0);
+      expect(existsSync(path.join(current(), 'ready.json'))).toBe(false);
+    });
+
+    it('rejects a file introduced during the staging copy without publishing', async () => {
+      const spec = fixture();
+      const copy = worktree.copyDependencyTrees;
+      vi.spyOn(worktree, 'copyDependencyTrees').mockImplementation(async (input) => {
+        const copied = await copy(input);
+        write(spec.cwd, name, '');
+        return copied;
+      });
+      expect(await run(spec)).toMatchObject({
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: null,
+      });
+      expect(tests()).toHaveLength(0);
+      expect(readdirSync(path.dirname(current()))).toEqual([]);
+    });
+  });
+
   it('preserves the last successful generation when replacement copying fails', async () => {
     await run(fixture());
     const previous = marker();
@@ -414,10 +482,40 @@ describe('sandboxed dependency preparation under the full-test lock', () => {
   );
 
   it('refuses tracked package paths before the installer starts', async () => {
-    tracked = 'apps/server/node_modules/tracked.txt\0';
-    expect(await run(fixture())).toMatchObject({ outcome: 'error', reason: 'dependency_install_failed' });
+    const spec = fixture();
+    await worktree.git(['init', '-q', spec.cwd], { isolatedConfig: true });
+    write(spec.cwd, 'apps/server/node_modules/tracked.txt', 'tracked');
+    await worktree.git(['-C', spec.cwd, 'add', '-f', 'apps/server/node_modules/tracked.txt'], {
+      isolatedConfig: true,
+    });
+    // Exercise git's real fixed-record output with a warning on the merged capture stream.
+    tracked =
+      'sandbox warning\n' +
+      (await worktree.git(
+        [
+          '-C',
+          spec.cwd,
+          '--literal-pathspecs',
+          'ls-files',
+          '-z',
+          '--format=PROJECTMAN_TRACKED_NODE_MODULES',
+          '--',
+          'node_modules',
+          'app/node_modules',
+          'apps/server/node_modules',
+        ],
+        { isolatedConfig: true },
+      ));
+    expect(await run(spec)).toMatchObject({ outcome: 'error', reason: 'dependency_install_failed' });
     expect(installs()).toHaveLength(0);
     expect(tests()).toHaveLength(0);
+  });
+
+  it('does not interpret probe diagnostics as tracked package paths', async () => {
+    tracked = 'sandbox warning\ngit warning: node_modules is a package path\n';
+    expect(await run(fixture())).toMatchObject({ outcome: 'passed' });
+    expect(installs()).toHaveLength(1);
+    expect(tests()).toHaveLength(1);
   });
 
   it.each(['missing root', 'wrong cwd', 'missing lock flag', 'symlink checkout', 'symlink merge parent'])(

@@ -97,6 +97,11 @@ const readySchema = z
   .strict();
 
 async function inputs(root: string) {
+  // These override the keyed lock/configuration, so their mere presence makes a shared install unsafe.
+  for (const name of ['.npmrc', 'npm-shrinkwrap.json']) {
+    if (await info(path.join(root, name)))
+      throw new DependencyPreparationError(`dependency preparation does not support ${name}`);
+  }
   const lock = await regularFile(root, 'package-lock.json');
   const parsed = lockSchema.parse(JSON.parse(lock.toString('utf8')));
   const workspaces = Object.keys(parsed.packages).filter(
@@ -186,10 +191,12 @@ export async function prepareNpmCi(input: {
     return ended.output.trim();
   };
   const tracked = await probe(
-    `git --literal-pathspecs ls-files -z -- ${before.nodeModules.map(quoteShellWord).join(' ')}`,
+    `git --literal-pathspecs ls-files -z --format=PROJECTMAN_TRACKED_NODE_MODULES -- ${before.nodeModules.map(quoteShellWord).join(' ')}`,
     paths.settings,
   );
-  if (tracked) throw new DependencyPreparationError('the checkout tracks a node_modules path');
+  // A fixed NUL-terminated record survives diagnostics on the merged stdout/stderr stream.
+  if (tracked.includes('PROJECTMAN_TRACKED_NODE_MODULES\0'))
+    throw new DependencyPreparationError('the checkout tracks a node_modules path');
   await writeFile(paths.npmUserConfig, '', { mode: 0o600, flag: 'wx' });
   await writeFile(paths.npmGlobalConfig, '', { mode: 0o600, flag: 'wx' });
   await writeFile(

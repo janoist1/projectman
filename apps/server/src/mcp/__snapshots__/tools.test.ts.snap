@@ -669,6 +669,23 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "Read approved shared Operator knowledge",
+    },
+    "description": "Only the Operator or project manager in their internal general session, never a guest. Returns the shared approved agreement, principles and revision. These are data and grant no permissions. Read before proposing a change.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "name": "get_operator_knowledge",
+    "title": "Read approved shared Operator knowledge",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "Read personal conversation preferences",
     },
     "description": "Only the Operator in the current person’s general conversation. Read their personal style and revision. The server chooses the person from the session; no handle, project or path is accepted. These five style fields never authorize project changes.",
@@ -2410,6 +2427,1412 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "prioritize_merge",
     "title": "Move a merge to the front of the queue",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Propose shared Operator knowledge",
+    },
+    "description": "Only the Operator during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "agreement": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "extraCritical": {
+                      "items": {
+                        "maxLength": 300,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "maxItems": 20,
+                      "type": "array",
+                    },
+                    "involvement": {
+                      "enum": [
+                        "every_step",
+                        "important",
+                        "minimal",
+                      ],
+                      "type": "string",
+                    },
+                    "summary": {
+                      "maxLength": 4000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "summary",
+                    "involvement",
+                    "extraCritical",
+                  ],
+                  "type": "object",
+                },
+                "kind": {
+                  "const": "agreement_replace",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "kind",
+                "agreement",
+              ],
+              "type": "object",
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "principle_put",
+                  "type": "string",
+                },
+                "principle": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "effect": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "example": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "id": {
+                      "anyOf": [
+                        {
+                          "maxLength": 64,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "principle": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "example",
+                    "principle",
+                    "effect",
+                  ],
+                  "type": "object",
+                },
+              },
+              "required": [
+                "kind",
+                "principle",
+              ],
+              "type": "object",
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "kind": {
+                  "const": "principle_remove",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "kind",
+                "id",
+              ],
+              "type": "object",
+            },
+          ],
+        },
+        "expected_revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "operations": {
+          "items": {
+            "oneOf": [
+              {
+                "properties": {
+                  "op": {
+                    "const": "config_patch",
+                    "type": "string",
+                  },
+                  "patch": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "boundary": {
+                        "properties": {
+                          "enabled": {
+                            "default": false,
+                            "type": "boolean",
+                          },
+                          "leadTimeoutSeconds": {
+                            "default": 120,
+                            "maximum": 600,
+                            "minimum": 1,
+                            "type": "integer",
+                          },
+                        },
+                        "type": "object",
+                      },
+                      "cardMover": {
+                        "oneOf": [
+                          {
+                            "properties": {
+                              "kind": {
+                                "const": "worker",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "kind",
+                            ],
+                            "type": "object",
+                          },
+                          {
+                            "properties": {
+                              "kind": {
+                                "const": "project_manager",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "kind",
+                            ],
+                            "type": "object",
+                          },
+                          {
+                            "properties": {
+                              "handle": {
+                                "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                                "type": "string",
+                              },
+                              "kind": {
+                                "const": "human",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "kind",
+                              "handle",
+                            ],
+                            "type": "object",
+                          },
+                        ],
+                      },
+                      "feedback": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "blockedMarkers": {
+                            "items": {
+                              "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                              "type": "string",
+                            },
+                            "type": "array",
+                          },
+                          "surfaces": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                                  "type": "string",
+                                },
+                                "name": {
+                                  "maxLength": 40,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "origin": {
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "origin",
+                              ],
+                              "type": "object",
+                            },
+                            "maxItems": 20,
+                            "type": "array",
+                          },
+                        },
+                        "type": "object",
+                      },
+                      "limits": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "aiEnabled": {
+                            "type": "boolean",
+                          },
+                          "autoCompactWindowTokens": {
+                            "anyOf": [
+                              {
+                                "maximum": 1000000,
+                                "minimum": 100000,
+                                "type": "integer",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                          },
+                          "loopWatch": {
+                            "properties": {
+                              "count": {
+                                "maximum": 50,
+                                "minimum": 3,
+                                "type": "integer",
+                              },
+                              "enabled": {
+                                "type": "boolean",
+                              },
+                              "minutes": {
+                                "maximum": 240,
+                                "minimum": 5,
+                                "type": "integer",
+                              },
+                            },
+                            "required": [
+                              "enabled",
+                              "count",
+                              "minutes",
+                            ],
+                            "type": "object",
+                          },
+                          "maxConcurrentAi": {
+                            "anyOf": [
+                              {
+                                "maximum": 20,
+                                "minimum": 1,
+                                "type": "integer",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                          },
+                          "maxFixRounds": {
+                            "maximum": 10,
+                            "minimum": 1,
+                            "type": "integer",
+                          },
+                          "minFreeDiskGb": {
+                            "maximum": 10000,
+                            "minimum": 0,
+                            "type": "integer",
+                          },
+                          "pauseAbovePlanUsagePercent": {
+                            "maximum": 100,
+                            "minimum": 10,
+                            "type": "integer",
+                          },
+                          "seniorWaitMinutes": {
+                            "maximum": 1440,
+                            "minimum": 5,
+                            "type": "integer",
+                          },
+                          "tempWorkers": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "enabled": {
+                                "type": "boolean",
+                              },
+                              "max": {
+                                "maximum": 5,
+                                "minimum": 0,
+                                "type": "integer",
+                              },
+                              "role": {
+                                "pattern": "^[a-z][a-z0-9_]{1,39}$",
+                                "type": "string",
+                              },
+                            },
+                            "type": "object",
+                          },
+                          "warnAboveSessionTokens": {
+                            "anyOf": [
+                              {
+                                "maximum": 1000000000,
+                                "minimum": 10000,
+                                "type": "integer",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                          },
+                        },
+                        "type": "object",
+                      },
+                      "merger": {
+                        "oneOf": [
+                          {
+                            "properties": {
+                              "kind": {
+                                "const": "code_reviewer",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "kind",
+                            ],
+                            "type": "object",
+                          },
+                          {
+                            "properties": {
+                              "kind": {
+                                "const": "developer",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "kind",
+                            ],
+                            "type": "object",
+                          },
+                          {
+                            "properties": {
+                              "handle": {
+                                "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                                "type": "string",
+                              },
+                              "kind": {
+                                "const": "member",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "kind",
+                              "handle",
+                            ],
+                            "type": "object",
+                          },
+                        ],
+                      },
+                      "operatorWatch": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "report",
+                              "unblock",
+                              "drive",
+                            ],
+                            "type": "string",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
+                      "pipeline": {
+                        "properties": {
+                          "columns": {
+                            "items": {
+                              "properties": {
+                                "color": {
+                                  "enum": [
+                                    "gray",
+                                    "blue",
+                                    "teal",
+                                    "green",
+                                    "yellow",
+                                    "orange",
+                                    "red",
+                                    "pink",
+                                    "purple",
+                                  ],
+                                  "type": "string",
+                                },
+                                "hint": {
+                                  "type": "string",
+                                },
+                                "id": {
+                                  "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                                  "type": "string",
+                                },
+                                "name": {
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                              ],
+                              "type": "object",
+                            },
+                            "minItems": 1,
+                            "type": "array",
+                          },
+                          "labels": {
+                            "default": [],
+                            "items": {
+                              "properties": {
+                                "blocks": {
+                                  "type": "boolean",
+                                },
+                                "clearedWhen": {
+                                  "items": {
+                                    "enum": [
+                                      "moved_back",
+                                      "pr_updated",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "type": "array",
+                                },
+                                "color": {
+                                  "enum": [
+                                    "gray",
+                                    "blue",
+                                    "teal",
+                                    "green",
+                                    "yellow",
+                                    "orange",
+                                    "red",
+                                    "pink",
+                                    "purple",
+                                  ],
+                                  "type": "string",
+                                },
+                                "group": {
+                                  "pattern": "^[a-z][a-z0-9_-]{0,39}$",
+                                  "type": "string",
+                                },
+                                "id": {
+                                  "maxLength": 40,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "meaning": {
+                                  "maxLength": 500,
+                                  "type": "string",
+                                },
+                                "name": {
+                                  "maxLength": 60,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "notByAuthor": {
+                                  "type": "boolean",
+                                },
+                                "notifyAssignee": {
+                                  "type": "boolean",
+                                },
+                                "requiresComment": {
+                                  "type": "boolean",
+                                },
+                                "setBy": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "anyone",
+                                        "humans",
+                                        "system",
+                                      ],
+                                      "type": "string",
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "duties": {
+                                          "items": {
+                                            "enum": [
+                                              "prioritization",
+                                              "requirements_analysis",
+                                              "task_breakdown",
+                                              "triage",
+                                              "scheduling",
+                                              "technical_direction",
+                                              "boundary_authorization",
+                                              "ux_design",
+                                              "implementation",
+                                              "docs",
+                                              "content",
+                                              "translation",
+                                              "maintenance",
+                                              "code_review",
+                                              "security_review",
+                                              "testing_acceptance",
+                                              "deployment",
+                                              "release_approval",
+                                              "monitoring",
+                                              "client_communication",
+                                              "support",
+                                              "standup_facilitation",
+                                              "refinement_facilitation",
+                                              "retro_facilitation",
+                                              "process_improvement",
+                                              "research",
+                                              "final_decision",
+                                              "project_operation",
+                                              "feedback_processing",
+                                            ],
+                                            "type": "string",
+                                          },
+                                          "type": "array",
+                                        },
+                                        "humansOnly": {
+                                          "type": "boolean",
+                                        },
+                                        "members": {
+                                          "items": {
+                                            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                                            "type": "string",
+                                          },
+                                          "type": "array",
+                                        },
+                                      },
+                                      "type": "object",
+                                    },
+                                  ],
+                                  "default": "anyone",
+                                },
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                              ],
+                              "type": "object",
+                            },
+                            "type": "array",
+                          },
+                          "stages": {
+                            "items": {
+                              "properties": {
+                                "columnId": {
+                                  "type": "string",
+                                },
+                                "description": {
+                                  "type": "string",
+                                },
+                                "duty": {
+                                  "enum": [
+                                    "prioritization",
+                                    "requirements_analysis",
+                                    "task_breakdown",
+                                    "triage",
+                                    "scheduling",
+                                    "technical_direction",
+                                    "boundary_authorization",
+                                    "ux_design",
+                                    "implementation",
+                                    "docs",
+                                    "content",
+                                    "translation",
+                                    "maintenance",
+                                    "code_review",
+                                    "security_review",
+                                    "testing_acceptance",
+                                    "deployment",
+                                    "release_approval",
+                                    "monitoring",
+                                    "client_communication",
+                                    "support",
+                                    "standup_facilitation",
+                                    "refinement_facilitation",
+                                    "retro_facilitation",
+                                    "process_improvement",
+                                    "research",
+                                    "final_decision",
+                                    "project_operation",
+                                    "feedback_processing",
+                                  ],
+                                  "type": "string",
+                                },
+                                "gate": {
+                                  "properties": {
+                                    "conditions": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "properties": {
+                                              "label": {
+                                                "maxLength": 40,
+                                                "minLength": 1,
+                                                "type": "string",
+                                              },
+                                              "type": {
+                                                "const": "has_label",
+                                                "type": "string",
+                                              },
+                                              "when": {
+                                                "maxLength": 40,
+                                                "minLength": 1,
+                                                "type": "string",
+                                              },
+                                            },
+                                            "required": [
+                                              "type",
+                                              "label",
+                                            ],
+                                            "type": "object",
+                                          },
+                                          {
+                                            "properties": {
+                                              "label": {
+                                                "maxLength": 40,
+                                                "minLength": 1,
+                                                "type": "string",
+                                              },
+                                              "type": {
+                                                "const": "lacks_label",
+                                                "type": "string",
+                                              },
+                                              "when": {
+                                                "maxLength": 40,
+                                                "minLength": 1,
+                                                "type": "string",
+                                              },
+                                            },
+                                            "required": [
+                                              "type",
+                                              "label",
+                                            ],
+                                            "type": "object",
+                                          },
+                                        ],
+                                      },
+                                      "minItems": 1,
+                                      "type": "array",
+                                    },
+                                  },
+                                  "required": [
+                                    "conditions",
+                                  ],
+                                  "type": "object",
+                                },
+                                "id": {
+                                  "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                                  "type": "string",
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "queue",
+                                    "work",
+                                    "step",
+                                    "release",
+                                    "done",
+                                  ],
+                                  "type": "string",
+                                },
+                                "name": {
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "owners": {
+                                  "items": {
+                                    "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                                    "type": "string",
+                                  },
+                                  "type": "array",
+                                },
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "kind",
+                                "columnId",
+                              ],
+                              "type": "object",
+                            },
+                            "minItems": 2,
+                            "type": "array",
+                          },
+                        },
+                        "required": [
+                          "columns",
+                          "stages",
+                        ],
+                        "type": "object",
+                      },
+                      "project": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "language": {
+                            "type": "string",
+                          },
+                          "name": {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "timezone": {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                        },
+                        "type": "object",
+                      },
+                      "releaseFourEyes": {
+                        "type": "boolean",
+                      },
+                      "repoDocs": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "docs": {
+                              "anyOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "decisions": {
+                                      "maxLength": 200,
+                                      "minLength": 1,
+                                      "type": "string",
+                                    },
+                                    "roadmap": {
+                                      "maxLength": 200,
+                                      "minLength": 1,
+                                      "type": "string",
+                                    },
+                                  },
+                                  "type": "object",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
+                            "repo": {
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "repo",
+                            "docs",
+                          ],
+                          "type": "object",
+                        },
+                        "maxItems": 20,
+                        "type": "array",
+                      },
+                      "repoFullTestAtMerge": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "fullTestAtMerge": {
+                              "type": [
+                                "boolean",
+                                "null",
+                              ],
+                            },
+                            "repo": {
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "repo",
+                            "fullTestAtMerge",
+                          ],
+                          "type": "object",
+                        },
+                        "maxItems": 20,
+                        "type": "array",
+                      },
+                      "repoMerge": {
+                        "items": {
+                          "properties": {
+                            "repo": {
+                              "type": "string",
+                            },
+                            "requireMerge": {
+                              "type": [
+                                "boolean",
+                                "null",
+                              ],
+                            },
+                          },
+                          "required": [
+                            "repo",
+                            "requireMerge",
+                          ],
+                          "type": "object",
+                        },
+                        "maxItems": 20,
+                        "type": "array",
+                      },
+                      "repoReviewTest": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "repo": {
+                              "type": "string",
+                            },
+                            "reviewTest": {
+                              "anyOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "command": {
+                                      "maxLength": 500,
+                                      "minLength": 1,
+                                      "type": "string",
+                                    },
+                                    "maxWorkers": {
+                                      "default": 2,
+                                      "maximum": 8,
+                                      "minimum": 1,
+                                      "type": "integer",
+                                    },
+                                    "timeoutMinutes": {
+                                      "default": 15,
+                                      "maximum": 60,
+                                      "minimum": 1,
+                                      "type": "integer",
+                                    },
+                                  },
+                                  "required": [
+                                    "command",
+                                  ],
+                                  "type": "object",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
+                          },
+                          "required": [
+                            "repo",
+                            "reviewTest",
+                          ],
+                          "type": "object",
+                        },
+                        "maxItems": 20,
+                        "type": "array",
+                      },
+                      "roleOverrides": {
+                        "additionalProperties": {
+                          "properties": {
+                            "duties": {
+                              "items": {
+                                "enum": [
+                                  "prioritization",
+                                  "requirements_analysis",
+                                  "task_breakdown",
+                                  "triage",
+                                  "scheduling",
+                                  "technical_direction",
+                                  "boundary_authorization",
+                                  "ux_design",
+                                  "implementation",
+                                  "docs",
+                                  "content",
+                                  "translation",
+                                  "maintenance",
+                                  "code_review",
+                                  "security_review",
+                                  "testing_acceptance",
+                                  "deployment",
+                                  "release_approval",
+                                  "monitoring",
+                                  "client_communication",
+                                  "support",
+                                  "standup_facilitation",
+                                  "refinement_facilitation",
+                                  "retro_facilitation",
+                                  "process_improvement",
+                                  "research",
+                                  "final_decision",
+                                  "project_operation",
+                                  "feedback_processing",
+                                ],
+                                "type": "string",
+                              },
+                              "type": "array",
+                            },
+                            "instructions": {
+                              "default": "",
+                              "type": "string",
+                            },
+                            "notTheirJob": {
+                              "maxLength": 200,
+                              "type": "string",
+                            },
+                            "summary": {
+                              "maxLength": 280,
+                              "type": "string",
+                            },
+                            "whenToAsk": {
+                              "maxLength": 280,
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "duties",
+                          ],
+                          "type": "object",
+                        },
+                        "propertyNames": {
+                          "enum": [
+                            "operator",
+                            "ai_operator",
+                            "product_owner",
+                            "project_manager",
+                            "business_analyst",
+                            "architect",
+                            "designer",
+                            "developer",
+                            "lead_developer",
+                            "code_review",
+                            "security_review",
+                            "qa",
+                            "devops",
+                            "communication",
+                            "support",
+                            "researcher",
+                            "maintainer",
+                            "coach",
+                            "watchdog",
+                            "content",
+                            "translator",
+                            "docs",
+                          ],
+                          "type": "string",
+                        },
+                        "type": "object",
+                      },
+                      "roles": {
+                        "items": {
+                          "properties": {
+                            "duties": {
+                              "items": {
+                                "enum": [
+                                  "prioritization",
+                                  "requirements_analysis",
+                                  "task_breakdown",
+                                  "triage",
+                                  "scheduling",
+                                  "technical_direction",
+                                  "boundary_authorization",
+                                  "ux_design",
+                                  "implementation",
+                                  "docs",
+                                  "content",
+                                  "translation",
+                                  "maintenance",
+                                  "code_review",
+                                  "security_review",
+                                  "testing_acceptance",
+                                  "deployment",
+                                  "release_approval",
+                                  "monitoring",
+                                  "client_communication",
+                                  "support",
+                                  "standup_facilitation",
+                                  "refinement_facilitation",
+                                  "retro_facilitation",
+                                  "process_improvement",
+                                  "research",
+                                  "final_decision",
+                                  "project_operation",
+                                  "feedback_processing",
+                                ],
+                                "type": "string",
+                              },
+                              "type": "array",
+                            },
+                            "holders": {
+                              "default": "both",
+                              "enum": [
+                                "human",
+                                "ai",
+                                "both",
+                              ],
+                              "type": "string",
+                            },
+                            "id": {
+                              "pattern": "^[a-z][a-z0-9_]{1,39}$",
+                              "type": "string",
+                            },
+                            "instructions": {
+                              "default": "",
+                              "type": "string",
+                            },
+                            "name": {
+                              "maxLength": 60,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            "notTheirJob": {
+                              "default": "",
+                              "maxLength": 200,
+                              "type": "string",
+                            },
+                            "summary": {
+                              "maxLength": 280,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            "whenToAsk": {
+                              "maxLength": 280,
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "summary",
+                          ],
+                          "type": "object",
+                        },
+                        "type": "array",
+                      },
+                    },
+                    "type": "object",
+                  },
+                },
+                "required": [
+                  "op",
+                  "patch",
+                ],
+                "type": "object",
+              },
+              {
+                "properties": {
+                  "changes": {
+                    "properties": {
+                      "approver": {
+                        "enum": [
+                          "human",
+                          "ai",
+                          "none",
+                        ],
+                        "type": "string",
+                      },
+                      "autoCompactWindowTokens": {
+                        "anyOf": [
+                          {
+                            "maximum": 1000000,
+                            "minimum": 100000,
+                            "type": "integer",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
+                      "capacity": {
+                        "maximum": 5,
+                        "minimum": 1,
+                        "type": "integer",
+                      },
+                      "cheapSubagent": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "sonnet",
+                              "haiku",
+                            ],
+                            "type": "string",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
+                      "effort": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high",
+                              "xhigh",
+                              "max",
+                            ],
+                            "type": "string",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
+                      "instructions": {
+                        "type": "string",
+                      },
+                      "model": {
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "onLeave": {
+                        "type": "boolean",
+                      },
+                      "outboundNetwork": {
+                        "type": "boolean",
+                      },
+                      "permissionMode": {
+                        "enum": [
+                          "default",
+                          "acceptEdits",
+                          "plan",
+                          "auto",
+                          "bypassPermissions",
+                        ],
+                        "type": "string",
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "gemini",
+                          "nanogpt",
+                        ],
+                        "type": "string",
+                      },
+                      "role": {
+                        "pattern": "^[a-z][a-z0-9_]{1,39}$",
+                        "type": "string",
+                      },
+                      "schedule": {
+                        "anyOf": [
+                          {
+                            "properties": {
+                              "cron": {
+                                "minLength": 1,
+                                "type": "string",
+                              },
+                              "prompt": {
+                                "minLength": 1,
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "cron",
+                              "prompt",
+                            ],
+                            "type": "object",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
+                      "senior": {
+                        "type": "boolean",
+                      },
+                      "specialty": {
+                        "type": "string",
+                      },
+                    },
+                    "type": "object",
+                  },
+                  "handle": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                    "type": "string",
+                  },
+                  "op": {
+                    "const": "member_update",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "op",
+                  "handle",
+                  "changes",
+                ],
+                "type": "object",
+              },
+              {
+                "properties": {
+                  "op": {
+                    "const": "member_hire",
+                    "type": "string",
+                  },
+                  "request": {
+                    "properties": {
+                      "cheapSubagent": {
+                        "enum": [
+                          "sonnet",
+                          "haiku",
+                        ],
+                        "type": "string",
+                      },
+                      "displayName": {
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "effort": {
+                        "enum": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max",
+                        ],
+                        "type": "string",
+                      },
+                      "handle": {
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                        "type": "string",
+                      },
+                      "model": {
+                        "type": "string",
+                      },
+                      "outboundNetwork": {
+                        "type": "boolean",
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "gemini",
+                          "nanogpt",
+                        ],
+                        "type": "string",
+                      },
+                      "role": {
+                        "pattern": "^[a-z][a-z0-9_]{1,39}$",
+                        "type": "string",
+                      },
+                      "schedule": {
+                        "properties": {
+                          "cron": {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "prompt": {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "cron",
+                          "prompt",
+                        ],
+                        "type": "object",
+                      },
+                      "specialty": {
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "role",
+                    ],
+                    "type": "object",
+                  },
+                },
+                "required": [
+                  "op",
+                  "request",
+                ],
+                "type": "object",
+              },
+              {
+                "properties": {
+                  "handle": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                    "type": "string",
+                  },
+                  "op": {
+                    "const": "member_retire",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "op",
+                  "handle",
+                ],
+                "type": "object",
+              },
+              {
+                "properties": {
+                  "op": {
+                    "const": "config_revert",
+                    "type": "string",
+                  },
+                  "version": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "op",
+                  "version",
+                ],
+                "type": "object",
+              },
+              {
+                "properties": {
+                  "op": {
+                    "const": "session_stop",
+                    "type": "string",
+                  },
+                  "sessionId": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "op",
+                  "sessionId",
+                ],
+                "type": "object",
+              },
+              {
+                "properties": {
+                  "op": {
+                    "const": "project_pause",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "op",
+                ],
+                "type": "object",
+              },
+              {
+                "properties": {
+                  "op": {
+                    "const": "project_resume",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "op",
+                ],
+                "type": "object",
+              },
+            ],
+          },
+          "maxItems": 10,
+          "type": "array",
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "expected_revision",
+        "title",
+        "change",
+      ],
+      "type": "object",
+    },
+    "name": "propose_operator_knowledge",
+    "title": "Propose shared Operator knowledge",
   },
   {
     "annotations": {

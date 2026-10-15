@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { access, readFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   DEFAULT_OPERATOR_PREFERENCE,
@@ -94,6 +94,74 @@ const document = () => h.domain.operatorKnowledge.readKnowledge('AR');
 const payload = (id: string) => operatorKnowledgeApprovalOf(h.domain.inbox.get('AR', id))!;
 
 describe('owner-approved Operator knowledge', () => {
+  it('does not load or lock projects without pending knowledge approvals during recovery', async () => {
+    await setup();
+    const lock = vi.spyOn(h.domain.projects, 'withConfigurationLock');
+    await h.domain.sharedOperatorKnowledge.recover();
+    expect(lock).not.toHaveBeenCalled();
+  });
+
+  it('recovers a committed approval even when another project cannot load its configuration', async () => {
+    await setup();
+    const proposal = await propose();
+    const apply = h.domain.operatorKnowledge.compareAndSwapKnowledge.bind(h.domain.operatorKnowledge);
+    const crash = vi
+      .spyOn(h.domain.operatorKnowledge, 'compareAndSwapKnowledge')
+      .mockImplementationOnce(async (...args) => {
+        await apply(...args);
+        throw new Error('crash after file write');
+      });
+    await expect(resolve(proposal.inbox_item_id)).rejects.toThrow('crash after file write');
+    crash.mockRestore();
+    await h.domain.projects.create(
+      { key: 'BR', name: 'broken', workspacePath: h.workspace, templateId: 'test' },
+      OWNER,
+    );
+    const item = h.domain.inbox.get('AR', proposal.inbox_item_id);
+    h.domain.inbox.create({ ...item, id: undefined, projectKey: 'BR', state: 'open' });
+    const summaries = h.domain.projects.summaries();
+    vi.spyOn(h.domain.projects, 'summaries').mockReturnValue(
+      [...summaries].sort((a, b) => b.key.localeCompare(a.key)),
+    );
+    const lock = h.domain.projects.withConfigurationLock.bind(h.domain.projects);
+    vi.spyOn(h.domain.projects, 'withConfigurationLock').mockImplementation((key, work) => {
+      if (key === 'BR') return Promise.reject(new Error('broken project configuration'));
+      return lock(key, work);
+    });
+
+    await h.domain.sharedOperatorKnowledge.recover();
+    expect(h.domain.inbox.get('AR', proposal.inbox_item_id)).toMatchObject({
+      state: 'resolved',
+      resolution: { by: 'owner', optionId: 'approve' },
+    });
+    expect((await document()).revision).toBe(1);
+    expect(h.log.warnings).toContainEqual([
+      { err: expect.any(Error), projectKey: 'BR' },
+      'could not recover operator knowledge',
+    ]);
+  });
+
+  it('starts the server when a stored project configuration is unavailable', async () => {
+    await setup(true);
+    const proposal = await propose();
+    h = await restartDomainHarness(h, {
+      configStore: (inner) => ({
+        ...inner,
+        async load(key) {
+          if (key === 'AR') throw new Error('unavailable project configuration');
+          return inner.load(key);
+        },
+      }),
+    });
+    expect(h.domain.inbox.get('AR', proposal.inbox_item_id).state).toBe('open');
+    expect(h.log.errors).toEqual([
+      [{ err: expect.any(Error), projectKey: 'AR' }, 'could not load project configuration'],
+    ]);
+    h.log.errors.length = 0;
+    for (const message of ['could not recover operator knowledge', 'operator continuation wake failed'])
+      expect(h.log.warnings).toContainEqual([{ err: expect.any(Error), projectKey: 'AR' }, message]);
+  });
+
   it('persists nothing before approval and blocks even immediate operations of its pending request', async () => {
     await setup();
     const before = await h.domain.projects.load('AR');
@@ -359,6 +427,40 @@ describe('owner-approved Operator knowledge', () => {
 });
 
 describe('shared knowledge session boundaries', () => {
+  it.each(['operator', 'pm'])(
+    'launches %s without shared knowledge when its file is corrupt',
+    async (handle) => {
+      h = await createDomainHarness({
+        adjust(config) {
+          const pm = config.team.members.find((member) => member.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = false;
+        },
+      });
+      const directory = join(h.dir, 'operator-data', 'AR');
+      const file = join(directory, 'knowledge.json');
+      await mkdir(directory, { recursive: true });
+      await writeFile(file, '{partial');
+      const { session } = await h.domain.sessions.ensureSession(
+        'AR',
+        handle,
+        { type: 'general' },
+        { cause: { kind: 'conversation', by: humanActor('owner') } },
+      );
+      expect(h.runner.started.some((start) => start.sessionId === session.id)).toBe(true);
+      const input = h.contextBuilder.inputs.at(-1)!;
+      expect(input).not.toHaveProperty('operatorKnowledge');
+      expect(createContextPackBuilder().build(input).appendSystemPrompt).not.toContain(
+        '# Approved shared Operator knowledge',
+      );
+      expect(h.log.warnings).toContainEqual([
+        { err: expect.objectContaining({ code: 'operator_knowledge_invalid' }), member: handle },
+        'could not read operator knowledge',
+      ]);
+      await expect(document()).rejects.toMatchObject({ code: 'operator_knowledge_invalid' });
+      expect(await readFile(file, 'utf8')).toBe('{partial');
+    },
+  );
+
   it('opens one scoped approval continuation and keeps protected operations behind a separate owner decision', async () => {
     await setup(true);
     const proposal = await propose(agreement, [immediate, network]);

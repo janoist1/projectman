@@ -567,12 +567,12 @@ export class SessionLauncher {
         ? { own: sessionFolder, root: folders.root }
         : undefined,
     );
-    const operatorKnowledge = await this.deps.operatorKnowledge.forConversation(
-      projectKey,
-      member.handle,
-      workItem,
-      cause,
-    );
+    const operatorKnowledge = await this.deps.operatorKnowledge
+      .forConversation(projectKey, member.handle, workItem, cause)
+      .catch((err: unknown) => {
+        this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator knowledge');
+        return undefined;
+      });
     const operatorPreference = await this.deps.operatorPreferences
       .forConversation(projectKey, member.handle, workItem, cause)
       .catch((err: unknown) => {

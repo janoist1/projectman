@@ -203,11 +203,13 @@ export class OperatorKnowledge {
   }
 
   async recover(): Promise<void> {
-    for (const project of this.deps.projects.summaries())
-      await this.deps.projects.withConfigurationLock(project.key, async (loaded) => {
-        await this.recoverLocked(project.key);
-        await this.recheckLocked(project.key, loaded.version);
-      });
+    for (const project of this.deps.projects.summaries()) {
+      try {
+        await this.recheck(project.key);
+      } catch (err) {
+        this.deps.ctx.logger.warn({ err, projectKey: project.key }, 'could not recover operator knowledge');
+      }
+    }
   }
 
   async recheck(projectKey: string): Promise<void> {

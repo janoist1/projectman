@@ -2265,6 +2265,10 @@ assumption or remote-engine RPC.
   Exit carries `SessionCleanup` only after closure; failed cleanup holds the workspace and raises an
   owner-facing Operator signal, later `scope_recovered` releases it. Old engines without cleanup
   retain the process-probe fallback. A remote pid is never signalled on the server.
+  Lifecycle tests use `runner/test-helpers.ts` (`fixtureScopeProcesses`) and identity records from
+  `test/fixtures/fake-tui.mjs`, with null-signal liveness checks limited to disposable fixture pids.
+  This keeps pipe and PTY tests independent of host-wide `ps` permissions; production inspection
+  and the remote-engine boundary remain unchanged (PM-698).
   **Module:** `runner`
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runner/providers/{claude,codex}/transcript.ts`

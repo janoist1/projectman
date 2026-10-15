@@ -19,8 +19,14 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import { createRunnerModule } from './index';
-import { createMachineProbe } from '../machine';
-import { FAKE_CLAUDE, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
+import {
+  FAKE_CLAUDE,
+  fixtureScopeProcesses,
+  freePort,
+  silentLogger,
+  tempDirs,
+  waitFor,
+} from './test-helpers';
 
 /**
  * End to end: a real Fastify server with the hook routes, the runner, and the fake Claude
@@ -74,7 +80,7 @@ async function setup(
     claudeConfigPath: configFile,
     trustWorkspaces: options.trustWorkspaces,
     instanceTag: 'tag-of-this-test',
-    scopeProcesses: createMachineProbe(),
+    scopeProcesses: fixtureScopeProcesses(process.env.FAKE_SCOPE_RECORDS_DIR!),
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });
@@ -93,6 +99,7 @@ beforeEach(async () => {
   configFile = path.join(home, '.claude.json');
   await writeFile(configFile, JSON.stringify({ numStartups: 1, projects: {} }, null, 2));
   argsFile = path.join(home, 'args.json');
+  process.env.FAKE_SCOPE_RECORDS_DIR = await dirs.make('scope-records-');
   process.env.FAKE_CLAUDE_TRANSCRIPT_DIR = transcriptDir;
   process.env.FAKE_CLAUDE_CONFIG_FILE = configFile;
   process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;

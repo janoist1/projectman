@@ -9,8 +9,15 @@ import type { PermissionBroker, RunnerEvent, RunnerModule, StartSessionSpec } fr
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { testConfig } from '../../test/helpers/test-template';
 import { createRunnerModule } from './index';
-import { createMachineProbe } from '../machine';
-import { FAKE_CLAUDE, FAKE_CODEX, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
+import {
+  FAKE_CLAUDE,
+  FAKE_CODEX,
+  fixtureScopeProcesses,
+  freePort,
+  silentLogger,
+  tempDirs,
+  waitFor,
+} from './test-helpers';
 
 /**
  * The runner in pipe mode (PM-267): the fake CLIs run without a pseudo-terminal, so these tests
@@ -38,6 +45,7 @@ beforeEach(async () => {
   process.env.FAKE_CLAUDE_TRANSCRIPT_DIR = await dirs.make('transcripts-');
   process.env.FAKE_CLAUDE_CONFIG_FILE = configFile;
   process.env.CODEX_HOME = await dirs.make('codex-home-');
+  process.env.FAKE_SCOPE_RECORDS_DIR = await dirs.make('scope-records-');
   // A dead proxy: the hook forwarders only reach the server because the runner sets no_proxy.
   process.env.http_proxy = 'http://127.0.0.1:9';
   process.env.HTTP_PROXY = 'http://127.0.0.1:9';
@@ -53,7 +61,7 @@ beforeEach(async () => {
     logger: silentLogger(),
     claudeConfigPath: configFile,
     terminal: 'pipe',
-    scopeProcesses: createMachineProbe(),
+    scopeProcesses: fixtureScopeProcesses(process.env.FAKE_SCOPE_RECORDS_DIR!),
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });

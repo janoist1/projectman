@@ -18,10 +18,17 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import { createRunnerModule } from './index';
-import { createMachineProbe } from '../machine';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { testConfig } from '../../test/helpers/test-template';
-import { FAKE_CLAUDE, FAKE_CODEX, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
+import {
+  FAKE_CLAUDE,
+  FAKE_CODEX,
+  fixtureScopeProcesses,
+  freePort,
+  silentLogger,
+  tempDirs,
+  waitFor,
+} from './test-helpers';
 
 /**
  * End to end with the fake Codex CLI (test/fixtures/fake-codex.mjs) in a real
@@ -74,7 +81,7 @@ async function setup(
     permissionTimeoutMs: options.permissionTimeoutMs ?? 10_000,
     logger: silentLogger(),
     trustWorkspaces: false,
-    scopeProcesses: createMachineProbe(),
+    scopeProcesses: fixtureScopeProcesses(process.env.FAKE_SCOPE_RECORDS_DIR!),
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });
@@ -88,6 +95,7 @@ beforeEach(async () => {
   cwd = await dirs.make('ws-');
   codexHome = await dirs.make('codex-home-');
   argsFile = path.join(codexHome, 'args.json');
+  process.env.FAKE_SCOPE_RECORDS_DIR = await dirs.make('scope-records-');
   process.env.CODEX_HOME = codexHome;
   process.env.FAKE_CODEX_ARGS_FILE = argsFile;
   // Billing and parent-session variables that must never reach the child.
@@ -621,8 +629,11 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
       await runner.runner.start({ ...s, resume: true });
       await waitState(s.sessionId, 'idle');
 
+      const callsBeforeRestartedTurn = toolCalls(s.sessionId).length;
       await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL again');
-      await waitFor(() => toolCalls(s.sessionId).length > 1, { what: 'the second tool call' });
+      await waitFor(() => toolCalls(s.sessionId).length > callsBeforeRestartedTurn, {
+        what: 'the second tool call',
+      });
       const pause = runner.runner.pause(s.sessionId);
       await runner.runner.forcePause(s.sessionId);
       await expect(pause).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });

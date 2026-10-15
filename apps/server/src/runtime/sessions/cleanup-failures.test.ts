@@ -25,6 +25,35 @@ async function start(now?: () => Date) {
   return session;
 }
 describe('durable cleanup facts for sessions without workspace holders', () => {
+  it.each(['exited', 'failed'] as const)(
+    'preserves the pending %s exit code and still records failed cleanup',
+    async (state) => {
+      const session = await start();
+      const info = h.runner.list()[0]!;
+      const listing = vi
+        .spyOn(h.runner, 'list')
+        .mockReturnValue([{ ...info, scopeId: cleanup('failed').scopeId }]);
+      h.runner.emit({ type: 'state', sessionId: session.id, state, activity: null });
+      expect(h.domain.sessions.get('AR', session.id).state).not.toBe(state);
+      listing.mockRestore();
+      h.runner.emit({
+        type: 'exit',
+        sessionId: session.id,
+        exitCode: 0,
+        signal: null,
+        cleanup: cleanup('failed'),
+      });
+      await flush();
+      const ended = h.domain.timeline
+        .list('AR', { taskKey: 'AR-1' })
+        .find((event) => event.type === 'session_ended');
+      expect(ended?.data).toMatchObject({ exitCode: state === 'failed' ? 1 : null });
+      expect(h.repos.sessionCleanups.forSession(session.id)).toMatchObject([{ survivors: 1 }]);
+      expect(
+        h.repos.operatorSignals.list('AR').some((signal) => signal.kind === 'process_cleanup_failed'),
+      ).toBe(true);
+    },
+  );
   it('omits the retry age when a persisted start timestamp is invalid', async () => {
     const session = await start();
     h.runner.emit({

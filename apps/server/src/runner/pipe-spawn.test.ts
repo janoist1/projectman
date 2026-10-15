@@ -1,8 +1,12 @@
 import { constants } from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { describe, expect, it, vi } from 'vitest';
 import { pipeSpawn } from './pipe-spawn';
 import type { PtyProcess } from './session';
-import { waitFor } from './test-helpers';
+import { fixtureScopeProcesses, silentLogger, tempDirs, waitFor, FAKE_CLAUDE } from './test-helpers';
+import { createProcessScopeDriver } from './process-scope';
 
 const NODE = process.execPath;
 const options = {
@@ -27,6 +31,62 @@ function run(script: string) {
 }
 
 describe('pipeSpawn', () => {
+  it('closes the fake lifecycle fixture and its marked detached TERM-resistant child without ps', async () => {
+    const dirs = tempDirs();
+    const directory = await dirs.make('scope-smoke-');
+    const childFile = path.join(directory, 'child-info');
+    const driver = createProcessScopeDriver({
+      config: { kind: 'process_group' },
+      uid: process.getuid?.() ?? null,
+      logger: silentLogger(),
+      processes: fixtureScopeProcesses(directory),
+    });
+    const scope = await driver.open('ses_pipe_smoke');
+    const fixture = pathToFileURL(path.join(path.dirname(FAKE_CLAUDE), 'fake-tui.mjs')).href;
+    const command = scope.launch({
+      file: NODE,
+      args: [
+        '-e',
+        `import(${JSON.stringify(fixture)}).then(({ exitOnSignals }) => {
+        exitOnSignals({ sessionEnd: async () => {}, restore: '' });
+        process.stdout.write('ready'); setInterval(() => {}, 1000);
+      });`,
+      ],
+      env: {
+        ...options.env,
+        PROJECTMAN_SESSION_ID: 'ses_pipe_smoke',
+        FAKE_SCOPE_RECORDS_DIR: directory,
+        FAKE_SCOPE_CHILD_FILE: childFile,
+      },
+    });
+    const proc = pipeSpawn(command.file, command.args, { ...options, env: command.env });
+    scope.attached(proc.pid);
+    let child: { pid: number; scopeId: string } | undefined;
+    try {
+      await vi.waitFor(
+        async () => {
+          child = await readFile(childFile, 'utf8').then(
+            (text) => JSON.parse(text),
+            () => undefined,
+          );
+          expect(child?.scopeId).toBe(scope.scopeId);
+        },
+        { timeout: 5000 },
+      );
+      expect(await scope.close('stop', { force: false })).toMatchObject({ outcome: 'clean', killed: true });
+      expect(() => process.kill(child!.pid, 0)).toThrow();
+    } finally {
+      proc.kill('SIGKILL');
+      if (child) {
+        try {
+          process.kill(child.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+      await dirs.cleanup();
+    }
+  }, 15_000);
   it('reports the CLI exit even when a detached child still holds its output pipes open', async () => {
     const { proc, output, exited } = run(
       "const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); process.stdout.write(String(child.pid)); child.unref(); process.exit(0);",
@@ -50,12 +110,15 @@ describe('pipeSpawn', () => {
     }
   });
   it('starts the pipe process as its own group leader', async () => {
-    const { proc, output, exited } = run(
-      "process.stdout.write(require('node:child_process').execFileSync('ps', ['-p', String(process.pid), '-o', 'pgid='], { encoding: 'utf8' }).trim());",
-    );
-    await exited();
-    expect(output()).toMatch(/^\d+$/);
-    expect(Number(output())).toBe(proc.pid);
+    const { proc, output, exited } = run("process.stdout.write('ready'); setInterval(() => {}, 1000);");
+    const finished = exited();
+    try {
+      await waitFor(() => output().includes('ready'));
+      expect(() => process.kill(-proc.pid, 0)).not.toThrow();
+    } finally {
+      proc.kill('SIGKILL');
+      await finished;
+    }
   });
   it('returns what is written to the standard input, and the standard error too', async () => {
     const { proc, output, exited } = run(

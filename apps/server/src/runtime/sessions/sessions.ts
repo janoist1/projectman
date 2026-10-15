@@ -1547,7 +1547,7 @@ export class SessionOrchestrator {
           const lostLogin = this.limits.lostLogin(session.id);
           const ended = this.markEnded(
             session.id,
-            pending?.state === 'failed' ? 1 : event.exitCode,
+            pending ? (pending.state === 'failed' ? 1 : null) : event.exitCode,
             pending?.activity ?? null,
             undefined,
             event.cleanup,

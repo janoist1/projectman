@@ -128,6 +128,7 @@ export interface Names {
   engineToken: string;
   integratorToken: string;
   allowPolicy: string;
+  publicPolicy: string;
   enginePolicy: string;
   integratorPolicy: string;
   tunnel: string;
@@ -141,6 +142,7 @@ export function namesOf(config: CloudConfig): Names {
     engineToken: `${n}-engine`,
     integratorToken: `${n}-integrator`,
     allowPolicy: `${n}-allow-emails`,
+    publicPolicy: `${n}-public-board`,
     enginePolicy: `${n}-engine-service`,
     integratorPolicy: `${n}-integrator-service`,
     tunnel: n,
@@ -152,6 +154,8 @@ export const INTEGRATOR_TOKEN_FILE = 'integrator-access-token.json';
 export const TRANSFORM_PHASE = 'http_response_headers_transform';
 const TRANSFORM_REF = 'projectman_frame_headers';
 const AUTH_DOMAIN_SUFFIX = '.cloudflareaccess.com';
+/** The server's switch for the public board (PM-672); `cloud.env` holds it only in public mode. */
+export const PUBLIC_BOARD_ENV = 'PROJECTMAN_PUBLIC_BOARD';
 const TOKEN_DURATION = '8760h';
 export const TOKEN_WARNING_DAYS = 30;
 const DAY_MS = 86_400_000;
@@ -274,8 +278,17 @@ export function findTunnel(api: CloudflareApi, accountId: string, name: string):
 /** What an Access policy has to be, per name (the exact lists; no group, no domain, never `everyone`). */
 export interface PolicySpec {
   name: string;
-  decision: 'allow' | 'non_identity';
+  decision: 'allow' | 'non_identity' | 'bypass';
   include: Json[];
+}
+
+/** Public board (PM-672): the main application lets everybody through to the board's own login. */
+export function publicPolicySpec(names: Names): PolicySpec {
+  return { name: names.publicPolicy, decision: 'bypass', include: [{ everyone: {} }] };
+}
+
+export function isPublicBoard(config: CloudConfig): boolean {
+  return config.access.boardMode === 'public';
 }
 
 export function allowPolicySpec(config: CloudConfig, names: Names): PolicySpec {
@@ -326,22 +339,32 @@ export function appPolicyIds(app: AccessApp): string[] {
   return (app.policies ?? []).map((policy) => (typeof policy === 'string' ? policy : policy.id));
 }
 
+const ORIGIN = 'http://127.0.0.1:4700';
+
+/**
+ * The tunnel's ingress. Private: the whole main hostname demands the Access audience of the main and the engine
+ * application (`audTags` = both). Public (PM-672): only `/engine` demands the engine application's audience
+ * (`audTags` = the engine one alone); the rest of the hostname reaches the board's own login with no audience
+ * requirement. Both: the internal `/hooks` and `/mcp` answer 404, nothing overrides the Host header.
+ */
 export function ingressRules(config: CloudConfig, teamName: string, audTags: string[]): Json[] {
   const { hostname, feedbackHostname } = config.cloudflare;
+  const access = { access: { required: true, teamName, audTag: audTags } };
   return [
     ...(feedbackHostname
       ? [
-          { hostname: feedbackHostname, path: '^/feedback/', service: 'http://127.0.0.1:4700' },
+          { hostname: feedbackHostname, path: '^/feedback/', service: ORIGIN },
           { hostname: feedbackHostname, service: 'http_status:404' },
         ]
       : []),
     { hostname, path: '^/hooks', service: 'http_status:404' },
     { hostname, path: '^/mcp', service: 'http_status:404' },
-    {
-      hostname,
-      service: 'http://127.0.0.1:4700',
-      originRequest: { access: { required: true, teamName, audTag: audTags } },
-    },
+    ...(isPublicBoard(config)
+      ? [
+          { hostname, path: '^/engine(/|$)', service: ORIGIN, originRequest: access },
+          { hostname, service: ORIGIN },
+        ]
+      : [{ hostname, service: ORIGIN, originRequest: access }]),
     { service: 'http_status:404' },
   ];
 }
@@ -517,7 +540,12 @@ interface EdgeState {
   zone: Zone | null;
   idpId: string | null;
   tokenIds: { engine: string | null; integrator: string | null };
-  policyIds: { allow: string | null; engine: string | null; integrator: string | null };
+  policyIds: {
+    allow: string | null;
+    public: string | null;
+    engine: string | null;
+    integrator: string | null;
+  };
   audTags: { app: string | null; engine: string | null };
 }
 
@@ -553,7 +581,7 @@ export async function runEdge(context: CloudContext, options: EdgeOptions): Prom
     zone: null,
     idpId: null,
     tokenIds: { engine: null, integrator: null },
-    policyIds: { allow: null, engine: null, integrator: null },
+    policyIds: { allow: null, public: null, engine: null, integrator: null },
     audTags: { app: null, engine: null },
   };
 
@@ -566,6 +594,7 @@ export async function runEdge(context: CloudContext, options: EdgeOptions): Prom
   await ensurePolicies(state);
   await ensureApps(state);
   await removeIntegrator(state);
+  await removePublicPolicy(state);
   const tunnel = await ensureTunnel(state);
   await ensureTunnelConfig(state, tunnel);
   await ensureEnv(state, tunnel);
@@ -817,7 +846,10 @@ async function ensurePolicy(state: EdgeState, spec: PolicySpec): Promise<string 
 
 async function ensurePolicies(state: EdgeState): Promise<void> {
   const { config } = state.context;
+  // The e-mail policy is kept in public mode too (unattached), so switching back is one `edge` run.
   state.policyIds.allow = await ensurePolicy(state, allowPolicySpec(config, state.names));
+  if (isPublicBoard(config))
+    state.policyIds.public = await ensurePolicy(state, publicPolicySpec(state.names));
   state.policyIds.engine = state.tokenIds.engine
     ? await ensurePolicy(state, servicePolicySpec(state.names.enginePolicy, state.tokenIds.engine))
     : await dryPolicy(state, state.names.enginePolicy);
@@ -844,6 +876,8 @@ interface AppSpec {
   name: string;
   domain: string;
   policyIds: (string | null)[];
+  /** The login page goes straight to the identity provider; off for the public main application (no login there). */
+  autoRedirect: boolean;
 }
 
 function appBody(state: EdgeState, spec: AppSpec, ids: string[]): Json {
@@ -854,7 +888,7 @@ function appBody(state: EdgeState, spec: AppSpec, ids: string[]): Json {
     app_launcher_visible: false,
     session_duration: state.context.config.access.sessionDuration,
     allowed_idps: [state.idpId!],
-    auto_redirect_to_identity: true,
+    auto_redirect_to_identity: spec.autoRedirect,
     policies: ids.map((id, index) => ({ id, precedence: index + 1 })),
   };
 }
@@ -865,7 +899,7 @@ function appMatches(state: EdgeState, app: AccessApp, spec: AppSpec, ids: string
     app.domain === spec.domain &&
     app.app_launcher_visible === false &&
     app.session_duration === state.context.config.access.sessionDuration &&
-    app.auto_redirect_to_identity === true &&
+    app.auto_redirect_to_identity === spec.autoRedirect &&
     sameJson(app.allowed_idps ?? [], [state.idpId]) &&
     sameJson(appPolicyIds(app), ids)
   );
@@ -908,15 +942,21 @@ async function ensureApp(state: EdgeState, spec: AppSpec): Promise<string | null
 async function ensureApps(state: EdgeState): Promise<void> {
   const { config } = state.context;
   const { hostname } = config.cloudflare;
-  const main = [
-    state.policyIds.allow,
-    ...(config.access.integratorServiceToken ? [state.policyIds.integrator] : []),
-  ];
-  state.audTags.app = await ensureApp(state, { name: state.names.app, domain: hostname, policyIds: main });
+  // Public: exactly the one bypass policy; the integrator policy is not attached (its token stays per config).
+  const main = isPublicBoard(config)
+    ? [state.policyIds.public]
+    : [state.policyIds.allow, ...(config.access.integratorServiceToken ? [state.policyIds.integrator] : [])];
+  state.audTags.app = await ensureApp(state, {
+    name: state.names.app,
+    domain: hostname,
+    policyIds: main,
+    autoRedirect: !isPublicBoard(config),
+  });
   state.audTags.engine = await ensureApp(state, {
     name: state.names.engineApp,
     domain: `${hostname}/engine`,
     policyIds: [state.policyIds.engine],
+    autoRedirect: true,
   });
 }
 
@@ -942,6 +982,22 @@ async function removeIntegrator(state: EdgeState): Promise<void> {
       );
     if (hasFile) fs.rmSync(file, { force: true });
     return { status: 'updated', detail: 'the integrator policy, token and file are deleted' };
+  });
+}
+
+/**
+ * Back in private mode the bypass policy goes, after the main application stopped using it: no unused policy that
+ * lets everybody through stays around (PM-672). Not needed when it does not exist.
+ */
+async function removePublicPolicy(state: EdgeState): Promise<void> {
+  if (isPublicBoard(state.context.config)) return;
+  const { api, accountId, names } = state;
+  await runStep(state, 'public-policy-cleanup', async () => {
+    const policy = await withRight(RIGHT_APPS, () => findPolicy(api, accountId, names.publicPolicy));
+    if (!policy) return { status: 'unchanged', detail: 'no public-board policy' };
+    if (state.options.dryRun) return dry(`delete the policy ${names.publicPolicy}`);
+    await withRight(RIGHT_APPS, () => api.delete(`/accounts/${accountId}/access/policies/${policy.id}`));
+    return { status: 'updated', detail: `the policy ${names.publicPolicy} is deleted` };
   });
 }
 
@@ -974,6 +1030,11 @@ async function ensureTunnel(state: EdgeState): Promise<Tunnel | null> {
     return { status: 'created', detail: state.names.tunnel };
   });
   return tunnel;
+}
+
+/** The audiences the tunnel demands: private, both applications; public, the engine application alone (PM-672). */
+export function ingressAudTags(config: CloudConfig, app: string, engine: string): string[] {
+  return isPublicBoard(config) ? [engine] : [app, engine];
 }
 
 /** What the comparison of an ingress rule looks at: the keys we set (an empty originRequest is none). */
@@ -1012,7 +1073,7 @@ async function ensureTunnelConfig(state: EdgeState, tunnel: Tunnel | null): Prom
     const { app, engine } = state.audTags;
     if (!tunnel || !app || !engine)
       return dry('set the ingress once the tunnel and both Access applications exist');
-    const ingress = ingressRules(config, state.teamName, [app, engine]);
+    const ingress = ingressRules(config, state.teamName, ingressAudTags(config, app, engine));
     const path = `/accounts/${state.accountId}/cfd_tunnel/${tunnel.id}/configurations`;
     const current = shape(
       tunnelConfigSchema,
@@ -1052,10 +1113,20 @@ async function ensureEnv(state: EdgeState, tunnel: Tunnel | null): Promise<void>
       if (current.get('PROJECTMAN_FEEDBACK_PUBLIC_URL') !== updates.PROJECTMAN_FEEDBACK_PUBLIC_URL)
         changed.push('PROJECTMAN_FEEDBACK_PUBLIC_URL');
     } else if (current.has('PROJECTMAN_FEEDBACK_PUBLIC_URL')) changed.push('PROJECTMAN_FEEDBACK_PUBLIC_URL');
+    // The server's own start check of the public board (PM-672): on only in public mode, gone in private mode.
+    const publicBoard = isPublicBoard(config);
+    if (publicBoard) {
+      updates[PUBLIC_BOARD_ENV] = '1';
+      if (current.get(PUBLIC_BOARD_ENV) !== '1') changed.push(PUBLIC_BOARD_ENV);
+    } else if (current.has(PUBLIC_BOARD_ENV)) changed.push(PUBLIC_BOARD_ENV);
     if (changed.length === 0) return { status: 'unchanged', detail: 'TUNNEL_TOKEN is current' };
     if (state.options.dryRun) return dry(`change ${changed.join(', ')} in cloud.env`);
     updateEnvFile(envFile, updates);
-    if (!feedback) removeEnvNames(envFile, ['PROJECTMAN_FEEDBACK_PUBLIC_URL']);
+    const gone = [
+      ...(feedback ? [] : ['PROJECTMAN_FEEDBACK_PUBLIC_URL']),
+      ...(publicBoard ? [] : [PUBLIC_BOARD_ENV]),
+    ];
+    if (gone.length > 0) removeEnvNames(envFile, gone);
     report.step('updated', 'cloud-env', changed.join(', '));
     report.line('note: cloud.env changed; run "npm run cloud -- deploy" to hand it to the machine');
   });
@@ -1072,8 +1143,10 @@ export async function verifyAccess(
   const { config } = context;
   const names = namesOf(config);
   const problems: string[] = [];
+  const publicBoard = isPublicBoard(config);
   const policies = {
     allow: await findPolicy(api, accountId, names.allowPolicy),
+    public: publicBoard ? await findPolicy(api, accountId, names.publicPolicy) : null,
     engine: await findPolicy(api, accountId, names.enginePolicy),
     integrator: config.access.integratorServiceToken
       ? await findPolicy(api, accountId, names.integratorPolicy)
@@ -1084,7 +1157,12 @@ export async function verifyAccess(
     ? await findServiceToken(api, accountId, names.integratorToken)
     : null;
   const allowSpec = allowPolicySpec(config, names);
-  if (!policies.allow) problems.push(`the policy ${names.allowPolicy} does not exist`);
+  if (publicBoard) {
+    // The e-mail policy may exist (kept for the way back) but is not attached, so it is not compared here.
+    if (!policies.public) problems.push(`the policy ${names.publicPolicy} does not exist`);
+    else if (!policyMatches(policies.public, publicPolicySpec(names)))
+      problems.push(`the policy ${names.publicPolicy} is not exactly the bypass for everyone`);
+  } else if (!policies.allow) problems.push(`the policy ${names.allowPolicy} does not exist`);
   else if (!policyMatches(policies.allow, allowSpec))
     problems.push(`the policy ${names.allowPolicy} is not exactly the e-mail list of access.emails`);
   const serviceCheck = (policy: AccessPolicy | null, name: string, token: ServiceToken | null) => {
@@ -1113,10 +1191,45 @@ export async function verifyAccess(
         `the Access application ${name} does not have exactly its own policies (${appPolicyIds(app).length} attached, ${wanted.length} expected)`,
       );
   };
-  await appCheck(names.app, config.cloudflare.hostname, [
-    policies.allow,
-    ...(config.access.integratorServiceToken ? [policies.integrator] : []),
-  ]);
+  await appCheck(
+    names.app,
+    config.cloudflare.hostname,
+    publicBoard
+      ? [policies.public]
+      : [policies.allow, ...(config.access.integratorServiceToken ? [policies.integrator] : [])],
+  );
   await appCheck(names.engineApp, `${config.cloudflare.hostname}/engine`, [policies.engine]);
+  return problems;
+}
+
+/**
+ * Public board (PM-672): the live ingress of the tunnel is exactly the public shape, with the engine application's
+ * audience on `/engine` and none on the rest of the hostname. Returns the problems; empty means it is right.
+ */
+export async function verifyPublicIngress(
+  context: CloudContext,
+  api: CloudflareApi,
+  accountId: string,
+  tunnel: Tunnel,
+): Promise<string[]> {
+  const { config } = context;
+  const names = namesOf(config);
+  const engineApp = await findApp(api, accountId, names.engineApp);
+  if (!engineApp?.aud)
+    return [`the Access application ${names.engineApp} has no audience to check the ingress with`];
+  const teamName = await teamNameOf(api, accountId);
+  const wanted = ingressRules(config, teamName, [engineApp.aud]);
+  const current = shape(
+    tunnelConfigSchema,
+    (await withRight(RIGHT_TUNNEL, () =>
+      api.getOrNull(`/accounts/${accountId}/cfd_tunnel/${tunnel.id}/configurations`),
+    )) ?? {},
+    'tunnel configuration',
+  );
+  const problems: string[] = [];
+  if (!sameJson(normalizeIngress(current.config?.ingress ?? []), normalizeIngress(wanted)))
+    problems.push('the tunnel ingress is not exactly the public-board ingress');
+  if (Object.keys(foreignConfigKeys(current.config ?? {})).length > 0)
+    problems.push('the tunnel configuration has settings besides the ingress');
   return problems;
 }

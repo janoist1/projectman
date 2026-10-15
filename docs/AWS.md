@@ -574,6 +574,64 @@ same SSH connection as the other machine commands. A remote engine reads its ser
 `engine-access-token.json`, through the engine's `linkHeadersFile` (copy it there by your own means).
 `docs/ARCHITECTURE.md` lists the entries.
 
+### The public board (PM-672, part of PM-664)
+
+`access.boardMode` is `private` (default: the steps above, Cloudflare Access in front of the board's
+pages) or `public`: the board's own e-mail login (PM-670) is the only boundary of its pages, so clients
+reach it without a Cloudflare account or a One-time PIN. `public` needs the `ses` block (the e-mail login
+is the way in; the registrar profile `i` is refused there too). The engine door stays closed to the world
+in both modes.
+
+What `edge` does differently with `boardMode: public` (the order of the steps is the same):
+
+- **Policies and applications.** The main application `<N>` has exactly one policy, `<N>-public-board`
+  (Bypass, `include: everyone`, no exclude or require), and no automatic redirect to the identity
+  provider. `<N>-allow-emails` is kept for the way back but attached to nothing. The engine application
+  `<N>-engine` on `cloudflare.hostname/engine` stays exactly its service token. The service policies keep
+  their meaning; the integrator token (`access.integratorServiceToken`) has no use on the main name, so
+  `check` skips the integrator smoke test.
+- **Ingress.** With a feedback name, its `^/feedback/` goes to `127.0.0.1:4700` and the rest of that name
+  is 404 (unchanged). On the main name: `^/hooks` and `^/mcp` answer 404 (the webhook and MCP doors never
+  open to the world); `^/engine(/|$)` goes to the port with `originRequest.access` required, the team
+  name and **the audience tag of the engine application only**; everything else on the name goes to the
+  port with no audience check (the board's login guards it); the last rule is 404.
+- **`cloud.env`** gets `PROJECTMAN_PUBLIC_BOARD=1`; in `private` mode `edge` removes the line.
+
+The server side of the switch (`PROJECTMAN_PUBLIC_BOARD`, `0` default or `1`, anything else stops the
+start) adds no way in: the board's login is the same in both modes. It only refuses to start where the
+login would be missing: `public_board_requires_cloud` (not cloud mode), `public_board_requires_setup`
+(no owner yet, so there is no anonymous first setup to take) and `public_board_requires_email_login`
+(the mailer is off). `GET /api/setup` then says `publicBoard: true`. A restore rehearsal starts its standby
+copy with `PROJECTMAN_PUBLIC_BOARD=0`.
+
+**`publish` for the public board** makes the DNS record only after more checks (any failure exits 2 with no
+record made): the main application has exactly the bypass policy and the engine application exactly its
+token; the ingress is the public shape above, with the engine audience; `cloud.env` holds
+`PROJECTMAN_PUBLIC_BOARD=1`; the working feedback guard, when there is a feedback name (the guard is
+checked even without `--feedback`, because a public board with an open widget name behind it is not
+acceptable); and `deploy/aws/host.sh public-check <hostname>`, run on the machine over SSH, answers
+exactly `{"publicBoard":true,"emailLoginEnabled":true,"needsSetup":false,"apiStatus":401,"crossOriginStatus":403}`:
+the server is the public board, the e-mail login works, the owner is set up, an anonymous `GET
+/api/auth/me` is 401 and a cross-origin login `POST` is 403. An answer of another shape exits 1.
+
+**`check`** runs the public matrix of `deploy/cloudflare/check.sh` (`BOARD_MODE=public`, no `cloudflared`
+login and no Access token needed): `/` 200; `/api/setup` 200 with `publicBoard` and `emailLoginEnabled`
+true and `needsSetup` false; `/api/auth/me` and `/ws` 401; an e-mail code request 202; a foreign-origin
+login 403; the session cookie `HttpOnly` and `SameSite` (both modes), and, through the engine doors, that
+the engine token itself gets 401 on `/api/auth/me` (it is no board login). `deploy/cloud/smoke.sh` has
+`SMOKE_PUBLIC_BOARD=1` for the same on a running instance.
+
+**Switching.** Edit `access.boardMode`, then `edge`, `deploy`, `check`. A name that is already published
+is open to the new mode at once when `edge` finishes: going public without `deploy` leaves the old
+container running without the flag (it still protects itself with its own login, but then `publish` and
+`check` would refuse it), so run `deploy` and `check` straight after. Going back to `private` puts the
+Access lock back on the main application (the allow-emails policy, the automatic redirect, the ingress
+with both audiences), deletes `<N>-public-board` after the applications stopped using it, and removes the
+flag from `cloud.env`; run it again and nothing changes.
+
+**Does this work on a remote engine?** Yes. The public board concerns the browser side only: the engine
+still connects outward to `/engine`, which is behind its own Access application and its own machine key.
+
 ## DNS move (PM-537)
 
 Move the **whole zone**, including mail (SES MX, DKIM and verification TXT) and site verification.
@@ -774,7 +832,7 @@ endpoint is pinned to the region. The server reads the variables once and remove
 environment, so a process it starts later (git, a shell) does not inherit the keys; the runner drops every
 `PROJECTMAN_*` variable from the environment of an AI member's session as well, and the container's
 entrypoint gives them to the server process only (not to Litestream, restic or the tunnel). A restore
-rehearsal starts its standby copy with `PROJECTMAN_EMAIL_LOGIN_ENABLED=0`. The mailer never logs an
+rehearsal starts its standby copy with `PROJECTMAN_EMAIL_LOGIN_ENABLED=0` and `PROJECTMAN_PUBLIC_BOARD=0`. The mailer never logs an
 address or a code; a provider failure becomes an `EmailCodeDeliveryError` (`code`
 `email_code_delivery_failed`) with a fixed message and a coarse `reason` (`rejected`, `throttled`,
 `credentials`, `unavailable`), and the caller decides the HTTP answer.

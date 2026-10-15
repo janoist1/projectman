@@ -49,7 +49,12 @@ describe('the defaults', () => {
         hostname: 'board.example.com',
         tunnelName: 'projectman-cloud',
       },
-      access: { emails: ['owner@example.com'], sessionDuration: '24h', integratorServiceToken: false },
+      access: {
+        emails: ['owner@example.com'],
+        sessionDuration: '24h',
+        integratorServiceToken: false,
+        boardMode: 'private',
+      },
       route53: { profile: 'i' },
     });
   });
@@ -259,6 +264,21 @@ describe('the validation', () => {
     expect(refusal(config((value) => (value.access.emails = ['a@example.com', 'A@EXAMPLE.com'])))).toContain(
       'access.emails.1: a@example.com is listed twice',
     );
+  });
+
+  it('takes the board mode (PM-672): private by default, public only with the ses block', () => {
+    expect(
+      parseConfig(
+        config((value) => {
+          value.aws.profile = 'aroom';
+          value.ses = { region: 'eu-west-1', domain: 'example.com', from: 'board@example.com' };
+          value.access.boardMode = 'public';
+        }),
+        HOME,
+      ).access.boardMode,
+    ).toBe('public');
+    expect(refusal(config((value) => (value.access.boardMode = 'public')))).toContain('access.boardMode');
+    expect(refusal(config((value) => (value.access.boardMode = 'open')))).toContain('access.boardMode');
   });
 
   it('checks the hosted zone id and the session duration', () => {

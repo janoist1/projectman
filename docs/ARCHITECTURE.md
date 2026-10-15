@@ -1431,6 +1431,16 @@ workers follow the machine's size.
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
+  **Public board (PM-672):** with `access.boardMode: public` the same commands leave the main hostname
+  without Access (one Bypass policy), keep `/engine` behind its own Access application (the engine service
+  token only; the tunnel's `originRequest.access` for `/engine` names only that application's audience),
+  answer `/hooks` and `/mcp` with 404 at the tunnel, and write `PROJECTMAN_PUBLIC_BOARD=1` into `cloud.env`
+  (the server then refuses to start without cloud mode, an owner and the e-mail login:
+  `apps/server/src/auth/public-board.ts`). `host.sh public-check <hostname>` is a second subcommand run over
+  the same SSH connection as `guard-check`: it asks the running container for its own anonymous answers.
+  `publish` creates the DNS record only on the exact answer, `check` runs `check.sh` with `BOARD_MODE=public`
+  (no `cloudflared` login). **Remote engine:** unchanged; the public side is only the browser login boundary,
+  the engine still connects outward to the protected `/engine`.
 
 - **SES identity/DKIM and sender provisioning (PM-678, part of PM-664)** —
   `scripts/cloud/{ses,config,commands,cli,secrets,aws-cli,cloudflare-api}.ts`,

@@ -53,7 +53,7 @@ describe('check', () => {
     expect(await check()).toBe(0);
     const script = world.scriptCalls.find((call) => call.script === 'check.sh')!;
     expect(script.args.slice(1)).toEqual(['https://board.example.com']);
-    expect(script.env).toEqual({ LOGIN_JSON: loginFile });
+    expect(script.env).toEqual({ LOGIN_JSON: loginFile, BOARD_MODE: 'private' });
     expect(world.output).toContain('ok access-checks: https://board.example.com');
     expect(world.output).toContain('ok engine-doors');
     expect(world.doorCalls.map((call) => new URL(call.url).pathname)).toEqual(
@@ -75,6 +75,7 @@ describe('check', () => {
     expect(await check()).toBe(0);
     expect(world.scriptCalls.find((call) => call.script === 'check.sh')!.env).toEqual({
       LOGIN_JSON: loginFile,
+      BOARD_MODE: 'private',
       FEEDBACK_ORIGIN: 'https://mark.example.com',
     });
   });

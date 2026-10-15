@@ -98,6 +98,17 @@ describe('e-mail login startup environment', () => {
     expect(vi.mocked(buildApp).mock.calls[0]![0]!.emailCodeMailer?.send).toBeTypeOf('function');
   });
 
+  it.each([
+    [undefined, false],
+    ['0', false],
+    ['1', true],
+  ])('passes PROJECTMAN_PUBLIC_BOARD=%s to the app as publicBoard %s (PM-672)', async (value, expected) => {
+    vi.stubEnv('PROJECTMAN_MODE', 'cloud');
+    vi.stubEnv('PROJECTMAN_PUBLIC_BOARD', value);
+    await start();
+    expect(vi.mocked(buildApp).mock.calls[0]![0]!.publicBoard).toBe(expected);
+  });
+
   it('scrubs leftover SES credentials before the version lookup when the mailer is disabled', async () => {
     vi.stubEnv('PROJECTMAN_EMAIL_LOGIN_ENABLED', '0');
     await start();

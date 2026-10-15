@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { INTEGRATOR_TOKEN_FILE, ENGINE_TOKEN_FILE, readTokenFile } from './cloudflare';
+import { INTEGRATOR_TOKEN_FILE, ENGINE_TOKEN_FILE, isPublicBoard, readTokenFile } from './cloudflare';
 import type { CloudContext } from './context';
 import { CloudError, refused } from './errors';
 import type { StepResult } from './report';
@@ -9,7 +9,9 @@ import { secretFileProblem } from './secrets';
  * `check --login-json <file>` (PM-536): the verification of the public board from the owner's computer. It runs
  * the curl checks of `deploy/cloudflare/check.sh` (Access in front, the edge settings, the origin rules), then
  * the three doors of the engine with the engine service token (it passes Access, and the board must still
- * refuse it), and, when there is an integrator token, `deploy/cloud/smoke.sh` with it.
+ * refuse it), and, when there is an integrator token, `deploy/cloud/smoke.sh` with it. With
+ * `access.boardMode: public` (PM-672) check.sh runs its public matrix (the board's own login is the boundary), the
+ * engine token must also give no board rights, and the integrator smoke is skipped.
  */
 
 export interface CheckOptions {
@@ -75,6 +77,15 @@ async function checkEngineDoors(context: CloudContext, origin: string): Promise<
     else if (accessRedirect(authorized))
       failures.push(`${door} with the engine token went to the Access login: the token is not accepted`);
   }
+  if (isPublicBoard(context.config)) {
+    // The engine token opens the engine application and nothing else: on the board it is no login (PM-672).
+    const board = await engineDoor(context, `${origin}/api/auth/me`, withToken);
+    if (!board) failures.push('/api/auth/me with the engine token: no answer');
+    else if (board.status !== 401)
+      failures.push(
+        `/api/auth/me with the engine token answered ${board.status}, not 401: it gives board rights`,
+      );
+  }
   if (failures.length > 0) throw new CloudError(`the engine's doors: ${failures.join('; ')}`);
   return {
     status: 'ok',
@@ -90,7 +101,7 @@ export async function runCheck(context: CloudContext, options: CheckOptions): Pr
   const origin = `https://${config.cloudflare.hostname}`;
 
   await report.run('access-checks', async () => {
-    const env: Record<string, string> = { LOGIN_JSON: login };
+    const env: Record<string, string> = { LOGIN_JSON: login, BOARD_MODE: config.access.boardMode };
     if (config.cloudflare.feedbackHostname)
       env.FEEDBACK_ORIGIN = `https://${config.cloudflare.feedbackHostname}`;
     const result = await deps.run(
@@ -115,6 +126,10 @@ export async function runCheck(context: CloudContext, options: CheckOptions): Pr
 
   if (!config.access.integratorServiceToken) {
     report.step('skipped', 'integrator-smoke', 'access.integratorServiceToken is off');
+    return;
+  }
+  if (isPublicBoard(config)) {
+    report.step('skipped', 'integrator-smoke', 'public board: the main hostname is not behind Access');
     return;
   }
   await report.run('integrator-smoke', async () => {

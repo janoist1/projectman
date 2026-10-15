@@ -19,6 +19,14 @@ export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
 export { createSetupCode, generateSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
 export type { SetupCode } from './setup-code';
 export { deriveEmailLoginKey, loadOrCreateSecret } from './secret';
+export {
+  assertPublicBoardReady,
+  parsePublicBoardEnv,
+  PUBLIC_BOARD_REQUIRES_CLOUD,
+  PUBLIC_BOARD_REQUIRES_EMAIL_LOGIN,
+  PUBLIC_BOARD_REQUIRES_SETUP,
+  PublicBoardNotReadyError,
+} from './public-board';
 
 export interface AuthDomain {
   handlesFor(email: string): Promise<Record<string, string>>;
@@ -110,12 +118,22 @@ export function registerAuth(
     clientIpHeader?: string;
     /** `cloud` mode: a non-local first setup is possible, with the setup code (PM-317). */
     cloud?: boolean;
+    /** The board runs publicly (PM-672): the setup status says so, so a check can read the running server. */
+    publicBoard?: boolean;
     setupCode?: SetupCode;
     /** The e-mail login of invited clients (PM-670); null or absent: it is unavailable. */
     emailLogin?: EmailLoginService | null;
   },
 ): void {
-  const { auth, domain, clientIpHeader, cloud = false, setupCode, emailLogin = null } = deps;
+  const {
+    auth,
+    domain,
+    clientIpHeader,
+    cloud = false,
+    publicBoard = false,
+    setupCode,
+    emailLogin = null,
+  } = deps;
   const loginAttempts = createAttemptLimiter({
     max: MAX_FAILED_LOGINS,
     sharedMax: MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
@@ -177,6 +195,7 @@ export function registerAuth(
       needsSetup,
       ...(cloud && needsSetup ? { needsSetupCode: true } : {}),
       ...(emailLogin && !needsSetup ? { emailLoginEnabled: true } : {}),
+      ...(publicBoard ? { publicBoard: true } : {}),
     };
   });
 

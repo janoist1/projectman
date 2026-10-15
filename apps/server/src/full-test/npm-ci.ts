@@ -88,6 +88,17 @@ async function regularFile(root: string, relative: string): Promise<Buffer> {
 }
 
 const lockSchema = z.object({ packages: z.record(z.string(), z.unknown()) });
+const manifestSchema = z.object({ scripts: z.record(z.string(), z.string()).optional() });
+const LOCAL_INSTALL_HOOKS = [
+  'preinstall',
+  'install',
+  'postinstall',
+  'prepublish',
+  'preprepare',
+  'prepare',
+  'postprepare',
+  'dependencies',
+] as const;
 const readySchema = z
   .object({
     version: z.literal(1),
@@ -120,7 +131,20 @@ async function inputs(root: string) {
   const manifests = [];
   for (const parent of parents) {
     const file = path.posix.join(parent, 'package.json');
-    manifests.push({ path: file, content: await regularFile(root, file) });
+    const content = await regularFile(root, file);
+    const manifest = manifestSchema.parse(JSON.parse(content.toString('utf8')));
+    for (const hook of LOCAL_INSTALL_HOOKS) {
+      if (Object.hasOwn(manifest.scripts ?? {}, hook))
+        throw new DependencyPreparationError(
+          `dependency preparation does not support local ${hook} in ${file}`,
+        );
+    }
+    // npm can implicitly run node-gyp even when the manifest has no explicit install script.
+    if (await info(path.join(root, parent, 'binding.gyp')))
+      throw new DependencyPreparationError(
+        `dependency preparation does not support local binding.gyp in ${parent || '.'}`,
+      );
+    manifests.push({ path: file, content });
   }
   return {
     lock,

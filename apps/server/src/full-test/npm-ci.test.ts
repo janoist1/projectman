@@ -395,6 +395,158 @@ describe('sandboxed dependency preparation under the full-test lock', () => {
     });
   });
 
+  describe.each(['', ...localPackages])('local package %s install inputs', (parent) => {
+    const addHook = (cwd: string, hook: string) => {
+      const file = path.posix.join(parent, 'package.json');
+      const manifest = JSON.parse(readFileSync(path.join(cwd, file), 'utf8')) as Record<string, unknown>;
+      write(cwd, file, JSON.stringify({ ...manifest, scripts: { [hook]: 'node scripts/unkeyed.mjs' } }));
+    };
+
+    it.each([
+      'preinstall',
+      'install',
+      'postinstall',
+      'prepublish',
+      'preprepare',
+      'prepare',
+      'postprepare',
+      'dependencies',
+    ])('rejects the %s hook before npm starts', async (hook) => {
+      const spec = fixture();
+      addHook(spec.cwd, hook);
+      expect(await run(spec)).toMatchObject({
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: null,
+        outputTail: expect.stringContaining(`local ${hook}`),
+      });
+      expect(calls.some((call) => call.command.startsWith('npm '))).toBe(false);
+      expect(tests()).toHaveLength(0);
+      expect(existsSync(path.join(current(), 'ready.json'))).toBe(false);
+    });
+
+    it.each(['file', 'directory', 'symlink', 'dangling symlink'])(
+      'rejects binding.gyp as a %s before npm starts',
+      async (kind) => {
+        const spec = fixture();
+        const file = path.join(spec.cwd, parent, 'binding.gyp');
+        if (kind === 'file') writeFileSync(file, '{}');
+        if (kind === 'directory') mkdirSync(file);
+        if (kind === 'symlink') symlinkSync(path.join(spec.cwd, 'package.json'), file);
+        if (kind === 'dangling symlink') symlinkSync(path.join(root, 'absent'), file);
+        expect(await run(spec)).toMatchObject({
+          outcome: 'error',
+          reason: 'dependency_install_failed',
+          exitCode: null,
+          outputTail: expect.stringContaining('binding.gyp'),
+        });
+        expect(calls.some((call) => call.command.startsWith('npm '))).toBe(false);
+        expect(tests()).toHaveLength(0);
+        expect(existsSync(path.join(current(), 'ready.json'))).toBe(false);
+      },
+    );
+
+    it('refuses binding.gyp introduced during installation without issuing a marker', async () => {
+      install = async (cwd) => {
+        packageTrees(cwd);
+        write(cwd, path.posix.join(parent, 'binding.gyp'));
+        return end();
+      };
+      expect(await run(fixture())).toMatchObject({
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: null,
+        outputTail: expect.stringContaining('binding.gyp'),
+      });
+      expect(installs()).toHaveLength(1);
+      expect(tests()).toHaveLength(0);
+      expect(existsSync(path.join(current(), 'ready.json'))).toBe(false);
+    });
+
+    it('refuses a lifecycle hook introduced during installation', async () => {
+      install = async (cwd) => {
+        packageTrees(cwd);
+        addHook(cwd, 'postinstall');
+        return end();
+      };
+      expect(await run(fixture())).toMatchObject({
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: null,
+        outputTail: expect.stringContaining('local postinstall'),
+      });
+      expect(tests()).toHaveLength(0);
+      expect(existsSync(path.join(current(), 'ready.json'))).toBe(false);
+    });
+
+    it('refuses binding.gyp introduced during the staging copy without issuing a marker', async () => {
+      const spec = fixture();
+      const copy = worktree.copyDependencyTrees;
+      vi.spyOn(worktree, 'copyDependencyTrees').mockImplementation(async (input) => {
+        const copied = await copy(input);
+        write(spec.cwd, path.posix.join(parent, 'binding.gyp'));
+        return copied;
+      });
+      expect(await run(spec)).toMatchObject({
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: null,
+        outputTail: expect.stringContaining('binding.gyp'),
+      });
+      expect(tests()).toHaveLength(0);
+      expect(readdirSync(path.dirname(current()))).toEqual([]);
+    });
+
+    it.each(['script', 'binding.gyp'])(
+      'cannot reuse a valid shared generation with a local %s',
+      async (kind) => {
+        expect(await run(fixture())).toMatchObject({ outcome: 'passed' });
+        const previous = marker();
+        const spec = fixture();
+        if (kind === 'script') addHook(spec.cwd, 'prepare');
+        else write(spec.cwd, path.posix.join(parent, 'binding.gyp'));
+        expect(await run(spec)).toMatchObject({
+          outcome: 'error',
+          reason: 'dependency_install_failed',
+          exitCode: null,
+        });
+        expect(installs()).toHaveLength(1);
+        expect(tests()).toHaveLength(1);
+        expect(marker()).toEqual(previous);
+        expect(existsSync(path.join(spec.cwd, 'node_modules'))).toBe(false);
+      },
+    );
+  });
+
+  it('allows ordinary local scripts and native lifecycle inputs inside external dependencies', async () => {
+    const spec = fixture();
+    const manifest = JSON.parse(readFileSync(path.join(spec.cwd, 'package.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    write(
+      spec.cwd,
+      'package.json',
+      JSON.stringify({
+        ...manifest,
+        scripts: { test: 'vitest', build: 'tsc' },
+        dependencies: { 'native-addon': '1.0.0' },
+      }),
+    );
+    install = async (cwd) => {
+      packageTrees(cwd);
+      write(cwd, 'node_modules/native-addon/package.json', '{"scripts":{"install":"node-gyp rebuild"}}');
+      write(cwd, 'node_modules/native-addon/binding.gyp');
+      return end();
+    };
+    expect(await run(spec)).toMatchObject({ outcome: 'passed' });
+    expect(installs()[0]!.command).not.toContain('ignore-scripts');
+    expect(readFileSync(path.join(current(), 'node_modules/native-addon/package.json'), 'utf8')).toContain(
+      'node-gyp rebuild',
+    );
+    expect(existsSync(path.join(current(), 'node_modules/native-addon/binding.gyp'))).toBe(true);
+  });
+
   it('preserves the last successful generation when replacement copying fails', async () => {
     await run(fixture());
     const previous = marker();

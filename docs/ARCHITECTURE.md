@@ -2467,6 +2467,9 @@ assumption or remote-engine RPC.
   workspace parents, package targets and tracked package paths are refused. The fixed `npm ci` command
   refuses any root `.npmrc` or `npm-shrinkwrap.json` entry, including links or directories, at every input
   read: neither may override the lock/configuration identified by the shared dependency key.
+  Every input read also refuses local `preinstall`, `install`, `postinstall`, `prepublish`, `preprepare`,
+  `prepare`, `postprepare` or `dependencies` scripts and any `binding.gyp` entry in the root or a lock-listed
+  workspace, preventing unkeyed source from affecting the shared installation; external dependency scripts still run.
   Its tracked-path probe emits fixed NUL-terminated records so diagnostics cannot masquerade as paths. It
   includes dev/optional packages and lifecycle scripts, uses two distinct empty npm config files and an
   environment allowlist, and permits only registry.npmjs.org and nodejs.org, without local binding.

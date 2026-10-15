@@ -17,8 +17,12 @@ const reviewTest = { command: 'npm run merge-test', maxWorkers: 2, timeoutMinute
 
 function fakeMerger(remote = true) {
   const parents = new Map<string, string[]>();
-  const ancestor = (a: string, c: string): boolean =>
-    a === c || (parents.get(c) ?? []).some((p) => ancestor(a, p));
+  const ancestor = (a: string, c: string, seen = new Set<string>()): boolean => {
+    if (a === c) return true;
+    if (seen.has(c)) return false;
+    seen.add(c);
+    return (parents.get(c) ?? []).some((p) => ancestor(a, p, seen));
+  };
   let serial = 100;
   const base: MergeBaseState = {
     local: sha(0),
@@ -163,38 +167,269 @@ describe('merge train execution', () => {
     },
   );
 
-  it.each(['failed', 'error'] as const)(
-    'does not publish a %s check or blame every member',
-    async (outcome) => {
-      await setup();
-      vi.mocked(executor.run).mockResolvedValue({
-        ...passed,
-        outcome,
-        exitCode: 1,
-        reason: outcome === 'error' ? 'heavy_lock_unavailable' : undefined,
+  it.each([
+    'timeout',
+    'engine_offline',
+    'sandbox_unavailable',
+    'heavy_lock_unavailable',
+    'spawn_failed',
+    'killed',
+  ] as const)('blocks %s without splitting or blaming members', async (reason) => {
+    await setup();
+    vi.mocked(executor.run).mockResolvedValue({
+      ...passed,
+      outcome: 'error',
+      exitCode: 1,
+      reason,
+    });
+    pump();
+    await vi.waitFor(() => expect(row('AR-1')?.state).toBe('blocked'));
+    await settled();
+    expect(merger.push).not.toHaveBeenCalled();
+    expect(merger.advance).not.toHaveBeenCalled();
+    expect(row('AR-1')?.check?.runId).toBe(row('AR-2')?.check?.runId);
+    expect(h.repos.mergeTrains.listRunning()).toEqual([]);
+    expect(row('AR-1')?.block?.message).toContain(reason);
+    expect(row('AR-1')?.diagnostic).toBeUndefined();
+    expect(executor.run).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [2, [1]],
+    [3, [2]],
+    [3, [3]],
+    [8, [1]],
+    [8, [4]],
+    [8, [8]],
+    [8, [2, 5, 8]],
+    [8, [1, 2, 3, 4, 5, 6, 7, 8]],
+  ] as const)('isolates failing sources for %i cards with failures %j', async (count, bad) => {
+    await setup(count);
+    let active = 0;
+    let maximum = 0;
+    vi.mocked(executor.run).mockImplementation(async (_spec, _signal, started) => {
+      maximum = Math.max(maximum, ++active);
+      started?.();
+      const candidate = [...merger.parents.keys()].at(-1)!;
+      const failing = [];
+      for (const i of bad) {
+        if (
+          await merger.isAncestor({ projectKey: 'AR', repo: 'web' }, { ancestor: sha(i), commit: candidate })
+        )
+          failing.push(i);
+      }
+      active--;
+      return failing.length
+        ? {
+            ...passed,
+            outcome: 'failed',
+            exitCode: 1,
+            failedFiles: ['broken.test.ts'],
+            outputTail: 'Broken source',
+          }
+        : passed;
+    });
+    pump();
+    await vi.waitFor(
+      () => {
+        for (let i = 1; i <= count; i++) {
+          if ((bad as readonly number[]).includes(i))
+            expect(row(`AR-${i}`)?.failure?.reason).toBe('check_failed');
+          else expect(h.domain.tasks.get('AR', `AR-${i}`).merged).toBeDefined();
+        }
+      },
+      { timeout: 10_000 },
+    );
+    await settled();
+    expect(maximum).toBe(1);
+    expect(vi.mocked(executor.run).mock.calls.length).toBeLessThanOrEqual(2 * count - 1);
+    expect(new Set(vi.mocked(executor.run).mock.calls.map(([spec]) => spec.runId)).size).toBe(
+      vi.mocked(executor.run).mock.calls.length,
+    );
+    for (let i = 1; i <= count; i++) {
+      if ((bad as readonly number[]).includes(i)) {
+        expect(row(`AR-${i}`)?.trainId).toBeUndefined();
+        expect(row(`AR-${i}`)?.diagnostic?.maxCards).toBeLessThanOrEqual(Math.ceil(count / 2));
+        expect(row(`AR-${i}`)?.failure?.outputTail).toContain('Broken source');
+      } else expect(h.repos.taskMerges.latestMerged('AR', `AR-${i}`)?.diagnostic).toBeUndefined();
+    }
+    const manifests = h.repos.db.prepare('SELECT id FROM merge_trains').all() as { id: string }[];
+    for (const { id } of manifests) {
+      const train = h.repos.mergeTrains.get(id)!;
+      if (train.parentTrainId)
+        expect(train.members.length).toBeLessThan(
+          h.repos.mergeTrains.get(train.parentTrainId)!.members.length,
+        );
+    }
+  });
+
+  it('tests the second half on the landed prefix to detect cross-card failures', async () => {
+    await setup();
+    vi.mocked(executor.run).mockImplementation(async () => {
+      const candidate = [...merger.parents.keys()].at(-1)!;
+      const contains = await Promise.all(
+        [1, 2].map((i) =>
+          merger.isAncestor({ projectKey: 'AR', repo: 'web' }, { ancestor: sha(i), commit: candidate }),
+        ),
+      );
+      return contains.every(Boolean) ? { ...passed, outcome: 'failed', exitCode: 1 } : passed;
+    });
+    pump();
+    await vi.waitFor(() => expect(row('AR-2')?.failure?.reason).toBe('check_failed'));
+    await settled();
+    expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
+    expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeUndefined();
+    expect(executor.run).toHaveBeenCalledTimes(3);
+    expect(merger.push).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores priority, yields to documents, and keeps diagnostic limits across restart and explicit retry', async () => {
+    await setup(3);
+    const before = row('AR-1')!;
+    const priority = '2026-10-14T18:00:00.000Z';
+    h.repos.taskMerges.save({ ...before, prioritizedAt: priority });
+    vi.mocked(executor.run).mockImplementationOnce(async () => {
+      peerBusy = true;
+      return { ...passed, outcome: 'failed', exitCode: 1, outputTail: 'Group failure' };
+    });
+    pump();
+    await vi.waitFor(() => expect(row('AR-1')?.diagnostic).toBeDefined());
+    await settled();
+    const split = row('AR-1')!;
+    expect(split).toMatchObject({
+      state: 'queued',
+      step: 'queued',
+      createdAt: before.createdAt,
+      prioritizedAt: priority,
+      diagnostic: { maxCards: 2 },
+    });
+    expect(split.check).toBeUndefined();
+    expect(split.mergeCommit).toBeUndefined();
+    expect(h.repos.mergeTrains.get(split.diagnostic!.parentTrainId)?.state).toBe('failed');
+    expect(
+      h.domain.timeline
+        .list('AR', { taskKey: 'AR-1' })
+        .some((e) => e.type === 'task_note' && String(e.data.text).includes('Group failure')),
+    ).toBe(true);
+    await h.domain.merges.stop();
+    await h.domain.merges.init();
+    expect(row('AR-1')).toEqual(split);
+    await h.domain.merges.prioritize('AR', 'AR-3', OWNER_ACTOR, 'Check priority between diagnostic attempts');
+    vi.mocked(executor.run).mockResolvedValueOnce({
+      ...passed,
+      outcome: 'error',
+      reason: 'heavy_lock_unavailable',
+    });
+    pump();
+    await vi.waitFor(() => expect(row('AR-3')?.state).toBe('blocked'));
+    await settled();
+    peerBusy = true;
+    const diagnostic = row('AR-3')!.diagnostic;
+    await h.domain.merges.start('AR', 'AR-3', aiActor('dev-1'));
+    expect(row('AR-3')?.diagnostic).toEqual(diagnostic);
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+    await settled();
+    expect(h.repos.taskMerges.latestMerged('AR', 'AR-3')?.diagnostic).toBeUndefined();
+  });
+
+  it.each([false, true])(
+    'does not lose or duplicate the atomic split after restart (interrupt=%s)',
+    async (interrupt) => {
+      await setup(3);
+      const save = h.repos.taskMerges.save.bind(h.repos.taskMerges);
+      let injected = false;
+      vi.spyOn(h.repos.taskMerges, 'save').mockImplementation((r) => {
+        if (interrupt && !injected && r.taskKey === 'AR-2' && r.diagnostic) {
+          injected = true;
+          peerBusy = true;
+          throw new Error('Interrupted split transaction');
+        }
+        save(r);
+      });
+      vi.mocked(executor.run).mockImplementationOnce(async () => {
+        peerBusy = true;
+        return { ...passed, outcome: 'failed', exitCode: 1 };
       });
       pump();
-      await vi.waitFor(() => expect(row('AR-1')?.state).toBe(outcome === 'failed' ? 'failed' : 'blocked'));
+      await vi.waitFor(() => expect(executor.run).toHaveBeenCalledTimes(1));
       await settled();
-      expect(merger.push).not.toHaveBeenCalled();
-      expect(merger.advance).not.toHaveBeenCalled();
-      expect(row('AR-1')?.check?.runId).toBe(row('AR-2')?.check?.runId);
-      expect(h.repos.mergeTrains.listRunning()).toEqual([]);
-      if (outcome === 'failed')
+      if (interrupt) {
+        expect(h.repos.mergeTrains.listRunning()).toHaveLength(1);
+        expect(row('AR-1')?.diagnostic).toBeUndefined();
+        expect(row('AR-1')?.state).toBe('running');
+      }
+      await h.domain.merges.stop();
+      await h.domain.merges.init();
+      pump();
+      await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+      await settled();
+      const failed = h.repos.db.prepare("SELECT id FROM merge_trains WHERE state = 'failed'").all();
+      expect(failed).toHaveLength(1);
+      expect(executor.run).toHaveBeenCalledTimes(3);
+      for (const key of ['AR-1', 'AR-2', 'AR-3']) {
         expect(
-          h.repos.messages
-            .list('AR', { taskKey: 'AR-2' })
-            .some((m) => m.body.includes('individual cause has not yet been identified')),
-        ).toBe(true);
-      else expect(row('AR-1')?.block?.message).toContain('heavy_lock_unavailable');
+          h.domain.timeline
+            .list('AR', { taskKey: key })
+            .filter((e) => e.type === 'task_note' && String(e.data.text).includes('failed its group check')),
+        ).toHaveLength(1);
+      }
     },
   );
+
+  it('waits behind a failed prerequisite while unrelated cards merge', async () => {
+    await setup(3);
+    h.domain.tasks.addLink('AR', 'AR-2', { kind: 'prerequisite', ref: 'AR-1' }, OWNER_ACTOR);
+    h.repos.taskMerges.save({
+      ...row('AR-1')!,
+      state: 'failed',
+      failure: { reason: 'check_failed', base: sha(0), at: new Date().toISOString() },
+    });
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+    await settled();
+    expect(row('AR-2')).toMatchObject({ state: 'queued', step: 'queued' });
+    expect(row('AR-2')?.failure).toBeUndefined();
+    expect(executor.run).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('rechecks prerequisites before publication (singleton=%s)', async (singleton) => {
+    await setup(3);
+    if (singleton) {
+      for (let i = 1; i <= 3; i++)
+        h.repos.taskMerges.save({
+          ...row(`AR-${i}`)!,
+          diagnostic: { parentTrainId: 'mrg_parent00', maxCards: 1 },
+        });
+    }
+    vi.mocked(executor.run).mockImplementationOnce(async () => {
+      h.domain.tasks.addLink('AR', 'AR-1', { kind: 'prerequisite', ref: 'AR-2' }, OWNER_ACTOR);
+      return passed;
+    });
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+    await settled();
+    expect(row('AR-1')?.state).toBe('queued');
+    expect(row('AR-1')?.failure).toBeUndefined();
+    expect(row('AR-1')?.check).toBeUndefined();
+    expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeUndefined();
+    expect(executor.run).toHaveBeenCalledTimes(singleton ? 3 : 2);
+    for (const [, input] of merger.push.mock.calls)
+      expect(
+        await merger.isAncestor(
+          { projectKey: 'AR', repo: 'web' },
+          { ancestor: sha(1), commit: input.mergeCommit },
+        ),
+      ).toBe(false);
+  });
 
   it.each(['source', 'gate', 'config', 'merger'] as const)(
     'discards a candidate after a %s change and restores the priority snapshot',
     async (change) => {
       await setup();
       const priority = '2026-10-14T18:00:00.000Z';
+      const diagnostic = { parentTrainId: 'mrg_parent00', maxCards: 2 };
+      for (const key of ['AR-1', 'AR-2']) h.repos.taskMerges.save({ ...row(key)!, diagnostic });
       h.repos.taskMerges.save({ ...row('AR-1')!, prioritizedAt: priority });
       vi.mocked(executor.run).mockImplementation(async () => {
         peerBusy = true;
@@ -222,7 +457,7 @@ describe('merge train execution', () => {
       expect(merger.advance).not.toHaveBeenCalled();
       expect(h.repos.mergeTrains.listRunning()).toEqual([]);
       if (change === 'source' || change === 'gate')
-        expect(row('AR-1')).toMatchObject({ state: 'queued', prioritizedAt: priority });
+        expect(row('AR-1')).toMatchObject({ state: 'queued', prioritizedAt: priority, diagnostic });
     },
   );
 

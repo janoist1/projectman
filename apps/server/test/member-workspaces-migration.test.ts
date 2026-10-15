@@ -7,8 +7,8 @@ describe('member workspaces migration (PM-138)', () => {
   it('preserves older reservations and operator signal metadata when adding cleanup state', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version <= 64)) db.exec(migration.sql);
-      db.pragma('user_version = 64');
+      for (const migration of migrations.filter((item) => item.version <= 65)) db.exec(migration.sql);
+      db.pragma('user_version = 65');
       db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');
         INSERT INTO member_workspaces (id, project_key, member, repo, path, generation, created_at, holder_session_id, holder_task_key, holder_pid, held_since)
         VALUES ('wsp_old', 'AR', 'dev-1', 'web', '/old', 1, '2026-01-01', 'ses_old', 'AR-1', 4242, '2026-01-01');
@@ -17,7 +17,7 @@ describe('member workspaces migration (PM-138)', () => {
           ('sig_answer', 'AR', 'answer_stalled', 'answer:old', 'open', '2026-01-01', '2026-01-03', 'answer kept');`);
       const signalsBefore = db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all();
       migrate(db);
-      expect(schemaVersion(db)).toBe(67);
+      expect(schemaVersion(db)).toBe(68);
       expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toEqual(signalsBefore);
       expect(() =>
         db.exec(`INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at)

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { memberOf, operatorApprovalOf, operatorWatchOf } from '@projectman/shared';
 import { humanActor } from '../src/kernel';
-import type { AiMemberConfig, OperatorOperation, ProjectConfig } from '@projectman/shared';
+import type { AiMemberConfig, OperatorOperation, OperatorPlan, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -15,9 +15,10 @@ afterEach(async () => {
   await h?.cleanup();
 });
 
-async function setup(persistent = false, adjust?: (config: ProjectConfig) => void) {
+async function setup(persistent = false, adjust?: (config: ProjectConfig) => void, now?: () => Date) {
   h = await createDomainHarness({
     persistent,
+    now,
     adjust: (config) => {
       (memberOf(config, 'dev-1') as AiMemberConfig).outboundNetwork = false;
       config.team.members.push({
@@ -38,16 +39,30 @@ async function setup(persistent = false, adjust?: (config: ProjectConfig) => voi
       adjust?.(config);
     },
   });
-  await h.domain.messaging.sendReporting('AR', 'owner', {
-    to: ['operator'],
-    text: 'Change the writer to Sonnet.\nAllow network access.',
-  });
+  await h.domain.messaging.sendReporting(
+    'AR',
+    'owner',
+    {
+      to: ['operator'],
+      text: 'Change the writer to Sonnet.\nAllow network access.',
+    },
+    { awaitWake: true },
+  );
   await flush();
   const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
 }
+const plan: OperatorPlan = {
+  why: 'Report the completed work',
+  impact: 'One person receives the update',
+  reversible: false,
+};
 async function operate(operation: OperatorOperation) {
-  return h.domain.teamTools.operate(ctx, { title: 'Requested result', operation });
+  return h.domain.teamTools.operate(ctx, {
+    title: 'Requested result',
+    operation,
+    ...(['session_stop', 'message_send'].includes(operation.op) ? { plan } : {}),
+  });
 }
 const network = (): OperatorOperation => ({
   op: 'member_update',
@@ -59,6 +74,201 @@ const member = async (handle = 'dev-1') =>
 const resolve = (id: string, optionId = 'approve') => h.domain.inbox.resolve('AR', id, { optionId }, owner);
 
 describe('Operator actions and owner approvals (PM-464)', () => {
+  const message = (): OperatorOperation => ({ op: 'message_send', to: ['dana'], text: 'Work is ready.' });
+  const sent = () => h.repos.messages.list('AR', { member: 'dana' }).filter((m) => m.from === 'operator');
+
+  it.each(['message_send', 'session_stop'] as const)(
+    'requires a plan for %s and records the refusal',
+    async (op) => {
+      await setup();
+      await expect(
+        h.domain.teamTools.operate(ctx, {
+          title: 'Critical step',
+          operation: op === 'message_send' ? message() : { op, sessionId: ctx.sessionId },
+        }),
+      ).rejects.toMatchObject({ message: expect.stringContaining('operator_plan_required') });
+      const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
+      expect(h.repos.operatorRequests.steps(request.id).at(-1)).toMatchObject({
+        status: 'refused',
+        refusal: { code: 'operator_plan_required' },
+      });
+      expect(sent()).toHaveLength(0);
+    },
+  );
+
+  it.each(['owner', 'dev-1', 'operator', 'unknown'])('refuses message proposals to %s', async (to) => {
+    await setup();
+    await expect(operate({ op: 'message_send', to: [to], text: 'Hi' })).rejects.toMatchObject({
+      message: expect.stringContaining('operator_message_recipient'),
+    });
+    expect(sent()).toHaveLength(0);
+  });
+
+  it('keeps delegated critical proposals with owners and sends the exact text once', async () => {
+    await setup(false, (config) => {
+      config.team.boundary = { enabled: true, leadTimeoutSeconds: 60 };
+    });
+    const result = await operate({
+      op: 'message_send',
+      to: ['dana', 'dana'],
+      text: 'First paragraph.\n\nSecond paragraph.',
+    });
+    const item = h.domain.inbox.get('AR', result.inbox_item_id!);
+    expect(item.assignees).toEqual(['owner']);
+    expect(operatorApprovalOf(item)).toMatchObject({
+      plan,
+      operation: { to: ['dana'] },
+      expiresAt: expect.any(String),
+    });
+    expect(sent()).toHaveLength(0);
+    for (const resolver of [
+      { handle: 'dana', access: 'admin' as const },
+      { ...owner, via: 'integrator' as const },
+      { handle: 'operator', access: 'owner' as const },
+    ])
+      await expect(h.domain.operatorApprovals.apply(item, resolver, 'approve')).rejects.toMatchObject({
+        code: 'owner_approval_required',
+      });
+    await resolve(item.id);
+    expect(sent()).toMatchObject([{ body: 'First paragraph.\n\nSecond paragraph.', to: ['dana'] }]);
+    await expect(h.domain.operatorApprovals.apply(item, owner, 'approve')).rejects.toMatchObject({
+      code: 'operator_approval_used',
+    });
+    expect(sent()).toHaveLength(1);
+  });
+
+  it('consumes an approval atomically across concurrent applications', async () => {
+    await setup();
+    const result = await operate(message());
+    const item = h.domain.inbox.get('AR', result.inbox_item_id!);
+    const results = await Promise.allSettled([
+      h.domain.operatorApprovals.apply(item, owner, 'approve'),
+      h.domain.operatorApprovals.apply(item, owner, 'approve'),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected')).toMatchObject({
+      reason: { code: 'operator_approval_used' },
+    });
+    expect(sent()).toHaveLength(1);
+  });
+
+  it('rejects without sending and never replays a rejected proposal', async () => {
+    await setup();
+    const result = await operate(message());
+    const item = h.domain.inbox.get('AR', result.inbox_item_id!);
+    await resolve(item.id, 'reject');
+    await expect(h.domain.operatorApprovals.apply(item, owner, 'approve')).rejects.toMatchObject({
+      code: 'operator_approval_used',
+    });
+    expect(sent()).toHaveLength(0);
+  });
+
+  it('deduplicates concurrent submissions and persists deduplication across restart', async () => {
+    await setup(true);
+    const results = await Promise.all([operate(message()), operate(message())]);
+    expect(results[0]!.inbox_item_id).toBe(results[1]!.inbox_item_id);
+    expect(results.filter((r) => r.deduplicated)).toHaveLength(1);
+    const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
+    expect(h.repos.operatorRequests.steps(request.id)).toHaveLength(1);
+    h = await restartDomainHarness(h);
+    const again = await h.domain.operatorActions.run('AR', request.id, 'Same proposal', message(), plan);
+    expect(again).toMatchObject({ inbox_item_id: results[0]!.inbox_item_id, deduplicated: true });
+    expect(h.repos.operatorRequests.steps(request.id)).toHaveLength(1);
+  });
+
+  it.each(['message_send', 'session_stop'] as const)(
+    'expires %s after 24 hours without executing',
+    async (op) => {
+      let now = new Date('2026-10-15T12:00:00Z');
+      await setup(false, undefined, () => now);
+      await h.domain.messaging.sendReporting('AR', 'owner', { to: ['dev-1'], text: 'Start' });
+      await flush();
+      const target = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+      const result = await operate(op === 'message_send' ? message() : { op, sessionId: target.id });
+      now = new Date(now.getTime() + 24 * 60 * 60_000);
+      await expect(resolve(result.inbox_item_id!)).rejects.toMatchObject({ code: 'operator_approval_stale' });
+      expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))?.stale?.reason).toBe(
+        'expired',
+      );
+      expect(sent()).toHaveLength(0);
+      expect(h.domain.sessions.isRunning(target.id)).toBe(true);
+    },
+  );
+
+  it('sweeps expired proposals and allows an explicit new proposal', async () => {
+    let now = new Date();
+    await setup(false, undefined, () => now);
+    const result = await operate(message());
+    now = new Date(now.getTime() + 24 * 60 * 60_000);
+    h.domain.operatorApprovals.sweep();
+    expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))?.stale?.reason).toBe(
+      'expired',
+    );
+    const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
+    const again = await h.domain.operatorActions.run('AR', request.id, 'Try again', message(), plan);
+    expect(again.inbox_item_id).not.toBe(result.inbox_item_id);
+    expect(sent()).toHaveLength(0);
+  });
+
+  it('marks a consumed open proposal interrupted after restart without replay', async () => {
+    await setup(true);
+    const result = await operate(message());
+    expect(h.repos.operatorRequests.claimStep(result.step_id)).toBe(true);
+    h = await restartDomainHarness(h);
+    h.domain.operatorApprovals.sweep();
+    expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))?.stale?.reason).toBe(
+      'interrupted',
+    );
+    await expect(resolve(result.inbox_item_id!)).rejects.toMatchObject({ code: 'operator_approval_stale' });
+    expect(sent()).toHaveLength(0);
+  });
+
+  it('consumes a failed execution and makes the proposal dismiss-only', async () => {
+    await setup();
+    const result = await operate(message());
+    const send = vi.spyOn(h.domain.messaging, 'send').mockRejectedValueOnce(new Error('transport failed'));
+    await expect(resolve(result.inbox_item_id!)).rejects.toThrow('transport failed');
+    const item = h.domain.inbox.get('AR', result.inbox_item_id!);
+    expect(operatorApprovalOf(item)?.stale?.reason).toBe('interrupted');
+    expect(item.options.map((o) => o.id)).toEqual(['dismiss']);
+    await expect(resolve(item.id)).rejects.toMatchObject({ code: 'operator_approval_stale' });
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it('rechecks recipient membership before approval', async () => {
+    await setup();
+    const result = await operate(message());
+    await h.domain.members.removeHuman('AR', 'dana', by);
+    await expect(resolve(result.inbox_item_id!)).rejects.toMatchObject({ code: 'operator_approval_stale' });
+    expect(sent()).toHaveLength(0);
+  });
+
+  it.each([false, true])(
+    'refuses an entire direct Operator send to non-owner humans before storing any attachment (signal=%s)',
+    async (signal) => {
+      await setup();
+      await expect(
+        h.domain.teamTools.sendMessage(ctx, {
+          to: ['owner', 'dana'],
+          text: 'Hello',
+          kind: 'info',
+          attachments: ['missing.txt'],
+          ...(signal ? { signalId: 'ops_signal' } : {}),
+        }),
+      ).rejects.toMatchObject({ message: expect.stringContaining('operator_owner_approval') });
+      const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
+      expect(h.repos.operatorRequests.steps(request.id).at(-1)).toMatchObject({
+        status: 'refused',
+        member: 'dana',
+        refusal: { code: 'operator_owner_approval' },
+      });
+      expect(sent()).toHaveLength(0);
+      await expect(
+        h.domain.teamTools.sendMessage(ctx, { to: ['owner', 'dev-1'], text: 'Report', kind: 'info' }),
+      ).resolves.toBeDefined();
+    },
+  );
+
   it('allows only the owner to change the watch level, including clearing it', async () => {
     await setup();
     const patchAs = async (operatorWatch: 'report' | 'unblock' | 'drive' | null, meta: typeof by) =>

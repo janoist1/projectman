@@ -1,6 +1,8 @@
 import { isOperator, memberOf } from '@projectman/shared';
 import type {
   OperatorOperation,
+  ProposeOperatorKnowledgeRequest,
+  OperatorPlan,
   OperatorPreferenceData,
   ScreeningOutcome,
   QuestionTodo,
@@ -22,6 +24,7 @@ import type {
   OperatorActions,
   OperatorSignals,
   OperatorPreferences,
+  OperatorKnowledge,
 } from '../../services/operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
@@ -37,6 +40,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly taskStarts: TaskStarts;
   private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
   private readonly operatorPreferences: OperatorPreferences;
+  private readonly operatorKnowledge: OperatorKnowledge;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -50,6 +54,7 @@ export class OperatorTools implements OperatorToolsHandler {
     taskStarts: TaskStarts;
     operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
     operatorPreferences: OperatorPreferences;
+    operatorKnowledge: OperatorKnowledge;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -62,6 +67,28 @@ export class OperatorTools implements OperatorToolsHandler {
     this.taskStarts = deps.taskStarts;
     this.operatorSignals = deps.operatorSignals;
     this.operatorPreferences = deps.operatorPreferences;
+    this.operatorKnowledge = deps.operatorKnowledge;
+  }
+
+  async getOperatorKnowledge(ctx: ToolContext) {
+    await this.calls.caller(ctx, 'get_operator_knowledge');
+    return this.operatorKnowledge.get(ctx).catch((err: unknown) => {
+      if (err instanceof DomainError)
+        throw new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
+      throw err;
+    });
+  }
+
+  async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeOperatorKnowledgeRequest) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator may propose shared knowledge.');
+    await this.calls.callerWithRequest(ctx, 'propose_operator_knowledge');
+    return this.operatorKnowledge.propose(ctx, args).catch((err: unknown) => {
+      if (err instanceof DomainError)
+        throw new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
+      throw err;
+    });
   }
 
   async getOperatorPreference(ctx: ToolContext) {
@@ -132,13 +159,16 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
-  async operate(ctx: ToolContext, args: { title: string; operation: OperatorOperation }) {
+  async operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
+  ) {
     const config = await this.projects.config(ctx.projectKey);
     if (!isOperator(memberOf(config, ctx.member)))
       throw new TeamToolError('forbidden', 'operator_only: only the Operator may operate.');
-    const caller = await this.calls.callerWithRequest(ctx, 'operate');
+    const caller = await this.calls.callerWithRequest(ctx, 'operate', undefined, undefined, args.operation);
     return this.operatorActions
-      .run(ctx.projectKey, caller.request!.id, args.title, args.operation)
+      .run(ctx.projectKey, caller.request!.id, args.title, args.operation, args.plan)
       .catch((err: unknown) => {
         if (err instanceof DomainError)
           throw new TeamToolError(

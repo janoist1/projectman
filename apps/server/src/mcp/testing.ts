@@ -218,6 +218,19 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('mergeTask', ctx, args);
       return { task: findTask(args.taskKey).task };
     },
+    async getOperatorKnowledge(ctx) {
+      await enter('getOperatorKnowledge', ctx, {});
+      return { schemaVersion: 1, revision: 0, agreement: null, principles: [], appliedProposalIds: [] };
+    },
+    async proposeOperatorKnowledge(ctx, args) {
+      await enter('proposeOperatorKnowledge', ctx, args);
+      return {
+        status: 'awaiting_approval',
+        inbox_item_id: 'inb_fake',
+        step_id: 'ops_fake',
+        base_revision: args.expected_revision,
+      };
+    },
     async prioritizeMerge(ctx, args) {
       await enter('prioritizeMerge', ctx, args);
       return { task: findTask(args.taskKey).task, moved: true };

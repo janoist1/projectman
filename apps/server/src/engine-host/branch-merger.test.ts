@@ -412,6 +412,19 @@ describe('checkoutForCheck and releaseCheck', () => {
     expect(existsSync(made.path)).toBe(false);
   });
 
+  it('reports a dependency copy timeout as git_failed and releases the checkout', async () => {
+    const { repo, worktreesRoot } = fixture({ withRemote: false });
+    const deps = path.join(root, `deps-timeout-${counter}`);
+    write(deps, 'node_modules/pkg/index.js', 'package');
+    const merger = createLocalBranchMerger({ repoPath: () => repo, worktreesRoot, copyTimeoutMs: 0 });
+    const mergeId = 'mrg_timeout0001';
+    await expect(
+      merger.checkoutForCheck(REF, { mergeId, mergeCommit: git(repo, 'rev-parse', 'HEAD'), depsFrom: deps }),
+    ).rejects.toMatchObject({ code: 'git_failed', message: 'copying the dependencies timed out' });
+    expect(existsSync(path.join(worktreesRoot, MERGE_CHECK_DIR, mergeId))).toBe(false);
+    expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain(mergeId);
+  });
+
   it('does not copy dependencies through a link the merged tree tracks, out of the checkout', async () => {
     const { merger, repo } = fixture({ withRemote: false });
     const outside = path.join(root, `outside-${counter}`);

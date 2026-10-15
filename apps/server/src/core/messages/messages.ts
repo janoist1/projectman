@@ -5,6 +5,8 @@ import {
   memberOf,
   messageRoute,
   operatorConversationOf,
+  operatorKnowledgeApprovalOf,
+  operatorKnowledgeContinuationOf,
   sameWorkItem,
   threadPeersOf,
 } from '@projectman/shared';
@@ -158,6 +160,12 @@ export class MessageService {
   }
 
   markRecipientDelivered(id: string, handle: string): TeamMessage | null {
+    // Receipt and authorization must commit together: a crash cannot consume a continuation
+    // without opening its request, nor open a request for a receipt that rolled back.
+    return this.ctx.unitOfWork(() => this.markRecipientDeliveredLocked(id, handle));
+  }
+
+  private markRecipientDeliveredLocked(id: string, handle: string): TeamMessage | null {
     const before = this.ctx.repos.messages.get(id);
     if (!before) return null;
     const at = isoNow(this.ctx);
@@ -228,6 +236,42 @@ export class MessageService {
   private openOperatorRequest(message: TeamMessage, handle: string): void {
     const config = this.projects.cachedConfig(message.projectKey);
     if (!config || !isOperator(memberOf(config, handle))) return;
+    if (message.origin?.kind === 'operator_knowledge_approval') {
+      const item = this.ctx.repos.inbox.get(message.origin.inboxItemId);
+      const payload = item && operatorKnowledgeApprovalOf(item);
+      const owner = memberOf(config, message.from);
+      const session = this.ctx.repos.sessions.findByWorkItem(message.projectKey, handle, { type: 'general' });
+      if (!item || !payload || !session || !message.to.includes(handle)) return;
+      const approved = operatorKnowledgeContinuationOf(item, {
+        projectKey: message.projectKey,
+        operator: handle,
+        from: message.from,
+        messageId: message.id,
+        via: message.via,
+        owner: owner?.kind === 'human' && owner.access === 'owner',
+        approvedStep: this.ctx.repos.operatorRequests
+          .steps(payload.requestId)
+          .some(
+            (step) =>
+              step.id === payload.stepId &&
+              step.inboxItemId === item.id &&
+              step.status === 'approved' &&
+              step.action === 'knowledge_change',
+          ),
+      });
+      // A malformed approval origin must never fall back to a normal human-message request.
+      if (!approved) return;
+      this.operatorRequests.open({
+        projectKey: message.projectKey,
+        sessionId: session.id,
+        source: 'approval',
+        messageId: message.id,
+        inboxItemId: item.id,
+        from: message.from,
+        text: message.body,
+      });
+      return;
+    }
     const facts = wakeFactsFor(this.ctx, config, message, handle);
     if (!facts.fromHuman || !facts.fromOwnLogin) return;
     const session = this.ctx.repos.sessions.findByWorkItem(

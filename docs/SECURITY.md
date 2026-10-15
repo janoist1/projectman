@@ -252,8 +252,9 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   non-regular or hard-linked files, and writes complete JSON through a synced 0600 temporary file
   and same-directory atomic rename in 0700 directories. Target-file CAS is serialized within the
   server process; corrupt files and stale revisions are refused without overwriting. PM-688 adds
-  the personal-preference MCP writer and REST readers described below; agreements and learned
-  principles gain no writer here, and the storage has no engine file mount.
+  the personal-preference MCP writer and REST readers described below; PM-689 adds the
+  owner-approved agreement and learned-principle writer described below. The storage has no
+  engine file mount.
 - Request logging omits bodies, credentials and query strings, and redacts hook,
   MCP and invitation URL tokens. Unknown-route/parser errors do not echo request
   secrets. Authentication records are not broadcast. Markdown builds escaped React
@@ -310,6 +311,40 @@ project `.codex` skills and rules also stop Codex members; expanding the allowli
 card. NanoGPT retains its launch-time `any` refusal; its failed-row-per-retry behavior (PM-329)
 is outside this change. On remote engines inspection must run beside the CLI, returning only
 relative file/key names to the server.
+
+## Shared Operator knowledge approval (PM-689)
+
+`propose_operator_knowledge` requires an internal Operator general session with an open owner
+message or answer request. Signal, watch, web and approval-continuation requests cannot propose
+knowledge. A proposal writes an approval inbox item and a step, without changing the private
+knowledge or configuration. Only an owner using their own login may approve, reject or dismiss
+through the registered `operator_knowledge` decider; AI members, admins and integrators cannot
+decide. The human resolver is persisted in `applying` before the file CAS under the same project
+configuration lock as configuration commits. A persisted proposal marker makes replay
+idempotent; recovery closes an already committed proposal with its recorded human resolver,
+and a missing marker requires another human click. Stale and rejected proposals write no knowledge.
+
+`get_operator_knowledge` reads only from the actual internal, `with`-less general session of the
+Operator or project manager. The Operator's owner conversation and system-signal context may
+receive shared knowledge; the PM's internal general context may receive it when started by a
+human with developer access or higher, or by the system. Customer, guest/`with`, forged-human
+and integrator starts receive none. The context contains only `revision`, `agreement` and
+`principles` as quoted JSON data below the fixed instructions; `appliedProposalIds` stays out of
+the prompt. These data grant no permissions. REST knowledge reads require owner/admin access
+using their own login. Knowledge approval inbox items, including their titles and payloads,
+are private to those same readers in open and historical lists and websocket events.
+
+Agreement proposals may store recommended operations, but approval executes none of them.
+While the request's agreement proposal is pending, `operator_agreement_pending` blocks its
+operations, including immediate configuration changes, at the action and commit boundaries.
+Approval creates a server-authored continuation with human provenance and a deterministic
+message id. It can open an `approval` request only once, after matching the human resolver,
+`applying` identity, approved step and message origin, with no rule or integrator attribution.
+This request permits only `operate` calls canonically matching its stored operations; it cannot
+send messages or propose knowledge. Forbidden operations remain forbidden, and protected
+configuration changes still need a separate owner approval. The operation steps show actual
+before/after values and partial outcomes; knowledge approval never means that all settings
+have been applied.
 
 ## Operator actions and approvals (PM-464)
 
@@ -377,6 +412,38 @@ stops require the same running session ID and start time; pause changes require 
 same pause state. Changed proposals become stale, execute nothing and remain open
 with only `dismiss` available. Configuration commits, session endings and pause changes
 also trigger proactive checks. The Operator cannot stop its own session.
+
+### Critical Operator steps (PM-700)
+
+Stopping another AI member's session (`session_stop`) and sending unsolicited or forwarded
+content to a non-owner human (`message_send`) require a typed `operate` proposal, a plan
+(`why`, `impact`, `reversible`), and the owner's own-login approval of the exact operation.
+Owners see the full message and recipients before approving. Delegation and
+`boundary_authorization` never decide these proposals. Direct `send_message` to a non-owner
+human is refused in its entirety, including mixed recipients and attachments. The Operator
+may still answer its guest in that person's own conversation, using only what they can see.
+
+Critical proposals expire after 24 hours. Approval checks the current target, configuration,
+session identity and start time, then atomically consumes the persisted step before the
+server invokes the existing session or messaging service. Competing clicks cannot execute
+twice. A crash after consumption is marked `interrupted` at startup or by the 60-second
+sweep; it never automatically replays, even if the side effect may already have happened.
+Execution failures also consume the proposal. Expired or changed proposals become stale;
+rejection executes nothing. Results are recorded for the Operator to report in the owners'
+conversation; proposed non-owner recipients receive no rejection or expiry notification.
+Identical open, non-stale proposals from the same Operator in a project reuse their persisted
+item without another step, including across restart. Closed or stale proposals may be requested
+again. Old inbox items without a plan or expiry remain readable.
+
+The operation union is closed and rejects extra fields, including commands and credentials;
+plan fields are descriptive data, never executable instructions. There is no raw command
+adapter. Missing capabilities are reported to the owner with a plan and a capability-gap card
+(PM-472). No approval enables merge, release, human access, decisions, approval labels,
+another member's transcript or secrets. Code, database, production, secrets, publishing,
+deployment, cost and remote access remain critical even under Operator relaxation (PM-691,
+PM-692). The CLI permission requester is unchanged. All proposal, claim and execution work
+runs on the server through existing facades, including on a read-only Mac Operator; no
+isolated or remote engine feature is required.
 
 `start_task` may override prerequisites with `despitePrerequisites`, just as the owner's
 Start button does, but cannot override a fix-limit hold. Policy-controlled temporary

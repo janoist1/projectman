@@ -13,7 +13,8 @@ import os from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fullTestSandbox } from '../src/runtime/sessions';
-import { createFullTestExecutor, runDirOf, runPaths } from '../src/full-test';
+import { createFullTestExecutor, fullTestEnv, runDirOf, runPaths, runSandboxed } from '../src/full-test';
+import { installerSettings } from '../src/full-test/sandbox';
 import { silentLogger } from '../src/runner/test-helpers';
 
 /**
@@ -91,6 +92,38 @@ if (problems.length) { console.log('PROBLEMS: ' + problems.join('; ')); process.
 
 const logger = silentLogger();
 
+// A fake lifecycle script: exercises the installer policy without invoking npm or downloading packages.
+const INSTALLER_PROBE = `
+import { mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+import { createServer } from 'node:net';
+const [secret, hostConfig, marker, sandboxHome, userConfig, globalConfig] = process.argv.slice(2);
+const problems = [];
+const refused = (name, fn) => {
+  try { fn(); problems.push(name + ' worked'); }
+  catch (err) { if (!['EPERM', 'EACCES'].includes(err.code)) problems.push(name + ': ' + err.code); }
+};
+for (const file of ['package.json', 'package-lock.json', 'source.ts', '.git/config', marker, userConfig, globalConfig])
+  refused('writing ' + file, () => writeFileSync(file, 'changed'));
+for (const file of [secret, hostConfig, marker]) refused('reading ' + file, () => readFileSync(file));
+for (const file of [userConfig, globalConfig]) if (readFileSync(file, 'utf8') !== '') problems.push('nonempty npm config');
+for (const dir of ['node_modules', 'apps/server/node_modules', sandboxHome]) {
+  mkdirSync(dir, { recursive: true }); writeFileSync(dir + '/installed', 'ok');
+}
+symlinkSync('../source.ts', 'node_modules/source-link');
+refused('writing source via package link', () => writeFileSync('node_modules/source-link', 'changed'));
+for (const dir of ['/tmp/claude', '/private/tmp/claude']) refused('shared tmp', () => mkdirSync(dir + '/installer', { recursive: true }));
+await new Promise(resolve => {
+  const server = createServer();
+  server.on('error', err => { if (!['EPERM', 'EACCES'].includes(err.code)) problems.push('binding: ' + err.code); resolve(); });
+  server.listen(0, '127.0.0.1', () => { problems.push('local binding worked'); server.close(resolve); });
+});
+try {
+  const response = await fetch('https://example.com', { signal: AbortSignal.timeout(5000) });
+  if (response.status !== 403) problems.push('unexpected outbound response: ' + response.status);
+} catch {}
+if (problems.length) { console.log(problems.join('; ')); process.exit(1); }
+`;
+
 // Seatbelt cannot start a nested srt sandbox (sandbox_apply: Operation not permitted).
 describe.skipIf(process.platform !== 'darwin' || process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1')(
   'the full test sandbox',
@@ -146,6 +179,72 @@ describe.skipIf(process.platform !== 'darwin' || process.env.PROJECTMAN_FULL_TES
     it('reports the sandbox as available', async () => {
       expect(await executor().available()).toEqual({ ok: true });
     });
+
+    it(
+      'confines a fake installer to package trees and its private sandbox paths',
+      { timeout: 120_000 },
+      async () => {
+        const id = runIdOf('installer');
+        const paths = runPaths(runDirOf(tmpDir, '/private/tmp', id));
+        const installCheckout = join(userHome, 'installer-check');
+        const hostConfig = join(userHome, '.npmrc');
+        const store = join(userHome, 'dependency-store');
+        const marker = join(store, 'ready.json');
+        mkdirSync(join(installCheckout, 'apps/server'), { recursive: true });
+        mkdirSync(join(installCheckout, '.git'));
+        mkdirSync(store);
+        writeFileSync(marker, '{}');
+        writeFileSync(hostConfig, 'fixture-only');
+        for (const file of ['package.json', 'package-lock.json', 'source.ts', '.git/config'])
+          writeFileSync(join(installCheckout, file), '{}');
+        writeFileSync(join(installCheckout, 'installer-probe.mjs'), INSTALLER_PROBE);
+        const installSpec = {
+          ...spec(id, ''),
+          cwd: installCheckout,
+          sandbox: fullTestSandbox({ checkout: installCheckout, userHome }),
+        };
+        mkdirSync(paths.runDir, { mode: 0o700 });
+        for (const dir of [paths.home, paths.tmp, paths.npmCache]) mkdirSync(dir, { recursive: true });
+        for (const file of [paths.npmUserConfig, paths.npmGlobalConfig])
+          writeFileSync(file, '', { mode: 0o600 });
+        writeFileSync(
+          paths.installerSettings,
+          JSON.stringify(
+            installerSettings(
+              installSpec,
+              paths,
+              ['node_modules', 'apps/server/node_modules'].map((dir) => join(installCheckout, dir)),
+            ),
+          ),
+        );
+        try {
+          const args = [
+            secretFile,
+            hostConfig,
+            marker,
+            paths.home,
+            paths.npmUserConfig,
+            paths.npmGlobalConfig,
+          ]
+            .map((value) => `'${value}'`)
+            .join(' ');
+          const result = await runSandboxed({
+            cwd: installCheckout,
+            command: `node installer-probe.mjs ${args}`,
+            settings: paths.installerSettings,
+            env: fullTestEnv(paths, 2),
+            timeoutMs: 60_000,
+            signal: new AbortController().signal,
+          });
+          expect(result.exitCode, result.output).toBe(0);
+          expect(result).toMatchObject({ exitCode: 0, aborted: false, timedOut: false });
+          expect(readFileSync(join(installCheckout, 'source.ts'), 'utf8')).toBe('{}');
+          expect(readFileSync(marker, 'utf8')).toBe('{}');
+        } finally {
+          rmSync(paths.runDir, { recursive: true, force: true });
+        }
+      },
+    );
 
     it(
       'runs the command with a PTY, a read-only checkout, a closed home, no outside network and a clean environment',

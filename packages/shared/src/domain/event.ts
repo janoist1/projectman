@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { OperatorKnowledgeChange } from './operator-knowledge';
 import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
@@ -76,6 +77,7 @@ export const TimelineEventType = z.enum([
   'member_hired',
   'member_retired',
   'config_changed',
+  'operator_knowledge_changed',
   'focus_changed',
   'team_paused',
   'team_resumed',
@@ -502,6 +504,12 @@ export interface TimelineEventData {
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };
   config_changed: { version: string; message: string };
+  operator_knowledge_changed: {
+    proposalId: string;
+    kind: OperatorKnowledgeChange['kind'];
+    revision: number;
+    agreementVersion: number | null;
+  };
   /**
    * The project's focus changed (PM-427; the actor is the person who set it). Places are 1-based: a
    * removed item has `position` null, an added one `previous` null. `added` and `removed` are recorded on

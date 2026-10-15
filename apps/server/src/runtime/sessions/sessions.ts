@@ -49,6 +49,7 @@ import type {
   AttachmentOperations,
   CardWorker,
   ContextPackBuilder,
+  ContextPackInput,
   MemberMemoryStore,
   MemberWorkspaceManager,
   EngineDirectory,
@@ -148,6 +149,15 @@ export interface SessionOrchestratorDeps {
   /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
+  /** Server-side projection of approved shared data for internal general conversations only. */
+  operatorKnowledge: {
+    forConversation(
+      projectKey: string,
+      member: string,
+      workItem: WorkItemRef,
+      cause: SessionStartCause | null,
+    ): Promise<ContextPackInput['operatorKnowledge']>;
+  };
   /** Server-side selection of the current conversational partner's style only. */
   operatorPreferences: {
     forConversation(

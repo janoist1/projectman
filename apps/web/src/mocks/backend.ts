@@ -76,6 +76,7 @@ import {
   canDeleteAttachment,
   canReadAttachments,
   canSeeTask,
+  canSeeInboxItem,
   canSeeTeamMessage,
   isUnreadBy,
   threadPeersOf,
@@ -623,6 +624,7 @@ export class MockBackend {
 
   /** Publishes a project event to every subscribed connection. */
   emit(event: ServerEvent): void {
+    if (event.type === 'inbox_upserted' && !canSeeInboxItem(this.taskViewer(), event.item)) return;
     if (
       (event.type === 'team_message' || event.type === 'team_message_updated') &&
       !canSeeTeamMessage(this.taskViewer(), event.message)
@@ -1638,7 +1640,10 @@ export class MockBackend {
       tasks: this.tasks.filter((task) => this.canSee(task)).map((task) => this.forViewer(task)),
       members: this.members.filter((member) => member.status !== 'retired').map((m) => this.viewOf(m)),
       openInboxCount: this.inbox.filter(
-        (item) => item.state === 'open' && item.assignees.includes(this.owner),
+        (item) =>
+          item.state === 'open' &&
+          item.assignees.includes(this.owner) &&
+          canSeeInboxItem(this.taskViewer(), item),
       ).length,
       aiEnabled: this.config.team.limits.aiEnabled,
       // A client member does not see it (like the server).
@@ -2411,14 +2416,12 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.refreshBoundaryInbox();
-      // A client sees only the items addressed to them, and an Operator proposal is its assignees' to see
-      // (the server lists it for no one else).
-      const client = this.findMember(this.viewerHandle)?.role === 'client';
+      // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(
           this.inbox.filter(
             (item) =>
-              (!client || item.assignees.includes(this.viewerHandle)) &&
+              canSeeInboxItem(this.taskViewer(), item) &&
               (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
           ),
         ),
@@ -5664,16 +5667,24 @@ export class MockBackend {
     const step = this.operatorRequests
       .flatMap((request) => request.steps)
       .find((candidate) => candidate.id === payload.stepId);
+    if (step && step.status !== 'awaiting_approval' && !payload.stale)
+      return error(409, 'operator_approval_used', 'The proposal has already been consumed');
+    const expired = !!payload.expiresAt && Date.parse(payload.expiresAt) <= Date.now();
     if (
       optionId === 'approve' &&
-      (payload.stale || (payload.baseVersion !== null && payload.baseVersion !== this.configVersion))
+      (payload.stale ||
+        expired ||
+        (payload.baseVersion !== null && payload.baseVersion !== this.configVersion))
     ) {
       this.upsertInbox({
         ...item,
         options: [OPERATOR_DISMISS_OPTION],
         payload: {
           ...item.payload,
-          operator: { ...payload, stale: payload.stale ?? { reason: 'config_changed', at: nowIso() } },
+          operator: {
+            ...payload,
+            stale: payload.stale ?? { reason: expired ? 'expired' : 'config_changed', at: nowIso() },
+          },
         },
       });
       if (step) step.status = 'stale';
@@ -5982,7 +5993,8 @@ export class MockBackend {
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
     if (!input) return error(400, 'invalid_request', 'Invalid inbox resolution');
-    if (!item) return error(404, 'not_found', 'Unknown inbox item');
+    if (!item || !canSeeInboxItem(this.taskViewer(), item))
+      return error(404, 'not_found', 'Unknown inbox item');
     if (input.attachmentIds !== undefined && item.kind !== 'question')
       return error(400, 'invalid_request', 'Only questions accept attachmentIds', { field: 'attachmentIds' });
     if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already resolved');

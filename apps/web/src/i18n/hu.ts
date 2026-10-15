@@ -906,12 +906,17 @@ export const hu = {
       operator_knowledge_stale: 'Az Operátor adatai időközben megváltoztak. Olvasd be őket újra.',
       operator_knowledge_limit: 'Az Operátor jóváhagyási adattára megtelt.',
       operator_signal_closed: 'Ez a jelzés már nem nyitott.',
+      operator_approval_used: 'Ez a lépés már lefutott, másodszor nem indul el.',
+      operator_plan_required: 'Ehhez a lépéshez terv kell: miért, mi a hatása, visszavonható-e.',
+      operator_message_recipient: 'Így csak nem tulajdonos embernek lehet üzenetet küldeni.',
+      operator_owner_approval: 'Nem tulajdonos embernek az Operátor csak a tulajdonos jóváhagyásával írhat.',
       operator_signal_not_dismissible: 'Ezt a jelzést az Operátor nem zárhatja le.',
       operator_signal_budget:
         'Ehhez a jelzéshez az Operátor lépéskerete elfogyott, vagy még nem telt el elég idő az előző lépés óta.',
       not_card_role: 'Erre a kártyára nincs szerepe a címzettnek, ezért nem indítható rajta keresztül.',
       operator_approval_stale:
         'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
+      operator_agreement_pending: 'A megállapodás még jóváhagyásra vár. Előbb dönts róla.',
       docs_not_configured:
         'A döntésnapló vagy a roadmap nincs beállítva: add meg a fájl helyét a tároló beállításaiban.',
       docs_edit_not_found: 'A cserélendő szöveg nincs a fájlban; olvasd újra a fájlt, és pontosan másold ki.',
@@ -2757,6 +2762,7 @@ export const hu = {
         project_resume: 'A projekt szünetének feloldása',
         docs_write: 'Döntésnapló vagy roadmap írása',
         decision_offer: 'Döntésjelöltek jelölése',
+        knowledge_change: 'Megállapodás vagy tanult elv módosítása',
       },
     },
     change: {
@@ -2810,6 +2816,20 @@ export const hu = {
       },
     },
     approval: {
+      plan: 'A terv',
+      planWhy: 'Miért',
+      planImpact: 'Hatás',
+      planReversible: 'Visszavonható?',
+      reversibleYes: 'Igen, visszafordítható',
+      reversibleNo: 'Nem vonható vissza',
+      recipients: 'Kinek',
+      guest: '· vendég',
+      message: 'Az üzenet',
+      messageExact: 'Pontosan ez megy ki, az Operátor nevében.',
+      messageExactTask: 'Pontosan ez megy ki, az Operátor nevében, a {key} kártyáról.',
+      expires: 'Lejár: {time}. Ha addig nem döntesz, nem történik semmi.',
+      expiresSoon: '{minutes} perc múlva lejár. Ha addig nem döntesz, nem történik semmi.',
+      send: 'Elküldöm',
       asked: 'Kérted: „{quote}”',
       quoteMore: 'Az egész idézet',
       quoteLess: 'Rövidebben',
@@ -2823,6 +2843,10 @@ export const hu = {
       ok: 'Rendben',
       stale: 'Elavult',
       staleReasons: {
+        expired:
+          'Lejárt, mert 24 órán belül nem döntöttél róla, ezért nem történt semmi. Ha még kell, kérd újra az Operátortól.',
+        interrupted:
+          'A végrehajtás megszakadt, és biztonsági okból nem indul újra. Nézd meg, megtörtént-e; ha még kell, kérd újra az Operátortól.',
         config_changed:
           'Közben megváltozott a beállítás, ezért ez a kérés már nem futtatható. Szóltam az Operátornak; ha még kell, kérd újra tőle.',
         session_changed:
@@ -2835,6 +2859,8 @@ export const hu = {
       decidedApproved: 'Jóváhagytad · {time}',
       decidedRejected: 'Elvetetted · {time}',
       consequences: {
+        message_send:
+          'Jóváhagyás után az üzenet egyszer megy ki. Ha elveted, nem megy ki semmi, és a címzett nem kap értesítést.',
         operator_watch:
           'A már kiadott jelzések nem változnak; az Operátor a következő ébredésétől e szerint lép jelzésre.',
         network: 'A futó munkamenetek nem változnak; a hálózati szabály az újonnan indulókra érvényes.',
@@ -4283,6 +4309,8 @@ export const hu = {
       member_retired: 'Elbocsátva: {handle}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
+      operator_knowledge_changed:
+        'Az Operátor megállapodása vagy tanult elvei módosítva. Változat: {revision}.',
       // PM-427 4/4 refines these; the wording here keeps the timeline readable meanwhile.
       focus_added: 'A fókuszba tette: {title}',
       focus_removed: 'Levette a fókuszról: {title}',

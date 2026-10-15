@@ -3,6 +3,8 @@ import {
   OperatorApprovalPayload,
   OperatorMemberChanges,
   OperatorOperation,
+  OperatorPlan,
+  operatorCriticalOp,
   operatorApprovalOf,
   OperatorSignal,
   OperatorChannel,
@@ -10,6 +12,55 @@ import {
 } from './dto';
 
 describe('Operator operation contracts', () => {
+  it('accepts bounded typed messages and refuses commands, credentials and unsupported operations', () => {
+    const message = { op: 'message_send', to: ['guest'], text: 'Exact text' };
+    expect(OperatorOperation.parse(message)).toEqual(message);
+    for (const extra of [
+      { command: 'echo unsafe' },
+      { token: 'credential-placeholder' },
+      { sessionId: 'other-session' },
+    ])
+      expect(OperatorOperation.safeParse({ ...message, ...extra }).success).toBe(false);
+    for (const to of [[], Array.from({ length: 11 }, (_, i) => `guest-${i}`)])
+      expect(OperatorOperation.safeParse({ ...message, to }).success).toBe(false);
+    expect(
+      OperatorOperation.safeParse({ ...message, to: Array.from({ length: 10 }, (_, i) => `guest-${i}`) })
+        .success,
+    ).toBe(true);
+    for (const text of ['', ' ', 'a'.repeat(20_001)])
+      expect(OperatorOperation.safeParse({ ...message, text }).success).toBe(false);
+    expect(OperatorOperation.safeParse({ ...message, text: 'a'.repeat(20_000) }).success).toBe(true);
+    for (const op of [
+      'merge',
+      'release',
+      'access_change',
+      'decision',
+      'approval_label',
+      'transcript',
+      'shell',
+    ])
+      expect(OperatorOperation.safeParse({ op }).success).toBe(false);
+    expect(
+      OperatorOperation.safeParse({ op: 'session_stop', sessionId: 'target', command: 'stop' }).success,
+    ).toBe(false);
+  });
+
+  it('validates descriptive plans and identifies only the two critical operations', () => {
+    const plan = { why: ' Explain ', impact: ' One guest ', reversible: false };
+    expect(OperatorPlan.parse(plan)).toEqual({ why: 'Explain', impact: 'One guest', reversible: false });
+    for (const change of [
+      { why: '' },
+      { impact: 'a'.repeat(501) },
+      { reversible: 'yes' },
+      { command: 'unsafe' },
+      { credential: 'placeholder' },
+    ])
+      expect(OperatorPlan.safeParse({ ...plan, ...change }).success).toBe(false);
+    expect(operatorCriticalOp('message_send')).toBe(true);
+    expect(operatorCriticalOp('session_stop')).toBe(true);
+    expect(operatorCriticalOp('member_update')).toBe(false);
+    expect(operatorCriticalOp('project_pause')).toBe(false);
+  });
   it('validates system signal kinds, states and owner decision message references', () => {
     const signal = {
       id: 'ops_1',

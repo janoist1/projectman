@@ -744,6 +744,22 @@ The session launcher requests only its current human's five enum fields through 
 server port; signal and question-screening launches receive none. Guest contexts omit
 member memory. Style is rendered as validated JSON data and grants no authority.
 
+Shared approved agreement and principles (PM-689) live in `services/operator/knowledge.ts`.
+Only an Operator owner message/answer can propose them. The inbox's registered
+`operator_knowledge` decider accepts a human owner's own-login decision; the private CAS
+shares `ProjectService.withConfigurationLock` with configuration commits. The inbox stores
+the applying human before CAS, and the file stores the proposal marker with the new revision.
+Startup completes only marked writes with that same human resolver. Rejected or stale proposals
+write nothing. Agreement approval does not apply its recommended configuration operations or
+replace their separate protected approvals. Internal PM general sessions may read the shared
+document, but cannot propose or write it. Context carries only revision, agreement and principles
+as JSON data below the fixed instructions, with no application markers or silent truncation.
+An agreement's recommended operations are sent as a durable server-generated message with
+`operator_knowledge_approval` origin. Delivery verifies the resolved inbox, matching applying human,
+approved step and current owner/Operator before opening an idempotent `approval` request. That
+request permits only `operate` with an exact stored operation; other writes require a fresh owner
+message or answer. Startup retries undelivered continuations; a consumed one never reopens.
+
 **Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
 behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
 an Effect program: `kernel`, `runtime/sessions`, `runtime/delivery`, `runtime/watchers`,
@@ -1287,6 +1303,10 @@ workers follow the machine's size.
   sandbox, no `onStarted`), so the merge blocks as `check_error` and never runs one without the queue.
   A merge train (PM-660) submits one common candidate through that same executor and lock;
   its repository slot and card locks do not permit parallel heavy runs or bypass the queue.
+  Dependency preparation (`FullTestSpec.npmCi`, PM-710) requires that lock too: probes, sandboxed
+  `npm ci`, dependency copies, generation publication and the test share one reservation and one
+  `timeoutMs` budget after waiting. `onStarted` fires once; each probe gets at most 60 seconds and
+  every child gets only the remaining budget. Abort waits for the running child before cleanup and release.
 - **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
   npm cache when there is no clone). The same folder and variables go to a Codex member as
@@ -1322,8 +1342,9 @@ workers follow the machine's size.
   (example, principle and effect), and each member's enumerated conversational preferences in
   `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
   These records are outside the public repository and the customization git history. PM-688 adds
-  only a session-bound personal preference MCP writer and authenticated REST reads; knowledge
-  writes remain private. Missing documents start at revision zero; invalid documents are refused
+  a session-bound personal preference MCP writer and authenticated REST reads. PM-689 adds
+  owner-approved agreement/principle CAS and marker recovery under the server's configuration
+  lock; the store remains private. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -1332,8 +1353,10 @@ workers follow the machine's size.
   root to member file tools and the existing session-policy/provider consumers; no separate
   provider rule or new permission is added.
   **Remote engine:** storage stays on the server, with no file mount on an engine. Context/MCP
-  services send only the current person's five preference enums across the existing boundary
-  (PM-688), with no new engine file or machine assumption.
+  services send the current person's five preference enums (PM-688), or the filtered shared
+  revision/agreement/principles to internal Operator/PM contexts and authorized MCP reads
+  (PM-689), across the existing boundary. Markers never enter context. No new engine file or
+  machine assumption is introduced.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
@@ -2021,7 +2044,7 @@ assumption or remote-engine RPC.
   **Remote engine:** run this integration harness and its fake together on the engine;
   these test-only paths never cross the production server/engine boundary.
   **Module:** `runner`
-- **Dependency clones and refreshes** — `worktree/dependencies.ts`, `cloneDependencies`,
+- **Dependency clones and refreshes** — `worktree/{dependencies,dependency-copy}.ts`, `cloneDependencies`,
   `worktree/worktree-manager.ts`, `ensureForTask` (PM-334, PM-412).
   Copies installed `node_modules` from another checkout with the same lockfile using
   `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Missing or
@@ -2031,6 +2054,11 @@ assumption or remote-engine RPC.
   The merge check uses the same reference-selection rule via `findDependencyReference` on the engine
   (`engine-host/merge-check.ts`, PM-580), selecting against the merged lockfile and blocking with
   `check_error` before running checks when no installed source matches.
+  The merge source copy and full-test dependency store use `copyDependencyTrees` through the worktree
+  facade (PM-710): root plus two workspace levels, relative links preserved, Darwin clone with plain-copy
+  fallback, existing targets and linked parents skipped, local `.vite`, `.vite-temp` and `.cache` removed.
+  Its shared deadline and abort stop and await the copying child. Store skeletons create only the
+  real workspace parents identified from the merged lockfile. Task-session cloning keeps its existing path.
   Per-worktree serialization and directory backups protect replacements; a server-start lifetime registry
   restricts targets, failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
   time for preparation (`runner/hook-forwarder.ts`, 120 seconds for Claude and Codex).
@@ -2054,6 +2082,8 @@ assumption or remote-engine RPC.
   folder stops a member's heavy command (exit 78); the server's full test runs without the queue
   and warns (PM-346), except a merge check (`FullTestSpec.requireHeavyLock`, PM-658), which ends as
   `error` / `heavy_lock_unavailable` before anything starts.
+  Optional merge dependency preparation (PM-710) shares that mandatory reservation with the test and
+  publishes at most one current and one temporary dependency generation per repository on this host.
   **Remote engine:** queue competing runs on each execution host and size workers there;
   `requireHeavyLock` and the `heavy_lock_unavailable` result cross the `full_test.run` boundary and the
   lock directory, PIDs and queue stay on the engine's machine. An older engine's strict spec schema
@@ -2500,15 +2530,39 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
-  **Dependency preparation request (PM-681 part 1, PM-709):** `FullTestSpec.npmCi` (`contracts/full-test.ts`,
-  also in the strict `full_test.run` schema) asks the engine to prepare the dependencies of a merge check
-  before the command. Nothing sets it yet, and no executor prepares them: `full-test/index.ts` answers it at once
-  with `error` / `dependency_install_failed`, before the queue, the run directory or `onStarted`, so a test never
-  starts because the schema accepts the request. `engine-link/remote/host.ts` maps an older engine's
-  `invalid_params` for a request with `npmCi` to the same error, never repeating it without the field. The
-  identity of a prepared tree is `full-test/npm-dependency-key.ts`: a pure SHA-256 of the lock and manifest bytes
-  and the engine's own platform, arch, Node and npm versions (no I/O). The key is made on the engine, never sent
-  by the server.
+  **Dependency preparation (PM-709, PM-710):** optional `FullTestSpec.npmCi` prepares dependencies under
+  the required heavy lock before the test. `full-test/npm-ci.ts` and `assertNpmCiCheckout` bind it to a real,
+  canonical `<worktreesRoot>/_merge/<mergeId>` checkout. The engine limit additionally checks the registered,
+  merge-enabled repository and its exact full-test command. Both app factories receive their engine-local
+  `<home>/worktrees`; an absent root refuses preparation. Merge callers are connected separately in PM-711.
+  A separate installer settings file allows only root/local workspace `node_modules` writes and the run's
+  own home/tmp/npm cache; source, lock/manifests and git metadata remain read-only. Linked input files,
+  workspace parents, package targets and tracked package paths are refused. The fixed `npm ci` command
+  refuses any root `.npmrc` or `npm-shrinkwrap.json` entry, including links or directories, at every input
+  read: neither may override the lock/configuration identified by the shared dependency key.
+  Every input read also refuses local `preinstall`, `install`, `postinstall`, `prepublish`, `preprepare`,
+  `prepare`, `postprepare` or `dependencies` scripts and any `binding.gyp` entry in the root or a lock-listed
+  workspace, preventing unkeyed source from affecting the shared installation; external dependency scripts still run.
+  Its tracked-path probe emits fixed NUL-terminated records so diagnostics cannot masquerade as paths. It
+  includes dev/optional packages and lifecycle scripts, uses two distinct empty npm config files and an
+  environment allowlist, and permits only registry.npmjs.org and nodejs.org, without local binding.
+  The test retains its original settings and no outward network. Private registries, other lifecycle
+  download hosts, source-writing scripts and missing toolchains fail preparation without expanding access.
+  `full-test/npm-dependency-key.ts` hashes complete lock/root/workspace manifest bytes and engine OS/arch/Node/npm.
+  The supervisor stores the latest installation at
+  `<worktreesRoot>/_merge-deps/<sha256(JSON.stringify([projectKey,repo]))>/current/`, outside git worktrees.
+  A strict version-1 `ready.json` contains the key and copied relative package paths; every listed directory
+  and the root hidden npm lock must be real. Invalid or missing metadata is a miss; linked store roots
+  are refused. The installer cannot write the store. After a successful install, unchanged inputs and a
+  complete staging copy, the supervisor writes a 0600 marker in a 0700 generation and publishes it by rename,
+  removing the old generation under the same lock. A hit copies into the new checkout without `npm ci`.
+  Filesystem, changed-input and npm errors return `error/dependency_install_failed`, no failed files and
+  the npm exit code (null for filesystem errors); sandbox/spawn/timeout/killed/queue errors keep their reasons.
+  Probes, installation, copies and test share the post-wait time budget. Cancellation settles the child
+  before cleanup and lock release. These operations all run on the macOS/srt engine; only the existing
+  `full_test.run/cancel` request/result crosses the boundary, with no new config/env/RPC/database shape.
+  `engine-link/remote/host.ts` maps older-engine `invalid_params` to the preparation error without retrying
+  a weakened request. No Linux sandbox support is added.
   **Module:** `services/full-tests`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
@@ -2557,7 +2611,8 @@ assumption or remote-engine RPC.
   (PM-709) `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer
   `dependencyInstallRequired` (missing: false) in the strict `merge.checkout_for_check` schemas; the engine
   does not set it and the merge callers do not pass it yet, so the behaviour above is unchanged and the install
-  itself stays disabled (see "Server full test before review"). `merge.push`
+  is available only to explicit full-test requests until PM-711 connects merge callers
+  (see "Server full test before review"). `merge.push`
   (never forced, `--no-verify`) and `merge.advance` (a
   fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
   Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched

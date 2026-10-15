@@ -69,7 +69,7 @@ const LOOPBACK = '127.0.0.1';
 export interface EngineAppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   github?: GithubService;
-  createFullTestExecutor?: (deps: { heavyLockDir: string }) => FullTestExecutor;
+  createFullTestExecutor?: (deps: { heavyLockDir: string; worktreesRoot?: string }) => FullTestExecutor;
   createScreenshotExecutor?: (deps: { heavyLockDir: string }) => ScreenshotExecutor;
   createMachineProbe?: (deps: { runningPids: () => number[]; instanceTag: string }) => MachineProbe;
   createSocket?: LinkSocketFactory;
@@ -343,8 +343,13 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       worktrees,
       memberWorkspaces,
       fullTestExecutor:
-        modules.createFullTestExecutor?.({ heavyLockDir }) ??
-        createFullTestExecutor({ logger: log.child({ module: 'full-test' }), env: agentEnv, heavyLockDir }),
+        modules.createFullTestExecutor?.({ heavyLockDir, worktreesRoot: path.join(home, 'worktrees') }) ??
+        createFullTestExecutor({
+          logger: log.child({ module: 'full-test' }),
+          env: agentEnv,
+          heavyLockDir,
+          worktreesRoot: path.join(home, 'worktrees'),
+        }),
       screenshotExecutor:
         modules.createScreenshotExecutor?.({ heavyLockDir }) ??
         createScreenshotExecutor({

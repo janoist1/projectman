@@ -70,7 +70,7 @@ export interface MessageRefinement {
 export interface MessageRequestInput {
   projectKey: string;
   sessionId: string;
-  source: 'message' | 'answer';
+  source: 'message' | 'answer' | 'approval';
   messageId: string | null;
   inboxItemId?: string | null;
   from: string;

@@ -585,12 +585,17 @@ describe('engine local limit', () => {
     it('passes the dependency preparation request of a registered merge repo on, and refuses others (PM-681)', async () => {
       const ref = { projectKey: 'PM', repo: 'projectman' };
       const npmCi = { ref, mergeId: newId('merge') };
+      const cwd = path.join(worktrees, '_merge', npmCi.mergeId);
+      mkdirSync(cwd, { recursive: true });
       const limit = make({
         repos: [
           { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', mergeBranch: 'main' },
         ],
       });
-      const result = (await limit.check('full_test.run', fullTest({ npmCi }) as never)) as {
+      const result = (await limit.check(
+        'full_test.run',
+        fullTest({ npmCi, cwd, requireHeavyLock: true }) as never,
+      )) as {
         spec: { npmCi?: unknown };
       };
       expect(result.spec.npmCi).toEqual(npmCi);
@@ -601,6 +606,46 @@ describe('engine local limit', () => {
         'repo_not_registered',
       );
       await refused(limit, 'full_test.run', fullTest({ npmCi: { ref, mergeId: '../x' } }), 'invalid_params');
+      for (const overrides of [{ cwd: repo }, { requireHeavyLock: false }, { requireHeavyLock: undefined }]) {
+        await refused(
+          limit,
+          'full_test.run',
+          fullTest({ npmCi, cwd, requireHeavyLock: true, ...overrides }),
+          'invalid_params',
+        );
+      }
+      const alias = path.join(worktrees, '_merge', newId('merge'));
+      symlinkSync(cwd, alias);
+      await refused(
+        limit,
+        'full_test.run',
+        fullTest({ npmCi: { ref, mergeId: path.basename(alias) }, cwd: alias, requireHeavyLock: true }),
+        'invalid_params',
+      );
+      const wrongCommand = make({
+        repos: [
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm run check',
+            mergeBranch: 'main',
+          },
+          { project: 'PM', repo: 'other', path: workspace, fullTestCommand: 'npm test', mergeBranch: 'main' },
+        ],
+      });
+      await refused(
+        wrongCommand,
+        'full_test.run',
+        fullTest({ npmCi, cwd, requireHeavyLock: true }),
+        'command_not_allowed',
+      );
+      await refused(
+        make(),
+        'full_test.run',
+        fullTest({ npmCi, cwd, requireHeavyLock: true }),
+        'merge_not_allowed',
+      );
     });
 
     it('adds the credential places to the test sandbox denials', async () => {

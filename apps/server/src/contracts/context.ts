@@ -9,6 +9,7 @@ import type {
   HandoffSummary,
   MemberView,
   OperatorPreferenceData,
+  OperatorKnowledgeDocument,
   PausePoint,
   PreviousConversationReason,
   FocusPlace,
@@ -56,6 +57,8 @@ export interface ContextPackInput {
   memory: string;
   /** Only the current human's enumerated conversational style; never authorization. */
   operatorPreference?: OperatorPreferenceData;
+  /** Approved shared data only; application markers and preferences never cross this port. */
+  operatorKnowledge?: Pick<OperatorKnowledgeDocument, 'revision' | 'agreement' | 'principles'>;
   /**
    * The task's readable attachments (metadata only, oldest first), listed in the kick-off brief.
    * Omitted (or empty) when the task has none or the work item is not a task.

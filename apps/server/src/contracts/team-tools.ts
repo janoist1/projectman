@@ -37,6 +37,9 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
   OperatorOperation,
+  OperatorKnowledgeDocument,
+  ProposeOperatorKnowledgeRequest,
+  OperatorPlan,
   OperatorPreferenceData,
   OperatorPreferenceDocument,
   ConfigChangeRow,
@@ -745,6 +748,16 @@ export interface ProjectDocToolsHandler {
 
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
+  getOperatorKnowledge(ctx: ToolContext): Promise<OperatorKnowledgeDocument>;
+  proposeOperatorKnowledge(
+    ctx: ToolContext,
+    args: ProposeOperatorKnowledgeRequest,
+  ): Promise<{
+    status: 'awaiting_approval';
+    inbox_item_id: string;
+    step_id: string;
+    base_revision: number;
+  }>;
   getOperatorPreference(ctx: ToolContext): Promise<OperatorPreferenceDocument>;
   setOperatorPreference(
     ctx: ToolContext,
@@ -756,13 +769,14 @@ export interface OperatorToolsHandler {
   ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
   operate(
     ctx: ToolContext,
-    args: { title: string; operation: OperatorOperation },
+    args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
   ): Promise<{
     status: 'done' | 'awaiting_approval' | 'refused';
     step_id: string;
     changes: ConfigChangeRow[];
     config_version?: string | null;
     inbox_item_id?: string;
+    deduplicated?: true;
   }>;
   startTask(
     ctx: ToolContext,

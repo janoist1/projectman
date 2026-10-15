@@ -16,6 +16,16 @@ export const OperatorPrincipleData = z.strictObject({
 });
 export type OperatorPrincipleData = z.infer<typeof OperatorPrincipleData>;
 
+export const OperatorKnowledgeChange = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('agreement_replace'), agreement: OperatorAgreementData }),
+  z.strictObject({
+    kind: z.literal('principle_put'),
+    principle: OperatorPrincipleData.extend({ id: z.string().min(1).max(64).nullable() }),
+  }),
+  z.strictObject({ kind: z.literal('principle_remove'), id: z.string().min(1).max(64) }),
+]);
+export type OperatorKnowledgeChange = z.infer<typeof OperatorKnowledgeChange>;
+
 export const OperatorKnowledgeDocument = z.strictObject({
   schemaVersion: z.literal(1),
   revision: z.number().int().nonnegative(),

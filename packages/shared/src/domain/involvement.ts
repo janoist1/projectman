@@ -50,6 +50,8 @@ export const MessageOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('answer'), inboxItemId: z.string() }),
   /** The Operator passed a screened question to the recipient (PM-556). */
   z.object({ kind: z.literal('question_forward'), inboxItemId: z.string() }),
+  /** A server-generated continuation after a human approved shared Operator knowledge. */
+  z.object({ kind: z.literal('operator_knowledge_approval'), inboxItemId: z.string() }),
 ]);
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
 

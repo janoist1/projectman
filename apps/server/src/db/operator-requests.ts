@@ -6,7 +6,7 @@ export interface OperatorRequestRecord {
   id: string;
   projectKey: string;
   sessionId: string;
-  source: 'message' | 'answer' | 'signal';
+  source: 'message' | 'answer' | 'signal' | 'approval';
   messageId: string | null;
   inboxItemId: string | null;
   fromHandle: string;
@@ -121,6 +121,16 @@ export function createOperatorRequestRepository(db: Db) {
     /** The steps the Operator took on a signal, the oldest first. */
     stepsOfSignal(signalId: string): OperatorStepRecord[] {
       return (statements.stepsOfSignal.all(signalId) as StepRow[]).map(toStep);
+    },
+    /** Atomically consumes an approval; a claimed step is never replayed after a crash. */
+    claimStep(id: string): boolean {
+      return (
+        db
+          .prepare(
+            "UPDATE operator_steps SET status = 'approved' WHERE id = ? AND status = 'awaiting_approval'",
+          )
+          .run(id).changes === 1
+      );
     },
     /** Sets a step's status; `refusal` (when given) says why a step ended without doing its work. */
     updateStep(

@@ -12,6 +12,8 @@ import { runSandboxed, srtCli } from './run-sandboxed';
 import type { SandboxedEnd } from './run-sandboxed';
 import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHORT_ROOT } from './sandbox';
 import type { RunPaths } from './sandbox';
+import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
+export { assertNpmCiCheckout } from './npm-ci';
 
 export { failedFiles, failureReport, outputTail, stripAnsi } from './output';
 export {
@@ -49,6 +51,8 @@ export interface FullTestExecutorOptions {
    * the members' full tests, and the wait does not count against `timeoutMs`.
    */
   heavyLockDir?: string;
+  /** Engine-local root of merge checkouts and the dependency store. */
+  worktreesRoot?: string;
 }
 
 /**
@@ -69,11 +73,12 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     command: string,
     timeoutMs: number,
     signal: AbortSignal,
+    settings = paths.settings,
   ): Promise<SandboxedEnd> =>
     runSandboxed({
       cwd: spec.cwd,
       env: fullTestEnv(paths, spec.maxWorkers, baseEnv),
-      settings: paths.settings,
+      settings,
       command,
       timeoutMs,
       signal,
@@ -110,17 +115,16 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     },
 
     async run(spec, signal, onStarted) {
-      // The dependency preparation (PM-681) is not implemented here yet: a run that asks for it never
-      // starts, neither the queue wait nor the command.
-      if (spec.npmCi)
-        return {
-          outcome: 'error',
-          reason: 'dependency_install_failed',
-          exitCode: null,
-          durationMs: 0,
-          failedFiles: [],
-          outputTail: 'dependency preparation is not supported by this executor',
-        };
+      if (spec.npmCi) {
+        try {
+          await assertNpmCiCheckout(options.worktreesRoot, spec);
+        } catch (err) {
+          return {
+            ...failure('dependency_install_failed', Date.now(), err instanceof Error ? err.message : ''),
+            durationMs: 0,
+          };
+        }
+      }
       // Behind the machine's other heavy runs (PM-332): the wait is not part of the run, so `started`
       // (the duration and the timeout) begins when the lock is held.
       let lock: HeavyLock | undefined;
@@ -170,6 +174,18 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
   async function runLocked(spec: FullTestSpec, signal: AbortSignal): Promise<FullTestResult> {
     const started = Date.now();
     const paths = runPaths(runDirOf(tmpRoot, SHORT_ROOT, spec.runId));
+    const remaining = () => {
+      if (signal.aborted) throw new DependencyPreparationError('', 'killed');
+      const ms = spec.timeoutMs - (Date.now() - started);
+      if (ms <= 0) throw new DependencyPreparationError('', 'timeout');
+      return ms;
+    };
+    const budget = (probe = false) =>
+      spec.npmCi
+        ? Math.min(probe ? PROBE_TIMEOUT_MS : Infinity, remaining())
+        : probe
+          ? PROBE_TIMEOUT_MS
+          : spec.timeoutMs;
     // Not recursive: a directory or a link someone made at that name beforehand is an error, never
     // reused, and never removed below.
     let created = false;
@@ -189,9 +205,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     try {
       // The sandbox works, and runs node, before the real command: a broken sandbox is an error, not
       // a failing test.
-      const base = await execute(paths, spec, "/bin/sh -c 'node --version'", PROBE_TIMEOUT_MS, signal);
+      const base = await execute(paths, spec, "/bin/sh -c 'node --version'", budget(true), signal);
       if (base.aborted) return failure('killed', started);
       if (base.spawnError) return failure('spawn_failed', started, base.output);
+      if (spec.npmCi && base.timedOut) return failure('timeout', started, base.output);
+      if (spec.npmCi && base.signal) return failure('killed', started, base.output);
       if (base.exitCode !== 0 || base.timedOut)
         return failure('sandbox_unavailable', started, base.output, base.exitCode);
       // A PTY can be opened in it (the vitest configuration of the server fails without): so a
@@ -200,14 +218,28 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         paths,
         spec,
         '/usr/bin/script -q /dev/null /usr/bin/true',
-        PROBE_TIMEOUT_MS,
+        budget(true),
         signal,
       );
       if (pty.aborted) return failure('killed', started);
+      if (spec.npmCi && pty.spawnError) return failure('spawn_failed', started, pty.output);
+      if (spec.npmCi && pty.timedOut) return failure('timeout', started, pty.output);
+      if (spec.npmCi && pty.signal) return failure('killed', started, pty.output);
       if (pty.exitCode !== 0 || pty.timedOut)
         return failure('pty_unavailable', started, pty.output, pty.exitCode);
 
-      const ended = await execute(paths, spec, spec.command, spec.timeoutMs, signal);
+      if (spec.npmCi)
+        await prepareNpmCi({
+          spec,
+          paths,
+          worktreesRoot: options.worktreesRoot!,
+          nodeVersion: base.output.trim(),
+          remaining,
+          signal,
+          execute: (command, settings, timeoutMs) =>
+            execute(paths, spec, command, timeoutMs, signal, settings),
+        });
+      const ended = await execute(paths, spec, spec.command, budget(), signal);
       const durationMs = Date.now() - started;
       if (ended.aborted) return failure('killed', started, ended.output);
       if (ended.spawnError) return failure('spawn_failed', started, ended.output);
@@ -224,7 +256,15 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       };
     } catch (err) {
       logger.warn({ err, runId: spec.runId }, 'the full test run failed to start');
-      return failure('spawn_failed', started);
+      if (signal.aborted) return failure('killed', started);
+      if (spec.npmCi && Date.now() - started >= spec.timeoutMs) return failure('timeout', started);
+      if (err instanceof DependencyPreparationError)
+        return failure(err.reason, started, err.message, err.exitCode);
+      return failure(
+        spec.npmCi ? 'dependency_install_failed' : 'spawn_failed',
+        started,
+        spec.npmCi && err instanceof Error ? err.message : '',
+      );
     } finally {
       await rm(paths.runDir, { recursive: true, force: true }).catch((err: unknown) =>
         logger.warn({ err, runId: spec.runId }, 'could not remove the full test run directory'),

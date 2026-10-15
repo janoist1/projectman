@@ -40,6 +40,9 @@ export function runPaths(runDir: string) {
   return {
     runDir,
     settings: path.join(runDir, 'settings.json'),
+    installerSettings: path.join(runDir, 'installer-settings.json'),
+    npmUserConfig: path.join(runDir, 'npm-user.conf'),
+    npmGlobalConfig: path.join(runDir, 'npm-global.conf'),
     sandbox,
     home: path.join(sandbox, 'home'),
     tmp: path.join(sandbox, 'tmp'),
@@ -71,6 +74,24 @@ export function srtSettings(spec: FullTestSpec, paths: RunPaths) {
       denyWrite: [...SRT_DEFAULT_TMP],
     },
     allowPty: true,
+  };
+}
+
+/** Installer writes only package trees; lifecycle scripts keep the source and git metadata read-only. */
+export function installerSettings(spec: FullTestSpec, paths: RunPaths, nodeModules: string[]) {
+  const settings = srtSettings(spec, paths);
+  return {
+    ...settings,
+    network: {
+      allowedDomains: ['registry.npmjs.org', 'nodejs.org'],
+      deniedDomains: [],
+      allowLocalBinding: false,
+    },
+    filesystem: {
+      ...settings.filesystem,
+      allowRead: [...settings.filesystem.allowRead, paths.npmUserConfig, paths.npmGlobalConfig],
+      allowWrite: [paths.sandbox, ...nodeModules],
+    },
   };
 }
 

@@ -19,6 +19,7 @@ import {
 } from '../engine-host';
 import { isWithin } from '../engine-host';
 import { BILLING_ENV_VARS } from '../runner';
+import { assertNpmCiCheckout } from '../full-test';
 import { engineFiles } from './engine-config';
 import type { ResolvedEngineConfig } from './engine-config';
 import type { EngineMethod, MethodParams } from './methods';
@@ -412,7 +413,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       inside(source.path, 'The source repository');
       return [{ ...key, project: bind(key.project, key.repoName) }, source, ref];
     },
-    'full_test.run': (params) => {
+    'full_test.run': async (params) => {
       const { spec } = params;
       if (
         !config.repos.some(
@@ -422,8 +423,18 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         refuse('command_not_allowed', 'The test command is not the one configured on this engine');
       inside(spec.cwd, 'The test directory');
       if (spec.npmCi) {
-        mergeRepo(spec.npmCi.ref);
+        const entry = mergeRepo(spec.npmCi.ref);
         mergeIdOf(spec.npmCi.mergeId);
+        if (entry.fullTestCommand !== spec.command)
+          refuse('command_not_allowed', 'The test command is not configured for this repository');
+        try {
+          await assertNpmCiCheckout(paths.worktreesRoot, spec);
+        } catch {
+          refuse(
+            'invalid_params',
+            'Dependency preparation needs the canonical merge checkout and required heavy lock',
+          );
+        }
       }
       insideAll(spec.sandbox.allowRead, 'A readable test path', sandboxRoots());
       return {

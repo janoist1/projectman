@@ -317,8 +317,13 @@ async function main(): Promise<void> {
         : {
             ...config.app.modules,
             nanogptKeyCheck: createNanogptKeyCheck(),
-            createFullTestExecutor: ({ logger }) =>
-              createFullTestExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
+            createFullTestExecutor: ({ logger, worktreesRoot }) =>
+              createFullTestExecutor({
+                logger,
+                env: process.env,
+                heavyLockDir: config.app.heavyLockDir,
+                worktreesRoot,
+              }),
             createScreenshotExecutor: ({ logger }) =>
               createScreenshotExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
           },

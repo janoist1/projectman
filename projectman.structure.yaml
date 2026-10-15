@@ -202,6 +202,7 @@ modules:
     paths:
       - apps/server/src/services/merges/
       - apps/server/src/services/merges/train-selection.ts
+      - apps/server/src/services/merges/train.ts
   - id: services/full-tests
     area: service
     name: Teljes tesztek

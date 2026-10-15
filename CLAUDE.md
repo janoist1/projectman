@@ -17,6 +17,8 @@ should confirm still goes to them as a question.
   `apps/web/src/i18n/hu.ts` (UI), `apps/feedback-widget/src/i18n/hu.ts` (the embeddable
   feedback widget's own text) and `packages/templates/src/locales/hu.ts` (default display
   names in templates). Components use `t('some.key')`; never hardcode UI text.
+  Exception: the names, summaries and link labels in `projectman.structure.yaml` are UI text
+  in the project's language (Hungarian here); its ids stay English.
 - Prompt text for AI members (role instructions, context pack) is English; it tells the
   agent to communicate in the project's language.
 
@@ -69,15 +71,15 @@ These rules apply to every member, including Codex:
 
 ## Module ownership (parallel workstreams)
 
-| Workstream | Owns                                                                                                                                                            |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                                            |
-| mcp        | `apps/server/src/mcp/**`                                                                                                                                        |
-| core       | `apps/server/src/{db,kernel,core,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index,assembly}.ts`, `apps/server/test/**`, `scripts/**` |
-| web        | `apps/web/**`                                                                                                                                                   |
-| github     | `apps/server/src/services/github/**`                                                                                                                            |
-| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                                     |
-| widget     | `apps/feedback-widget/**`                                                                                                                                       |
+| Workstream | Owns                                                                                                                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                                                                         |
+| mcp        | `apps/server/src/mcp/**`                                                                                                                                                                     |
+| core       | `apps/server/src/{db,kernel,core,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index,assembly}.ts`, `apps/server/test/**`, `scripts/**`, `projectman.structure.yaml` |
+| web        | `apps/web/**`                                                                                                                                                                                |
+| github     | `apps/server/src/services/github/**`                                                                                                                                                         |
+| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                                                                  |
+| widget     | `apps/feedback-widget/**`                                                                                                                                                                    |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its
@@ -87,6 +89,9 @@ Every file under `apps/server/src` belongs to a module in
 `apps/server/test/architecture/module-map.ts`; `dependencies.test.ts` enforces its
 layer rules. Register new files in that map with an explicit path in the appropriate
 module row. Do not add dependency exceptions: each refactor slice removes its own.
+
+A new module in `module-map.ts`, a new web feature folder or a new top-level folder also goes
+into `projectman.structure.yaml` (`structure-map.test.ts` checks it).
 
 ## Code style
 

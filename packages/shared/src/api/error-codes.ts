@@ -235,6 +235,10 @@ export const ERROR_CODES = [
   'operator_preference_no_person',
   'operator_approval_stale',
   'operator_agreement_pending',
+  'operator_plan_required',
+  'operator_message_recipient',
+  'operator_owner_approval',
+  'operator_approval_used',
   // The Operator's own steps on a system signal (PM-545): no more steps left, or too soon after the last;
   // a start_member on a card for a member with no role on it.
   'operator_signal_budget',

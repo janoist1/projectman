@@ -2,6 +2,7 @@ import { isOperator, memberOf } from '@projectman/shared';
 import type {
   OperatorOperation,
   ProposeOperatorKnowledgeRequest,
+  OperatorPlan,
   OperatorPreferenceData,
   ScreeningOutcome,
   QuestionTodo,
@@ -158,13 +159,16 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
-  async operate(ctx: ToolContext, args: { title: string; operation: OperatorOperation }) {
+  async operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
+  ) {
     const config = await this.projects.config(ctx.projectKey);
     if (!isOperator(memberOf(config, ctx.member)))
       throw new TeamToolError('forbidden', 'operator_only: only the Operator may operate.');
     const caller = await this.calls.callerWithRequest(ctx, 'operate', undefined, undefined, args.operation);
     return this.operatorActions
-      .run(ctx.projectKey, caller.request!.id, args.title, args.operation)
+      .run(ctx.projectKey, caller.request!.id, args.title, args.operation, args.plan)
       .catch((err: unknown) => {
         if (err instanceof DomainError)
           throw new TeamToolError(

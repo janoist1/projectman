@@ -125,7 +125,11 @@ function StepRow({
         ) : null}
         {inboxItem && approval ? (
           <div className={styles.approval}>
-            <OperatorApprovalBody payload={approval} stale={decision.staleFor(inboxItem)} />
+            <OperatorApprovalBody
+              payload={approval}
+              stale={decision.staleFor(inboxItem)}
+              open={inboxItem.state === 'open'}
+            />
             <div className={styles.actions}>
               <OperatorApprovalActions
                 item={inboxItem}

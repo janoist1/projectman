@@ -49,7 +49,6 @@ import type {
   RelationsChange,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
-  OperatorOperation,
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
   ProjectDoc,
@@ -386,7 +385,7 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.sessions.setCurrentWork(ctx, args);
   }
 
-  async operate(ctx: ToolContext, args: { title: string; operation: OperatorOperation }) {
+  async operate(ctx: ToolContext, args: Parameters<OperatorToolsHandler['operate']>[1]) {
     return this.tools.operator.operate(ctx, args);
   }
 

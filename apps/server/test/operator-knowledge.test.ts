@@ -427,6 +427,60 @@ describe('owner-approved Operator knowledge', () => {
 });
 
 describe('shared knowledge session boundaries', () => {
+  it('keeps critical continuation operations behind a plan and a separate owner approval', async () => {
+    await setup();
+    const operation: OperatorOperation = { op: 'message_send', to: ['ada'], text: 'Approved exact message' };
+    const plan = { why: 'Inform the admin', impact: 'Sends this exact message to Ada', reversible: false };
+    const proposal = await propose(agreement, [operation]);
+    await expect(
+      h.domain.teamTools.operate(ctx, { title: 'Before agreement approval', operation, plan }),
+    ).rejects.toThrow('operator_agreement_pending');
+    const sent = () => h.domain.messages.list('AR', {}).filter((message) => message.body === operation.text);
+    expect(sent()).toHaveLength(0);
+    await resolve(proposal.inbox_item_id);
+    const messageId = operatorKnowledgeContinuationMessageId(payload(proposal.inbox_item_id).id);
+    const requests = new OperatorRequests({ ctx: h.domain.ctx });
+    requests.closeForSession(ctx.sessionId);
+    h.domain.messages.markRecipientDelivered(messageId, 'operator');
+    const request = requests.openFor(ctx.sessionId)!;
+    expect(request.source).toBe('approval');
+    await expect(
+      h.domain.operatorActions.run('AR', request.id, 'Missing plan', operation),
+    ).rejects.toMatchObject({ code: 'operator_plan_required' });
+    await expect(
+      h.domain.operatorActions.run(
+        'AR',
+        request.id,
+        'Unstored message',
+        {
+          ...operation,
+          text: 'Changed message',
+        },
+        plan,
+      ),
+    ).rejects.toMatchObject({ code: 'operator_no_request' });
+    const critical = await h.domain.teamTools.operate(ctx, {
+      title: 'Stored critical message',
+      operation,
+      plan,
+    });
+    expect(critical.status).toBe('awaiting_approval');
+    expect(sent()).toHaveLength(0);
+    await expect(
+      h.domain.inbox.resolve(
+        'AR',
+        critical.inbox_item_id!,
+        { optionId: 'approve' },
+        { handle: 'ada', access: 'admin' },
+      ),
+    ).rejects.toThrow();
+    expect(sent()).toHaveLength(0);
+    await resolve(critical.inbox_item_id!);
+    expect(sent()).toHaveLength(1);
+    await expect(resolve(critical.inbox_item_id!)).rejects.toMatchObject({ code: 'inbox_item_closed' });
+    expect(sent()).toHaveLength(1);
+  });
+
   it.each(['operator', 'pm'])(
     'launches %s without shared knowledge when its file is corrupt',
     async (handle) => {

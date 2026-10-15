@@ -1363,6 +1363,9 @@ workers follow the machine's size.
   PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,
   separate AWS/SES/edge approvals and retention of existing Cloudflare DNS/mail. It adds no
   CLI/config contract; credentials stay on the administration machine, outside member sessions.
+  PM-717 adds a mandatory first-start seed integrity gate in `scripts/cloud/machine.ts`: the
+  administration machine hashes the closed package DB before/after upload and compares hash/bytes
+  with the stopped host through the existing SSH boundary; no engine RPC or credentials are added.
   A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
@@ -1434,6 +1437,11 @@ workers follow the machine's size.
   the same. **Remote engine:** this runs only on the owner's administration machine for the central
   server; no AWS credentials or new RPC/payload crosses the server/engine boundary. It works
   independently of the Mac engine link. Live execution/recovery remains an approved owner round.
+  PM-717 carries `seed-digest` over this same SSH/SSM session, with no arguments or stdin payload:
+  only the database SHA-256 and byte count return. On Ubuntu 24.04 the host uses coreutils to read
+  the fixed `/var/lib/projectman/data/db.sqlite`, refuses live/starting units, non-regular/symlink
+  DBs and sidecars, and checks for detectable writes and stopped state after hashing. A failed
+  integrity gate preserves uploaded data and prevents build/start; recovery needs an owner decision.
 
 - **The Lightsail machine and its operation (PM-535)** — `scripts/cloud/{host,machine}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
@@ -1458,6 +1466,10 @@ workers follow the machine's size.
   remote engine?** Nothing in it runs on an engine: it is the owner's own tool for the server side, and
   the engine neither calls nor depends on it. The entries "Cloud provisioning" and "Cloud deployment
   and backup" are the other parts of the same chain.
+  PM-717 applies the same mandatory `seed-digest` gate to this compatibility path: the owner tool
+  compares source before/after SHA-256 and bytes with the stopped Ubuntu host before any build/start.
+  It assumes coreutils `stat`/`sha256sum`, a closed package and a single administrator during cutover;
+  no new port, persistent state, engine operation or server/engine payload is introduced.
 
 - **The Cloudflare side of the cloud board (PM-536)** — `scripts/cloud/cloudflare{,-api,-publish,-check}.ts`,
   the `guard-check` subcommand of `deploy/aws/host.sh`, `deploy/cloudflare/check.sh`,

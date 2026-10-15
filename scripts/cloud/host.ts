@@ -40,6 +40,7 @@ export const HOST_SUBCOMMANDS = [
   'logs',
   'rehearse',
   'seed-check',
+  'seed-digest',
   'receive-data',
   'send-data',
   'guard-check',

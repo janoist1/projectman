@@ -156,6 +156,15 @@ one-writer seed/pull guards and restore procedure are unchanged; see the EC2 liv
 [AWS.md](AWS.md#ownerintegrator-live-rehearsal). This administration link is independent of the
 Mac engine's outbound connection.
 
+Before the first cloud build/start, `seed` requires the PM-717 integrity gate: the package's
+closed, regular, non-symlink `db.sqlite` must have the same SHA-256 and positive byte count before
+and after upload and on the stopped host. No WAL/SHM/journal sidecar is allowed. Retain the
+`ok seed-integrity: database sha256=<64hex> bytes=<n> (before first start)` report on PM-675.
+The package stays closed and one administrator controls the maintenance window. A failed gate
+means **STOP** and an owner recovery decision: the uploaded data stays, with no build/start,
+automatic retry, deletion or overwrite. A new seed refuses the used target. Dry-run previews
+the gate without a host connection or remote proof; [AWS.md](AWS.md#seed-and-pull-data) details exits.
+
 1. Zero Trust → Networks → Tunnels → create a tunnel, choose Docker, and copy the **token** only
    (it becomes `TUNNEL_TOKEN`).
 2. Add a public hostname, for example `projectman.example.com`, with the service

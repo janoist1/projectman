@@ -1,9 +1,19 @@
-import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import fs, {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
 import { parseTags } from '../../../scripts/cloud/machine';
 import { HostWorld, SHA_NEW, SHA_NEWEST, SHA_OLD } from './helpers/fake-host';
+import { Ec2HostWorld } from './helpers/fake-ec2-host';
 
 /** `npm run cloud -- deploy | rollback | status | logs | ssh | stop | start | rehearse | seed | pull-data` (PM-535). */
 
@@ -395,7 +405,13 @@ describe('seed', () => {
 
   it('uploads the package into the empty data directory, then deploys', async () => {
     expect(await run('seed', '--from', source)).toBe(0);
-    expect(subcommands().slice(0, 4)).toEqual(['bootstrap', 'seed-check', 'receive-data', 'bootstrap']);
+    expect(subcommands().slice(0, 5)).toEqual([
+      'bootstrap',
+      'seed-check',
+      'receive-data',
+      'seed-digest',
+      'bootstrap',
+    ]);
     expect(world.pipes).toHaveLength(1);
     expect(world.pipes[0]!.from).toMatchObject({ command: 'tar', args: ['-C', source, '-c', '.'] });
     expect(world.pipes[0]!.from.env).toEqual({ COPYFILE_DISABLE: '1' });
@@ -477,6 +493,169 @@ describe('seed', () => {
     expect(world.pipes).toHaveLength(0);
     expect(world.aws.mutations()).toEqual([]);
     expect(world.output).toContain('skipped seed: dry-run');
+  });
+});
+
+describe.each(['lightsail', 'ec2'])('seed integrity through %s', (compute) => {
+  let source: string;
+  const database = () => path.join(source, 'db.sqlite');
+  const digest = () => ({
+    databaseSha256: createHash('sha256').update('closed database').digest('hex'),
+    databaseBytes: Buffer.byteLength('closed database'),
+  });
+  beforeEach(() => {
+    if (compute === 'ec2') {
+      world.cleanup();
+      world = Ec2HostWorld.configured();
+    }
+    source = mkdtempSync(path.join(world.home, 'package-'));
+    writeFileSync(database(), 'closed database');
+    world.aws.addBucket('acme-projectman-db');
+    world.aws.addBucket('acme-projectman-backup');
+  });
+  const seed = () => run('seed', '--from', source, '--ref', SHA_NEW);
+  const stopped = () => {
+    expect(world.machine.built).toEqual([]);
+    expect(starts()).toEqual([]);
+    expect(world.machine.running).toBe(false);
+    expect(world.machine.dataEmpty).toBe(false);
+    expect(world.machine.receivedDatabase?.toString()).toBe('closed database');
+    expect(world.output).toContain('FAIL seed-integrity:');
+  };
+
+  it('proves the copied bytes before any deploy and refuses a second seed', async () => {
+    expect(await seed()).toBe(0);
+    expect(subcommands().slice(0, 5)).toEqual([
+      'bootstrap',
+      'seed-check',
+      'receive-data',
+      'seed-digest',
+      'bootstrap',
+    ]);
+    const call = world.hostCalls.find((item) => item.subcommand === 'seed-digest')!;
+    expect(call.args).toEqual([]);
+    expect(call.input).toBeUndefined();
+    const proof = `ok seed-integrity: database sha256=${digest().databaseSha256} bytes=${digest().databaseBytes} (before first start)`;
+    expect(world.output).toContain(proof);
+    expect(world.output.indexOf(proof)).toBeLessThan(world.output.indexOf('created build:'));
+    world.machine.running = false;
+    world.hostCalls.length = 0;
+    expect(await seed()).toBe(2);
+    expect(subcommands()).not.toContain('receive-data');
+  });
+
+  it.each([
+    '',
+    '{',
+    '{}',
+    'null',
+    '[]',
+    JSON.stringify({ databaseSha256: 'a'.repeat(64) }),
+    ...[
+      { databaseSha256: 'A'.repeat(64) },
+      { databaseSha256: 'a'.repeat(63) },
+      { databaseSha256: 'g'.repeat(64) },
+      { databaseSha256: 7 },
+      { databaseBytes: '15' },
+      { databaseBytes: 0 },
+      { databaseBytes: -1 },
+      { databaseBytes: 1.5 },
+      { databaseBytes: Number.MAX_SAFE_INTEGER + 1 },
+      { extra: true },
+      { databaseSha256: '0'.repeat(64) },
+      { databaseBytes: 99 },
+    ].map((change) =>
+      JSON.stringify({
+        databaseSha256: createHash('sha256').update('closed database').digest('hex'),
+        databaseBytes: 15,
+        ...change,
+      }),
+    ),
+  ])('stops without altering uploaded data on invalid or unequal digest %s', async (stdout) => {
+    world.machine.failures.set('seed-digest', { code: 0, stdout, stderr: '' });
+    expect(await seed()).toBe(1);
+    stopped();
+  });
+
+  it.each([1, 3, 255])('stops on host/transport exit %s', async (code) => {
+    world.machine.failures.set('seed-digest', { code, stdout: '', stderr: 'digest failed' });
+    expect(await seed()).toBe(code === 3 ? 2 : 1);
+    stopped();
+  });
+
+  it('maps a receive-data state refusal to exit 2 without requesting a digest or deploying', async () => {
+    world.machine.failures.set('receive-data', { code: 3, stdout: '', stderr: 'board is running' });
+    expect(await seed()).toBe(2);
+    expect(subcommands()).not.toContain('seed-digest');
+    expect(world.machine.built).toEqual([]);
+    expect(starts()).toEqual([]);
+  });
+
+  it('stops on a source read error after upload', async () => {
+    const deps = world.deps();
+    const pipe = deps.pipe;
+    let restore = () => {};
+    deps.pipe = async (from, to) => {
+      const result = await pipe(from, to);
+      const spy = vi.spyOn(fs, 'readSync').mockImplementation(() => {
+        throw new Error('source read failed');
+      });
+      restore = () => spy.mockRestore();
+      return result;
+    };
+    try {
+      expect(await runCloud(['seed', '--from', source, '--ref', SHA_NEW], deps)).toBe(1);
+      stopped();
+      expect(world.output).toContain('source read failed');
+    } finally {
+      restore();
+    }
+  });
+
+  it.each(['missing', 'symlink', 'directory', '-wal', '-shm', '-journal', 'empty'])(
+    'refuses a %s source before uploading',
+    async (kind) => {
+      if (['missing', 'symlink', 'directory'].includes(kind)) rmSync(database());
+      if (kind === 'symlink') symlinkSync('absent', database());
+      if (kind === 'directory') mkdirSync(database());
+      if (kind.startsWith('-')) symlinkSync('absent', `${database()}${kind}`);
+      if (kind === 'empty') writeFileSync(database(), '');
+      expect(await seed()).toBe(2);
+      expect(world.hostCalls).toEqual([]);
+      expect(world.output).toContain('FAIL seed-integrity:');
+    },
+  );
+
+  it.each(['changed', 'removed', 'symlink', 'sidecar', 'board restarted', 'read failure'])(
+    'stops after upload when the source is %s',
+    async (kind) => {
+      const deps = world.deps();
+      const pipe = deps.pipe;
+      deps.pipe = async (from, to) => {
+        const result = await pipe(from, to);
+        if (kind === 'changed') writeFileSync(database(), 'changed content');
+        if (kind === 'removed' || kind === 'symlink') rmSync(database());
+        if (kind === 'symlink') symlinkSync('absent', database());
+        if (kind === 'sidecar') writeFileSync(`${database()}-wal`, 'wal');
+        if (kind === 'board restarted') world.machine.running = true;
+        if (kind === 'read failure') {
+          world.machine.failures.set('seed-digest', { code: 1, stdout: '', stderr: 'cannot read database' });
+        }
+        return result;
+      };
+      expect(await runCloud(['seed', '--from', source, '--ref', SHA_NEW], deps)).toBe(
+        kind === 'board restarted' ? 2 : 1,
+      );
+      if (kind === 'board restarted') world.machine.running = false;
+      stopped();
+    },
+  );
+
+  it('previews the mandatory gate without claiming proof or connecting', async () => {
+    expect(await run('seed', '--from', source, '--ref', SHA_NEW, '--dry-run')).toBe(0);
+    expect(world.hostCalls).toEqual([]);
+    expect(world.output).toContain('require seed-integrity');
+    expect(world.output).not.toContain('ok seed-integrity:');
   });
 });
 

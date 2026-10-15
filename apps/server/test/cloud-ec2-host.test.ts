@@ -169,6 +169,13 @@ describe('EC2 SSH through SSM', () => {
     world.aws.addBucket('acme-projectman-db');
     world.aws.addBucket('acme-projectman-backup');
     expect(await run('seed', '--from', source(), '--ref', SHA_NEW)).toBe(0);
+    expect(world.hostCalls.slice(0, 5).map((call) => call.subcommand)).toEqual([
+      'bootstrap',
+      'seed-check',
+      'receive-data',
+      'seed-digest',
+      'bootstrap',
+    ]);
     expect(world.machine.receivedData).toMatch(/^tar /);
     expect(world.pipes[0]!.to.command).toBe('ssh');
     expect(world.pipes[0]!.to.signal).toBeDefined();

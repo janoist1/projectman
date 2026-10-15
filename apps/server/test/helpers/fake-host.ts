@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { CloudDeps, PipeEnd, RunOptions, RunResult } from '../../../../scripts/cloud/deps';
 import { CloudWorld } from './fake-aws';
@@ -81,6 +82,7 @@ export class FakeMachine {
   runningSha: string | null = null;
   dataEmpty = true;
   receivedData: string | null = null;
+  receivedDatabase: Buffer | null = null;
   // What a test can set.
   unhealthyShas = new Set<string>();
   /** How many status polls answer `starting` after a start. */
@@ -199,6 +201,15 @@ export class FakeMachine {
       case 'seed-check':
         return done(
           JSON.stringify({ container: this.running ? 'running' : 'stopped', dataEmpty: this.dataEmpty }),
+        );
+      case 'seed-digest':
+        if (this.running) return refuse('the board is running');
+        if (!this.receivedDatabase) return refuse('no database');
+        return done(
+          JSON.stringify({
+            databaseSha256: createHash('sha256').update(this.receivedDatabase).digest('hex'),
+            databaseBytes: this.receivedDatabase.length,
+          }) + '\n',
         );
       case 'receive-data':
         if (this.running) return refuse('the board is running');
@@ -433,6 +444,7 @@ export class HostWorld extends CloudWorld {
     this.pipes.push({ from, to });
     if (this.pipeCode !== 0) return { code: this.pipeCode, stdout: '', stderr: 'tar: broken\n' };
     if (from.command === 'tar' && to.command === 'ssh') {
+      this.machine.receivedDatabase = readFileSync(path.join(optionValue(from.args, '-C')!, 'db.sqlite'));
       const result = await this.ssh(to.args, {
         input: `tar ${from.args.join(' ')}`,
         ...(to.signal ? { signal: to.signal } : {}),

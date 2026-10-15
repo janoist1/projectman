@@ -1113,7 +1113,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Operate the project",
     },
-    "description": "Only the Operator, during an open owner request. Propose a configuration, member, session or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Title describes the result in the project language (1–120 characters).",
+    "description": "Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -1121,6 +1121,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
         "operation": {
           "oneOf": [
             {
+              "additionalProperties": false,
               "properties": {
                 "op": {
                   "const": "config_patch",
@@ -2060,6 +2061,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "object",
             },
             {
+              "additionalProperties": false,
               "properties": {
                 "changes": {
                   "properties": {
@@ -2205,6 +2207,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "object",
             },
             {
+              "additionalProperties": false,
               "properties": {
                 "op": {
                   "const": "member_hire",
@@ -2290,6 +2293,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "object",
             },
             {
+              "additionalProperties": false,
               "properties": {
                 "handle": {
                   "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
@@ -2307,6 +2311,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "object",
             },
             {
+              "additionalProperties": false,
               "properties": {
                 "op": {
                   "const": "config_revert",
@@ -2323,6 +2328,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "object",
             },
             {
+              "additionalProperties": false,
               "properties": {
                 "op": {
                   "const": "session_stop",
@@ -2339,6 +2345,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "object",
             },
             {
+              "additionalProperties": false,
               "properties": {
                 "op": {
                   "const": "project_pause",
@@ -2351,6 +2358,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "object",
             },
             {
+              "additionalProperties": false,
               "properties": {
                 "op": {
                   "const": "project_resume",
@@ -2362,7 +2370,64 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               ],
               "type": "object",
             },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "const": "message_send",
+                  "type": "string",
+                },
+                "taskKey": {
+                  "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                  "type": "string",
+                },
+                "text": {
+                  "maxLength": 20000,
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "to": {
+                  "items": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                    "type": "string",
+                  },
+                  "maxItems": 10,
+                  "minItems": 1,
+                  "type": "array",
+                },
+              },
+              "required": [
+                "op",
+                "to",
+                "text",
+              ],
+              "type": "object",
+            },
           ],
+        },
+        "plan": {
+          "additionalProperties": false,
+          "properties": {
+            "impact": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string",
+            },
+            "reversible": {
+              "type": "boolean",
+            },
+            "why": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string",
+            },
+          },
+          "required": [
+            "why",
+            "impact",
+            "reversible",
+          ],
+          "type": "object",
         },
         "title": {
           "maxLength": 120,

@@ -2435,6 +2435,15 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
+  **Dependency preparation request (PM-681 part 1, PM-709):** `FullTestSpec.npmCi` (`contracts/full-test.ts`,
+  also in the strict `full_test.run` schema) asks the engine to prepare the dependencies of a merge check
+  before the command. Nothing sets it yet, and no executor prepares them: `full-test/index.ts` answers it at once
+  with `error` / `dependency_install_failed`, before the queue, the run directory or `onStarted`, so a test never
+  starts because the schema accepts the request. `engine-link/remote/host.ts` maps an older engine's
+  `invalid_params` for a request with `npmCi` to the same error, never repeating it without the field. The
+  identity of a prepared tree is `full-test/npm-dependency-key.ts`: a pure SHA-256 of the lock and manifest bytes
+  and the engine's own platform, arch, Node and npm versions (no I/O). The key is made on the engine, never sent
+  by the server.
   **Module:** `services/full-tests`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
@@ -2479,7 +2488,11 @@ assumption or remote-engine RPC.
   `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from an installed checkout with a byte-identical
   merged lockfile, an APFS clone `cp -c` on macOS; PM-580). The engine tries the bounded preferred source,
   its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
-  source after copying and blocks with `check_error` before checks if none matches. `merge.push`
+  source after copying and blocks with `check_error` before checks if none matches. Since PM-681 part 1
+  (PM-709) `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer
+  `dependencyInstallRequired` (missing: false) in the strict `merge.checkout_for_check` schemas; the engine
+  does not set it and the merge callers do not pass it yet, so the behaviour above is unchanged and the install
+  itself stays disabled (see "Server full test before review"). `merge.push`
   (never forced, `--no-verify`) and `merge.advance` (a
   fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
   Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched

@@ -282,7 +282,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'full-test',
     pass: 'split-tool',
-    paths: ['full-test/'],
+    paths: ['full-test/', 'full-test/npm-dependency-key.ts'],
     sealed: true,
   },
   {

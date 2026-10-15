@@ -236,11 +236,18 @@ export interface BranchMerger {
   /** Uncommitted paths of the default branch's checkout that `changed` also touches; [] when it is not checked out. */
   checkoutConflicts(ref: MergeRepoRef, input: { base: string; changed: string[] }): Promise<string[]>;
   /** A detached worktree of `mergeCommit` for the check. `depsFrom` is the preferred source;
-   * the engine selects an installed checkout matching the merged lockfile. */
+   * the engine selects an installed checkout matching the merged lockfile. `allowDependencyInstall`
+   * (default false, PM-681) lets the engine answer `dependencyInstallRequired` (missing: false) when the
+   * dependencies are not there and the check has to prepare them. */
   checkoutForCheck(
     ref: MergeRepoRef,
-    input: { mergeId: string; mergeCommit: string; depsFrom: string | null },
-  ): Promise<{ path: string; gitDir: string }>;
+    input: {
+      mergeId: string;
+      mergeCommit: string;
+      depsFrom: string | null;
+      allowDependencyInstall?: boolean;
+    },
+  ): Promise<{ path: string; gitDir: string; dependencyInstallRequired?: boolean }>;
   /** Removes that worktree; a missing one is fine. */
   releaseCheck(ref: MergeRepoRef, input: { mergeId: string }): Promise<void>;
   /** Pushes `mergeCommit` to `base` of the upstream remote, never forced; the remote is read here, not taken from the call. */

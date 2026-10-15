@@ -110,6 +110,17 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     },
 
     async run(spec, signal, onStarted) {
+      // The dependency preparation (PM-681) is not implemented here yet: a run that asks for it never
+      // starts, neither the queue wait nor the command.
+      if (spec.npmCi)
+        return {
+          outcome: 'error',
+          reason: 'dependency_install_failed',
+          exitCode: null,
+          durationMs: 0,
+          failedFiles: [],
+          outputTail: 'dependency preparation is not supported by this executor',
+        };
       // Behind the machine's other heavy runs (PM-332): the wait is not part of the run, so `started`
       // (the duration and the timeout) begins when the lock is held.
       let lock: HeavyLock | undefined;

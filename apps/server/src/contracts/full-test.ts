@@ -1,4 +1,5 @@
 import type { FullTestErrorReason } from '@projectman/shared';
+import type { MergeRepoRef } from './engine';
 
 /**
  * The server's full test of a task's pinned commit before it is reviewed (PM-217): what the
@@ -10,6 +11,16 @@ export interface FullTestSandbox {
   denyRead: string[];
   /** Paths below a `denyRead` entry that are readable again (the checkout, its git directory). */
   allowRead: string[];
+}
+
+/**
+ * The dependency preparation a run asks for (PM-681): the engine installs the dependencies of the
+ * merge check `mergeId` of the repository `ref` before the command runs. Missing: the run uses the
+ * checkout as it is.
+ */
+export interface NpmCiPreparation {
+  ref: MergeRepoRef;
+  mergeId: string;
 }
 
 export interface FullTestSpec {
@@ -28,6 +39,12 @@ export interface FullTestSpec {
    * unavailable goes on without it.
    */
   requireHeavyLock?: boolean;
+  /**
+   * Asks for the dependency preparation before the command (PM-681). An executor that cannot prepare
+   * them ends the run as `error` / `dependency_install_failed` without starting anything; missing:
+   * the previous behaviour.
+   */
+  npmCi?: NpmCiPreparation;
 }
 
 export interface FullTestResult {

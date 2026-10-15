@@ -20,6 +20,131 @@ import type {
   TimelineEventType,
 } from '@projectman/shared';
 import { daysAgo, hoursFromNow, minutesAgo, mockUuid } from './time';
+import type { StructureView } from '@projectman/shared';
+
+/** Structure endpoint fixture; names and summaries are descriptor data. */
+export const structureFixture: StructureView = {
+  repos: [
+    {
+      repo: 'webshop',
+      status: 'ok',
+      problem: null,
+      reason: null,
+      commit: 'fixture',
+      readAt: '2026-10-14T12:00:00Z',
+      truncated: false,
+      map: {
+        version: 1,
+        ignore: [],
+        areas: [
+          { id: 'experience', name: 'Vásárlói élmény', summary: 'A vásárlás látható részei.' },
+          { id: 'engine', name: 'Működés', summary: 'A rendelések és az adatok kezelése.' },
+          { id: 'partners', name: 'Partnerek', summary: 'Külső szolgáltatások.' },
+        ],
+        modules: [
+          {
+            id: 'shop',
+            area: 'experience',
+            kind: 'module',
+            name: 'Webáruház',
+            summary: 'A termékek és a kosár felülete.',
+            paths: ['src/shop/'],
+          },
+          {
+            id: 'checkout',
+            area: 'experience',
+            kind: 'module',
+            name: 'Pénztár',
+            summary: 'A vásárlás befejezése.',
+            paths: ['src/checkout/'],
+          },
+          {
+            id: 'orders',
+            area: 'engine',
+            kind: 'core',
+            name: 'Rendelések',
+            summary: 'A rendelés életútját vezérli.',
+            paths: ['src/orders/'],
+          },
+          {
+            id: 'database',
+            area: 'engine',
+            kind: 'store',
+            name: 'Adattár',
+            summary: 'A rendelések tartós tárolása.',
+            paths: ['src/db/'],
+          },
+          {
+            id: 'payment',
+            area: 'partners',
+            kind: 'external',
+            name: 'Fizetési szolgáltató',
+            summary: 'A bankkártyás fizetést végzi.',
+            paths: [],
+          },
+        ],
+        links: [
+          { from: 'shop', to: 'orders', label: 'rendelést indít' },
+          { from: 'checkout', to: 'orders', label: 'véglegesít' },
+          { from: 'orders', to: 'database', label: 'eltárol' },
+          { from: 'orders', to: 'payment', label: 'fizetést kér' },
+        ],
+      },
+      sizes: [
+        { id: 'shop', files: 210 },
+        { id: 'checkout', files: 32 },
+        { id: 'orders', files: 126 },
+        { id: 'database', files: 6 },
+      ],
+      unmapped: { count: 3, examples: ['README.md', 'scripts/check.ts', 'package.json'] },
+      cards: [
+        {
+          taskKey: 'AC-17',
+          source: 'branch',
+          commit: 'fixture',
+          files: 9,
+          modules: [
+            { id: 'shop', files: 6 },
+            { id: 'orders', files: 3 },
+          ],
+          unmapped: [],
+          truncated: false,
+        },
+        {
+          taskKey: 'AC-18',
+          source: 'review',
+          commit: 'fixture',
+          files: 5,
+          modules: [{ id: 'orders', files: 4 }],
+          unmapped: ['README.md'],
+          truncated: false,
+        },
+        {
+          taskKey: 'AC-19',
+          source: 'merge',
+          commit: 'fixture',
+          files: 2,
+          modules: [{ id: 'database', files: 2 }],
+          unmapped: [],
+          truncated: false,
+        },
+      ],
+    },
+    {
+      repo: 'mobile',
+      status: 'missing',
+      map: null,
+      sizes: [],
+      cards: [],
+      unmapped: { count: 0, examples: [] },
+      truncated: false,
+      commit: null,
+      problem: null,
+      reason: null,
+      readAt: '2026-10-14T12:00:00Z',
+    },
+  ],
+};
 
 /**
  * A fictional project for the UI tests' MockBackend: "Acme webshop" with three humans (the owner, Kata the

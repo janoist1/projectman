@@ -35,9 +35,7 @@ const createProjectPage = lazyPage(
 const sessionPage = lazyPage(() => import('../features/session/SessionPage'), 'SessionPage');
 const inboxPage = lazyPage(() => import('../features/inbox/InboxPage'), 'InboxPage');
 const memberProfilePage = lazyPage(() => import('../features/team/MemberProfilePage'), 'MemberProfilePage');
-const mapPage = lazyPage(() => import('../features/map/MapPage'), 'MapPage');
-const mapOverview = lazyPage(() => import('../features/map/MapOverview'), 'MapOverview');
-const mapGroupView = lazyPage(() => import('../features/map/MapGroupView'), 'MapGroupView');
+const mapPage = lazyPage(() => import('../features/map/StructureView'), 'StructureView');
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
 const involvementsPage = lazyPage(() => import('../features/team/InvolvementsPage'), 'InvolvementsPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
@@ -83,11 +81,8 @@ export function AppRoutes() {
             <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
           </Route>
           <Route path="map" element={mapPage}>
-            <Route index element={mapOverview} />
-            <Route path=":groupKey" element={mapGroupView}>
-              {/* The card's drawer over the zoomed group; the splat selects `…/thread` too. */}
-              <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
-            </Route>
+            <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
+            <Route path=":groupKey/*" element={<Navigate to=".." relative="route" replace />} />
           </Route>
           <Route path="team" element={teamPage} />
           <Route path="team/:handle" element={memberProfilePage} />

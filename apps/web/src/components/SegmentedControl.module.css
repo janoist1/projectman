@@ -104,3 +104,9 @@
   color: inherit;
   opacity: 0.8;
 }
+.indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-mark-muted);
+}

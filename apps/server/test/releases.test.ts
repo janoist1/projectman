@@ -141,6 +141,24 @@ describe('the release flow', () => {
   });
 
   describe('what a release contains', () => {
+    it('includes every train member sharing a merge commit in candidate and unreleased', async () => {
+      await setup({
+        appVersion: sha(1),
+        merged: [
+          { key: 'AR-1', commit: sha(1) },
+          { key: 'AR-2', commit: sha(3) },
+          { key: 'AR-3', commit: sha(3) },
+        ],
+      });
+      expect((await h.domain.releases.candidate('AR')).tasks.map((task) => task.key)).toEqual([
+        'AR-2',
+        'AR-3',
+      ]);
+      expect(h.domain.releases.unreleased('AR')).toMatchObject({ count: 2, taskKeys: ['AR-2', 'AR-3'] });
+      h.setAppVersion(sha(3));
+      expect(h.domain.releases.unreleased('AR')).toBeNull();
+      await expect(h.domain.releases.candidate('AR')).rejects.toMatchObject({ code: 'release_empty' });
+    });
     it('is every merged card when nothing is known to run, up to the head of the default branch', async () => {
       await setup();
       const candidate = await h.domain.releases.candidate('AR');

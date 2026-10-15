@@ -918,6 +918,13 @@ and are typed in after the restart, which gets no continue message. Grants "for 
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
 
+The Operator's approver stays `human`, with source `member` (PM-691), even with a historical
+`none`/`ai` member setting or any session override. `SessionPermissionMember` preserves its identity
+for `isOperator`; ordinary and missing members retain their session settings. The shared
+`sessionApproverChangeRefusal` rejects Operator `none`/`ai` updates with 403 `operator_fixed` before
+any write, restart or event; `human`/`null` clears the override. Mixed mode/forbidden-approver patches
+are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
+
 ## Session policy migration (PM-87 / PM-127)
 
 `contracts/session-policy.ts` is the provider-neutral session intent: placement, semantic team,
@@ -1148,7 +1155,36 @@ or one without a review test selects only itself. An incompatible, ineligible or
 ends the prefix. Diagnostic candidates never mix with normal candidates or another parent;
 every selected diagnostic member's integer 1–8 limit bounds the group. A singleton uses the
 individual merge path. Selection neither sorts nor rewrites timestamps and reads no DB or engine.
-This slice does not activate grouped git/check execution; that follows in PM-660.
+**Common train execution (PM-660).** `services/merges/train.ts` reserves the compatible
+queued prefix under card locks sorted by task key, rechecking sources, gates, merger rights,
+PR metadata, engine and the full review configuration. One transaction saves the manifest
+and moves every member to running. The existing Effect repository slot owns the train;
+the document writer retains its priority when that slot next frees. There is no collection
+delay and no card lock during heavy-queue waiting or testing. Cancelling any member interrupts
+the common worker and waits for checkout cleanup before the slot can be reused. Survivors
+return to queued with their original priority snapshots; the invalid manifest is retired.
+
+The engine builds an ordered source chain, then closes it with another `build` whose first
+parent is the original main. The unchanged first-parent merge-test diff therefore covers
+every source. One `_merge/<trainId>` checkout uses dependencies matching the merged lockfile;
+one full-test run with `requireHeavyLock: true` checks the candidate, without individual
+green-result reuse. Candidate and all member merge commits are saved before testing. Every
+member switches to checking on the common onStarted callback and receives the same result
+and run id. The final locked checkpoint rechecks every source and authorization before one
+non-force push and local compare-and-swap advance. Publication is cooperative and cannot be
+cancelled once started. One transaction records every merged row and each starter's own
+task_merged event, followed by each card's ordinary afterMerge/AutoAdvance.
+
+A failed group check marks the train and members failed, without publishing or attributing
+the failure to each member; smaller diagnostic groups belong to PM-661. Operational failures
+block with the original reason. Non-fast-forward rebuilds and rechecks once, then blocks.
+Startup handles train manifests before individual rows: candidate ancestry detects a push
+or local advance completed before the DB transaction, and finishes without repeating the
+check, push or events. Unpublished candidates rebuild and recheck conservatively. The train
+worker is the sole owner of shared checkout release, including startup recovery.
+Blocked publication attempts are checked for candidate ancestry before their leader is
+queued for recovery. An unpublished blocked manifest never reopens cancelled requests or
+changes members that were retried individually; those requests keep their current state.
 The manifest and selection run on the server with remote engines too, grouped by `engineId`;
 they add no machine-dependent operation or RPC. Execution belongs to the existing
 "Member initiated merge" inventory entry when enabled.
@@ -1227,6 +1263,8 @@ workers follow the machine's size.
   check is the exception (PM-658): `FullTestSpec.requireHeavyLock` (optional; the merge always sends `true`)
   makes a missing or unusable queue end the run as `error` / `heavy_lock_unavailable` (`durationMs` 0, no
   sandbox, no `onStarted`), so the merge blocks as `check_error` and never runs one without the queue.
+  A merge train (PM-660) submits one common candidate through that same executor and lock;
+  its repository slot and card locks do not permit parallel heavy runs or bypass the queue.
 - **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
   npm cache when there is no clone). The same folder and variables go to a Codex member as
@@ -2304,6 +2342,12 @@ assumption or remote-engine RPC.
   uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
   policy functions through `InboxPermissionPolicy` (`core/inbox`); path validation still
   runs on the session's engine and requires no new RPC.
+  PM-691 fixes the Operator's effective approver to `human` on the server through
+  `packages/shared/src/config/permission-level.ts`, including historical session overrides.
+  `runtime/sessions/{sessions,launch}.ts` checks updates and carries the effective member into
+  the existing start/context path; `core/inbox` uses it for human routing. Local and remote
+  engines consume the same start intent. This changes no OS assumption or RPC and never
+  turns a CLI escalation into boundary authorization.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
@@ -2446,6 +2490,10 @@ assumption or remote-engine RPC.
   `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
   `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
   syntax check. No git or process crosses into server-side DB validation.
+  For a train (PM-660), the server calls the same build operation for every approved source
+  and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
+  full_test.run. The manifest, ordered locks and attribution stay on the server; all members
+  must share an engine and no new RPC or command allowlist entry is required.
   **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
   of the changed files and short results cross the link, and a merge to a repo or branch not named by
@@ -2760,6 +2808,21 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   new configuration field is closed until a rule opens it. What `integratorConfigRefusal` or `ownerOnlyChanges` names
   is at least `approval`; the exception is the four member fields above, which the integrator rule would cover but the
   owner asked to go straight through.
+- **Approval waiver classification (PM-691).** The verdict additionally returns `waiverEligible`, true only for
+  an `approval` change whose full end-state diff is on the explicit shared allow lists. Protected rights,
+  authorization duties, gates and approval labels, locations, sharing and the Operator's own settings still
+  need approval; unknown fields are closed. New AI members expose non-default permission fields beside their
+  presence row. Approval labels use `isOwnerApprovalLabel` in both end states (human-only, author exclusion or
+  a gate requirement); their actual holders and resolved reviewer/authorization duties remain protected even
+  without a gate. `team.operatorApprovalWaiver` is optional (absent: false), owner-only and stored in `team.yaml`.
+  reordering existing stages is protected even with unchanged gate definitions. Stage/member changes that
+  alter `mergerOf`, the merge target or any `cardMerger` reviewer choice also need a click; roster reordering
+  has its own approval row because duty-derived owner order can change the selected merger.
+  Classification never changes a verdict's level or authorizes execution. The execution switch follows in PM-692.
+  The Operator template uses `approver: human`; load and revert migrate legacy `none`/`ai` values to `human`
+  without relaxing mode or network. Shared fixed invariants reject a nonhuman Operator approver, an Operator
+  merger and boundary authorization in its role. These errors are never tolerated on load or preserved by a
+  configuration write. The rules run on the server for remote engines too; no new machine-dependent part.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
   priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.

@@ -178,7 +178,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/merges',
     pass: 'split-tool',
-    paths: ['services/merges/', 'services/merges/train-selection.ts'],
+    paths: ['services/merges/', 'services/merges/train-selection.ts', 'services/merges/train.ts'],
     sealed: true,
   },
   {

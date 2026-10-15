@@ -12,6 +12,7 @@ describe('operatorMember', () => {
       handle: 'operator',
       displayName: 'Operator',
       role: 'ai_operator',
+      approver: 'human',
       model: DEFAULT_PROVIDER_MODELS.claude,
       capacity: 1,
       sponsor: 'owner',

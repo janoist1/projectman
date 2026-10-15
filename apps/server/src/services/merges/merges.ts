@@ -23,6 +23,7 @@ import type { MergeSlotPeer } from './ports';
 import { makeMergeQueue } from './queue';
 import type { MergeQueueEffects } from './queue';
 import { MergeSteps } from './steps';
+import { MergeTrains } from './train';
 
 /** Durable FIFO per project/repository; all git and sandbox work stays on the card's engine. */
 export class Merges {
@@ -31,12 +32,18 @@ export class Merges {
   private readonly cards: MergeCardLock;
   private readonly deps: MergeDeps;
   private readonly steps: MergeSteps;
+  private readonly trains: MergeTrains;
   private scope = Scope.makeUnsafe();
   private queue: MergeQueueEffects;
   constructor(deps: MergeDeps) {
     this.deps = deps;
     this.cards = deps.cards ?? new MergeCardLock();
     this.steps = new MergeSteps(deps, this.cards, { pump: () => this.pump(), stopped: () => this.stopped });
+    this.trains = new MergeTrains(deps, this.cards, this.steps, {
+      stopped: () => this.stopped,
+      source: (config, task) => this.source(config, task),
+      mergerOf: (config, task) => this.mergerOf(config, task),
+    });
     this.queue = this.makeQueue();
   }
 
@@ -46,7 +53,26 @@ export class Merges {
         makeMergeQueue({
           ctx: this.deps.ctx,
           tasks: this.deps.tasks,
-          steps: this.steps,
+          steps: {
+            run: async (run) => {
+              if (this.trains.resume(run)) return this.trains.run(run, run.recoveryOnly);
+              let reserved: boolean;
+              try {
+                reserved = await this.trains.reserve(run);
+              } catch (err) {
+                await this.steps.block(
+                  run,
+                  'merge_error',
+                  err instanceof Error ? err.message : 'Could not reserve the merge train',
+                );
+                return;
+              }
+              if (reserved) await this.trains.run(run);
+              else if (!run.signal?.aborted) await this.steps.run(run);
+            },
+            release: (row, merger) => this.steps.release(row, merger),
+            engine: (task) => this.steps.engine(task),
+          },
           peer: () => this.peer,
           stopped: () => this.stopped,
         }),
@@ -204,6 +230,14 @@ export class Merges {
       const merger = row?.merger ?? cardMerger(config, task, this.reviewer(config, task));
       if (!merger || actorHandle(actor) !== merger)
         throw forbidden('merge_not_merger', 'only the card merger may start the merge');
+      if (row?.trainId) {
+        const train = ctx.repos.mergeTrains.get(row.trainId);
+        if (train?.state === 'blocked' && train.step === 'pushing' && (await this.trains.published(train))) {
+          await this.trains.scheduleRecovery(train);
+          this.pump();
+          return tasks.get(projectKey, taskKey);
+        }
+      }
       const readiness = mergeReadiness(config, task);
       if (!readiness.ready)
         throw conflict('merge_not_ready', 'the card is not ready to merge', { reason: readiness.reason });
@@ -238,6 +272,7 @@ export class Merges {
             reason: 'not_before_target',
           });
         this.steps.save(row, {
+          trainId: undefined,
           ...(row.landed === 'remote' ? {} : source),
           state: 'queued',
           step: 'queued',
@@ -384,8 +419,20 @@ export class Merges {
   async init(): Promise<void> {
     this.stopped = false;
     const { ctx } = this.deps;
+    // Recover publication from the manifest before any member may restart individually.
+    for (const train of ctx.repos.mergeTrains.listRunning()) {
+      await this.trains.scheduleRecovery(train);
+    }
+    const recovered = new Set<string>();
+    for (const row of [...ctx.repos.taskMerges.list('blocked'), ...ctx.repos.taskMerges.list('cancelled')]) {
+      if (!row.trainId || recovered.has(row.trainId)) continue;
+      recovered.add(row.trainId);
+      const train = ctx.repos.mergeTrains.get(row.trainId);
+      if (train?.state === 'blocked' && train.step === 'pushing') await this.trains.scheduleRecovery(train);
+    }
     for (const row of ctx.repos.taskMerges.list('running'))
-      this.steps.save(row, { state: 'queued', step: 'queued' });
+      if (!row.trainId || ctx.repos.mergeTrains.get(row.trainId)?.state !== 'running')
+        this.steps.save(row, { state: 'queued', step: 'queued' });
     // Known abandoned check worktrees are released before any new check is made.
     for (const state of ['queued', 'blocked'] as const) {
       for (const row of ctx.repos.taskMerges.list(state)) {
@@ -466,12 +513,38 @@ export class Merges {
       if (effects) effects.push(effect);
       else void effect();
     };
+    const waitingTrain = row.trainId ? this.deps.ctx.repos.mergeTrains.get(row.trainId) : null;
+    if (waitingTrain?.landed === 'remote') return;
+    if (waitingTrain?.state === 'running' && !running) {
+      // A startup publication must first resolve its ancestry; an unpublished train can retire.
+      if (waitingTrain.step === 'pushing') return;
+      this.steps.save(row, { state: 'cancelled', finishedAt: isoNow(this.deps.ctx) });
+      this.steps.clearAlert(row);
+      afterCommit(async () => {
+        // Move effects may still hold the initiating card lock: do not await re-entry.
+        void this.trains
+          .invalidate({ row, train: waitingTrain, pushing: false })
+          .then(() => this.pump())
+          .catch((err: unknown) =>
+            this.deps.ctx.logger.warn({ err, trainId: waitingTrain.id }, 'could not retire a waiting train'),
+          );
+      });
+      return;
+    }
     // The interruption is not awaited, as the abort was not: the merge ends at its next checkpoint.
-    if (running?.row.id === row.id && !running.pushing)
+    if (
+      running &&
+      (running.row.id === row.id || running.train?.members.some((m) => m.mergeId === row.id)) &&
+      !running.pushing
+    )
       afterCommit(async () => {
         runFork(this.queue.interrupt(running));
       });
     if (row.state === 'running') {
+      if (running?.train && !running.pushing) {
+        this.steps.save(row, { state: 'cancelled', finishedAt: isoNow(this.deps.ctx) });
+        this.steps.clearAlert(row);
+      }
       return;
     }
     this.steps.save(row, { state: 'cancelled', finishedAt: isoNow(this.deps.ctx) });

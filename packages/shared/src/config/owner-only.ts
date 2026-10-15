@@ -27,7 +27,8 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
  *   a new AI member that starts with other than the defaults;
  * - `review_test`: a repository's full test, `reviewTest` (the shell command the server runs in the
  *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538);
- * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548).
+ * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
+ * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691).
  */
 export type OwnerOnlyChange =
   | 'locations'
@@ -37,7 +38,8 @@ export type OwnerOnlyChange =
   | 'owners'
   | 'permissions'
   | 'review_test'
-  | 'operator_watch';
+  | 'operator_watch'
+  | 'operator_approval_waiver';
 
 /** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
 export function ownerOnlyChanges(
@@ -55,6 +57,8 @@ export function ownerOnlyChanges(
   if (permissionsChanged(previous, next)) changes.push('permissions');
   if (reviewTestSignature(previous) !== reviewTestSignature(next)) changes.push('review_test');
   if (operatorWatchOf(previous) !== operatorWatchOf(next)) changes.push('operator_watch');
+  if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
+    changes.push('operator_approval_waiver');
   return changes;
 }
 

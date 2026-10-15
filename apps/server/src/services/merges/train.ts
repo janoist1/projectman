@@ -121,7 +121,7 @@ export class MergeTrains {
   }
 
   /** Source, authorization and configuration are checked again under the ordered card locks. */
-  private async valid(row: MergeRecord, train?: MergeTrainRecord): Promise<boolean> {
+  private async valid(row: MergeRecord, train?: MergeTrainRecord, allowWaiting = false): Promise<boolean> {
     if (train) {
       const snapshot = train.members.find((m) => m.mergeId === row.id);
       if (
@@ -144,7 +144,7 @@ export class MergeTrains {
       ready.repo.defaultBranch !== row.base ||
       this.hooks.mergerOf(config, task) !== row.merger ||
       row.startedBy !== row.merger ||
-      openPrerequisites(task, tasks.list(row.projectKey)).length > 0 ||
+      (!allowWaiting && openPrerequisites(task, tasks.list(row.projectKey)).length > 0) ||
       (train &&
         (sessions.cardEngineId(row.projectKey, task) !== train.engineId ||
           !sameCheck(ready.repo.reviewTest, train.reviewTest)))
@@ -157,10 +157,7 @@ export class MergeTrains {
   /** Returns false for the established single-card path, including already-landed sources. */
   async reserve(run: MergeRun): Promise<boolean> {
     const { ctx, projects, tasks, sessions } = this.deps;
-    const queued = ctx.repos.taskMerges
-      .list('queued')
-      .filter((r) => r.projectKey === run.row.projectKey && r.repo === run.row.repo)
-      .slice(0, 8);
+    const queued = this.queued(run.row.projectKey, run.row.repo).slice(0, 8);
     if (queued[0]?.id !== run.row.id || queued.length < 2) return false;
     const candidates: MergeTrainCandidate[] = [];
     for (const row of queued) {
@@ -195,6 +192,7 @@ export class MergeTrains {
         startedBy: row.startedBy ?? '',
         startedAt: row.startedAt ?? '',
         prioritizedAt: row.prioritizedAt,
+        diagnostic: row.diagnostic,
         projectKey: row.projectKey,
         repo: row.repo,
         base: row.base,
@@ -218,6 +216,7 @@ export class MergeTrains {
         base: first.base,
         engineId: first.engineId,
         reviewTest: first.reviewTest!,
+        parentTrainId: first.diagnostic?.parentTrainId,
         members: candidates
           .slice(0, ids.length)
           .map(({ mergeId, taskKey, commit, branch, startedBy, startedAt, prioritizedAt }) => ({
@@ -238,10 +237,7 @@ export class MergeTrains {
       for (const row of selected) if (!(await this.valid(row, train))) return false;
       if (!(await this.pullRequests(train))) return false;
       return ctx.unitOfWork(() => {
-        const current = ctx.repos.taskMerges
-          .list('queued')
-          .filter((r) => r.projectKey === train.projectKey && r.repo === train.repo)
-          .slice(0, ids.length);
+        const current = this.queued(train.projectKey, train.repo).slice(0, ids.length);
         if (
           current.some(
             (r, i) =>
@@ -269,6 +265,19 @@ export class MergeTrains {
     });
   }
 
+  /** Skip waiting heads, but keep followers adjacent for the compatible-prefix selector. */
+  private queued(projectKey: string, repo: string): MergeRecord[] {
+    const rows = this.deps.ctx.repos.taskMerges
+      .list('queued')
+      .filter((r) => r.projectKey === projectKey && r.repo === repo);
+    const tasks = this.deps.tasks.list(projectKey);
+    const first = rows.findIndex((row) => {
+      const task = this.deps.tasks.find(projectKey, row.taskKey);
+      return !task || openPrerequisites(task, tasks).length === 0;
+    });
+    return first < 0 ? [] : rows.slice(first);
+  }
+
   /** Returns survivors to their original queue positions, retiring the unique running manifest. */
   async invalidate(run: MergeRun): Promise<void> {
     const train = run.train!;
@@ -277,7 +286,7 @@ export class MergeTrains {
       for (const row of this.rows(train)) {
         try {
           // A new review configuration or engine needs a new candidate, not a new user request.
-          validity.set(row.id, await this.valid(row));
+          validity.set(row.id, await this.valid(row, undefined, true));
         } catch (err) {
           this.deps.ctx.logger.warn({ err, mergeId: row.id }, 'could not revalidate a retired train member');
           validity.set(row.id, false);
@@ -316,6 +325,34 @@ export class MergeTrains {
 
   private patchMembers(train: MergeTrainRecord, patch: Partial<MergeRecord>): void {
     for (const row of this.rows(train)) this.steps.save(row, patch);
+  }
+
+  /** Retire the red attempt and requeue every member atomically; no card is blamed yet. */
+  private async bisect(train: MergeTrainRecord): Promise<void> {
+    const { ctx } = this.deps;
+    await this.lock(this.rows(train), async () => {
+      ctx.unitOfWork(() => {
+        if (ctx.repos.mergeTrains.get(train.id)?.state !== 'running') return;
+        this.save(train, { state: 'failed', finishedAt: isoNow(ctx) });
+        for (const row of this.rows(train)) {
+          const member = train.members.find((m) => m.mergeId === row.id)!;
+          if (row.state !== 'running' || row.trainId !== train.id) continue;
+          this.steps.save(row, {
+            state: 'queued',
+            step: 'queued',
+            trainId: undefined,
+            diagnostic: { parentTrainId: train.id, maxCards: Math.ceil(train.members.length / 2) },
+            prioritizedAt: member.prioritizedAt,
+            mergeCommit: undefined,
+            check: undefined,
+            failure: undefined,
+            block: undefined,
+            finishedAt: undefined,
+          });
+          this.steps.clearAlert(row);
+        }
+      });
+    });
   }
 
   private async terminal(
@@ -387,6 +424,7 @@ export class MergeTrains {
         if (row.state === 'merged') continue;
         this.steps.save(row, {
           state: 'merged',
+          diagnostic: undefined,
           step: 'finishing',
           finishedAt: isoNow(ctx),
           ...(row.pushed && githubRepo
@@ -489,6 +527,7 @@ export class MergeTrains {
         }
         if (recoverOnly) return;
         if (!(await this.checkpoint(run))) return;
+        if (train.check?.status === 'failed') return await this.bisect(train);
         if (base.relation === 'local_ahead' || base.relation === 'diverged')
           return await this.terminal(
             run,
@@ -602,17 +641,34 @@ export class MergeTrains {
         ctx.unitOfWork(() => {
           this.save(train, { check });
           this.patchMembers(train, { check });
+          if (result.outcome === 'failed') {
+            const detail = [result.failedFiles.join('\n'), result.outputTail.slice(-8000)]
+              .filter(Boolean)
+              .join('\n');
+            for (const row of this.rows(train))
+              this.deps.timeline.append({
+                projectKey: row.projectKey,
+                taskKey: row.taskKey,
+                actor: SYSTEM_ACTOR,
+                type: 'task_note',
+                data: {
+                  text: `Merge train ${train.id} (${train.members.map((m) => m.taskKey).join(', ')}) failed its group check (${runId}). The individual cause has not yet been identified. Smaller attempts will check the current default branch.\n${detail}`,
+                  mentions: [],
+                },
+              });
+          }
         });
-        if (result.outcome === 'failed')
-          return await this.terminal(run, 'check_error', 'The group check failed', {
-            reason: 'check_failed',
-            base: onto,
-            at: isoNow(ctx),
-            command: train.reviewTest.command,
+        ctx.logger.info(
+          {
+            trainId: train.id,
             runId,
-            files: result.failedFiles,
-            outputTail: result.outputTail.slice(-8000),
-          });
+            members: train.members.length,
+            outcome: result.outcome,
+            durationMs: result.durationMs,
+          },
+          'merge train check completed',
+        );
+        if (result.outcome === 'failed') return await this.bisect(train);
         if (result.outcome !== 'passed')
           return await this.terminal(
             run,
@@ -664,6 +720,8 @@ export class MergeTrains {
     } catch (err) {
       const durable = this.deps.ctx.repos.mergeTrains.get(train.id);
       if (durable?.state !== 'running') throw err;
+      // Keep the durable red check recoverable if the atomic split itself was interrupted.
+      if (durable.check?.status === 'failed') throw err;
       // A failed transaction rolls back SQLite, not the in-memory manifest object.
       Object.assign(train, durable);
       if (!run.pushing && !(await this.checkpoint(run))) return;

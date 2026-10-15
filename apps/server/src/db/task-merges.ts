@@ -1,6 +1,9 @@
 import type { TaskMerged, TaskMergeState } from '@projectman/shared';
+import { z } from 'zod';
 import type { Db } from './database';
 import { MergeTrainId } from './merge-trains';
+
+const diagnostic = z.strictObject({ parentTrainId: MergeTrainId, maxCards: z.number().int().min(1).max(8) });
 
 export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
   projectKey: string;
@@ -14,6 +17,7 @@ export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
   finishedAt?: string;
   /** Internal train membership; never exposed in the card's public merge state. */
   trainId?: string;
+  diagnostic?: z.infer<typeof diagnostic>;
   pushed?: TaskMerged['pushed'];
   pullRequests?: TaskMerged['pullRequests'];
   resolution?: TaskMerged['resolution'];
@@ -49,14 +53,25 @@ const columns = {
   updatedAt: 'updated_at',
   finishedAt: 'finished_at',
   trainId: 'train_id',
+  diagnostic: 'diagnostic_json',
 } as const;
-const json = new Set(['check', 'block', 'failure', 'pushed', 'pullRequests', 'fix', 'resolution']);
+const json = new Set([
+  'check',
+  'block',
+  'failure',
+  'pushed',
+  'pullRequests',
+  'fix',
+  'resolution',
+  'diagnostic',
+]);
 function record(row: Record<string, unknown>): MergeRecord {
   return Object.fromEntries(
     Object.entries(columns).flatMap(([key, column]) => {
       const value = row[column];
       if (value === null) return [];
       if (key === 'trainId') return [[key, MergeTrainId.parse(value)]];
+      if (key === 'diagnostic') return [[key, diagnostic.parse(JSON.parse(value as string))]];
       return [[key, json.has(key) ? JSON.parse(value as string) : value]];
     }),
   ) as unknown as MergeRecord;
@@ -148,6 +163,7 @@ export function createTaskMergeRepository(db: Db) {
     },
     save(row: MergeRecord) {
       if (row.trainId !== undefined) MergeTrainId.parse(row.trainId);
+      if (row.diagnostic !== undefined) diagnostic.parse(row.diagnostic);
       const entries = Object.entries(columns);
       db.prepare(
         `INSERT INTO task_merges (${entries.map(([, col]) => `"${col}"`).join(',')}) VALUES (${entries.map(() => '?').join(',')}) ON CONFLICT(id) DO UPDATE SET ${entries

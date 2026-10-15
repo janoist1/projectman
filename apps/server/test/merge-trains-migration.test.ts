@@ -38,14 +38,23 @@ describe('merge trains migration', () => {
 
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(db.prepare('SELECT * FROM task_merges').get()).toEqual({ ...before, train_id: null });
+      expect(db.prepare('SELECT * FROM task_merges').get()).toEqual({
+        ...before,
+        train_id: null,
+        diagnostic_json: null,
+      });
       const repos = createRepositories(db);
       const row = repos.taskMerges.get('merge_old00001')!;
       expect(row).toMatchObject({ state: 'failed', failure, prioritizedAt: at });
       expect(row).not.toHaveProperty('trainId');
+      expect(row).not.toHaveProperty('diagnostic');
       expect(repos.mergeTrains.listRunning()).toEqual([]);
       repos.taskMerges.save(row);
-      expect(db.prepare('SELECT * FROM task_merges').get()).toEqual({ ...before, train_id: null });
+      expect(db.prepare('SELECT * FROM task_merges').get()).toEqual({
+        ...before,
+        train_id: null,
+        diagnostic_json: null,
+      });
 
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(repos.taskMerges.get(row.id)).toEqual(row);

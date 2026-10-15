@@ -1175,8 +1175,19 @@ non-force push and local compare-and-swap advance. Publication is cooperative an
 cancelled once started. One transaction records every merged row and each starter's own
 task_merged event, followed by each card's ordinary afterMerge/AutoAdvance.
 
-A failed group check marks the train and members failed, without publishing or attributing
-the failure to each member; smaller diagnostic groups belong to PM-661. Operational failures
+A failed group check retires the manifest as failed and atomically requeues its members
+with internal `task_merges.diagnostic_json` (PM-661): the failed parent's id and an integer
+`maxCards = ceil(member count / 2)`. Original creation times and manifest priority snapshots
+are restored; candidate, check, failure, block and active membership are cleared. Only
+adjacent diagnostic members of the same parent can group, bounded by every member's limit.
+Each smaller attempt gets a fresh candidate and check on current main; successful prefixes
+therefore participate in the next half's check. Singletons use the individual path and only
+their failed check identifies a blocking card. Success clears diagnostic state; operational
+blocks and explicit retries preserve it. Shared `openPrerequisites` checks at reservation and
+before publication leave dependent cards queued while unrelated runnable cards proceed.
+The slot and heavy lock are released between attempts, giving the document writer and queue
+prioritization their ordinary turn. A persisted red check resumes its atomic split after
+restart; already published candidates still recover publication first. Operational failures
 block with the original reason. Non-fast-forward rebuilds and rechecks once, then blocks.
 Startup handles train manifests before individual rows: candidate ancestry detects a push
 or local advance completed before the DB transaction, and finishes without repeating the
@@ -2494,6 +2505,9 @@ assumption or remote-engine RPC.
   and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
   full_test.run. The manifest, ordered locks and attribution stay on the server; all members
   must share an engine and no new RPC or command allowlist entry is required.
+  Diagnostic bisection (PM-661), its transactional requeue and parent/size limits stay on the
+  server; smaller attempts reuse these same engine operations and the required heavy lock.
+  No new local machine assumption or server/engine boundary field is introduced.
   **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
   of the changed files and short results cross the link, and a merge to a repo or branch not named by

@@ -28,6 +28,7 @@ import { NanogptStartError } from './providers/nanogpt';
 import { CodexStartError, defaultCodexHome } from './providers/codex';
 import { pipeSpawn } from './pipe-spawn';
 import { AgentSession, UUID_RE } from './session';
+import { createProcessScopeDriver, type ProcessScopeDriver } from './process-scope';
 
 /** What pausing a session that is not running reports (nothing to wait for, no event). */
 const NOT_RUNNING: PauseOutcome = { point: 'exited', tool: null };
@@ -71,11 +72,24 @@ export class SessionManager implements SessionRunner {
   /** Cached login status by provider. */
   private readonly statuses = new Map<string, { status: ProviderStatus; at: number }>();
   private readonly statusChecks = new Map<string, Promise<ProviderStatus>>();
+  private readonly scopes: ProcessScopeDriver;
+  private readonly recovery: Promise<void>;
 
   constructor(opts: RunnerModuleOptions, adapters: ProviderAdapters = createProviderAdapters(opts)) {
     this.opts = opts;
     this.log = opts.logger;
     this.adapters = adapters;
+    this.scopes = createProcessScopeDriver({
+      config: opts.processScope ?? { kind: 'process_group' },
+      processes: opts.scopeProcesses,
+      instanceTag: opts.instanceTag,
+      uid: process.getuid?.() ?? null,
+      logger: this.log,
+    });
+    const recover = async () => {
+      for (const event of await this.scopes.recover()) this.emit({ type: 'scope_recovered', ...event });
+    };
+    this.recovery = recover();
     if (opts.terminal === 'pipe')
       this.log.warn(
         'sessions run without a terminal (PROJECTMAN_TERMINAL=pipe): only the fake CLIs work this way',
@@ -83,6 +97,7 @@ export class SessionManager implements SessionRunner {
   }
 
   async start(spec: StartSessionSpec): Promise<RunningSessionInfo> {
+    await this.recovery;
     if (!spec.sessionId) throw new Error('sessionId is required');
     const provider = spec.provider ?? DEFAULT_AGENT_PROVIDER;
     const adapter = this.adapters[provider];
@@ -138,6 +153,7 @@ export class SessionManager implements SessionRunner {
       deps: {
         ...(launch.conversationRoot ? { transcriptRoot: launch.conversationRoot } : {}),
         logger: this.log,
+        processScopes: this.scopes,
         broker: this.opts.broker,
         refreshDependencies: this.opts.refreshDependencies,
         permissionTimeoutMs: this.opts.permissionTimeoutMs,
@@ -156,7 +172,7 @@ export class SessionManager implements SessionRunner {
     this.sessions.set(spec.sessionId, session);
     this.byToken.set(token, session);
     try {
-      session.spawn(launch.file, launch.args, { ...env, ...launch.env });
+      await session.spawn(launch.file, launch.args, { ...env, ...launch.env });
     } catch (err) {
       this.sessions.delete(spec.sessionId);
       this.byToken.delete(token);
@@ -292,9 +308,14 @@ export class SessionManager implements SessionRunner {
   }
 
   async shutdown(): Promise<void> {
-    await Promise.all([...this.sessions.values()].map((s) => s.stop(false)));
+    await this.recovery;
+    await Promise.all([...this.sessions.values()].map((s) => s.stop(false, 'shutdown')));
     for (const session of this.finished.values()) session.dispose();
     this.finished.clear();
+  }
+
+  closeScopes(scopes: Array<{ sessionId: string; scopeId: string; sinceAgeMs?: number }>) {
+    return this.scopes.closeScopes(scopes);
   }
 
   /** The live session a hook token belongs to. */

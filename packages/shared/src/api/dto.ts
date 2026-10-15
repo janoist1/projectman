@@ -164,6 +164,7 @@ export const OPERATOR_UNRELEASED_HOURS = 24;
 /** Startable cards and free capacity together for this long wake the Operator. */
 export const OPERATOR_READY_WAITING_MINUTES = 30;
 export const OperatorSignalKind = z.enum([
+  'process_cleanup_failed',
   'outage',
   'nobody',
   'stalled',

@@ -2897,6 +2897,7 @@ export const hu = {
       failed: 'Nem sikerült. Próbáld újra.',
       kinds: {
         outage: 'Kiesés: a munka egy része áll',
+        process_cleanup_failed: '{key}: egy ülés folyamatai nem álltak le',
         nobody: '{key}: senki nem viheti',
         stalled: '{key}: válaszra vár a munkamenet',
         silent: '{key}: a munkamenet nem ad jelet',
@@ -2909,6 +2910,8 @@ export const hu = {
       },
       bodies: {
         outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
+        process_cleanup_failed:
+          'Egy véget ért ülés háttérfolyamatai a leállítás után is futnak; a munkaterülete foglalt marad. A Gép panelen leállíthatók.',
         nobody: 'A kártyát most egy tag sem viheti a beállítások szerint.',
         stalled: 'A munkamenet egy ideje bemenetre vár.',
         silent: 'A munkamenet dolgozik, de egy ideje nem ad jelet.',

@@ -60,6 +60,7 @@ import { assertHomeMayStart, RUN_MODES } from './instance';
 import type { RunMode } from './instance';
 import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
+import { createMachineProbe } from './machine';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
 import { createCloudRemote, createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
@@ -436,6 +437,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         }))
       : undefined;
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
+    let scopeProbe: MachineProbe | undefined;
     const auth = new AuthService({ repos, now: options.now });
     if (options.publicBoard)
       assertPublicBoardReady({
@@ -477,9 +479,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         : {}),
       machineProbe: remote
         ? () => remote.machineProbe
-        : modules.createMachineProbe
-          ? ({ runningPids }) => modules.createMachineProbe!({ runningPids, instanceTag })
-          : undefined,
+        : ({ runningPids }) =>
+            (scopeProbe = modules.createMachineProbe?.({ runningPids, instanceTag }) ?? createMachineProbe()),
       createRunner: (broker, nanogptKey) =>
         remote
           ? remote.createRunnerModule(broker, nanogptKey)
@@ -496,6 +497,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               terminal: options.terminal,
               publicBaseUrl,
               instanceTag,
+              scopeProcesses: {
+                processes: () => scopeProbe?.processes() ?? Promise.resolve(null),
+                envValues: (pids, names) => scopeProbe?.envValues(pids, names) ?? Promise.resolve(new Map()),
+              },
               broker,
               refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
               permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,

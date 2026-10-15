@@ -197,6 +197,9 @@ deadline, the timeline) is PM-219; this is what the runner does and relies on in
   is not forced.
 - **Refused tools.** A tool whose approval is denied (a decision, the timeout, a failure) sends no
   PostToolUse, so it stops counting as running at the denial; the pause does not wait for it.
+- **Process scope (PM-698).** A pause is not a session end: the CLI and its process scope stay open
+  while the session is held, so background commands go on. The scope closes only when the process
+  ends (stop, exit, shutdown), and a resumed conversation gets a new scope generation.
 - **Release.** `release` lets the input through again. A stopped session types the `nudge` first, then
   what waited. A session still stopping has its pause taken back: pending `pause` promises resolve to
   `null`; if a halting answer or Esc already went out (the turn is ending) the nudge is typed after the

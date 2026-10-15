@@ -328,6 +328,10 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     publicBaseUrl: baseUrl,
     instanceTag,
     broker,
+    scopeProcesses: {
+      processes: () => probe.processes(),
+      envValues: (pids, names) => probe.envValues(pids, names),
+    },
     refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
     permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
     logger: log.child({ module: 'runner' }),
@@ -459,6 +463,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       })),
       providers,
       running: runner.list(),
+      processScope: 'process_group',
       instanceTag,
       pid: process.pid,
       uid,

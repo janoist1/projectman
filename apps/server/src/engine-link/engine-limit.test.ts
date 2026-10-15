@@ -25,6 +25,7 @@ describe('engine local limit', () => {
   let probe: MachineProbe & { signal: ReturnType<typeof vi.fn> };
 
   const record = (pid: number, ppid: number, overrides: Partial<ProcessRecord> = {}): ProcessRecord => ({
+    pgid: null,
     pid,
     ppid,
     args: '',

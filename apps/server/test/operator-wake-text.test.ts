@@ -122,7 +122,10 @@ describe('level unblock', () => {
     expect(text).toContain('you may take it yourself with its signal_id after weighing it');
     expect(text).toContain('follow_up true');
     expect(text).toContain('On a signal never merge, release, approve, move a card');
-    expect(text).toContain('stalled, silent, outage and nobody signals always go to the owners');
+    expect(text).toContain(
+      'stalled, silent, outage, nobody and process_cleanup_failed signals always go to the owners',
+    );
+    expect(text).toContain("Never stop another member's processes yourself.");
     expect(text).toContain('one message for the whole wake-up');
     expect(text).toContain('close with dismiss_signal and a note');
     expect(wakeRows()).toMatchObject([

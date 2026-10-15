@@ -796,7 +796,7 @@ export class SessionLauncher {
         this.ctx.repos.sessions.setReviewedCommit(session.id, task.reviewPin.commit);
       this.live.modes.set(session.id, permissionMode);
       this.live.grants.set(session.id, this.host.sessionGrants(session));
-      workspaces?.started(session.id, info.pid);
+      workspaces?.started(session.id, info.pid, info.scopeId);
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {
         this.ctx.repos.sessions.update(session.id, { state: info.state, stateSince: isoNow(this.ctx) });

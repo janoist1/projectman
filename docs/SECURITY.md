@@ -629,13 +629,25 @@ every checkout and the app home (`<tmp>/projectman-sessions/<hash of the app hom
 nothing outside a sandbox runs or loads from it, and it is removed with the process (and the whole
 root when the server starts). Only the server computes the path; the session gets it in
 `PROJECTMAN_SESSION_DIR` and names no other. The name is new at every start: a command that
-outlived an earlier run (a detached one is not killed with the process) holds the old path in its
+outlived an earlier run (one that escaped process-scope attribution) holds the old path in its
 sandbox, may empty the old folder, and could try to leave a symbolic link there for the next start
 to write through; the next start has another, unpredictable path, made exclusively and checked
 (a real directory of the server's user), so the old rule never covers it. The old folder is
 renamed to a `.trash-<random>` name before it is removed, so a survivor cannot swap a directory
-in it for a link while the removal walks it. A process group left running is not killed (the
-runner stops the main process only; a separate card). The root is checked before use: a real directory (not
+in it for a link while the removal walks it. Since PM-698 the owning engine closes the session's
+process scope before reporting exit or releasing its folder/workspace: TERM for at most 5 s,
+then KILL for at most 2 s, with fresh uid, pid/start-time and scope generation checks. This also
+stops background tests and development servers at session end; an idle turn is not session end.
+The process-group driver is explicitly `best_effort`: a process that leaves its group and clears
+its marker can escape attribution. Environment read failures instead remain `unverified`; a recent
+unreadable process is never treated as proof of an empty scope. Previously verified pid/start-time
+pairs remain tracked. Recovery uses a server-derived age and the engine's own clock, with a 60 s
+transport margin, to exclude unrelated older unreadable processes. A missing age keeps the strict
+unverified fallback. A TERM that finds an empty unverified group (ESRCH) never schedules a later KILL.
+It is not a containment guarantee; PM-701 supplies
+that with Linux cgroup v2. Failed cleanup reserves the workspace and raises an owner-facing
+Operator signal; the Operator never stops another member's process on its own.
+The root is checked before use: a real directory (not
 a symbolic link, nor below one), the server user's, mode 0700, else the folders are off and the
 server logs the reason and runs on (the sweep must never empty a directory somebody else pointed
 the predictable path at; a symbolic link in it is removed as a link). Every Claude session of the

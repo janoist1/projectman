@@ -48,10 +48,12 @@ const PS_LINE =
  * The output of `ps -axww -o pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=`. A line that does
  * not parse (a wrapped command line, an unknown time format) is skipped.
  */
-export function parsePsList(output: string): ProcessRecord[] {
+export function parsePsList(output: string, withPgid = false): ProcessRecord[] {
   const records: ProcessRecord[] = [];
   for (const line of output.split('\n')) {
-    const match = PS_LINE.exec(line);
+    const group = withPgid ? /^\s*\d+\s+\d+\s+(\d+)\s+/.exec(line) : null;
+    const normalized = group ? line.replace(/^(\s*\d+\s+\d+)\s+\d+\s+/, '$1 ') : line;
+    const match = PS_LINE.exec(normalized);
     if (!match) continue;
     const startedAt = parseLstart(match[7]!);
     const cpuSeconds = parseCpuTime(match[6]!);
@@ -59,6 +61,7 @@ export function parsePsList(output: string): ProcessRecord[] {
     records.push({
       pid: Number(match[1]),
       ppid: Number(match[2]),
+      pgid: group ? Number(group[1]) : null,
       uid: Number(match[3]),
       rssBytes: Number(match[4]) * 1024,
       cpuSeconds,
@@ -68,6 +71,17 @@ export function parsePsList(output: string): ProcessRecord[] {
     });
   }
   return records;
+}
+
+/** Linux stat fields follow the final ')' of the command name; pgrp is field 5. */
+export function parseProcPgid(stat: string): number | null {
+  const end = stat.lastIndexOf(')');
+  if (end < 0) return null;
+  const value = stat
+    .slice(end + 1)
+    .trim()
+    .split(/\s+/)[2];
+  return value && /^\d+$/.test(value) ? Number(value) : null;
 }
 
 /** `ps -ww -o pid=,command=` lines by pid (the line after the pid, whitespace of the end kept off). */

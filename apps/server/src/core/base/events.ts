@@ -12,6 +12,7 @@ import type {
 } from '@projectman/shared';
 import type { ConfigChange } from '../projects';
 import type { StageChange } from '../tasks';
+import type { SessionCleanupFailed, SessionCleanupRecovered } from '../../contracts';
 
 /** A relation a card got, as that card sees it (`kind`), pointing at the card `ref`. */
 export interface AddedRelation {
@@ -25,6 +26,8 @@ export interface AddedRelation {
  * clients see goes out through the event bus (the websocket) instead.
  */
 export interface DomainEventMap {
+  session_cleanup_failed: SessionCleanupFailed;
+  session_cleanup_recovered: SessionCleanupRecovered;
   work_outage_started: { projectKey: string; outageId: string; inboxItemId: string };
   work_outage_ended: { projectKey: string; outageId: string };
   session_input_stalled: { projectKey: string; sessionId: string; inboxItemId: string };

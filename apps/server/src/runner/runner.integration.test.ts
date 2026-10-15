@@ -8,7 +8,7 @@ import {
   type ChatItem,
   type SessionState,
 } from '@projectman/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   PermissionBroker,
   PermissionDecision,
@@ -19,7 +19,14 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import { createRunnerModule } from './index';
-import { FAKE_CLAUDE, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
+import {
+  FAKE_CLAUDE,
+  fixtureScopeProcesses,
+  freePort,
+  silentLogger,
+  tempDirs,
+  waitFor,
+} from './test-helpers';
 
 /**
  * End to end: a real Fastify server with the hook routes, the runner, and the fake Claude
@@ -73,6 +80,7 @@ async function setup(
     claudeConfigPath: configFile,
     trustWorkspaces: options.trustWorkspaces,
     instanceTag: 'tag-of-this-test',
+    scopeProcesses: fixtureScopeProcesses(process.env.FAKE_SCOPE_RECORDS_DIR!),
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });
@@ -91,6 +99,7 @@ beforeEach(async () => {
   configFile = path.join(home, '.claude.json');
   await writeFile(configFile, JSON.stringify({ numStartups: 1, projects: {} }, null, 2));
   argsFile = path.join(home, 'args.json');
+  process.env.FAKE_SCOPE_RECORDS_DIR = await dirs.make('scope-records-');
   process.env.FAKE_CLAUDE_TRANSCRIPT_DIR = transcriptDir;
   process.env.FAKE_CLAUDE_CONFIG_FILE = configFile;
   process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;
@@ -154,6 +163,39 @@ const waitSnapshot = (id: string, text: string) =>
   );
 
 describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
+  it('closes a marked, detached TERM-resistant grandchild before PTY exit', async () => {
+    const file = path.join(cwd, 'grandchild.json');
+    process.env.FAKE_SCOPE_CHILD_FILE = file;
+    await setup();
+    const session = await runner.runner.start(spec());
+    let child: { pid: number; scopeId: string } | undefined;
+    try {
+      await vi.waitFor(
+        async () => {
+          child = await readFile(file, 'utf8').then(
+            (text) => JSON.parse(text),
+            () => undefined,
+          );
+          expect(child).toBeDefined();
+        },
+        { timeout: 5000 },
+      );
+      expect(child!.scopeId).toBe(session.scopeId);
+      await runner.runner.stop(session.sessionId);
+      expect(() => process.kill(child!.pid, 0)).toThrow();
+      expect(
+        events.find((event) => event.type === 'exit' && event.sessionId === session.sessionId),
+      ).toMatchObject({ cleanup: { outcome: 'clean', killed: true } });
+    } finally {
+      if (child) {
+        try {
+          process.kill(child.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+  });
   it('starts the session with the cheap subagent on its model (PM-179)', async () => {
     await setup();
     const reader = {

@@ -10,7 +10,7 @@ import {
   TokenUsage,
 } from '@projectman/shared';
 import type { EnginePaths, PermissionRefusedInfo, RunnerEvent, RunningSessionInfo } from '../contracts';
-import type { PullRequestInfo } from '../contracts';
+import type { PullRequestInfo, SessionCleanup } from '../contracts';
 
 export const ENGINE_PROTOCOL_VERSION = 1;
 export const ENGINE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
@@ -34,6 +34,15 @@ export type EngineUploaded = z.infer<typeof EngineUploaded>;
 const text = z.string();
 const int = z.number().int().nonnegative();
 const seq = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
+export const SessionCleanupWire: z.ZodType<SessionCleanup> = z.strictObject({
+  scopeId: text.regex(/^scp_[0-9a-f]{16}$/),
+  kind: z.enum(['cgroup', 'process_group']),
+  outcome: z.enum(['clean', 'failed', 'unverified']),
+  reason: z.enum(['stop', 'kill', 'exit', 'shutdown', 'start_failed', 'recovery']),
+  killed: z.boolean(),
+  survivors: int,
+  durationMs: z.number().nonnegative(),
+});
 export const RequestId = text.regex(/^[A-Za-z0-9_-]{1,64}$/);
 export const Paths: z.ZodType<EnginePaths> = z.strictObject({
   userHome: text,
@@ -49,6 +58,7 @@ export const Paths: z.ZodType<EnginePaths> = z.strictObject({
   gitExcludesFile: text.nullable(),
 });
 export const RunningSession: z.ZodType<RunningSessionInfo> = z.strictObject({
+  scopeId: text.optional(),
   sessionId: text,
   pid: int,
   state: SessionState,
@@ -101,7 +111,9 @@ export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_d
       sessionId: text,
       exitCode: z.number().int().nullable(),
       signal: z.number().int().nullable(),
+      cleanup: SessionCleanupWire.optional(),
     }),
+    z.strictObject({ type: z.literal('scope_recovered'), sessionId: text, cleanup: SessionCleanupWire }),
     z.strictObject({ type: z.literal('first_input_sent'), sessionId: text }),
     z.strictObject({ type: z.literal('first_input_failed'), sessionId: text }),
     z.strictObject({ type: z.literal('provider_session_id'), sessionId: text, providerSessionId: text }),
@@ -142,6 +154,7 @@ export const EngineEvent = z.discriminatedUnion('kind', [
 ]);
 export type EngineEvent = z.infer<typeof EngineEvent>;
 export const Hello = z.strictObject({
+  processScope: z.enum(['cgroup', 'process_group']).optional(),
   t: z.literal('hello'),
   protocol: z.number().int(),
   version: z.string().regex(/^[A-Za-z0-9._+-]{1,64}$/),

@@ -5,6 +5,13 @@ import type { EngineMethod } from './methods';
 import type { EngineRpc } from './rpc';
 
 describe('engine handlers', () => {
+  it.each([-1, 1.5, NaN])('rejects invalid scope retry age %s at the RPC boundary', (sinceAgeMs) => {
+    expect(
+      methods['session.close_scopes'].params.safeParse({
+        scopes: [{ sessionId: 'session-1', scopeId: 'scp_0123456789abcdef', sinceAgeMs }],
+      }).success,
+    ).toBe(false);
+  });
   const registered = () => {
     const names: string[] = [];
     const rpc = {

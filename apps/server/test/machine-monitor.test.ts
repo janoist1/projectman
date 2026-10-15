@@ -117,6 +117,7 @@ function makeProbe(): FakeProbe {
 
 function proc(pid: number, ppid: number, args: string, over: Partial<ProcessRecord> = {}): ProcessRecord {
   return {
+    pgid: null,
     pid,
     ppid,
     uid: MY_UID,

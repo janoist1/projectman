@@ -104,6 +104,7 @@ export class WorktreeSweep {
             for (const fix of await manager.listMergeFixes({ project: config, repoName: repo.name })) {
               await this.mergeCards.run(summary.key, fix.taskKey, async () => {
                 if (this.ctx.repos.taskMerges.open(summary.key, fix.taskKey)) return;
+                if (this.ctx.repos.sessionCleanups.forTask(summary.key, fix.taskKey).length) return;
                 if (
                   this.sessions
                     .list(summary.key, { taskKey: fix.taskKey })
@@ -177,6 +178,7 @@ export class WorktreeSweep {
   }
 
   private hasRunningSession(task: Task): boolean {
+    if (this.ctx.repos.sessionCleanups.forTask(task.projectKey, task.key).length) return true;
     return this.sessions
       .list(task.projectKey, { taskKey: task.key })
       .some((s) => this.sessions.isRunning(s.id));

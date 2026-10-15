@@ -7,6 +7,26 @@
 import { spawn } from 'node:child_process';
 import { renameSync, writeFileSync } from 'node:fs';
 
+// Cooperative process inspection for lifecycle tests, independent of host-wide ps permissions.
+function recordScopeProcess() {
+  if (!process.env.FAKE_SCOPE_RECORDS_DIR) return;
+  const record = {
+    pid: process.pid,
+    ppid: process.ppid,
+    pgid: process.pid, // pipeSpawn and forkpty start the fake CLI as its own group leader.
+    uid: process.getuid?.() ?? null,
+    startedAt: Date.now(),
+    env: Object.fromEntries(
+      ['PROJECTMAN_SCOPE_ID', 'PROJECTMAN_INSTANCE', 'PROJECTMAN_SESSION_ID'].map((key) => [
+        key,
+        process.env[key],
+      ]),
+    ),
+  };
+  writeFileSync(`${process.env.FAKE_SCOPE_RECORDS_DIR}/${process.pid}.json`, JSON.stringify(record));
+}
+recordScopeProcess();
+
 export const VERSION = '0.0.0';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -212,6 +232,38 @@ export function readTerminalInput({ onKey, onPaste }) {
  * Returns `exit(reason)`; later calls do nothing.
  */
 export function exitOnSignals({ sessionEnd, restore }) {
+  // Disposable lifecycle scenario: a detached, marked grandchild survives the CLI and ignores TERM.
+  if (process.env.FAKE_SCOPE_CHILD_FILE) {
+    const grandchild = `
+      const { writeFileSync } = require('node:fs');
+      process.on('SIGTERM', () => {});
+      if (process.env.FAKE_SCOPE_RECORDS_DIR) {
+        writeFileSync(process.env.FAKE_SCOPE_RECORDS_DIR + '/' + process.pid + '.json', JSON.stringify({
+          pid: process.pid, ppid: process.ppid, pgid: process.pid, uid: process.getuid?.() ?? null,
+          startedAt: Date.now(), env: {
+            PROJECTMAN_SCOPE_ID: process.env.PROJECTMAN_SCOPE_ID,
+            PROJECTMAN_INSTANCE: process.env.PROJECTMAN_INSTANCE,
+            PROJECTMAN_SESSION_ID: process.env.PROJECTMAN_SESSION_ID,
+          },
+        }));
+      }
+      writeFileSync(process.env.FAKE_SCOPE_CHILD_FILE, JSON.stringify({ pid: process.pid, scopeId: process.env.PROJECTMAN_SCOPE_ID }));
+      setInterval(() => {}, 1000);
+    `;
+    const intermediate = spawn(
+      process.execPath,
+      [
+        '-e',
+        `
+      const { spawn } = require('node:child_process');
+      const child = spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { detached: true, stdio: 'ignore' });
+      child.unref();
+    `,
+      ],
+      { stdio: 'ignore' },
+    );
+    intermediate.unref();
+  }
   let exiting = false;
   async function exit(reason = 'other') {
     if (exiting) return;

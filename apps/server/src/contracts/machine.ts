@@ -22,6 +22,7 @@ export interface MachineSnapshot {
 export interface ProcessRecord {
   pid: number;
   ppid: number;
+  pgid: number | null;
   uid: number;
   rssBytes: number;
   /** Total CPU time the process used so far, in seconds. */

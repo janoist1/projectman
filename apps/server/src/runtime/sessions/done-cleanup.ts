@@ -87,6 +87,13 @@ export class DoneCleanup {
     }
     // The worktrees go once the finishing session is done with them too.
     if (finishing) return;
+    if (ctx.repos.sessionCleanups.forTask(projectKey, taskKey).length) {
+      ctx.logger.info(
+        { projectKey, taskKey },
+        'keeping worktrees while session process cleanup is unresolved',
+      );
+      return;
+    }
     // A member workspace outlives its tasks (PM-138): only per-task worktrees are removed.
     // Each is removed through the engine its session ran on.
     const worktrees = new Map<string, { engineId: EngineId; path: string }>();

@@ -12,8 +12,8 @@ Anonymous pages:                        260000.
 "Pages occupied by compressor":          88000.
 `;
 
-const MAC_PS = `    1     0     0  13520   0.0   1:09.31 Thu Sep 25 08:01:02 2026 /sbin/launchd
- 5100  5000   501   2048  12.5   0:00.01 Sat Oct  4 21:20:11 2026 sleep 600
+const MAC_PS = `    1     0     1     0  13520   0.0   1:09.31 Thu Sep 25 08:01:02 2026 /sbin/launchd
+ 5100  5000  5000   501   2048  12.5   0:00.01 Sat Oct  4 21:20:11 2026 sleep 600
 `;
 
 const MEMINFO = `MemTotal:       16384000 kB
@@ -116,6 +116,16 @@ describe('another operating system', () => {
 });
 
 describe('the process list', () => {
+  it('reads Linux pgrp after a command name containing parentheses', async () => {
+    const probe = createMachineProbe(
+      system({
+        platform: 'linux',
+        exec: async () => MAC_PS,
+        readFile: async () => '5100 (worker (test)) S 5000 4900 1 0 0',
+      }),
+    );
+    expect((await probe.processes())![1]?.pgid).toBe(4900);
+  });
   it('asks ps for the columns and parses the answer', async () => {
     const exec = vi.fn(async () => MAC_PS);
     const probe = createMachineProbe(system({ exec }));
@@ -123,12 +133,13 @@ describe('the process list', () => {
     expect(exec).toHaveBeenCalledWith('ps', [
       '-axww',
       '-o',
-      'pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=',
+      'pid=,ppid=,pgid=,uid=,rss=,%cpu=,time=,lstart=,args=',
     ]);
     expect(list).toHaveLength(2);
     expect(list![1]).toMatchObject({
       pid: 5100,
       ppid: 5000,
+      pgid: 5000,
       uid: 501,
       rssBytes: 2048 * 1024,
       args: 'sleep 600',

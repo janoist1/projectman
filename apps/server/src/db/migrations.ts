@@ -1272,5 +1272,38 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     CREATE INDEX operator_steps_request ON operator_steps(request_id, at);
     CREATE INDEX operator_steps_signal ON operator_steps(signal_id) WHERE signal_id IS NOT NULL;`,
   },
+  {
+    version: 66,
+    name: 'session process cleanup signals',
+    sql: `DROP INDEX operator_signals_open;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled','process_cleanup_failed')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT
+    );
+    INSERT INTO operator_signals SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
+  },
+  {
+    version: 67,
+    name: 'workspace process scope reservation',
+    sql: `ALTER TABLE member_workspaces ADD COLUMN holder_scope_id TEXT;
+    ALTER TABLE member_workspaces ADD COLUMN holder_cleanup_failed INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    version: 68,
+    name: 'unresolved session process scopes',
+    sql: `CREATE TABLE session_cleanups (
+      scope_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, project_key TEXT NOT NULL,
+      task_key TEXT, kind TEXT NOT NULL, survivors INTEGER NOT NULL,
+      failed_at TEXT NOT NULL, last_attempt_at TEXT, attempts INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX session_cleanups_session ON session_cleanups(session_id);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

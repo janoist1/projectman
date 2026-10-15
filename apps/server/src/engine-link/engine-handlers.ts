@@ -36,7 +36,11 @@ export const CLOUD_METHODS = [
 export type EngineSideMethod = Exclude<EngineMethod, (typeof CLOUD_METHODS)[number]>;
 
 /** The only variables `machine.env_values` returns: the marks of a session and of this instance. */
-export const ENV_VALUE_NAMES = ['PROJECTMAN_SESSION_ID', 'PROJECTMAN_INSTANCE'] as const;
+export const ENV_VALUE_NAMES = [
+  'PROJECTMAN_SESSION_ID',
+  'PROJECTMAN_INSTANCE',
+  'PROJECTMAN_SCOPE_ID',
+] as const;
 const MAX_ENV_PIDS = 5000;
 const MAX_WATCH_TARGETS = 500;
 const MAX_WATCHES = 50;
@@ -138,6 +142,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'session.stop'({ sessionId, force }) {
       await runner.stop(sessionId, force === undefined ? undefined : { force });
       return none;
+    },
+    async 'session.close_scopes'({ scopes }) {
+      return (await runner.closeScopes?.(scopes)) ?? [];
     },
     async 'session.pause'({ sessionId, forceAfterMs }) {
       return runner.pause(sessionId, forceAfterMs === undefined ? undefined : { forceAfterMs });

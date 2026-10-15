@@ -12,6 +12,29 @@ import type {
   TokenUsage,
 } from '@projectman/shared';
 import type { SessionPolicy } from './session-policy';
+import type { MachineProbe } from './machine';
+
+export type ProcessScopeKind = 'cgroup' | 'process_group';
+export type ProcessScopeGuarantee = 'contained' | 'best_effort';
+export const PROCESS_SCOPE_GUARANTEE: Readonly<Record<ProcessScopeKind, ProcessScopeGuarantee>> = {
+  cgroup: 'contained',
+  process_group: 'best_effort',
+};
+export type ProcessScopeConfig = { kind: 'process_group' };
+export type ScopeCloseReason = 'stop' | 'kill' | 'exit' | 'shutdown' | 'start_failed' | 'recovery';
+export const SCOPE_TERM_GRACE_MS = 5_000;
+export const SCOPE_SINCE_MARGIN_MS = 60_000;
+export const SCOPE_KILL_WAIT_MS = 2_000;
+export interface SessionCleanup {
+  scopeId: string;
+  kind: ProcessScopeKind;
+  outcome: 'clean' | 'failed' | 'unverified';
+  reason: ScopeCloseReason;
+  killed: boolean;
+  survivors: number;
+  durationMs: number;
+}
+export type ScopeProcessSource = Pick<MachineProbe, 'processes' | 'envValues'>;
 
 /**
  * Runs real, interactive agent CLI sessions (Claude Code or OpenAI Codex CLI) in
@@ -176,7 +199,14 @@ export type RunnerEvent =
   | { type: 'terminal_data'; sessionId: string; data: string }
   | { type: 'transcript_path'; sessionId: string; path: string }
   | { type: 'chat'; sessionId: string; items: ChatItem[] }
-  | { type: 'exit'; sessionId: string; exitCode: number | null; signal: number | null }
+  | {
+      type: 'exit';
+      sessionId: string;
+      exitCode: number | null;
+      signal: number | null;
+      cleanup?: SessionCleanup;
+    }
+  | { type: 'scope_recovered'; sessionId: string; cleanup: SessionCleanup }
   /**
    * The process got its first input (`StartSessionSpec.initialMessage`): Codex has it on its command
    * line as soon as it is started; Claude Code has it typed into the prompt once it reports
@@ -279,6 +309,7 @@ export const APPROVER_NONE_REFUSAL =
   'Not allowed: nobody approves questions for this session. Do not retry it in another form. If you really need it, ask a human with ask_human and say why.';
 
 export interface RunningSessionInfo {
+  scopeId?: string;
   sessionId: string;
   pid: number;
   state: SessionState;
@@ -299,6 +330,9 @@ export interface PauseOptions {
 }
 
 export interface SessionRunner {
+  closeScopes?(
+    scopes: Array<{ sessionId: string; scopeId: string; sinceAgeMs?: number }>,
+  ): Promise<Array<{ sessionId: string; cleanup: SessionCleanup }>>;
   /**
    * Reads only, spawns nothing. Rejects with code `workspace_codex_config` when the session's
    * own project configuration could run or allow commands outside the sandbox; resolves for
@@ -483,6 +517,8 @@ export interface PlanUsageProvider {
 export type TerminalMode = 'pty' | 'pipe';
 
 export interface RunnerModuleOptions {
+  processScope?: ProcessScopeConfig;
+  scopeProcesses?: ScopeProcessSource;
   /** Awaited before every provider's PreToolUse answer, including subagents; failures only log. */
   refreshDependencies?: (cwd: string) => Promise<void>;
   /**

@@ -1,10 +1,50 @@
 /** Helpers for the runner tests (not used by production code). */
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyBaseLogger } from 'fastify';
+import type { ProcessRecord, ScopeProcessSource } from '../contracts';
+
+/** The disposable fake CLIs report their own identities; no host-wide ps or environment read is needed. */
+export function fixtureScopeProcesses(directory: string): ScopeProcessSource {
+  const read = async () => {
+    const entries: Array<ProcessRecord & { env: Record<string, string> }> = [];
+    for (const file of await readdir(directory)) {
+      if (!file.endsWith('.json')) continue;
+      let record: ProcessRecord & { env: Record<string, string> };
+      try {
+        record = JSON.parse(await readFile(path.join(directory, file), 'utf8'));
+      } catch (error) {
+        if (error instanceof SyntaxError) continue; // A fake may still be writing its startup record.
+        throw error;
+      }
+      try {
+        process.kill(record.pid, 0);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') continue;
+        throw error;
+      }
+      entries.push({ ...record, rssBytes: 0, cpuSeconds: 0, cpuPercent: 0, args: 'fake CLI' });
+    }
+    return entries;
+  };
+  return {
+    processes: read,
+    envValues: async (pids, names) =>
+      new Map(
+        (await read())
+          .filter((record) => pids.includes(record.pid))
+          .map((record) => [
+            record.pid,
+            Object.fromEntries(
+              names.filter((name) => record.env[name] !== undefined).map((name) => [name, record.env[name]!]),
+            ),
+          ]),
+      ),
+  };
+}
 
 /** The fake Claude Code CLI shared by the server tests. */
 export const FAKE_CLAUDE = path.resolve(

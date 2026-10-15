@@ -113,6 +113,7 @@ export function createFixtureProbe(fixture: MachineFixture, options: FixtureProb
     return {
       pid,
       ppid,
+      pgid: null,
       uid,
       rssBytes: Math.round(p.memoryMb * MB),
       cpuSeconds: (p.cpuPercent / 100) * elapsedSeconds,

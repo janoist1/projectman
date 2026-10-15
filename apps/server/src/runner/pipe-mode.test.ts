@@ -1,15 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { ChatItem, SessionState } from '@projectman/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionBroker, RunnerEvent, RunnerModule, StartSessionSpec } from '../contracts';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { testConfig } from '../../test/helpers/test-template';
 import { createRunnerModule } from './index';
-import { FAKE_CLAUDE, FAKE_CODEX, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
+import {
+  FAKE_CLAUDE,
+  FAKE_CODEX,
+  fixtureScopeProcesses,
+  freePort,
+  silentLogger,
+  tempDirs,
+  waitFor,
+} from './test-helpers';
 
 /**
  * The runner in pipe mode (PM-267): the fake CLIs run without a pseudo-terminal, so these tests
@@ -37,6 +45,7 @@ beforeEach(async () => {
   process.env.FAKE_CLAUDE_TRANSCRIPT_DIR = await dirs.make('transcripts-');
   process.env.FAKE_CLAUDE_CONFIG_FILE = configFile;
   process.env.CODEX_HOME = await dirs.make('codex-home-');
+  process.env.FAKE_SCOPE_RECORDS_DIR = await dirs.make('scope-records-');
   // A dead proxy: the hook forwarders only reach the server because the runner sets no_proxy.
   process.env.http_proxy = 'http://127.0.0.1:9';
   process.env.HTTP_PROXY = 'http://127.0.0.1:9';
@@ -52,6 +61,7 @@ beforeEach(async () => {
     logger: silentLogger(),
     claudeConfigPath: configFile,
     terminal: 'pipe',
+    scopeProcesses: fixtureScopeProcesses(process.env.FAKE_SCOPE_RECORDS_DIR!),
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });
@@ -98,6 +108,39 @@ const statesOf = (id: string): SessionState[] =>
   events
     .filter((e): e is Extract<RunnerEvent, { type: 'state' }> => e.type === 'state' && e.sessionId === id)
     .map((e) => e.state);
+
+it('closes a marked, detached TERM-resistant grandchild before reporting exit', async () => {
+  const file = path.join(cwd, 'grandchild.json');
+  process.env.FAKE_SCOPE_CHILD_FILE = file;
+  const session = await runner.runner.start(spec('claude'));
+  let child: { pid: number; scopeId: string } | undefined;
+  try {
+    await vi.waitFor(
+      async () => {
+        child = await readFile(file, 'utf8').then(
+          (text) => JSON.parse(text),
+          () => undefined,
+        );
+        expect(child).toBeDefined();
+      },
+      { timeout: 5000 },
+    );
+    expect(child!.scopeId).toBe(session.scopeId);
+    await runner.runner.stop(session.sessionId);
+    expect(() => process.kill(child!.pid, 0)).toThrow();
+    expect(events.find((e) => e.type === 'exit' && e.sessionId === session.sessionId)).toMatchObject({
+      cleanup: { outcome: 'clean', killed: true },
+    });
+  } finally {
+    if (child) {
+      try {
+        process.kill(child.pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+}, 15_000);
 const chatOf = (id: string): ChatItem[] =>
   events.flatMap((e) => (e.type === 'chat' && e.sessionId === id ? e.items : []));
 const assistantSaid = (id: string, text: string) =>

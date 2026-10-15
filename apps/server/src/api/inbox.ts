@@ -6,6 +6,7 @@ import type { ApiDomain } from './ports';
 import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
+import { notFound } from '../kernel';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
@@ -57,6 +58,7 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const { key, itemId } = request.params;
     const access = await requireAccess(domain, request, key);
     const body = parseBody(ResolveInboxRequest, request.body);
+    if (!canSeeInboxItem(access, domain.inbox.get(key, itemId))) throw notFound('inbox item', itemId);
     return domain.inbox.resolve(key, itemId, body, access);
   });
 }

@@ -5,6 +5,7 @@ export function createInboxService(deps: ConstructorParameters<typeof InboxServi
 import { isAbsolute, resolve, sep } from 'node:path';
 import {
   approvalRefusal,
+  canSeeInboxItem,
   DELEGATED_INPUT_LIMIT,
   canDecidePermission,
   effectiveSessionPermissions,
@@ -439,7 +440,16 @@ export class InboxService {
     return false;
   }
 
-  countOpenFor(projectKey: string, handle: string): number {
+  countOpenFor(projectKey: string, handle: string, viewer?: Parameters<typeof canSeeInboxItem>[0]): number {
+    if (viewer)
+      return this.ctx.repos.inbox
+        .listOpen()
+        .filter(
+          (item) =>
+            item.projectKey === projectKey &&
+            item.assignees.includes(handle) &&
+            canSeeInboxItem(viewer, item),
+        ).length;
     return this.ctx.repos.inbox.countOpenFor(projectKey, handle);
   }
 

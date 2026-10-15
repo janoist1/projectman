@@ -11,6 +11,8 @@ import { TaskRelationKind } from './relations';
 import { WorkItemRef } from './session';
 import { TaskKey, TaskStartWaiting } from './task';
 import { WorkOutage } from './outage';
+import { canSeeAllTeamMessages } from './message';
+import type { TaskViewer } from './task';
 
 /**
  * Items waiting for a human ("Rád vár" in the UI):
@@ -191,6 +193,18 @@ export const InboxItem = z.object({
   askerStart: z.object({ reason: TaskStartWaiting.shape.reason }).optional(),
 });
 export type InboxItem = z.infer<typeof InboxItem>;
+
+/** Inbox reads, live events and counts share the same privacy boundary. */
+export function canSeeInboxItem(
+  viewer: TaskViewer & { via?: 'integrator' },
+  item: Pick<InboxItem, 'state' | 'assignees' | 'payload'>,
+): boolean {
+  // Check the field itself: malformed or historical private proposals must also stay private.
+  if (item.payload && 'operatorKnowledge' in item.payload)
+    return !viewer.via && canSeeAllTeamMessages(viewer);
+  if (item.state === 'screening') return canSeeAllTeamMessages(viewer);
+  return viewer.access !== 'client' || item.assignees.includes(viewer.handle);
+}
 
 /**
  * `payload.gate` of a `decision` item: one approval a stage move waits for. A move that needs

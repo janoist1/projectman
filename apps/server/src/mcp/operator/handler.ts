@@ -1,5 +1,11 @@
 import { isOperator, memberOf } from '@projectman/shared';
-import type { OperatorOperation, ScreeningOutcome, QuestionTodo, Task } from '@projectman/shared';
+import type {
+  OperatorOperation,
+  OperatorPlan,
+  ScreeningOutcome,
+  QuestionTodo,
+  Task,
+} from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { OperatorToolsHandler, MemberStartResult, ToolContext } from '../../contracts';
 import type { DomainContext } from '../../core/base';
@@ -91,13 +97,16 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
-  async operate(ctx: ToolContext, args: { title: string; operation: OperatorOperation }) {
+  async operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
+  ) {
     const config = await this.projects.config(ctx.projectKey);
     if (!isOperator(memberOf(config, ctx.member)))
       throw new TeamToolError('forbidden', 'operator_only: only the Operator may operate.');
     const caller = await this.calls.callerWithRequest(ctx, 'operate');
     return this.operatorActions
-      .run(ctx.projectKey, caller.request!.id, args.title, args.operation)
+      .run(ctx.projectKey, caller.request!.id, args.title, args.operation, args.plan)
       .catch((err: unknown) => {
         if (err instanceof DomainError)
           throw new TeamToolError(

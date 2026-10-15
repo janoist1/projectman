@@ -1,9 +1,12 @@
 import clsx from 'clsx';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { InboxItem, OperatorApprovalPayload, ResolveInboxRequest } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useResolveInbox } from '../../api/queries';
-import { useProject } from '../../app/contexts';
+import { useProject, useProjectIndexes } from '../../app/contexts';
+import { Avatar } from '../../components/Avatar';
+import { Icon } from '../../components/Icon';
+import { Link } from 'react-router';
 import { Button } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
 import { useToast } from '../../components/toastContext';
@@ -82,24 +85,95 @@ export function OperatorApprovalBody({
   payload,
   stale,
   staleReason,
+  open = true,
 }: {
   payload: OperatorApprovalPayload;
   /** The server refused a click as stale; the payload does not know yet. */
   stale?: boolean;
   staleReason?: NonNullable<OperatorApprovalPayload['stale']>['reason'];
+  open?: boolean;
 }) {
   const reason = payload.stale?.reason ?? (stale ? (staleReason ?? 'config_changed') : null);
+  const { key } = useProject();
+  const { members } = useProjectIndexes(key);
+  const operation = payload.operation;
+  const reversible = operation.op !== 'message_send' && payload.plan?.reversible;
   return (
     <div className={styles.body}>
       {payload.quote ? <Quote text={payload.quote} /> : null}
+      {payload.plan ? (
+        <section className={styles.section} aria-label={t('operator.approval.plan')}>
+          <h3 className={styles.label}>{t('operator.approval.plan')}</h3>
+          <dl className={styles.plan}>
+            <dt>{t('operator.approval.planWhy')}</dt>
+            <dd>{payload.plan.why}</dd>
+            <dt>{t('operator.approval.planImpact')}</dt>
+            <dd>{payload.plan.impact}</dd>
+            <dt>{t('operator.approval.planReversible')}</dt>
+            <dd>
+              <span className={clsx(styles.reversible, !reversible && styles.warning)}>
+                <Icon name={reversible ? 'check' : 'alertCircle'} size={16} />
+                {t(reversible ? 'operator.approval.reversibleYes' : 'operator.approval.reversibleNo')}
+              </span>
+            </dd>
+          </dl>
+        </section>
+      ) : null}
+      {operation.op === 'message_send' ? (
+        <>
+          <section className={styles.section} aria-label={t('operator.approval.recipients')}>
+            <h3 className={styles.label}>{t('operator.approval.recipients')}</h3>
+            <div className={styles.recipients}>
+              {[...new Set(operation.to)].map((handle) => (
+                <span key={handle} className={styles.recipient}>
+                  <Avatar member={members.get(handle)} handle={handle} size="sm" />
+                  {members.get(handle)?.displayName ?? handle}
+                  {members.get(handle)?.role === 'client' ? (
+                    <small>{t('operator.approval.guest')}</small>
+                  ) : null}
+                </span>
+              ))}
+            </div>
+          </section>
+          <section className={styles.section} aria-label={t('operator.approval.message')}>
+            <h3 className={styles.label}>{t('operator.approval.message')}</h3>
+            <div className={styles.message}>{operation.text}</div>
+            <p className={styles.exact}>{t('operator.approval.messageExact')}</p>
+            {operation.taskKey ? (
+              <Link to={`/p/${key}/tasks/${operation.taskKey}`}>{operation.taskKey}</Link>
+            ) : null}
+          </section>
+        </>
+      ) : null}
       <OperatorChanges changes={payload.changes} />
       <p className={styles.consequence}>{consequenceText(payload)}</p>
+      {open && !reason && payload.expiresAt ? <Expiry at={payload.expiresAt} /> : null}
       {reason ? (
         <p className={styles.staleBar} role="alert">
           {t(`operator.approval.staleReasons.${reason}`)}
         </p>
       ) : null}
     </div>
+  );
+}
+
+function Expiry({ at }: { at: string }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const remaining = Date.parse(at) - now;
+  const soon = remaining <= 60 * 60_000;
+  return (
+    <p className={clsx(styles.expires, soon && styles.warning)}>
+      <Icon name="clock" size={14} />
+      <time dateTime={at}>
+        {soon
+          ? t('operator.approval.expiresSoon', { minutes: Math.max(0, Math.ceil(remaining / 60_000)) })
+          : t('operator.approval.expires', { time: new Date(at).toLocaleString('hu-HU') })}
+      </time>
+    </p>
   );
 }
 
@@ -132,11 +206,13 @@ export function OperatorApprovalActions({
   const isStale = payload.stale !== null || stale;
   const op = payload.operation.op;
   const approveLabel =
-    op === 'session_stop'
-      ? t('operator.approval.stop')
-      : op === 'project_pause'
-        ? t('operator.approval.pause')
-        : t('operator.approval.approve');
+    op === 'message_send'
+      ? t('operator.approval.send')
+      : op === 'session_stop'
+        ? t('operator.approval.stop')
+        : op === 'project_pause'
+          ? t('operator.approval.pause')
+          : t('operator.approval.approve');
   const labelOf = (id: string) =>
     id === 'approve'
       ? approveLabel

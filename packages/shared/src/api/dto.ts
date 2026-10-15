@@ -495,20 +495,36 @@ export const OperatorMemberChanges = UpdateMemberRequest.omit({
   role: RoleId.optional(),
 });
 export type OperatorMemberChanges = z.infer<typeof OperatorMemberChanges>;
+export const OperatorPlan = z.strictObject({
+  why: z.string().trim().min(1).max(500),
+  impact: z.string().trim().min(1).max(500),
+  reversible: z.boolean(),
+});
+export type OperatorPlan = z.infer<typeof OperatorPlan>;
 export const OperatorOperation = z.discriminatedUnion('op', [
-  z.object({
+  z.strictObject({
     op: z.literal('config_patch'),
     patch: PatchConfigRequest.omit({ baseVersion: true, message: true }),
   }),
-  z.object({ op: z.literal('member_update'), handle: MemberHandle, changes: OperatorMemberChanges }),
-  z.object({ op: z.literal('member_hire'), request: HireMemberRequest }),
-  z.object({ op: z.literal('member_retire'), handle: MemberHandle }),
-  z.object({ op: z.literal('config_revert'), version: z.string() }),
-  z.object({ op: z.literal('session_stop'), sessionId: z.string() }),
-  z.object({ op: z.literal('project_pause') }),
-  z.object({ op: z.literal('project_resume') }),
+  z.strictObject({ op: z.literal('member_update'), handle: MemberHandle, changes: OperatorMemberChanges }),
+  z.strictObject({ op: z.literal('member_hire'), request: HireMemberRequest }),
+  z.strictObject({ op: z.literal('member_retire'), handle: MemberHandle }),
+  z.strictObject({ op: z.literal('config_revert'), version: z.string() }),
+  z.strictObject({ op: z.literal('session_stop'), sessionId: z.string() }),
+  z.strictObject({ op: z.literal('project_pause') }),
+  z.strictObject({ op: z.literal('project_resume') }),
+  z.strictObject({
+    op: z.literal('message_send'),
+    to: z.array(MemberHandle).min(1).max(10),
+    text: z.string().trim().min(1).max(20_000),
+    taskKey: TaskKey.optional(),
+  }),
 ]);
 export type OperatorOperation = z.infer<typeof OperatorOperation>;
+export const OPERATOR_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
+export function operatorCriticalOp(op: OperatorOperation['op']): boolean {
+  return OPERATOR_CRITICAL_OPS.some((critical) => critical === op);
+}
 export const OperatorConsequence = z.enum([
   'network',
   'permission_mode',
@@ -522,6 +538,7 @@ export const OperatorConsequence = z.enum([
   'operator_watch',
   'fix_limit',
   'session_stop',
+  'message_send',
   'project_pause',
   'project_resume',
   'project',
@@ -538,8 +555,13 @@ export const OperatorApprovalPayload = z.object({
   consequence: OperatorConsequence,
   baseVersion: z.string().nullable(),
   session: z.object({ id: z.string(), startedAt: z.string() }).nullable(),
+  plan: OperatorPlan.nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
   stale: z
-    .object({ reason: z.enum(['config_changed', 'session_changed', 'pause_changed']), at: z.string() })
+    .object({
+      reason: z.enum(['config_changed', 'session_changed', 'pause_changed', 'expired', 'interrupted']),
+      at: z.string(),
+    })
     .nullable(),
 });
 export type OperatorApprovalPayload = z.infer<typeof OperatorApprovalPayload>;

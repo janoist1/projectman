@@ -348,6 +348,38 @@ same pause state. Changed proposals become stale, execute nothing and remain ope
 with only `dismiss` available. Configuration commits, session endings and pause changes
 also trigger proactive checks. The Operator cannot stop its own session.
 
+### Critical Operator steps (PM-700)
+
+Stopping another AI member's session (`session_stop`) and sending unsolicited or forwarded
+content to a non-owner human (`message_send`) require a typed `operate` proposal, a plan
+(`why`, `impact`, `reversible`), and the owner's own-login approval of the exact operation.
+Owners see the full message and recipients before approving. Delegation and
+`boundary_authorization` never decide these proposals. Direct `send_message` to a non-owner
+human is refused in its entirety, including mixed recipients and attachments. The Operator
+may still answer its guest in that person's own conversation, using only what they can see.
+
+Critical proposals expire after 24 hours. Approval checks the current target, configuration,
+session identity and start time, then atomically consumes the persisted step before the
+server invokes the existing session or messaging service. Competing clicks cannot execute
+twice. A crash after consumption is marked `interrupted` at startup or by the 60-second
+sweep; it never automatically replays, even if the side effect may already have happened.
+Execution failures also consume the proposal. Expired or changed proposals become stale;
+rejection executes nothing. Results are recorded for the Operator to report in the owners'
+conversation; proposed non-owner recipients receive no rejection or expiry notification.
+Identical open, non-stale proposals from the same Operator in a project reuse their persisted
+item without another step, including across restart. Closed or stale proposals may be requested
+again. Old inbox items without a plan or expiry remain readable.
+
+The operation union is closed and rejects extra fields, including commands and credentials;
+plan fields are descriptive data, never executable instructions. There is no raw command
+adapter. Missing capabilities are reported to the owner with a plan and a capability-gap card
+(PM-472). No approval enables merge, release, human access, decisions, approval labels,
+another member's transcript or secrets. Code, database, production, secrets, publishing,
+deployment, cost and remote access remain critical even under Operator relaxation (PM-691,
+PM-692). The CLI permission requester is unchanged. All proposal, claim and execution work
+runs on the server through existing facades, including on a read-only Mac Operator; no
+isolated or remote engine feature is required.
+
 `start_task` may override prerequisites with `despitePrerequisites`, just as the owner's
 Start button does, but cannot override a fix-limit hold. Policy-controlled temporary
 worker hiring uses `SYSTEM_ACTOR` and `SYSTEM_AUTHOR`, sponsored by the requesting

@@ -9,6 +9,7 @@ import type {
   MemberView,
   PlanUsage,
   OperatorSignal,
+  OperatorApprovalPayload,
   ProjectConfig,
   ProjectSummary,
   RoleView,
@@ -30,6 +31,29 @@ import { daysAgo, hoursFromNow, minutesAgo, mockUuid } from './time';
 
 export const PROJECT_KEY = 'AC';
 export const OWNER = 'owner';
+
+/** A critical message proposal, opt-in so existing inbox examples stay unchanged. */
+export function operatorMessageApprovalFixture(): OperatorApprovalPayload {
+  return {
+    requestId: 'opr_message',
+    stepId: 'ops_message',
+    quote: '',
+    action: 'message',
+    operation: {
+      op: 'message_send',
+      to: ['kata'],
+      text: 'The requested work is complete.\n\nPlease reply in your conversation.',
+      taskKey: 'AC-1',
+    },
+    changes: [],
+    consequence: 'message_send',
+    baseVersion: null,
+    session: null,
+    stale: null,
+    plan: { why: 'Report completed work', impact: 'Kata receives one message', reversible: false },
+    expiresAt: hoursFromNow(24),
+  };
+}
 
 /** A summary with three independent owner decisions (PM-549), opt-in for UI examples and tests. */
 export function operatorSummaryFixture(messageId: string): { body: string; signals: OperatorSignal[] } {

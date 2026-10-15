@@ -15,7 +15,7 @@ import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
-import { operatorSummaryFixture } from '../../mocks/fixtures';
+import { operatorSummaryFixture, operatorMessageApprovalFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
 import { InboxPage } from '../inbox/InboxPage';
 import { HistorySection } from '../settings/sections/HistorySection';
@@ -795,6 +795,52 @@ describe('a signal the Operator raised', () => {
 
 describe('the approval in Rád vár', () => {
   const rendered = (project: Project) => project.render(<InboxPage />, '/p/AC/inbox');
+
+  it('shows the plan, recipient and full exact message before sending, always as irreversible', async () => {
+    const project = mockProject();
+    const payload = operatorMessageApprovalFixture();
+    const text = 'First paragraph.\n\n' + 'A long exact message. '.repeat(250) + '\nFinal line.';
+    project.backend.inbox.push(
+      approvalItem('stp_message', {
+        ...payload,
+        operation: { op: 'message_send', to: ['kata'], text, taskKey: 'AC-1' },
+        plan: { ...payload.plan!, reversible: true },
+        expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      }),
+    );
+    rendered(project);
+    const card = (await screen.findByText(t('operator.approval.messageExact'))).closest('article')!;
+    expect(within(card).getByText(payload.plan!.why)).toBeTruthy();
+    expect(within(card).getByText(payload.plan!.impact)).toBeTruthy();
+    expect(within(card).getByText(t('operator.approval.reversibleNo'))).toBeTruthy();
+    expect(within(card).getByText(t('operator.approval.guest'))).toBeTruthy();
+    expect(
+      within(card).getByText((_, node) => node?.textContent === text && node.children.length === 0),
+    ).toBeTruthy();
+    expect(within(card).getByRole('link', { name: 'AC-1' })).toBeTruthy();
+    expect(within(card).getByText(t('operator.approval.expiresSoon', { minutes: 30 }))).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.send') }));
+    await waitFor(() =>
+      expect(posted(project, '/inbox/inb_stp_message/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
+    );
+  });
+
+  it.each(['expired', 'interrupted'] as const)('offers only dismissal for a %s proposal', async (reason) => {
+    const project = mockProject();
+    project.backend.inbox.push(
+      approvalItem('stp_message', {
+        ...operatorMessageApprovalFixture(),
+        stale: { reason, at: new Date().toISOString() },
+      }),
+    );
+    rendered(project);
+    const card = (await screen.findByText(t(`operator.approval.staleReasons.${reason}`))).closest('article')!;
+    expect(within(card).getByRole('button', { name: t('operator.approval.ok') })).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: t('operator.approval.send') })).toBeNull();
+    expect(
+      card.querySelector('time[datetime="' + operatorMessageApprovalFixture().expiresAt + '"]'),
+    ).toBeNull();
+  });
 
   it('shows the request, what changes and the consequence, and approves', async () => {
     const project = mockProject();

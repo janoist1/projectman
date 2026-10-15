@@ -10,7 +10,11 @@ import { CloudError, refused } from './errors';
 /** EC2 provisioning runs on the owner's machine, with the central account's explicit CLI target (PM-676). */
 const CANONICAL_OWNER = '099720109477';
 const SSM_POLICY = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore';
-const IMAGE_NAME = /^ubuntu\/images\/hvm-ssd(?:-gp3)?\/ubuntu-noble-24\.04-amd64-server-\d{8}(?:\.\d+)?$/;
+function imageName(architecture: 'x86_64' | 'arm64') {
+  return new RegExp(
+    `^ubuntu/images/hvm-ssd(?:-gp3)?/ubuntu-noble-24\\.04-${architecture === 'arm64' ? 'arm64' : 'amd64'}-server-\\d{8}(?:\\.\\d+)?$`,
+  );
+}
 const TAGS = z.array(z.looseObject({ Key: z.string(), Value: z.string() }));
 const trust = {
   Version: '2012-10-17',
@@ -175,16 +179,18 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
         '--owners',
         CANONICAL_OWNER,
         '--filters',
-        'Name=name,Values=ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-amd64-server-*',
+        `Name=name,Values=ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-${ec2.architecture === 'arm64' ? 'arm64' : 'amd64'}-server-*`,
         'Name=state,Values=available',
-        'Name=architecture,Values=x86_64',
+        `Name=architecture,Values=${ec2.architecture}`,
         'Name=virtualization-type,Values=hvm',
         'Name=root-device-type,Values=ebs',
       ],
       z.looseObject({ Images: z.array(imageSchema) }),
     );
-    for (const image of images.Images.filter((image) => IMAGE_NAME.test(image.Name)))
-      context.report.line(`available Ubuntu 24.04 amd64: ${image.ImageId} ${image.Name}`);
+    for (const image of images.Images.filter((image) => imageName(ec2.architecture).test(image.Name)))
+      context.report.line(
+        `available Ubuntu 24.04 ${ec2.architecture === 'arm64' ? 'arm64' : 'amd64'}: ${image.ImageId} ${image.Name}`,
+      );
   }
   const answer = await cli.callAs(
     ['ec2', 'describe-images', '--image-ids', ec2.amiId],
@@ -198,9 +204,9 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
     !image ||
     image.ImageId !== ec2.amiId ||
     image.OwnerId !== CANONICAL_OWNER ||
-    !IMAGE_NAME.test(image.Name) ||
+    !imageName(ec2.architecture).test(image.Name) ||
     image.State !== 'available' ||
-    image.Architecture !== 'x86_64' ||
+    image.Architecture !== ec2.architecture ||
     image.VirtualizationType !== 'hvm' ||
     image.RootDeviceType !== 'ebs' ||
     image.ProductCodes?.length ||
@@ -217,7 +223,7 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
     new Set(ephemeralMappings.map((mapping) => mapping.VirtualName)).size !== ephemeralMappings.length
   )
     throw refused(
-      'the AMI must be a Canonical Ubuntu 24.04 amd64 HVM/EBS server image with one root EBS disk that fits volumeGiB; additional mappings must be ephemeral instance-store devices',
+      `the AMI must be a Canonical Ubuntu 24.04 ${ec2.architecture} HVM/EBS server image with one root EBS disk that fits volumeGiB; additional mappings must be ephemeral instance-store devices`,
     );
 
   const vpcs = await cli.callAs(
@@ -369,11 +375,11 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
   if (
     types.InstanceTypes.length !== 1 ||
     type?.InstanceType !== ec2.instanceType ||
-    !type.ProcessorInfo.SupportedArchitectures.includes('x86_64') ||
+    !type.ProcessorInfo.SupportedArchitectures.includes(ec2.architecture) ||
     !type.SupportedVirtualizationTypes.includes('hvm') ||
     type.EbsInfo.EncryptionSupport !== 'supported'
   )
-    throw refused('the instance type must support x86_64 HVM and encrypted EBS');
+    throw refused(`the instance type must support ${ec2.architecture} HVM and encrypted EBS`);
   const offerings = await cli.callAs(
     [
       'ec2',
@@ -456,7 +462,7 @@ async function inspectInstance(
     instance.InstanceType !== ec2.instanceType ||
     instance.VpcId !== ec2.vpcId ||
     instance.SubnetId !== ec2.subnetId ||
-    instance.Architecture !== 'x86_64' ||
+    instance.Architecture !== ec2.architecture ||
     instance.VirtualizationType !== 'hvm' ||
     instance.RootDeviceType !== 'ebs' ||
     instance.RootDeviceName !== rootName ||

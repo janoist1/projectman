@@ -55,6 +55,7 @@ const awsSchema = z
     sshIdentityFile: z.string().min(1).optional(),
     ec2: z
       .strictObject({
+        architecture: z.enum(['x86_64', 'arm64']).default('x86_64'),
         instanceType: z
           .string()
           .max(64)
@@ -142,11 +143,14 @@ const configSchema = z
     access: accessSchema,
     route53: route53Schema.prefault({}),
     ses: sesSchema.optional(),
+    deployment: z.strictObject({ imageBundle: z.string().trim().min(1) }).optional(),
   })
   .superRefine((config, context) => {
     const issue = (pathParts: (string | number)[], message: string) =>
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
+    if (aws.compute === 'ec2' && aws.ec2?.architecture === 'arm64' && !config.deployment)
+      issue(['deployment', 'imageBundle'], 'required for arm64');
     if (config.ses) {
       if (config.ses.from.split('@')[1] !== config.ses.domain)
         issue(['ses', 'from'], 'must be an address of exactly ses.domain');
@@ -187,6 +191,7 @@ export type ParsedCloudConfig = z.output<typeof configSchema>;
 
 /** The configuration with every default filled in. */
 export interface CloudConfig {
+  deployment?: { imageBundle: string };
   version: 1;
   aws: {
     compute: 'lightsail' | 'ec2';
@@ -235,7 +240,7 @@ function fieldPath(issuePath: readonly PropertyKey[]): string {
 }
 
 /** Validates an already parsed JSON value; a bad field is refused with its path (exit status 2). */
-export function parseConfig(raw: unknown, homeDir: string): CloudConfig {
+export function parseConfig(raw: unknown, homeDir: string, configDir = process.cwd()): CloudConfig {
   const result = configSchema.safeParse(raw);
   if (!result.success) {
     const lines = result.error.issues.map((issue) => `  ${fieldPath(issue.path)}: ${issue.message}`);
@@ -263,6 +268,13 @@ export function parseConfig(raw: unknown, homeDir: string): CloudConfig {
     access: parsed.access,
     route53: { ...parsed.route53, profile: parsed.route53.profile ?? parsed.aws.profile },
     ...(parsed.ses ? { ses: parsed.ses } : {}),
+    ...(parsed.deployment
+      ? {
+          deployment: {
+            imageBundle: path.resolve(configDir, expandHome(parsed.deployment.imageBundle, homeDir)),
+          },
+        }
+      : {}),
   };
 }
 
@@ -284,5 +296,5 @@ export function loadConfig(file: string, homeDir: string): CloudConfig {
   } catch (error) {
     throw refused(`${file} is not valid JSON: ${(error as Error).message}`);
   }
-  return parseConfig(raw, homeDir);
+  return parseConfig(raw, homeDir, path.dirname(path.resolve(file)));
 }

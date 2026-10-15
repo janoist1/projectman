@@ -11,6 +11,7 @@ import { CloudError, refused } from './errors';
 import { expandHome } from './config';
 import { writeSecret } from './secrets';
 import { withEc2Host } from './ec2-host';
+import { imageIdSchema, platformSchema } from './images';
 
 /**
  * The ssh side of the machine commands (PM-535). A session does, in this order: finds the machine and the
@@ -33,6 +34,7 @@ const SCRIPT_LIMIT_BYTES = 90_000;
 export const HOST_SUBCOMMANDS = [
   'bootstrap',
   'receive-env',
+  'receive-image',
   'build',
   'start',
   'stop',
@@ -69,12 +71,19 @@ const accessDetailsSchema = z.looseObject({
   }),
 });
 
-const deployEntrySchema = z.looseObject({ sha: z.string(), ref: z.string(), at: z.string() });
+const deployEntrySchema = z.looseObject({
+  sha: z.string(),
+  ref: z.string(),
+  at: z.string(),
+  imageId: imageIdSchema.optional(),
+  platform: platformSchema.optional(),
+});
 export const hostStatusSchema = z.looseObject({
   unit: z.string(),
   container: z.string(),
   health: z.string(),
   image: z.string(),
+  imageId: imageIdSchema.nullable().optional(),
   deploy: z
     .looseObject({
       current: deployEntrySchema.nullable().optional(),

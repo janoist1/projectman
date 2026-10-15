@@ -217,7 +217,10 @@ export async function awsPreflight(context: CloudContext): Promise<void> {
       if (config.aws.compute === 'ec2') {
         await check('aws-ec2', async () => {
           await ec2Preflight(context, cli, account);
-          return { status: 'ok', detail: 'Ubuntu 24.04 amd64, public subnet, outbound only' };
+          return {
+            status: 'ok',
+            detail: `Ubuntu 24.04 ${config.aws.ec2?.architecture === 'arm64' ? 'arm64' : 'amd64'}, public subnet, outbound only`,
+          };
         });
       } else {
         await check('aws-region', async () => {

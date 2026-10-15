@@ -21,6 +21,8 @@ interface DeployEntry {
   sha: string;
   ref: string;
   at: string;
+  imageId?: string;
+  platform?: 'linux/amd64' | 'linux/arm64';
 }
 
 export interface DeployState {
@@ -77,6 +79,7 @@ export class FakeMachine {
   unitText: string | null = null;
   envText: string | null = null;
   built: { sha: string; url: string }[] = [];
+  imported = new Map<string, { imageId: string; platform: 'linux/amd64' | 'linux/arm64' }>();
   deploy: DeployState | null = null;
   running = false;
   runningSha: string | null = null;
@@ -149,13 +152,28 @@ export class FakeMachine {
       case 'build':
         this.built.push({ sha: args[0]!, url: args[1]! });
         return done('building\n');
+      case 'receive-image': {
+        const [sha, platform, , , imageId] = args;
+        this.imported.set(sha!, { imageId: imageId!, platform: platform as 'linux/amd64' | 'linux/arm64' });
+        return done(JSON.stringify({ imageId, platform, revision: sha }) + '\n');
+      }
       case 'start': {
         const [sha, ref] = [args[0]!, args[1] ?? args[0]!];
         let stopped = this.deploy?.lastStoppedAt ?? null;
         if (this.running) stopped = this.now();
         const old = this.deploy?.current ?? null;
         this.deploy = {
-          current: { sha, ref, at: this.now() },
+          current: {
+            sha,
+            ref,
+            at: this.now(),
+            ...(args[2]
+              ? {
+                  imageId: args[2],
+                  platform: this.imported.get(sha)?.platform ?? old?.platform ?? 'linux/arm64',
+                }
+              : {}),
+          },
           previous: old && old.sha !== sha ? old : (this.deploy?.previous ?? null),
           lastStoppedAt: stopped,
         };
@@ -183,6 +201,7 @@ export class FakeMachine {
             container: this.running ? 'running' : 'absent',
             health,
             image: this.running && sha ? `projectman-cloud:${sha}` : '',
+            imageId: this.deploy?.current?.imageId ?? null,
             deploy: this.deploy,
             disk: { dataBytes: 1_048_576, freeBytes: 12_884_901_888 },
             memory: {
@@ -443,6 +462,7 @@ export class HostWorld extends CloudWorld {
   private async pipe(from: PipeEnd, to: PipeEnd): Promise<RunResult> {
     this.pipes.push({ from, to });
     if (this.pipeCode !== 0) return { code: this.pipeCode, stdout: '', stderr: 'tar: broken\n' };
+    if (from.command === 'cat' && to.command === 'ssh') return this.ssh(to.args, {});
     if (from.command === 'tar' && to.command === 'ssh') {
       this.machine.receivedDatabase = readFileSync(path.join(optionValue(from.args, '-C')!, 'db.sqlite'));
       const result = await this.ssh(to.args, {

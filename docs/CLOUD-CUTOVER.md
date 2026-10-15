@@ -1,5 +1,34 @@
 # Mac single → EC2 cloud + Mac engine: tulajdonosi runbook (PM-674)
 
+## ARM képcsomag előfeltétel mindkét körhöz (PM-718)
+
+A rögzített cél Frankfurt (`eu-central-1`), `t4g.micro`, Ubuntu 24.04 arm64, 20 GiB gp3.
+A gépválasztást nem kérjük újra; az erőforrás-létrehozás és minden átállási kör külön konkrét
+tulajdonosi jóváhagyást igényel. Config v1: `aws.ec2.architecture: "arm64"`, valamint
+`deployment.imageBundle` (relatív út a config könyvtárához). Az AMI továbbra is ellenőrzött
+Canonical Ubuntu-kép, a type/AMI/létező instance architektúrája egyezzen.
+
+Az owner/integráló **külön admin/builder gépen**, tiszta checkoutból, a jóváhagyott teljes SHA-n
+futtatja: `npm run cloud -- image-build --ref <SHA40> --out <ÚJ_REPÓN_KÍVÜLI_KÖNYVTÁR>`.
+Előtte ugyanennek a `--dry-run` változata használható. Előre rendelkezésre álló Docker/Buildx
+docker-container driver és mindkét platformhoz natív builder/emuláció szükséges. A parancs nem
+fetch-el, nem vált ágat, nem hoz létre infrastruktúrát és nem publikál registrybe.
+
+A konkrét kör jóváhagyásába kerüljön a bundle `sourceSha` értéke, a kiválasztott
+`linux/arm64` platform, `archiveSha256`, `archiveBytes` és `imageId`; a Mac motor target SHA-ja
+egyezzen. A manifest integritási metaadat, eredetét az ellenőrzött builder és a konkrét csomag
+jóváhagyása biztosítja. Mindkét platform valódi buildjével és izolált futtatásával bizonyítandó:
+Node/better-sqlite3 betöltés, cloudflared/litestream/restic indulás, cloud szerver smoke eldobható
+adattal; külön figyelni kell az 1 GiB RAM-ra és import közbeni lemezhelyre.
+
+Átállás előtt `deploy --ref <SHA40> --dry-run` ellenőrizze a bundle-t. Seed sorrendje:
+üres bucket/stopped-empty guard → adatfeltöltés → PM-717 seed-integrity → ellenőrzött image
+import → receive-env → immutable ID-val indítás → SHA/ID/platform health. ARM-on nincs host
+build és nincs fallback. Hibás kép esetén nincs új start; seed-integrity hibánál nincs import
+sem. A public kapcsolás marad edge → deploy → check. A rollback az előző rögzített digestet
+viszi tovább, ARM-on digest nélküli régi rekord megtagadás. Ez nem DB-visszamigrálás: a meglévő
+recovery-kapu és figyelmeztetés megmarad. A két kör közötti célürítés PM-719 feladata.
+
 Ez a PM-675 végrehajtási lapja; **önmagában nem engedély éles műveletre**.
 A PM-674 csak dokumentációt és eldobható, fake-alapú ellenőrzést készít.
 AWS/Cloudflare/SES műveletet, védett adatolvasást és szolgáltatáskapcsolást az owner vagy
@@ -37,7 +66,7 @@ törlés, retry, új példány vagy seed-felülírás. Cloud CLI: 0 siker, 1 hib
 | `<PACKAGE>`, `<RETURN_DATA>`            | Új könyvtárak a védett `~/.config/projectman/cloud/` alatt, a forráson és minden git repón kívül. Package mód 0700, fájlok 0600; letöltés új, nem létező könyvtárba.                      |
 | `<CONFIG>`, `<PRIVATE_CONFIG>`          | Védett cloud JSON, és előre megőrzött privát konfiguráció. Azonos EC2/bucket/tunnel/hostname adatok; csak az elfogadott public/private mód térhet el.                                     |
 | AWS accountok                           | `aws.compute=ec2`, `aws.profile=aroom`, `route53.profile=i`; mindkét STS account ID és owner által választott compute régió.                                                              |
-| EC2                                     | `instanceType`, Ubuntu 24.04 amd64 `amiId`, meglévő `vpcId`, public `subnetId`, egész `volumeGiB` (20–1024), instanceName; mind a preflight/dry-runban igazolva.                          |
+| EC2                                     | Frankfurt, `t4g.micro`, `architecture=arm64`, Canonical Ubuntu 24.04 arm64 `amiId`, meglévő `vpcId`, public `subnetId`, 20 GiB gp3, instanceName; preflight/dry-run igazolja.             |
 | Backup                                  | Két külön, egyedi private S3 bucket: `databaseBucket`, `backupBucket`; kezdetben üresek. `RESTIC_PASSWORD` külön password managerben, nem csak cloud.env-ben.                             |
 | SES                                     | Explicit `ses.region`, `ses.domain=istvan.io`, ownerrel választott `ses.from`; identity és küldési IAM **aroom**, nem a regisztrátor `i` fiókja.                                          |
 | Cloudflare                              | Meglévő aktív istvan.io zone/account ID, chopper.istvan.io, választott widget hostname, tunnel, owner Access-email lista, engine Service Auth token.                                      |

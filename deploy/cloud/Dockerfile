@@ -58,6 +58,7 @@ COPY deploy/cloud/litestream.yml ./deploy/cloud/litestream.yml
 
 # Shared by the cloud and the engine: git HEAD is not in the image, so the version is a build argument.
 ARG PROJECTMAN_VERSION=dev
+LABEL org.opencontainers.image.revision=${PROJECTMAN_VERSION}
 # The server stays on the loopback: cloudflared inside the container is the only way in (an outbound
 # tunnel), and it names the real client in cf-connecting-ip, which the login limits count by.
 ENV NODE_ENV=production \

@@ -581,6 +581,27 @@ describe('engine local limit', () => {
       await refused(limit, 'full_test.run', fullTest({ cwd: outside }), 'path_outside_roots');
     });
 
+    it('passes the dependency preparation request of a registered merge repo on, and refuses others (PM-681)', async () => {
+      const ref = { projectKey: 'PM', repo: 'projectman' };
+      const npmCi = { ref, mergeId: newId('merge') };
+      const limit = make({
+        repos: [
+          { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', mergeBranch: 'main' },
+        ],
+      });
+      const result = (await limit.check('full_test.run', fullTest({ npmCi }) as never)) as {
+        spec: { npmCi?: unknown };
+      };
+      expect(result.spec.npmCi).toEqual(npmCi);
+      await refused(
+        limit,
+        'full_test.run',
+        fullTest({ npmCi: { ref: { projectKey: 'XX', repo: 'nope' }, mergeId: npmCi.mergeId } }),
+        'repo_not_registered',
+      );
+      await refused(limit, 'full_test.run', fullTest({ npmCi: { ref, mergeId: '../x' } }), 'invalid_params');
+    });
+
     it('adds the credential places to the test sandbox denials', async () => {
       const result = (await make().check('full_test.run', fullTest() as never)) as {
         spec: { sandbox: { denyRead: string[] } };

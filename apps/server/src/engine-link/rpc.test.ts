@@ -118,6 +118,45 @@ describe('engine RPC', () => {
     expect(params.safeParse({ spec: { ...spec, other: 1 } }).success).toBe(false);
   });
 
+  it('takes npmCi in the strict full_test.run spec as an optional repository and merge id only (PM-681)', () => {
+    const spec = {
+      runId: 'f1',
+      cwd: '/fictional/work',
+      command: 'npm test',
+      maxWorkers: 1,
+      timeoutMs: 1000,
+      sandbox: { denyRead: [], allowRead: [] },
+    };
+    const npmCi = { ref: { projectKey: 'PM', repo: 'projectman' }, mergeId: 'mrg_1' };
+    const params = methods['full_test.run'].params;
+    expect(params.safeParse({ spec }).success).toBe(true);
+    expect(params.safeParse({ spec: { ...spec, npmCi } }).success).toBe(true);
+    expect(params.safeParse({ spec: { ...spec, npmCi: { ...npmCi, extra: 1 } } }).success).toBe(false);
+    expect(params.safeParse({ spec: { ...spec, npmCi: { mergeId: 'mrg_1' } } }).success).toBe(false);
+    expect(params.safeParse({ spec: { ...spec, npmCi: { ref: npmCi.ref } } }).success).toBe(false);
+    expect(params.safeParse({ spec: { ...spec, npmCi: true } }).success).toBe(false);
+  });
+
+  it('takes allowDependencyInstall and dependencyInstallRequired as optional booleans of merge.checkout_for_check (PM-681)', () => {
+    const call = {
+      ref: { projectKey: 'PM', repo: 'projectman' },
+      mergeId: 'mrg_1',
+      mergeCommit: 'a'.repeat(40),
+      depsFrom: null,
+    };
+    const { params, result } = methods['merge.checkout_for_check'];
+    expect(params.safeParse(call).success).toBe(true);
+    expect(params.safeParse({ ...call, allowDependencyInstall: true }).success).toBe(true);
+    expect(params.safeParse({ ...call, allowDependencyInstall: false }).success).toBe(true);
+    expect(params.safeParse({ ...call, allowDependencyInstall: 'yes' }).success).toBe(false);
+    expect(params.safeParse({ ...call, other: 1 }).success).toBe(false);
+    const answer = { path: '/fictional/check', gitDir: '/fictional/git' };
+    expect(result.safeParse(answer).success).toBe(true);
+    expect(result.safeParse({ ...answer, dependencyInstallRequired: true }).success).toBe(true);
+    expect(result.safeParse({ ...answer, dependencyInstallRequired: 'no' }).success).toBe(false);
+    expect(result.safeParse({ ...answer, other: 1 }).success).toBe(false);
+  });
+
   it('does not acknowledge failed handlers or closing connections', async () => {
     const state = createRpcState();
     const send = vi.fn();

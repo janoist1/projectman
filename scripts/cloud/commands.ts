@@ -43,8 +43,10 @@ commands:
                                      copy the stopped board's data to a new directory on this computer
   edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token]
                                      set up Cloudflare: zone, edge settings, Access, service tokens, tunnel
+                                     (access.boardMode: private = Access in front, public = the board's own login, only /engine guarded)
   publish [--feedback] [--dry-run]   point the hostname at the tunnel (after the checks); --feedback: the feedback hostname too
-  check --login-json <file>          verify the public board: Access, edge, origin rules, the engine's doors
+                                     (a public board is published only when the running board and the tunnel agree)
+  check --login-json <file>          verify the public board: Access (or the public matrix), edge, origin rules, the engine's doors
   dns plan|import|verify|status       migrate and verify Route 53 DNS; import accepts --update and --dry-run
   dns switch [--back] [--dry-run]     change registrar name servers after verification; --back: restore Route 53
   ses plan                           read the SES identity/account/DNS and preview sender provisioning

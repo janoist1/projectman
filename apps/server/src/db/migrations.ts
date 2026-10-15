@@ -1241,5 +1241,10 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     DROP TABLE operator_signals_old;
     CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
   },
+  {
+    version: 64,
+    name: 'merge train diagnostics',
+    sql: 'ALTER TABLE task_merges ADD COLUMN diagnostic_json TEXT;',
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

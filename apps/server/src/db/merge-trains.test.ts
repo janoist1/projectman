@@ -271,6 +271,24 @@ describe('merge train repository', () => {
     });
   });
 
+  it('round-trips diagnostic limits internally and rejects invalid stored values', () => {
+    const row = { ...queued(member(1)), diagnostic: { parentTrainId: 'mrg_parent00', maxCards: 4 } };
+    repos.taskMerges.save(row);
+    expect(repos.taskMerges.get(row.id)).toEqual(row);
+    expect(mergeState(row)).not.toHaveProperty('diagnostic');
+    for (const maxCards of [0, 9, 1.5]) {
+      expect(() => repos.taskMerges.save({ ...row, diagnostic: { ...row.diagnostic, maxCards } })).toThrow(
+        ZodError,
+      );
+    }
+    repos.db
+      .prepare('UPDATE task_merges SET diagnostic_json = ? WHERE id = ?')
+      .run(JSON.stringify({ ...row.diagnostic, maxCards: 9 }), row.id);
+    expect(() => repos.taskMerges.get(row.id)).toThrow(ZodError);
+    repos.taskMerges.save({ ...row, diagnostic: undefined });
+    expect(repos.taskMerges.get(row.id)?.diagnostic).toBeUndefined();
+  });
+
   it.each(['merge_train001', 'mrg_short', '../train'])(
     'validates internal train membership: %s',
     (trainId) => {

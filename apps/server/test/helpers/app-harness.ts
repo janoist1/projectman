@@ -52,6 +52,7 @@ export interface AppHarnessOptions {
     | 'shutdownPauseMs'
     | 'logger'
     | 'engineMode'
+    | 'publicBoard'
     | 'setupCode'
     | 'appVersion'
     | 'claudeTmpRoots'
@@ -85,6 +86,12 @@ interface HarnessBase {
   contextBuilder: FakeContextBuilder;
   memory: FakeMemoryStore;
   worktrees: FakeWorktreeManager;
+  /**
+   * Closes the app and builds it again over the same home and database with these further options (a start
+   * with other settings, for example a public board over an existing owner); returns the new app. A start that
+   * is refused rejects, and `close` then only removes the home.
+   */
+  relaunch(extra: NonNullable<AppHarnessOptions['app']>): Promise<FastifyInstance>;
   close(): Promise<void>;
 }
 
@@ -165,7 +172,7 @@ export async function createAppHarness(
     };
   }
 
-  const launch = async (): Promise<FastifyInstance> => {
+  const launch = async (extra: AppHarnessOptions['app'] = {}): Promise<FastifyInstance> => {
     const launched = await buildApp({
       home,
       now: opts.now,
@@ -183,6 +190,7 @@ export async function createAppHarness(
       // Fake sessions must not discover this machine's shared Claude directories.
       claudeTmpRoots: [],
       ...opts.app,
+      ...extra,
       ...(cli
         ? {
             claudeBin: FAKE_CLAUDE,
@@ -211,6 +219,11 @@ export async function createAppHarness(
     contextBuilder,
     memory,
     worktrees,
+    async relaunch(extra) {
+      await app.close();
+      app = await launch(extra);
+      return app;
+    },
     async close() {
       try {
         await app.close();

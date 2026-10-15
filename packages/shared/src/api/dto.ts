@@ -327,6 +327,8 @@ export const SetupStatus = z.object({
   needsSetupCode: z.boolean().optional(),
   /** The server can send and redeem e-mail login codes (PM-670). Absent: false. */
   emailLoginEnabled: z.boolean().optional(),
+  /** The board runs publicly, behind its own login only (PM-672). Absent: false. */
+  publicBoard: z.boolean().optional(),
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;
 

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import { createRepositories, migrate } from '../src/db';
 import { migrations } from '../src/db/migrations';
+import { createOperatorRequestRepository } from '../src/db/operator-requests';
 
 it('preserves old requests, step ordering and signal links while adding approval provenance', () => {
   const db = new Database(':memory:');
@@ -9,7 +10,8 @@ it('preserves old requests, step ordering and signal links while adding approval
     db.pragma('foreign_keys = ON');
     for (const migration of migrations.filter((entry) => entry.version <= 64)) db.exec(migration.sql);
     db.pragma('user_version = 64');
-    const repos = createRepositories(db);
+    // Only the repository this schema version supports; the full set prepares newer columns.
+    const repos = { operatorRequests: createOperatorRequestRepository(db) };
     for (const [index, source] of ['message', 'answer', 'signal'].entries()) {
       const request = {
         id: `opr_${index}`,

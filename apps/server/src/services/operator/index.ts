@@ -1,4 +1,5 @@
 export { OperatorSignals } from './signals';
+export { OperatorPreferences } from './preferences';
 export * from './requests';
 export { OperatorActions, OperatorApprovals } from './actions';
 export { ProjectState } from './project-state';

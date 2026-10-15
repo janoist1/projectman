@@ -1,5 +1,5 @@
 import { wakesFor } from '../../core/messages';
-import { LIVE_SESSION_STATES } from '@projectman/shared';
+import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
@@ -10,6 +10,7 @@ import {
   isMergeFixer,
   isMergeRunningFor,
   effectiveSessionPermissions,
+  sessionApproverChangeRefusal,
   isOnLeave,
   isOperator,
   isWorkPaused,
@@ -30,6 +31,7 @@ import type {
   HandoffSummary,
   MemberConfig,
   MemberStatus,
+  OperatorPreferenceData,
   PausePoint,
   PlanUsage,
   ProjectConfig,
@@ -64,7 +66,7 @@ import { assertNotPaused } from '../admission';
 import type { CardQuestions } from '../../core/inbox';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
-import { conflict, DomainError, notFound } from '../../kernel';
+import { conflict, DomainError, forbidden, notFound } from '../../kernel';
 import type { MemberService } from '../../core/members';
 import type { ProjectFocusService } from '../../core/tasks';
 import type { ConfigChange, ProjectService } from '../../core/projects';
@@ -144,6 +146,15 @@ export interface SessionOrchestratorDeps {
   /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
+  /** Server-side selection of the current conversational partner's style only. */
+  operatorPreferences: {
+    forConversation(
+      projectKey: string,
+      member: string,
+      workItem: WorkItemRef,
+      cause: SessionStartCause | null,
+    ): Promise<OperatorPreferenceData | undefined>;
+  };
   /**
    * The engines (PM-311): a session's worktrees, member workspaces, session folders, sandbox places
    * and process probe are its engine's, never the server's own.
@@ -666,6 +677,8 @@ export class SessionOrchestrator {
     return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, found.member);
+      const refusal = sessionApproverChangeRefusal(member, req.approver);
+      if (refusal) throw forbidden(refusal, 'the Operator approver is fixed to human');
       if (req.approver) {
         const blocker = approverBlocker(config, member.handle, req.approver);
         if (blocker)
@@ -682,7 +695,7 @@ export class SessionOrchestrator {
       const from = effectiveSessionPermissions(member, before);
       let session = this.ctx.repos.sessions.update(sessionId, {
         ...(req.permissionMode !== undefined ? { permissionModeOverride: req.permissionMode } : {}),
-        ...(req.approver !== undefined ? { approverOverride: req.approver } : {}),
+        ...(req.approver !== undefined ? { approverOverride: isOperator(member) ? null : req.approver } : {}),
       })!;
       const to = effectiveSessionPermissions(member, session);
       const running = this.isRunning(sessionId);
@@ -1450,7 +1463,14 @@ export class SessionOrchestrator {
           return;
         }
         case 'chat': {
-          this.ctx.repos.sessions.update(session.id, { lastActivityAt: at });
+          const workMetadata = workMetadataAfterChat(session.workMetadata, event.items, {
+            state: session.state,
+            now: this.ctx.now().getTime(),
+          });
+          this.ctx.repos.sessions.update(session.id, {
+            lastActivityAt: at,
+            ...(workMetadata ? { workMetadata } : {}),
+          });
           this.ctx.bus.publish({
             type: 'chat_appended',
             projectKey: session.projectKey,

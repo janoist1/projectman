@@ -8,6 +8,8 @@ import { AuthService } from './auth-service';
 import type { AuthUser } from './auth-service';
 import { clientAddress, isLocalRequest, requestProtocol, sameOrigin } from '../kernel';
 import type { SetupCode } from './setup-code';
+import type { EmailLoginService } from '../services/email-login';
+import { registerEmailLoginRoutes } from './email-login-routes';
 
 export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
 export type { AttemptLimiter } from '../kernel';
@@ -16,7 +18,15 @@ export type { AuthUser } from './auth-service';
 export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
 export { createSetupCode, generateSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
 export type { SetupCode } from './setup-code';
-export { loadOrCreateSecret } from './secret';
+export { deriveEmailLoginKey, loadOrCreateSecret } from './secret';
+export {
+  assertPublicBoardReady,
+  parsePublicBoardEnv,
+  PUBLIC_BOARD_REQUIRES_CLOUD,
+  PUBLIC_BOARD_REQUIRES_EMAIL_LOGIN,
+  PUBLIC_BOARD_REQUIRES_SETUP,
+  PublicBoardNotReadyError,
+} from './public-board';
 
 export interface AuthDomain {
   handlesFor(email: string): Promise<Record<string, string>>;
@@ -43,12 +53,24 @@ const PUBLIC_ROUTES = new Set([
   `GET ${routes.setupStatus()}`,
   `POST ${routes.setup()}`,
   `POST ${routes.login()}`,
+  `POST ${routes.emailLoginRequest()}`,
+  `POST ${routes.emailLoginVerify()}`,
   `POST ${routes.logout()}`,
 ]);
 
 /** Failed logins per client address and window (and all clients together: attempt-limiter). */
 const MAX_FAILED_LOGINS = 10;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+/** The prefixes whose routes the edge sets apart by the raw path: the API (origin check) and the engine's doors. */
+const LITERAL_PREFIXES = ['/api/', '/engine/'];
+
+/** True when the matched route sits under one of the literal prefixes but the request did not spell it that way. */
+function spelledDifferently(request: FastifyRequest): boolean {
+  const route = request.routeOptions.url;
+  if (!route) return false;
+  return LITERAL_PREFIXES.some((prefix) => route.startsWith(prefix) && !request.url.startsWith(prefix));
+}
 
 /** Checks both the raw path and the matched route pattern, so neither encoding tricks nor catch-all routes slip through. */
 function needsLogin(request: FastifyRequest): boolean {
@@ -106,10 +128,22 @@ export function registerAuth(
     clientIpHeader?: string;
     /** `cloud` mode: a non-local first setup is possible, with the setup code (PM-317). */
     cloud?: boolean;
+    /** The board runs publicly (PM-672): the setup status says so, so a check can read the running server. */
+    publicBoard?: boolean;
     setupCode?: SetupCode;
+    /** The e-mail login of invited clients (PM-670); null or absent: it is unavailable. */
+    emailLogin?: EmailLoginService | null;
   },
 ): void {
-  const { auth, domain, clientIpHeader, cloud = false, setupCode } = deps;
+  const {
+    auth,
+    domain,
+    clientIpHeader,
+    cloud = false,
+    publicBoard = false,
+    setupCode,
+    emailLogin = null,
+  } = deps;
   const loginAttempts = createAttemptLimiter({
     max: MAX_FAILED_LOGINS,
     sharedMax: MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
@@ -128,6 +162,10 @@ export function registerAuth(
     // old header for the rest. The attachment routes set their own CSP and repeat the directive.
     reply.header('content-security-policy', "frame-ancestors 'none'");
     reply.header('x-frame-options', 'DENY');
+    // The router decodes a path (`/%65ngine/link` is `/engine/link`), but the tunnel rules, the origin check
+    // below and the guards on the host match the raw one: a route under these prefixes answers only a request
+    // that spells the prefix out (PM-672).
+    if (spelledDifferently(request)) return reply.code(404).send(apiError('not_found', 'route not found'));
     if (request.url.startsWith('/api/')) reply.header('cache-control', 'no-store');
     if (
       request.url.startsWith('/api/') &&
@@ -167,7 +205,22 @@ export function registerAuth(
 
   app.get(routes.setupStatus(), async (): Promise<SetupStatus> => {
     const needsSetup = auth.needsSetup();
-    return { needsSetup, ...(cloud && needsSetup ? { needsSetupCode: true } : {}) };
+    return {
+      needsSetup,
+      ...(cloud && needsSetup ? { needsSetupCode: true } : {}),
+      ...(emailLogin && !needsSetup ? { emailLoginEnabled: true } : {}),
+      ...(publicBoard ? { publicBoard: true } : {}),
+    };
+  });
+
+  registerEmailLoginRoutes(app, {
+    auth,
+    emailLogin,
+    clientIpHeader,
+    startSessionFor: async (request, reply, user) => {
+      startSession(auth, request, reply, user.id);
+      return meOf(domain, user, auth);
+    },
   });
 
   app.post(routes.setup(), async (request, reply) => {
@@ -228,7 +281,8 @@ export function registerAuth(
   const keyOwner = (request: FastifyRequest): string => {
     if (request.via)
       throw forbidden('integrator_not_allowed', 'Only the owner may manage this key using their own login');
-    if (!request.user || !auth.isHostOwner(request.user.id))
+    // A passwordless (e-mail login) account never holds an integrator key (PM-670).
+    if (!request.user || !auth.isHostOwner(request.user.id) || !auth.hasPassword(request.user.id))
       throw forbidden('owner_only', 'Only the host owner may manage this key');
     return request.user.id;
   };

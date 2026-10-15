@@ -634,6 +634,63 @@ describe('cloud mode remote parts', () => {
       expect(ran).toBe(true);
     });
 
+    it('sends npmCi to the engine and relays its result (PM-681)', async () => {
+      const engine = await online();
+      engine.answer('full_test.run', () => ({
+        outcome: 'passed' as const,
+        exitCode: 0,
+        durationMs: 1,
+        failedFiles: [],
+        outputTail: '',
+      }));
+      const npmCi = { ref: { projectKey: 'AR', repo: 'ar' }, mergeId: 'mrg_1' };
+      const result = await remote.directory
+        .get('eng_a' as never)!
+        .fullTestExecutor!.run({ ...fullTestSpec('f1'), npmCi }, new AbortController().signal);
+      expect(result).toMatchObject({ outcome: 'passed' });
+      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
+        { method: 'full_test.run', params: { spec: expect.objectContaining({ npmCi }) } },
+      ]);
+    });
+
+    it('blocks the run on an older engine that refuses npmCi, without repeating it without the field', async () => {
+      const engine = await online();
+      let ran = false;
+      const oldSpecKeys = [
+        'runId',
+        'cwd',
+        'command',
+        'maxWorkers',
+        'timeoutMs',
+        'sandbox',
+        'requireHeavyLock',
+      ];
+      engine.answer('full_test.run', (params) => {
+        if (Object.keys(params.spec).some((key) => !oldSpecKeys.includes(key)))
+          throw Object.assign(new Error('Invalid method parameters'), { code: 'invalid_params' });
+        ran = true;
+        return { outcome: 'passed' as const, exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+      });
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      const onStarted = vi.fn();
+      const npmCi = { ref: { projectKey: 'AR', repo: 'ar' }, mergeId: 'mrg_1' };
+      for (const requireHeavyLock of [undefined, true]) {
+        const result = await executor.run(
+          { ...fullTestSpec('f1'), npmCi, requireHeavyLock },
+          new AbortController().signal,
+          onStarted,
+        );
+        expect(result).toMatchObject({
+          outcome: 'error',
+          reason: 'dependency_install_failed',
+          outputTail: expect.stringContaining('Update the engine'),
+        });
+      }
+      expect(ran).toBe(false);
+      expect(onStarted).not.toHaveBeenCalled();
+      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toHaveLength(2);
+    });
+
     it('sends the merge calls with the repository named and not a path, and keeps the error codes', async () => {
       const engine = await online();
       const ref = { projectKey: 'AR', repo: 'ar' };

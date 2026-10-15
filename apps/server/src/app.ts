@@ -10,14 +10,16 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyServerOptions } from 'f
 import { registerApiRoutes } from './api';
 import { registerErrorHandling } from './http';
 import {
+  assertPublicBoardReady,
   AuthService,
   createSetupCode,
+  deriveEmailLoginKey,
   loadOrCreateSecret,
   MAX_SETUP_CODE_FAILURES,
   registerAuth,
 } from './auth';
 import { serializeRequest } from './http';
-import { createConfigStore } from './config';
+import { createConfigStore, createOperatorKnowledgeStore } from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
 import type { ControlPause, ControlRelease, ControlSocket } from './control';
@@ -34,6 +36,7 @@ import type {
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
+  OperatorKnowledgeStore,
   MachineProbe,
   MemberWorkspaceManager,
   RunnerModule,
@@ -125,6 +128,7 @@ export interface AppModules {
   github?: GithubService;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
+  operatorKnowledge?: OperatorKnowledgeStore;
   worktrees?: WorktreeManager;
   /** Member workspaces, used when `memberWorkspaces` is on (default: the git-backed manager). */
   memberWorkspaces?: MemberWorkspaceManager;
@@ -177,10 +181,14 @@ export interface BuildAppOptions {
    */
   releaseTarget?: { projectKey: string; repo: string };
   /**
-   * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off. Nothing reads it
-   * yet: the login itself (PM-670) is the first consumer.
+   * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off (PM-670).
    */
   emailCodeMailer?: EmailCodeMailer;
+  /**
+   * The board is public: no Cloudflare Access in front of its pages, only the application's own login
+   * (PM-672). Absent: false. It starts only in cloud mode, with an owner set up and a working e-mail login.
+   */
+  publicBoard?: boolean;
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
   /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
@@ -354,7 +362,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     // before the cookie, auth and every other hook, and a bad address stops the start.
     if (options.feedbackPublicUrl)
       registerFeedbackHostGuard(app, parseFeedbackPublicUrl(options.feedbackPublicUrl));
-    await app.register(fastifyCookie, { secret: loadOrCreateSecret(home) });
+    const secret = loadOrCreateSecret(home);
+    await app.register(fastifyCookie, { secret });
     await app.register(fastifyWebsocket, {
       options: { maxPayload: options.engineMode === 'cloud' ? ENGINE_MAX_FRAME_BYTES : 1024 * 1024 },
     });
@@ -428,6 +437,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       : undefined;
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
     const auth = new AuthService({ repos, now: options.now });
+    if (options.publicBoard)
+      assertPublicBoardReady({
+        cloud: options.engineMode === 'cloud',
+        needsSetup: auth.needsSetup(),
+        emailLogin: options.emailCodeMailer !== undefined,
+      });
 
     const domain = createDomain({
       appVersion: options.appVersion ?? 'dev',
@@ -486,6 +501,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       github,
       contextBuilder,
       memory,
+      operatorKnowledge:
+        modules.operatorKnowledge ?? createOperatorKnowledgeStore({ rootDir: join(home, 'operator-data') }),
       worktrees,
       attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
       feedbackDir,
@@ -493,6 +510,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       messageAttachmentStorage:
         modules.messageAttachmentStorage ?? createMessageAttachmentStorage(messageAttachmentsDir),
       accounts: auth,
+      ...(options.emailCodeMailer
+        ? { emailCodeMailer: options.emailCodeMailer, emailLoginKey: deriveEmailLoginKey(secret) }
+        : {}),
       worktreesRootDir: join(home, 'worktrees'),
       appHome: home,
       installDir: options.installDir,
@@ -536,7 +556,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       log.warn(
         `the first setup needs the setup code ${setupCode.value}; enter it on the setup page (it is void after ${MAX_SETUP_CODE_FAILURES} wrong tries or a restart)`,
       );
-    registerAuth(app, { auth, domain, clientIpHeader, cloud: options.engineMode === 'cloud', setupCode });
+    registerAuth(app, {
+      auth,
+      domain,
+      clientIpHeader,
+      cloud: options.engineMode === 'cloud',
+      publicBoard: options.publicBoard === true,
+      setupCode,
+      emailLogin: domain.emailLogin,
+    });
     // The remote parts that need the domain, and what the engine's settings view counts.
     remote?.bind(domain, app);
     engineRegistry?.useCounters((id) => domain.engineCounters(id));

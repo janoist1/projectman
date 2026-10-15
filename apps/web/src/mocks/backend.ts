@@ -1,5 +1,6 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
+  maskEmail,
   CreateEngineRequest,
   StopOrphansRequest,
   StopSessionRequest,
@@ -122,6 +123,7 @@ import {
   ownerOnlyChanges,
   permissionView,
   effectiveSessionPermissions,
+  sessionApproverChangeRefusal,
   duplicateMarkRefusal,
   planLabelChange,
   planRelations,
@@ -279,6 +281,7 @@ import {
   roleViews,
 } from '@projectman/templates';
 import * as fixtures from './fixtures';
+import { MockEmailLogin } from './email-login';
 import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
 import { mockId, mockUuid, nowIso } from './time';
@@ -433,6 +436,7 @@ export class MockBackend {
   refuseReleaseApproval = false;
   user = { ...fixtures.mockUser };
   config: ProjectConfig = fixtures.buildConfig();
+  structure = clone(fixtures.structureFixture);
   configVersion = fixtures.projectSummary.configVersion;
   history: ConfigVersionEntry[] = clone(fixtures.configHistory);
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
@@ -546,9 +550,21 @@ export class MockBackend {
   codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
   invitations: Array<Invitation & { token: string }> = [];
-  accounts = new Map<string, { userId: string; name: string; email: string; password: string }>([
+  /** A password of `null` is an account made by an e-mail code: it logs in with a code only. */
+  accounts = new Map<string, { userId: string; name: string; email: string; password: string | null }>([
     [fixtures.mockUser.email, { ...fixtures.mockUser, password: 'correct horse battery' }],
   ]);
+  /** The e-mail code login (PM-670, PM-671); off until a test or a scenario enables it. */
+  readonly emailLogin: MockEmailLogin = new MockEmailLogin({
+    inviteEmail: (token) => this.openClientInvite(token)?.email ?? null,
+    eligible: (email) => this.emailLoginEligible(email),
+    hasAccount: (email) => this.accounts.has(email),
+    inviteDisplayName: (email) =>
+      this.openInvitesOf(email).find((invite) => invite.displayName)?.displayName ?? null,
+    startSession: (email, name) => this.startEmailSession(email, name),
+  });
+  /** Further projects the viewer belongs to, so a test can log in a client of several projects. */
+  extraMeProjects: Array<{ key: string; name: string; access: HumanAccess; roles: string[] }> = [];
   private inviteAttempts = { count: 0, resetAt: 0 };
   /** Connected listeners and the projects each subscribed to. */
   private readonly connections = new Map<MockConnection, Set<string>>();
@@ -1650,7 +1666,11 @@ export class MockBackend {
     if (path === '/api/setup') {
       if (method === 'GET') {
         const needsSetup = this.auth === 'setup';
-        return ok({ needsSetup, ...(needsSetup && this.setupCode !== null ? { needsSetupCode: true } : {}) });
+        return ok({
+          needsSetup,
+          ...(needsSetup && this.setupCode !== null ? { needsSetupCode: true } : {}),
+          ...(this.emailLogin.enabled ? { emailLoginEnabled: true } : {}),
+        });
       }
       const input = parseBody(SetupRequest, body);
       if (!input) return error(400, 'invalid_request', 'Invalid setup request');
@@ -1671,7 +1691,7 @@ export class MockBackend {
         return error(401, 'invalid_credentials', 'Invalid email or password');
       const account = this.accounts.get(input.email.trim().toLowerCase());
       if (account && account.userId !== fixtures.mockUser.userId) {
-        if (input.password !== account.password)
+        if (account.password === null || input.password !== account.password)
           return error(401, 'invalid_credentials', 'Invalid email or password');
         this.user = { userId: account.userId, name: account.name, email: account.email };
         this.viewerHandle =
@@ -1685,6 +1705,8 @@ export class MockBackend {
       this.auth = 'ready';
       return ok(this.me());
     }
+    if (path === '/api/auth/email/request' && method === 'POST') return this.emailLogin.request(body);
+    if (path === '/api/auth/email/verify' && method === 'POST') return this.emailLogin.verify(body);
     if (path === '/api/auth/logout' && method === 'POST') {
       this.auth = 'login';
       return ok();
@@ -1859,6 +1881,7 @@ export class MockBackend {
                 access: member.access,
                 roles: member.roles,
               },
+              ...this.extraMeProjects,
             ]
           : [],
     };
@@ -2045,6 +2068,10 @@ export class MockBackend {
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
+    if (rest === '/structure' && method === 'GET') {
+      if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
+      return ok(clone(this.structure));
+    }
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     if (rest === '/operator' && method === 'GET') return this.operatorChannel();
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
@@ -2681,6 +2708,9 @@ export class MockBackend {
         ),
         expiresAt: invite.expiresAt,
         requiresLogin: !!account,
+        ...(invite.access === 'client' && this.emailLogin.enabled
+          ? { emailHint: maskEmail(invite.email) }
+          : {}),
       });
     if (account && (this.auth !== 'ready' || this.user.userId !== account.userId))
       return error(409, 'login_required', 'Log in as the invited account');
@@ -2689,6 +2719,69 @@ export class MockBackend {
     const input = account ? null : parseBody(AcceptInviteRequest.required(), body);
     if (!account && !input)
       return error(400, 'invalid_request', 'Name and eight-character password required');
+    return this.acceptInvite(invite, account ?? { name: input!.name, password: input!.password });
+  }
+
+  /** The open invitation behind a token, whatever its access. */
+  private openInvite(token: string): (typeof this.invitations)[number] | undefined {
+    return this.invitations.find(
+      (invite) =>
+        invite.token === token && !invite.acceptedAt && !invite.revokedAt && invite.expiresAt > nowIso(),
+    );
+  }
+
+  /** The open client invitation behind a token (the only kind a code can accept). */
+  private openClientInvite(token: string): (typeof this.invitations)[number] | undefined {
+    const invite = this.openInvite(token);
+    return invite?.access === 'client' ? invite : undefined;
+  }
+
+  private openInvitesOf(email: string): Array<(typeof this.invitations)[number]> {
+    return this.invitations.filter(
+      (invite) =>
+        invite.email === email && !invite.acceptedAt && !invite.revokedAt && invite.expiresAt > nowIso(),
+    );
+  }
+
+  /**
+   * The server's client-standing rule: the address has a client account or open client invitations, is
+   * not the host owner, belongs to no one but a client and has no open invitation of any other access.
+   */
+  private emailLoginEligible(email: string): boolean {
+    const account = this.accounts.get(email);
+    if (account?.userId === fixtures.mockUser.userId) return false;
+    const open = this.openInvitesOf(email);
+    if (open.some((invite) => invite.access !== 'client')) return false;
+    const memberships = this.config.team.members.filter(
+      (member) => member.kind === 'human' && member.email?.toLowerCase() === email,
+    );
+    if (memberships.some((member) => member.kind !== 'human' || member.access !== 'client')) return false;
+    return memberships.length > 0 || open.length > 0;
+  }
+
+  /** A right code: accepts the open client invitations, makes the passwordless account and starts the session. */
+  private startEmailSession(email: string, name: string | null): unknown {
+    // The fake has one project: an invitation to a seat the person holds already stays open, as it fails.
+    for (const invite of this.openInvitesOf(email))
+      this.acceptInvite(invite, this.accounts.get(email) ?? { name: name ?? '', password: null });
+    const account = this.accounts.get(email);
+    if (account) {
+      this.user = { userId: account.userId, name: account.name, email: account.email };
+      this.viewerHandle =
+        this.config.team.members.find(
+          (member) => member.kind === 'human' && member.email?.toLowerCase() === email,
+        )?.handle ?? '';
+      this.auth = 'ready';
+    }
+    return this.me();
+  }
+
+  private acceptInvite(
+    invite: (typeof this.invitations)[number],
+    who:
+      | { userId: string; name: string; email: string; password: string | null }
+      | { name: string; password: string | null },
+  ): MockResponse {
     if (
       this.config.team.members.some(
         (member) => member.kind === 'human' && member.email?.toLowerCase() === invite.email,
@@ -2699,12 +2792,10 @@ export class MockBackend {
       const failure = this.validateRole(id, 'human');
       if (failure) return failure;
     }
-    const user = account ?? {
-      userId: mockId('usr'),
-      name: input!.name,
-      email: invite.email,
-      password: input!.password,
-    };
+    const user =
+      'userId' in who
+        ? who
+        : { userId: mockId('usr'), name: who.name, email: invite.email, password: who.password };
     const seat = invite.memberHandle ? memberOf(this.config, invite.memberHandle) : undefined;
     if (invite.memberHandle) {
       if (!seat) return error(404, 'invite_member_not_found', 'Unknown member');
@@ -5746,6 +5837,8 @@ export class MockBackend {
     if (!session) return error(404, 'not_found', 'Unknown session');
     const member = memberOf(this.config, session.member);
     if (member?.kind !== 'ai') return error(404, 'not_found', 'Unknown member');
+    const refusal = sessionApproverChangeRefusal(member, input.approver);
+    if (refusal) return error(403, refusal, 'The Operator approver is fixed to human');
     if (input.approver) {
       const blocker = approverBlocker(this.config, member.handle, input.approver);
       if (blocker) return error(422, 'approver_unavailable', 'This approver is not available', { blocker });
@@ -5757,7 +5850,7 @@ export class MockBackend {
       else next.permissionModeOverride = input.permissionMode;
     }
     if (input.approver !== undefined) {
-      if (input.approver === null) delete next.approverOverride;
+      if (isOperator(member) || input.approver === null) delete next.approverOverride;
       else next.approverOverride = input.approver;
     }
     const to = effectiveSessionPermissions(member, next);

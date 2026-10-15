@@ -5,6 +5,10 @@ export type InvitationUser = Pick<UserRecord, 'id' | 'name' | 'email'>;
 
 export interface InvitationAccounts {
   prepareUser(input: { name: string; email: string; password: string }): Promise<UserRecord>;
+  /** A new account without a password, for an invited client who logs in with an e-mail code (PM-670). */
+  preparePasswordlessUser(input: { name: string; email: string }): UserRecord;
+  /** The initial host owner, whom no e-mail login may touch. */
+  isHostOwner(userId: string): boolean;
 }
 
 export interface MemberProfileSessions {

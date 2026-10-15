@@ -313,6 +313,8 @@ export const ProjectConfig = z.object({
   }),
   team: z.object({
     operatorWatch: OperatorWatch.optional(),
+    /** Owner-controlled approval waiver; absent means every approval still needs a click. */
+    operatorApprovalWaiver: z.boolean().optional(),
     cardMover: CardMover.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),

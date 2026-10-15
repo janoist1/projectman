@@ -8,6 +8,7 @@ import type {
   HandoffFallbackReason,
   HandoffSummary,
   MemberView,
+  OperatorPreferenceData,
   PausePoint,
   PreviousConversationReason,
   FocusPlace,
@@ -53,6 +54,8 @@ export interface ContextPackInput {
   team: MemberView[];
   /** The member's own durable memory (markdown). */
   memory: string;
+  /** Only the current human's enumerated conversational style; never authorization. */
+  operatorPreference?: OperatorPreferenceData;
   /**
    * The task's readable attachments (metadata only, oldest first), listed in the kick-off brief.
    * Omitted (or empty) when the task has none or the work item is not a task.

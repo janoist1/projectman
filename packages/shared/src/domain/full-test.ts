@@ -19,6 +19,8 @@ export const FullTestErrorReason = z.enum([
   'engine_offline',
   // A run that requires the machine's heavy-run queue (PM-658) found it missing or unusable.
   'heavy_lock_unavailable',
+  // The dependencies the run needs could not be prepared (PM-681), or the executor cannot prepare them yet.
+  'dependency_install_failed',
 ]);
 export type FullTestErrorReason = z.infer<typeof FullTestErrorReason>;
 

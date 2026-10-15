@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProvidersView, Task, validateProjectConfig } from '@projectman/shared';
+import {
+  ProvidersView,
+  Task,
+  effectiveSessionPermissions,
+  operatorOf,
+  validateProjectConfig,
+} from '@projectman/shared';
 import { MockBackend } from './backend';
 
 const role = {
@@ -27,6 +33,57 @@ function markMerged(backend: MockBackend, taskKey: string) {
     at: new Date().toISOString(),
   };
 }
+
+describe('mock fixed Operator session approver', () => {
+  const setup = () => {
+    const backend = new MockBackend();
+    const operator = operatorOf(backend.config)!;
+    const session = backend.sessions[0]!;
+    session.member = operator.handle;
+    session.workItem = { type: 'general' };
+    session.approverOverride = 'ai';
+    return { backend, operator, session };
+  };
+  it.each(['none', 'ai'] as const)(
+    'rejects %s alone and in a mixed mode patch without changing the session',
+    (approver) => {
+      const { backend, session } = setup();
+      const before = structuredClone(session);
+      for (const patch of [{ approver }, { permissionMode: 'plan', approver }]) {
+        const result = backend.handle('PATCH', `${base}/sessions/${session.id}`, patch);
+        expect(result.status).toBe(403);
+        expect(errorCode(result)).toBe('operator_fixed');
+        expect(session).toEqual(before);
+      }
+    },
+  );
+  it.each(['human', null] as const)(
+    'canonicalizes the reset %s and keeps the member approver source',
+    (approver) => {
+      const { backend, operator, session } = setup();
+      expect(backend.handle('PATCH', `${base}/sessions/${session.id}`, { approver }).status).toBe(200);
+      const current = backend.findSession(session.id)!;
+      expect(current).not.toHaveProperty('approverOverride');
+      expect(effectiveSessionPermissions(operator, current)).toMatchObject({
+        approver: 'human',
+        source: { approver: 'member' },
+      });
+    },
+  );
+  it('leaves an omitted approver field in the database while the effective approver is human', () => {
+    const { backend, operator, session } = setup();
+    expect(backend.handle('PATCH', `${base}/sessions/${session.id}`, { permissionMode: 'plan' }).status).toBe(
+      200,
+    );
+    const current = backend.findSession(session.id)!;
+    expect(current.approverOverride).toBe('ai');
+    expect(effectiveSessionPermissions(operator, current)).toMatchObject({
+      permissionMode: 'plan',
+      approver: 'human',
+      source: { mode: 'session', approver: 'member' },
+    });
+  });
+});
 
 describe('mock merger setting', () => {
   it('stores the merger and the per-repository merge setting like the server', () => {
@@ -66,6 +123,27 @@ describe('mock merger setting', () => {
 });
 
 describe('mock configuration error tolerance', () => {
+  it('never preserves dangerous historical Operator permissions in an unrelated patch', () => {
+    const backend = new MockBackend();
+    const operator = backend.config.team.members.find(
+      (member) => member.kind === 'ai' && member.role === 'ai_operator',
+    );
+    if (operator?.kind !== 'ai') throw new Error('missing Operator');
+    operator.approver = 'ai';
+    const refused = backend.handle('PATCH', `${base}/config`, {
+      baseVersion: backend.configVersion,
+      limits: { maxConcurrentAi: 2 },
+    });
+    expect(refused).toMatchObject({
+      status: 400,
+      body: {
+        error: {
+          code: 'config_invalid',
+          details: { issues: [{ code: 'operator_approver_fixed', path: expect.any(String) }] },
+        },
+      },
+    });
+  });
   it('saves unrelated edits with existing errors and reports only additional errors', () => {
     const backend = new MockBackend();
     const column = backend.config.pipeline.columns[0]!;

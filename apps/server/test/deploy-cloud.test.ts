@@ -289,7 +289,7 @@ describe('deploy/cloud shell scripts', () => {
       expect(shellFunction(entrypoint, name)).not.toContain('server_env');
     }
     expect(shellFunction(entrypoint, 'rehearse')).toContain(
-      'start_server "$scratch" "$port" PROJECTMAN_EMAIL_LOGIN_ENABLED=0',
+      'start_server "$scratch" "$port" PROJECTMAN_EMAIL_LOGIN_ENABLED=0 PROJECTMAN_PUBLIC_BOARD=0',
     );
   });
 

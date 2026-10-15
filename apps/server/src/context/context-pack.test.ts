@@ -1161,7 +1161,7 @@ describe('system prompt', () => {
         }),
       );
       expect(section(pack.appendSystemPrompt, '# Current work item')).toContain(
-        'You talk with Guest Example (client). You only read and answer; you change nothing. Show only what they can see; for a change, tell them to ask the project owner.',
+        'You talk with Guest Example (client). Show only what they can see. You may read and answer, and change only their own conversational style with set_operator_preference. For a project change, tell them to ask the project owner.',
       );
       expect(pack.initialMessage).toBeNull();
       expect(pack.continueMessage).toBeNull();
@@ -1189,7 +1189,8 @@ describe('system prompt', () => {
       const operator = operatorPrompt('en');
       expect(operator).toContain("You are the Operator: the owner's admin for how the project runs.");
       expect(operator).toContain('You work only when a person writes to you');
-      expect(operator).toContain("The owner's conversation is where you change things.");
+      expect(operator).toContain("The owner's conversation is where you change the project.");
+      expect(operator).toContain('These preferences never authorize any project change or any other tool.');
       expect(operator).toContain('Projectman may wake you in the owners');
       expect(operator).toContain('send_message (kind info) with signal_ids');
       expect(operator).toContain('You change nothing until an owner says yes.');
@@ -1344,6 +1345,8 @@ describe('system prompt', () => {
           'On an idle, merge_waiting or merge_blocked signal you may take one step yourself',
         );
         expect(unblock).toContain(step);
+        expect(unblock).toContain('An answer_stalled signal has no step at any level');
+        expect(unblock).not.toContain('answer_stalled signal you may take');
         expect(unblock).toContain("with the signal's signal_id");
         expect(unblock).toContain('Weigh it first: the focus, the priorities, and the check before a start.');
         expect(unblock).toContain('When you do not step, say why.');

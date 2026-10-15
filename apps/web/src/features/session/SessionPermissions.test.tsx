@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
+import { operatorOf } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
@@ -32,6 +33,19 @@ const memberMode = (project: ReturnType<typeof mockProject>) => {
 };
 
 describe('the permission settings in the session details (PM-170)', () => {
+  it('shows the Operator human approver from the member even with a historical AI session override', async () => {
+    const project = mockProject();
+    const operator = operatorOf(project.backend.config)!;
+    const session = project.backend.findSession(SESSION)!;
+    session.member = operator.handle;
+    session.workItem = { type: 'general' };
+    session.approverOverride = 'ai';
+    await openSession(project);
+    await screen.findByLabelText(t('session.permissions.approver'));
+    expect(approverSelect().value).toBe('human');
+    expect(screen.queryByRole('button', { name: t('session.permissions.reset') })).toBeNull();
+    expect(project.backend.findSession(SESSION)!.approverOverride).toBe('ai');
+  });
   it('gives an owner both selectors with the member’s values, naming them in the list', async () => {
     const project = mockProject();
     await openSession(project);

@@ -1,6 +1,8 @@
 import { DUTIES, DUTY_IDS } from '../domain/duty';
 import { cardMoverOf } from './card-mover';
-import { dutyMembers, stageDuty, stageOwners } from './duties';
+import { dutyMembers, roleBundle, stageDuty, stageOwners } from './duties';
+import { isOperator, OPERATOR_ROLE } from './operator-member';
+import { approverOf } from './permission-level';
 import { gateAcceptsCondition, gateAcceptsWhen, stageIndex } from './gates';
 import { labelDefinition, labelExcludesAuthors, labelHolders } from './labels';
 import { isOnLeave } from './leave';
@@ -51,7 +53,10 @@ export interface ConfigIssue {
     | 'mover_not_member'
     | 'mover_cannot_move'
     | 'mover_on_leave'
-    | 'merger_unresolved';
+    | 'merger_unresolved'
+    | 'operator_approver_fixed'
+    | 'operator_merger_forbidden'
+    | 'operator_boundary_duty_forbidden';
   /** Absent in older clients means error. */
   severity?: 'error' | 'warning';
   path: string;
@@ -83,7 +88,7 @@ export interface ConfigIssue {
  * Unfilled recommended duties are warnings, never errors.
  */
 export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
-  const issues: ConfigIssue[] = [];
+  const issues: ConfigIssue[] = operatorConfigIssues(config);
   const members = new Map(config.team.members.map((m) => [m.handle, m]));
   if (config.team.boundary?.enabled && dutyMembers(config, 'boundary_authorization').length === 0)
     issues.push({
@@ -372,8 +377,11 @@ export function introducedErrors(previous: ProjectConfig | null, next: ProjectCo
   const remaining = new Map<string, number>();
   if (previous) {
     const previousKey = issueKeyFor(previous);
+    const fixedCodes = new Set(operatorConfigIssues(previous).map((issue) => issue.code));
     for (const issue of validateProjectConfig(previous)) {
       if (issue.severity === 'warning') continue;
+      // Historical dangerous Operator settings never become permission to preserve them in a write.
+      if (fixedCodes.has(issue.code)) continue;
       const key = previousKey(issue);
       remaining.set(key, (remaining.get(key) ?? 0) + 1);
     }
@@ -387,6 +395,24 @@ export function introducedErrors(previous: ProjectConfig | null, next: ProjectCo
     remaining.set(key, count - 1);
     return false;
   });
+}
+
+/** Fixed Operator limits, shared by validation, configuration writes and the web's fake backend. */
+export function operatorConfigIssues(config: ProjectConfig): ConfigIssue[] {
+  const issues: ConfigIssue[] = [];
+  config.team.members.forEach((member, i) => {
+    if (isOperator(member) && member.kind === 'ai' && approverOf(member) !== 'human')
+      issues.push({ code: 'operator_approver_fixed', path: `team.members[${i}].approver` });
+  });
+  const merger = config.team.merger;
+  if (merger?.kind === 'member' && isOperator(memberOf(config, merger.handle)))
+    issues.push({ code: 'operator_merger_forbidden', path: 'team.merger', detail: merger.handle });
+  if (roleBundle(config, OPERATOR_ROLE).duties.includes('boundary_authorization'))
+    issues.push({
+      code: 'operator_boundary_duty_forbidden',
+      path: `team.roleOverrides.${OPERATOR_ROLE}.duties`,
+    });
+  return issues;
 }
 
 const TOLERATED_ON_LOAD: ReadonlySet<ConfigIssue['code']> = new Set([

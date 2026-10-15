@@ -8,6 +8,8 @@ export const routes = {
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
   operator: (key: string) => `/api/projects/${key}/operator`,
+  operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
+  operatorPreferenceMe: (key: string) => `/api/projects/${key}/operator/preferences/me`,
   dismissOperatorSignal: (key: string, signalId: string) =>
     `/api/projects/${key}/operator/signals/${signalId}/dismiss`,
   engines: () => '/api/engines',
@@ -23,6 +25,7 @@ export const routes = {
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   /** GET the project's focus (`ProjectFocusView`, PM-427); internal members only. */
   projectFocus: (key: string) => `/api/projects/${key}/focus`,
+  projectStructure: (key: string) => `/api/projects/${key}/structure`,
   /** POST (`ProjectFocusAddRequest`): puts a theme or card into the focus. */
   projectFocusItems: (key: string) => `/api/projects/${key}/focus/items`,
   /** PATCH (`ProjectFocusMoveRequest`) moves an item; DELETE takes it out. */
@@ -40,6 +43,10 @@ export const routes = {
   setupStatus: () => '/api/setup',
   setup: () => '/api/setup',
   login: () => '/api/auth/login',
+  /** POST: asks for a one-time e-mail login code (`EmailLoginCodeRequest`); always 202 `EmailLoginCodeRequested` (PM-670). */
+  emailLoginRequest: () => '/api/auth/email/request',
+  /** POST: redeems the code (`EmailLoginVerifyRequest`); 200 `Me` and a new session cookie (PM-670). */
+  emailLoginVerify: () => '/api/auth/email/verify',
   logout: () => '/api/auth/logout',
   me: () => '/api/me',
 

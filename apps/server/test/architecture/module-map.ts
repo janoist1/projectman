@@ -46,11 +46,19 @@ export const LAYER_RULES: Readonly<Record<Layer, readonly Layer[]>> = {
 
 export const MODULES: readonly ModuleEntry[] = [
   {
+    id: 'services/structure',
+    layer: 'service',
+    target: 'services/structure',
+    pass: 'none',
+    paths: ['services/structure/'],
+    sealed: true,
+  },
+  {
     id: 'contracts',
     layer: 'contracts',
     target: 'contracts',
     pass: 'none',
-    paths: ['contracts/'],
+    paths: ['contracts/', 'contracts/operator-knowledge.ts'],
     sealed: true,
   },
   {
@@ -58,7 +66,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'db',
     pass: 'none',
-    paths: ['db/'],
+    paths: ['db/', 'db/merge-trains.ts'],
     sealed: true,
   },
   {
@@ -66,7 +74,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'config',
     pass: 'none',
-    paths: ['config/'],
+    paths: ['config/', 'config/operator-knowledge-store.ts'],
     sealed: true,
   },
   {
@@ -170,7 +178,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/merges',
     pass: 'split-tool',
-    paths: ['services/merges/'],
+    paths: ['services/merges/', 'services/merges/train-selection.ts', 'services/merges/train.ts'],
     sealed: true,
   },
   {
@@ -242,7 +250,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/operator',
     pass: 'split',
-    paths: ['services/operator/'],
+    paths: ['services/operator/', 'services/operator/preferences.ts'],
     sealed: true,
   },
   {
@@ -274,7 +282,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'full-test',
     pass: 'split-tool',
-    paths: ['full-test/'],
+    paths: ['full-test/', 'full-test/npm-dependency-key.ts'],
     sealed: true,
   },
   {

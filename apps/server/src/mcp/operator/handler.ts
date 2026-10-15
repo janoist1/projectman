@@ -2,6 +2,7 @@ import { isOperator, memberOf } from '@projectman/shared';
 import type {
   OperatorOperation,
   OperatorPlan,
+  OperatorPreferenceData,
   ScreeningOutcome,
   QuestionTodo,
   Task,
@@ -17,7 +18,12 @@ import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import type { TaskStarts } from '../../runtime/admission';
 import { aiActor } from '../../kernel';
-import type { ProjectState, OperatorActions, OperatorSignals } from '../../services/operator';
+import type {
+  ProjectState,
+  OperatorActions,
+  OperatorSignals,
+  OperatorPreferences,
+} from '../../services/operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 export class OperatorTools implements OperatorToolsHandler {
@@ -31,6 +37,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly operatorActions: OperatorActions;
   private readonly taskStarts: TaskStarts;
   private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
+  private readonly operatorPreferences: OperatorPreferences;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -43,6 +50,7 @@ export class OperatorTools implements OperatorToolsHandler {
     operatorActions: OperatorActions;
     taskStarts: TaskStarts;
     operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
+    operatorPreferences: OperatorPreferences;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -54,6 +62,34 @@ export class OperatorTools implements OperatorToolsHandler {
     this.operatorActions = deps.operatorActions;
     this.taskStarts = deps.taskStarts;
     this.operatorSignals = deps.operatorSignals;
+    this.operatorPreferences = deps.operatorPreferences;
+  }
+
+  async getOperatorPreference(ctx: ToolContext) {
+    return this.preferenceCall(ctx, 'get_operator_preference', () => this.operatorPreferences.get(ctx));
+  }
+
+  async setOperatorPreference(
+    ctx: ToolContext,
+    args: { expectedRevision: number; preference: OperatorPreferenceData },
+  ) {
+    return this.preferenceCall(ctx, 'set_operator_preference', () =>
+      this.operatorPreferences.set(ctx, args.expectedRevision, args.preference),
+    );
+  }
+
+  private async preferenceCall<T>(ctx: ToolContext, tool: string, run: () => Promise<T>): Promise<T> {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator may use preferences.');
+    await this.calls.callerWithRequest(ctx, tool);
+    try {
+      return await run();
+    } catch (err) {
+      if (err instanceof DomainError)
+        throw new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
+      throw err;
+    }
   }
 
   async dismissSignal(

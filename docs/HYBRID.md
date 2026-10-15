@@ -147,7 +147,9 @@ engine protocol change is needed. An AI sandbox never reads `~/.aws` or runs liv
 makes the tunnel, its ingress (with the `/hooks` and `/mcp` 404 rules and the audience check), the
 Access applications, policies and service tokens, and writes `TUNNEL_TOKEN` to `cloud.env`;
 `npm run cloud -- publish` makes the DNS record and `check` verifies the result. The list below is
-what those commands do, for another host (Fly.io) and for reading. EC2 host operations use SSH
+what those commands do, for another host (Fly.io) and for reading. With `access.boardMode: public`
+(PM-672, [AWS.md](AWS.md) "The public board") the main name has no Access application login and the
+board's own e-mail login is the boundary, while `/engine` keeps its own application. EC2 host operations use SSH
 through SSM with no inbound port; `cloud.env` and hybrid data travel only through encrypted SSH
 stdin/streams. The owner needs AWS CLI v2, session-manager-plugin and OpenSSH. The container,
 one-writer seed/pull guards and restore procedure are unchanged; see the EC2 live rehearsal in
@@ -364,6 +366,10 @@ anything here until the owner has said so for the concrete move.
 
 The tool is `npm run migrate -- …` ([MIGRATION.md](MIGRATION.md) has the general rules: the source is only
 read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
+
+For the EC2-specific owner execution sheet, exact CLI order, approval boundaries and
+rollback checks, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). Its public stage
+waits for the completed login and public-edge changes; a private publish does not enable them.
 
 ## What goes where
 

@@ -1,6 +1,7 @@
 export { MessageService } from './messages';
 export { Messaging, createMessaging } from './messaging';
 export { RelationNotices } from './relation-notices';
+export { answerEvidenceOf } from './answer-evidence';
 export {
   wakesFor,
   wakeFactsFor,

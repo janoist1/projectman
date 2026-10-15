@@ -63,7 +63,7 @@ export class AuthService {
 
   resolveIntegratorKey(secret: string): AuthUser | null {
     const id = this.repos.integratorKeys.resolve(tokenId(secret), this.now().toISOString());
-    if (!id || !this.isHostOwner(id)) return null;
+    if (!id || !this.isHostOwner(id) || !this.hasPassword(id)) return null;
     return this.repos.users.get(id);
   }
 
@@ -107,13 +107,39 @@ export class AuthService {
   /** Returns the user when the password matches; null otherwise (timing does not reveal which part failed). */
   async verifyPassword(email: string, password: string): Promise<UserRecord | null> {
     const user = this.repos.users.findByEmail(email.trim());
-    if (!user) {
+    // No account and a passwordless one (PM-670) both verify against the dummy hash: the same time, never a match.
+    if (!user || user.passwordHash === null) {
       dummyHash ??= hash(randomBytes(16).toString('hex'), PASSWORD_OPTIONS);
       await verify(await dummyHash, password).catch(() => false);
       return null;
     }
     const ok = await verify(user.passwordHash, password).catch(() => false);
     return ok ? user : null;
+  }
+
+  /**
+   * Prepares a passwordless account for an invited client (PM-670); like `prepareUser` it is persisted
+   * only after the config commit succeeds. It can never log in with a password or hold an integrator key.
+   */
+  preparePasswordlessUser(input: { name: string; email: string }): UserRecord {
+    return {
+      id: newId('usr'),
+      name: input.name.trim(),
+      email: input.email.trim().toLowerCase(),
+      passwordHash: null,
+      createdAt: this.now().toISOString(),
+    };
+  }
+
+  /** The account with this id, or null. */
+  user(id: string): AuthUser | null {
+    const user = this.repos.users.get(id);
+    return user ? { id: user.id, name: user.name, email: user.email } : null;
+  }
+
+  /** Whether the account can log in with a password (a passwordless account cannot). */
+  hasPassword(userId: string): boolean {
+    return this.repos.users.get(userId)?.passwordHash != null;
   }
 
   /** Creates a login session; returns the token for the cookie. */

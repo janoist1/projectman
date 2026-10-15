@@ -6,6 +6,7 @@ import {
   mergeReadiness,
   memberOf,
   isOpenTask,
+  openPrerequisites,
 } from '@projectman/shared';
 import type { Actor, MergeBlockReason, MergeFailure, ProjectConfig, Task } from '@projectman/shared';
 import type { BranchMerger } from '../../contracts';
@@ -248,6 +249,10 @@ export class MergeSteps {
     if (!persisted || (persisted.state !== 'queued' && persisted.state !== 'running')) return false;
     if (running.pushing) return true;
     const task = this.deps.tasks.find(row.projectKey, row.taskKey);
+    if (task && openPrerequisites(task, this.deps.tasks.list(row.projectKey)).length > 0) {
+      this.save(row, { state: 'queued', step: 'queued', mergeCommit: undefined, check: undefined });
+      return false;
+    }
     if (!task || !isOpenTask(task) || task.stageId !== row.fromStageId || running.signal?.aborted) {
       if (this.hooks.stopped() && task && isOpenTask(task) && task.stageId === row.fromStageId) {
         this.save(row, { state: 'queued', step: 'queued' });
@@ -392,7 +397,7 @@ export class MergeSteps {
           .find(
             (run) => run.status === 'passed' && run.projectKey === row.projectKey && run.repo === row.repo,
           );
-        if (passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
+        if (!row.diagnostic && passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
           this.save(row, {
             step: 'checking',
             check: { command: repo.reviewTest.command, status: 'passed', runId: passed.id, reused: true },
@@ -527,7 +532,7 @@ export class MergeSteps {
     const starter = !found && row.startedBy ? memberOf(config, row.startedBy) : undefined;
     const actor: Actor = starter ? { kind: starter.kind, handle: starter.handle } : SYSTEM_ACTOR;
     ctx.unitOfWork(() => {
-      this.save(row, { state: 'merged', step: 'finishing', finishedAt: isoNow(ctx) });
+      this.save(row, { state: 'merged', diagnostic: undefined, step: 'finishing', finishedAt: isoNow(ctx) });
       this.clearAlert(row);
       timeline.append({
         projectKey: row.projectKey,
@@ -543,12 +548,7 @@ export class MergeSteps {
     if (task) await this.deps.afterMerge(task);
   }
 
-  private async block(
-    running: MergeRun,
-    reason: MergeBlockReason,
-    message: string,
-    detail?: string,
-  ): Promise<void> {
+  async block(running: MergeRun, reason: MergeBlockReason, message: string, detail?: string): Promise<void> {
     const { ctx, timeline, inbox, projects } = this.deps;
     const row = running.row;
     const config = await projects.config(row.projectKey);

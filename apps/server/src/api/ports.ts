@@ -1,4 +1,5 @@
 import type { AuthDomain } from '../auth';
+import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
 import type { TemplateRegistry } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
@@ -22,9 +23,10 @@ import type { FeedbackService, FeedbackWidgetService } from '../services/feedbac
 import type { BoundaryService } from '../services/boundary';
 import type { Merges } from '../services/merges';
 import type { ScheduleService } from '../services/schedules';
-import type { OperatorSignals, ProjectManagerChannels } from '../services/operator';
+import type { OperatorPreferences, OperatorSignals, ProjectManagerChannels } from '../services/operator';
 
 export interface ApiDomain extends AuthDomain {
+  readonly structure: StructureService;
   readonly attachments: AttachmentService;
   readonly board: BoardService;
   readonly boundary: BoundaryService;
@@ -43,6 +45,7 @@ export interface ApiDomain extends AuthDomain {
   readonly messages: MessageService;
   readonly messaging: Messaging;
   readonly operatorSignals: OperatorSignals;
+  readonly operatorPreferences: OperatorPreferences;
   readonly outages: WorkOutages;
   readonly pauses: PauseService;
   readonly profiles: MemberProfiles;

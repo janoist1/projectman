@@ -29,7 +29,7 @@ function setup(options: { peerBusy?: (projectKey: string, repo: string) => boole
       repos: { taskMerges: { list: () => rows.filter((r) => !started.includes(r.id)) } },
       logger: { warn: (...args: unknown[]) => warnings.push(args) },
     } as unknown as MergeQueueDeps['ctx'],
-    tasks: { find: () => null },
+    tasks: { find: () => null, list: () => [] },
     steps: {
       run: async (run) => {
         started.push(run.row.id);
@@ -100,6 +100,16 @@ describe('merge queue', () => {
     t.rows.push(t.row('1', 'web'));
     t.pump();
     expect(t.held.get('1')!.run.signal?.aborted).toBe(false);
+  });
+
+  it('recovers a train before a newer prioritized request in the same repository', async () => {
+    const t = setup();
+    t.rows.push(t.row('new', 'web'), t.row('recovery', 'web', { trainId: 'mrg_recovery0001' }));
+    t.pump();
+    expect(t.started).toEqual(['recovery']);
+    await t.finish('recovery');
+    expect(t.started).toEqual(['recovery', 'new']);
+    await t.finish('new');
   });
 
   it('interrupts a running merge by aborting it and waits until it settled', async () => {
@@ -174,7 +184,7 @@ describe('merge queue', () => {
             repos: { taskMerges: { list: () => t.rows.filter((r) => !t.started.includes(r.id)) } },
             logger: { warn: (...args: unknown[]) => t.warnings.push(args) },
           } as unknown as MergeQueueDeps['ctx'],
-          tasks: { find: () => null },
+          tasks: { find: () => null, list: () => [] },
           steps: { run: failing, release: async (r) => void t.released.push(r.id), engine: () => null },
           peer: () => null,
           stopped: () => false,

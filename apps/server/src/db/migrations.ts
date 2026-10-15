@@ -1177,5 +1177,74 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     name: 'operator signal dismissal note',
     sql: 'ALTER TABLE operator_signals ADD COLUMN decision_note TEXT;',
   },
+  {
+    version: 60,
+    name: 'durable merge trains',
+    sql: `CREATE TABLE merge_trains (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      state TEXT NOT NULL,
+      record_json TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX merge_trains_running ON merge_trains(project_key, repo) WHERE state = 'running';
+    ALTER TABLE task_merges ADD COLUMN train_id TEXT;`,
+  },
+  {
+    version: 61,
+    name: 'email login',
+    // PM-670: the one-time e-mail login code of invited clients and the durable limits around it. Only
+    // keyed hashes are stored (HMAC of the address, of the client IP and of the code): never an open
+    // address, IP or code. One live code per address; a new one overwrites the old.
+    sql: `CREATE TABLE email_login_codes (
+      address_hash TEXT PRIMARY KEY,
+      id TEXT NOT NULL UNIQUE,
+      code_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      used_at TEXT
+    );
+    CREATE TABLE email_login_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL CHECK (kind IN ('request', 'send', 'verify')),
+      subject TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX email_login_events_subject ON email_login_events(kind, subject, at);
+    CREATE INDEX email_login_events_at ON email_login_events(at);
+    CREATE INDEX invitations_email ON invitations(email);`,
+  },
+  {
+    version: 62,
+    name: 'session work metadata',
+    // PM-694: what a session's chat proves about its work (last step, last tool, last error code), kept
+    // without any chat text as JSON; NULL for every session from before it.
+    sql: 'ALTER TABLE sessions ADD COLUMN work_metadata TEXT;',
+  },
+  {
+    version: 63,
+    name: 'answer stalled signal kind',
+    // PM-694: the kind CHECK grows by 'answer_stalled', so the table is rebuilt as in version 56, with
+    // the columns added since (follow_up_at, decision_note).
+    sql: `DROP INDEX operator_signals_open;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT
+    );
+    INSERT INTO operator_signals SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
+  },
+  {
+    version: 64,
+    name: 'merge train diagnostics',
+    sql: 'ALTER TABLE task_merges ADD COLUMN diagnostic_json TEXT;',
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -62,6 +62,8 @@ describe('team tool registration', () => {
     ).toEqual({
       'services/github': ['link_pull_request'],
       'services/operator': [
+        'get_operator_preference',
+        'set_operator_preference',
         'get_project_state',
         'operate',
         'screen_question',

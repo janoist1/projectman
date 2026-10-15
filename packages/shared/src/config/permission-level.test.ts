@@ -9,6 +9,7 @@ import {
   isLegacyBypass,
   outboundNetworkOf,
   permissionView,
+  sessionApproverChangeRefusal,
 } from './permission-level';
 import { ProjectConfig } from './schema';
 
@@ -118,6 +119,61 @@ describe('the roster fields', () => {
 });
 
 describe('the settings of one session (PM-170)', () => {
+  it.each(['human', 'none', 'ai', undefined] as const)(
+    'fixes the Operator approver with legacy config %s and every session override',
+    (approver) => {
+      for (const approverOverride of ['human', 'none', 'ai', undefined] as const) {
+        const member = {
+          kind: 'ai' as const,
+          role: 'ai_operator',
+          permissionMode: 'auto' as const,
+          approver,
+        };
+        expect(
+          effectiveSessionPermissions(member, { approverOverride, permissionModeOverride: 'plan' }),
+        ).toEqual({
+          permissionMode: 'plan',
+          approver: 'human',
+          source: { mode: 'session', approver: 'member' },
+        });
+      }
+    },
+  );
+
+  it.each(['human', 'none', 'ai', null, undefined] as const)(
+    'checks the Operator session approver change %s by identity',
+    (approver) => {
+      const operator = { kind: 'ai' as const, role: 'ai_operator' };
+      expect(sessionApproverChangeRefusal(operator, approver)).toBe(
+        approver === 'none' || approver === 'ai' ? 'operator_fixed' : null,
+      );
+      for (const ordinary of [
+        { ...operator, temp: true },
+        { ...operator, role: 'developer' },
+        { ...operator, kind: 'human' as const },
+        {},
+        undefined,
+        null,
+      ]) {
+        expect(sessionApproverChangeRefusal(ordinary, approver)).toBeNull();
+      }
+    },
+  );
+
+  it('keeps ordinary, temporary and missing members and permission-fields-only callers compatible', () => {
+    for (const member of [
+      { kind: 'ai' as const, role: 'developer' },
+      { kind: 'ai' as const, role: 'ai_operator', temp: true },
+      { approver: 'human' as const },
+      undefined,
+      null,
+    ]) {
+      expect(effectiveSessionPermissions(member, { approverOverride: 'ai' })).toMatchObject({
+        approver: 'ai',
+        source: { approver: 'session' },
+      });
+    }
+  });
   it('are the session’s own where an owner set them, else the member’s', () => {
     const member = { permissionMode: 'auto' as const };
     expect(effectiveSessionPermissions(member, {})).toEqual({

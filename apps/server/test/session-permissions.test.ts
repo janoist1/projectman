@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
-import type { AiMemberConfig, ProjectConfig, Session, TaskDetail } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig, Session, TaskDetail, ServerEvent } from '@projectman/shared';
 import { APPROVER_NONE_REFUSAL } from '../src/contracts';
 import { humanActor } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
@@ -61,6 +61,86 @@ describe('the permission settings of one session (PM-170)', () => {
     h.runnerModule
       .broker()
       .decide({ sessionId, toolName: 'Bash', toolInput: { command }, raw: {} }, new AbortController().signal);
+
+  async function runningOperator() {
+    await running(withDecider);
+    const { session } = await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fake/operator.jsonl' });
+    expect(h.contextBuilder.inputs.at(-1)!.member.approver).toBe('human');
+    return session.id;
+  }
+
+  it.each(['none', 'ai'] as const)(
+    'refuses the Operator session approver %s atomically before any side effect',
+    async (approver) => {
+      const sessionId = await runningOperator();
+      h.runner.setState(sessionId, 'working');
+      const before = structuredClone(h.domain.sessions.get('AR', sessionId));
+      const timeline = h.domain.timeline.list('AR', {});
+      const starts = h.runner.started.length;
+      const stops = [...h.runner.stopped];
+      const events: ServerEvent[] = [];
+      h.domain.bus.subscribe((event) => events.push(event));
+      for (const req of [{ approver }, { permissionMode: 'plan' as const, approver }]) {
+        await expect(set(sessionId, req)).rejects.toMatchObject({ code: 'operator_fixed', status: 403 });
+        expect(h.domain.sessions.get('AR', sessionId)).toEqual(before);
+        expect(h.domain.timeline.list('AR', {})).toEqual(timeline);
+        expect(h.runner.started).toHaveLength(starts);
+        expect(h.runner.stopped).toEqual(stops);
+        expect(events).toEqual([]);
+      }
+    },
+  );
+
+  it.each(['human', null] as const)(
+    'canonicalizes an Operator session approver %s to the member setting',
+    async (approver) => {
+      const sessionId = await runningOperator();
+      h.repos.sessions.update(sessionId, { approverOverride: 'ai' });
+      const changed = await set(sessionId, { approver });
+      expect(changed).not.toHaveProperty('approverOverride');
+      expect(changed).not.toHaveProperty('permissionRestartPending');
+      expect(
+        h.domain.timeline.list('AR', {}).filter((event) => event.type === 'session_permission_changed'),
+      ).toEqual([]);
+    },
+  );
+
+  it('does not write an omitted approver field during an Operator mode change', async () => {
+    const sessionId = await runningOperator();
+    h.repos.sessions.update(sessionId, { approverOverride: 'none' });
+    const changed = await set(sessionId, { permissionMode: 'plan' });
+    expect(changed.approverOverride).toBe('none');
+    expect(h.contextBuilder.inputs.at(-1)!.member.approver).toBe('human');
+  });
+
+  it.each(['none', 'ai'] as const)(
+    'resumes an Operator with the legacy override %s using human context and permission inbox',
+    async (approverOverride) => {
+      const sessionId = await runningOperator();
+      await h.domain.sessions.stop('AR', sessionId);
+      h.repos.sessions.update(sessionId, { approverOverride });
+      await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
+      expect(h.runner.lastStarted()).toMatchObject({ sessionId, resume: true });
+      expect(h.contextBuilder.inputs.at(-1)!.member.approver).toBe('human');
+      // The old database value is inert; starts do not rewrite historical session settings.
+      expect(h.domain.sessions.get('AR', sessionId).approverOverride).toBe(approverOverride);
+      const controller = new AbortController();
+      const decision = h.runnerModule
+        .broker()
+        .decide(
+          { sessionId, toolName: 'Bash', toolInput: { command: 'curl https://example.com' }, raw: {} },
+          controller.signal,
+        );
+      await flush();
+      const items = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
+      expect(items).toHaveLength(1);
+      expect(items[0]!.assignees).toEqual(['owner']);
+      expect(items[0]!.payload).not.toHaveProperty('delegation');
+      controller.abort();
+      await decision;
+    },
+  );
 
   it('restarts a session in a turn into the new mode at its next idle moment, with its conversation', async () => {
     const sessionId = await running();
@@ -362,6 +442,26 @@ describe('PATCH a session (PM-170)', () => {
       inject(h.app, 'PATCH', routes.session('AR', session.id), auth, payload);
     return { cookie, session, patch };
   }
+
+  it('returns 403 for the Operator nonhuman approver before AI availability and rejects a mixed patch', async () => {
+    const { cookie } = await setup();
+    const domain = h.app.projectman.domain;
+    const { session } = await domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
+    const before = structuredClone(domain.sessions.get('AR', session.id));
+    for (const approver of ['none', 'ai']) {
+      const refused = await inject(h.app, 'PATCH', routes.session('AR', session.id), cookie, {
+        permissionMode: 'plan',
+        approver,
+      });
+      expect([refused.statusCode, refused.json().error.code]).toEqual([403, 'operator_fixed']);
+      expect(domain.sessions.get('AR', session.id)).toEqual(before);
+    }
+    const reset = await inject(h.app, 'PATCH', routes.session('AR', session.id), cookie, {
+      approver: 'human',
+    });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json<Session>()).not.toHaveProperty('approverOverride');
+  });
 
   it('lets an owner set and reset the session’s own settings', async () => {
     const { patch } = await setup();

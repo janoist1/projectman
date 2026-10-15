@@ -900,6 +900,7 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      operator_preference_no_person: 'Nem egyértelmű, kinek a beszélgetési stílusát kell beolvasni.',
       operator_knowledge_invalid: 'Az Operátor adattára érvénytelen. A meglévő adatok megmaradtak.',
       operator_knowledge_unavailable: 'Az Operátor adattára most nem érhető el.',
       operator_knowledge_stale: 'Az Operátor adatai időközben megváltoztak. Olvasd be őket újra.',

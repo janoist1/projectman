@@ -419,10 +419,13 @@ export class SessionLauncher {
     }
 
     const stage = task ? (stageOf(config, task.stageId) ?? null) : null;
-    const memory = await this.deps.memory.read(projectKey, member.handle).catch((err: unknown) => {
-      this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
-      return '';
-    });
+    const memory =
+      guestOf !== undefined
+        ? ''
+        : await this.deps.memory.read(projectKey, member.handle).catch((err: unknown) => {
+            this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
+            return '';
+          });
     const { attachments, parentAttachments, attachmentRules, attachmentDirs } = await this.attachmentsFor(
       projectKey,
       member.handle,
@@ -564,6 +567,12 @@ export class SessionLauncher {
         ? { own: sessionFolder, root: folders.root }
         : undefined,
     );
+    const operatorPreference = await this.deps.operatorPreferences.forConversation(
+      projectKey,
+      member.handle,
+      workItem,
+      cause,
+    );
     const pack = this.deps.contextBuilder.build({
       ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,
@@ -575,6 +584,7 @@ export class SessionLauncher {
       timeline: task ? this.deps.timeline.list(projectKey, { taskKey: task.key, limit: 30 }) : [],
       team: this.deps.members.rosterFor(config),
       memory,
+      ...(operatorPreference ? { operatorPreference } : {}),
       sessionPolicy: startPolicy,
       ...(sandbox ? { sandbox } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),

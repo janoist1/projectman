@@ -31,6 +31,7 @@ import type {
   HandoffSummary,
   MemberConfig,
   MemberStatus,
+  OperatorPreferenceData,
   PausePoint,
   PlanUsage,
   ProjectConfig,
@@ -145,6 +146,15 @@ export interface SessionOrchestratorDeps {
   /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
+  /** Server-side selection of the current conversational partner's style only. */
+  operatorPreferences: {
+    forConversation(
+      projectKey: string,
+      member: string,
+      workItem: WorkItemRef,
+      cause: SessionStartCause | null,
+    ): Promise<OperatorPreferenceData | undefined>;
+  };
   /**
    * The engines (PM-311): a session's worktrees, member workspaces, session folders, sandbox places
    * and process probe are its engine's, never the server's own.

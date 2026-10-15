@@ -50,6 +50,7 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
   OperatorOperation,
+  OperatorPreferenceData,
   ProjectDoc,
   QuestionTodo,
 } from '@projectman/shared';
@@ -62,6 +63,15 @@ import type {
  * mcp/<module>/handler.ts, never in this collector.
  */
 export class TeamToolsService implements TeamToolsHandler {
+  async getOperatorPreference(ctx: ToolContext) {
+    return this.tools.operator.getOperatorPreference(ctx);
+  }
+  async setOperatorPreference(
+    ctx: ToolContext,
+    args: { expectedRevision: number; preference: OperatorPreferenceData },
+  ) {
+    return this.tools.operator.setOperatorPreference(ctx, args);
+  }
   private readonly tools: {
     members: MemberToolsHandler;
     tasks: TaskToolsHandler;

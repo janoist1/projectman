@@ -8,6 +8,18 @@ type ProjectParams = { Params: { key: string } };
 
 export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
   const { domain } = deps;
+  app.get<ProjectParams>(routes.operatorPreferences(':key'), async (request) => {
+    const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
+    if (access.via) throw forbidden('operator_owner_only', 'preferences require a person’s own login');
+    return domain.operatorPreferences.list(request.params.key);
+  });
+
+  app.get<ProjectParams>(routes.operatorPreferenceMe(':key'), async (request) => {
+    const access = await requireAccess(domain, request, request.params.key);
+    if (access.via) throw forbidden('operator_owner_only', 'preferences require a person’s own login');
+    return domain.operatorPreferences.me(request.params.key, access.handle);
+  });
+
   app.post<{ Params: { key: string; signalId: string } }>(
     routes.dismissOperatorSignal(':key', ':signalId'),
     async (request) => {

@@ -150,7 +150,6 @@ export class AgentSession {
 
   /** The pause asked for, until it is released (PM-218). */
   private pauseState: PauseState | null = null;
-  private pauseExitOutcome: PauseOutcome | null = null;
   /** The main agent's running tools, by call id: what a pause waits for. */
   private readonly runningTools = new Map<string, string>();
   private toolSeq = 0;
@@ -657,12 +656,6 @@ export class AgentSession {
         ? { point: state, tool: this.waitingTool }
         : (p.halt ?? { point: 'idle', tool: null });
     this.clearPauseTimers();
-    if (this.scope) {
-      // Report the safe point only after this process generation has closed.
-      this.pauseExitOutcome = outcome;
-      void this.stop(false);
-      return;
-    }
     this.deps.emit({ type: 'session_paused', sessionId: this.id, point: outcome.point, tool: outcome.tool });
     p.settle(outcome);
   }
@@ -1370,9 +1363,8 @@ export class AgentSession {
     // A pause still stopping the session ends with it.
     const p = this.pauseState;
     if (p?.phase === 'stopping') {
-      const outcome = this.pauseExitOutcome ?? EXITED;
-      this.deps.emit({ type: 'session_paused', sessionId: this.id, ...outcome });
-      p.settle(outcome);
+      this.deps.emit({ type: 'session_paused', sessionId: this.id, point: 'exited', tool: null });
+      p.settle(EXITED);
     }
     this.deps.onExited(this);
     this.deps.emit({

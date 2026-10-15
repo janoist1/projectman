@@ -166,16 +166,14 @@ describe('session process scope lifecycle', () => {
     await s.session.handleHook({ hook_event_name: 'Stop' }, new AbortController().signal);
     expect(s.close).not.toHaveBeenCalled();
   });
-  it('ends a safe pause only after cleanup', async () => {
+  it('keeps the scope open while a pause holds the session', async () => {
     const s = scoped();
     await s.session.spawn('fake', [], {});
     await s.session.handleHook({ hook_event_name: 'SessionStart' }, new AbortController().signal);
-    const paused = s.session.pause();
-    expect(s.close).toHaveBeenCalledWith('stop', { force: false });
-    expect(s.events.some((e) => e.type === 'session_paused')).toBe(false);
-    s.finish();
-    expect(await paused).toMatchObject({ point: 'idle' });
-    await s.session.exited;
+    await expect(s.session.pause()).resolves.toMatchObject({ point: 'idle' });
+    expect(s.close).not.toHaveBeenCalled();
+    expect(s.session.release()).toBe(true);
+    expect(s.close).not.toHaveBeenCalled();
   });
 });
 describe('Gemini pre-tool gate', () => {

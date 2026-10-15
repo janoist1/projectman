@@ -35,7 +35,7 @@ function run(script: string) {
 
 describe('pipeSpawn', () => {
   it.each([false, true])(
-    'pauses and immediately restarts a pipe generation with saved conversation=%s',
+    'stops and immediately restarts a pipe generation with saved conversation=%s',
     async (saved) => {
       const dirs = tempDirs();
       const directory = await dirs.make('scope-resume-');
@@ -108,7 +108,11 @@ describe('pipeSpawn', () => {
             () => false,
           ),
         ).toBe(saved);
+        // A pause holds the session; the process and its scope stay until the stop.
         await expect(first.session.pause()).resolves.toEqual({ point: 'idle', tool: null });
+        expect(() => process.kill(first.proc.pid, 0)).not.toThrow();
+        expect(first.session.release()).toBe(true);
+        await first.session.stop(false);
         expect(events.find((e) => e.type === 'exit')).toMatchObject({ cleanup: { outcome: 'clean' } });
         expect(() => process.kill(first.proc.pid, 0)).toThrow();
         const second = await launch(saved);

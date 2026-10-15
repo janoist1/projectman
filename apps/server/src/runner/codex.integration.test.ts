@@ -574,24 +574,19 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
           e.type === 'state' && e.sessionId === id && e.state === 'working' && e.activity?.startsWith('Bash'),
       );
 
-    it('ends the empty idle generation and starts its first turn with the nudge before later input', async () => {
+    it('stops an idle session at once, and holds the input until the release, the nudge first', async () => {
       await setup();
       const s = spec();
       await runner.runner.start(s);
       await waitState(s.sessionId, 'idle');
       await expect(runner.runner.pause(s.sessionId)).resolves.toEqual({ point: 'idle', tool: null });
 
-      await expect(runner.runner.sendUserMessage(s.sessionId, 'queued during the pause')).rejects.toThrow(
-        /not running/,
-      );
+      void runner.runner.sendUserMessage(s.sessionId, 'queued during the pause').catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
       expect(chatOf(s.sessionId).some((i) => i.kind === 'user_text')).toBe(false);
 
-      expect(runner.runner.release(s.sessionId, { nudge: 'Carry on.' })).toBe(false);
-      // An idle CLI that never submitted a turn has no learned id or saved rollout.
-      expect(providerIdOf(s.sessionId)).toBeUndefined();
-      await runner.runner.start({ ...s, resume: false, initialMessage: 'Carry on.' });
+      expect(runner.runner.release(s.sessionId, { nudge: 'Carry on.' })).toBe(true);
       await assistantSaid(s.sessionId, 'Echo: Carry on.');
-      await runner.runner.sendUserMessage(s.sessionId, 'queued during the pause');
       await assistantSaid(s.sessionId, 'Echo: queued during the pause');
     });
 
@@ -608,13 +603,7 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
       expect(chatOf(s.sessionId).some((i) => i.kind === 'tool_result')).toBe(true);
       expect(chatOf(s.sessionId).some((i) => i.kind === 'assistant_text')).toBe(false);
 
-      expect(runner.runner.release(s.sessionId, { nudge: 'Carry on.' })).toBe(false);
-      await runner.runner.start({
-        ...s,
-        claudeSessionId: providerIdOf(s.sessionId)!,
-        resume: true,
-        initialMessage: 'Carry on.',
-      });
+      expect(runner.runner.release(s.sessionId, { nudge: 'Carry on.' })).toBe(true);
       await assistantSaid(s.sessionId, 'Echo: Carry on.');
     });
 
@@ -631,16 +620,11 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
         point: 'interrupted',
         tool: 'Bash',
       });
-      await waitState(s.sessionId, 'exited');
-      expect(runner.runner.release(s.sessionId)).toBe(false);
-      await runner.runner.start({ ...s, claudeSessionId: providerIdOf(s.sessionId)!, resume: true });
       await waitState(s.sessionId, 'idle');
+      expect(runner.runner.release(s.sessionId)).toBe(true);
 
-      const callsBeforeRestartedTurn = toolCalls(s.sessionId).length;
       await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL again');
-      await waitFor(() => toolCalls(s.sessionId).length > callsBeforeRestartedTurn, {
-        what: 'the second tool call',
-      });
+      await waitFor(() => toolCalls(s.sessionId).length > 1, { what: 'the second tool call' });
       const pause = runner.runner.pause(s.sessionId);
       await runner.runner.forcePause(s.sessionId);
       await expect(pause).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });

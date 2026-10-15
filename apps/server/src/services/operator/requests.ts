@@ -28,6 +28,7 @@ export function operatorQuoteOf(text: string): string {
 
 /** The team tools (MCP names) the Operator may call without an open request: they only read. */
 export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
+  'get_operator_preference',
   'get_task',
   'list_tasks',
   'list_members',
@@ -65,10 +66,13 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
 
 /**
  * The team tools the Operator may call in a conversation with someone who is not an owner (PM-475):
- * it reads what that person can see and answers them (`send_message`, to them only).
+ * it reads what that person can see, answers them (`send_message`, to them only), and changes only
+ * their personal conversation style (PM-688).
  * `get_project_state` is left out on purpose: guest access needs a viewer filter in a separate task.
  */
 export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
+  'get_operator_preference',
+  'set_operator_preference',
   'get_task',
   'list_tasks',
   'list_members',

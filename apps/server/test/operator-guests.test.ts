@@ -239,6 +239,7 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     );
     expect(OPERATOR_GUEST_TOOLS.has('get_project_state')).toBe(false);
     expect([...OPERATOR_GUEST_TOOLS].sort()).toEqual([
+      'get_operator_preference',
       'get_task',
       'list_attachments',
       'list_members',
@@ -246,6 +247,7 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
       'read_attachment',
       'read_message_attachment',
       'send_message',
+      'set_operator_preference',
     ]);
   });
 

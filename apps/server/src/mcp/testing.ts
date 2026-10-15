@@ -6,6 +6,7 @@ import type {
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
+import { DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 
 /**
@@ -289,6 +290,19 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async dismissSignal(ctx, args) {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };
+    },
+    async getOperatorPreference(ctx) {
+      await enter('getOperatorPreference', ctx, {});
+      return { schemaVersion: 1, revision: 0, data: { ...DEFAULT_OPERATOR_PREFERENCE }, updatedAt: null };
+    },
+    async setOperatorPreference(ctx, args) {
+      await enter('setOperatorPreference', ctx, args);
+      return {
+        schemaVersion: 1,
+        revision: args.expectedRevision + 1,
+        data: args.preference,
+        updatedAt: '2026-10-15T00:00:00.000Z',
+      };
     },
     async getBoundaryRequest(ctx, args) {
       await enter('getBoundaryRequest', ctx, args);

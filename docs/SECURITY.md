@@ -845,6 +845,13 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp` answer 404 at the
   tunnel, as before. The main Access application has exactly one Bypass/Everyone policy and no other
   rule; any other policy on it is removed by `edge` and refused by `publish`.
+- **The tunnel rule is not the only lock on `/engine`.** The tunnel's ingress rule and the Access
+  application match the raw path, but the board's router decodes it: `/%65ngine/link` would skip the rule
+  and still reach the engine's handler. The `onRequest` hook of `src/auth/index.ts` therefore answers 404 to
+  any request whose matched route is under `/engine/` (or `/api/`, where the origin check reads the raw
+  path) and whose raw path does not spell that prefix out. Behind it the engine still needs its machine
+  key (`links.authenticate`). `check` tries the encoded door with and without the service token and accepts
+  only the Access login, 403 or 404.
 - **No publishing on a doubt.** `publish` makes the DNS record only on the exact answer of
   `host.sh public-check` (`true,true,false,401,403`), the exact Access applications and ingress, and the
   working widget guard; `check` verifies the same from the outside. Going back to `private` restores the
@@ -948,7 +955,8 @@ cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below hold
    weaker reason. `check.sh` verifies the Secure cookie, both origin cases and
    the refusal of `POST /api/setup` against the real entrance.
 2. The Access application covers the whole hostname with one Allow policy of **exact email
-   addresses**. "Emails ending in", "Everyone" and bypass policies are not allowed, and neither
+   addresses**. "Emails ending in", "Everyone" and bypass policies are not allowed (the public board,
+   `access.boardMode: public`, is the one exception: see "The public board"), and neither
    is a service token, with one exception: the cloud board's `access.integratorServiceToken`
    (off by default, for the integrator's smoke test) puts a second policy, `<N>-integrator-service`
    (non-identity, that one token), on the whole-hostname application; the engine's token is
@@ -1001,14 +1009,15 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   `npm run cloud -- edge --rotate-integrator-token`.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
-  every change and rerun `check.sh`.
+  every change and rerun `check.sh`. On the public board there is no second lock by design: the
+  login is the only barrier from the start (see "The public board").
 
 ### The widget's public hostname (PM-506, PM-513)
 
 The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
 its own on the same tunnel with no Access application** (setup: [DEPLOY.md](DEPLOY.md) step 7).
 The Access application of the application's hostname is not weakened and no Bypass policy is
-added. What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
+added (the public board's one Bypass policy belongs to the board's own page, not to this feature). What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
 their session, origin and limit rules are in "The feedback tool's public API".
 
 1. **The tunnel passes only `^/feedback/`** on that hostname, and answers 404 to the rest of it

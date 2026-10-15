@@ -62,6 +62,16 @@ const PUBLIC_ROUTES = new Set([
 const MAX_FAILED_LOGINS = 10;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
+/** The prefixes whose routes the edge sets apart by the raw path: the API (origin check) and the engine's doors. */
+const LITERAL_PREFIXES = ['/api/', '/engine/'];
+
+/** True when the matched route sits under one of the literal prefixes but the request did not spell it that way. */
+function spelledDifferently(request: FastifyRequest): boolean {
+  const route = request.routeOptions.url;
+  if (!route) return false;
+  return LITERAL_PREFIXES.some((prefix) => route.startsWith(prefix) && !request.url.startsWith(prefix));
+}
+
 /** Checks both the raw path and the matched route pattern, so neither encoding tricks nor catch-all routes slip through. */
 function needsLogin(request: FastifyRequest): boolean {
   const path = request.url.split('?')[0] ?? '';
@@ -152,6 +162,10 @@ export function registerAuth(
     // old header for the rest. The attachment routes set their own CSP and repeat the directive.
     reply.header('content-security-policy', "frame-ancestors 'none'");
     reply.header('x-frame-options', 'DENY');
+    // The router decodes a path (`/%65ngine/link` is `/engine/link`), but the tunnel rules, the origin check
+    // below and the guards on the host match the raw one: a route under these prefixes answers only a request
+    // that spells the prefix out (PM-672).
+    if (spelledDifferently(request)) return reply.code(404).send(apiError('not_found', 'route not found'));
     if (request.url.startsWith('/api/')) reply.header('cache-control', 'no-store');
     if (
       request.url.startsWith('/api/') &&

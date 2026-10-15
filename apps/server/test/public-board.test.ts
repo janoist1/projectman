@@ -159,6 +159,30 @@ describe('the board that starts as public', () => {
     await expect(app.injectWS('/ws', { headers: TUNNEL_HEADERS })).rejects.toThrow();
   });
 
+  it('answers the engine’s doors and the API only when the path is spelled out, not percent-encoded', async () => {
+    await goPublic();
+    // The tunnel's audience rule for /engine and the origin check for /api match the raw path; the router decodes.
+    const literal = await get('/engine/link');
+    expect(literal.statusCode).not.toBe(404);
+    for (const url of [
+      '/%65ngine/link',
+      '/%65ngine/files/downloads/smoke-test',
+      '/%45ngine/link',
+      '/engin%65/link',
+    ]) {
+      const res = await get(url);
+      expect([url, res.statusCode]).toEqual([url, 404]);
+    }
+    const upload = await post('/%65ngine/files/uploads/smoke-test', {});
+    expect(upload.statusCode).toBe(404);
+    await expect(app.injectWS('/%65ngine/link', { headers: TUNNEL_HEADERS })).rejects.toThrow();
+    // A write to the API without the board's origin is refused when spelled out; encoded it is not routed at all.
+    const own = await post(routes.logout(), {}, undefined, { origin: 'https://evil.example' });
+    expect(own.statusCode).toBe(403);
+    const hidden = await post('/%61pi/auth/logout', {}, undefined, { origin: 'https://evil.example' });
+    expect(hidden.statusCode).toBe(404);
+  });
+
   it('refuses a cross-origin login and accepts the board’s own origin', async () => {
     await goPublic();
     for (const origin of ['https://evil.example', 'http://localhost:5173', 'null']) {

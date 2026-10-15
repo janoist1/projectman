@@ -25,8 +25,11 @@ const check = (...extra: string[]) => runCloud(['check', '--login-json', loginFi
 
 /** The doors as they should be: Access login without a token, the board's own refusal with the engine token. */
 function goodDoors(): void {
-  world.doors = (_url, init) => {
+  world.doors = (url, init) => {
     const headers = new Headers(init.headers);
+    // The encoded spelling never reaches the engine's handler (which answers 401): the board's own 404.
+    if (headers.has('cf-access-client-id') && String(url).includes('%65'))
+      return new Response('', { status: 404 });
     return headers.has('cf-access-client-id')
       ? new Response('', { status: 401 })
       : new Response('', {
@@ -56,9 +59,11 @@ describe('check', () => {
     expect(script.env).toEqual({ LOGIN_JSON: loginFile, BOARD_MODE: 'private' });
     expect(world.output).toContain('ok access-checks: https://board.example.com');
     expect(world.output).toContain('ok engine-doors');
-    expect(world.doorCalls.map((call) => new URL(call.url).pathname)).toEqual(
-      DOORS.flatMap((door) => [door, door]),
-    );
+    expect(world.doorCalls.map((call) => new URL(call.url).pathname)).toEqual([
+      ...DOORS.flatMap((door) => [door, door]),
+      '/%65ngine/link',
+      '/%65ngine/link',
+    ]);
     expect(world.doorCalls.every((call) => call.redirect === 'manual')).toBe(true);
     expect(world.output).not.toContain(ENGINE_SECRET);
     expect(world.output).toContain('skipped integrator-smoke');
@@ -136,6 +141,16 @@ describe('the engine doors', () => {
     };
     expect(await check()).toBe(1);
     expect(world.output).toContain('went to the Access login');
+  });
+
+  it('fails when the encoded spelling of a door reaches the engine’s handler', async () => {
+    world.doors = (url, init) =>
+      new Headers(init.headers).has('cf-access-client-id') || String(url).includes('%65')
+        ? new Response('', { status: 401 })
+        : new Response('', { status: 403 });
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('/%65ngine/link with the engine token answered 401');
+    expect(world.output).toContain('/%65ngine/link without a token answered 401');
   });
 
   it('fails when a door does not answer at all', async () => {

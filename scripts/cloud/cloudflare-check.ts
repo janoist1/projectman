@@ -25,6 +25,11 @@ const ENGINE_DOORS = [
   '/engine/files/downloads/smoke-test',
   '/engine/files/uploads/smoke-test',
 ];
+/**
+ * The same door with an encoded letter (PM-672): the tunnel rule matches the raw path, the board's router decodes
+ * it. Whichever application catches it, it must not reach the engine's handler: the board itself answers 404.
+ */
+const ENCODED_ENGINE_DOOR = '/%65ngine/link';
 const FETCH_TIMEOUT_MS = 20_000;
 
 function outputLines(text: string): string[] {
@@ -76,6 +81,18 @@ async function checkEngineDoors(context: CloudContext, origin: string): Promise<
       failures.push(`${door} with the engine token answered ${authorized.status}: the door is open`);
     else if (accessRedirect(authorized))
       failures.push(`${door} with the engine token went to the Access login: the token is not accepted`);
+  }
+  // Nobody is let in by the encoded spelling, with or without the token: the Access login, 403 or the board's 404.
+  for (const [who, headers] of [
+    ['without a token', {}],
+    ['with the engine token', withToken],
+  ] as const) {
+    const encoded = await engineDoor(context, `${origin}${ENCODED_ENGINE_DOOR}`, headers);
+    if (!encoded) failures.push(`${ENCODED_ENGINE_DOOR} ${who}: no answer`);
+    else if (!(accessRedirect(encoded) || encoded.status === 403 || encoded.status === 404))
+      failures.push(
+        `${ENCODED_ENGINE_DOOR} ${who} answered ${encoded.status}, not the Access login, 403 or 404`,
+      );
   }
   if (isPublicBoard(context.config)) {
     // The engine token opens the engine application and nothing else: on the board it is no login (PM-672).

@@ -275,7 +275,7 @@ export function findTunnel(api: CloudflareApi, accountId: string, name: string):
   });
 }
 
-/** What an Access policy has to be, per name (the exact lists; no group, no domain, never `everyone`). */
+/** What an Access policy has to be, per name (the exact lists; no group, no domain; `everyone` only in the one bypass policy of the public board, PM-672). */
 export interface PolicySpec {
   name: string;
   decision: 'allow' | 'non_identity' | 'bypass';

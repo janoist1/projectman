@@ -386,6 +386,8 @@ describe('check for the public board', () => {
   const goodDoors = (tokenOnBoard = 401) => {
     world.doors = (url, init) => {
       const headers = new Headers(init.headers);
+      if (headers.has('cf-access-client-id') && String(url).includes('%65'))
+        return new Response('', { status: 404 });
       if (!headers.has('cf-access-client-id'))
         return new Response('', {
           status: 302,
@@ -416,6 +418,8 @@ describe('check for the public board', () => {
     expect(script.env).toEqual({ LOGIN_JSON: loginFile, BOARD_MODE: 'public' });
     expect(world.doorCalls.map((call) => new URL(call.url).pathname)).toEqual([
       ...DOORS.flatMap((door) => [door, door]),
+      '/%65ngine/link',
+      '/%65ngine/link',
       '/api/auth/me',
     ]);
     expect(world.output).toContain('skipped integrator-smoke: public board');

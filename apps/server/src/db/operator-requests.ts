@@ -6,7 +6,7 @@ export interface OperatorRequestRecord {
   id: string;
   projectKey: string;
   sessionId: string;
-  source: 'message' | 'answer' | 'signal';
+  source: 'message' | 'answer' | 'signal' | 'approval';
   messageId: string | null;
   inboxItemId: string | null;
   fromHandle: string;

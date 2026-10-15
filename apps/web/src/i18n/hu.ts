@@ -916,6 +916,7 @@ export const hu = {
       not_card_role: 'Erre a kártyára nincs szerepe a címzettnek, ezért nem indítható rajta keresztül.',
       operator_approval_stale:
         'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
+      operator_agreement_pending: 'A megállapodás még jóváhagyásra vár. Előbb dönts róla.',
       docs_not_configured:
         'A döntésnapló vagy a roadmap nincs beállítva: add meg a fájl helyét a tároló beállításaiban.',
       docs_edit_not_found: 'A cserélendő szöveg nincs a fájlban; olvasd újra a fájlt, és pontosan másold ki.',
@@ -2761,6 +2762,7 @@ export const hu = {
         project_resume: 'A projekt szünetének feloldása',
         docs_write: 'Döntésnapló vagy roadmap írása',
         decision_offer: 'Döntésjelöltek jelölése',
+        knowledge_change: 'Megállapodás vagy tanult elv módosítása',
       },
     },
     change: {
@@ -4304,6 +4306,8 @@ export const hu = {
       member_retired: 'Elbocsátva: {handle}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
+      operator_knowledge_changed:
+        'Az Operátor megállapodása vagy tanult elvei módosítva. Változat: {revision}.',
       // PM-427 4/4 refines these; the wording here keeps the timeline readable meanwhile.
       focus_added: 'A fókuszba tette: {title}',
       focus_removed: 'Levette a fókuszról: {title}',

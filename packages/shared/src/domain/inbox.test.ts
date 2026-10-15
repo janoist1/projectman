@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canSeeInboxItem,
   AnswerDelivery,
   gateRequestOf,
   InboxItem,
@@ -77,6 +78,25 @@ const shot = {
   preview: 'image',
 };
 const spec = { ...shot, id: 'att_abcdefghij2', taskKey: 'AR-9', fileName: 'spec.pdf', preview: 'pdf' };
+
+describe('knowledge approval visibility', () => {
+  it('keeps every state private to owners and admins using their own login, even with malformed payloads', () => {
+    for (const state of ['open', 'resolved', 'cancelled', 'expired', 'screening'] as const)
+      for (const access of ['owner', 'admin', 'developer', 'viewer', 'client', 'ai'] as const)
+        for (const via of [undefined, 'integrator'] as const)
+          for (const operatorKnowledge of [null, { change: { agreement: { summary: 'PRIVATE' } } }])
+            expect(
+              canSeeInboxItem(
+                { handle: 'reader', access, via },
+                {
+                  state,
+                  assignees: ['reader'],
+                  payload: { operatorKnowledge },
+                },
+              ),
+            ).toBe(via === undefined && ['owner', 'admin'].includes(access));
+  });
+});
 
 describe('questionAttachmentsOf', () => {
   const question = (payload: Record<string, unknown>, kind = 'question') =>

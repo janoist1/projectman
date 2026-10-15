@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPERATOR_PREFERENCE,
   OperatorAgreementData,
+  OperatorKnowledgeChange,
   OperatorKnowledgeDocument,
   OperatorPreferenceData,
   OperatorPreferenceDocument,
@@ -21,6 +22,27 @@ const knowledge = {
 const preference = { schemaVersion: 1, revision: 0, data: DEFAULT_OPERATOR_PREFERENCE, updatedAt: null };
 
 describe('operator knowledge schemas', () => {
+  it('accepts only strict knowledge changes and permits a server-generated principle id', () => {
+    const changes = [
+      { kind: 'agreement_replace', agreement },
+      { kind: 'principle_put', principle: { ...principle, id: null } },
+      { kind: 'principle_remove', id: 'principle-1' },
+    ];
+    for (const change of changes) {
+      expect(OperatorKnowledgeChange.safeParse(change).success).toBe(true);
+      expect(OperatorKnowledgeChange.safeParse({ ...change, approvedBy: 'owner' }).success).toBe(false);
+    }
+    expect(
+      OperatorKnowledgeChange.safeParse({ kind: 'principle_put', principle: { ...principle, id: '' } })
+        .success,
+    ).toBe(false);
+    expect(
+      OperatorKnowledgeChange.safeParse({
+        kind: 'principle_put',
+        principle: { ...principle, permissionMode: 'auto' },
+      }).success,
+    ).toBe(false);
+  });
   it('keeps every object strict and excludes executable settings and free-text preferences', () => {
     for (const [schema, data] of [
       [OperatorAgreementData, agreement],

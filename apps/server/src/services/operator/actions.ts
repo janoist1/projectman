@@ -5,6 +5,8 @@ import {
   isOperator,
   memberOf,
   operatorApprovalOf,
+  hasPendingOperatorAgreement,
+  operatorKnowledgeOperationIncluded,
   operatorConfigVerdict,
   operatorCriticalOp,
   OperatorOperation,
@@ -28,7 +30,7 @@ import { DECISION_OPTIONS } from '../../core/inbox';
 import type { InboxService, Resolver } from '../../core/inbox';
 import type { MemberService } from '../../core/members';
 import type { MessageService, Messaging } from '../../core/messages';
-import type { OperatorSteps } from './requests';
+import type { OperatorRequests, OperatorSteps } from './requests';
 import type { Author, ProjectService } from '../../core/projects';
 import { aiActor, newId, SYSTEM_ACTOR } from '../../kernel';
 
@@ -38,6 +40,7 @@ interface Dependencies {
   members: MemberService;
   inbox: InboxService;
   steps: OperatorSteps;
+  requests: OperatorRequests;
   sessions: OperatorSessions;
   pauses: OperatorPauses;
   messages: MessageService;
@@ -105,7 +108,16 @@ export class OperatorActions {
     const stepId = newId('ops');
     let changes: ConfigChangeRow[] = [];
     try {
+      if (hasPendingOperatorAgreement(ctx.repos.inbox.listOpen('approval'), projectKey, requestId))
+        throw conflict('operator_agreement_pending', 'approve or dismiss the pending agreement first');
       const operation = OperatorOperation.parse(input);
+      if (request.source === 'approval') {
+        if (this.deps.requests.openFor(request.sessionId)?.id !== request.id)
+          throw forbidden('operator_no_request', 'the approved continuation is no longer open');
+        const proposal = this.deps.requests.approvalFor(config, request, source);
+        if (!proposal || !operatorKnowledgeOperationIncluded(proposal, operation))
+          throw forbidden('operator_no_request', 'this operation is outside the approved continuation');
+      }
       if (operatorCriticalOp(operation.op) && !plan)
         throw invalid('operator_plan_required', 'critical operations require a plan');
       const parsedPlan = plan ? OperatorPlan.parse(plan) : null;
@@ -113,6 +125,8 @@ export class OperatorActions {
         throw invalid('invalid_request', 'title must have 1 to 120 characters');
       const preview = await this.preview(projectKey, source, request, operation);
       changes = preview.changes;
+      if (hasPendingOperatorAgreement(ctx.repos.inbox.listOpen('approval'), projectKey, requestId))
+        throw conflict('operator_agreement_pending', 'approve or dismiss the pending agreement first');
       if (preview.level === 'never')
         throw forbidden('operator_never', 'the Operator cannot make this change');
       if (preview.level === 'now') {
@@ -337,6 +351,8 @@ export class OperatorActions {
     approval?: { item: InboxItem; by: Resolver },
   ): Promise<string | null> {
     const { projects, members, sessions, pauses, ctx } = this.deps;
+    if (hasPendingOperatorAgreement(ctx.repos.inbox.listOpen('approval'), projectKey, request.id))
+      throw conflict('operator_agreement_pending', 'approve or dismiss the pending agreement first');
     const member = memberOf(await projects.config(projectKey), source);
     if (!isOperator(member)) throw forbidden('operator_only', 'only the Operator may operate');
     const author: Author = {

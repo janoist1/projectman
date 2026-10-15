@@ -234,6 +234,7 @@ export const ERROR_CODES = [
   'operator_only',
   'operator_preference_no_person',
   'operator_approval_stale',
+  'operator_agreement_pending',
   'operator_plan_required',
   'operator_message_recipient',
   'operator_owner_approval',

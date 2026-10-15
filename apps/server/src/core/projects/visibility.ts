@@ -1,19 +1,12 @@
 import {
   canSeeAllTeamMessages,
+  canSeeInboxItem,
   canSeeOperatorSessions,
   canSeeTask,
   canSeeTeamMessage,
   isCardLink,
 } from '@projectman/shared';
-import type {
-  InboxItem,
-  MemberView,
-  ServerEvent,
-  Session,
-  Task,
-  TaskDetail,
-  TimelineEvent,
-} from '@projectman/shared';
+import type { MemberView, ServerEvent, Session, Task, TaskDetail, TimelineEvent } from '@projectman/shared';
 import type { ProjectAccess } from '../members';
 
 /**
@@ -32,7 +25,7 @@ import type { ProjectAccess } from '../members';
  *   client gets the keys of the cards they see only (`memberForViewer`); a member's activity text
  *   is not filtered (open question for the owner).
  */
-export type Viewer = Pick<ProjectAccess, 'access' | 'handle'>;
+export type Viewer = Pick<ProjectAccess, 'access' | 'handle' | 'via'>;
 
 export function visibleTimelineEvent(
   viewer: Viewer,
@@ -87,14 +80,8 @@ export function isClient(viewer: Viewer): boolean {
 /** Internal tasks are hidden from client members (the rule lives in `packages/shared`). */
 export { canSeeTask };
 
-/**
- * A client sees only the inbox items assigned to them. A question the Operator still screens (PM-556) is
- * not on anyone's "waits for you" list yet: only an owner and an admin see it.
- */
-export function canSeeInboxItem(viewer: Viewer, item: InboxItem): boolean {
-  if (item.state === 'screening') return canSeeAllTeamMessages(viewer);
-  return !isClient(viewer) || item.assignees.includes(viewer.handle);
-}
+/** Inbox privacy is shared by REST, websocket delivery and the web fake. */
+export { canSeeInboxItem };
 
 /** Team messages: an owner and an admin see all of them, everyone else only their own (the rule lives in `packages/shared`). */
 export { canSeeTeamMessage };
@@ -259,6 +246,7 @@ export function canSeeProjectEvent(
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
   if (event.type === 'operator_signal') return viewer.access === 'owner';
+  if (event.type === 'inbox_upserted') return canSeeInboxItem(viewer, event.item);
   if (event.type === 'team_message' || event.type === 'team_message_updated')
     return canSeeTeamMessage(viewer, event.message);
   // The Operator's sessions are the owner's and the admin's to see (PM-475).
@@ -274,8 +262,6 @@ export function canSeeProjectEvent(
       const task = taskOf?.(event.taskKey);
       return task ? canSeeTask(viewer, task) : false;
     }
-    case 'inbox_upserted':
-      return canSeeInboxItem(viewer, event.item);
     case 'config_changed':
     case 'member_changed':
     // A mark names only its id: the card key and title come from the detail, which hides them from a client.

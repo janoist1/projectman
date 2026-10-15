@@ -252,8 +252,9 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   non-regular or hard-linked files, and writes complete JSON through a synced 0600 temporary file
   and same-directory atomic rename in 0700 directories. Target-file CAS is serialized within the
   server process; corrupt files and stale revisions are refused without overwriting. PM-688 adds
-  the personal-preference MCP writer and REST readers described below; agreements and learned
-  principles gain no writer here, and the storage has no engine file mount.
+  the personal-preference MCP writer and REST readers described below; PM-689 adds the
+  owner-approved agreement and learned-principle writer described below. The storage has no
+  engine file mount.
 - Request logging omits bodies, credentials and query strings, and redacts hook,
   MCP and invitation URL tokens. Unknown-route/parser errors do not echo request
   secrets. Authentication records are not broadcast. Markdown builds escaped React
@@ -310,6 +311,40 @@ project `.codex` skills and rules also stop Codex members; expanding the allowli
 card. NanoGPT retains its launch-time `any` refusal; its failed-row-per-retry behavior (PM-329)
 is outside this change. On remote engines inspection must run beside the CLI, returning only
 relative file/key names to the server.
+
+## Shared Operator knowledge approval (PM-689)
+
+`propose_operator_knowledge` requires an internal Operator general session with an open owner
+message or answer request. Signal, watch, web and approval-continuation requests cannot propose
+knowledge. A proposal writes an approval inbox item and a step, without changing the private
+knowledge or configuration. Only an owner using their own login may approve, reject or dismiss
+through the registered `operator_knowledge` decider; AI members, admins and integrators cannot
+decide. The human resolver is persisted in `applying` before the file CAS under the same project
+configuration lock as configuration commits. A persisted proposal marker makes replay
+idempotent; recovery closes an already committed proposal with its recorded human resolver,
+and a missing marker requires another human click. Stale and rejected proposals write no knowledge.
+
+`get_operator_knowledge` reads only from the actual internal, `with`-less general session of the
+Operator or project manager. The Operator's owner conversation and system-signal context may
+receive shared knowledge; the PM's internal general context may receive it when started by a
+human with developer access or higher, or by the system. Customer, guest/`with`, forged-human
+and integrator starts receive none. The context contains only `revision`, `agreement` and
+`principles` as quoted JSON data below the fixed instructions; `appliedProposalIds` stays out of
+the prompt. These data grant no permissions. REST knowledge reads require owner/admin access
+using their own login. Knowledge approval inbox items, including their titles and payloads,
+are private to those same readers in open and historical lists and websocket events.
+
+Agreement proposals may store recommended operations, but approval executes none of them.
+While the request's agreement proposal is pending, `operator_agreement_pending` blocks its
+operations, including immediate configuration changes, at the action and commit boundaries.
+Approval creates a server-authored continuation with human provenance and a deterministic
+message id. It can open an `approval` request only once, after matching the human resolver,
+`applying` identity, approved step and message origin, with no rule or integrator attribution.
+This request permits only `operate` calls canonically matching its stored operations; it cannot
+send messages or propose knowledge. Forbidden operations remain forbidden, and protected
+configuration changes still need a separate owner approval. The operation steps show actual
+before/after values and partial outcomes; knowledge approval never means that all settings
+have been applied.
 
 ## Operator actions and approvals (PM-464)
 

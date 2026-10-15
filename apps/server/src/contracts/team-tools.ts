@@ -37,6 +37,8 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
   OperatorOperation,
+  OperatorKnowledgeDocument,
+  ProposeOperatorKnowledgeRequest,
   OperatorPlan,
   OperatorPreferenceData,
   OperatorPreferenceDocument,
@@ -746,6 +748,16 @@ export interface ProjectDocToolsHandler {
 
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
+  getOperatorKnowledge(ctx: ToolContext): Promise<OperatorKnowledgeDocument>;
+  proposeOperatorKnowledge(
+    ctx: ToolContext,
+    args: ProposeOperatorKnowledgeRequest,
+  ): Promise<{
+    status: 'awaiting_approval';
+    inbox_item_id: string;
+    step_id: string;
+    base_revision: number;
+  }>;
   getOperatorPreference(ctx: ToolContext): Promise<OperatorPreferenceDocument>;
   setOperatorPreference(
     ctx: ToolContext,

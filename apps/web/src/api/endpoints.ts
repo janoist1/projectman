@@ -1,4 +1,5 @@
 import {
+  EmailLoginCodeRequested,
   CreateEngineResponse,
   EngineStatusResponse,
   EngineView,
@@ -74,6 +75,8 @@ import type {
   PatchConfigRequest,
   CreateInviteRequest,
   AcceptInviteRequest,
+  EmailLoginCodeRequest,
+  EmailLoginVerifyRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
@@ -141,6 +144,10 @@ export const api = {
   setupStatus: () => apiRequest(routes.setupStatus(), { schema: SetupStatus }),
   setup: (body: SetupRequest) => apiRequest<unknown>(routes.setup(), { method: 'POST', body }),
   login: (body: LoginRequest) => apiRequest<unknown>(routes.login(), { method: 'POST', body }),
+  requestEmailLoginCode: (body: EmailLoginCodeRequest) =>
+    apiRequest(routes.emailLoginRequest(), { method: 'POST', body, schema: EmailLoginCodeRequested }),
+  verifyEmailLogin: (body: EmailLoginVerifyRequest) =>
+    apiRequest(routes.emailLoginVerify(), { method: 'POST', body, schema: Me }),
   logout: () => apiRequest<unknown>(routes.logout(), { method: 'POST' }),
   me: () => apiRequest(routes.me(), { schema: Me }),
 

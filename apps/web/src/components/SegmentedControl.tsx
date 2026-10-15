@@ -5,6 +5,8 @@ export interface SegmentOption<T extends string> {
   value: T;
   label: string;
   count?: number;
+  ariaLabel?: string;
+  indicator?: boolean;
 }
 
 interface SegmentedControlProps<T extends string> {
@@ -50,9 +52,11 @@ export function SegmentedControl<T extends string>({
             type="button"
             className={clsx(styles.option, active && styles.active)}
             aria-pressed={active}
+            aria-label={option.ariaLabel}
             onClick={() => onChange(option.value)}
           >
             <span>{option.label}</span>
+            {option.indicator ? <span className={styles.indicator} aria-hidden="true" /> : null}
             {option.count !== undefined ? <span className={styles.count}>{option.count}</span> : null}
           </button>
         );

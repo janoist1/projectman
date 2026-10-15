@@ -8,11 +8,14 @@ export function AuthLayout({
   title,
   subtitle,
   wide = false,
+  announcement,
   children,
 }: {
   title: string;
   subtitle: string;
   wide?: boolean;
+  /** Spoken to a screen reader when it changes (the code was sent, a wait ended); not shown. */
+  announcement?: string;
   children: ReactNode;
 }) {
   return (
@@ -29,6 +32,11 @@ export function AuthLayout({
           <p className={styles.subtitle}>{subtitle}</p>
         </div>
         {children}
+        {announcement !== undefined ? (
+          <div className="visually-hidden" aria-live="polite" aria-atomic="true">
+            {announcement}
+          </div>
+        ) : null}
       </main>
     </div>
   );

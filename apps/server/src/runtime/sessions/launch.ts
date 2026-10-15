@@ -567,6 +567,12 @@ export class SessionLauncher {
         ? { own: sessionFolder, root: folders.root }
         : undefined,
     );
+    const operatorKnowledge = await this.deps.operatorKnowledge.forConversation(
+      projectKey,
+      member.handle,
+      workItem,
+      cause,
+    );
     const operatorPreference = await this.deps.operatorPreferences
       .forConversation(projectKey, member.handle, workItem, cause)
       .catch((err: unknown) => {
@@ -585,6 +591,7 @@ export class SessionLauncher {
       team: this.deps.members.rosterFor(config),
       memory,
       ...(operatorPreference ? { operatorPreference } : {}),
+      ...(operatorKnowledge ? { operatorKnowledge } : {}),
       sessionPolicy: startPolicy,
       ...(sandbox ? { sandbox } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),

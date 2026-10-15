@@ -19,6 +19,8 @@ import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { ConfigChangeRow } from '../config/operator';
+import { canonical } from '../config/canonical';
+import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
 import { PatchConfigRequest } from '../config/edit';
 import { ERROR_CODES } from './error-codes';
 import { TaskWait } from '../config/task-wait';
@@ -109,6 +111,7 @@ export const OperatorAction = z.enum([
   'project_resume',
   'docs_write',
   'decision_offer',
+  'knowledge_change',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([
@@ -560,6 +563,110 @@ export const OperatorOperation = z.discriminatedUnion('op', [
   z.object({ op: z.literal('project_resume') }),
 ]);
 export type OperatorOperation = z.infer<typeof OperatorOperation>;
+
+export const ProposeOperatorKnowledgeRequest = z
+  .strictObject({
+    expected_revision: z.number().int().nonnegative(),
+    title: z.string().trim().min(1).max(120),
+    change: OperatorKnowledgeChange,
+    operations: z.array(OperatorOperation).max(10).default([]),
+  })
+  .refine((value) => value.change.kind === 'agreement_replace' || value.operations.length === 0, {
+    message: 'Only agreement proposals accept operations',
+    path: ['operations'],
+  });
+export type ProposeOperatorKnowledgeRequest = z.infer<typeof ProposeOperatorKnowledgeRequest>;
+
+export const OperatorKnowledgeApprovalPayload = z.strictObject({
+  id: z.string(),
+  requestId: z.string(),
+  stepId: z.string(),
+  baseRevision: z.number().int().nonnegative(),
+  change: OperatorKnowledgeChange,
+  operations: z.array(OperatorOperation).max(10),
+  changes: z.array(ConfigChangeRow),
+  baseConfigVersion: z.string().nullable(),
+  proposedBy: MemberHandle,
+  stale: z
+    .strictObject({ reason: z.enum(['knowledge_changed', 'config_changed']), at: z.iso.datetime() })
+    .nullable(),
+  applying: z.strictObject({ by: MemberHandle, at: z.iso.datetime() }).nullable(),
+});
+export type OperatorKnowledgeApprovalPayload = z.infer<typeof OperatorKnowledgeApprovalPayload>;
+
+export function operatorKnowledgeApprovalOf(
+  item: Pick<InboxItem, 'kind' | 'payload'>,
+): OperatorKnowledgeApprovalPayload | null {
+  if (item.kind !== 'approval') return null;
+  const parsed = OperatorKnowledgeApprovalPayload.safeParse(item.payload.operatorKnowledge);
+  return parsed.success ? parsed.data : null;
+}
+
+/** An agreement of this request must be decided before its suggested operations can run. */
+export function hasPendingOperatorAgreement(
+  items: readonly InboxItem[],
+  projectKey: string,
+  requestId: string,
+): boolean {
+  return items.some((item) => {
+    const proposal = operatorKnowledgeApprovalOf(item);
+    return (
+      item.projectKey === projectKey &&
+      item.state === 'open' &&
+      proposal?.requestId === requestId &&
+      proposal.change.kind === 'agreement_replace'
+    );
+  });
+}
+
+export function operatorKnowledgeContinuationMessageId(proposalId: string): string {
+  return `msg_${proposalId}`;
+}
+
+/** A marker alone grants nothing. The resolved inbox, human identity and approved step are required. */
+export function operatorKnowledgeContinuationOf(
+  item: InboxItem,
+  facts: {
+    projectKey: string;
+    from: string;
+    operator: string;
+    messageId: string;
+    approvedStep: boolean;
+    owner: boolean;
+    via?: string;
+  },
+): OperatorKnowledgeApprovalPayload | null {
+  const payload = operatorKnowledgeApprovalOf(item);
+  const resolution = item.resolution;
+  if (
+    !payload ||
+    item.projectKey !== facts.projectKey ||
+    item.state !== 'resolved' ||
+    resolution?.optionId !== 'approve' ||
+    resolution.via ||
+    resolution.rule ||
+    facts.via ||
+    resolution.by !== payload.applying?.by ||
+    resolution.by !== facts.from ||
+    !facts.owner ||
+    !facts.approvedStep ||
+    item.source !== facts.operator ||
+    payload.proposedBy !== facts.operator ||
+    facts.messageId !== operatorKnowledgeContinuationMessageId(payload.id) ||
+    payload.change.kind !== 'agreement_replace' ||
+    !payload.operations.length
+  )
+    return null;
+  return payload;
+}
+
+export function operatorKnowledgeOperationIncluded(
+  payload: OperatorKnowledgeApprovalPayload,
+  operation: unknown,
+): boolean {
+  const parsed = OperatorOperation.safeParse(operation);
+  return parsed.success && payload.operations.some((entry) => canonical(entry) === canonical(parsed.data));
+}
 export const OperatorConsequence = z.enum([
   'network',
   'permission_mode',

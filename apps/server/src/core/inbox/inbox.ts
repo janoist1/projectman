@@ -13,6 +13,7 @@ import {
   isPendingQuestion,
   memberOf,
   operatorApprovalOf,
+  operatorKnowledgeApprovalOf,
   OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
   permissionDelegationState,
@@ -143,7 +144,8 @@ export interface Resolver {
 }
 
 /** Who decides an inbox item another module owns (PM-593). Operator approvals are recognized by operatorApprovalOf. */
-export type InboxDeciderKey = 'merge_request' | 'release' | 'hand_on' | 'operator_approval';
+export type InboxDeciderKey =
+  'merge_request' | 'release' | 'hand_on' | 'operator_approval' | 'operator_knowledge';
 /** Merge, release and hand-on handlers close their item in their transaction; refusals leave it open.
  * The inbox closes operator approvals after their handler returns. */
 export type InboxDecider = (
@@ -476,6 +478,8 @@ export class InboxService {
     if (item.state !== 'open')
       throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
     const operator = operatorApprovalOf(item);
+    if (operatorKnowledgeApprovalOf(item)?.stale && req.optionId !== 'dismiss')
+      throw conflict('operator_knowledge_stale', 'the knowledge proposal is stale; dismiss it');
     if (operator?.stale && req.optionId !== 'dismiss')
       throw conflict('operator_approval_stale', 'the proposal is stale; dismiss it');
     if (!item.options.some((o) => o.id === req.optionId)) {
@@ -530,6 +534,14 @@ export class InboxService {
       if (!handOnRequestOf(item) || !decide)
         throw conflict('inbox_item_closed', 'the hand-on request is no longer available');
       // The move closes the item in its own transaction; a refused move leaves it open.
+      await decide(item, by, req.optionId, note);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    }
+    if (operatorKnowledgeApprovalOf(item)) {
+      const decide = this.deciders.get('operator_knowledge');
+      if (!decide) throw forbidden('operator_owner_only', 'Operator knowledge decisions are unavailable');
       await decide(item, by, req.optionId, note);
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);

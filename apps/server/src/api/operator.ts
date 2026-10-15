@@ -8,6 +8,15 @@ type ProjectParams = { Params: { key: string } };
 
 export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
   const { domain } = deps;
+  app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
+    const access = await requireAccess(domain, request, request.params.key);
+    if (access.via || !['owner', 'admin'].includes(access.access))
+      throw forbidden(
+        'operator_owner_only',
+        'shared knowledge requires an owner or admin using their own login',
+      );
+    return domain.sharedOperatorKnowledge.read(request.params.key);
+  });
   app.get<ProjectParams>(routes.operatorPreferences(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
     if (access.via) throw forbidden('operator_owner_only', 'preferences require a person’s own login');

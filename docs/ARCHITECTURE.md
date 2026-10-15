@@ -742,6 +742,22 @@ The session launcher requests only its current human's five enum fields through 
 server port; signal and question-screening launches receive none. Guest contexts omit
 member memory. Style is rendered as validated JSON data and grants no authority.
 
+Shared approved agreement and principles (PM-689) live in `services/operator/knowledge.ts`.
+Only an Operator owner message/answer can propose them. The inbox's registered
+`operator_knowledge` decider accepts a human owner's own-login decision; the private CAS
+shares `ProjectService.withConfigurationLock` with configuration commits. The inbox stores
+the applying human before CAS, and the file stores the proposal marker with the new revision.
+Startup completes only marked writes with that same human resolver. Rejected or stale proposals
+write nothing. Agreement approval does not apply its recommended configuration operations or
+replace their separate protected approvals. Internal PM general sessions may read the shared
+document, but cannot propose or write it. Context carries only revision, agreement and principles
+as JSON data below the fixed instructions, with no application markers or silent truncation.
+An agreement's recommended operations are sent as a durable server-generated message with
+`operator_knowledge_approval` origin. Delivery verifies the resolved inbox, matching applying human,
+approved step and current owner/Operator before opening an idempotent `approval` request. That
+request permits only `operate` with an exact stored operation; other writes require a fresh owner
+message or answer. Startup retries undelivered continuations; a consumed one never reopens.
+
 **Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
 behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
 an Effect program: `kernel`, `runtime/sessions`, `runtime/delivery`, `runtime/watchers`,
@@ -1320,8 +1336,9 @@ workers follow the machine's size.
   (example, principle and effect), and each member's enumerated conversational preferences in
   `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
   These records are outside the public repository and the customization git history. PM-688 adds
-  only a session-bound personal preference MCP writer and authenticated REST reads; knowledge
-  writes remain private. Missing documents start at revision zero; invalid documents are refused
+  a session-bound personal preference MCP writer and authenticated REST reads. PM-689 adds
+  owner-approved agreement/principle CAS and marker recovery under the server's configuration
+  lock; the store remains private. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -1330,8 +1347,10 @@ workers follow the machine's size.
   root to member file tools and the existing session-policy/provider consumers; no separate
   provider rule or new permission is added.
   **Remote engine:** storage stays on the server, with no file mount on an engine. Context/MCP
-  services send only the current person's five preference enums across the existing boundary
-  (PM-688), with no new engine file or machine assumption.
+  services send the current person's five preference enums (PM-688), or the filtered shared
+  revision/agreement/principles to internal Operator/PM contexts and authorized MCP reads
+  (PM-689), across the existing boundary. Markers never enter context. No new engine file or
+  machine assumption is introduced.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.

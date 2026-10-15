@@ -4,6 +4,7 @@ export function createProjectService(deps: ConstructorParameters<typeof ProjectS
 
 import { isAbsolute } from 'node:path';
 import {
+  hasPendingOperatorAgreement,
   DEFAULT_PROJECT_LANGUAGE,
   ProjectConfig,
   applyConfigPatch,
@@ -222,6 +223,14 @@ export class ProjectService {
 
   async config(key: string): Promise<ProjectConfig> {
     return (await this.load(key)).config;
+  }
+
+  /** Serializes private knowledge CAS with every configuration commit. Do not mutate projects in work. */
+  async withConfigurationLock<T>(
+    projectKey: string,
+    work: (loaded: { config: ProjectConfig; version: string }) => Promise<T>,
+  ): Promise<T> {
+    return this.locks.run(`config:${projectKey}`, async () => work(await this.load(projectKey)));
   }
 
   async history(key: string, limit?: number): Promise<ConfigVersionEntry[]> {
@@ -488,6 +497,8 @@ export class ProjectService {
       )
         throw forbidden('operator_no_request', 'the Operator commit needs an owner request');
       const verdict = operatorConfigVerdict(previous, next, { operator: meta.actor.handle! });
+      if (hasPendingOperatorAgreement(this.ctx.repos.inbox.listOpen('approval'), key, request.id))
+        throw conflict('operator_agreement_pending', 'the request has a pending agreement');
       if (verdict.level === 'never')
         throw forbidden('operator_never', 'the Operator cannot make this change');
       const item = meta.author.operatorApprovalId

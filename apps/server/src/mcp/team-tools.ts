@@ -51,6 +51,7 @@ import type {
   DecideBoundaryRequest,
   OperatorOperation,
   OperatorPreferenceData,
+  ProposeOperatorKnowledgeRequest,
   ProjectDoc,
   QuestionTodo,
 } from '@projectman/shared';
@@ -65,6 +66,12 @@ import type {
 export class TeamToolsService implements TeamToolsHandler {
   async getOperatorPreference(ctx: ToolContext) {
     return this.tools.operator.getOperatorPreference(ctx);
+  }
+  async getOperatorKnowledge(ctx: ToolContext) {
+    return this.tools.operator.getOperatorKnowledge(ctx);
+  }
+  async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeOperatorKnowledgeRequest) {
+    return this.tools.operator.proposeOperatorKnowledge(ctx, args);
   }
   async setOperatorPreference(
     ctx: ToolContext,

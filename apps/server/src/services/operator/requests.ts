@@ -1,4 +1,9 @@
-import { OPERATOR_SIGNAL_ROUND_FROM } from '@projectman/shared';
+import {
+  memberOf,
+  operatorKnowledgeApprovalOf,
+  operatorKnowledgeContinuationOf,
+  OPERATOR_SIGNAL_ROUND_FROM,
+} from '@projectman/shared';
 import type {
   ConfigChangeRow,
   ErrorCode,
@@ -6,6 +11,7 @@ import type {
   OperatorRequestView,
   OperatorStep,
   OperatorStepStatus,
+  ProjectConfig,
 } from '@projectman/shared';
 import type { OperatorRequestRecord, OperatorStepRecord } from '../../db';
 import { isoNow } from '../../core/base';
@@ -29,6 +35,7 @@ export function operatorQuoteOf(text: string): string {
 /** The team tools (MCP names) the Operator may call without an open request: they only read. */
 export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_operator_preference',
+  'get_operator_knowledge',
   'get_task',
   'list_tasks',
   'list_members',
@@ -96,6 +103,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   start_task: 'task_start',
   start_member: 'task_start',
   operate: 'config_change',
+  propose_operator_knowledge: 'knowledge_change',
   write_project_docs: 'docs_write',
   mark_decision_candidates: 'decision_offer',
   prioritize_merge: 'task_update',
@@ -104,7 +112,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
 export interface OpenOperatorRequest {
   projectKey: string;
   sessionId: string;
-  source: 'message' | 'answer';
+  source: 'message' | 'answer' | 'approval';
   messageId: string | null;
   inboxItemId?: string | null;
   from: string;
@@ -129,10 +137,14 @@ export class OperatorRequests {
     const { repos } = this.ctx;
     const now = isoNow(this.ctx);
     return this.ctx.unitOfWork(() => {
+      const id = input.source === 'approval' ? `opr_approval_${input.inboxItemId}` : newId('opr');
+      const previousApproval = input.source === 'approval' ? repos.operatorRequests.get(id) : null;
+      // A consumed continuation, including a closed one, never opens a fresh authorization round.
+      if (previousApproval) return previousApproval;
       for (const previous of repos.operatorRequests.openOfSession(input.sessionId))
         repos.operatorRequests.close(previous.id, now);
       const request = {
-        id: newId('opr'),
+        id,
         projectKey: input.projectKey,
         sessionId: input.sessionId,
         source: input.source,
@@ -144,6 +156,42 @@ export class OperatorRequests {
       };
       repos.operatorRequests.insert(request);
       return { ...request, closedAt: null };
+    });
+  }
+
+  approvalFor(config: ProjectConfig, request: OperatorRequestRecord, operator: string) {
+    if (request.source !== 'approval' || !request.inboxItemId || !request.messageId) return null;
+    const message = this.ctx.repos.messages.get(request.messageId);
+    const item = this.ctx.repos.inbox.get(request.inboxItemId);
+    const payload = item && operatorKnowledgeApprovalOf(item);
+    if (
+      !message ||
+      message.origin?.kind !== 'operator_knowledge_approval' ||
+      message.origin.inboxItemId !== item?.id ||
+      message.from !== request.fromHandle ||
+      !payload ||
+      config.project.key !== request.projectKey ||
+      message.projectKey !== request.projectKey ||
+      !message.to.includes(operator)
+    )
+      return null;
+    const owner = memberOf(config, request.fromHandle);
+    return operatorKnowledgeContinuationOf(item, {
+      projectKey: request.projectKey,
+      from: request.fromHandle,
+      operator,
+      messageId: message.id,
+      owner: owner?.kind === 'human' && owner.access === 'owner',
+      via: message.via,
+      approvedStep: this.ctx.repos.operatorRequests
+        .steps(payload.requestId)
+        .some(
+          (step) =>
+            step.id === payload.stepId &&
+            step.inboxItemId === item.id &&
+            step.status === 'approved' &&
+            step.action === 'knowledge_change',
+        ),
     });
   }
 

@@ -14,6 +14,8 @@ import type { TeamToolsHandler, ToolContext } from '../contracts';
  */
 export const TEAM_TOOL_NAMES = [
   'get_operator_preference',
+  'get_operator_knowledge',
+  'propose_operator_knowledge',
   'set_operator_preference',
   'operate',
   'read_project_doc',

@@ -38,10 +38,15 @@ async function setup(persistent = false, adjust?: (config: ProjectConfig) => voi
       adjust?.(config);
     },
   });
-  await h.domain.messaging.sendReporting('AR', 'owner', {
-    to: ['operator'],
-    text: 'Change the writer to Sonnet.\nAllow network access.',
-  });
+  await h.domain.messaging.sendReporting(
+    'AR',
+    'owner',
+    {
+      to: ['operator'],
+      text: 'Change the writer to Sonnet.\nAllow network access.',
+    },
+    { awaitWake: true },
+  );
   await flush();
   const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };

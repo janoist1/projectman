@@ -23,7 +23,12 @@ import type { FeedbackService, FeedbackWidgetService } from '../services/feedbac
 import type { BoundaryService } from '../services/boundary';
 import type { Merges } from '../services/merges';
 import type { ScheduleService } from '../services/schedules';
-import type { OperatorPreferences, OperatorSignals, ProjectManagerChannels } from '../services/operator';
+import type {
+  OperatorKnowledge,
+  OperatorPreferences,
+  OperatorSignals,
+  ProjectManagerChannels,
+} from '../services/operator';
 
 export interface ApiDomain extends AuthDomain {
   readonly structure: StructureService;
@@ -46,6 +51,7 @@ export interface ApiDomain extends AuthDomain {
   readonly messaging: Messaging;
   readonly operatorSignals: OperatorSignals;
   readonly operatorPreferences: OperatorPreferences;
+  readonly sharedOperatorKnowledge: OperatorKnowledge;
   readonly outages: WorkOutages;
   readonly pauses: PauseService;
   readonly profiles: MemberProfiles;

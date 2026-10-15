@@ -1,4 +1,10 @@
-import { MemberHandle, OperatorOperation, OperatorPreferenceData, TaskKey } from '@projectman/shared';
+import {
+  MemberHandle,
+  OperatorOperation,
+  OperatorPlan,
+  OperatorPreferenceData,
+  TaskKey,
+} from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import { formatMemberStart, formatProjectState } from '../format';
@@ -74,8 +80,12 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Operate the project',
       readOnly: false,
       description:
-        'Only the Operator, during an open owner request. Propose a configuration, member, session or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Title describes the result in the project language (1–120 characters).',
-      input: { title: z.string().trim().min(1).max(120), operation: OperatorOperation },
+        'Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).',
+      input: {
+        title: z.string().trim().min(1).max(120),
+        operation: OperatorOperation,
+        plan: OperatorPlan.optional(),
+      },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.operate(ctx, args));
       },

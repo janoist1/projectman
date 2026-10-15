@@ -91,6 +91,7 @@ export class MessageTools implements MessageToolsHandler {
         }
         if (args.taskKey !== undefined) this.calls.visibleTaskKey(ctx, guest, args.taskKey);
       }
+      this.calls.assertOperatorMessageRecipients(ctx.member, who, args.to);
       // To the owner the Operator only reports; to anyone else it acts for the request: a step (PM-463).
       // A message has one step, so with several such recipients it names the first as its `member`.
       const elsewhere = guest ? undefined : args.to.find((handle) => !isOwner(config, handle));

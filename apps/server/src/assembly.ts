@@ -1007,7 +1007,17 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_stage_changed', checkOperatorCards);
   events.on('task_labels_changed', checkOperatorCards);
   events.on('task_assigned', checkOperatorCards);
-  const operatorDeps = { ctx, projects, members, inbox, steps: operatorSteps, sessions, pauses, messages };
+  const operatorDeps = {
+    ctx,
+    projects,
+    members,
+    inbox,
+    steps: operatorSteps,
+    sessions,
+    pauses,
+    messages,
+    messaging,
+  };
   const operatorActions = new OperatorActions(operatorDeps);
   const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
   operatorActions.useApprovals(operatorApprovals);
@@ -1773,6 +1783,13 @@ export function createDomain(opts: DomainOptions) {
           everyMs: opts.operatorSignalMs ?? 60_000,
           run: () => operatorSignals.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
+        },
+        {
+          name: 'operator-approvals',
+          everyMs: 60_000,
+          atStart: true,
+          run: async () => operatorApprovals.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
         },
         // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
         // people (PM-558). A question that waited through a restart is looked at now.

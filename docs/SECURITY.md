@@ -823,6 +823,43 @@ the account boundary.
 - **Sessions.** A successful redemption revokes the presented session and starts a new one, like the
   password login. The routes are public and same-origin only.
 
+## The public board (PM-672, part of PM-664)
+
+With `access.boardMode: public` (docs/AWS.md "The public board") the main hostname has no Cloudflare Access
+in front of its pages: a client opens the board and meets the application's own login (PM-670). The
+boundary is then the application, so these hold and are tested (`apps/server/test/public-board.test.ts`,
+`apps/server/test/cloud-public-board.test.ts`, the public matrix of `deploy/cloudflare/check.sh`):
+
+- **The switch creates no way in.** `PROJECTMAN_PUBLIC_BOARD=1` changes no authentication or permission
+  rule; it only stops the start (`public_board_requires_cloud`, `_setup`, `_email_login`) where the
+  login would be missing, so there is no anonymous first setup to take and no board that cannot log
+  clients in. The answer of `GET /api/setup` adds `publicBoard: true` (a public fact, like
+  `emailLoginEnabled`).
+- **Anonymous callers get nothing.** `/api`, the attachment content and thumbnail routes and the `/ws`
+  upgrade answer 401 without a session. A cross-origin login or mutation is refused (403) by the existing
+  same-origin check; the session cookie is `HttpOnly`, `SameSite` and, behind the tunnel's HTTPS, `Secure`.
+- **A client sees only what is shared with them.** An internal card, a card of another project and a
+  card that does not exist give the same answer; the live connection sends no event of an internal card.
+  The engine service token is no board login: `/api/auth/me` with it answers 401.
+- **The engine door stays closed.** `/engine` keeps its own Access application (the engine service token
+  only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp` answer 404 at the
+  tunnel, as before. The main Access application has exactly one Bypass/Everyone policy and no other
+  rule; any other policy on it is removed by `edge` and refused by `publish`.
+- **The tunnel rule is not the only lock on `/engine`.** The tunnel's ingress rule and the Access
+  application match the raw path, but the board's router decodes it: `/%65ngine/link` would skip the rule
+  and still reach the engine's handler. The `onRequest` hook of `src/auth/index.ts` therefore answers 404 to
+  any request whose matched route is under `/engine/` (or `/api/`, where the origin check reads the raw
+  path) and whose raw path does not spell that prefix out. Behind it the engine still needs its machine
+  key (`links.authenticate`). `check` tries the encoded door with and without the service token and accepts
+  only the Access login, 403 or 404.
+- **No publishing on a doubt.** `publish` makes the DNS record only on the exact answer of
+  `host.sh public-check` (`true,true,false,401,403`), the exact Access applications and ingress, and the
+  working widget guard; `check` verifies the same from the outside. Going back to `private` restores the
+  Access lock.
+- **Known limit.** Cloudflare Access no longer filters bots, scanners or password guessing in front of the
+  board's login. The login's own limits apply (the code and address limits above); a WAF rule or Turnstile
+  in front of the login is not part of this change.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |
@@ -918,7 +955,8 @@ cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below hold
    weaker reason. `check.sh` verifies the Secure cookie, both origin cases and
    the refusal of `POST /api/setup` against the real entrance.
 2. The Access application covers the whole hostname with one Allow policy of **exact email
-   addresses**. "Emails ending in", "Everyone" and bypass policies are not allowed, and neither
+   addresses**. "Emails ending in", "Everyone" and bypass policies are not allowed (the public board,
+   `access.boardMode: public`, is the one exception: see "The public board"), and neither
    is a service token, with one exception: the cloud board's `access.integratorServiceToken`
    (off by default, for the integrator's smoke test) puts a second policy, `<N>-integrator-service`
    (non-identity, that one token), on the whole-hostname application; the engine's token is
@@ -971,14 +1009,15 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   `npm run cloud -- edge --rotate-integrator-token`.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
-  every change and rerun `check.sh`.
+  every change and rerun `check.sh`. On the public board there is no second lock by design: the
+  login is the only barrier from the start (see "The public board").
 
 ### The widget's public hostname (PM-506, PM-513)
 
 The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
 its own on the same tunnel with no Access application** (setup: [DEPLOY.md](DEPLOY.md) step 7).
 The Access application of the application's hostname is not weakened and no Bypass policy is
-added. What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
+added (the public board's one Bypass policy belongs to the board's own page, not to this feature). What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
 their session, origin and limit rules are in "The feedback tool's public API".
 
 1. **The tunnel passes only `^/feedback/`** on that hostname, and answers 404 to the rest of it

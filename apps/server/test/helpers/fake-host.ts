@@ -92,6 +92,14 @@ export class FakeMachine {
   hangOn: string | null = null;
   /** What the board answers the feedback hostname with (`guard-check`): the guard works when both are 404. */
   guardCodes = { plain: '404', port: '404' };
+  /** What the board says about itself as the public board (`public-check`); the default is the working one. */
+  publicCheck: Record<string, unknown> = {
+    publicBoard: true,
+    emailLoginEnabled: true,
+    needsSetup: false,
+    apiStatus: 401,
+    crossOriginStatus: 403,
+  };
 
   private pollsSinceStart = 0;
 
@@ -204,6 +212,9 @@ export class FakeMachine {
       case 'guard-check':
         if (!this.running) return refuse('the board is not running');
         return done(JSON.stringify(this.guardCodes));
+      case 'public-check':
+        if (!this.running) return refuse('the board is not running');
+        return done(JSON.stringify(this.publicCheck));
       default:
         return { code: 2, stdout: '', stderr: `host.sh: unknown subcommand ${subcommand}\n` };
     }

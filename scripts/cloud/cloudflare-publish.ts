@@ -6,11 +6,14 @@ import {
   cloudflareApi,
   findTunnel,
   findZone,
+  isPublicBoard,
   namesOf,
+  PUBLIC_BOARD_ENV,
   recordSchema,
   resolveAccount,
   shape,
   verifyAccess,
+  verifyPublicIngress,
   withRight,
   type DnsRecord,
   type Tunnel,
@@ -47,6 +50,40 @@ export async function readGuardCheck(
       throw new CloudError('the machine answered guard-check in an unexpected shape');
     }
   });
+}
+
+const publicCheckSchema = z.looseObject({
+  publicBoard: z.boolean(),
+  emailLoginEnabled: z.boolean(),
+  needsSetup: z.boolean(),
+  apiStatus: z.number(),
+  crossOriginStatus: z.number(),
+});
+export type PublicCheck = z.output<typeof publicCheckSchema>;
+
+/** What `host.sh public-check` reports: the running board as the public board (PM-672). */
+export async function readPublicCheck(context: CloudContext, hostname: string): Promise<PublicCheck> {
+  return withHost(context, async (host) => {
+    const text = await host.call('public-check', [hostname]);
+    try {
+      return publicCheckSchema.parse(JSON.parse(text));
+    } catch {
+      throw new CloudError('the machine answered public-check in an unexpected shape');
+    }
+  });
+}
+
+/** The public board runs only on exactly this answer: the flag, the e-mail login, an owner, 401 and 403. */
+export function publicCheckProblems(answer: PublicCheck): string[] {
+  const problems: string[] = [];
+  if (!answer.publicBoard) problems.push('the running server does not run as the public board (publicBoard)');
+  if (!answer.emailLoginEnabled) problems.push('the running server has no working e-mail login');
+  if (answer.needsSetup) problems.push('the running server has no owner yet (needsSetup)');
+  if (answer.apiStatus !== 401)
+    problems.push(`an anonymous GET /api/auth/me answers ${answer.apiStatus}, not 401`);
+  if (answer.crossOriginStatus !== 403)
+    problems.push(`a cross-origin POST /api/auth/login answers ${answer.crossOriginStatus}, not 403`);
+  return problems;
 }
 
 async function publishRecord(
@@ -124,7 +161,12 @@ export async function runPublish(context: CloudContext, options: PublishOptions)
     const problems = await verifyAccess(context, api, account.id);
     if (problems.length > 0)
       throw refused(`Access is not in place: ${problems.join('; ')}. Run "npm run cloud -- edge"`);
-    return { status: 'ok', detail: 'both applications have exactly their own policies' };
+    return {
+      status: 'ok',
+      detail: isPublicBoard(config)
+        ? 'the main application has exactly the bypass policy, the engine application exactly its service token'
+        : 'both applications have exactly their own policies',
+    };
   });
   const tunnel = await report.guard('tunnel', async () => {
     const found = await withRight('Account / Cloudflare Tunnel / Edit', () =>
@@ -139,8 +181,38 @@ export async function runPublish(context: CloudContext, options: PublishOptions)
     return found;
   });
 
+  const publicBoard = isPublicBoard(config);
+  if (publicBoard) {
+    // The board's own login is the browser boundary: the ingress, the running server and its flag must all agree.
+    await report.run('public-board-ingress', async () => {
+      const problems = await verifyPublicIngress(context, api, account.id, tunnel);
+      if (problems.length > 0)
+        throw refused(
+          `the tunnel is not set for the public board: ${problems.join('; ')}. Run "npm run cloud -- edge"`,
+        );
+      return { status: 'ok', detail: 'only /engine demands the engine audience; /hooks and /mcp answer 404' };
+    });
+    await report.run('public-board-env', async () => {
+      if (readEnvFile(context.envFile).get(PUBLIC_BOARD_ENV) !== '1')
+        throw refused(
+          `cloud.env does not have ${PUBLIC_BOARD_ENV}=1; run "npm run cloud -- edge" and "npm run cloud -- deploy"`,
+        );
+      return { status: 'ok', detail: `${PUBLIC_BOARD_ENV}=1` };
+    });
+    await report.run('public-board-check', async () => {
+      const problems = publicCheckProblems(await readPublicCheck(context, hostname));
+      if (problems.length > 0)
+        throw refused(`the running board is not ready to be public: ${problems.join('; ')}`);
+      return {
+        status: 'ok',
+        detail: 'public, e-mail login, owner set up, anonymous /api 401, cross-origin 403',
+      };
+    });
+  }
+
   const targets = [hostname];
-  if (options.feedback && feedbackHostname) {
+  // The feedback widget's guard is a condition of a public board whenever the widget hostname is configured.
+  if ((options.feedback || publicBoard) && feedbackHostname) {
     await report.run('feedback-guard', async () => {
       const expected = `https://${feedbackHostname}`;
       if (readEnvFile(context.envFile).get('PROJECTMAN_FEEDBACK_PUBLIC_URL') !== expected)
@@ -154,7 +226,7 @@ export async function runPublish(context: CloudContext, options: PublishOptions)
         );
       return { status: 'ok', detail: 'the machine answers 404 to the feedback hostname outside /feedback/' };
     });
-    targets.push(feedbackHostname);
+    if (options.feedback) targets.push(feedbackHostname);
   }
 
   for (const target of targets)

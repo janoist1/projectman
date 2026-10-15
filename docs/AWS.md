@@ -520,7 +520,7 @@ at the first refused change, name the right they lack and change nothing further
    exits 2: `--rotate-engine-token` (or `--rotate-integrator-token`) makes a new secret and writes
    the file; whoever used the old secret needs the new file. `edge` prints the expiry and warns
    30 days before it.
-6. **The Access policies**, with the exact lists and nothing else (never `everyone`, a domain or a group):
+6. **The Access policies**, with the exact lists and nothing else (no domain or group, and `everyone` only in the public board's one bypass policy, below):
    `<N>-allow-emails` (allow, one `email` rule per `access.emails` entry), `<N>-engine-service` and
    `<N>-integrator-service` (service auth, that one token).
 7. **The Access applications**, both self-hosted with the One-time PIN as the only provider, hidden from
@@ -624,7 +624,11 @@ the engine token itself gets 401 on `/api/auth/me` (it is no board login). `depl
 **Switching.** Edit `access.boardMode`, then `edge`, `deploy`, `check`. A name that is already published
 is open to the new mode at once when `edge` finishes: going public without `deploy` leaves the old
 container running without the flag (it still protects itself with its own login, but then `publish` and
-`check` would refuse it), so run `deploy` and `check` straight after. Going back to `private` puts the
+`check` would refuse it), so run `deploy` and `check` straight after. The order is fixed, and a runbook
+(PM-675) must keep it as one uninterrupted sequence: `edge` changes the Access applications and the ingress
+(the step order is in `scripts/cloud/cloudflare.ts`, the policies and applications before the tunnel
+configuration), and from then on the published name answers in the new mode, whatever the running container
+was started with. Do not leave a published name between `edge` and `check`. Going back to `private` puts the
 Access lock back on the main application (the allow-emails policy, the automatic redirect, the ingress
 with both audiences), deletes `<N>-public-board` after the applications stopped using it, and removes the
 flag from `cloud.env`; run it again and nothing changes.

@@ -289,6 +289,7 @@ modules:
     summary: Homokozóban futó tesztek és a nehézfutás-sor.
     paths:
       - apps/server/src/full-test/
+      - apps/server/src/full-test/npm-dependency-key.ts
   - id: machine
     area: engine
     name: Gépfigyelés

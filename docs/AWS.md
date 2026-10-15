@@ -454,7 +454,22 @@ same closed list as the package); either bucket already has an object (a replica
 would collide); the board is running on the machine; or `/var/lib/projectman/data` is not empty.
 All of that is checked before the upload where it can be (the buckets and the folder before any
 connection). The data goes over the SSH connection as a `tar` stream, is owned by the container's
-user, and the machine is then deployed like `deploy` does.
+user. Before any build/start, the mandatory PM-717 `seed-integrity` gate compares the closed
+package's database SHA-256 and byte count before and after upload with `host.sh seed-digest`.
+The host reads only `/var/lib/projectman/data/db.sqlite` with Ubuntu 24.04 coreutils, without
+opening SQLite or starting a container. Both sides reject a missing, non-regular or symlink DB
+and any `db.sqlite-wal`, `db.sqlite-shm` or `db.sqlite-journal` entry (including dangling symlinks).
+The host checks that the unit/container is stopped before and after hashing and detects file changes.
+Only an exact match permits deployment and prints, before build/start:
+`ok seed-integrity: database sha256=<64hex> bytes=<n> (before first start)`.
+Record that proof on PM-675; never record database contents. Keep the package closed and use one
+administrator throughout the maintenance window; no other cloud operation may start the board.
+
+Local precondition refusals exit 2; host state refusals (host exit 3) also exit 2. Invalid/incomplete
+digest JSON, hash/size mismatch, changed/disappearing source, read/hash or transport errors exit 1.
+`FAIL seed-integrity` means **STOP**: no build/start, automatic retry, deletion or overwrite follows.
+Uploaded data remains in place; ask the owner for a recovery decision. A used target still refuses
+another seed. `--dry-run` only previews this mandatory gate and never connects or claims remote proof.
 
 `pull-data --to <new folder>` is the way back (`npm run migrate -- hybrid back` takes the folder).
 The folder must not exist (its parent must), must not be inside a git work tree, and is created with

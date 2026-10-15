@@ -18,6 +18,8 @@
 #   rehearse                  restore the replica and the snapshot into a scratch container (entrypoint.sh
 #                             rehearse); the running board and the replica are not touched
 #   seed-check                {"container":"running|stopped","dataEmpty":true|false}
+#   seed-digest               {"databaseSha256":"<64 lowercase hex>","databaseBytes":<positive integer>}
+#                             closed DB only, before the first start; no arguments or stdin payload
 #   receive-data              unpack a tar stream into the empty data directory (the container must stand)
 #   send-data                 write the data directory as a tar stream (the container must stand)
 #   guard-check <hostname>    {"plain":"404","port":"404"}: the status codes the running board gives that hostname
@@ -301,6 +303,33 @@ seed_check() {
   printf '{"container":"%s","dataEmpty":%s}\n' "$running" "$empty"
 }
 
+seed_database_closed() {
+  board_running && refuse "the board is running or starting; seed-digest requires it stopped"
+  local database="$DATA_DIR/db.sqlite" suffix
+  [ -f "$database" ] && [ ! -L "$database" ] || refuse "db.sqlite must be a regular file, not a symlink"
+  for suffix in -wal -shm -journal; do
+    [ ! -e "$database$suffix" ] && [ ! -L "$database$suffix" ] || refuse "db.sqlite$suffix is present"
+  done
+}
+
+# Ubuntu 24.04 coreutils; metadata includes nanosecond modification/change times and inode identity.
+# No SQLite connection, migration, container start or persistent state is involved.
+seed_digest() {
+  [ "$#" -eq 0 ] || die "seed-digest takes no arguments"
+  seed_database_closed
+  local database="$DATA_DIR/db.sqlite" before after bytes digest
+  before=$(stat -c '%d:%i:%s:%y:%z' -- "$database")
+  bytes=$(stat -c '%s' -- "$database")
+  [[ "$bytes" =~ ^[0-9]+$ ]] && [ "$bytes" -gt 0 ] && [ "$bytes" -le 9007199254740991 ] || die "invalid database size"
+  digest=$(sha256sum -- "$database")
+  digest=${digest%% *}
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || die "invalid database digest"
+  after=$(stat -c '%d:%i:%s:%y:%z' -- "$database")
+  [ "$before" = "$after" ] || die "database changed during hashing"
+  seed_database_closed
+  printf '{"databaseSha256":"%s","databaseBytes":%s}\n' "$digest" "$bytes"
+}
+
 # What the running board answers an unknown hostname (the feedback hostname's guard, PM-510): the status
 # code of /api/setup with `Host: <name>` and with `Host: <name>:443`; both must be 404 (`npm run cloud --
 # publish --feedback` refuses otherwise). Nothing leaves the machine: the request goes to the port inside
@@ -372,11 +401,12 @@ main() {
     logs) logs "$@" ;;
     rehearse) rehearse ;;
     seed-check) seed_check ;;
+    seed-digest) seed_digest "$@" ;;
     receive-data) receive_data ;;
     send-data) send_data ;;
     guard-check) guard_check "$@" ;;
     public-check) public_check "$@" ;;
-    *) die "usage: host.sh bootstrap|receive-env|build|start|stop|status|logs|rehearse|seed-check|receive-data|send-data|guard-check|public-check" ;;
+    *) die "usage: host.sh bootstrap|receive-env|build|start|stop|status|logs|rehearse|seed-check|seed-digest|receive-data|send-data|guard-check|public-check" ;;
   esac
 }
 

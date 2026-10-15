@@ -155,7 +155,8 @@ message-attachments, feedback, memory; provider/repo/engine.key nem megy a cloud
 Forrás→package DB hash változhat engine-binding miatt; logikai számlálás és az ismert
 binding-változás szükséges, nem byte-egyezés a régi forrással.
 
-A seed dry-run a két bucket ürességét olvassa; **nem kapcsolódik a hosthoz**.
+A seed dry-run a két bucket ürességét és a helyi DB előfeltételeit olvassa, jelzi a kötelező
+integritáskaput; **nem kapcsolódik a hosthoz**, és nem állít sikeres távoli hash-ellenőrzést.
 A host stopped/empty ellenőrzése a valódi seedben, az upload előtt történik:
 
 ```sh
@@ -166,8 +167,18 @@ npm run cloud -- status --config <PRIVATE_CONFIG>
 Check: seed-check stopped/dataEmpty=true, mindkét bucket üres, upload után pontos SHA
 és health siker. Host cél `/var/lib/projectman/data`, container `/data`; source kizárólag
 `<PACKAGE>/home`, nem a manifestet is tartalmazó package gyökér. A CLI seed egyben deployol
-és indít. Package/home→cél DB byte-hash csak első indítás előtt egyezhet; futó DB már írhat
-és migrálhat. Rögzíts fájlhash-eket, logikai DB számlálást és megengedett eltéréseket.
+és indít, de csak a PM-717 kötelező kapuja után: a feltöltés előtti és utáni forrás DB-hash/méret
+és a stopped host `seed-digest` válasza pontosan egyezzen. Mindkét oldalon normál, nem symlink
+DB kell, WAL/SHM/journal nélkül. A csomag az egész művelet alatt lezárt bemenet; az ablaknak
+egyetlen végrehajtója van, más cloud művelet nem indíthat közben boardot.
+Rögzítsd PM-675-ön a build/start ELŐTT megjelenő bizonyítékot:
+`ok seed-integrity: database sha256=<64hex> bytes=<n> (before first start)`.
+Fájltartalmat ne rögzíts. Futó DB már írhat és migrálhat; a forrás→package logikai DB-számlálás
+és a többi fájlgyökér tartalmi hash-ellenőrzése továbbra is PM-675 külön elfogadási lépése.
+`FAIL seed-integrity`: **STOP**, nincs build/start vagy automatikus retry/deploy; a feltöltött adat
+megmarad, nincs törlés/felülírás, új seed a használt célt megtagadja. Kérj tulajdonosi recovery döntést.
+Helyi előfeltétel és host-állapot megtagadása CLI exit 2 (host exit 3); eltérés, forrásváltozás,
+hibás/hiányos JSON, olvasási/számítási vagy transporthiba CLI exit 1.
 Használt cél/bucket vagy bármely hiba: STOP, owner kérdés új célról vagy recovery útról;
 nincs önkényes törlés/ürítés. A régi Mac DB-t eközben soha ne indítsd vissza.
 
@@ -252,19 +263,24 @@ PM-675 új `ask_human`: konkrét SHA + public deploy/edge/publish, hostname/widg
 Jóváhagyás előtt csak a végleges CLI read-only preview-ja:
 
 ```sh
-npm run cloud -- deploy --ref <APPROVED_SHA> --dry-run --config <CONFIG>
 npm run cloud -- edge --dry-run --config <CONFIG>
+npm run cloud -- deploy --ref <APPROVED_SHA> --dry-run --config <CONFIG>
 npm run cloud -- publish --feedback --dry-run --config <CONFIG>
 ```
 
 Külön elfogadott public kapcsolás után:
 
 ```sh
-npm run cloud -- deploy --ref <APPROVED_SHA> --config <CONFIG>
 npm run cloud -- edge --config <CONFIG>
-npm run cloud -- publish --feedback --config <CONFIG>
+npm run cloud -- deploy --ref <APPROVED_SHA> --config <CONFIG>
 npm run cloud -- check --login-json <PROTECTED_LOGIN_JSON> --config <CONFIG>
+npm run cloud -- publish --feedback --config <CONFIG>
 ```
+
+Az `edge → deploy → check` összefüggő műveletsor: a fő hostname már publikált lehet,
+ezért edge és check között nincs megállás. A `publish --feedback` csak sikeres deploy/check után,
+a publish meglévő public-check kapuján át futhat. Bármely hibánál azonnal private edge-zár
+(6. szakasz), javítás közben nem maradhat nyitva. Ez a leírás nem ad élő végrehajtási engedélyt.
 
 Check: public=true, emailLoginEnabled=true, needsSetup=false; anonim auth/me 401,
 idegen Origin 403; fő Access Bypass/Everyone, **engine továbbra is csak Service Auth**,

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
 import { forbiddenEntries } from '../migrate/hybrid-entries';
@@ -34,6 +35,56 @@ const seedCheckSchema = z.looseObject({
   container: z.enum(['running', 'stopped']),
   dataEmpty: z.boolean(),
 });
+const seedDigestSchema = z.strictObject({
+  databaseSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  databaseBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+});
+
+/** Read a closed package without opening SQLite; detect replacement and writes during hashing. */
+function sourceDigest(directory: string, initial: boolean): z.output<typeof seedDigestSchema> {
+  const invalid = (message: string, precondition = initial): never => {
+    throw precondition ? refused(message) : new CloudError(message);
+  };
+  const database = path.join(directory, 'db.sqlite');
+  const check = (precondition: boolean) => {
+    const stat = fs.lstatSync(database, { throwIfNoEntry: false, bigint: true });
+    if (!stat?.isFile())
+      invalid('the source has no db.sqlite regular file (symlinks are refused)', precondition);
+    for (const suffix of ['-wal', '-shm', '-journal']) {
+      if (fs.lstatSync(`${database}${suffix}`, { throwIfNoEntry: false }))
+        invalid(`the source has a db.sqlite${suffix} sidecar; the package must be closed`, precondition);
+    }
+    return stat!;
+  };
+  const fingerprint = (stat: fs.BigIntStats) =>
+    [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
+  const before = check(initial);
+  if (before.size <= 0n || before.size > BigInt(Number.MAX_SAFE_INTEGER))
+    invalid('the source database size must be a positive safe integer');
+  const fd = fs.openSync(database, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    if (fingerprint(fs.fstatSync(fd, { bigint: true })) !== fingerprint(before))
+      throw new CloudError('the source database changed before hashing');
+    const hash = createHash('sha256');
+    const buffer = Buffer.alloc(1024 * 1024);
+    let bytes = 0;
+    for (;;) {
+      const count = fs.readSync(fd, buffer);
+      if (count === 0) break;
+      hash.update(buffer.subarray(0, count));
+      bytes += count;
+    }
+    if (
+      fingerprint(before) !== fingerprint(check(false)) ||
+      fingerprint(before) !== fingerprint(fs.fstatSync(fd, { bigint: true })) ||
+      BigInt(bytes) !== before.size
+    )
+      throw new CloudError('the source database changed during hashing');
+    return { databaseSha256: hash.digest('hex'), databaseBytes: bytes };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 const objectsSchema = z.looseObject({
   Contents: z.array(z.looseObject({})).optional(),
   KeyCount: z.number().optional(),
@@ -474,7 +525,7 @@ export async function runSeed(context: CloudContext, options: SeedOptions): Prom
   const directory = path.resolve(expandHome(options.from, deps.homeDir));
   const cli = new AwsCli(deps, config.aws);
 
-  await report.run('seed-source', async (): Promise<StepResult> => {
+  const before = await report.guard('seed-source', async () => {
     let stat: fs.Stats;
     try {
       stat = fs.statSync(directory);
@@ -482,22 +533,14 @@ export async function runSeed(context: CloudContext, options: SeedOptions): Prom
       throw refused(`${directory} does not exist`);
     }
     if (!stat.isDirectory()) throw refused(`${directory} is not a directory`);
-    let database: fs.Stats | null = null;
-    try {
-      database = fs.lstatSync(path.join(directory, 'db.sqlite'));
-    } catch {
-      database = null;
-    }
-    if (!database?.isFile())
-      throw refused(
-        `${directory} has no db.sqlite; it must be the home of \`npm run migrate -- hybrid package\``,
-      );
+    const digest = await report.guard('seed-integrity', async () => sourceDigest(directory, true));
     const forbidden = forbiddenEntries(directory);
     if (forbidden.length > 0)
       throw refused(
         `${directory} holds what the cloud must not get: ${forbidden.map((item) => `${item.name} (${item.why})`).join('; ')}`,
       );
-    return { status: 'ok', detail: directory };
+    report.step('ok', 'seed-source', directory);
+    return digest;
   });
   const target = await resolveTarget(context, options.ref);
   const envText = cloudEnvText(context);
@@ -523,7 +566,7 @@ export async function runSeed(context: CloudContext, options: SeedOptions): Prom
     report.step(
       'skipped',
       'seed',
-      `dry-run: would check over ssh that the board is not running and the data directory is empty, upload ${directory}, then deploy ${target.ref}`,
+      `dry-run: would check over ssh that the board is not running and the data directory is empty, upload ${directory}, require seed-integrity (source before/after and host database sha256/bytes), then deploy ${target.ref}`,
     );
     return;
   }
@@ -552,11 +595,33 @@ export async function runSeed(context: CloudContext, options: SeedOptions): Prom
         receive,
       );
       if (host.signal.aborted) throw new CloudError('interrupted');
+      if (result.code === 3)
+        throw refused('the host refused receive-data; the target state no longer permits a seed');
       if (result.code !== 0)
         throw new CloudError(
           `the upload failed (status ${result.code}): ${result.stderr.trim().split('\n').slice(-2).join(' | ')}`,
         );
       return { status: 'created', detail: `${directory} to /var/lib/projectman/data` };
+    });
+    await report.run('seed-integrity', async (): Promise<StepResult> => {
+      const text = await host.call('seed-digest');
+      let remote: z.output<typeof seedDigestSchema>;
+      try {
+        remote = seedDigestSchema.parse(JSON.parse(text));
+      } catch {
+        throw new CloudError('the machine answered seed-digest in an unexpected shape');
+      }
+      const after = sourceDigest(directory, false);
+      for (const digest of [after, remote]) {
+        if (digest.databaseSha256 !== before.databaseSha256 || digest.databaseBytes !== before.databaseBytes)
+          throw new CloudError(
+            'database hash or size changed or differs from the uploaded package; STOP and request owner recovery',
+          );
+      }
+      return {
+        status: 'ok',
+        detail: `database sha256=${before.databaseSha256} bytes=${before.databaseBytes} (before first start)`,
+      };
     });
     await deployOnHost(context, host, target, envText);
   });

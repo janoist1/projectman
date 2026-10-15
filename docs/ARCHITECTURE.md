@@ -733,6 +733,15 @@ This module needs no Effect program: retries belong to admission, reply relay us
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
 (`assembly.ts`) declares the sweep list.
 
+Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
+`get_operator_preference` and `set_operator_preference` choose the person from the
+authenticated Operator session and its current human request; they accept no person,
+project or path selector. Guests gain only this personal write. REST exposes self reads
+and owner/admin lists through personal logins, with no preference write route.
+The session launcher requests only its current human's five enum fields through a
+server port; signal and question-screening launches receive none. Guest contexts omit
+member memory. Style is rendered as validated JSON data and grants no authority.
+
 **Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
 behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
 an Effect program: `kernel`, `runtime/sessions`, `runtime/delivery`, `runtime/watchers`,
@@ -1310,8 +1319,9 @@ workers follow the machine's size.
   agreement (summary, involvement and extra-critical steps), up to 20 approved learned principles
   (example, principle and effect), and each member's enumerated conversational preferences in
   `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
-  These records are outside the public repository and the customization git history; no HTTP or
-  MCP writer is exposed. Missing documents start at revision zero; invalid documents are refused
+  These records are outside the public repository and the customization git history. PM-688 adds
+  only a session-bound personal preference MCP writer and authenticated REST reads; knowledge
+  writes remain private. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -1319,8 +1329,9 @@ workers follow the machine's size.
   The shared `contracts/sandbox.ts` `sensitivePaths` app-home list denies the entire `operator-data`
   root to member file tools and the existing session-policy/provider consumers; no separate
   provider rule or new permission is added.
-  **Remote engine:** storage stays on the server, with no file mount on an engine. Later context/MCP
-  services may send filtered prompt data across the existing boundary; this card adds no such API.
+  **Remote engine:** storage stays on the server, with no file mount on an engine. Context/MCP
+  services send only the current person's five preference enums across the existing boundary
+  (PM-688), with no new engine file or machine assumption.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.

@@ -669,6 +669,23 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "Read personal conversation preferences",
+    },
+    "description": "Only the Operator in the current person’s general conversation. Read their personal style and revision. The server chooses the person from the session; no handle, project or path is accepted. These five style fields never authorize project changes.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "name": "get_operator_preference",
+    "title": "Read personal conversation preferences",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "Read project state",
     },
     "description": "Operator only, in the owners' conversation or a system-signal turn; unavailable in guest conversations. The source of every fact the Operator states about the running system: the running version and release, why a card is waiting, what became of a start or a message, or the project overview (stages, live and idle sessions, waiting starts, pauses and open owner inbox items). This read needs no open owner request. Explain the result to the owner in the project language.",
@@ -2806,6 +2823,83 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "set_current_work",
     "title": "Say what you are doing",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set personal conversation preferences",
+    },
+    "description": "Only the Operator, for the person currently speaking in their own conversation, including guests. Read get_operator_preference first and pass its revision as expected_revision. Changes only this person’s five style fields; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal. On operator_knowledge_stale read again before retrying.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "preference": {
+          "additionalProperties": false,
+          "properties": {
+            "background": {
+              "enum": [
+                "minimal",
+                "contextual",
+              ],
+              "type": "string",
+            },
+            "clarity": {
+              "enum": [
+                "plain",
+                "precise",
+              ],
+              "type": "string",
+            },
+            "detail": {
+              "enum": [
+                "offer",
+                "include",
+              ],
+              "type": "string",
+            },
+            "length": {
+              "enum": [
+                "brief",
+                "balanced",
+                "detailed",
+              ],
+              "type": "string",
+            },
+            "technicalLevel": {
+              "enum": [
+                "plain",
+                "mixed",
+                "technical",
+              ],
+              "type": "string",
+            },
+          },
+          "required": [
+            "length",
+            "technicalLevel",
+            "detail",
+            "clarity",
+            "background",
+          ],
+          "type": "object",
+        },
+      },
+      "required": [
+        "expected_revision",
+        "preference",
+      ],
+      "type": "object",
+    },
+    "name": "set_operator_preference",
+    "title": "Set personal conversation preferences",
   },
   {
     "annotations": {

@@ -251,8 +251,9 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   consumers. Storage validates keys and strict document schemas, refuses symbolic links and
   non-regular or hard-linked files, and writes complete JSON through a synced 0600 temporary file
   and same-directory atomic rename in 0700 directories. Target-file CAS is serialized within the
-  server process; corrupt files and stale revisions are refused without overwriting. This storage
-  adds no HTTP/MCP writer, authorization grant or engine file mount.
+  server process; corrupt files and stale revisions are refused without overwriting. PM-688 adds
+  the personal-preference MCP writer and REST readers described below; agreements and learned
+  principles gain no writer here, and the storage has no engine file mount.
 - Request logging omits bodies, credentials and query strings, and redacts hook,
   MCP and invitation URL tokens. Unknown-route/parser errors do not echo request
   secrets. Authentication records are not broadcast. Markdown builds escaped React
@@ -392,12 +393,13 @@ author metadata, never from the HTTP request body.
 
 Every person of the project has a conversation of their own with the Operator
 (`{ type: 'general', with: <handle> }`); the owners share `{ type: 'general' }`. Only a
-change an owner asked for is made. In a conversation with anyone else the Operator reads and
-answers, nothing more:
+project change an owner asked for is made. In a conversation with anyone else the Operator reads,
+answers and can change that person's own conversational style (PM-688):
 
-- **Writes are refused by the server.** `callerWithRequest` lets such a session call
-  `OPERATOR_GUEST_TOOLS` only (`get_task`, `list_tasks`, `list_members`, `list_attachments`,
-  `read_attachment`, and `send_message` to that person alone). Every other tool gets 403
+- **Project writes are refused by the server.** `callerWithRequest` lets such a session call
+  `OPERATOR_GUEST_TOOLS` only (`get_operator_preference`, `set_operator_preference`, `get_task`,
+  `list_tasks`, `list_members`, `list_attachments`, `read_attachment`, `read_message_attachment`,
+  and `send_message` to that person alone). Every other tool gets 403
   `operator_owner_only`; a refused write is logged as a `refused` step. `get_project_state` is not
   among them until a separate task adds a viewer filter.
 - **Reads are the person's own view.** Cards, details, timeline excerpts and attachments go through
@@ -420,6 +422,26 @@ answers, nothing more:
   the Operator's session is the owner's alone: an admin may watch, not type.
 - One guest conversation runs at a time and closes after five idle minutes; the owners' one is
   outside that capacity.
+
+Personal preferences (PM-688) are the guest's only data write. A change requires an open request
+from the person's own login; the server rechecks that the session's `with`, human
+`startCause.by.handle` (without `via`) and `request.fromHandle` identify the same current human.
+The token's project and member must match the session, which must be a general conversation.
+Non-owner sessions receive no member memory. In the owners' conversation the subject is the
+current open owner request's `fromHandle`, checked against the current human owners. Without an
+open request, writing fails with `operator_no_request`; reading is allowed only with exactly one
+current human owner, otherwise it fails with `operator_preference_no_person`. Neither MCP tool
+accepts a person, project or path selector. `set_operator_preference` uses `expected_revision`
+for CAS; a stale revision fails with HTTP status 409 (`operator_knowledge_stale`).
+
+`GET /api/projects/:key/operator/preferences` requires at least admin access and the person's own
+login; `GET /api/projects/:key/operator/preferences/me` reads only the logged-in human's preference.
+Neither route accepts integrator access, and there is no preference PUT route. Only the current
+conversation's five preference enums enter the prompt, reparsed with Zod and serialized as a JSON
+data block granting no permissions. Only a current own-login human message, answer or conversation
+start can supply that person's style; signal and question-screening launches receive none. An
+unreadable or corrupt preference is logged as a warning and omitted during launch without
+overwriting the file; explicit preference reads and writes retain their errors.
 
 ## Automatic command decisions
 

@@ -263,6 +263,7 @@ modules:
     summary: Operátori műveletek, jelzések, kérések és projektkezelés.
     paths:
       - apps/server/src/services/operator/
+      - apps/server/src/services/operator/preferences.ts
 
   # Server: engine
   - id: runner

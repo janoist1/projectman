@@ -250,7 +250,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/operator',
     pass: 'split',
-    paths: ['services/operator/'],
+    paths: ['services/operator/', 'services/operator/preferences.ts'],
     sealed: true,
   },
   {

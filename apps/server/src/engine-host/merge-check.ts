@@ -1,8 +1,7 @@
-import { execFile } from 'node:child_process';
-import { lstat, mkdir, readdir, readFile as readFileBytes, realpath, rm, unlink } from 'node:fs/promises';
+import { lstat, mkdir, readFile as readFileBytes, realpath, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { MergeError, type BranchMerger, type MergeRepoRef } from '../contracts';
-import { DEPENDENCY_LOCKFILE, findDependencyReference } from '../worktree';
+import { copyDependencyTrees, DEPENDENCY_LOCKFILE, findDependencyReference } from '../worktree';
 import { runGit } from './merge-git';
 import { invalidInput, isMergeId, type MergeArgs } from './merge-input';
 import { listWorktrees, must } from './merge-repo';
@@ -16,11 +15,6 @@ import { isWithin } from './within';
 export const MERGE_CHECK_DIR = '_merge';
 export const DEPENDENCIES_NOT_INSTALLED =
   "No checkout of the repository has the dependencies of the merge result installed (its package-lock.json matches no installed checkout). Install them with npm ci in a checkout whose package-lock.json is the merge result's: the repository's own checkout of the default branch when the card does not change the dependencies, otherwise the card's worktree after merging the default branch into it. Then retry merge_task.";
-const MAX_NODE_MODULES_DEPTH = 2; // the root, `*/` and `*/*/`
-const DEPENDENCY_COPY_TIMEOUT_MS = 300_000;
-/** Caches under node_modules that may hold absolute paths of the place they were made in. */
-const CACHE_DIRS = ['.vite', '.vite-temp', '.cache'];
-
 export interface MergeCheckOptions {
   args: MergeArgs;
   /** The engine's worktrees root; the checks live in `<worktreesRoot>/_merge/<mergeId>`. null: no check checkouts. */
@@ -42,65 +36,6 @@ export function createMergeChecks(
     if (known && (!known.isDirectory() || known.isSymbolicLink()))
       return invalidInput(`${root} is not a directory`);
     return root;
-  };
-
-  /** The directories (relative, '' is the root) that hold a real `node_modules`, down to three levels. */
-  const dependencyParents = async (root: string): Promise<string[]> => {
-    const realDirectory = async (dir: string) => {
-      const info = await lstat(dir).catch(() => null);
-      return info !== null && info.isDirectory() && !info.isSymbolicLink();
-    };
-    const found: string[] = [];
-    const walk = async (relative: string, depth: number): Promise<void> => {
-      if (await realDirectory(path.join(root, relative, 'node_modules'))) found.push(relative);
-      if (depth >= MAX_NODE_MODULES_DEPTH) return;
-      const entries = await readdir(path.join(root, relative), { withFileTypes: true }).catch(() => []);
-      for (const entry of entries) {
-        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-        if (entry.name === 'node_modules' || entry.name === '.git') continue;
-        await walk(path.join(relative, entry.name), depth + 1);
-      }
-    };
-    await walk('', 0);
-    return found;
-  };
-  const copyTree = (source: string, dest: string, clone: boolean, timeoutMs: number): Promise<void> =>
-    new Promise((resolve, reject) => {
-      // `-P`: a link is copied as a link (the workspace links are relative and point into the new tree).
-      const cpArgs = [...(clone ? ['-c'] : []), '-R', '-P', source, dest];
-      execFile(
-        'cp',
-        cpArgs,
-        { env: { PATH: process.env.PATH ?? '/usr/bin:/bin' }, timeout: timeoutMs, windowsHide: true },
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
-  const copyDependencies = async (from: string, target: string): Promise<void> => {
-    const deadline = Date.now() + (options.copyTimeoutMs ?? DEPENDENCY_COPY_TIMEOUT_MS);
-    for (const parent of await dependencyParents(from)) {
-      const holder = path.join(target, parent);
-      const holderInfo = await lstat(holder).catch(() => null);
-      // The merged tree may not have that directory any more, or may track something of that name.
-      if (!holderInfo || !holderInfo.isDirectory() || holderInfo.isSymbolicLink()) continue;
-      // The merged tree is the card's: a tracked link on any part of the path (`apps -> /elsewhere`) would
-      // lead the copy out of the check worktree. `target` is already a real path, so the real holder must
-      // be exactly where the path says.
-      if ((await realpath(holder).catch(() => null)) !== holder) continue;
-      const dest = path.join(holder, 'node_modules');
-      if (await lstat(dest).catch(() => null)) continue;
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new MergeError('git_failed', 'copying the dependencies timed out');
-      const source = path.join(from, parent, 'node_modules');
-      if (platform === 'darwin') {
-        try {
-          await copyTree(source, dest, true, remaining);
-        } catch {
-          await rm(dest, { recursive: true, force: true });
-          await copyTree(source, dest, false, Math.max(deadline - Date.now(), 1000));
-        }
-      } else await copyTree(source, dest, false, remaining);
-      for (const cache of CACHE_DIRS) await rm(path.join(dest, cache), { recursive: true, force: true });
-    }
   };
 
   const release = async (repo: string, target: string): Promise<void> => {
@@ -161,7 +96,13 @@ export function createMergeChecks(
     try {
       const realTarget = await realpath(target);
       const source = await dependencySource(repo, realTarget, input.depsFrom);
-      if (source.path !== null) await copyDependencies(source.path, realTarget);
+      if (source.path !== null)
+        await copyDependencyTrees({
+          source: source.path,
+          target: realTarget,
+          platform,
+          timeoutMs: options.copyTimeoutMs,
+        });
       if (source.reference !== null && source.lock !== null) {
         const after = await findDependencyReference([source.reference.path], realTarget, source.lock);
         if (!after || after.installedAt !== source.reference.installedAt)

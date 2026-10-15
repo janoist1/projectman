@@ -233,7 +233,7 @@ describe('the full test executor in the heavy-run queue', () => {
         exitCode: null,
         durationMs: 0,
         failedFiles: [],
-        outputTail: 'dependency preparation is not supported by this executor',
+        outputTail: expect.stringContaining('worktrees root'),
       });
       expect(onStarted).not.toHaveBeenCalled();
       // Neither the queue nor the run directory is tried.

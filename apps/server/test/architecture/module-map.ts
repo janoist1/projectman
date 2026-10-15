@@ -266,7 +266,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'worktree',
     pass: 'split-tool',
-    paths: ['worktree/'],
+    paths: ['worktree/', 'worktree/dependency-copy.ts'],
     sealed: true,
   },
   {
@@ -282,7 +282,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'full-test',
     pass: 'split-tool',
-    paths: ['full-test/', 'full-test/npm-dependency-key.ts'],
+    paths: ['full-test/', 'full-test/npm-dependency-key.ts', 'full-test/npm-ci.ts'],
     sealed: true,
   },
   {

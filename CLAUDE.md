@@ -87,11 +87,13 @@ report. Stay inside your paths otherwise. Each module exposes the factory declar
 
 Every file under `apps/server/src` belongs to a module in
 `apps/server/test/architecture/module-map.ts`; `dependencies.test.ts` enforces its
-layer rules. Register new files in that map with an explicit path in the appropriate
-module row. Do not add dependency exceptions: each refactor slice removes its own.
+layer rules. Do not add dependency exceptions: each refactor slice removes its own.
 
-A new module in `module-map.ts`, a new web feature folder or a new top-level folder also goes
-into `projectman.structure.yaml` (`structure-map.test.ts` checks it).
+A new file inside an already covered folder needs no map entry. Server paths live only in
+`projectman.structure.yaml`; `module-map.ts` reads them from there. Add a new folder or a file
+outside all covered folders to the YAML. A new server module needs both a YAML entry and a
+`module-map.ts` row with its `layer` and `target`. Add a new web feature folder or top-level
+folder to the YAML as well (`structure-map.test.ts` checks it).
 
 ## Code style
 
@@ -120,6 +122,7 @@ npm run heavy -- <command>   # any other heavy command, at its turn (--label, --
 npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
+npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
 
@@ -133,7 +136,9 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. They never run the full suite. The merger (`team.merger`,
+before hand-over and in fix rounds. After adding, moving or renaming files, also run
+`npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
+and does not queue. They never run the full suite. The merger (`team.merger`,
 `claude` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
 before `main` moves: `npm run merge-test` in the full test sandbox, in the machine's queue.
 Shared code or configuration changes require the whole suite; workspace checks do not queue

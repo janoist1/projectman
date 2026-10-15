@@ -1,6 +1,6 @@
 # The projectman structure descriptor: the Structure view of the Map draws from it.
 # Names, summaries and link labels are UI text (Hungarian); ids stay English.
-# apps/server/test/architecture/structure-map.test.ts keeps it in line with module-map.ts.
+# apps/server/test/architecture/module-map.ts reads its server paths from this descriptor.
 version: 1
 
 areas:
@@ -49,7 +49,6 @@ modules:
     summary: A szerver közös interfészei és a motor portjai.
     paths:
       - apps/server/src/contracts/
-      - apps/server/src/contracts/operator-knowledge.ts
 
   # Server: infra
   - id: db
@@ -59,15 +58,12 @@ modules:
     summary: SQLite tárolás, tárolók (repository-k) és migrációk.
     paths:
       - apps/server/src/db/
-      - apps/server/src/db/session-cleanups.ts
-      - apps/server/src/db/merge-trains.ts
   - id: config
     area: infra
     name: Beállítások
     summary: A projektbeállítások betöltése, ellenőrzése és migrálása.
     paths:
       - apps/server/src/config/
-      - apps/server/src/config/operator-knowledge-store.ts
   - id: logging
     area: infra
     name: Naplózás
@@ -164,7 +160,6 @@ modules:
     summary: Munkamenet-életciklus, körök, tömörítés, szabályzat, szüneteltetés és munkaterületek.
     paths:
       - apps/server/src/runtime/sessions/
-      - apps/server/src/runtime/sessions/cleanup-failures.ts
   - id: runtime/delivery
     area: runtime
     name: Kézbesítés
@@ -203,8 +198,6 @@ modules:
     summary: A kártyák összefésülésének vezénylése, sora és zárai.
     paths:
       - apps/server/src/services/merges/
-      - apps/server/src/services/merges/train-selection.ts
-      - apps/server/src/services/merges/train.ts
   - id: services/full-tests
     area: service
     name: Teljes tesztek
@@ -265,7 +258,6 @@ modules:
     summary: Operátori műveletek, jelzések, kérések és projektkezelés.
     paths:
       - apps/server/src/services/operator/
-      - apps/server/src/services/operator/preferences.ts
 
   # Server: engine
   - id: runner
@@ -274,9 +266,6 @@ modules:
     summary: Szolgáltatói CLI-k, PTY-k, engedélyre várás, átiratok, használatmérés és bizalom.
     paths:
       - apps/server/src/runner/
-      - apps/server/src/runner/process-scope/types.ts
-      - apps/server/src/runner/process-scope/process-group.ts
-      - apps/server/src/runner/process-scope/index.ts
   - id: worktree
     area: engine
     name: Munkafák
@@ -295,7 +284,6 @@ modules:
     summary: Homokozóban futó tesztek és a nehézfutás-sor.
     paths:
       - apps/server/src/full-test/
-      - apps/server/src/full-test/npm-dependency-key.ts
   - id: machine
     area: engine
     name: Gépfigyelés

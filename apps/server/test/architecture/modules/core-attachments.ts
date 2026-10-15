@@ -1,10 +1,9 @@
 import type { ModuleEntry } from '../module-map';
 
-export const coreAttachments: ModuleEntry = {
+export const coreAttachments: Omit<ModuleEntry, 'paths'> = {
   id: 'core/attachments',
   layer: 'core',
   target: 'core/attachments',
   pass: 'move',
-  paths: ['core/attachments/'],
   sealed: true,
 };

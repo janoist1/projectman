@@ -656,8 +656,10 @@ construction order; the factories return the existing classes without changing b
 | `assembly` (`assembly.ts`)                        | Domain service composition and wiring.                                      |
 | `entry`                                           | Application and engine startup, composition and shutdown.                   |
 
-The single source of truth for file → module → layer assignments, targets and
-passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
+The source of truth for file → module assignments is
+[projectman.structure.yaml](../projectman.structure.yaml). Layers, targets and passes live in
+[module-map.ts](../apps/server/test/architecture/module-map.ts), which reads server paths
+from the YAML at load time.
 The longest matching path wins; each declared path must exist and appear only once.
 [dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
 enforces the layer rules against all production TypeScript source files.

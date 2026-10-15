@@ -1,5 +1,53 @@
 # The cloud board on AWS EC2 or Lightsail
 
+## Prebuilt ARM and amd64 images (PM-718)
+
+The PM-675 target is Frankfurt (`eu-central-1`), `t4g.micro`, Canonical Ubuntu 24.04 arm64,
+20 GiB gp3. Set `aws.ec2.architecture: "arm64"` and `deployment.imageBundle` in cloud config v1.
+Omitting architecture keeps `x86_64`. AMI name/architecture, instance type capabilities and the
+existing instance must agree; the ownership, IMDS, SSM and empty-inbound guards stay in force.
+The imageBundle directory is relative to the config file, or absolute. It need not exist when
+config is first written; preflight, seed and deploy verify it before remote writes.
+
+On a **separate admin/builder machine**, with a clean checkout at the accepted full lowercase SHA:
+
+```sh
+npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout --dry-run
+npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout
+```
+
+Docker and an already configured Buildx `docker-container` driver must support linux/amd64 and
+linux/arm64 through native builders or emulation. The command does not create a builder, fetch,
+switch branches or publish. Two sequential, single-platform Docker exports use the same SHA and
+tracked source context, then load/inspect verifies config digest, Linux architecture, revision
+LABEL and PROJECTMAN_VERSION. The bundle becomes valid only when both exports pass and its
+strict `manifest.json` is atomically published. Dry-run only checks/plans and creates no output.
+See the [Buildx build reference](https://docs.docker.com/reference/cli/docker/buildx/build/) and
+[Docker exporter documentation](https://docs.docker.com/build/exporters/oci-docker/).
+
+Keep `manifest.json`, `linux-amd64.tar` and `linux-arm64.tar` together. Output must be a new
+directory outside the repository with no symlink components, NUL/newline or comma in its path.
+The manifest records sourceSha and each archive's SHA-256, bytes and image config ID. It is
+integrity metadata, not a signature: the owner approves the specific builder output and digests.
+Record these values from the `ok image` report in the PM-675 round approval.
+
+`deploy --ref <SHA40> --dry-run` validates the selected archive locally. Deploy sends only that
+platform's tar over the existing SSH/SSM stream. Host import checks free disk, bounded bytes/hash,
+host platform, sole source tag and config content before load, then inspects the immutable ID.
+It neither starts the board nor opens SQLite. A conflicting source tag refuses import.
+Seed retains the empty bucket/host checks and PM-717 data integrity gate **before** image import,
+receive-env and pinned start. There is no host build or fallback on a configured bundle path.
+
+Prebuilt starts use the immutable image ID. Status exposes the actual container ID; health checks
+it together with the history's SHA/ID/platform. Manual and health rollback retain previous IDs;
+ARM refuses a legacy record without its digest/platform. Old amd64 records and deployment without
+an imageBundle retain the existing host-build path. Rollback does not undo DB migrations: keep
+the existing point-in-time recovery gate. No image import prunes current/previous images.
+
+Real two-platform builds and disposable runtime smoke (Node/better-sqlite3, cloudflared,
+litestream, restic and cloud server), plus 1 GiB RAM and import disk headroom checks, are PM-675
+release artifact evidence. This implementation does not provision resources or authorize cutover.
+
 For the owner-approved Mac single → EC2 cloud + Mac engine execution order, approval
 points, checks and rollback, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
 It preserves existing Cloudflare DNS/mail and distinguishes the private move from public activation.
@@ -21,22 +69,22 @@ to the board and receives no AWS profile credentials. Provisioning does not chan
    `aws --profile i --region us-east-1 sts get-caller-identity`. Save the expected account ids in
    the execution package, and compare them with each script's printed identity before approval.
 2. Copy `deploy/aws/config.example.json` to the protected secrets store described below. Replace
-   **all** choice markers, including the region: the example region is illustrative, not an owner
-   choice. Use unique bucket names. `aws.compute=ec2` requires an explicit `aws.ec2` object:
+   **all** choice markers. The example records the PM-675 Frankfurt/ARM/type/disk decision;
+   other installations choose their target explicitly. Use unique bucket names. `aws.compute=ec2` requires an explicit `aws.ec2` object:
    `instanceType`, `amiId`, `vpcId`, `subnetId` and integer `volumeGiB` (20–1024). No EC2 type,
    image or disk-size default is chosen. Retain `aws.profile=aroom`, `route53.profile=i`.
    To discover candidates before the config is complete, the owner can read the catalogue with
    `aws --profile aroom --region <region> ec2 describe-images --owners 099720109477 --filters
-'Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*'` and
+'Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*'` (use amd64 for x86_64) and
    `aws --profile aroom --region <region> ec2 describe-subnets`. No resource is created by these reads.
    EC2 refuses a missing/empty compute profile and the registrar profile `i` before any AWS call.
    Other explicit central profiles are accepted; the name check supplements STS/owner checks.
 3. Run `npm run cloud -- preflight`. It prints the STS account, available Canonical Ubuntu 24.04
-   amd64 server AMIs and subnet choices. It checks the chosen AMI owner, OS, architecture, HVM/EBS
+   server AMIs for the configured architecture and subnet choices. It checks the chosen AMI owner, OS, architecture, HVM/EBS
    root and minimum disk size (AMI ephemeral instance-store mappings are allowed; additional EBS
    mappings are refused); enabled region; VPC/subnet ownership, free IPv4 and DNS support;
    subnet's effective default route directly to an attached internet gateway; IPv4 network ACL;
-   and encrypted-EBS/x86_64 support plus availability of the type in the subnet's zone. This proves
+   and encrypted-EBS/selected-architecture support plus availability of the type in the subnet's zone. This proves
    the configured network prerequisites; installed SSM and application connectivity are verified
    by the later host adapter. The conservative ACL check accepts an initial allow-all IPv4 rule
    in each direction and refuses custom ACLs it cannot prove. The security group still blocks all

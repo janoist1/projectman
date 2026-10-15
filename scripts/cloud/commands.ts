@@ -21,11 +21,14 @@ import {
   runStop,
 } from './machine';
 import { Report } from './report';
+import { runImageBuild, selectedImage, sourceShaSchema } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 
 export const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
+  image-build --ref <SHA40> --out <new directory> [--dry-run]
+                                     build and verify amd64 and arm64 archives on the admin builder
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
   aws [--dry-run] [--rotate-keys]    create the EC2 or Lightsail machine, the S3 buckets, the IAM users and their keys
   deploy [--ref <tag|sha>] [--dry-run]
@@ -71,7 +74,7 @@ type Flag =
   | 'feedback'
   | 'update'
   | 'back';
-type ValueOption = 'ref' | 'lines' | 'from' | 'to' | 'login-json';
+type ValueOption = 'ref' | 'lines' | 'from' | 'to' | 'login-json' | 'out';
 
 interface Invocation {
   dryRun: boolean;
@@ -98,6 +101,12 @@ function logLines(value: string | undefined): number {
 
 /** The checks `preflight` runs one after the other. */
 const PREFLIGHT_CHECKS: { name: string; run(context: CloudContext): Promise<void> }[] = [
+  {
+    name: 'image',
+    run: async (context) => {
+      selectedImage(context);
+    },
+  },
   { name: 'aws', run: awsPreflight },
   { name: 'cloudflare', run: cloudflarePreflight },
 ];
@@ -122,6 +131,14 @@ async function preflight(context: CloudContext): Promise<void> {
 
 /** The command table: a later card adds a row and its module. */
 export const COMMANDS: Record<string, CommandSpec> = {
+  'image-build': {
+    summary: 'build the two-platform image bundle',
+    flags: ['dry-run'],
+    values: ['ref', 'out'],
+    required: ['ref', 'out'],
+    run: (context, invocation) =>
+      runImageBuild(context, invocation.values.ref!, invocation.values.out!, invocation.dryRun),
+  },
   'ses plan': { summary: 'preview SES provisioning', flags: [], run: runSesPlan },
   'ses configure': {
     summary: 'configure SES and DKIM',
@@ -313,6 +330,11 @@ function parse(argv: readonly string[]): Parsed {
   }
   for (const name of spec.required ?? [])
     if (values[name] === undefined) throw badUsage(`${command} needs --${name}\n${USAGE}`);
+  if (
+    command === 'image-build' &&
+    (!sourceShaSchema.safeParse(values.ref).success || /[\0\r\n,]/.test(values.out!))
+  )
+    throw badUsage('image-build needs a SHA40 ref and an output path without NUL, newline or comma');
   return { command, config, flags, values };
 }
 

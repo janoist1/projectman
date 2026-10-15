@@ -1,5 +1,14 @@
 # Hybrid mode in the cloud (PM-317)
 
+For the ARM EC2 target, [AWS.md](AWS.md#prebuilt-arm-and-amd64-images-pm-718) describes the
+PM-718 two-platform bundle. Build it on a separate administration/builder machine at the same
+accepted full SHA as the Mac engine. EC2 imports only its native platform archive over SSH/SSM
+and starts the verified immutable image ID; it never builds on ARM. AWS/registry credentials
+do not cross to the engine. Seed's PM-717 integrity gate still precedes import and first start.
+The image revision LABEL, version ENV, archive hash and ID are recorded with each PM-675 round.
+No engine protocol or repository migration changes; older amd64 host-build installations remain
+compatible. An older image does not reverse database migrations; recovery approval still applies.
+
 The hybrid mode splits projectman in two: the **cloud** keeps the board, the database, the
 accounts and the secrets, and is reachable from anywhere; the **engine** on your Mac runs the AI
 sessions, the git checkouts and the tests, and connects to the cloud over an outbound link

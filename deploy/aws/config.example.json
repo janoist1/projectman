@@ -3,18 +3,20 @@
   "aws": {
     "compute": "ec2",
     "profile": "aroom",
-    "region": "eu-west-1",
+    "region": "eu-central-1",
     "instanceName": "projectman-cloud",
     "ec2": {
-      "instanceType": "CHOOSE-INSTANCE-TYPE",
-      "amiId": "CHOOSE-UBUNTU-24.04-AMD64-AMI",
+      "architecture": "arm64",
+      "instanceType": "t4g.micro",
+      "amiId": "CHOOSE-CANONICAL-UBUNTU-24.04-ARM64-AMI",
       "vpcId": "CHOOSE-EXISTING-VPC",
       "subnetId": "CHOOSE-PUBLIC-SUBNET",
-      "volumeGiB": "CHOOSE-20-TO-1024-GIB-AS-A-NUMBER"
+      "volumeGiB": 20
     },
     "databaseBucket": "CHANGE-ME-projectman-db",
     "backupBucket": "CHANGE-ME-projectman-backup"
   },
+  "deployment": { "imageBundle": "./images/accepted-sha" },
   "repository": {
     "url": "https://github.com/janoist1/projectman.git"
   },

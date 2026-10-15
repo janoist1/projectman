@@ -245,7 +245,7 @@ export class FakeEc2 {
           SubnetId: request.NetworkInterfaces[0].SubnetId,
           State: { Name: 'pending' },
           Tags: request.TagSpecifications.find((item: any) => item.ResourceType === 'instance').Tags,
-          Architecture: 'x86_64',
+          Architecture: this.architecture,
           VirtualizationType: 'hvm',
           RootDeviceType: 'ebs',
           RootDeviceName: '/dev/sda1',

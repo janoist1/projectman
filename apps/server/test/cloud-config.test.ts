@@ -77,6 +77,25 @@ describe('the defaults', () => {
 });
 
 describe('the validation', () => {
+  it('requires a bundle for ARM without requiring built files during config parsing', () => {
+    const raw = config((value) => {
+      value.aws = {
+        ...value.aws,
+        compute: 'ec2',
+        profile: 'aroom',
+        ec2: { ...EC2_CONFIG, architecture: 'arm64' },
+      };
+    });
+    expect(refusal(raw)).toContain('deployment.imageBundle');
+    const withBundle = { ...(raw as object), deployment: { imageBundle: './not-built-yet' } };
+    expect(parseConfig(withBundle, HOME, '/config/cloud').deployment?.imageBundle).toBe(
+      '/config/cloud/not-built-yet',
+    );
+    expect(refusal({ ...withBundle, deployment: { imageBundle: ' ' } })).toContain('deployment.imageBundle');
+    expect(refusal({ ...withBundle, deployment: { imageBundle: 'bundle', registry: 'refused' } })).toContain(
+      'deployment',
+    );
+  });
   it.each([undefined, 'i', ''])('refuses EC2 profile %s before any AWS call', async (profile) => {
     const world = new CloudWorld();
     try {
@@ -99,7 +118,7 @@ describe('the validation', () => {
       }),
       HOME,
     );
-    expect(parsed.aws.ec2).toEqual(EC2_CONFIG);
+    expect(parsed.aws.ec2).toEqual({ ...EC2_CONFIG, architecture: 'x86_64' });
     expect(parsed.route53.profile).toBe('i');
     expect(
       parseConfig(

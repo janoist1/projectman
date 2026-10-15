@@ -12,6 +12,8 @@ import { readHostStatus, readUnitFile, withHost } from './host';
 import type { StepResult } from './report';
 import { readSecret } from './secrets';
 import { readEc2HostInstance } from './ec2-host';
+import { receiveImage, selectedImage } from './images';
+import type { SelectedImage } from './images';
 
 /**
  * The commands that manage the machine (PM-535): `deploy`, `rollback`, `status`, `logs`, `ssh`, `stop`,
@@ -240,7 +242,13 @@ interface HealthResult {
 }
 
 /** Polls the machine's status up to HEALTH_SECONDS for the container of `sha` to report `healthy`. */
-async function waitHealthy(context: CloudContext, host: HostSession, sha: string): Promise<HealthResult> {
+async function waitHealthy(
+  context: CloudContext,
+  host: HostSession,
+  sha: string,
+  imageId?: string,
+  platform?: string,
+): Promise<HealthResult> {
   const { deps, report } = context;
   const expected = `projectman-cloud:${sha}`;
   let lastLine = '';
@@ -248,7 +256,13 @@ async function waitHealthy(context: CloudContext, host: HostSession, sha: string
   for (let attempt = 0; attempt < HEALTH_ATTEMPTS; attempt += 1) {
     status = await readHostStatus(host);
     const line = `unit ${status.unit}, container ${status.container}, health ${status.health}`;
-    if (status.container === 'running' && status.health === 'healthy' && status.image === expected)
+    const matches = imageId
+      ? status.imageId === imageId &&
+        status.deploy?.current?.sha === sha &&
+        status.deploy.current.imageId === imageId &&
+        (!platform || status.deploy.current.platform === platform)
+      : status.image === expected;
+    if (status.container === 'running' && status.health === 'healthy' && matches)
       return { healthy: true, status };
     if (line !== lastLine) report.line(`  waiting: ${line}`);
     lastLine = line;
@@ -280,29 +294,39 @@ async function deployOnHost(
   host: HostSession,
   target: Target,
   envText: string,
+  image?: SelectedImage,
 ): Promise<void> {
   const { config, report, deps } = context;
   await report.run('bootstrap', async (): Promise<StepResult> => {
     await host.call('bootstrap', [], { input: readUnitFile(deps.repoRoot), timeoutMs: BOOTSTRAP_TIMEOUT_MS });
     return { status: 'ok', detail: 'Docker, git, swap, directories, systemd unit' };
   });
+  if (image)
+    await report.run('receive-image', async (): Promise<StepResult> => {
+      await receiveImage(context, host, image);
+      return {
+        status: 'ok',
+        detail: `source=${target.sha} platform=${image.platform} archiveSha256=${image.archiveSha256} imageId=${image.imageId}`,
+      };
+    });
   await report.run('receive-env', async (): Promise<StepResult> => {
     await host.call('receive-env', [], { input: envText });
     return { status: 'updated', detail: '/etc/projectman/cloud.env' };
   });
   const before = (await readHostStatus(host)).deploy?.current ?? null;
-  await report.run('build', async (): Promise<StepResult> => {
-    await host.call('build', [target.sha, config.repository.url], {
-      timeoutMs: BUILD_TIMEOUT_MS,
-      stdio: 'inherit',
+  if (!image)
+    await report.run('build', async (): Promise<StepResult> => {
+      await host.call('build', [target.sha, config.repository.url], {
+        timeoutMs: BUILD_TIMEOUT_MS,
+        stdio: 'inherit',
+      });
+      return { status: 'created', detail: `projectman-cloud:${target.sha.slice(0, 12)}` };
     });
-    return { status: 'created', detail: `projectman-cloud:${target.sha.slice(0, 12)}` };
-  });
   await report.run('start', async (): Promise<StepResult> => {
-    await host.call('start', [target.sha, target.ref]);
+    await host.call('start', [target.sha, target.ref, ...(image ? [image.imageId] : [])]);
     return { status: 'updated', detail: `${target.ref} (${target.sha.slice(0, 12)})` };
   });
-  const result = await waitHealthy(context, host, target.sha);
+  const result = await waitHealthy(context, host, target.sha, image?.imageId, image?.platform);
   if (result.healthy) {
     report.step('ok', 'health', `${target.ref} is healthy`);
     return;
@@ -314,13 +338,13 @@ async function deployOnHost(
   await showLogs(context, host, 200).catch((error: unknown) =>
     report.line(`  (the log could not be read: ${error instanceof Error ? error.message : String(error)})`),
   );
-  if (before && before.sha !== target.sha) {
+  if (before && (before.sha !== target.sha || before.imageId !== image?.imageId)) {
     report.line(`going back to ${before.ref} (${before.sha.slice(0, 12)})`);
     await report.run('rollback', async (): Promise<StepResult> => {
-      await host.call('start', [before.sha, before.ref]);
+      await host.call('start', recordedStart(context, before));
       return { status: 'updated', detail: `${before.ref} (${before.sha.slice(0, 12)})` };
     });
-    const restored = await waitHealthy(context, host, before.sha);
+    const restored = await waitHealthy(context, host, before.sha, before.imageId, before.platform);
     if (restored.healthy) report.step('ok', 'health', `${before.ref} is healthy again`);
     else report.line(`FAIL health: ${before.ref} is not healthy either`);
     migrationWarning(context, before.ref, stoppedAt);
@@ -337,9 +361,22 @@ export interface DeployOptions {
   dryRun: boolean;
 }
 
+function recordedStart(
+  context: CloudContext,
+  entry: NonNullable<NonNullable<HostStatus['deploy']>['current']>,
+): string[] {
+  if (
+    context.config.aws.ec2?.architecture === 'arm64' &&
+    (!entry.imageId || entry.platform !== 'linux/arm64')
+  )
+    throw refused('ARM start/rollback requires a recorded image ID and platform');
+  return [entry.sha, entry.ref, ...(entry.imageId ? [entry.imageId] : [])];
+}
+
 export async function runDeploy(context: CloudContext, options: DeployOptions): Promise<void> {
   const { report, config } = context;
   const target = await resolveTarget(context, options.ref);
+  const image = selectedImage(context, target.sha);
   const envText = cloudEnvText(context);
   if (!/^TUNNEL_TOKEN=./m.test(envText))
     report.line(
@@ -349,11 +386,11 @@ export async function runDeploy(context: CloudContext, options: DeployOptions): 
     report.step(
       'skipped',
       'deploy',
-      `dry-run: would ${config.aws.compute === 'ec2' ? 'connect by SSH through SSM' : 'open the SSH port for your address'}, bootstrap ${config.aws.instanceName}, send cloud.env, build ${target.sha} there, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
+      `dry-run: would ${config.aws.compute === 'ec2' ? 'connect by SSH through SSM' : 'open the SSH port for your address'}, bootstrap ${config.aws.instanceName}, ${image ? `receive verified image ${image.imageId}` : `build ${target.sha} there`}, send cloud.env, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
     );
     return;
   }
-  await withHost(context, (host) => deployOnHost(context, host, target, envText));
+  await withHost(context, (host) => deployOnHost(context, host, target, envText, image));
 }
 
 export async function runRollback(context: CloudContext, options: { dryRun: boolean }): Promise<void> {
@@ -372,10 +409,10 @@ export async function runRollback(context: CloudContext, options: { dryRun: bool
     if (!previous) throw refused('there is no previous image to go back to (deploy.json has none)');
     const stoppedAt = status.deploy?.lastStoppedAt;
     await report.run('start', async (): Promise<StepResult> => {
-      await host.call('start', [previous.sha, previous.ref]);
+      await host.call('start', recordedStart(context, previous));
       return { status: 'updated', detail: `${previous.ref} (${previous.sha.slice(0, 12)})` };
     });
-    const result = await waitHealthy(context, host, previous.sha);
+    const result = await waitHealthy(context, host, previous.sha, previous.imageId, previous.platform);
     migrationWarning(context, previous.ref, stoppedAt);
     if (!result.healthy) {
       report.line(
@@ -405,10 +442,10 @@ export async function runStart(context: CloudContext, options: { dryRun: boolean
     const current = status.deploy?.current ?? null;
     if (!current) throw refused('nothing has been deployed yet; run `npm run cloud -- deploy`');
     await report.run('start', async (): Promise<StepResult> => {
-      await host.call('start', [current.sha, current.ref]);
+      await host.call('start', recordedStart(context, current));
       return { status: 'updated', detail: `${current.ref} (${current.sha.slice(0, 12)})` };
     });
-    const result = await waitHealthy(context, host, current.sha);
+    const result = await waitHealthy(context, host, current.sha, current.imageId, current.platform);
     if (!result.healthy) {
       report.line(
         `FAIL health: ${current.ref} did not become healthy in ${HEALTH_SECONDS} s; the last 100 log lines:`,
@@ -543,6 +580,7 @@ export async function runSeed(context: CloudContext, options: SeedOptions): Prom
     return digest;
   });
   const target = await resolveTarget(context, options.ref);
+  const image = selectedImage(context, target.sha);
   const envText = cloudEnvText(context);
   for (const bucket of [config.aws.databaseBucket, config.aws.backupBucket]) {
     await report.run(`bucket-empty ${bucket}`, async (): Promise<StepResult> => {
@@ -623,7 +661,7 @@ export async function runSeed(context: CloudContext, options: SeedOptions): Prom
         detail: `database sha256=${before.databaseSha256} bytes=${before.databaseBytes} (before first start)`,
       };
     });
-    await deployOnHost(context, host, target, envText);
+    await deployOnHost(context, host, target, envText, image);
   });
 }
 

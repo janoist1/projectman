@@ -10,8 +10,11 @@
 #   bootstrap                 install Docker, git, swap, the directories and the systemd unit (idempotent);
 #                             the unit file comes on the standard input
 #   receive-env               replace /etc/projectman/cloud.env with the standard input (root only, 600)
+#   receive-image <sha40> <platform> <bytes> <sha256> <image-id>
+#                             verify/import one native Docker archive on stdin; strict metadata JSON only
 #   build <sha40> <repo-url>  fetch that commit and build projectman-cloud:<sha40> from it
-#   start <sha40> [ref]       run that image under systemd and record it in deploy.json
+#   start <sha40> [ref] [expectedImageId]
+#                             verify/run the pinned image (required on ARM), record it in deploy.json
 #   stop                      stop and disable the unit, record when it stopped
 #   status                    one JSON object on the standard output
 #   logs <n>                  the last n journal lines of the unit
@@ -93,15 +96,15 @@ read_deploy() {
 # write_deploy <sha|""> <ref> <lastStoppedAt|"">: the new current image (the old one becomes the previous
 # one unless it is the same), written in one step.
 write_deploy() {
-  local sha=$1 ref=$2 stopped=$3 old tmp
+  local sha=$1 ref=$2 stopped=$3 image_id=${4:-} platform=${5:-} old tmp
   old=$(read_deploy)
   tmp=$(mktemp "$STATE_DIR/.deploy.json.XXXXXX")
-  jq -n --argjson old "$old" --arg sha "$sha" --arg ref "$ref" --arg at "$(now)" --arg stopped "$stopped" '
+  jq -n --argjson old "$old" --arg sha "$sha" --arg ref "$ref" --arg at "$(now)" --arg stopped "$stopped" --arg imageId "$image_id" --arg platform "$platform" '
     ($old.current // null) as $current |
     ($old.previous // null) as $previous |
     {
-      current: (if $sha == "" then $current else { sha: $sha, ref: $ref, at: $at } end),
-      previous: (if $sha != "" and $current != null and $current.sha != $sha then $current else $previous end),
+      current: (if $sha == "" then $current else { sha: $sha, ref: $ref, at: $at } + (if $imageId == "" then {} else {imageId: $imageId, platform: $platform} end) end),
+      previous: (if $sha != "" and $current != null and ($current.sha != $sha or ($current.imageId // "") != $imageId) then $current else $previous end),
       lastStoppedAt: (if $stopped == "" then null else $stopped end)
     }' >"$tmp"
   chmod 644 "$tmp"
@@ -170,8 +173,15 @@ receive_env() {
 }
 
 build() {
+  [ "$(host_platform)" = linux/amd64 ] || refuse "ARM hosts cannot build images"
   local sha=${1:-} url=${2:-}
   check_sha "$sha"
+  umask 077
+  exec 9>"$STATE_DIR/.image.lock"
+  flock -x 9
+  if read_deploy | jq -e --arg sha "$sha" '[.current, .previous] | any(.sha == $sha and .imageId != null)' >/dev/null; then
+    refuse "cannot rebuild a recorded immutable image; use its approved bundle"
+  fi
   [[ "$url" =~ ^https://[A-Za-z0-9._~:/@%+-]+$ ]] || die "not an https repository URL: $url"
   local free
   free=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
@@ -211,16 +221,98 @@ prune_images() {
     case "$keep" in *" $tag "*) continue ;; esac
     docker image rm "$IMAGE_REPO:$tag" >/dev/null 2>&1 || true
   done < <(docker image ls "$IMAGE_REPO" --format '{{.Tag}}')
-  docker image prune --force >/dev/null
+  # Do not prune dangling images: a recorded immutable ID can still be needed for rollback.
   docker builder prune --force --keep-storage 2GB >/dev/null
 }
 
-start() {
-  local sha=${1:-} ref=${2:-}
+host_platform() {
+  case "$(uname -m)" in
+    x86_64) echo linux/amd64 ;;
+    aarch64|arm64) echo linux/arm64 ;;
+    *) refuse "unsupported host architecture" ;;
+  esac
+}
+
+check_image_id() {
+  [[ "${1:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || die "invalid image ID"
+}
+
+verify_image() {
+  local sha=$1 platform=$2 image_id=$3
+  docker image inspect "$image_id" | jq -e --arg id "$image_id" --arg platform "$platform" --arg sha "$sha" '
+    length == 1 and .[0].Id == $id and .[0].Os == "linux" and
+    ("linux/" + .[0].Architecture) == $platform and
+    .[0].Config.Labels["org.opencontainers.image.revision"] == $sha and
+    ([.[0].Config.Env[] | select(startswith("PROJECTMAN_VERSION="))] == ["PROJECTMAN_VERSION=" + $sha])
+  ' >/dev/null || die "image ID, platform, revision or version mismatch"
+}
+
+# A bounded, root-only stream; validate the archive and its sole tag before Docker may change any image.
+receive_image() (
+  [ "$#" -eq 5 ] || die "receive-image needs five arguments"
+  local sha=$1 platform=$2 bytes=$3 hash=$4 image_id=$5 free existing tmp config config_hash
   check_sha "$sha"
+  [[ "$platform" = linux/amd64 || "$platform" = linux/arm64 ]] || die "invalid platform"
+  [[ "$bytes" =~ ^[1-9][0-9]{0,15}$ ]] && [ "$bytes" -le 9007199254740991 ] || die "invalid archive size"
+  [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || die "invalid archive hash"
+  check_image_id "$image_id"
+  umask 077
+  exec 9>"$STATE_DIR/.image.lock"
+  flock -x 9
+  [ "$(host_platform)" = "$platform" ] || refuse "image platform differs from host"
+  [ "$(docker info --format '{{.OSType}}/{{.Architecture}}')" = "$platform" ] || {
+    # Docker reports Go or kernel architecture names depending on its version.
+    case "$(docker info --format '{{.OSType}}/{{.Architecture}}'):$platform" in
+      linux/x86_64:linux/amd64|linux/aarch64:linux/arm64) ;;
+      *) refuse "Docker daemon platform differs from host" ;;
+    esac
+  }
+  existing=$(docker image inspect -f '{{.Id}}' "$IMAGE_REPO:$sha" 2>/dev/null || true)
+  [ -z "$existing" ] || [ "$existing" = "$image_id" ] || refuse "source tag already names another image"
+  free=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
+  [ "$free" -ge "$((bytes + MIN_FREE_BYTES))" ] || refuse "insufficient disk for image stream"
+  umask 077
+  tmp=$(mktemp "$STATE_DIR/.image.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT
+  trap 'exit 1' HUP INT TERM
+  head -c "$((bytes + 1))" >"$tmp"
+  [ "$(stat -c %s "$tmp")" = "$bytes" ] || die "truncated or oversized image stream"
+  [ "$(sha256sum "$tmp" | cut -d ' ' -f1)" = "$hash" ] || die "image archive hash mismatch"
+  free=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
+  [ "$free" -ge "$MIN_FREE_BYTES" ] || refuse "insufficient disk for Docker import"
+  config=$(tar -xOf "$tmp" manifest.json | jq -er --arg tag "$IMAGE_REPO:$sha" '
+    if length == 1 and .[0].RepoTags == [$tag] then .[0].Config else error("unexpected archive tags") end') || die "invalid Docker archive manifest"
+  [[ "$config" =~ ^([0-9a-f]{64}\.json|blobs/sha256/[0-9a-f]{64})$ ]] || die "invalid image config path"
+  config_hash=$(tar -xOf "$tmp" "$config" | sha256sum | cut -d ' ' -f1)
+  [ "sha256:$config_hash" = "$image_id" ] || die "archive config digest mismatch"
+  tar -xOf "$tmp" "$config" | jq -e --arg platform "$platform" --arg sha "$sha" '
+    .os == "linux" and ("linux/" + .architecture) == $platform and
+    .config.Labels["org.opencontainers.image.revision"] == $sha and
+    ([.config.Env[] | select(startswith("PROJECTMAN_VERSION="))] == ["PROJECTMAN_VERSION=" + $sha])
+  ' >/dev/null || die "archive platform, revision or version mismatch"
+  docker load --input "$tmp" >&2 || die "Docker image import failed"
+  verify_image "$sha" "$platform" "$image_id"
+  printf '{"imageId":"%s","platform":"%s","revision":"%s"}\n' "$image_id" "$platform" "$sha"
+)
+
+start() {
+  local sha=${1:-} ref=${2:-} image_id=${3:-} platform image
+  check_sha "$sha"
+  umask 077
+  exec 9>"$STATE_DIR/.image.lock"
+  flock -x 9
   [ -n "$ref" ] || ref=$sha
   [[ "$ref" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || die "not a usable ref name: $ref"
-  docker image inspect "$IMAGE_REPO:$sha" >/dev/null 2>&1 || die "the image $IMAGE_REPO:$sha is not built"
+  platform=$(host_platform)
+  image="$IMAGE_REPO:$sha"
+  if [ -n "$image_id" ]; then
+    check_image_id "$image_id"
+    verify_image "$sha" "$platform" "$image_id"
+    image=$image_id
+  else
+    [ "$platform" = linux/amd64 ] || refuse "ARM start requires a recorded image ID"
+    docker image inspect "$image" >/dev/null 2>&1 || die "the image $image is not built"
+  fi
   [ -s "$ENV_FILE" ] || die "$ENV_FILE is missing (receive-env first)"
 
   # The old container's stop time is what a Litestream point-in-time restore needs after a failed migration.
@@ -230,9 +322,9 @@ start() {
     systemctl stop "$UNIT"
     stopped=$(now)
   fi
-  printf 'IMAGE=%s:%s\n' "$IMAGE_REPO" "$sha" >"$IMAGE_ENV"
+  printf 'IMAGE=%s\n' "$image" >"$IMAGE_ENV"
   chmod 644 "$IMAGE_ENV"
-  write_deploy "$sha" "$ref" "$stopped"
+  write_deploy "$sha" "$ref" "$stopped" "$image_id" "$platform"
   systemctl enable "$UNIT" >/dev/null 2>&1
   systemctl start "$UNIT"
   echo "started $IMAGE_REPO:$sha"
@@ -252,7 +344,7 @@ stop() {
 }
 
 status() {
-  local unit container=absent health=none image="" deploy data_bytes=0 free_bytes=0
+  local unit container=absent health=none image="" image_id="" deploy data_bytes=0 free_bytes=0
   local mem_total mem_available swap_total swap_used
   unit=$(systemctl is-active "$UNIT" 2>/dev/null || true)
   [ -n "$unit" ] || unit=unknown
@@ -260,6 +352,7 @@ status() {
     container=$(docker inspect -f '{{.State.Status}}' "$CONTAINER")
     health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CONTAINER")
     image=$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")
+    image_id=$(docker inspect -f '{{.Image}}' "$CONTAINER")
   fi
   deploy=$(read_deploy)
   if [ -d "$DATA_DIR" ]; then
@@ -268,7 +361,7 @@ status() {
   free_bytes=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
   read -r mem_total mem_available < <(free -b | awk '/^Mem:/ { print $2, $7 }')
   read -r swap_total swap_used < <(free -b | awk '/^Swap:/ { print $2, $3 }')
-  jq -n --arg unit "$unit" --arg container "$container" --arg health "$health" --arg image "$image" \
+  jq -n --arg unit "$unit" --arg container "$container" --arg health "$health" --arg image "$image" --arg imageId "$image_id" \
     --argjson deploy "$deploy" --argjson dataBytes "${data_bytes:-0}" --argjson freeBytes "${free_bytes:-0}" \
     --argjson total "${mem_total:-0}" --argjson available "${mem_available:-0}" \
     --argjson swapTotal "${swap_total:-0}" --argjson swapUsed "${swap_used:-0}" '{
@@ -276,6 +369,7 @@ status() {
       container: $container,
       health: $health,
       image: $image,
+      imageId: (if $imageId == "" then null else $imageId end),
       deploy: $deploy,
       disk: { dataBytes: $dataBytes, freeBytes: $freeBytes },
       memory: { totalBytes: $total, availableBytes: $available, swapTotalBytes: $swapTotal, swapUsedBytes: $swapUsed }
@@ -394,6 +488,7 @@ main() {
   case "$subcommand" in
     bootstrap) bootstrap ;;
     receive-env) receive_env ;;
+    receive-image) receive_image "$@" ;;
     build) build "$@" ;;
     start) start "$@" ;;
     stop) stop ;;
@@ -406,7 +501,7 @@ main() {
     send-data) send_data ;;
     guard-check) guard_check "$@" ;;
     public-check) public_check "$@" ;;
-    *) die "usage: host.sh bootstrap|receive-env|build|start|stop|status|logs|rehearse|seed-check|seed-digest|receive-data|send-data|guard-check|public-check" ;;
+    *) die "usage: host.sh bootstrap|receive-env|receive-image|build|start|stop|status|logs|rehearse|seed-check|seed-digest|receive-data|send-data|guard-check|public-check" ;;
   esac
 }
 

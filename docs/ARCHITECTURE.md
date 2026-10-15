@@ -1389,7 +1389,7 @@ workers follow the machine's size.
 - **EC2 provisioning and account boundary (PM-676, part of PM-664)** — `scripts/cloud/{config,aws,aws-cli,ec2,commands}.ts`,
   `deploy/aws/{config.example.json,ec2-bootstrap.sh}`, `apps/server/test/cloud-ec2.test.ts`,
   `apps/server/test/helpers/fake-ec2.ts`, `docs/AWS.md`. **What runs where:** owner-only AWS CLI v2
-  on the Mac reads STS identity and provisions one Ubuntu 24.04 amd64 HVM/EBS EC2 instance in the
+  on the Mac reads STS identity and provisions one Ubuntu 24.04 HVM/EBS EC2 instance in the
   configured central profile/region, existing VPC/public subnet, dedicated empty-inbound security
   group, EC2-only SSM host role/profile, and the shared private S3/backup-user resources. EC2 type,
   AMI and encrypted gp3 volume size are explicit, never paid defaults. Catalogue/preflight checks
@@ -1408,6 +1408,10 @@ workers follow the machine's size.
   remains on the owner's machine for the central server, never on an engine; the Mac engine gets
   no AWS credentials, and no new server/engine RPC or payload crosses the boundary. SSH over SSM
   host operation is provided by PM-677 (next entry); the Lightsail adapter remains its compatibility path.
+  PM-718 adds explicit `aws.ec2.architecture` (`x86_64` by default, or `arm64`): the Canonical
+  AMI name/Architecture, type capabilities and existing instance must agree. Native apt/snap
+  bootstrap works on both; ARM requires an external image bundle. The approved PM-675 target is
+  Frankfurt/t4g.micro/Ubuntu 24.04 arm64/20 GiB gp3; creation still requires concrete owner approval.
 
 - **EC2 host administration through SSM (PM-677, part of PM-664)** —
   `scripts/cloud/{ec2-host,host,machine,commands,deps}.ts`, `apps/server/test/{cloud-ec2-host,cloud-deps}.test.ts`,
@@ -1442,10 +1446,23 @@ workers follow the machine's size.
   the fixed `/var/lib/projectman/data/db.sqlite`, refuses live/starting units, non-regular/symlink
   DBs and sidecars, and checks for detectable writes and stopped state after hashing. A failed
   integrity gate preserves uploaded data and prevents build/start; recovery needs an owner decision.
+  PM-718 adds `receive-image` on the same encrypted stdin stream: only the selected native-platform
+  Docker tar crosses to EC2. Root-only temporary storage, bounded size, SHA-256, free disk, sole tag,
+  config digest/platform/revision/version checks precede import; image inspect verifies the result.
+  Only strict imageId/platform/revision JSON returns. Docker load output stays on stderr. No registry
+  or credentials cross this boundary, and no container or DB starts during import.
+  Ubuntu util-linux `flock` serializes import/build/start through the root-only
+  `/var/lib/projectman/.image.lock`; current/previous immutable IDs are never dangling-image pruned.
 
-- **The Lightsail machine and its operation (PM-535)** — `scripts/cloud/{host,machine}.ts`,
+- **The Lightsail machine and its operation (PM-535, PM-718)** — `scripts/cloud/{host,machine,images}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
-  `apps/server/test/helpers/fake-host.ts`. The commands `deploy`, `rollback`, `status`, `logs`, `ssh`,
+  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle` also works on
+  this legacy amd64 transport. Without it, the existing amd64 host build remains; with it, import
+  precedes env/start without build fallback. History adds optional imageId/platform; status adds
+  actual container imageId. Prebuilt start uses an immutable ID; health and rollback check/carry it
+  and the source SHA. ARM refuses builds and digestless starts/rollback. Operations stay on the
+  admin machine/target host, independent of remote engines.
+  The commands `deploy`, `rollback`, `status`, `logs`, `ssh`,
   `stop`, `start`, `rehearse`, `seed` and `pull-data` of `npm run cloud`. **What runs where:** on the
   Mac `ssh` (and `git ls-remote`, `tar`, the `aws` CLI); on the Ubuntu machine, as root through
   `sudo bash -c '<host.sh>' host.sh <subcommand>` (the script travels as the `-c` argument, so the
@@ -1849,6 +1866,15 @@ workers follow the machine's size.
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
+  driver and native builders/emulation exports separate linux/amd64 and linux/arm64 Docker archives
+  at one clean HEAD SHA, using a tracked-source-only context and the existing .dockerignore. The
+  revision LABEL and PROJECTMAN_VERSION retain that full SHA. A strict, atomically published bundle
+  manifest pins archive hashes/sizes and config digests after import/inspect verification. Output
+  stays outside the checkout; no registry, upload service, build-host provisioning or engine RPC.
+  The builder must be separate from EC2; ARM never builds on EC2. Actual two-platform native binary
+  and disposable cloud smoke evidence, 1 GiB RAM/20 GiB disk capacity and digest-specific cutover
+  approval belong to PM-675. A manifest is integrity metadata, not a signature of origin.
   PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
   requires a stopped-source seed into empty host/buckets, first successful file backup and
   isolated recovery checks. Public activation waits for completed auth/edge code and independent

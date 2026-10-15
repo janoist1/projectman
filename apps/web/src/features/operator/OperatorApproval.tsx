@@ -11,6 +11,8 @@ import { Button } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
+import { rich } from '../../i18n/rich';
+import { formatStamp } from '../../i18n/format';
 import { errorMessage } from '../../lib/errors';
 import { OperatorChanges } from './OperatorChanges';
 import styles from './OperatorApproval.module.css';
@@ -102,7 +104,7 @@ export function OperatorApprovalBody({
     <div className={styles.body}>
       {payload.quote ? <Quote text={payload.quote} /> : null}
       {payload.plan ? (
-        <section className={styles.section} aria-label={t('operator.approval.plan')}>
+        <div className={styles.section}>
           <h3 className={styles.label}>{t('operator.approval.plan')}</h3>
           <dl className={styles.plan}>
             <dt>{t('operator.approval.planWhy')}</dt>
@@ -117,11 +119,11 @@ export function OperatorApprovalBody({
               </span>
             </dd>
           </dl>
-        </section>
+        </div>
       ) : null}
       {operation.op === 'message_send' ? (
         <>
-          <section className={styles.section} aria-label={t('operator.approval.recipients')}>
+          <div className={styles.section}>
             <h3 className={styles.label}>{t('operator.approval.recipients')}</h3>
             <div className={styles.recipients}>
               {[...new Set(operation.to)].map((handle) => (
@@ -134,15 +136,18 @@ export function OperatorApprovalBody({
                 </span>
               ))}
             </div>
-          </section>
-          <section className={styles.section} aria-label={t('operator.approval.message')}>
+          </div>
+          <div className={styles.section}>
             <h3 className={styles.label}>{t('operator.approval.message')}</h3>
             <div className={styles.message}>{operation.text}</div>
-            <p className={styles.exact}>{t('operator.approval.messageExact')}</p>
-            {operation.taskKey ? (
-              <Link to={`/p/${key}/tasks/${operation.taskKey}`}>{operation.taskKey}</Link>
-            ) : null}
-          </section>
+            <p className={styles.exact}>
+              {operation.taskKey
+                ? rich('operator.approval.messageExactTask', {
+                    key: <Link to={`/p/${key}/tasks/${operation.taskKey}`}>{operation.taskKey}</Link>,
+                  })
+                : t('operator.approval.messageExact')}
+            </p>
+          </div>
         </>
       ) : null}
       <OperatorChanges changes={payload.changes} />
@@ -165,13 +170,14 @@ function Expiry({ at }: { at: string }) {
   }, []);
   const remaining = Date.parse(at) - now;
   const soon = remaining <= 60 * 60_000;
+  if (remaining <= 0) return null;
   return (
     <p className={clsx(styles.expires, soon && styles.warning)}>
       <Icon name="clock" size={14} />
       <time dateTime={at}>
         {soon
-          ? t('operator.approval.expiresSoon', { minutes: Math.max(0, Math.ceil(remaining / 60_000)) })
-          : t('operator.approval.expires', { time: new Date(at).toLocaleString('hu-HU') })}
+          ? t('operator.approval.expiresSoon', { minutes: Math.max(1, Math.ceil(remaining / 60_000)) })
+          : t('operator.approval.expires', { time: formatStamp(at, new Date(now)) })}
       </time>
     </p>
   );

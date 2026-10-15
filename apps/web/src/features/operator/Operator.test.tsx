@@ -14,6 +14,7 @@ import { MeContext } from '../../app/contexts';
 import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
+import { formatStamp } from '../../i18n/format';
 import { mockProject } from '../../test/mockProject';
 import { operatorSummaryFixture, operatorMessageApprovalFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
@@ -809,7 +810,11 @@ describe('the approval in Rád vár', () => {
       }),
     );
     rendered(project);
-    const card = (await screen.findByText(t('operator.approval.messageExact'))).closest('article')!;
+    const card = (await screen.findByRole('link', { name: 'AC-1' })).closest('article')!;
+    expect(within(card).getByRole('link', { name: 'AC-1' }).closest('p')?.textContent).toBe(
+      t('operator.approval.messageExactTask', { key: 'AC-1' }),
+    );
+    expect(within(card).queryAllByRole('region')).toHaveLength(0);
     expect(within(card).getByText(payload.plan!.why)).toBeTruthy();
     expect(within(card).getByText(payload.plan!.impact)).toBeTruthy();
     expect(within(card).getByText(t('operator.approval.reversibleNo'))).toBeTruthy();
@@ -823,6 +828,23 @@ describe('the approval in Rád vár', () => {
     await waitFor(() =>
       expect(posted(project, '/inbox/inb_stp_message/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
     );
+  });
+
+  it('uses the shared timestamp format and hides the deadline once it passed before the sweep', async () => {
+    const project = mockProject();
+    const future = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+    const past = new Date(Date.now() - 60_000).toISOString();
+    project.backend.inbox.push(
+      approvalItem('stp_future', { ...operatorMessageApprovalFixture(), expiresAt: future }),
+      approvalItem('stp_past', { ...operatorMessageApprovalFixture(), expiresAt: past }),
+    );
+    rendered(project);
+    const expected = t('operator.approval.expires', { time: formatStamp(future) });
+    expect(
+      await screen.findByText((_, node) => node?.tagName === 'TIME' && node.textContent === expected),
+    ).toBeTruthy();
+    expect(screen.queryByText(t('operator.approval.expiresSoon', { minutes: 0 }))).toBeNull();
+    expect(document.querySelector(`time[datetime="${past}"]`)).toBeNull();
   });
 
   it.each(['expired', 'interrupted'] as const)('offers only dismissal for a %s proposal', async (reason) => {

@@ -55,6 +55,7 @@ export default async ({ instance, open, shoot, step }) => {
       {
         ...base,
         action: 'session_stop',
+        quote: 'Állítsd le az elakadt fejlesztő munkamenetét.',
         operation: { op: 'session_stop', sessionId: 'ses_target' },
         consequence: 'session_stop',
         session: { id: 'ses_target', startedAt: stamp(-90) },
@@ -73,6 +74,7 @@ export default async ({ instance, open, shoot, step }) => {
       {
         ...base,
         action: 'session_stop',
+        quote: 'Állítsd le az elakadt fejlesztő munkamenetét.',
         operation: { op: 'session_stop', sessionId: 'ses_target' },
         consequence: 'session_stop',
         plan: undefined,

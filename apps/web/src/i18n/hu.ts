@@ -2777,6 +2777,7 @@ export const hu = {
       guest: '· vendég',
       message: 'Az üzenet',
       messageExact: 'Pontosan ez megy ki, az Operátor nevében.',
+      messageExactTask: 'Pontosan ez megy ki, az Operátor nevében, a {key} kártyáról.',
       expires: 'Lejár: {time}. Ha addig nem döntesz, nem történik semmi.',
       expiresSoon: '{minutes} perc múlva lejár. Ha addig nem döntesz, nem történik semmi.',
       send: 'Elküldöm',

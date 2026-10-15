@@ -1243,6 +1243,11 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   },
   {
     version: 64,
+    name: 'merge train diagnostics',
+    sql: 'ALTER TABLE task_merges ADD COLUMN diagnostic_json TEXT;',
+  },
+  {
+    version: 65,
     name: 'session process cleanup signals',
     sql: `DROP INDEX operator_signals_open;
     ALTER TABLE operator_signals RENAME TO operator_signals_old;
@@ -1259,13 +1264,13 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
   },
   {
-    version: 65,
+    version: 66,
     name: 'workspace process scope reservation',
     sql: `ALTER TABLE member_workspaces ADD COLUMN holder_scope_id TEXT;
     ALTER TABLE member_workspaces ADD COLUMN holder_cleanup_failed INTEGER NOT NULL DEFAULT 0;`,
   },
   {
-    version: 66,
+    version: 67,
     name: 'unresolved session process scopes',
     sql: `CREATE TABLE session_cleanups (
       scope_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, project_key TEXT NOT NULL,

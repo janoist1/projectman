@@ -196,6 +196,17 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           return await call('full_test.run', { spec }, { timeoutMs: spec.timeoutMs + FULL_TEST_GRACE_MS });
         } catch (err) {
           logger.warn({ err, engineId: id, runId: spec.runId }, 'a full test did not end on its engine');
+          // An older engine's strict schema refuses `npmCi` before it runs anything (PM-681): the run is
+          // blocked, never repeated without the dependency preparation it asked for.
+          if (spec.npmCi && err instanceof EngineCallError && err.linkCode === 'invalid_params')
+            return {
+              outcome: 'error',
+              reason: 'dependency_install_failed',
+              exitCode: null,
+              durationMs: now() - startedAt,
+              failedFiles: [],
+              outputTail: `engine ${id} refused the request: it does not support the dependency preparation (npmCi). Update the engine to this version of projectman.`,
+            };
           // An older engine's strict schema refuses `requireHeavyLock` before it runs anything (PM-658):
           // the run is blocked, never repeated without the flag.
           if (spec.requireHeavyLock && err instanceof EngineCallError && err.linkCode === 'invalid_params')

@@ -13,6 +13,8 @@ import type { TeamToolsHandler, ToolContext } from '../contracts';
  * `run` is called.
  */
 export const TEAM_TOOL_NAMES = [
+  'get_operator_preference',
+  'set_operator_preference',
   'operate',
   'read_project_doc',
   'write_project_docs',

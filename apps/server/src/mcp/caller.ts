@@ -192,6 +192,19 @@ export class ToolCaller {
         `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
       );
     const operator = isOperator(member);
+    if (operator && (tool === 'get_operator_preference' || tool === 'set_operator_preference')) {
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (
+        !session ||
+        session.projectKey !== ctx.projectKey ||
+        session.member !== ctx.member ||
+        session.workItem.type !== 'general'
+      )
+        throw new TeamToolError(
+          'forbidden',
+          `${OWNER_ONLY}: preferences require your own general conversation.`,
+        );
+    }
     const request = operator ? this.operatorRequests.openFor(ctx.sessionId) : null;
     const guest = operator ? this.guestOf(ctx, config, request) : null;
     if (signal) {
@@ -211,7 +224,7 @@ export class ToolCaller {
     }
     if (!operator) return { config, request: null, guest: null };
     if (guest) {
-      // A conversation with someone who is not an owner only reads and answers (PM-475).
+      // A guest only reads, answers and changes their own conversational preference (PM-475, PM-688).
       if (!OPERATOR_GUEST_TOOLS.has(tool)) {
         this.recordRefusedWrite({ config, request, guest }, tool);
         throw new TeamToolError(

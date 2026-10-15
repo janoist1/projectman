@@ -206,6 +206,53 @@ describe('the full test executor in the heavy-run queue', () => {
     });
   });
 
+  describe('when the run asks for the dependency preparation (PM-681)', () => {
+    const prepared: FullTestSpec = {
+      ...spec,
+      npmCi: { ref: { projectKey: 'PM', repo: 'projectman' }, mergeId: 'mrg_1' },
+    };
+
+    it.each([
+      ['no queue folder', false],
+      ['a queue folder', true],
+    ])('ends as dependency_install_failed with %s, and starts nothing', async (_name, withQueue) => {
+      const onStarted = vi.fn();
+      const executor = createFullTestExecutor({
+        logger,
+        tmpDir: NO_TMP,
+        heavyLockDir: withQueue ? dir : undefined,
+      });
+      const result = await executor.run(
+        { ...prepared, requireHeavyLock: true },
+        new AbortController().signal,
+        onStarted,
+      );
+      expect(result).toEqual({
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: null,
+        durationMs: 0,
+        failedFiles: [],
+        outputTail: 'dependency preparation is not supported by this executor',
+      });
+      expect(onStarted).not.toHaveBeenCalled();
+      // Neither the queue nor the run directory is tried.
+      expect(warn).not.toHaveBeenCalled();
+      if (withQueue) expect((await readHeavyQueue(dir)).waiting).toEqual([]);
+    });
+
+    it('keeps the earlier behaviour when npmCi is missing', async () => {
+      const onStarted = vi.fn();
+      const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP }).run(
+        spec,
+        new AbortController().signal,
+        onStarted,
+      );
+      expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
+      expect(onStarted).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('does not queue at all without a folder', async () => {
     const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP });
     const result = await executor.run(spec, new AbortController().signal);

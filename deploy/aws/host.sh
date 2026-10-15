@@ -22,6 +22,8 @@
 #   send-data                 write the data directory as a tar stream (the container must stand)
 #   guard-check <hostname>    {"plain":"404","port":"404"}: the status codes the running board gives that hostname
 #                             (the feedback guard, PM-510); refused while the board is not running
+#   public-check <hostname>   {"publicBoard":b,"emailLoginEnabled":b,"needsSetup":b,"apiStatus":401,"crossOriginStatus":403}:
+#                             what the running board says about itself as the public board (PM-672)
 #
 # The container never gets a published port, the host network, extra privileges or the Docker socket: the
 # Cloudflare tunnel inside it connects outwards.
@@ -314,6 +316,27 @@ guard_check() {
   printf '{"plain":"%s","port":"%s"}\n' "$plain" "$port"
 }
 
+# What the running board says about itself as the public board (PM-672), with `Host: <name>`, from inside the
+# container (nothing leaves the machine): the capabilities of GET /api/setup (a missing one is false), the status
+# of an anonymous GET /api/auth/me, and of a POST /api/auth/login from a foreign Origin. `publish` allows a public
+# board only on true,true,false,401,403 (docs/AWS.md "Public board").
+public_check() {
+  local name=${1:-} setup api cross board=false email=false needs=false
+  [[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || die "not a hostname: ${name:-<none>}"
+  board_running || refuse "the board is not running; deploy it before the public board can be checked"
+  setup=$(docker exec "$CONTAINER" curl -s --max-time 10 -H "Host: $name" http://127.0.0.1:4700/api/setup || true)
+  api=$(docker exec "$CONTAINER" curl -s --max-time 10 -o /dev/null -w '%{http_code}' -H "Host: $name" http://127.0.0.1:4700/api/auth/me || true)
+  cross=$(docker exec "$CONTAINER" curl -s --max-time 10 -o /dev/null -w '%{http_code}' -X POST -H "Host: $name" \
+    -H 'Origin: https://foreign.invalid' -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4700/api/auth/login || true)
+  [[ "$setup" == *'"publicBoard":true'* ]] && board=true
+  [[ "$setup" == *'"emailLoginEnabled":true'* ]] && email=true
+  [[ "$setup" == *'"needsSetup":true'* ]] && needs=true
+  [[ "$api" =~ ^[0-9]{3}$ ]] || api=000
+  [[ "$cross" =~ ^[0-9]{3}$ ]] || cross=000
+  printf '{"publicBoard":%s,"emailLoginEnabled":%s,"needsSetup":%s,"apiStatus":%s,"crossOriginStatus":%s}\n' \
+    "$board" "$email" "$needs" "$((10#$api))" "$((10#$cross))"
+}
+
 receive_data() {
   [ ! -t 0 ] || die "receive-data needs a tar stream on the standard input"
   board_running && refuse "the board is running; a seed goes in before the first start"
@@ -352,7 +375,8 @@ main() {
     receive-data) receive_data ;;
     send-data) send_data ;;
     guard-check) guard_check "$@" ;;
-    *) die "usage: host.sh bootstrap|receive-env|build|start|stop|status|logs|rehearse|seed-check|receive-data|send-data|guard-check" ;;
+    public-check) public_check "$@" ;;
+    *) die "usage: host.sh bootstrap|receive-env|build|start|stop|status|logs|rehearse|seed-check|receive-data|send-data|guard-check|public-check" ;;
   esac
 }
 

@@ -250,7 +250,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/operator',
     pass: 'split',
-    paths: ['services/operator/'],
+    paths: ['services/operator/', 'services/operator/preferences.ts'],
     sealed: true,
   },
   {
@@ -287,7 +287,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'engine',
     target: 'full-test',
     pass: 'split-tool',
-    paths: ['full-test/'],
+    paths: ['full-test/', 'full-test/npm-dependency-key.ts'],
     sealed: true,
   },
   {

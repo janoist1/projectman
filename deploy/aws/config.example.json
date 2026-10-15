@@ -26,7 +26,8 @@
   "access": {
     "emails": ["owner@example.com"],
     "sessionDuration": "24h",
-    "integratorServiceToken": false
+    "integratorServiceToken": false,
+    "boardMode": "private"
   },
   "route53": { "profile": "i" },
   "ses": {

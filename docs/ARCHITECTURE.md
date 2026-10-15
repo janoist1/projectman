@@ -733,6 +733,15 @@ This module needs no Effect program: retries belong to admission, reply relay us
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
 (`assembly.ts`) declares the sweep list.
 
+Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
+`get_operator_preference` and `set_operator_preference` choose the person from the
+authenticated Operator session and its current human request; they accept no person,
+project or path selector. Guests gain only this personal write. REST exposes self reads
+and owner/admin lists through personal logins, with no preference write route.
+The session launcher requests only its current human's five enum fields through a
+server port; signal and question-screening launches receive none. Guest contexts omit
+member memory. Style is rendered as validated JSON data and grants no authority.
+
 **Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
 behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
 an Effect program: `kernel`, `runtime/sessions`, `runtime/delivery`, `runtime/watchers`,
@@ -1175,8 +1184,19 @@ non-force push and local compare-and-swap advance. Publication is cooperative an
 cancelled once started. One transaction records every merged row and each starter's own
 task_merged event, followed by each card's ordinary afterMerge/AutoAdvance.
 
-A failed group check marks the train and members failed, without publishing or attributing
-the failure to each member; smaller diagnostic groups belong to PM-661. Operational failures
+A failed group check retires the manifest as failed and atomically requeues its members
+with internal `task_merges.diagnostic_json` (PM-661): the failed parent's id and an integer
+`maxCards = ceil(member count / 2)`. Original creation times and manifest priority snapshots
+are restored; candidate, check, failure, block and active membership are cleared. Only
+adjacent diagnostic members of the same parent can group, bounded by every member's limit.
+Each smaller attempt gets a fresh candidate and check on current main; successful prefixes
+therefore participate in the next half's check. Singletons use the individual path and only
+their failed check identifies a blocking card. Success clears diagnostic state; operational
+blocks and explicit retries preserve it. Shared `openPrerequisites` checks at reservation and
+before publication leave dependent cards queued while unrelated runnable cards proceed.
+The slot and heavy lock are released between attempts, giving the document writer and queue
+prioritization their ordinary turn. A persisted red check resumes its atomic split after
+restart; already published candidates still recover publication first. Operational failures
 block with the original reason. Non-fast-forward rebuilds and rechecks once, then blocks.
 Startup handles train manifests before individual rows: candidate ancestry detects a push
 or local advance completed before the DB transaction, and finishes without repeating the
@@ -1299,8 +1319,9 @@ workers follow the machine's size.
   agreement (summary, involvement and extra-critical steps), up to 20 approved learned principles
   (example, principle and effect), and each member's enumerated conversational preferences in
   `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
-  These records are outside the public repository and the customization git history; no HTTP or
-  MCP writer is exposed. Missing documents start at revision zero; invalid documents are refused
+  These records are outside the public repository and the customization git history. PM-688 adds
+  only a session-bound personal preference MCP writer and authenticated REST reads; knowledge
+  writes remain private. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -1308,8 +1329,9 @@ workers follow the machine's size.
   The shared `contracts/sandbox.ts` `sensitivePaths` app-home list denies the entire `operator-data`
   root to member file tools and the existing session-policy/provider consumers; no separate
   provider rule or new permission is added.
-  **Remote engine:** storage stays on the server, with no file mount on an engine. Later context/MCP
-  services may send filtered prompt data across the existing boundary; this card adds no such API.
+  **Remote engine:** storage stays on the server, with no file mount on an engine. Context/MCP
+  services send only the current person's five preference enums across the existing boundary
+  (PM-688), with no new engine file or machine assumption.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
@@ -1431,6 +1453,16 @@ workers follow the machine's size.
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
+  **Public board (PM-672):** with `access.boardMode: public` the same commands leave the main hostname
+  without Access (one Bypass policy), keep `/engine` behind its own Access application (the engine service
+  token only; the tunnel's `originRequest.access` for `/engine` names only that application's audience),
+  answer `/hooks` and `/mcp` with 404 at the tunnel, and write `PROJECTMAN_PUBLIC_BOARD=1` into `cloud.env`
+  (the server then refuses to start without cloud mode, an owner and the e-mail login:
+  `apps/server/src/auth/public-board.ts`). `host.sh public-check <hostname>` is a second subcommand run over
+  the same SSH connection as `guard-check`: it asks the running container for its own anonymous answers.
+  `publish` creates the DNS record only on the exact answer, `check` runs `check.sh` with `BOARD_MODE=public`
+  (no `cloudflared` login). **Remote engine:** unchanged; the public side is only the browser login boundary,
+  the engine still connects outward to the protected `/engine`.
 
 - **SES identity/DKIM and sender provisioning (PM-678, part of PM-664)** —
   `scripts/cloud/{ses,config,commands,cli,secrets,aws-cli,cloudflare-api}.ts`,
@@ -2466,6 +2498,15 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
+  **Dependency preparation request (PM-681 part 1, PM-709):** `FullTestSpec.npmCi` (`contracts/full-test.ts`,
+  also in the strict `full_test.run` schema) asks the engine to prepare the dependencies of a merge check
+  before the command. Nothing sets it yet, and no executor prepares them: `full-test/index.ts` answers it at once
+  with `error` / `dependency_install_failed`, before the queue, the run directory or `onStarted`, so a test never
+  starts because the schema accepts the request. `engine-link/remote/host.ts` maps an older engine's
+  `invalid_params` for a request with `npmCi` to the same error, never repeating it without the field. The
+  identity of a prepared tree is `full-test/npm-dependency-key.ts`: a pure SHA-256 of the lock and manifest bytes
+  and the engine's own platform, arch, Node and npm versions (no I/O). The key is made on the engine, never sent
+  by the server.
   **Module:** `services/full-tests`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
@@ -2510,7 +2551,11 @@ assumption or remote-engine RPC.
   `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from an installed checkout with a byte-identical
   merged lockfile, an APFS clone `cp -c` on macOS; PM-580). The engine tries the bounded preferred source,
   its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
-  source after copying and blocks with `check_error` before checks if none matches. `merge.push`
+  source after copying and blocks with `check_error` before checks if none matches. Since PM-681 part 1
+  (PM-709) `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer
+  `dependencyInstallRequired` (missing: false) in the strict `merge.checkout_for_check` schemas; the engine
+  does not set it and the merge callers do not pass it yet, so the behaviour above is unchanged and the install
+  itself stays disabled (see "Server full test before review"). `merge.push`
   (never forced, `--no-verify`) and `merge.advance` (a
   fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
   Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched
@@ -2525,6 +2570,9 @@ assumption or remote-engine RPC.
   and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
   full_test.run. The manifest, ordered locks and attribution stay on the server; all members
   must share an engine and no new RPC or command allowlist entry is required.
+  Diagnostic bisection (PM-661), its transactional requeue and parent/size limits stay on the
+  server; smaller attempts reuse these same engine operations and the required heavy lock.
+  No new local machine assumption or server/engine boundary field is introduced.
   **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
   of the changed files and short results cross the link, and a merge to a repo or branch not named by

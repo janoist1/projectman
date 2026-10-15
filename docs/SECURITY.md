@@ -251,8 +251,9 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   consumers. Storage validates keys and strict document schemas, refuses symbolic links and
   non-regular or hard-linked files, and writes complete JSON through a synced 0600 temporary file
   and same-directory atomic rename in 0700 directories. Target-file CAS is serialized within the
-  server process; corrupt files and stale revisions are refused without overwriting. This storage
-  adds no HTTP/MCP writer, authorization grant or engine file mount.
+  server process; corrupt files and stale revisions are refused without overwriting. PM-688 adds
+  the personal-preference MCP writer and REST readers described below; agreements and learned
+  principles gain no writer here, and the storage has no engine file mount.
 - Request logging omits bodies, credentials and query strings, and redacts hook,
   MCP and invitation URL tokens. Unknown-route/parser errors do not echo request
   secrets. Authentication records are not broadcast. Markdown builds escaped React
@@ -392,12 +393,13 @@ author metadata, never from the HTTP request body.
 
 Every person of the project has a conversation of their own with the Operator
 (`{ type: 'general', with: <handle> }`); the owners share `{ type: 'general' }`. Only a
-change an owner asked for is made. In a conversation with anyone else the Operator reads and
-answers, nothing more:
+project change an owner asked for is made. In a conversation with anyone else the Operator reads,
+answers and can change that person's own conversational style (PM-688):
 
-- **Writes are refused by the server.** `callerWithRequest` lets such a session call
-  `OPERATOR_GUEST_TOOLS` only (`get_task`, `list_tasks`, `list_members`, `list_attachments`,
-  `read_attachment`, and `send_message` to that person alone). Every other tool gets 403
+- **Project writes are refused by the server.** `callerWithRequest` lets such a session call
+  `OPERATOR_GUEST_TOOLS` only (`get_operator_preference`, `set_operator_preference`, `get_task`,
+  `list_tasks`, `list_members`, `list_attachments`, `read_attachment`, `read_message_attachment`,
+  and `send_message` to that person alone). Every other tool gets 403
   `operator_owner_only`; a refused write is logged as a `refused` step. `get_project_state` is not
   among them until a separate task adds a viewer filter.
 - **Reads are the person's own view.** Cards, details, timeline excerpts and attachments go through
@@ -420,6 +422,26 @@ answers, nothing more:
   the Operator's session is the owner's alone: an admin may watch, not type.
 - One guest conversation runs at a time and closes after five idle minutes; the owners' one is
   outside that capacity.
+
+Personal preferences (PM-688) are the guest's only data write. A change requires an open request
+from the person's own login; the server rechecks that the session's `with`, human
+`startCause.by.handle` (without `via`) and `request.fromHandle` identify the same current human.
+The token's project and member must match the session, which must be a general conversation.
+Non-owner sessions receive no member memory. In the owners' conversation the subject is the
+current open owner request's `fromHandle`, checked against the current human owners. Without an
+open request, writing fails with `operator_no_request`; reading is allowed only with exactly one
+current human owner, otherwise it fails with `operator_preference_no_person`. Neither MCP tool
+accepts a person, project or path selector. `set_operator_preference` uses `expected_revision`
+for CAS; a stale revision fails with HTTP status 409 (`operator_knowledge_stale`).
+
+`GET /api/projects/:key/operator/preferences` requires at least admin access and the person's own
+login; `GET /api/projects/:key/operator/preferences/me` reads only the logged-in human's preference.
+Neither route accepts integrator access, and there is no preference PUT route. Only the current
+conversation's five preference enums enter the prompt, reparsed with Zod and serialized as a JSON
+data block granting no permissions. Only a current own-login human message, answer or conversation
+start can supply that person's style; signal and question-screening launches receive none. An
+unreadable or corrupt preference is logged as a warning and omitted during launch without
+overwriting the file; explicit preference reads and writes retain their errors.
 
 ## Automatic command decisions
 
@@ -835,6 +857,43 @@ the account boundary.
 - **Sessions.** A successful redemption revokes the presented session and starts a new one, like the
   password login. The routes are public and same-origin only.
 
+## The public board (PM-672, part of PM-664)
+
+With `access.boardMode: public` (docs/AWS.md "The public board") the main hostname has no Cloudflare Access
+in front of its pages: a client opens the board and meets the application's own login (PM-670). The
+boundary is then the application, so these hold and are tested (`apps/server/test/public-board.test.ts`,
+`apps/server/test/cloud-public-board.test.ts`, the public matrix of `deploy/cloudflare/check.sh`):
+
+- **The switch creates no way in.** `PROJECTMAN_PUBLIC_BOARD=1` changes no authentication or permission
+  rule; it only stops the start (`public_board_requires_cloud`, `_setup`, `_email_login`) where the
+  login would be missing, so there is no anonymous first setup to take and no board that cannot log
+  clients in. The answer of `GET /api/setup` adds `publicBoard: true` (a public fact, like
+  `emailLoginEnabled`).
+- **Anonymous callers get nothing.** `/api`, the attachment content and thumbnail routes and the `/ws`
+  upgrade answer 401 without a session. A cross-origin login or mutation is refused (403) by the existing
+  same-origin check; the session cookie is `HttpOnly`, `SameSite` and, behind the tunnel's HTTPS, `Secure`.
+- **A client sees only what is shared with them.** An internal card, a card of another project and a
+  card that does not exist give the same answer; the live connection sends no event of an internal card.
+  The engine service token is no board login: `/api/auth/me` with it answers 401.
+- **The engine door stays closed.** `/engine` keeps its own Access application (the engine service token
+  only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp` answer 404 at the
+  tunnel, as before. The main Access application has exactly one Bypass/Everyone policy and no other
+  rule; any other policy on it is removed by `edge` and refused by `publish`.
+- **The tunnel rule is not the only lock on `/engine`.** The tunnel's ingress rule and the Access
+  application match the raw path, but the board's router decodes it: `/%65ngine/link` would skip the rule
+  and still reach the engine's handler. The `onRequest` hook of `src/auth/index.ts` therefore answers 404 to
+  any request whose matched route is under `/engine/` (or `/api/`, where the origin check reads the raw
+  path) and whose raw path does not spell that prefix out. Behind it the engine still needs its machine
+  key (`links.authenticate`). `check` tries the encoded door with and without the service token and accepts
+  only the Access login, 403 or 404.
+- **No publishing on a doubt.** `publish` makes the DNS record only on the exact answer of
+  `host.sh public-check` (`true,true,false,401,403`), the exact Access applications and ingress, and the
+  working widget guard; `check` verifies the same from the outside. Going back to `private` restores the
+  Access lock.
+- **Known limit.** Cloudflare Access no longer filters bots, scanners or password guessing in front of the
+  board's login. The login's own limits apply (the code and address limits above); a WAF rule or Turnstile
+  in front of the login is not part of this change.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |
@@ -930,7 +989,8 @@ cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below hold
    weaker reason. `check.sh` verifies the Secure cookie, both origin cases and
    the refusal of `POST /api/setup` against the real entrance.
 2. The Access application covers the whole hostname with one Allow policy of **exact email
-   addresses**. "Emails ending in", "Everyone" and bypass policies are not allowed, and neither
+   addresses**. "Emails ending in", "Everyone" and bypass policies are not allowed (the public board,
+   `access.boardMode: public`, is the one exception: see "The public board"), and neither
    is a service token, with one exception: the cloud board's `access.integratorServiceToken`
    (off by default, for the integrator's smoke test) puts a second policy, `<N>-integrator-service`
    (non-identity, that one token), on the whole-hostname application; the engine's token is
@@ -983,14 +1043,15 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   `npm run cloud -- edge --rotate-integrator-token`.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
-  every change and rerun `check.sh`.
+  every change and rerun `check.sh`. On the public board there is no second lock by design: the
+  login is the only barrier from the start (see "The public board").
 
 ### The widget's public hostname (PM-506, PM-513)
 
 The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
 its own on the same tunnel with no Access application** (setup: [DEPLOY.md](DEPLOY.md) step 7).
 The Access application of the application's hostname is not weakened and no Bypass policy is
-added. What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
+added (the public board's one Bypass policy belongs to the board's own page, not to this feature). What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
 their session, origin and limit rules are in "The feedback tool's public API".
 
 1. **The tunnel passes only `^/feedback/`** on that hostname, and answers 404 to the rest of it

@@ -72,6 +72,9 @@ const worktreeInfo: z.ZodType<WorktreeInfo> = z.strictObject({
   branch: text,
   repo: text,
 });
+const mergeRef: z.ZodType<MergeRepoRef> = z.strictObject({ projectKey: text.max(10), repo: text.max(100) });
+/** A commit id or a branch name as it crosses the wire; the engine's limit checks what they hold. */
+const mergeText = text.max(200);
 const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   runId: text,
   cwd: text,
@@ -80,6 +83,7 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   timeoutMs: int,
   sandbox: z.strictObject({ denyRead: texts, allowRead: texts }),
   requireHeavyLock: z.boolean().optional(),
+  npmCi: z.strictObject({ ref: mergeRef, mergeId: mergeText }).optional(),
 });
 const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outcome: z.enum(['passed', 'failed', 'error']),
@@ -106,9 +110,6 @@ const screenshotEnded: z.ZodType<ScreenshotRunEnded> = z.strictObject({
   spawnError: text.optional(),
   output: text,
 });
-const mergeRef: z.ZodType<MergeRepoRef> = z.strictObject({ projectKey: text.max(10), repo: text.max(100) });
-/** A commit id or a branch name as it crosses the wire; the engine's limit checks what they hold. */
-const mergeText = text.max(200);
 const mergeCall = <T extends z.ZodRawShape>(shape: T) => z.strictObject({ ref: mergeRef, ...shape });
 const mergeState = z.strictObject({
   local: mergeText,
@@ -589,8 +590,13 @@ export const methods = {
     z.array(text).max(50),
   ),
   'merge.checkout_for_check': method(
-    mergeCall({ mergeId: mergeText, mergeCommit: mergeText, depsFrom: text.nullable() }),
-    z.strictObject({ path: text, gitDir: text }),
+    mergeCall({
+      mergeId: mergeText,
+      mergeCommit: mergeText,
+      depsFrom: text.nullable(),
+      allowDependencyInstall: z.boolean().optional(),
+    }),
+    z.strictObject({ path: text, gitDir: text, dependencyInstallRequired: z.boolean().optional() }),
   ),
   'merge.release_check': method(mergeCall({ mergeId: mergeText }), done),
   'merge.push': method(mergeCall({ base: mergeText, mergeCommit: mergeText }), mergePushed),

@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { patchSummary, toolActivity, toolSummary } from './tools';
+import { needsDependencies, patchSummary, toolActivity, toolSummary } from './tools';
+
+describe('needsDependencies (PM-743)', () => {
+  it('is false for tools that never run project code', () => {
+    for (const name of [
+      'Read',
+      'Edit',
+      'MultiEdit',
+      'Write',
+      'NotebookEdit',
+      'NotebookRead',
+      'Grep',
+      'Glob',
+      'TodoWrite',
+      'ToolSearch',
+      'WebFetch',
+      'WebSearch',
+      'mcp__team__send_message',
+    ])
+      expect(needsDependencies(name), name).toBe(false);
+  });
+
+  it('is true for the shell, other tools and anything unknown', () => {
+    for (const name of ['Bash', 'PowerShell', 'apply_patch', 'Task', 'mcp__other__run', 'something_new'])
+      expect(needsDependencies(name), name).toBe(true);
+  });
+});
 
 const patch = '*** Begin Patch\n*** Update File: /work/src/app.ts\n@@\n-a\n+b\n*** End Patch';
 

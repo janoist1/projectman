@@ -228,6 +228,23 @@ describe('member workspaces', { timeout: 30_000 }, () => {
     },
   );
 
+  it('reports a clone to onEnsured after a successful ensure, new or existing, and not after a failed one (PM-743)', async () => {
+    const onEnsured = vi.fn<(key: MemberWorkspaceKey, repoPath: string) => void>();
+    manager = createMemberWorkspaceManager({
+      rootDir: path.join(base, 'workspaces'),
+      logger: silentLogger(),
+      onEnsured,
+    });
+    const ws = await manager.ensure(key('dev'));
+    expect(onEnsured).toHaveBeenCalledTimes(1);
+    expect(onEnsured).toHaveBeenLastCalledWith(key('dev'), await realpath(ws.path));
+    await manager.ensure(key('dev'));
+    expect(onEnsured).toHaveBeenCalledTimes(2);
+    await rm(ws.gitDir, { recursive: true });
+    await expect(manager.ensure(key('dev'))).rejects.toMatchObject({ code: 'workspace_invalid' });
+    expect(onEnsured).toHaveBeenCalledTimes(2);
+  });
+
   it('are independent clones with their own git directory, cache and temp, under project/member/repo', async () => {
     const ws = await manager.ensure(key('dev'));
     expect(ws.created).toBe(true);

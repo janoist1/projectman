@@ -53,6 +53,7 @@ export function createGeminiAdapter(opts: {
     permissionOutput: (decision) =>
       decision.behavior === 'allow' ? { decision: 'allow' } : deny(decision.message?.trim() || DENY_DEFAULT),
     denyOutput: deny,
+    refuseToolOutput: deny,
     haltOutput: deny,
     hookAuthError: (payload) =>
       typeof payload.error === 'string' && /Please sign in/i.test(payload.error) ? payload.error : null,

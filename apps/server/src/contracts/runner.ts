@@ -508,6 +508,11 @@ export interface TranscriptReader {
   ): Promise<HandoffSummary | null>;
 }
 
+/** PM-743: the tool call must not run now; `refuse` is the English message for the agent. */
+export interface DependencyGate {
+  refuse: string;
+}
+
 export interface PlanUsageProvider {
   /** Current plan usage of the logged-in account (Claude, or ChatGPT for Codex), or null if unavailable. */
   get(): Promise<PlanUsage | null>;
@@ -519,8 +524,11 @@ export type TerminalMode = 'pty' | 'pipe';
 export interface RunnerModuleOptions {
   processScope?: ProcessScopeConfig;
   scopeProcesses?: ScopeProcessSource;
-  /** Awaited before every provider's PreToolUse answer, including subagents; failures only log. */
-  refreshDependencies?: (cwd: string) => Promise<void>;
+  /**
+   * Awaited before the PreToolUse answer of every tool that runs code, including subagents; failures
+   * only log. A `DependencyGate` result holds the tool call back (PM-743).
+   */
+  refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
   /**
    * `pipe` starts the CLI with pipes instead of a pseudo-terminal (PM-267): for the fake CLIs in a
    * development instance that has no PTY (a member's sandbox). Default `pty`.

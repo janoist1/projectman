@@ -68,6 +68,19 @@ describe('Claude Code screen checks', () => {
   });
 });
 
+describe('refuseToolOutput (PM-743)', () => {
+  it('turns any tool call away with a PreToolUse deny', () => {
+    const adapter = createClaudeAdapter({ bin: 'claude', logger: silentLogger() });
+    expect(adapter.refuseToolOutput!('wait')).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: 'wait',
+      },
+    });
+  });
+});
+
 describe('detectBlockingScreen', () => {
   it('recognises Claude Code dialogs that block input', () => {
     expect(

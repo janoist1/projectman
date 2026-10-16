@@ -5,6 +5,7 @@ import * as pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
 import { COMPACTING_PROVIDERS } from '../contracts';
 import type {
+  DependencyGate,
   PauseOptions,
   PauseOutcome,
   PermissionBroker,
@@ -23,7 +24,7 @@ import { SessionClock, waitAtMost } from './session-clock';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
-import { toolActivity } from './tools';
+import { needsDependencies, toolActivity } from './tools';
 import { TOOL_DENY_MESSAGES } from './tool-decision';
 import { readTranscriptText } from './transcript/reader';
 import { TranscriptTailer } from './transcript/tailer';
@@ -75,7 +76,7 @@ export type SpawnPty = (file: string, args: string[], options: PtySpawnOptions) 
 
 export interface SessionDeps {
   processScopes?: ProcessScopeDriver;
-  refreshDependencies?: (cwd: string) => Promise<void>;
+  refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
   logger: FastifyBaseLogger;
   broker: PermissionBroker;
   permissionTimeoutMs: number;
@@ -732,10 +733,25 @@ export class AgentSession {
         : null;
     }
     if (payload.hook_event_name === 'PreToolUse' && this.deps.refreshDependencies) {
-      try {
-        await this.deps.refreshDependencies(this.spec.cwd);
-      } catch (err) {
-        this.log.warn({ sessionId: this.id, err }, 'refreshing worktree dependencies failed');
+      const tool = payload.tool_name ?? '';
+      // A file or team tool never runs code, an input tool waits for a person, and a stopping pause answers with its halt.
+      if (
+        needsDependencies(tool) &&
+        !this.adapter.inputTools.has(tool) &&
+        this.pauseState?.phase !== 'stopping'
+      ) {
+        try {
+          const gate = await this.deps.refreshDependencies(this.spec.cwd);
+          if (gate) {
+            if (this.adapter.refuseToolOutput) {
+              this.log.info({ sessionId: this.id, tool }, 'tool call held for dependencies');
+              return this.adapter.refuseToolOutput(gate.refuse);
+            }
+            this.log.warn({ sessionId: this.id, tool }, 'dependency gate cannot refuse on this CLI');
+          }
+        } catch (err) {
+          this.log.warn({ sessionId: this.id, err }, 'refreshing worktree dependencies failed');
+        }
       }
     }
     // A subagent's approval still needs an answer; its other hooks say nothing about the session.

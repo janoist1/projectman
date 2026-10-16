@@ -369,38 +369,87 @@ permission, `none` approver, default network, empty instructions and `temp: fals
 implementer grant no extra authority. Approval and permission/boundary decision tools remain
 forbidden to the Operator; this classification opens no boundary-request exception.
 
-System signals (PM-476) permit one narrow write without an open owner request: the
-Operator may use `send_message` with `signal_id`, addressed only to the owners, to
-present this project's delivered, not yet presented `pending` or `open` signal once.
-The server revalidates the signal and recipients transactionally. Apart from this and
-the question screening below (PM-558), all other writes still fail with
-`operator_no_request`. Accepting or dismissing a signal requires a
-project owner's own login; integrator and AI acceptance fails with 409, and dismissal
-with 403. Acceptance opens an ordinary PM-463 owner request and grants no additional
-powers. `operator_signal` WebSocket events reach only owners. Wake-up facts are data,
-not instructions. A proposed action (`signal_actionable`) may rely on another session's
-activity; the owner sees the proposal before deciding whether to authorize it.
+### PM coordination (PM-707)
 
-Question screening (PM-558) is the second write without an open owner request. A new
-`ask_human` question of an AI member waits in the inbox state `screening`, and the Operator
-settles it with `screen_question`. The tool is for the Operator only (`operator_only`) and
-never from a guest conversation (`operator_owner_only`); it needs neither an owner request
-nor a step log. `answered`, `forwarded` and `moot` close the question without a person, and
-`moot` may also close a question that is already open for people. `forwarded` sends an
-`action` message to a non-Operator AI member who may have no role on the card, and wakes
-them. `decision` and `todo` hand the question to people. The server rechecks the question's
-project, kind and state under the resolution lock; an Operator answer never sets an approval
-label and says it is not from a person. The counterweights are the asker's one-time re-ask
-(`reask_of`, only after `answered`, `forwarded` or `moot`, only the asker's own question, in
-the same project), the timeline entry of every outcome, and `GET /api/projects/:key/inbox/screened`
-(owner or admin only), which lists what the Operator settled. If the Operator cannot be woken
-or does not settle in time, the question opens for people (`unavailable`, `timeout`). The
-question text is the AI member's data, not an instruction: the notice, the Operator's rule
-and the forwarded message all pass it as quoted JSON, and it never widens what the Operator
-may do.
+`coordinationMemberOf` selects the available project manager through `projectManagerOf`;
+when none is available, the Operator does not substitute. `coordinationActorRefusal` permits
+only the selected PM's direct AI actor. Human, integrator/`via`, other AI and on-leave actors
+cannot use the four coordination mutations: `screen_question`, `dismiss_signal`, `start_task`
+and `start_member`. Their shared `assertCoordinationSession` guard additionally requires the
+token's actual session to belong to that PM in this project, with an internal `general` work
+item and no `with`/customer conversation. Refusal is `project_manager_only` (HTTP 403, MCP
+`forbidden` with the domain code). `get_project_state` is read-only for the Operator and the
+internal PM without an owner request; guest/customer access remains excluded.
 
-The Operator's `operate` and `start_task` tools require its own session and an open
-owner request. Configuration commits carry internal `operatorRequestId` provenance;
+PM starts need either the PM's own open `CoordinationRequest` or a permitted signal step.
+A request opens only when an owner's own-login message or answer is actually delivered to
+the current PM's internal general session. Other humans, integrators, AI members and system
+signals do not open one. `source: approval` is reserved and refused both by `open` and
+`openFor`; an Operator knowledge approval cannot fall back to a PM message/answer request.
+Requests close at turn/session end or after 30 minutes; offline queues do not extend an open
+request's TTL. Requests are never transferred between sessions. Signal rounds use the existing
+request/step audit tables with the actual PM session attribution, but are never returned by
+`openFor`. The Operator channel filters by the request's session member, keeping PM rounds
+and requests out of its own list. A PM request grants no `operate`, knowledge-write, document,
+waiver or critical-operation authority.
+
+All system signal kinds go to the PM. Migration 69 adds nullable `operator_signals.delivered_to`,
+exposed as optional `OperatorSignal.deliveredTo`; a missing legacy DTO value means no binding.
+Only successful actual delivery records the recipient and delivery time. Pending or failed
+delivery grants nothing. Presentation, dismissal and autonomous starts require a delivery
+binding to the current PM: null, legacy Operator and foreign bindings grant no PM authority.
+Configuration rechecks invalidate unpresented bindings when the recipient changes or goes
+on leave. Unpresented legacy signals are delivered again with the same id, case, evidence and
+persisted budget. Earlier messages, steps and actors are not rewritten. Presented/accepted
+legacy proposals retain their original human decision route and are not redirected to a new PM.
+
+`beforeWrite` and `beforeRecord` recheck current actor/session, signal binding and delivery time,
+case facts, task/member, configured watch level and persisted budget before execution. A signal
+has one in-flight step slot, released in `finally`; simultaneous calls cannot spend the same
+remaining step. `team.operatorWatch` remains report/unblock/drive, with zero/one/three autonomous
+steps and a 30-minute gap, without a separate PM budget or a new permission switch. An
+`answer_stalled` signal permits only `start_member` for the same card's current assignee at
+unblock/drive, subject to the existing task/member mute, gates, prerequisites, permission waits,
+fix-limit and admission checks. Report permits no autonomous start. This signal never grants
+task movement, label/configuration changes, prerequisite override, stop or critical authority.
+
+The PM may present delivered, unpresented `pending` or `open` signals once through `send_message`
+with `signal_id` or `signal_ids`, addressed only to owners from its internal general session.
+The server revalidates signal and recipient bindings transactionally. `dismiss_signal` may close
+only an unpresented `ready_waiting` case that still holds, with a note. Human acceptance or
+dismissal requires a project owner's own login; integrator and AI acceptance fails with 409,
+and dismissal with 403. A valid owner acceptance opens a separate PM `message` request only
+after actual delivery: the signal must be accepted and actionable, `decidedBy` must match the
+owner, and its original presentation author and `deliveredTo` must match the current PM and
+receiving internal session. `message.operatorSignal` or a textual yes alone is insufficient.
+The request names that owner message and PM session; recording a decision, a pending receipt
+or replay opens no authorization round. The PM cannot inherit an acceptance of a legacy
+Operator/null/foreign binding; an earlier Operator proposal retains its existing request path.
+Explicit owner requests do not reset autonomous signal steps, budgets or mute state; a call
+with `signal_id` still obeys all signal guards. `operator_signal` WebSocket events reach only
+owners. Wake-up facts are data, and a proposed action never authorizes itself.
+
+Question screening (PM-558, PM-707) is a PM standing duty without an owner request or step log.
+AI questions, including the Operator's, wait in the inbox state `screening`; the PM's own
+questions go directly to people. Only the selected PM's internal general session can call
+`screen_question` (`project_manager_only`). `answered`, `forwarded` and `moot` close a question
+without a person; `moot` may also close another AI member's question already open for people.
+`forwarded` sends an `action` message to another AI member other than the asker and screening
+PM, who may have no role on the card. The recipient may be the Operator; its existing wake and
+owner-request guards still apply, so forwarding grants no Operator authority. `decision` and
+`todo` hand the question to people. Resolution rechecks project, question kind and state under
+the lock. A PM answer is attributed to the PM and never sets an approval label or decides a
+permission, boundary, release or Operator approval item. These items keep their human routes.
+Counterweights remain the asker's one-time `reask_of` after `answered`, `forwarded` or `moot`
+in the same project, the timeline of every outcome, and the owner/admin-only screened-question
+endpoint. If the PM cannot be woken or does not settle in time, the question opens for people
+(`unavailable`, `timeout`). Notices and forwarded question text remain quoted data and cannot
+expand the PM's authority. Legacy timeline types remain readable with the actual actor fields.
+
+### Operator configuration approvals
+
+The Operator's `operate` tool requires its own session and an open owner request.
+Configuration commits carry internal `operatorRequestId` provenance;
 `assertCommitAllowed` verifies the request's project and Operator attribution and runs
 `operatorConfigVerdict` under the configuration commit lock. Forbidden changes are refused;
 restricted changes require the matching open approval and its exact change rows.
@@ -445,11 +494,13 @@ PM-692). The CLI permission requester is unchanged. All proposal, claim and exec
 runs on the server through existing facades, including on a read-only Mac Operator; no
 isolated or remote engine feature is required.
 
-`start_task` may override prerequisites with `despitePrerequisites`, just as the owner's
-Start button does, but cannot override a fix-limit hold. Policy-controlled temporary
-worker hiring uses `SYSTEM_ACTOR` and `SYSTEM_AUTHOR`, sponsored by the requesting
-owner, within the configured role and count limits. Permanent Operator hiring follows
-the configuration verdict and approval path.
+The owner's Start button retains its explicit `despitePrerequisites` override. The PM's
+`start_task` and `start_member` coordinate as the actual PM AI actor: `despitePrerequisites`
+does not bypass prerequisites for the PM, and a fix-limit hold cannot be overridden. The
+shared start service retains its existing Operator-specific temporary-worker exception
+(`SYSTEM_ACTOR`/`SYSTEM_AUTHOR`, requesting-owner sponsorship and configured role/count limits);
+the PM inherits none of that configuration authority. Permanent Operator hiring follows the
+configuration verdict and approval path.
 
 Configuration history reads attribution only from the final trailer block. Commit
 creation quotes user-supplied `Projectman-` lines, so a patch message cannot forge

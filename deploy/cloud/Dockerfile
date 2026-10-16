@@ -53,6 +53,7 @@ COPY --from=build /app/apps/server/package.json ./apps/server/package.json
 COPY --from=build /app/apps/server/dist ./apps/server/dist
 COPY --from=build /app/apps/web/package.json ./apps/web/package.json
 COPY --from=build /app/apps/web/dist ./apps/web/dist
+COPY --from=build /app/apps/feedback-widget/dist ./apps/feedback-widget/dist
 COPY --chmod=0755 deploy/cloud/entrypoint.sh deploy/cloud/backup.sh deploy/cloud/smoke.sh ./deploy/cloud/
 COPY deploy/cloud/litestream.yml ./deploy/cloud/litestream.yml
 

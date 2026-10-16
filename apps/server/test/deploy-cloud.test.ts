@@ -322,6 +322,12 @@ describe('deploy/cloud shell scripts', () => {
 });
 
 describe('deploy/cloud image', () => {
+  it('copies the built feedback widget into the runtime image', () => {
+    const runtime = dockerfile.split(/^FROM .* AS runtime\s*$/m)[1];
+    expect(runtime).toBeDefined();
+    expect(runtime).toContain('COPY --from=build /app/apps/feedback-widget/dist ./apps/feedback-widget/dist');
+  });
+
   it('brings git, and neither the claude, codex nor gh CLI', () => {
     expect(dockerfile).toMatch(/apt-get install -y --no-install-recommends [^&]*\bgit\b/);
     const installs = dockerfile

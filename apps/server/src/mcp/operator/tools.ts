@@ -173,7 +173,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. Close a ready_waiting system signal of your wake-up that needs nothing, instead of bringing it to the owners: every card it names waits on purpose (for example no priority and outside the focus, parked, or waiting for a person). Give the reason in note. It does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
+        "Only the selected PM in its internal general conversation; needs no owner request. Close a ready_waiting or refinement_stalled system signal of your wake-up that needs nothing, instead of bringing it to the owners: every card a ready_waiting signal names waits on purpose (for example no priority and outside the focus, parked, or waiting for a person); a refinement_stalled signal is an intermediate or resolved situation (the member works again, the label is on, a question is open, the card moved on). It is a plain closing, not a human decision. Give the reason in note. A ready_waiting signal does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
       async run({ ctx, args, handler }) {
         const result = await handler.dismissSignal(ctx, { signalId: args.signal_id, note: args.note });

@@ -374,6 +374,104 @@ describe('checkoutForCheck and releaseCheck', () => {
     },
   );
 
+  describe('allowDependencyInstall (PM-681)', () => {
+    async function lockedHead(scenario: 'stale preferred' | 'symlink lock' | 'no lock') {
+      const made = fixture({ withRemote: false });
+      const { repo } = made;
+      write(repo, '.gitignore', 'node_modules/\n');
+      let head: string;
+      if (scenario === 'no lock') {
+        head = commit(repo, 'ignore modules');
+      } else if (scenario === 'symlink lock') {
+        write(repo, 'real-lock.json', 'merged lock');
+        symlinkSync('real-lock.json', path.join(repo, 'package-lock.json'));
+        head = commit(repo, 'link the lock');
+      } else {
+        write(repo, 'package-lock.json', 'merged lock');
+        head = commit(repo, 'add lock');
+      }
+      const deps = path.join(root, `stale-deps-${counter}`);
+      write(deps, 'package-lock.json', 'old lock');
+      install(deps, 'stale');
+      return { ...made, head, deps };
+    }
+
+    it('asks for an installation instead of copying old packages when no checkout matches the lockfile', async () => {
+      const { merger, head, deps, worktreesRoot } = await lockedHead('stale preferred');
+      const made = await merger.checkoutForCheck(REF, {
+        mergeId: 'mrg_install001',
+        mergeCommit: head,
+        depsFrom: deps,
+        allowDependencyInstall: true,
+      });
+      expect(made.dependencyInstallRequired).toBe(true);
+      expect(existsSync(path.join(made.path, 'node_modules'))).toBe(false);
+      expect(readFileSync(path.join(made.path, 'package-lock.json'), 'utf8')).toBe('merged lock');
+      await merger.releaseCheck(REF, { mergeId: 'mrg_install001' });
+      expect(existsSync(path.join(worktreesRoot, MERGE_CHECK_DIR, 'mrg_install001'))).toBe(false);
+    });
+
+    it.each([undefined, false])(
+      "keeps today's refusal when the switch is %s",
+      async (allowDependencyInstall) => {
+        const { merger, head, deps, worktreesRoot } = await lockedHead('stale preferred');
+        await expect(
+          merger.checkoutForCheck(REF, {
+            mergeId: 'mrg_install002',
+            mergeCommit: head,
+            depsFrom: deps,
+            ...(allowDependencyInstall === undefined ? {} : { allowDependencyInstall }),
+          }),
+        ).rejects.toMatchObject({ code: 'git_failed', message: DEPENDENCIES_NOT_INSTALLED });
+        expect(existsSync(path.join(worktreesRoot, MERGE_CHECK_DIR, 'mrg_install002'))).toBe(false);
+      },
+    );
+
+    it('copies a matching source without asking for an installation', async () => {
+      const { repo, merger, head } = await lockedHead('stale preferred');
+      write(repo, 'package-lock.json', 'merged lock');
+      install(repo, 'repository');
+      const made = await merger.checkoutForCheck(REF, {
+        mergeId: 'mrg_install003',
+        mergeCommit: head,
+        depsFrom: null,
+        allowDependencyInstall: true,
+      });
+      expect(made.dependencyInstallRequired).toBeUndefined();
+      expect(readFileSync(path.join(made.path, 'node_modules/source.txt'), 'utf8')).toBe('repository');
+      await merger.releaseCheck(REF, { mergeId: 'mrg_install003' });
+    });
+
+    it('copies the preferred source of a checkout with no lockfile, and never installs for a symlinked lockfile', async () => {
+      for (const scenario of ['no lock', 'symlink lock'] as const) {
+        const { merger, head, deps } = await lockedHead(scenario);
+        const mergeId = `mrg_install${scenario === 'no lock' ? 'a' : 'b'}01`;
+        const made = await merger.checkoutForCheck(REF, {
+          mergeId,
+          mergeCommit: head,
+          depsFrom: deps,
+          allowDependencyInstall: true,
+        });
+        expect(made.dependencyInstallRequired).toBeUndefined();
+        expect(readFileSync(path.join(made.path, 'node_modules/source.txt'), 'utf8')).toBe('stale');
+        await merger.releaseCheck(REF, { mergeId });
+      }
+    });
+
+    it('still blocks a dependency path that overlaps the checkout or does not exist', async () => {
+      const { merger, head, worktreesRoot } = await lockedHead('stale preferred');
+      await expect(
+        merger.checkoutForCheck(REF, {
+          mergeId: 'mrg_install004',
+          mergeCommit: head,
+          depsFrom: path.join(root, 'no-such-deps'),
+          allowDependencyInstall: true,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_input' });
+      expect(existsSync(path.join(worktreesRoot, MERGE_CHECK_DIR, 'mrg_install004'))).toBe(false);
+    });
+  });
+
   it('makes a detached checkout under _merge, copies dependencies with relative links kept, and releases it', async () => {
     const { merger, repo, worktreesRoot } = fixture({ withRemote: false });
     const head = git(repo, 'rev-parse', 'HEAD');

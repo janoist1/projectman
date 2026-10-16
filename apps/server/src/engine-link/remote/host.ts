@@ -196,6 +196,19 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           return await call('full_test.run', { spec }, { timeoutMs: spec.timeoutMs + FULL_TEST_GRACE_MS });
         } catch (err) {
           logger.warn({ err, engineId: id, runId: spec.runId }, 'a full test did not end on its engine');
+          // The call timed out or was cut off while the engine may still run it: a dependency installation
+          // must not go on unattended (PM-681). The engine ends the run and frees its heavy-run lock.
+          if (err instanceof EngineCallError && err.linkCode === 'timeout') {
+            if (!signal.aborted) cancel();
+            return {
+              outcome: 'error',
+              reason: signal.aborted ? 'killed' : 'timeout',
+              exitCode: null,
+              durationMs: now() - startedAt,
+              failedFiles: [],
+              outputTail: '',
+            };
+          }
           // An older engine's strict schema refuses `npmCi` before it runs anything (PM-681): the run is
           // blocked, never repeated without the dependency preparation it asked for.
           if (spec.npmCi && err instanceof EngineCallError && err.linkCode === 'invalid_params')
@@ -288,8 +301,24 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       isAncestor: (ref, input) => merge('merge.is_ancestor', { ref, ...input }, MERGE_WAIT_MS),
       build: (ref, input) => merge('merge.build', { ref, ...input }, MERGE_WAIT_MS),
       checkoutConflicts: (ref, input) => merge('merge.checkout_conflicts', { ref, ...input }, MERGE_WAIT_MS),
-      checkoutForCheck: (ref, input) =>
-        merge('merge.checkout_for_check', { ref, ...input }, MERGE_CHECKOUT_WAIT_MS),
+      checkoutForCheck: async (ref, input) => {
+        try {
+          return await merge('merge.checkout_for_check', { ref, ...input }, MERGE_CHECKOUT_WAIT_MS);
+        } catch (error) {
+          // An older engine's strict schema refuses `allowDependencyInstall` before it runs anything (PM-681):
+          // the merge blocks, it is never asked again without the switch.
+          if (
+            input.allowDependencyInstall &&
+            error instanceof EngineCallError &&
+            error.linkCode === 'invalid_params'
+          )
+            throw new MergeError(
+              'git_failed',
+              `engine ${id} refused the request: it does not support the dependency preparation (allowDependencyInstall). Update the engine to this version of projectman.`,
+            );
+          throw error;
+        }
+      },
       releaseCheck: async (ref, input) => {
         await merge('merge.release_check', { ref, ...input }, MERGE_WAIT_MS);
       },

@@ -24,6 +24,7 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
+COPY apps/feedback-widget/package.json apps/feedback-widget/
 COPY packages/shared/package.json packages/shared/
 COPY packages/templates/package.json packages/templates/
 RUN npm ci

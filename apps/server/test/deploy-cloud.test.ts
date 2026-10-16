@@ -1,9 +1,18 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  globSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -322,6 +331,29 @@ describe('deploy/cloud shell scripts', () => {
 });
 
 describe('deploy/cloud image', () => {
+  it('copies every workspace manifest before installing build dependencies', () => {
+    const { workspaces } = JSON.parse(read('package.json')) as { workspaces: string[] };
+    const manifests = globSync(
+      workspaces.map((workspace) => `${workspace}/package.json`),
+      {
+        cwd: root,
+      },
+    );
+    expect(manifests.length).toBeGreaterThan(0);
+
+    const buildStage = withoutComments(dockerfile)
+      .split(/^FROM .+ AS build\s*$/m)[1]
+      ?.split(/^FROM /m)[0];
+    expect(buildStage).toBeDefined();
+    const installSteps = buildStage!.split(/^RUN npm ci\s*$/m);
+    expect(installSteps).toHaveLength(2);
+    const copiesBeforeInstall = installSteps[0]!.split('\n').map((line) => line.trim());
+
+    for (const manifest of manifests) {
+      expect(copiesBeforeInstall, manifest).toContain(`COPY ${manifest} ${dirname(manifest)}/`);
+    }
+  });
+
   it('brings git, and neither the claude, codex nor gh CLI', () => {
     expect(dockerfile).toMatch(/apt-get install -y --no-install-recommends [^&]*\bgit\b/);
     const installs = dockerfile

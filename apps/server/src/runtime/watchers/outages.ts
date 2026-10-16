@@ -73,6 +73,12 @@ export class WorkOutages {
   private stopped = false;
   private readonly startedAt: number;
   private readonly connectedEngines = new Set<EngineId>();
+  /**
+   * The task keys of each member's waiting messages, kept for one synchronous pass: a task list asks
+   * `forTask` for every card, and reading the messages again per card made a board with an engine
+   * outage unusable (thousands of cards times thousands of messages).
+   */
+  private pendingKeys: Map<string, ReadonlySet<string>> | null = null;
 
   private readonly deps: OutageDependencies;
 
@@ -189,13 +195,28 @@ export class WorkOutages {
     for (const payload of outages.values()) {
       if (
         payload.outage.kind === 'engine' &&
-        payload.members.some((handle) =>
-          this.deps.messaging.pendingTaskKeys(task.projectKey, handle).includes(task.key),
-        )
+        payload.members.some((handle) => this.pendingTaskKeysOf(task.projectKey, handle).has(task.key))
       )
         candidates.push(payload.outage);
     }
     return candidates.sort((a, b) => a.since.localeCompare(b.since))[0];
+  }
+
+  private pendingTaskKeysOf(projectKey: string, handle: string): ReadonlySet<string> {
+    if (!this.pendingKeys) {
+      const cache = new Map<string, ReadonlySet<string>>();
+      this.pendingKeys = cache;
+      queueMicrotask(() => {
+        if (this.pendingKeys === cache) this.pendingKeys = null;
+      });
+    }
+    const key = memberKey(projectKey, handle);
+    let keys = this.pendingKeys.get(key);
+    if (!keys) {
+      keys = new Set(this.deps.messaging.pendingTaskKeys(projectKey, handle));
+      this.pendingKeys.set(key, keys);
+    }
+    return keys;
   }
 
   async checkNow(projectKey: string, itemId: string, access: ProjectAccess): Promise<CheckOutageResponse> {

@@ -1493,8 +1493,21 @@ workers follow the machine's size.
   or credentials cross this boundary, and no container or DB starts during import.
   Ubuntu util-linux `flock` serializes import/build/start through the root-only
   `/var/lib/projectman/.image.lock`; current/previous immutable IDs are never dangling-image pruned.
+  PM-725 also serializes bootstrap under this lock. On the Ubuntu host, `host.sh` installs `jq`
+  before Docker dependencies, then atomically sets `/etc/docker/daemon.json`
+  `features.containerd-snapshotter=false` (root:root, 0644), preserving unrelated settings and
+  refusing malformed JSON, symlinks and non-regular configuration files. Actual `docker info`
+  must report `Driver=overlay2` without the containerd snapshotter marker in `DriverStatus`.
+  An existing unsupported store needs a Docker restart, allowed only with a provably stopped board
+  and no current/previous deploy history; unavailable or malformed daemon information fails closed.
+  A running classic daemon is not restarted. The result is verified; import/start repeat the
+  store check under the lock before side effects and retain strict config-digest image IDs.
+  Switching stores hides the old images/containers, so the approved bundle must be imported again;
+  bootstrap neither migrates nor deletes old store data and leaves the bind-mounted board data intact.
+  **Remote engine:** configuration, apt, restart and store checks run only on the central Ubuntu
+  host over the existing SSH/SSM channel. No new payload, credential or engine RPC is introduced.
 
-- **The Lightsail machine and its operation (PM-535, PM-718)** — `scripts/cloud/{host,machine,images}.ts`,
+- **The Lightsail machine and its operation (PM-535, PM-718, PM-725)** — `scripts/cloud/{host,machine,images}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
   `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle` also works on
   this legacy amd64 transport. Without it, the existing amd64 host build remains; with it, import
@@ -1502,6 +1515,10 @@ workers follow the machine's size.
   actual container imageId. Prebuilt start uses an immutable ID; health and rollback check/carry it
   and the source SHA. ARM refuses builds and digestless starts/rollback. Operations stay on the
   admin machine/target host, independent of remote engines.
+  PM-725 applies the same explicit `/etc/docker/daemon.json` classic-store setting, stopped-board
+  and empty-history restart guard, actual-daemon checks and required bundle reimport described
+  in the EC2 host channel entry above. This is an Ubuntu-host assumption; Docker Desktop and
+  remote engine configuration are unchanged.
   The commands `deploy`, `rollback`, `status`, `logs`, `ssh`,
   `stop`, `start`, `rehearse`, `seed` and `pull-data` of `npm run cloud`. **What runs where:** on the
   Mac `ssh` (and `git ls-remote`, `tar`, the `aws` CLI); on the Ubuntu machine, as root through

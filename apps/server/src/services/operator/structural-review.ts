@@ -155,10 +155,15 @@ export class StructuralReviews {
       this.starting.set(ctx.sessionId, payload);
       const result = await start(member.handle, structuralReviewText(payload));
       const state = result.recipient.start?.state;
+      const failure = result.recipient.start;
       this.deps.steps.record({
         requestId: request.id,
         action: 'structural_review',
-        status: state === 'failed' ? 'failed' : 'done',
+        status: state === 'failed' ? 'refused' : 'done',
+        refusal:
+          failure?.state === 'failed'
+            ? { code: 'session_start_failed', message: failure.code || 'member start failed' }
+            : null,
         signalId,
         member: member.handle,
         inboxItemId: approvedItem?.id ?? null,

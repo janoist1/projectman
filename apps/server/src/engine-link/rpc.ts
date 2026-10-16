@@ -107,7 +107,8 @@ export function createEngineRpc(options: {
     const params = schema.params.safeParse(frame.params);
     if (!params.success) {
       options.onRefused?.({ id: frame.id, method: frame.method, code: 'invalid_params' });
-      send(failure('invalid_params', 'Invalid method parameters'));
+      const fields = params.error.issues.map((issue) => issue.path.join('.') || '(root)').join(', ');
+      send(failure('invalid_params', `Invalid method parameters: ${frame.method} (${fields})`));
       return;
     }
     const secret = frame.method === 'secret.nanogpt_key';
@@ -168,6 +169,8 @@ export function createEngineRpc(options: {
           });
           if (wire.success) return { t: 'res', id: frame.id, ok: false, error: wire.data };
         }
+        // Kept on this side only: the local log helps diagnose without reflecting the details.
+        console.error(`engine request ${frame.method} failed:`, error);
         return failure('internal', 'Engine request failed');
       }
     };
@@ -195,8 +198,12 @@ export function createEngineRpc(options: {
       if (schema.direction === options.side)
         return Promise.reject(new EngineRpcError('unknown_method', 'Wrong method direction'));
       const parsed = schema.params.safeParse(params);
-      if (!parsed.success)
-        return Promise.reject(new EngineRpcError('invalid_params', 'Invalid method parameters'));
+      if (!parsed.success) {
+        const fields = parsed.error.issues.map((issue) => issue.path.join('.') || '(root)').join(', ');
+        return Promise.reject(
+          new EngineRpcError('invalid_params', `Invalid method parameters: ${String(method)} (${fields})`),
+        );
+      }
       if (callOptions.signal?.aborted)
         return Promise.reject(new EngineRpcError('timeout', 'Engine call aborted'));
       const id = randomBytes(16).toString('hex');

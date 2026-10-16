@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import type { EngineId } from '@projectman/shared';
 import { routes } from '@projectman/shared';
 import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../kernel';
@@ -69,6 +69,7 @@ export function createEngineLinks(options: {
   registry: EngineLinkRegistry;
   clientIpHeader?: string;
   now?: () => number;
+  logger?: FastifyBaseLogger;
 }): EngineLinks {
   const { registry } = options;
   const now = options.now ?? Date.now;
@@ -240,7 +241,13 @@ export function createEngineLinks(options: {
               boots.set(id, frame.bootId);
               states.set(id, state);
               const hello = frame;
-              rpc = createEngineRpc({ side: 'cloud', state, send: (data) => socket.send(data), now });
+              rpc = createEngineRpc({
+                side: 'cloud',
+                state,
+                send: (data) => socket.send(data),
+                now,
+                onFailed: (failure) => options.logger?.warn(failure, 'engine link: a request failed'),
+              });
               link = {
                 resumed,
                 call: rpc.call,

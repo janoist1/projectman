@@ -1,7 +1,12 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
+import { SANDBOX_HOME_READS } from '../src/contracts';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
+import { userExcludesFile } from '../src/engine-host';
+import { createEngineLimit } from '../src/engine-link';
 import { attachmentToolRules, sensitivePaths, sessionSandbox } from '../src/runtime/sessions';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER, tomlValue } from '../src/runner/providers/codex/args';
@@ -300,6 +305,102 @@ describe('provider-neutral session policy', () => {
     expect(withDir.env).toMatchObject({ GIT_CONFIG_SYSTEM: '/pm/m/AR/dev/gitconfig' });
     expect(withDir.allowRead).toContain('/pm/m/AR/dev/gitconfig');
     expect(withDir.allowWrite).not.toContain('/pm/m/AR/dev/gitconfig');
+  });
+
+  it("lets the engine's limit pass a worktree sandbox, which reads the user's files and writes none of them (PM-731)", async () => {
+    const base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'policy-limit-')));
+    try {
+      const home = path.join(base, 'home');
+      const userHome = path.join(base, 'user');
+      const workspace = path.join(base, 'work');
+      const repo = path.join(workspace, 'projectman');
+      const excludes = path.join(userHome, 'global-ignore');
+      for (const dir of [
+        home,
+        repo,
+        path.join(home, 'member-caches'),
+        path.join(userHome, '.config', 'git'),
+        path.join(userHome, '.claude', 'shell-snapshots'),
+      ])
+        mkdirSync(dir, { recursive: true });
+      writeFileSync(excludes, '*.log\n');
+      writeFileSync(path.join(userHome, '.gitconfig'), `[core]\n\texcludesfile = ${excludes}\n`);
+      const clone = buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: {
+          kind: 'task_worktree',
+          path: repo,
+          workspace: { branch: 'AR-1-work', baseCommit: null },
+        },
+        permissionMode: 'acceptEdits',
+        deniedPaths: sensitivePaths({ userHome, appHome: home }),
+      });
+      const sandbox = sessionSandbox(clone, {
+        userHome,
+        appHome: home,
+        defaultBranch: 'main',
+        excludesFile: userExcludesFile(userHome),
+      })!;
+      const reads = [...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)), excludes];
+      expect(sandbox.allowRead).toEqual(expect.arrayContaining(reads));
+      for (const file of [...reads, userHome, path.join(userHome, '.claude')]) {
+        expect(sandbox.allowWrite).not.toContain(file);
+        expect(clone.filesystem.writableRoots).not.toContain(file);
+      }
+      const limit = createEngineLimit({
+        config: {
+          schemaVersion: 1,
+          cloudUrl: 'https://cloud.example.com',
+          engineId: 'eng_aaaaaaaaaaaa',
+          name: 'mac',
+          keyFile: path.join(home, 'engine.key'),
+          projects: [{ project: 'AR', workspacePath: workspace }],
+          repos: [],
+          maxPermissionMode: 'auto',
+          allowRemoteTerminalInput: true,
+        },
+        home,
+        userHome,
+        paths: {
+          userHome,
+          home,
+          worktreesRoot: path.join(home, 'worktrees'),
+          workspacesRoot: null,
+          installDir: null,
+          sessionFoldersRoot: path.join(home, 'session-folders'),
+          sessionTmpRoot: path.join(home, 'tmp'),
+          claudeTmpRoots: [],
+          browsersDir: path.join(home, 'browsers'),
+          heavyLockDir: path.join(home, 'heavy', 'lock'),
+          gitExcludesFile: excludes,
+        },
+        instanceTag: 'a'.repeat(16),
+        transcriptRoots: [],
+        tmpdir: path.join(base, 'os-tmp'),
+        probe: {} as never,
+        sessionPids: () => [],
+        selfPid: 99,
+        selfUid: 501,
+      });
+      const checked = (await limit.check('session.start', {
+        sessionId: 's1',
+        provider: 'claude',
+        cwd: repo,
+        policy: clone,
+        sandbox,
+      } as never)) as { sandbox: { denyWrite: string[]; allowRead: string[] } };
+      expect(checked.sandbox.allowRead).toEqual(expect.arrayContaining(reads));
+      expect(checked.sandbox.denyWrite).toEqual(
+        expect.arrayContaining(
+          ['', '-wal', '-shm', '-journal'].map((end) => path.join(home, `db.sqlite${end}`)),
+        ),
+      );
+      expect(checked.sandbox.denyWrite.filter((entry) => entry.includes('*'))).toEqual([]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it('resolves mixed/custom duty bundles instead of role names', () => {

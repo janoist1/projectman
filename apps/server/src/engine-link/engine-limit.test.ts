@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -347,6 +347,194 @@ describe('engine local limit', () => {
       };
       expect(built.sandbox.allowWrite).toContain(repo);
       expect(built.sandbox.denyRead).toContain(path.join(userHome, '.ssh'));
+    });
+
+    describe('the user’s own files under the home folder (PM-731)', () => {
+      const excludes = () => path.join(userHome, 'global-ignore');
+      const reads = () => [
+        path.join(userHome, '.gitconfig'),
+        path.join(userHome, '.config', 'git'),
+        path.join(userHome, '.claude', 'shell-snapshots'),
+        excludes(),
+      ];
+      beforeEach(() => {
+        mkdirSync(path.join(userHome, '.config', 'git'), { recursive: true });
+        mkdirSync(path.join(userHome, '.claude', 'shell-snapshots'), { recursive: true });
+        mkdirSync(path.join(userHome, '.ssh'), { recursive: true });
+        writeFileSync(excludes(), '*.log\n');
+        writeFileSync(path.join(userHome, '.gitconfig'), `[core]\n\texcludesfile = ${excludes()}\n`);
+      });
+
+      it('reads the three home places and the global excludes file, in every read position', async () => {
+        const limit = make();
+        for (const file of reads()) {
+          await expect(
+            limit.check('session.start', start({ sandbox: sandbox({ allowRead: [file] }) }) as never),
+          ).resolves.toBeDefined();
+          await expect(
+            limit.check(
+              'session.start',
+              start({
+                policy: policy({ filesystem: { readableRoots: [repo, file], readOnlyPaths: [file] } }),
+              }) as never,
+            ),
+          ).resolves.toBeDefined();
+          await expect(limit.check('host.realpath', { path: file } as never)).resolves.toBeDefined();
+        }
+      });
+
+      it('never writes them, nor the home as a whole, nor another place under it', async () => {
+        const limit = make();
+        for (const file of [
+          ...reads(),
+          userHome,
+          path.join(userHome, '.claude'),
+          path.join(userHome, '.ssh'),
+        ]) {
+          await refused(limit, 'session.start', start({ cwd: file }), 'path_outside_roots');
+          await refused(
+            limit,
+            'session.start',
+            start({ sandbox: sandbox({ allowWrite: [file] }) }),
+            'path_outside_roots',
+          );
+          await refused(
+            limit,
+            'session.start',
+            start({ sandbox: sandbox({ portable: { allowWrite: [file] } }) }),
+            'path_outside_roots',
+          );
+          await refused(
+            limit,
+            'session.start',
+            start({ additionalDirectories: [file] }),
+            'path_outside_roots',
+          );
+          await refused(limit, 'session.start', start({ writableRoots: [file] }), 'path_outside_roots');
+          await refused(
+            limit,
+            'session.start',
+            start({ policy: policy({ filesystem: { writableRoots: [file] } }) }),
+            'path_outside_roots',
+          );
+          await refused(
+            limit,
+            'session.start',
+            start({ policy: policy({ placement: { path: file } }) }),
+            'path_outside_roots',
+          );
+          await refused(limit, 'host.prepare_portable_paths', { paths: [file] }, 'path_outside_roots');
+        }
+      });
+
+      it('reads no other place under the home', async () => {
+        const limit = make();
+        for (const other of [
+          userHome,
+          path.join(userHome, '.claude'),
+          path.join(userHome, '.claude', 'settings.json'),
+          path.join(userHome, '.config'),
+          path.join(userHome, '.ssh', 'id_rsa'),
+        ])
+          await refused(
+            limit,
+            'session.start',
+            start({ sandbox: sandbox({ allowRead: [other] }) }),
+            'path_outside_roots',
+          );
+      });
+
+      it('does not follow a link to a credential place, nor an excludes file that is one', async () => {
+        const target = path.join(userHome, '.ssh');
+        rmSync(path.join(userHome, '.claude', 'shell-snapshots'), { recursive: true });
+        symlinkSync(target, path.join(userHome, '.claude', 'shell-snapshots'));
+        writeFileSync(path.join(target, 'id_rsa'), 'key');
+        writeFileSync(path.join(userHome, '.gitconfig'), `[core]\n\texcludesfile = ${target}/id_rsa\n`);
+        const limit = make();
+        for (const file of [
+          path.join(userHome, '.claude', 'shell-snapshots'),
+          path.join(userHome, '.claude', 'shell-snapshots', 'id_rsa'),
+          path.join(target, 'id_rsa'),
+        ])
+          await refused(
+            limit,
+            'session.start',
+            start({ sandbox: sandbox({ allowRead: [file] }) }),
+            'path_outside_roots',
+          );
+        // The reads of the user's real files stay.
+        await expect(
+          limit.check(
+            'session.start',
+            start({ sandbox: sandbox({ allowRead: [path.join(userHome, '.gitconfig')] }) }) as never,
+          ),
+        ).resolves.toBeDefined();
+      });
+    });
+
+    describe('the denials of a write (PM-731)', () => {
+      const denied = async (limit: EngineLimit, denyWrite: string[]) =>
+        (
+          (await limit.check('session.start', start({ sandbox: sandbox({ denyWrite }) }) as never)) as {
+            sandbox: { denyWrite: string[] };
+          }
+        ).sandbox.denyWrite;
+      const names = () => ['', '-wal', '-shm', '-journal'].map((end) => path.join(home, `db.sqlite${end}`));
+
+      it('names the four database files and holds no database pattern, whatever the cloud sent', async () => {
+        const limit = make();
+        for (const incoming of [
+          [],
+          [path.join(home, 'db.sqlite*')],
+          [path.join(home, 'db.sqlite*'), '/x/y*'],
+        ]) {
+          const list = await denied(limit, incoming);
+          expect(list).toEqual(expect.arrayContaining(names()));
+          expect(list.filter((entry) => /db\.sqlite\*$/.test(entry))).toEqual([]);
+          expect(list.filter((entry) => entry.startsWith(path.join(home, 'db.sqlite')))).toHaveLength(4);
+        }
+        const built = (await limit.check('session.start', start() as never)) as {
+          sandbox: { denyWrite: string[] };
+        };
+        expect(built.sandbox.denyWrite).toEqual(expect.arrayContaining(names()));
+        expect(built.sandbox.denyWrite.filter((entry) => entry.endsWith('*'))).toEqual([]);
+      });
+
+      it('leaves any other entry of the cloud as it was, wildcard or not', async () => {
+        const list = await denied(make(), ['/x/y*', '/x/*.lock', '/x/plain']);
+        expect(list).toEqual(expect.arrayContaining(['/x/y*', '/x/*.lock', '/x/plain']));
+      });
+
+      it('keeps the key, the configuration and the status file denied for writing', async () => {
+        const list = await denied(make({ linkHeadersFile: path.join(base, 'keys', 'headers.json') }), []);
+        expect(list).toEqual(
+          expect.arrayContaining([
+            path.join(home, 'engine.key'),
+            path.join(base, 'keys', 'headers.json'),
+            path.join(home, 'engine.json'),
+            path.join(home, 'engine-status.json'),
+            path.join(userHome, '.ssh'),
+          ]),
+        );
+      });
+
+      it('applies to a screenshot run as well', async () => {
+        const run = (await make().check('screenshots.run', {
+          spec: {
+            cwd: repo,
+            sessionDir: path.join(home, 'session-folders', 's'),
+            args: [path.join(repo, 'scenario.json')],
+            sandbox: {
+              allowRead: [],
+              allowWrite: [],
+              denyRead: [],
+              denyWrite: [path.join(home, 'db.sqlite*')],
+            },
+          },
+        } as never)) as { spec: { sandbox: { denyWrite: string[] } } };
+        expect(run.spec.sandbox.denyWrite).toEqual(expect.arrayContaining(names()));
+        expect(run.spec.sandbox.denyWrite.filter((entry) => entry.endsWith('*'))).toEqual([]);
+      });
     });
 
     describe('the engine’s own secrets', () => {

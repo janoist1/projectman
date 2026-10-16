@@ -397,6 +397,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           registry: engineRegistry,
           clientIpHeader,
           now: options.now ? () => options.now!().getTime() : undefined,
+          logger: log.child({ module: 'engine-link' }),
         })
       : undefined;
     const remote =

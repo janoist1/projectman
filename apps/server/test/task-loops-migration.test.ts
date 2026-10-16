@@ -7,8 +7,8 @@ describe('task loops migration (PM-261)', () => {
   it('preserves pre-triage owner and ended rows, and signal receipts (PM-712)', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version <= 70)) db.exec(migration.sql);
-      db.pragma('user_version = 70');
+      for (const migration of migrations.filter((item) => item.version <= 72)) db.exec(migration.sql);
+      db.pragma('user_version = 72');
       db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
         INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, visibility, created_by, created_at, updated_at)
           VALUES ('tsk_1', 'AR', 'AR-1', 1, 'Owner loop', '', 'development', 'active', 'internal', 'owner', '2026-01-01', '2026-01-01'),
@@ -20,7 +20,10 @@ describe('task loops migration (PM-261)', () => {
           ('old-ended', 'AR', 'AR-2', '2026-10-01', '2026-10-01', '2026-10-01', '["dev","cr"]', 6,
           6, 'owner', 'continued', '["owner"]', 'inb_ended', 'c1', '2026-10-02', 'commit');
         INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at, delivered_at, delivered_to)
-          VALUES ('ops_old', 'AR', 'silent', 'silent:old', 'open', '2026-10-01', '2026-10-01', 'pm');`);
+          VALUES ('ops_old', 'AR', 'silent', 'silent:old', 'open', '2026-10-01', '2026-10-01', 'pm'),
+            ('ops_refinement', 'AR', 'refinement_stalled', 'refinement:old', 'pending', '2026-10-01', NULL, NULL);
+        INSERT INTO question_groups VALUES ('inb_primary', 'AR', 'Existing question', '2026-10-01', 'owner', 'Shared');
+        INSERT INTO question_group_items VALUES ('inb_secondary', 'inb_primary');`);
       migrate(db);
       const repos = createRepositories(db);
       expect(repos.taskLoops.get('old-owner')).toMatchObject({
@@ -38,6 +41,22 @@ describe('task loops migration (PM-261)', () => {
         deliveredTo: 'pm',
         deliveredAt: '2026-10-01',
       });
+      expect(repos.operatorSignals.get('ops_refinement')).toMatchObject({
+        kind: 'refinement_stalled',
+        state: 'pending',
+      });
+      db.exec(`INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at)
+        VALUES ('ops_loop', 'AR', 'loop_suspected', 'loop_suspected:loop_1:0', 'pending', '2026-10-01');`);
+      expect(repos.operatorSignals.get('ops_loop')).toMatchObject({
+        kind: 'loop_suspected',
+        state: 'pending',
+      });
+      expect(
+        db.prepare('SELECT primary_item_id FROM question_group_items WHERE item_id = ?').get('inb_secondary'),
+      ).toEqual({ primary_item_id: 'inb_primary' });
+      const versions = migrations.map((migration) => migration.version);
+      expect(new Set(versions).size).toBe(versions.length);
+      expect(versions.slice(-3)).toEqual([71, 72, 73]);
     } finally {
       db.close();
     }

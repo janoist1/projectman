@@ -973,6 +973,8 @@ export function createDomain(opts: DomainOptions) {
     releases,
   });
   messaging.registerSignals(operatorSignals);
+  // A refinement turn that ended without its label goes to the PM as a report-only signal (PM-702).
+  refinement.useStallNotices({ report: (input) => operatorSignals.reportRefinementStall(input) });
   events.on('config_changed', ({ projectKey }) => operatorSignals.recheckRecipients(projectKey));
   const questionScreening = new QuestionScreening({
     ctx,

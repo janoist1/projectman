@@ -154,9 +154,10 @@ ingress is set in the Cloudflare dashboard, not in a config file as in the PM-20
 
 For SES email login, the owner runs `npm run cloud -- ses plan`, then `ses configure --dry-run`
 and a separately approved `ses configure`; `ses request-production --dry-run` and its approved live request
-are a separate step. Wait for `ses check` before approving deploy. These commands use central AWS profile
-`aroom` and the explicit `ses.region`, the existing Cloudflare DNS and a protected sending-only key in
-`cloud.env`; registrar profile `i` is unused. `up` does not run them. See [AWS.md](AWS.md) for config,
+are a separate step. Wait for `ses check` before approving deploy. These commands use the AWS profile
+`ses.profile` (absent: `aws.profile`; PM-729 sets `i`, so the domain and its mail stay in one account while
+the server stays in `aroom`) and the explicit `ses.region`, the existing Cloudflare DNS and a protected
+sending-only key in `cloud.env`. `up` does not run them. See [AWS.md](AWS.md) for config,
 previews, IAM scope and partial-failure recovery. The Mac engine receives no SES/AWS credentials, and no
 engine protocol change is needed. An AI sandbox never reads `~/.aws` or runs live provisioning.
 

@@ -7,7 +7,7 @@ import { CloudError, refused } from './errors';
 import { checkSecretsDir, ensureSecretsDir, readEnvFile, updateEnvFile } from './secrets';
 
 // Owner-run provisioning only (PM-678). These commands never send a message or request production
-// access as a side effect of configure/up. Every AWS operation uses the central profile and SES region.
+// access as a side effect of configure/up. Every AWS operation uses the SES profile (ses.profile, else aws.profile) and the SES region.
 const POLICY = 'ses-send';
 const KEY_ID = 'PROJECTMAN_SES_ACCESS_KEY_ID';
 const KEY_SECRET = 'PROJECTMAN_SES_SECRET_ACCESS_KEY';
@@ -93,11 +93,9 @@ function localEnv(context: CloudContext): Map<string, string> {
 
 async function awsState(context: CloudContext) {
   const ses = requiredConfig(context);
-  const cli = new AwsCli(context.deps, { profile: context.config.aws.profile, region: ses.region });
+  const cli = new AwsCli(context.deps, { profile: ses.profile, region: ses.region });
   const { Account: account } = await cli.callAs(['sts', 'get-caller-identity'], callerSchema);
-  context.report.line(
-    `SES profile ${context.config.aws.profile}, account ${account}, region ${ses.region}; registrar profile ${context.config.route53.profile} is not used`,
-  );
+  context.report.line(`SES profile ${ses.profile}, account ${account}, region ${ses.region}`);
   const identity = await cli.callAsOrNull(
     ['sesv2', 'get-email-identity', '--email-identity', ses.domain],
     ['NotFoundException'],
@@ -111,7 +109,7 @@ async function awsState(context: CloudContext) {
 }
 
 /** No SendRawEmail, wildcard resource, sender authorization or other permissions. */
-export function sesPolicy(ses: SesConfig, account: string) {
+export function sesPolicy(ses: Pick<SesConfig, 'region' | 'domain' | 'from'>, account: string) {
   return {
     Version: '2012-10-17',
     Statement: [
@@ -263,7 +261,7 @@ async function iamState(context: CloudContext, cli: AwsCli, account: string, env
       user.User.Arn !== `arn:aws:iam::${account}:user/${name}` ||
       !user.User.Tags?.some((tag) => tag.Key === TAG.Key && tag.Value === TAG.Value)
     )
-      throw refused(`${name} is not the managed SES user in the central account; refusing adoption`);
+      throw refused(`${name} is not the managed SES user in the configured SES account; refusing adoption`);
     const inline = await cli.callAs(
       ['iam', 'list-user-policies', '--user-name', name],
       z.looseObject({ PolicyNames: z.array(z.string()) }),
@@ -391,7 +389,7 @@ export async function runSesConfigure(context: CloudContext, dryRun: boolean): P
         created.User.UserName !== iam.name ||
         created.User.Arn !== `arn:aws:iam::${account}:user/${iam.name}`
       )
-        throw new CloudError('IAM did not create the expected central-account SES user');
+        throw new CloudError('IAM did not create the expected SES user in the configured SES account');
       context.report.step('created', `user ${iam.name}`);
     }
     if (!policyMatches(iam.document, wantedPolicy)) {

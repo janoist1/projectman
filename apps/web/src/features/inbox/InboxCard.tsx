@@ -432,7 +432,6 @@ export function InboxCard({
     );
   }
 
-  // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
   if (group && !grouped) {
     const primaryKey = group.primaryTaskKey;
     return (
@@ -495,6 +494,7 @@ export function InboxCard({
         ) : null}
       </article>
     );
+  // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
   if (operatorApproval) {
     const isStale = operatorApproval.stale !== null || stale;
     return (

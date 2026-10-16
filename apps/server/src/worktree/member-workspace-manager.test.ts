@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -352,5 +352,175 @@ describe('member workspaces', { timeout: 30_000 }, () => {
     await mkdir(path.dirname(ws.path), { recursive: true });
     await git('-C', projectRepo, 'worktree', 'add', '--quiet', '-b', 'linked', ws.path);
     expect((await refusal(manager.ensure(key('dev')))).code).toBe('workspace_invalid');
+  });
+});
+
+describe('handing a task commit over (PM-739)', { timeout: 30_000 }, () => {
+  const SNAPSHOTS = 'refs/projectman/workspaces';
+
+  /** A developer who made one commit on a task branch that the project repository does not know. */
+  async function developed(member = 'dev', branch = 'AR-4-change', file = 'feature.txt') {
+    const ws = await manager.ensure(key(member));
+    await startTask(member, branch);
+    const commit = await commitFile(ws.path, file, `${member}\n`, `Work of ${member}`);
+    return { ws, commit, branch };
+  }
+
+  const known = (repo: string, commit: string) =>
+    git('-C', repo, 'cat-file', '-e', `${commit}^{commit}`).then(
+      () => true,
+      () => false,
+    );
+
+  it('gives both reviewers and the merger the same commit although the source never had it', async () => {
+    const { commit, branch } = await developed();
+    expect(await known(projectRepo, commit)).toBe(false);
+
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    expect(source).toEqual({ path: projectRepo, ref: `${SNAPSHOTS}/dev/AR-4/${commit}` });
+    expect(await manager.resolveSource(source)).toBe(commit);
+    // Nothing else changed in the source: no branch of the task, no leftover receiving ref.
+    expect(await git('-C', projectRepo, 'for-each-ref', '--format=%(refname)', 'refs/heads/')).toBe(
+      'refs/heads/main',
+    );
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/incoming/')).toBe('');
+
+    for (const reviewer of ['qa', 'security']) {
+      const ws = await manager.ensure(key(reviewer));
+      expect(await manager.checkoutReview(key(reviewer), source, commit)).toEqual({
+        branch: null,
+        head: commit,
+      });
+      expect(await git('-C', ws.path, 'rev-parse', 'HEAD')).toBe(commit);
+    }
+    // The merger reads the commit from the source repository itself.
+    expect(await known(projectRepo, commit)).toBe(true);
+  });
+
+  it('is repeatable and safe in parallel, also after a restart', async () => {
+    const { commit, branch } = await developed();
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit)),
+    );
+    expect(new Set(results.map((r) => r.ref)).size).toBe(1);
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/incoming/')).toBe('');
+
+    const restarted = createMemberWorkspaceManager({
+      rootDir: path.join(base, 'workspaces'),
+      logger: silentLogger(),
+    });
+    expect(await restarted.publishTaskBranch(key('dev'), 'AR-4', branch, commit)).toEqual(results[0]);
+  });
+
+  it('keeps an earlier round pinned when the developer commits again', async () => {
+    const { ws, commit: first, branch } = await developed();
+    const earlier = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, first);
+    const second = await commitFile(ws.path, 'feature.txt', 'v2\n', 'Later work');
+    const later = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, second);
+
+    expect(later.ref).not.toBe(earlier.ref);
+    expect(await manager.resolveSource(earlier)).toBe(first);
+    expect(await manager.resolveSource(later)).toBe(second);
+  });
+
+  it('keeps the pinned commit when the developer rewrites the branch afterwards', async () => {
+    const { ws, commit, branch } = await developed();
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    await git('-C', ws.path, 'reset', '--quiet', '--hard', 'HEAD~1');
+    await commitFile(ws.path, 'other.txt', 'o\n', 'Rewritten');
+    expect(await manager.resolveSource(source)).toBe(commit);
+    await manager.ensure(key('qa'));
+    expect(await manager.checkoutReview(key('qa'), source, commit)).toEqual({ branch: null, head: commit });
+    // A commit no longer on the branch cannot be handed over any more.
+    expect(
+      (await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, `${'a'.repeat(40)}`))).code,
+    ).toBe('workspace_source_missing');
+  });
+
+  it('is not misled by an old worktree that has the same branch name', async () => {
+    const { commit, branch } = await developed();
+    const old = path.join(base, 'old-worktree');
+    await git('-C', projectRepo, 'worktree', 'add', '--quiet', '-b', branch, old);
+    const stale = await commitFile(old, 'stale.txt', 's\n', 'Stale work');
+
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    expect(await manager.resolveSource(source)).toBe(commit);
+    expect(await git('-C', projectRepo, 'rev-parse', `refs/heads/${branch}`)).toBe(stale);
+  });
+
+  it('keeps two developers of the same task apart and refuses to guess between them', async () => {
+    const a = await developed('dev', 'AR-4-change', 'a.txt');
+    const b = await developed('dev2', 'AR-4-change', 'b.txt');
+    const sa = await manager.publishTaskBranch(key('dev'), 'AR-4', a.branch, a.commit);
+    const sb = await manager.publishTaskBranch(key('dev2'), 'AR-4', b.branch, b.commit);
+    expect(sa.ref).not.toBe(sb.ref);
+
+    await manager.ensure(key('qa'));
+    expect((await refusal(manager.findTaskBranch(key('qa'), 'AR-4'))).code).toBe('workspace_source_missing');
+    const named = await manager.findTaskBranch(key('qa'), 'AR-4', b.commit);
+    expect(named?.source).toEqual(sb);
+  });
+
+  it('lets a reviewer find the one handed-over commit of a task', async () => {
+    const { commit, branch } = await developed();
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    await manager.ensure(key('qa'));
+    expect(await manager.findTaskBranch(key('qa'), 'AR-4')).toEqual({ branch: 'AR-4', source });
+    expect(await manager.findTaskBranch(key('qa'), 'AR-5')).toBeNull();
+  });
+
+  it('refuses a commit that is not on the task branch or not in the workspace', async () => {
+    const { ws, branch } = await developed();
+    await git('-C', ws.path, 'checkout', '--quiet', '-b', 'AR-4-side', 'main');
+    const side = await commitFile(ws.path, 'side.txt', 's\n', 'Side');
+    await git('-C', ws.path, 'checkout', '--quiet', branch);
+
+    expect((await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, side))).code).toBe(
+      'workspace_source_missing',
+    );
+    expect((await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, 'b'.repeat(40)))).code).toBe(
+      'workspace_source_missing',
+    );
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/')).toBe('');
+  });
+
+  it('refuses a bad request: object id, task, branch, other project, ref injection', async () => {
+    const { commit, branch } = await developed();
+    const bad = (taskKey: string, br: string, c: string) =>
+      refusal(manager.publishTaskBranch(key('dev'), taskKey, br, c));
+    expect((await bad('AR-4', branch, commit.slice(0, 12))).code).toBe('workspace_invalid');
+    expect((await bad('AR-4', branch, 'refs/heads/main')).code).toBe('workspace_invalid');
+    expect((await bad('AR-4', 'main', commit)).code).toBe('workspace_invalid');
+    expect((await bad('AR-5', branch, commit)).code).toBe('workspace_invalid');
+    expect((await bad('OT-4', 'OT-4-change', commit)).code).toBe('workspace_invalid');
+    expect((await bad('AR-4/../x', branch, commit)).code).toBe('workspace_invalid');
+    expect((await bad('AR-4', 'AR-4-x..y', commit)).code).toBe('workspace_invalid');
+    expect((await bad('AR-4', 'AR-4-x y', commit)).code).toBe('workspace_invalid');
+    expect((await refusal(manager.publishTaskBranch(key('../dev'), 'AR-4', branch, commit))).code).toBe(
+      'workspace_invalid',
+    );
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/')).toBe('');
+  });
+
+  it('refuses a name that already holds another commit and leaves it as it was', async () => {
+    const { commit, branch } = await developed();
+    const ref = `${SNAPSHOTS}/dev/AR-4/${commit}`;
+    const main = await git('-C', projectRepo, 'rev-parse', 'main');
+    await git('-C', projectRepo, 'update-ref', ref, main);
+    expect((await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit))).code).toBe(
+      'workspace_source_missing',
+    );
+    expect(await git('-C', projectRepo, 'rev-parse', ref)).toBe(main);
+  });
+
+  it('refuses a workspace that is a symbolic link', async () => {
+    const { ws, commit, branch } = await developed();
+    const real = path.join(base, 'real-clone');
+    await rename(ws.path, real);
+    await symlink(real, ws.path);
+    expect((await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit))).code).toBe(
+      'workspace_invalid',
+    );
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/')).toBe('');
   });
 });

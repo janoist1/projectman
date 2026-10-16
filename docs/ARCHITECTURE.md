@@ -1771,6 +1771,11 @@ workers follow the machine's size.
   socket; machine keys grant no human API access. The method table is the sole RPC gateway,
   validated in both directions and tied to the engine contracts, including the PM-312 disk operations.
   File export forwards `exactRoot` when the caller requires a root without symbolic links.
+  PM-739 adds `workspace.publishTaskBranch` (`[key, taskKey, branch, commit]` → strict `{path, ref}`):
+  the engine hands a developer's task commit over to its own repository; the cloud never names a path
+  or ref, `engine-limit.ts` binds the repository and requires a full object id. Protocol version stays
+  1; an older engine answers `unknown_method` and the call fails with an update message, so update the
+  engines before the hybrid hand-over is used.
   Events are acknowledged after handling, and engine-scoped request
   results survive reconnects for five minutes in memory. `secret.nanogpt_key` is never cached or
   logged; the starting-session condition is enforced by the PM-315 handler, unavailable by default.
@@ -2533,6 +2538,25 @@ assumption or remote-engine RPC.
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
   as shared storage.
+  **Handing a commit over (PM-739):** a member workspace is an independent clone without a remote, so
+  the repository, the reviewers and the merger do not know a developer's commit.
+  `MemberWorkspaceManager.publishTaskBranch(key, taskKey, branch, commit)` (RPC
+  `workspace.publishTaskBranch`, params `[key, taskKey, branch, commit]`, result strict `{path, ref}`)
+  runs on the engine that holds both the developer's workspace and the repository: it checks that the
+  commit is on the developer's task branch, takes the branch tip through `WorkspaceAccess.transfer`
+  (the same keyed lock and isolated git as every other workspace operation) into a temporary
+  `refs/projectman/incoming/<member>/<TASK-KEY>/<random>` ref, proves the commit is in the fetched
+  history and creates `refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>` in the repository only
+  if it is missing (`update-ref` with a null old value; an identical object id is accepted, another
+  one is refused). Nothing else of the repository moves: no push, no remote, no branch write, and
+  snapshots are never removed. The cloud sends no path or ref; `engine-limit.ts` binds the repository
+  and checks the full object id. A review round pins `sourcePath/sourceRef/sourceCommit` to the
+  snapshot; rounds pinned before keep their direct workspace path. A task branch can also be found
+  through its snapshots (`findTaskBranch`); several distinct commits are chosen only by the exact
+  one named. An engine that does not know the RPC makes the hand-over fail with
+  `workspace_source_missing` (`details.reason: engine_update_required`). **Does this work on a remote
+  engine?** Yes: the workspace, the repository and the transfer are all on the engine; only the
+  request and the `{path, ref}` answer cross the link.
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
   **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
@@ -2789,6 +2813,14 @@ assumption or remote-engine RPC.
   must share an engine and no new RPC or command allowlist entry is required.
   Diagnostic bisection (PM-661), its transactional requeue and parent/size limits stay on the
   server; smaller attempts reuse these same engine operations and the required heavy lock.
+  Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the
+  first `merge.prepare`, `merge.is_ancestor` or `merge.build` of a standalone merge, a train (also its
+  recovery and its candidate selection) and the merge gate, the server calls
+  `MergeSessions.prepareMergeSource(config, task, commit)` for every commit involved. It reaches
+  `workspace.publishTaskBranch` on the card's engine (see "Task worktrees and shared git storage"),
+  which makes the commit readable in the engine's repository as a snapshot ref; a refusal blocks the
+  attempt through the usual `merge_error` path, a train candidate that cannot be handed over stays
+  out of the train. A task without a developer workspace binding changes nothing.
   No new local machine assumption or server/engine boundary field is introduced.
   **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths

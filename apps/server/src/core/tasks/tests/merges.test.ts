@@ -944,6 +944,43 @@ describe('member initiated merge', () => {
     expect(text).toContain('fix_conflict: true');
   });
 
+  it('hands the approved commit over to the source repository before it prepares or builds (PM-739)', async () => {
+    await setup();
+    const order: string[] = [];
+    const handOver = vi
+      .spyOn(h!.domain.sessions, 'prepareMergeSource')
+      .mockImplementation(async () => void order.push('handOver'));
+    merger.prepare.mockImplementation(async () => {
+      order.push('prepare');
+      return structuredClone(merger.base);
+    });
+    merger.build.mockImplementation(async (_ref, input) => {
+      order.push('build');
+      return { ok: true, mergeCommit: `merged-${input.commit}`, changed: ['a.ts'] };
+    });
+    await start();
+    await merged();
+    expect(handOver).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ key: 'AR-1' }),
+      'approved-AR-1',
+    );
+    expect(order.slice(0, 2)).toEqual(['handOver', 'prepare']);
+    expect(order.indexOf('handOver')).toBeLessThan(order.indexOf('build'));
+  });
+
+  it('blocks the merge without touching the source when the commit cannot be handed over (PM-739)', async () => {
+    await setup();
+    vi.spyOn(h!.domain.sessions, 'prepareMergeSource').mockRejectedValue(
+      new Error('The commit is not known in this repository'),
+    );
+    await start();
+    await blocked('merge_error');
+    expect(merger.prepare).not.toHaveBeenCalled();
+    expect(merger.build).not.toHaveBeenCalled();
+    expect(merger.advance).not.toHaveBeenCalled();
+  });
+
   it('blocks a thrown check', async () => {
     const executor = fakeExecutor();
     vi.mocked(executor.run).mockRejectedValue(new Error('check broke'));

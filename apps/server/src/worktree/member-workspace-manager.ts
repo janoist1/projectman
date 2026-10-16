@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { lstat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
@@ -52,6 +53,11 @@ const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const HANDLE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 const REPO_NAME = /^[a-z0-9][a-z0-9._-]*$/;
+const TASK_KEY = /^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]{0,9}$/;
+/** Where a developer's handed-over commits live in the project repository (PM-739), one ref per commit. */
+const SNAPSHOT_PREFIX = 'refs/projectman/workspaces/';
+/** The receiving refs of a hand-over in progress; removed again when it ends. */
+const INCOMING_PREFIX = 'refs/projectman/incoming/';
 
 export class MemberWorkspaceError extends Error {
   readonly code: MemberWorkspaceErrorCode;
@@ -424,6 +430,26 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     return names[0] ?? null;
   }
 
+  /**
+   * The snapshots handed over for the task (`publishTaskBranch`) in the project repository, by their
+   * names: `refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>` pointing at exactly `<commit>`.
+   */
+  async function taskSnapshots(
+    repo: string,
+    taskKey: string,
+  ): Promise<Array<{ ref: string; commit: string }>> {
+    const out = await gitIn(repo, ['for-each-ref', '--format=%(objectname) %(refname)', SNAPSHOT_PREFIX]);
+    const found: Array<{ ref: string; commit: string }> = [];
+    for (const line of out.split('\n')) {
+      const [object, ref] = line.split(' ');
+      const parts = ref?.split('/') ?? [];
+      // refs / projectman / workspaces / <member> / <task> / <commit>
+      if (parts.length !== 6 || parts[4] !== taskKey || !OID.test(parts[5]!) || object !== parts[5]) continue;
+      found.push({ ref: ref!, commit: parts[5]! });
+    }
+    return found.sort((a, b) => (a.ref < b.ref ? -1 : 1));
+  }
+
   async function findTaskBranch(key: MemberWorkspaceKey, taskKey: string, preferred?: string) {
     const { dir, info, repoPath } = await locate(key);
     return withLock(dir, async () => {
@@ -434,8 +460,136 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
         const found = await taskBranches(repoPath, prefix, taskKey, preferred);
         if (found) return { branch: found, source: { path: repoPath, ref: `${prefix}${found}` } };
       }
-      return null;
+      // Work handed over from a developer's workspace: one commit, or the exact one asked for.
+      const snapshots = await taskSnapshots(repoPath, taskKey);
+      const commits = new Set(snapshots.map((s) => s.commit));
+      const chosen =
+        commits.size <= 1
+          ? snapshots[0]
+          : snapshots.find((s) => preferred !== undefined && (preferred === s.commit || preferred === s.ref));
+      if (!chosen) {
+        if (commits.size > 1)
+          throw new MemberWorkspaceError(
+            'workspace_source_missing',
+            `${taskKey} has several handed-over commits; none was named`,
+            { taskKey },
+          );
+        return null;
+      }
+      // The developer's branch name is the caller's (its binding); a task branch name stands in.
+      const branch = preferred !== undefined && isTaskBranch(preferred, taskKey) ? preferred : taskKey;
+      return { branch, source: { path: repoPath, ref: chosen.ref } };
     });
+  }
+
+  async function publishTaskBranch(
+    key: MemberWorkspaceKey,
+    taskKey: string,
+    branch: string,
+    commit: string,
+  ): Promise<WorkspaceSource> {
+    const { dir, info, repoPath } = await locate(key);
+    const projectKey = key.project.project.key;
+    if (
+      !OID.test(commit) ||
+      !TASK_KEY.test(taskKey) ||
+      !taskKey.startsWith(`${projectKey}-`) ||
+      !isTaskBranch(branch, taskKey)
+    )
+      throw new MemberWorkspaceError('workspace_invalid', 'invalid hand-over request', { taskKey, branch });
+    await assertBranchName(branch);
+    const snapshot = `${SNAPSHOT_PREFIX}${key.member}/${taskKey}/${commit}`;
+    if (!(await plainGitSucceeds(['check-ref-format', snapshot])))
+      throw new MemberWorkspaceError('workspace_invalid', 'invalid hand-over ref');
+    const source: WorkspaceSource = { path: repoPath, ref: snapshot };
+    const unchanged = await existingSnapshot(repoPath, snapshot, commit);
+    if (unchanged) return source;
+    return withLock(dir, async () => {
+      // Another hand-over of the same commit may have finished while this one waited.
+      if (await existingSnapshot(repoPath, snapshot, commit)) return source;
+      await assertWorkspace(info);
+      const branchRef = `refs/heads/${branch}`;
+      const onBranch =
+        (await gitInSucceeds(info.path, ['rev-parse', '--verify', '--quiet', `${commit}^{commit}`])) &&
+        (await gitInSucceeds(info.path, ['merge-base', '--is-ancestor', commit, branchRef]));
+      if (!onBranch)
+        throw new MemberWorkspaceError(
+          'workspace_source_missing',
+          `the commit ${commit} is not on ${branch} in the developer's workspace`,
+          { commit, branch },
+        );
+      // A receiving ref of our own naming that nothing else can use; the snapshot is made only
+      // once the fetched history is proven to hold the commit.
+      const incoming = `${INCOMING_PREFIX}${key.member}/${taskKey}/${randomBytes(8).toString('hex')}`;
+      try {
+        try {
+          const handed = await access.transfer(access.ownerOf(repoPath), {
+            path: info.path,
+            refs: [branchRef],
+            owner: access.ownerOf(info.path),
+          });
+          try {
+            await gitIn(
+              repoPath,
+              [
+                'fetch',
+                '--quiet',
+                '--no-tags',
+                '--no-write-fetch-head',
+                '--',
+                handed.from,
+                `${branchRef}:${incoming}`,
+              ],
+              FETCH_TIMEOUT_MS,
+            );
+          } finally {
+            await handed
+              .done()
+              .catch((err: unknown) =>
+                log.warn({ err, workspace: info.path }, 'could not remove a hand-over'),
+              );
+          }
+        } catch (err) {
+          throw new MemberWorkspaceError(
+            'workspace_fetch_failed',
+            `could not hand over ${branch}: ${(err as Error).message}`,
+            { branch },
+          );
+        }
+        if (!(await gitInSucceeds(repoPath, ['merge-base', '--is-ancestor', commit, incoming])))
+          throw new MemberWorkspaceError(
+            'workspace_source_missing',
+            `the commit ${commit} did not arrive with ${branch}`,
+            { commit, branch },
+          );
+        try {
+          // Only when missing: `update-ref` refuses to move a ref whose old value is the null id.
+          await gitIn(repoPath, ['update-ref', '--no-deref', snapshot, commit, '0'.repeat(commit.length)]);
+        } catch (err) {
+          // Lost a race to the same hand-over (the ref is there at the commit now) or to another one.
+          if (!(err instanceof GitCommandError) || !(await existingSnapshot(repoPath, snapshot, commit)))
+            throw err;
+        }
+      } finally {
+        await gitIn(repoPath, ['update-ref', '-d', incoming]).catch((err: unknown) =>
+          log.warn({ err, ref: incoming }, 'could not remove a receiving ref'),
+        );
+      }
+      log.info({ member: key.member, taskKey, commit, ref: snapshot }, 'handed over a task commit');
+      return source;
+    });
+  }
+
+  /** Whether the snapshot is there at `commit`; another commit under that name is refused. */
+  async function existingSnapshot(repoPath: string, snapshot: string, commit: string): Promise<boolean> {
+    const out = await gitIn(repoPath, ['rev-parse', '--verify', '--quiet', snapshot]).catch(() => null);
+    const present = out?.trim() ?? '';
+    if (!present) return false;
+    if (present !== commit)
+      throw new MemberWorkspaceError('workspace_source_missing', `${snapshot} already names another commit`, {
+        commit,
+      });
+    return true;
   }
 
   async function resolveSource(source: WorkspaceSource): Promise<string | null> {
@@ -557,6 +711,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     resolveSource,
     checkoutTaskBranch,
     checkoutReview,
+    publishTaskBranch,
   };
 }
 

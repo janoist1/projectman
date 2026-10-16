@@ -16,6 +16,10 @@ describe('member workspaces migration (PM-138)', () => {
         VALUES ('sig_old', 'AR', 'outage', 'outage:old', 'pending', '2026-01-01', '2026-01-02', 'kept'),
           ('sig_answer', 'AR', 'answer_stalled', 'answer:old', 'open', '2026-01-01', '2026-01-03', 'answer kept');`);
       const signalsBefore = db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all();
+      db.exec(`INSERT INTO operator_requests (id, project_key, session_id, source, from_handle, quote, opened_at)
+        VALUES ('opr_old', 'AR', 'ses_old', 'message', 'owner', 'Keep legacy steps', '2026-01-01');
+        INSERT INTO operator_steps (id, request_id, at, action, status)
+        VALUES ('ops_old', 'opr_old', '2026-01-01', 'config_change', 'done');`);
       migrate(db);
       expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toMatchObject(signalsBefore);
@@ -24,6 +28,10 @@ describe('member workspaces migration (PM-138)', () => {
         VALUES ('sig_cleanup', 'AR', 'process_cleanup_failed', 'cleanup:scope', 'pending', '2026-01-01');`),
       ).not.toThrow();
       const repos = createRepositories(db);
+      expect(repos.operatorRequests.steps('opr_old')).toMatchObject([
+        { id: 'ops_old', status: 'done', agreementVersion: null, approvalMode: null },
+      ]);
+      expect(repos.operatorRequests.executions('AR')).toEqual([]);
       expect(repos.memberWorkspaces.get('wsp_old')?.holder).toMatchObject({
         sessionId: 'ses_old',
         pid: 4242,

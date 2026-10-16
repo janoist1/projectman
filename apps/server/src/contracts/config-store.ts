@@ -27,7 +27,7 @@ export interface ConfigStore {
       previous?: ProjectConfig;
     },
   ): Promise<{ version: string }>;
-  history(projectKey: string, limit?: number): Promise<ConfigVersionEntry[]>;
+  history(projectKey: string, limit?: number, offset?: number): Promise<ConfigVersionEntry[]>;
   /** The configuration as of `version` (migrated and validated), without changing anything. */
   loadVersion(projectKey: string, version: string): Promise<ProjectConfig>;
   /** Restores the project's files as of `version` in a new commit. */
@@ -35,6 +35,10 @@ export interface ConfigStore {
 }
 
 export interface ConfigAuthor {
+  operatorStepId?: string;
+  operatorRequestId?: string;
+  operatorAgreementVersion?: number;
+  operatorApprovalMode?: 'click' | 'waived';
   name: string;
   email: string;
   via?: 'integrator';

@@ -1,4 +1,9 @@
-import type { ConfigChangeRow, OperatorAction, OperatorStepStatus } from '@projectman/shared';
+import type {
+  ConfigChangeRow,
+  OperatorAction,
+  OperatorStepStatus,
+  OperatorOperation,
+} from '@projectman/shared';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -16,6 +21,8 @@ export interface OperatorRequestRecord {
 }
 
 export interface OperatorStepRecord {
+  agreementVersion?: number | null;
+  approvalMode?: 'click' | 'waived' | null;
   id: string;
   requestId: string;
   at: string;
@@ -40,7 +47,26 @@ const requestColumns = `id, project_key AS projectKey, session_id AS sessionId, 
   message_id AS messageId, inbox_item_id AS inboxItemId, from_handle AS fromHandle, quote,
   opened_at AS openedAt, closed_at AS closedAt`;
 const stepColumns = `id, request_id AS requestId, at, action, status, task_key AS taskKey, member, changes,
-  config_version AS configVersion, inbox_item_id AS inboxItemId, signal_id AS signalId, refusal`;
+  config_version AS configVersion, inbox_item_id AS inboxItemId, signal_id AS signalId, refusal,
+  agreement_version AS agreementVersion, approval_mode AS approvalMode`;
+
+export interface OperatorExecutionIntent {
+  id: string;
+  projectKey: string;
+  requestId: string;
+  operation: OperatorOperation;
+  changes: ConfigChangeRow[];
+  agreementVersion: number | null;
+  approvalMode: 'click' | 'waived';
+  status: 'prepared' | 'committed' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+  configVersion: string | null;
+  refusal: { code: string; message: string } | null;
+}
+const intentColumns = `id, project_key AS projectKey, request_id AS requestId, operation, changes,
+  agreement_version AS agreementVersion, approval_mode AS approvalMode, status, created_at AS createdAt,
+  updated_at AS updatedAt, config_version AS configVersion, refusal`;
 
 const toStep = (row: StepRow): OperatorStepRecord => ({
   ...row,
@@ -68,14 +94,69 @@ export function createOperatorRequestRepository(db: Db) {
        ORDER BY opened_at DESC, rowid DESC LIMIT ?) ORDER BY openedAt, n`,
     ),
     insertStep: db.prepare(`INSERT INTO operator_steps
-      (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, signal_id, refusal)
-      VALUES (@id, @requestId, @at, @action, @status, @taskKey, @member, @changes, @configVersion, @inboxItemId, @signalId, @refusal)`),
+      (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, signal_id, refusal, agreement_version, approval_mode)
+      VALUES (@id, @requestId, @at, @action, @status, @taskKey, @member, @changes, @configVersion, @inboxItemId, @signalId, @refusal, @agreementVersion, @approvalMode)`),
     stepsOf: db.prepare(`SELECT ${stepColumns} FROM operator_steps WHERE request_id = ? ORDER BY at, rowid`),
     stepsOfSignal: db.prepare(
       `SELECT ${stepColumns} FROM operator_steps WHERE signal_id = ? ORDER BY at, rowid`,
     ),
   };
   return {
+    prepareExecution(intent: OperatorExecutionIntent): void {
+      db.prepare(
+        `INSERT INTO operator_execution_intents
+        (id, project_key, request_id, operation, changes, agreement_version, approval_mode, status,
+         created_at, updated_at, config_version, refusal)
+        VALUES (@id, @projectKey, @requestId, @operation, @changes, @agreementVersion, @approvalMode,
+          @status, @createdAt, @updatedAt, @configVersion, @refusal)`,
+      ).run({
+        ...intent,
+        operation: toJson(intent.operation),
+        changes: toJson(intent.changes),
+        refusal: null,
+      });
+      db.prepare(
+        'UPDATE operator_steps SET agreement_version = ?, approval_mode = ?, changes = ? WHERE id = ?',
+      ).run(intent.agreementVersion, intent.approvalMode, toJson(intent.changes), intent.id);
+    },
+    executions(projectKey: string): OperatorExecutionIntent[] {
+      return (
+        db
+          .prepare(`SELECT ${intentColumns} FROM operator_execution_intents WHERE project_key = ?`)
+          .all(projectKey) as Array<
+          Omit<OperatorExecutionIntent, 'operation' | 'changes' | 'refusal'> & {
+            operation: string;
+            changes: string;
+            refusal: string | null;
+          }
+        >
+      ).map((row) => ({
+        ...row,
+        operation: JSON.parse(row.operation) as OperatorOperation,
+        changes: parseJson<ConfigChangeRow[]>(row.changes, []),
+        refusal: row.refusal ? parseJson(row.refusal, null) : null,
+      }));
+    },
+    finishExecution(
+      id: string,
+      status: 'committed' | 'failed',
+      at: string,
+      version: string | null,
+      refusal: OperatorExecutionIntent['refusal'] = null,
+    ): boolean {
+      const result = db
+        .prepare(
+          `UPDATE operator_execution_intents SET status = ?, updated_at = ?, config_version = ?, refusal = ? WHERE id = ? AND status = 'prepared'`,
+        )
+        .run(status, at, version, refusal ? toJson(refusal) : null, id);
+      if (!result.changes) return false;
+      db.prepare(
+        `UPDATE operator_steps SET status = CASE WHEN ? = 'committed' THEN
+          CASE WHEN inbox_item_id IS NULL THEN 'done' ELSE 'approved' END ELSE 'refused' END,
+          config_version = ?, refusal = ? WHERE id = ?`,
+      ).run(status, version, refusal ? toJson(refusal) : null, id);
+      return true;
+    },
     insert(request: Omit<OperatorRequestRecord, 'closedAt'>): void {
       statements.insertRequest.run(request);
     },
@@ -122,6 +203,8 @@ export function createOperatorRequestRepository(db: Db) {
     insertStep(step: OperatorStepRecord): void {
       statements.insertStep.run({
         ...step,
+        agreementVersion: step.agreementVersion ?? null,
+        approvalMode: step.approvalMode ?? null,
         changes: toJson(step.changes),
         refusal: step.refusal ? toJson(step.refusal) : null,
       });

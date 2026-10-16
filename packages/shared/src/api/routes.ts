@@ -10,6 +10,7 @@ export const routes = {
   operator: (key: string) => `/api/projects/${key}/operator`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
+  operatorApprovalWaiver: (key: string) => `/api/projects/${key}/operator/approval-waiver`,
   operatorPreferenceMe: (key: string) => `/api/projects/${key}/operator/preferences/me`,
   dismissOperatorSignal: (key: string, signalId: string) =>
     `/api/projects/${key}/operator/signals/${signalId}/dismiss`,

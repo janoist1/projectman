@@ -941,6 +941,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
     case 'operator_knowledge_changed':
       return normal(t('timeline.events.operator_knowledge_changed', { revision: Number(d.revision) }));
+    case 'operator_approval_waived':
+      return normal(t('timeline.events.operator_approval_waived', { version: Number(d.agreementVersion) }));
     case 'team_paused': {
       if (d.scope !== 'instance') return normal(t('timeline.events.team_paused'));
       // The reason the instance paused for ("élesítés miatt"), as the bar says it.

@@ -1310,5 +1310,18 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     name: 'coordination signal recipient',
     sql: 'ALTER TABLE operator_signals ADD COLUMN delivered_to TEXT;',
   },
+  {
+    version: 70,
+    name: 'operator execution journal and approval provenance',
+    sql: `ALTER TABLE operator_steps ADD COLUMN agreement_version INTEGER NULL;
+    ALTER TABLE operator_steps ADD COLUMN approval_mode TEXT NULL;
+    CREATE TABLE operator_execution_intents (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL, request_id TEXT NOT NULL,
+      operation TEXT NOT NULL, changes TEXT NOT NULL, agreement_version INTEGER NULL,
+      approval_mode TEXT NOT NULL CHECK (approval_mode IN ('click','waived')),
+      status TEXT NOT NULL CHECK (status IN ('prepared','committed','failed')),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, config_version TEXT NULL, refusal TEXT NULL
+    );`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

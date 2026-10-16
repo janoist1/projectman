@@ -314,11 +314,15 @@ export class CoordinationRequests extends OperatorRequests {
 function stepView(step: OperatorStepRecord): OperatorStep {
   return {
     ...step,
+    agreementVersion: step.agreementVersion ?? null,
+    approvalMode: step.approvalMode ?? null,
     refusal: step.refusal ? { code: step.refusal.code as ErrorCode, message: step.refusal.message } : null,
   };
 }
 
 export interface OperatorStepInput {
+  agreementVersion?: number | null;
+  approvalMode?: 'click' | 'waived' | null;
   id?: string;
   requestId: string;
   action: OperatorAction;
@@ -343,6 +347,8 @@ export class OperatorSteps {
 
   record(input: OperatorStepInput): OperatorStepRecord {
     const step: OperatorStepRecord = {
+      agreementVersion: input.agreementVersion ?? null,
+      approvalMode: input.approvalMode ?? null,
       id: input.id ?? newId('ops'),
       requestId: input.requestId,
       at: isoNow(this.ctx),

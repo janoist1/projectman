@@ -69,6 +69,8 @@ import {
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
+  hasOperatorWaiverField,
+  operatorWaiverChanged,
   unknownPatchRepo,
   approvalRefusal,
   attachmentPreviewOf,
@@ -2469,6 +2471,8 @@ export class MockBackend {
 
   /** The server's checks on every configuration change: access, owner-only changes, invariants. */
   private configChangeFailure(next: ProjectConfig): MockResponse | null {
+    if (operatorWaiverChanged(this.config, next))
+      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human' || !['owner', 'admin'].includes(viewer.access))
       return error(403, 'insufficient_access', 'Requires admin access');
@@ -2521,6 +2525,8 @@ export class MockBackend {
   }
 
   private patchConfig(body: unknown): MockResponse {
+    if (hasOperatorWaiverField(body))
+      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const member = memberOf(this.config, this.viewerHandle);
     if (member?.kind !== 'human' || !['owner', 'admin'].includes(member.access)) {
       return error(403, 'insufficient_access', 'Requires admin access');
@@ -5150,6 +5156,8 @@ export class MockBackend {
 
   /** Hires an AI member with the role's defaults, named and handled like the server does. */
   private hire(body: unknown): MockResponse {
+    if (hasOperatorWaiverField(body))
+      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const input = parseBody(HireMemberRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid hire request');
     const failure = this.validateRole(input.role, 'ai');

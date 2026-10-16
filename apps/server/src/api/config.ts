@@ -1,11 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ProjectConfig, RevertConfigRequest, routes, PatchConfigRequest } from '@projectman/shared';
+import {
+  ProjectConfig,
+  RevertConfigRequest,
+  routes,
+  PatchConfigRequest,
+  hasOperatorWaiverField,
+} from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { configInvalid } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from '../http';
+import { forbidden } from '../kernel';
 
 type ProjectParams = { Params: { key: string } };
 
@@ -52,6 +59,8 @@ export function registerConfigRoutes(app: FastifyInstance, domain: ApiDomain): v
   app.patch<ProjectParams>(routes.patchConfig(':key'), async (request): Promise<ConfigView> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
+    if (hasOperatorWaiverField(request.body))
+      throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
     const patch = parseEdit(PatchConfigRequest, request.body);
     await domain.projects.patch(key, patch, { actor: actorOf(access), author: authorOf(request) });
     return view(key);

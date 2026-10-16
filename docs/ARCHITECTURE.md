@@ -1987,6 +1987,8 @@ workers follow the machine's size.
   The builder must be separate from EC2; ARM never builds on EC2. Actual two-platform native binary
   and disposable cloud smoke evidence, 1 GiB RAM/20 GiB disk capacity and digest-specific cutover
   approval belong to PM-675. A manifest is integrity metadata, not a signature of origin.
+  PM-750's entry "Admin release preparation" runs that builder
+  from its own clean checkout and smokes each image by its image ID before the receipt exists.
   PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
   requires a stopped-source seed into empty host/buckets, first successful file backup and
   isolated recovery checks. Public activation waits for completed auth/edge code and independent
@@ -2963,6 +2965,48 @@ assumption or remote-engine RPC.
   the one that should run the engine (the plist names it). **Does this work on a remote engine?**
   This is the engine's own start-up: it must run on the engine's machine, as the user who owns the
   CLIs; nothing of it crosses to the cloud. On Linux the equivalent is a systemd user unit (not built).
+  PM-750 prepares the engine candidate checkout that a later switch points this agent at (see the
+  entry "Admin release preparation"); preparing it starts, stops and reconfigures nothing here.
+  **Module:** `scripts`
+
+- **Admin release preparation (PM-750)** —
+  `scripts/release/{prepare,config,checkout,smoke,engine,receipt}.ts`,
+  `apps/server/test/release-prepare.test.ts`. `prepareHybridRelease(context, {releaseId, commit,
+outputDir, engineReleasesDir})` builds, from one exact commit, the linux/amd64 and linux/arm64
+  image bundle (the existing `runImageBuild`, unchanged manifest) from its own clean admin checkout
+  of `repository.url` (the full object id is checked after the fetch), smokes each image by its
+  image ID, and prepares an engine candidate checkout at `<engineReleasesDir>/<releaseId>-<sha>`.
+  The smoke runs a disposable container with `--network none`, no mount, no port, a fixed
+  entrypoint and a fixture home with a standby marker, no storage, mail or Access credential: native
+  better-sqlite3 with a temporary database, the `cloudflared`/`litestream`/`restic` versions and the
+  cloud server's `/api/setup`. The members' CLIs never run. The candidate's `npm ci` and server
+  build run in the Anthropic Sandbox Runtime through the full-test facade (`runSandboxed`,
+  `srtSettings`, `installerSettings`): only the install reaches `registry.npmjs.org` and
+  `nodejs.org`, nothing else has a network, writes go only to the candidate's package trees or server
+  bundle and a throwaway home, the sensitive-path list, the engine home and the temporary roots the
+  machine's sessions share (Claude Code's `claude-<uid>`, the sessions' tmp base, `projectman-sessions`,
+  as the full test closes them, PM-353) are unreadable, and the
+  environment is the full-test allow list (no token, key or `PROJECTMAN_*` of the server). A missing,
+  refusing, timed-out or interrupted sandbox ends the preparation; nothing runs on the host instead.
+  The machine's heavy-run queue is held for the whole run (an unusable queue is a failure). The
+  receipt `<outputDir>/preparation.json` (directory 0700, file 0600, strict zod, never overwritten)
+  is written last, after the manifest hash, both archives, the image IDs, the candidate's HEAD and
+  clean state and the lockfile hash were verified again; a finished candidate carries a sibling
+  `<candidate>.candidate.json` marker, and only a directory that matches it is reused.
+  Foreign or partial directories are refused and never overwritten. A failed run leaves its
+  `outputDir` (with `build-source`) as it was; a rerun needs a new `outputDir`, because an existing one
+  is refused.
+  **Assumptions:** an admin Mac with Docker and a pre-existing docker-container Buildx builder for both
+  platforms (as PM-718), Node and the Sandbox Runtime of the full test, `git` and https access to the
+  configured repository, and `outputDir`/`engineReleasesDir` on a local disk of the user, outside the
+  source checkout and the engine home. It writes no cloud resource, no engine home, no LaunchAgent and
+  no registry; the receipt is neither an approval nor a signature of origin.
+  **Does this work on a remote engine?** The image half is admin-side by design (the builder is
+  never the engine or EC2) and needs nothing from the engine. The candidate checkout is the engine's
+  own code, so it must be prepared on the engine's machine, as the user who runs it: a remote engine
+  needs `engineReleasesDir` on its disk and its own Sandbox Runtime and Node, and the receipt (a path
+  and hashes) crosses to the coordinator as data only, not the checkout. The real two-platform
+  Docker evidence comes from an approved admin trial; the fakes in the test do not replace it.
   **Module:** `scripts`
 
 - **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,

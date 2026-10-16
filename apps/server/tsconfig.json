@@ -13,6 +13,7 @@
     "../../scripts/merge-test",
     "../../scripts/full-test",
     "../../scripts/live",
-    "../../scripts/cloud"
+    "../../scripts/cloud",
+    "../../scripts/release"
   ]
 }

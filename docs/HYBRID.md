@@ -456,7 +456,9 @@ package` refuses a running server (`database_in_use`).
    ```
 
    `--out` is a new directory outside the home and outside any git repository (mode 0700). The
-   cloud address must be `https://` (`http://` only on a loopback host).
+   cloud address must be `https://` (`http://` only on a loopback host). A new rehearsal after a way
+   back works too: the earlier, revoked engine stays in the database as an audit record and does not
+   block the package, which gets a new engine and key (a non-revoked engine still refuses it).
 
 3. Check it: `npm run migrate -- verify --home ~/hybrid-package/home --hybrid-cloud` (one non-revoked
    default engine, every session on a known engine, nothing from the never-carried list).

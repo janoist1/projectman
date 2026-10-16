@@ -2803,7 +2803,10 @@ assumption or remote-engine RPC.
   `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
   (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine
   key is made on the Mac (`newMachineKey`), written to `engine.key` (0600, `wx`) last, and only its
-  hash enters the package's database; `engine.json` is made with it. **Does this work on a remote
+  hash enters the package's database; `engine.json` is made with it. After a way back the revoked engine
+  row stays as an audit record (PM-728): only a non-revoked engine makes `hybrid package` refuse, and the
+  package makes its new engine the default explicitly (`setDefault`; `create` marks only the first engine
+  ever as the default). **Does this work on a remote
   engine?** The tool is the one place that reads the Mac's home and repositories to build the
   engine's configuration (`engineProjects`), so it runs on the engine's machine by definition; the
   package is the only thing that crosses to the cloud, by a person's copy, and the key never does.

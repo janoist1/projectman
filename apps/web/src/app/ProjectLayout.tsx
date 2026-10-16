@@ -100,7 +100,10 @@ export function ProjectLayout() {
           setOperatorPrefill((previous) => ({ text: prefill, id: (previous?.id ?? 0) + 1 }));
         setOperatorOpen(true);
       },
-      closeOperator: () => setOperatorOpen(false),
+      closeOperator: () => {
+        setOperatorOpen(false);
+        setOperatorPrefill(null);
+      },
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,

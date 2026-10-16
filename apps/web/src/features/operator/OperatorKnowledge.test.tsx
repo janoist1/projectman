@@ -2,6 +2,9 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, OperatorKnowledgeApprovalPayload } from '@projectman/shared';
 import { DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
+import { Route, Routes } from 'react-router';
+import { MeContext } from '../../app/contexts';
+import { ProjectLayout } from '../../app/ProjectLayout';
 import { setFetchImplementation } from '../../api/client';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
@@ -266,6 +269,38 @@ describe('Operator knowledge view', () => {
 });
 
 describe('Operator knowledge approvals', () => {
+  it('does not replay a proposal prefill after closing and reopening the panel', async () => {
+    const project = setup();
+    const item = proposal(project, { kind: 'principle_remove', id: 'rule-1' });
+    const payload = item.payload.operatorKnowledge as OperatorKnowledgeApprovalPayload;
+    payload.stale = { reason: 'knowledge_changed', at: '2026-10-14T12:00:00.000Z' };
+    item.options = [{ id: 'dismiss', label: 'Dismiss', style: 'secondary' }];
+    project.backend.inbox = [item];
+    project.render(
+      <ToastProvider>
+        <MeContext.Provider value={project.context.me}>
+          <Routes>
+            <Route path="/p/:projectKey" element={<ProjectLayout />}>
+              <Route path="inbox" element={<InboxPage />} />
+            </Route>
+          </Routes>
+        </MeContext.Provider>
+      </ToastProvider>,
+      '/p/AC/inbox',
+    );
+    fireEvent.click(await screen.findByRole('button', { name: t('knowledge.proposal.retry') }));
+    const prefill = t('knowledge.proposal.retryPrompt', { title: item.title });
+    const composer = await screen.findByRole('textbox', { name: t('operator.composer.label') });
+    await waitFor(() => expect((composer as HTMLTextAreaElement).value).toBe(prefill));
+    fireEvent.click(screen.getByRole('button', { name: t('operator.panel.close') }));
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) }));
+    const reopened = await screen.findByRole('textbox', { name: t('operator.composer.label') });
+    expect((reopened as HTMLTextAreaElement).value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: t('knowledge.title') }));
+    expect(await screen.findByRole('heading', { name: t('knowledge.title') })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: t('operator.composer.label') })).toBeNull();
+  });
+
   it('shows agreement involvement and the proposed configuration values', async () => {
     const project = setup();
     const item = proposal(project, {

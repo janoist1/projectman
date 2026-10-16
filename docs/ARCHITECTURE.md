@@ -2607,8 +2607,9 @@ assumption or remote-engine RPC.
   cloud's and the engine's own, becomes the four file names (a file tool's rule is a path, not a
   pattern); other wildcard entries stay as sent. A member workspace (an independent clone: a
   `task_worktree` with `placement.workspace` and no shared `gitDir`) lets a writing Codex session
-  write its own `.git`, with `config`, `config.lock`, `config.worktree`, `hooks` and `objects/info`
-  read-only; a read-only sandbox or a placement without that marker gets nothing.
+  write its own `.git`, with `config`, `config.lock`, `config.worktree`, `commondir`, `gitdir`,
+  `hooks`, `modules` and `objects/info` read-only (the links and submodule directories would
+  redirect the host's git to a path the session wrote); a read-only sandbox or a placement without that marker gets nothing.
   The Codex adapter lifts only the lock entry from `sharedGitDenials`; `packed-refs` itself
   stays read-only, as do packed default-branch and replacement refs. Claude's denials remain.
   A packed branch deletion that needs a packed-refs rewrite is not granted. Residual risks:

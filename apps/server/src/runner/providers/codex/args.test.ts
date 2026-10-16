@@ -504,10 +504,19 @@ describe('buildCodexArgs', () => {
       };
       const own = '/work/.git';
 
-      it('opens its own git directory, with the configuration, hooks and alternates closed', () => {
+      it('opens its own git directory, with the configuration, hooks, alternates and links closed', () => {
         const rendered = profile(policy('workspace-write', clone));
         expect(rendered).toContain(`"${own}"="write"`);
-        for (const name of ['config', 'config.lock', 'config.worktree', 'hooks', 'objects/info'])
+        for (const name of [
+          'config',
+          'config.lock',
+          'config.worktree',
+          'commondir',
+          'gitdir',
+          'hooks',
+          'modules',
+          'objects/info',
+        ])
           expect(rendered).toContain(`"${own}/${name}"="read"`);
         expect(rendered).not.toContain(gitDir);
       });

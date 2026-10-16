@@ -1,13 +1,25 @@
 import type { FastifyInstance } from 'fastify';
-import { routes, TASK_CREATE_MIN_ACCESS } from '@projectman/shared';
+import { routes, TASK_CREATE_MIN_ACCESS, OperatorApprovalWaiverRequest } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
-import { requireAccess } from './context';
+import { requireAccess, actorOf, authorOf } from './context';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 
 export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
   const { domain } = deps;
+  app.put<ProjectParams>(routes.operatorApprovalWaiver(':key'), async (request) => {
+    const key = request.params.key;
+    const access = await requireAccess(domain, request, key);
+    if (access.via || access.access !== 'owner')
+      throw forbidden('owner_approval_required', 'only an owner using their own login may change the waiver');
+    const input = parseBody(OperatorApprovalWaiverRequest, request.body);
+    return domain.projects.setOperatorApprovalWaiver(key, input, {
+      actor: actorOf(access),
+      author: authorOf(request),
+    });
+  });
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
     if (access.via || !['owner', 'admin'].includes(access.access))

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ConfigChangeRow } from '../config/operator';
 import type { OperatorKnowledgeChange } from './operator-knowledge';
 import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
@@ -78,6 +79,7 @@ export const TimelineEventType = z.enum([
   'member_retired',
   'config_changed',
   'operator_knowledge_changed',
+  'operator_approval_waived',
   'focus_changed',
   'team_paused',
   'team_resumed',
@@ -509,6 +511,12 @@ export interface TimelineEventData {
     kind: OperatorKnowledgeChange['kind'];
     revision: number;
     agreementVersion: number | null;
+  };
+  operator_approval_waived: {
+    requestId: string;
+    stepId: string;
+    agreementVersion: number;
+    changes: ConfigChangeRow[];
   };
   /**
    * The project's focus changed (PM-427; the actor is the person who set it). Places are 1-based: a

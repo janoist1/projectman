@@ -4309,6 +4309,8 @@ export const hu = {
       member_retired: 'Elbocsátva: {handle}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
+      operator_approval_waived:
+        'Az Operátor a(z) {version}. megállapodás szerinti elengedéssel módosította a beállításokat.',
       operator_knowledge_changed:
         'Az Operátor megállapodása vagy tanult elvei módosítva. Változat: {revision}.',
       // PM-427 4/4 refines these; the wording here keeps the timeline readable meanwhile.

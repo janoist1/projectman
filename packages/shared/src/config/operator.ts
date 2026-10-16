@@ -81,6 +81,37 @@ export interface OperatorConfigVerdict {
 
 const LEVEL_RANK: Record<OperatorLevel, number> = { now: 0, approval: 1, never: 2 };
 
+/** Private identity and agreement facts come from the server; policy remains shared. */
+export function canWaiveOperatorApproval(
+  verdict: OperatorConfigVerdict,
+  facts: { enabled: boolean; agreementVersion: number | null; ownerRequest: boolean },
+): boolean {
+  return (
+    verdict.level === 'approval' &&
+    verdict.waiverEligible &&
+    facts.enabled &&
+    facts.agreementVersion !== null &&
+    facts.ownerRequest
+  );
+}
+
+/** Detect attempts before strict patch parsing, so mixed edits cannot hide the protected switch. */
+export function hasOperatorWaiverField(input: unknown): boolean {
+  const pending = [input];
+  while (pending.length) {
+    const value = pending.pop();
+    if (!value || typeof value !== 'object') continue;
+    if ('operatorApprovalWaiver' in value) return true;
+    for (const key of ['team', 'patch', 'request'] as const)
+      if (key in value) pending.push((value as Record<string, unknown>)[key]);
+  }
+  return false;
+}
+
+export function operatorWaiverChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  return (previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false);
+}
+
 /** An AI member's fields the Operator changes without approval, on any member but itself. */
 const NOW_MEMBER_FIELDS: readonly string[] = ['model', 'effort', 'capacity', 'onLeave', 'schedule'];
 

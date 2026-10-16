@@ -3026,11 +3026,23 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   reordering existing stages is protected even with unchanged gate definitions. Stage/member changes that
   alter `mergerOf`, the merge target or any `cardMerger` reviewer choice also need a click; roster reordering
   has its own approval row because duty-derived owner order can change the selected merger.
-  Classification never changes a verdict's level or authorizes execution. The execution switch follows in PM-692.
+  Classification never changes a verdict's level or authorizes execution.
   The Operator template uses `approver: human`; load and revert migrate legacy `none`/`ai` values to `human`
   without relaxing mode or network. Shared fixed invariants reject a nonhuman Operator approver, an Operator
   merger and boundary authorization in its role. These errors are never tolerated on load or preserved by a
   configuration write. The rules run on the server for remote engines too; no new machine-dependent part.
+- **Approval waiver execution (PM-692).** Only an owner's own login can change the switch through
+  `PUT /api/projects/:key/operator/approval-waiver`, with the current configuration and approved agreement
+  versions. Generic configuration edits and reverts cannot change it. The shared waiver rule consumes
+  `waiverEligible`; `services/operator` supplies the actual open owner message, answer or approved
+  continuation provenance. Signal rounds never qualify. `core/projects` reauthorizes the full diff through
+  `OperatorConfigAuthorization` inside the same lock as knowledge writes. Before saving it persists
+  `operator_execution_intents` (migration 69), bound to an existing step. Server-generated Step, Request-Id,
+  Agreement-Version and Approval-Mode config trailers identify the commit. Startup reconciles prepared
+  intents against paginated private history, without replaying mutations; the step and waived timeline
+  event finish in one database transaction. The Operator receives a summary of all waived old/new rows
+  from its request's log. Runtime approval paths remain separate. Configuration, knowledge and audit stay
+  on the server; no new engine data or machine-dependent operation is introduced.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
   priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.

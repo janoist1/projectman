@@ -1244,9 +1244,23 @@ Check dependencies match the merged `package-lock.json` (PM-580). The engine tri
 source, its repository checkout, then that repository's non-prunable worktrees under `worktreesRoot`
 outside `_merge`, using canonical paths and excluding overlapping checkouts. The first byte-identical
 lockfile with an installation at least as recent as that lockfile supplies `node_modules`; the source
-is checked again after copying. Without a matching installed source, the check never starts and the
-merge blocks with `check_error` and installation instructions. No install command runs. A merged tree
-without a regular root lockfile keeps the preferred-source copy behavior.
+is checked again after copying. Without a matching installed source the merge asks for the preparation
+(PM-681, PM-711): the card merge calls `checkoutForCheck` with `allowDependencyInstall: true`, and the
+engine then answers `dependencyInstallRequired: true` with a check checkout that has no `node_modules`
+(old packages are never copied in their place). `services/merges/steps.ts` adds
+`npmCi: { ref, mergeId }` to the check's `FullTestSpec` only for that answer, always with
+`requireHeavyLock: true`; the executor then restores the exact merged lockfile's installation from its
+store or installs it in its sandbox, under the same machine reservation as the test (see "Server full
+test before review"). A missing or false answer sends no `npmCi`, and a switch that is false or absent
+keeps the older `git_failed` / `check_error` with installation instructions. A merged tree without a
+regular root lockfile keeps the preferred-source copy behavior, and a symlinked lockfile never starts an
+installation. Preparation errors (`dependency_install_failed`, `timeout`, `killed`, an unusable queue)
+are `error` results: the merge blocks with `check_error` (no developer fix round, no owner question, no
+test, no push) and the check checkout is released after the executor has ended; only a test that runs
+and fails is `check_failed`. On a remote engine this holds for an RPC timeout too: the cloud sends
+`full_test.cancel`, and the engine answers it only when the run has ended and cleaned up (the
+installation stopped, the lock freed), so the checkout is removed after that; an engine that stays
+unreachable is `engine_offline`.
 
 `BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
 (PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
@@ -2124,8 +2138,10 @@ assumption or remote-engine RPC.
   via `runner/session.ts`, `RunnerModuleOptions.refreshDependencies`; staleness uses the
   local lockfile and hidden npm lockfile modification times.
   The merge check uses the same reference-selection rule via `findDependencyReference` on the engine
-  (`engine-host/merge-check.ts`, PM-580), selecting against the merged lockfile and blocking with
-  `check_error` before running checks when no installed source matches.
+  (`engine-host/merge-check.ts`, PM-580), selecting against the merged lockfile. When no installed
+  source matches, the card merge's `allowDependencyInstall` (PM-711) turns this into a
+  `dependencyInstallRequired` answer for the executor's sandboxed preparation instead of copying old
+  packages or asking the owner; without the switch it still blocks with `check_error` before the checks.
   The merge source copy and full-test dependency store use `copyDependencyTrees` through the worktree
   facade (PM-710): root plus two workspace levels, relative links preserved, Darwin clone with plain-copy
   fallback, existing targets and linked parents skipped, local `.vite`, `.vite-temp` and `.cache` removed.
@@ -2154,7 +2170,8 @@ assumption or remote-engine RPC.
   folder stops a member's heavy command (exit 78); the server's full test runs without the queue
   and warns (PM-346), except a merge check (`FullTestSpec.requireHeavyLock`, PM-658), which ends as
   `error` / `heavy_lock_unavailable` before anything starts.
-  Optional merge dependency preparation (PM-710) shares that mandatory reservation with the test and
+  Optional merge dependency preparation (PM-710, connected to the card merge in PM-711) shares that
+  mandatory reservation with the test (one acquisition, one `full_test_started`) and
   publishes at most one current and one temporary dependency generation per repository on this host.
   **Remote engine:** queue competing runs on each execution host and size workers there;
   `requireHeavyLock` and the `heavy_lock_unavailable` result cross the `full_test.run` boundary and the
@@ -2606,7 +2623,14 @@ assumption or remote-engine RPC.
   the required heavy lock before the test. `full-test/npm-ci.ts` and `assertNpmCiCheckout` bind it to a real,
   canonical `<worktreesRoot>/_merge/<mergeId>` checkout. The engine limit additionally checks the registered,
   merge-enabled repository and its exact full-test command. Both app factories receive their engine-local
-  `<home>/worktrees`; an absent root refuses preparation. Merge callers are connected separately in PM-711.
+  `<home>/worktrees`; an absent root refuses preparation. The card merge (`services/merges/steps.ts`,
+  PM-711) is the only caller: it sends `npmCi` when the check checkout answered
+  `dependencyInstallRequired`. Review, other full-test and screenshot callers never send it. Over the link
+  an older engine's strict schema refuses `merge.checkout_for_check`'s switch (the merge blocks with
+  `check_error` and an "update the engine" message, without a retry) or the spec's `npmCi` (the result is
+  `dependency_install_failed` with the same message). When `full_test.run` times out, the cloud
+  sends `full_test.cancel` with the run id and ends the run as `error` / `timeout` (`killed` when the merge
+  was cancelled); a lost link stays `engine_offline`. No installation is left running unattended.
   A separate installer settings file allows only root/local workspace `node_modules` writes and the run's
   own home/tmp/npm cache; source, lock/manifests and git metadata remain read-only. Linked input files,
   workspace parents, package targets and tracked package paths are refused. The fixed `npm ci` command
@@ -2679,12 +2703,13 @@ assumption or remote-engine RPC.
   `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from an installed checkout with a byte-identical
   merged lockfile, an APFS clone `cp -c` on macOS; PM-580). The engine tries the bounded preferred source,
   its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
-  source after copying and blocks with `check_error` before checks if none matches. Since PM-681 part 1
-  (PM-709) `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer
-  `dependencyInstallRequired` (missing: false) in the strict `merge.checkout_for_check` schemas; the engine
-  does not set it and the merge callers do not pass it yet, so the behaviour above is unchanged and the install
-  is available only to explicit full-test requests until PM-711 connects merge callers
-  (see "Server full test before review"). `merge.push`
+  source after copying and blocks with `check_error` before checks if none matches. Since PM-681
+  `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer
+  `dependencyInstallRequired` (missing: false) in the strict `merge.checkout_for_check` schemas (PM-709).
+  The card merge passes `true` (PM-711); the engine then answers `dependencyInstallRequired: true`, without
+  copying old packages, when the root has a regular non-symlink lockfile and no installed source matches,
+  and the merge hands the preparation to the executor (see "Server full test before review"). The train
+  keeps the switch off. `merge.push`
   (never forced, `--no-verify`) and `merge.advance` (a
   fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
   Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched

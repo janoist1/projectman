@@ -753,6 +753,130 @@ describe('cloud mode remote parts', () => {
       expect(engine.requests.filter((item) => item.method === 'full_test.run')).toHaveLength(2);
     });
 
+    it('sends the dependency preparation request to the engine and relays its result (PM-681)', async () => {
+      const engine = await online();
+      engine.answer('full_test.run', () => ({
+        outcome: 'error' as const,
+        reason: 'dependency_install_failed' as const,
+        exitCode: 1,
+        durationMs: 5,
+        failedFiles: [],
+        outputTail: 'npm ci failed',
+      }));
+      const npmCi = { ref: { projectKey: 'AR', repo: 'ar' }, mergeId: 'mrg_1' };
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      const result = await executor.run(
+        { ...fullTestSpec('f1'), npmCi, requireHeavyLock: true },
+        new AbortController().signal,
+      );
+      expect(result).toMatchObject({ outcome: 'error', reason: 'dependency_install_failed', exitCode: 1 });
+      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
+        {
+          method: 'full_test.run',
+          params: { spec: expect.objectContaining({ npmCi, requireHeavyLock: true }) },
+        },
+      ]);
+    });
+
+    it('cancels the run on its engine when the call times out, ending it as a timeout (PM-681)', async () => {
+      const engine = await online();
+      engine.answer('full_test.run', () => new Promise(() => {}));
+      // The engine answers the cancel only when the run has ended, so the caller removes the checkout after.
+      let engineStopped: () => void = () => {};
+      engine.answer(
+        'full_test.cancel',
+        () =>
+          new Promise<null>((resolve) => {
+            engineStopped = () => resolve(null);
+          }),
+      );
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+        const npmCi = { ref: { projectKey: 'AR', repo: 'ar' }, mergeId: 'mrg_1' };
+        const run = executor.run(
+          { ...fullTestSpec('f1'), npmCi, requireHeavyLock: true },
+          new AbortController().signal,
+        );
+        let ended = false;
+        void run.then(() => {
+          ended = true;
+        });
+        await vi.waitFor(() =>
+          expect(engine.requests.some((item) => item.method === 'full_test.run')).toBe(true),
+        );
+        await vi.advanceTimersByTimeAsync(1000 + 60_000);
+        await vi.waitFor(() =>
+          expect(engine.requests.some((item) => item.method === 'full_test.cancel')).toBe(true),
+        );
+        expect(ended).toBe(false);
+        engineStopped();
+        await expect(run).resolves.toMatchObject({ outcome: 'error', reason: 'timeout' });
+      } finally {
+        vi.useRealTimers();
+      }
+      await vi.waitFor(() =>
+        expect(engine.requests.filter((item) => item.method === 'full_test.cancel')).toEqual([
+          { method: 'full_test.cancel', params: { runId: 'f1' } },
+        ]),
+      );
+    });
+
+    it('ends an aborted run whose call then times out as killed, after a single cancel (PM-681)', async () => {
+      const engine = await online();
+      engine.answer('full_test.run', () => new Promise(() => {}));
+      let engineStopped: () => void = () => {};
+      engine.answer(
+        'full_test.cancel',
+        () =>
+          new Promise<null>((resolve) => {
+            engineStopped = () => resolve(null);
+          }),
+      );
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      const controller = new AbortController();
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+        const run = executor.run({ ...fullTestSpec('f1'), requireHeavyLock: true }, controller.signal);
+        await vi.waitFor(() =>
+          expect(engine.requests.some((item) => item.method === 'full_test.run')).toBe(true),
+        );
+        controller.abort();
+        await vi.advanceTimersByTimeAsync(1000 + 60_000);
+        engineStopped();
+        await expect(run).resolves.toMatchObject({ outcome: 'error', reason: 'killed' });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(engine.requests.filter((item) => item.method === 'full_test.cancel')).toHaveLength(1);
+    });
+
+    it('sends allowDependencyInstall, and blocks once on an older engine that refuses it (PM-681)', async () => {
+      const engine = await online();
+      const ref = { projectKey: 'AR', repo: 'ar' };
+      const input = { mergeId: 'mrg_abcdefgh1', mergeCommit: 'a'.repeat(40), depsFrom: null };
+      let ran = 0;
+      engine.answer('merge.checkout_for_check', (params) => {
+        ran += 1;
+        if ('allowDependencyInstall' in params)
+          throw Object.assign(new Error('Invalid method parameters'), { code: 'invalid_params' });
+        return { path: '/w/_merge/m', gitDir: '/r/.git' };
+      });
+      const merger = remote.directory.get('eng_a' as never)!.merger!;
+      const refused = await merger
+        .checkoutForCheck(ref, { ...input, allowDependencyInstall: true })
+        .catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(MergeError);
+      expect(refused).toMatchObject({
+        code: 'git_failed',
+        message: expect.stringContaining('Update the engine'),
+      });
+      expect(ran).toBe(1);
+      // Without the switch the request is the old one and still runs.
+      await expect(merger.checkoutForCheck(ref, input)).resolves.toMatchObject({ path: '/w/_merge/m' });
+      expect(ran).toBe(2);
+    });
+
     it('sends the merge calls with the repository named and not a path, and keeps the error codes', async () => {
       const engine = await online();
       const ref = { projectKey: 'AR', repo: 'ar' };

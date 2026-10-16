@@ -36,6 +36,8 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FULL_TEST_GRACE_MS = 60_000;
 const SCREENSHOT_GRACE_MS = 60_000;
 const CANCEL_TIMEOUT_MS = 10_000;
+// A full test's cancel is answered when the run has ended, after its processes were stopped.
+const FULL_TEST_CANCEL_WAIT_MS = 60_000;
 // One git step of the engine's merger waits up to 120 s. These are the engine's worst cases (steps in a
 // row, and the five-minute dependency copy), so the cloud never gives up before the engine has.
 const MERGE_WAIT_MS = 600_000; // up to five git steps
@@ -187,15 +189,40 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
         const startedAt = now();
         // An older engine never sends `full_test_started`: the caller stays at its waiting step.
         if (onStarted) fullStarted.set(spec.runId, onStarted);
-        const cancel = () => {
-          call('full_test.cancel', { runId: spec.runId }, { timeoutMs: CANCEL_TIMEOUT_MS }).catch(() => {});
+        // The engine answers a cancel when the run has ended and cleaned up; one cancel serves both paths.
+        let cancelled: Promise<void> | null = null;
+        const cancel = (): Promise<void> => {
+          cancelled ??= call(
+            'full_test.cancel',
+            { runId: spec.runId },
+            { timeoutMs: FULL_TEST_CANCEL_WAIT_MS },
+          ).then(
+            () => {},
+            () => {},
+          );
+          return cancelled;
         };
-        if (signal.aborted) cancel();
-        else signal.addEventListener('abort', cancel, { once: true });
+        const onAbort = () => void cancel();
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
         try {
           return await call('full_test.run', { spec }, { timeoutMs: spec.timeoutMs + FULL_TEST_GRACE_MS });
         } catch (err) {
           logger.warn({ err, engineId: id, runId: spec.runId }, 'a full test did not end on its engine');
+          // The call timed out or was cut off while the engine may still run it: a dependency installation
+          // must not go on unattended (PM-681). The engine ends the run and frees its heavy-run lock; the
+          // caller removes the check checkout only after that, so the cancel is waited for.
+          if (err instanceof EngineCallError && err.linkCode === 'timeout') {
+            await cancel();
+            return {
+              outcome: 'error',
+              reason: signal.aborted ? 'killed' : 'timeout',
+              exitCode: null,
+              durationMs: now() - startedAt,
+              failedFiles: [],
+              outputTail: '',
+            };
+          }
           // An older engine's strict schema refuses `npmCi` before it runs anything (PM-681): the run is
           // blocked, never repeated without the dependency preparation it asked for.
           if (spec.npmCi && err instanceof EngineCallError && err.linkCode === 'invalid_params')
@@ -228,7 +255,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           };
         } finally {
           fullStarted.delete(spec.runId);
-          signal.removeEventListener('abort', cancel);
+          signal.removeEventListener('abort', onAbort);
         }
       },
     };
@@ -288,8 +315,24 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       isAncestor: (ref, input) => merge('merge.is_ancestor', { ref, ...input }, MERGE_WAIT_MS),
       build: (ref, input) => merge('merge.build', { ref, ...input }, MERGE_WAIT_MS),
       checkoutConflicts: (ref, input) => merge('merge.checkout_conflicts', { ref, ...input }, MERGE_WAIT_MS),
-      checkoutForCheck: (ref, input) =>
-        merge('merge.checkout_for_check', { ref, ...input }, MERGE_CHECKOUT_WAIT_MS),
+      checkoutForCheck: async (ref, input) => {
+        try {
+          return await merge('merge.checkout_for_check', { ref, ...input }, MERGE_CHECKOUT_WAIT_MS);
+        } catch (error) {
+          // An older engine's strict schema refuses `allowDependencyInstall` before it runs anything (PM-681):
+          // the merge blocks, it is never asked again without the switch.
+          if (
+            input.allowDependencyInstall &&
+            error instanceof EngineCallError &&
+            error.linkCode === 'invalid_params'
+          )
+            throw new MergeError(
+              'git_failed',
+              `engine ${id} refused the request: it does not support the dependency preparation (allowDependencyInstall). Update the engine to this version of projectman.`,
+            );
+          throw error;
+        }
+      },
       releaseCheck: async (ref, input) => {
         await merge('merge.release_check', { ref, ...input }, MERGE_WAIT_MS);
       },

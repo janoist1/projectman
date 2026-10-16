@@ -424,6 +424,8 @@ export class MergeSteps {
                 (engine.workspacePath(row.projectKey)
                   ? path.resolve(engine.workspacePath(row.projectKey)!, repo.path)
                   : null),
+              // A merged lockfile nothing has installed is prepared by the executor, not by the owner (PM-681).
+              allowDependencyInstall: true,
             });
             if (!this.continue(running)) return;
             const paths = engine.paths();
@@ -436,6 +438,7 @@ export class MergeSteps {
                 timeoutMs: repo.reviewTest.timeoutMinutes * 60_000,
                 // One heavy run at a time on the machine, whatever happens to the queue (PM-658).
                 requireHeavyLock: true,
+                ...(checkout.dependencyInstallRequired === true ? { npmCi: { ref, mergeId: row.id } } : {}),
                 sandbox: this.deps.checkSandbox({
                   checkout: checkout.path,
                   gitDir: checkout.gitDir,

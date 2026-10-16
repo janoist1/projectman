@@ -49,7 +49,12 @@ export function createMergeChecks(
     await runGit(repo, ['worktree', 'prune']);
   };
 
-  const dependencySource = async (repo: string, target: string, preferred: string | null) => {
+  const dependencySource = async (
+    repo: string,
+    target: string,
+    preferred: string | null,
+    allowInstall: boolean,
+  ) => {
     const source = preferred === null ? null : await realpath(preferred).catch(() => null);
     if (preferred !== null && source === null) invalidInput('The dependencies path does not exist');
     const overlaps = (candidate: string) => isWithin(target, candidate) || isWithin(candidate, target);
@@ -57,7 +62,8 @@ export function createMergeChecks(
       invalidInput('The dependencies path overlaps the check checkout');
     const lockPath = path.join(target, DEPENDENCY_LOCKFILE);
     const info = await lstat(lockPath).catch(() => null);
-    if (!info?.isFile() || info.isSymbolicLink()) return { path: source, reference: null, lock: null };
+    if (!info?.isFile() || info.isSymbolicLink())
+      return { path: source, reference: null, lock: null, installRequired: false };
     const lock = await readFileBytes(lockPath);
     const candidates = new Set<string>();
     const add = (candidate: string | null) => {
@@ -74,14 +80,24 @@ export function createMergeChecks(
       if (candidate !== null && isWithin(root, candidate) && !isWithin(mergeRoot, candidate)) add(candidate);
     }
     const reference = await findDependencyReference([...candidates], target, lock);
-    if (!reference) throw new MergeError('git_failed', DEPENDENCIES_NOT_INSTALLED);
-    return { path: reference.path, reference, lock };
+    if (!reference) {
+      // No installed checkout matches the merged lockfile: the caller prepares them in the check checkout
+      // when it asked for it (PM-681); old packages are never copied in their place.
+      if (allowInstall) return { path: null, reference: null, lock, installRequired: true };
+      throw new MergeError('git_failed', DEPENDENCIES_NOT_INSTALLED);
+    }
+    return { path: reference.path, reference, lock, installRequired: false };
   };
 
   const checkoutForCheck = async (
     ref: MergeRepoRef,
-    input: { mergeId: string; mergeCommit: string; depsFrom: string | null },
-  ): Promise<{ path: string; gitDir: string }> => {
+    input: {
+      mergeId: string;
+      mergeCommit: string;
+      depsFrom: string | null;
+      allowDependencyInstall?: boolean;
+    },
+  ): Promise<{ path: string; gitDir: string; dependencyInstallRequired?: boolean }> => {
     const repo = args.repo(ref);
     if (!isMergeId(input.mergeId)) invalidInput('Not a merge id');
     const mergeCommit = args.commit(input.mergeCommit, 'The merge commit');
@@ -95,7 +111,12 @@ export function createMergeChecks(
     await must(repo, ['worktree', 'add', '--detach', target, mergeCommit], 'worktree add');
     try {
       const realTarget = await realpath(target);
-      const source = await dependencySource(repo, realTarget, input.depsFrom);
+      const source = await dependencySource(
+        repo,
+        realTarget,
+        input.depsFrom,
+        input.allowDependencyInstall === true,
+      );
       if (source.path !== null) {
         try {
           await copyDependencyTrees({
@@ -122,7 +143,11 @@ export function createMergeChecks(
       const commonDir = (
         await must(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'rev-parse')
       ).trim();
-      return { path: await realpath(target), gitDir: await realpath(commonDir) };
+      return {
+        path: await realpath(target),
+        gitDir: await realpath(commonDir),
+        ...(source.installRequired ? { dependencyInstallRequired: true } : {}),
+      };
     } catch (error) {
       await release(repo, target).catch(() => {});
       throw error;

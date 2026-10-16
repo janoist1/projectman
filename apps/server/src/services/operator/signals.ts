@@ -60,6 +60,12 @@ import type {
   TimelineEvent,
 } from '@projectman/shared';
 import type { OperatorSignalRecord } from '../../db';
+import {
+  StructuralPatterns,
+  STRUCTURAL_WINDOW_MS,
+  patternSubject,
+  structuralKind,
+} from './structural-patterns';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import { answerEvidenceOf } from '../../core/messages';
@@ -325,7 +331,12 @@ export class OperatorSignals {
 
   present(projectKey: string, id: string, messageId: string, actionable: boolean): void {
     const signal = this.presentation(projectKey, id);
-    this.save({ ...signal, state: 'open', messageId, actionable });
+    this.save({
+      ...signal,
+      state: 'open',
+      messageId,
+      actionable: structuralKind(signal.kind) ? false : actionable,
+    });
   }
 
   dismissByOperator(projectKey: string, id: string, by: string, note: string): OperatorSignal {
@@ -491,12 +502,65 @@ export class OperatorSignals {
     };
   }
 
+  /** Server-produced evidence, reconstructed from the original timeline window and checked against now. */
+  structuralFacts(signal: OperatorSignalRecord) {
+    const config = this.deps.projects.cachedConfig(signal.projectKey);
+    if (!config || this.deps.ctx.now().getTime() - Date.parse(signal.raisedAt) >= STRUCTURAL_WINDOW_MS)
+      return null;
+    const detector = new StructuralPatterns(this.deps.ctx);
+    const fresh = detector.report(config);
+    if (signal.kind === 'structural_pattern') {
+      if (!fresh.patterns.some((facts) => patternSubject(facts.fingerprint) === signal.subject)) return null;
+      const evidence = detector
+        .report(config, signal.raisedAt)
+        .patterns.find((facts) => patternSubject(facts.fingerprint) === signal.subject);
+      return evidence ? { evidence, milestoneKey: null } : null;
+    }
+    if (
+      signal.kind === 'milestone_closed' &&
+      fresh.milestones.some((entry) => entry.taskKey === signal.taskKey && entry.eventId === signal.subject)
+    )
+      return { evidence: null, milestoneKey: signal.taskKey };
+    return null;
+  }
+
   /** Reconcile current card and session facts before attempting any queued wake-up. */
   async sweep(projectKey?: string): Promise<void> {
     for (const key of projectKey ? [projectKey] : this.deps.projects.summaries().map((p) => p.key)) {
       const config = await this.deps.projects.config(key);
       const cards = this.deps.ctx.repos.tasks.list(key);
       const active = new Set<string>();
+      const report = new StructuralPatterns(this.deps.ctx).report(config);
+      const previous = this.deps.ctx.repos.operatorSignals.list(key);
+      for (const facts of report.patterns) {
+        const subject = patternSubject(facts.fingerprint);
+        if (
+          previous.some(
+            (s) =>
+              s.kind === 'structural_pattern' &&
+              s.subject === subject &&
+              this.deps.ctx.now().getTime() - Date.parse(s.raisedAt) < STRUCTURAL_WINDOW_MS,
+          )
+        )
+          continue;
+        this.raise({
+          projectKey: key,
+          kind: 'structural_pattern',
+          subject,
+          caseKey: `structural_pattern:${subject}:${facts.eventIds.at(-1)}`,
+        });
+      }
+      for (const milestone of report.milestones) {
+        const caseKey = `milestone_closed:${milestone.taskKey}:${milestone.eventId}`;
+        if (!previous.some((s) => s.caseKey === caseKey))
+          this.raise({
+            projectKey: key,
+            kind: 'milestone_closed',
+            caseKey,
+            taskKey: milestone.taskKey,
+            subject: milestone.eventId,
+          });
+      }
       for (const [taskKey, wait] of this.deps.taskWaits.of(config, cards)) {
         if (wait?.reason !== 'nobody') continue;
         const task = cards.find((t) => t.key === taskKey)!;
@@ -633,6 +697,7 @@ export class OperatorSignals {
     board: () => Map<string, SignalInput> = () =>
       config ? this.boardCases(config, this.deps.ctx.repos.tasks.list(s.projectKey)) : new Map(),
   ): boolean {
+    if (structuralKind(s.kind)) return this.structuralFacts(s) !== null;
     const { ctx, taskWaits } = this.deps;
     if (s.kind === 'loop_suspected') {
       const facts = LoopTriageFacts.parse(JSON.parse(s.subject!));
@@ -982,10 +1047,15 @@ export class OperatorSignals {
     const dueGeneral = due(false);
     const config = this.deps.projects.cachedConfig(projectKey);
     const recipient = config && coordinationMemberOf(config)?.handle;
+    const structuralDelivered = this.deps.ctx.repos.operatorSignals
+      .list(projectKey)
+      .filter((s) => structuralKind(s.kind) && s.deliveredAt)
+      .some((s) => now - Date.parse(s.deliveredAt!) < 24 * 60 * 60_000);
     return signals.filter(
       (s) =>
-        (s.deliveredAt && s.deliveredTo !== recipient) ||
-        (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral),
+        (!structuralKind(s.kind) || !structuralDelivered) &&
+        ((s.deliveredAt && s.deliveredTo !== recipient) ||
+          (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral)),
     );
   }
   private save(signal: OperatorSignalRecord, publish = true): void {
@@ -1038,8 +1108,9 @@ export class OperatorSignals {
                     );
               return JSON.stringify({
                 ...OperatorSignal.parse(s),
-                facts:
-                  s.kind === 'loop_suspected'
+                facts: structuralKind(s.kind)
+                  ? this.structuralFacts(s)
+                  : s.kind === 'loop_suspected'
                     ? LoopTriageFacts.parse(JSON.parse(s.subject!))
                     : s.kind === 'ready_waiting'
                       ? this.readyFacts(s)
@@ -1053,8 +1124,8 @@ export class OperatorSignals {
                               ? ctx.repos.sessions.get(s.subject)?.activity
                               : null,
                 step: this.stepOf(level, config, s),
-                steps_left: budget.left,
-                next_step_at: budget.nextAt,
+                steps_left: structuralKind(s.kind) ? 0 : budget.left,
+                next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
                 steps: steps.map((step) => ({
                   at: step.at,
                   by:

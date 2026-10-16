@@ -749,6 +749,10 @@ export interface ProjectDocToolsHandler {
 
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
+  requestStructuralReview(
+    ctx: ToolContext,
+    args: { signalId: string; note: string },
+  ): Promise<import('@projectman/shared').StructuralReviewResult>;
   getOperatorDiagnostics(
     ctx: ToolContext,
     args: { taskKey: string; limit?: number },

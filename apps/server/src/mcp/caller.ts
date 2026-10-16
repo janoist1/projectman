@@ -213,10 +213,17 @@ export class ToolCaller {
         'triage_loop',
         'start_task',
         'start_member',
+        'request_structural_review',
       ].includes(tool)
     ) {
       this.assertCoordinationSession(ctx, config);
       const request = this.coordinationRequests.openFor(ctx.sessionId);
+      if (tool === 'request_structural_review') return { config, request, guest: null };
+      if (request?.source === 'approval' && tool !== 'start_member' && !OPERATOR_SCREENING_TOOLS.has(tool))
+        throw new TeamToolError(
+          'forbidden',
+          'operator_no_request: structural approval permits only its review start.',
+        );
       if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request: null, guest: null };
       // A signal always keeps its exact binding and budget, even when an owner request is open.
       if (signalStep) return this.signalStepCaller(ctx, config, signalStep);

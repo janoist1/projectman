@@ -68,6 +68,7 @@ export interface RoleText {
  * app (`TemplateSummary.nameKey` / `descriptionKey`).
  */
 export interface TemplateLocale {
+  structuralReview: { question: string; details: string; approve: string; reject: string };
   /** Primary language subtag (BCP 47), e.g. "hu". */
   language: string;
   /** Time zone (IANA) of projects created in this language. */

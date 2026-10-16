@@ -4192,6 +4192,37 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
+      "title": "Request an occasional architecture review",
+    },
+    "description": "Selected PM internal general session only. Weigh a delivered structural_pattern or milestone_closed signal and give a short reason. Without your own open owner request this only proposes an owner approval; nobody starts before approval. On approval call this tool again with the same signal_id. The server selects a live technical_direction holder with capacity and uses start_member; do not create cards or refactor from this standing review.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "signal_id": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "signal_id",
+        "note",
+      ],
+      "type": "object",
+    },
+    "name": "request_structural_review",
+    "title": "Request an occasional architecture review",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
       "title": "Save to memory",
     },
     "description": "Save a durable learning to your own memory; it is included in all your future sessions. Use it for lasting knowledge about the project, codebase, conventions, pitfalls, where things are or people, not for task progress or temporary state (record those with update_task).",

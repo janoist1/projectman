@@ -2766,6 +2766,7 @@ export const hu = {
         docs_write: 'Döntésnapló vagy roadmap írása',
         decision_offer: 'Döntésjelöltek jelölése',
         knowledge_change: 'Megállapodás vagy tanult elv módosítása',
+        structural_review: 'Alkalmi architektúraszemle',
       },
     },
     change: {
@@ -2911,6 +2912,8 @@ export const hu = {
         unreleased: 'Kiadásra váró munka',
         ready_waiting: 'Indítható kártyák várnak',
         answer_stalled: '{key}: megérkezett a válasz, de a tag nem dolgozik tovább',
+        structural_pattern: 'Több kártyán ismétlődő szerkezeti minta',
+        milestone_closed: 'Lezárult szakasz',
         refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
       },
       bodies: {
@@ -2928,6 +2931,8 @@ export const hu = {
         ready_waiting: 'Indításra kész kártya vár, és van szabad fejlesztő.',
         answer_stalled:
           'A tagnak már kézbesítettek egy választ vagy üzenetet, de azóta nem tett munkalépést.',
+        structural_pattern: 'Konkrét bizonyíték alapján érdemes lehet egy rövid architektúraszemlét kérni.',
+        milestone_closed: 'Egy téma vagy gyűjtőkártya lezárult; a PM mérlegeli egy alkalmi szemle hasznát.',
         refinement_stalled:
           'A kidolgozási kör véget ért, de a hozzá tartozó címke nincs a kártyán, és a tag nem dolgozik tovább.',
       },

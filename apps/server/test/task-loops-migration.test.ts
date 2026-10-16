@@ -56,7 +56,7 @@ describe('task loops migration (PM-261)', () => {
       ).toEqual({ primary_item_id: 'inb_primary' });
       const versions = migrations.map((migration) => migration.version);
       expect(new Set(versions).size).toBe(versions.length);
-      expect(versions.slice(-3)).toEqual([71, 72, 73]);
+      expect(versions.filter((version) => version >= 71 && version <= 73)).toEqual([71, 72, 73]);
     } finally {
       db.close();
     }

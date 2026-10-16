@@ -15,6 +15,7 @@ import {
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
+  structuralReviewOf,
   OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
   permissionDelegationState,
@@ -152,7 +153,12 @@ export interface Resolver {
 
 /** Who decides an inbox item another module owns (PM-593). Operator approvals are recognized by operatorApprovalOf. */
 export type InboxDeciderKey =
-  'merge_request' | 'release' | 'hand_on' | 'operator_approval' | 'operator_knowledge';
+  | 'merge_request'
+  | 'release'
+  | 'hand_on'
+  | 'operator_approval'
+  | 'operator_knowledge'
+  | 'operator_structural_review';
 /** Merge, release and hand-on handlers close their item in their transaction; refusals leave it open.
  * The inbox closes operator approvals after their handler returns. */
 export type InboxDecider = (
@@ -754,6 +760,11 @@ export class InboxService {
     if (operator) {
       const decide = this.deciders.get('operator_approval');
       if (!decide) throw forbidden('operator_never', 'Operator decisions are unavailable');
+      await decide(item, by, req.optionId, note);
+    }
+    if (structuralReviewOf(item)) {
+      const decide = this.deciders.get('operator_structural_review');
+      if (!decide) throw forbidden('owner_approval_required', 'structural review decisions are unavailable');
       await decide(item, by, req.optionId, note);
     }
     const at = isoNow(this.ctx);

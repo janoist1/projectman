@@ -63,6 +63,9 @@ import type {
  * mcp/<module>/handler.ts, never in this collector.
  */
 export class TeamToolsService implements TeamToolsHandler {
+  async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
+    return this.tools.operator.requestStructuralReview(ctx, args);
+  }
   async getOperatorPreference(ctx: ToolContext) {
     return this.tools.operator.getOperatorPreference(ctx);
   }

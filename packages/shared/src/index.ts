@@ -88,3 +88,4 @@ export * from './domain/process-name';
 export * from './domain/structure-map';
 export * from './domain/github-refs';
 export * from './domain/email-mask';
+export * from './domain/structural-review';

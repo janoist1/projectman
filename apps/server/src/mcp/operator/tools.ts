@@ -186,7 +186,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start work on a task',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
+        "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites does not grant the PM an override. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
       input: {
         task_key: TaskKey,
         assignee: MemberHandle.optional(),

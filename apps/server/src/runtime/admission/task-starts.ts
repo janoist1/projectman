@@ -280,17 +280,20 @@ export class TaskStarts {
       member = hired;
     }
 
-    if (!wanted()) {
-      // The card was taken while the temp worker was hired: it has no task to carry.
-      if (hired)
+    let startWanted = false;
+    try {
+      startWanted = wanted();
+    } finally {
+      // A withdrawn or refused start leaves the new temp worker with no task to carry.
+      if (!startWanted && hired)
         await this.members.retire(
           projectKey,
           hired.handle,
           {},
           { actor: SYSTEM_ACTOR, author: SYSTEM_AUTHOR },
         );
-      return skipped;
     }
+    if (!startWanted) return skipped;
     // A person's Start of a card held by its fix round limit (PM-262) is one more round for its assignee.
     const anotherRound =
       opts.actor.kind === 'human' &&

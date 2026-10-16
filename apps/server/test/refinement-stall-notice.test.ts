@@ -331,6 +331,37 @@ describe('operator_signals migration to refinement_stalled', () => {
           )
           .run(),
       ).toThrow();
+      db.prepare(
+        `UPDATE operator_signals SET state = 'resolved', resolved_at = '2026-01-03T00:00:00.000Z' WHERE id = 'ops_2'`,
+      ).run();
+      db.prepare(
+        `INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at) VALUES ('ops_4', 'AR', 'refinement_stalled', 'refinement_stalled:AR-1:a:b:c', 'pending', '2026-01-04T00:00:00.000Z')`,
+      ).run();
+      expect(() =>
+        db
+          .prepare(
+            `INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at) VALUES ('ops_5', 'AR', 'made_up', 'made_up:1', 'pending', '2026-01-04T00:00:00.000Z')`,
+          )
+          .run(),
+      ).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps the follow-up and the decision note of the old rows', () => {
+    const db = new Database(':memory:');
+    try {
+      const before = migrations.filter((item) => item.version < 71);
+      for (const migration of before) db.exec(migration.sql);
+      db.pragma(`user_version = ${Math.max(...before.map((item) => item.version))}`);
+      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
+        INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at, follow_up_at, decision_note)
+          VALUES ('ops_1', 'AR', 'ready_waiting', 'ready_waiting:x', 'dismissed', '2026-01-01T00:00:00.000Z', '2026-01-05T00:00:00.000Z', 'waits on purpose');`);
+      migrate(db);
+      expect(
+        db.prepare(`SELECT follow_up_at, decision_note FROM operator_signals WHERE id = 'ops_1'`).get(),
+      ).toEqual({ follow_up_at: '2026-01-05T00:00:00.000Z', decision_note: 'waits on purpose' });
     } finally {
       db.close();
     }

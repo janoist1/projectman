@@ -822,6 +822,35 @@ describe('cloud mode remote parts', () => {
       );
     });
 
+    it('ends an aborted run whose call then times out as killed, after a single cancel (PM-681)', async () => {
+      const engine = await online();
+      engine.answer('full_test.run', () => new Promise(() => {}));
+      let engineStopped: () => void = () => {};
+      engine.answer(
+        'full_test.cancel',
+        () =>
+          new Promise<null>((resolve) => {
+            engineStopped = () => resolve(null);
+          }),
+      );
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      const controller = new AbortController();
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+        const run = executor.run({ ...fullTestSpec('f1'), requireHeavyLock: true }, controller.signal);
+        await vi.waitFor(() =>
+          expect(engine.requests.some((item) => item.method === 'full_test.run')).toBe(true),
+        );
+        controller.abort();
+        await vi.advanceTimersByTimeAsync(1000 + 60_000);
+        engineStopped();
+        await expect(run).resolves.toMatchObject({ outcome: 'error', reason: 'killed' });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(engine.requests.filter((item) => item.method === 'full_test.cancel')).toHaveLength(1);
+    });
+
     it('sends allowDependencyInstall, and blocks once on an older engine that refuses it (PM-681)', async () => {
       const engine = await online();
       const ref = { projectKey: 'AR', repo: 'ar' };

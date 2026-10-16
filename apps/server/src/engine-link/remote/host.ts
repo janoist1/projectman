@@ -116,6 +116,19 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       resolveSource: (source) => call('workspace.resolveSource', [source]),
       checkoutTaskBranch: (key, request) => call('workspace.checkoutTaskBranch', [key, request]),
       checkoutReview: (key, source, roundId) => call('workspace.checkoutReview', [key, source, roundId]),
+      publishTaskBranch: async (key, taskKey, branch, commit) => {
+        try {
+          return await call('workspace.publishTaskBranch', [key, taskKey, branch, commit]);
+        } catch (err) {
+          // An engine from before PM-739 cannot hand the commit over: say so, never skip the check.
+          if (err instanceof EngineCallError && err.linkCode === 'unknown_method')
+            throw conflict('workspace_source_missing', `engine ${id} must be updated to hand over a commit`, {
+              reason: 'engine_update_required',
+              method: 'workspace.publishTaskBranch',
+            });
+          throw err;
+        }
+      },
     };
 
     const foldersRoot = () => helloOf().paths.sessionFoldersRoot ?? '';

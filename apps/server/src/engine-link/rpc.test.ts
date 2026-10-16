@@ -366,6 +366,47 @@ describe('engine RPC', () => {
     });
   });
 
+  describe('workspace.publishTaskBranch over the wire (PM-739)', () => {
+    const key = {
+      project: testConfig({ workspacePath: '/cloud/path' }),
+      repoName: testConfig().project.repos[0]!.name,
+      member: 'dev',
+    };
+    const commit = 'a'.repeat(40);
+
+    it('carries four parameters out and exactly the path and the ref back', async () => {
+      const toEngine: string[] = [];
+      const toCloud: string[] = [];
+      const cloud = createEngineRpc({ side: 'cloud', send: (data) => toEngine.push(data) });
+      const engine = createEngineRpc({ side: 'engine', send: (data) => toCloud.push(data) });
+      const received: unknown[][] = [];
+      engine.handle('workspace.publishTaskBranch', (params) => {
+        received.push([...params]);
+        return { path: '/engine/repo', ref: `refs/projectman/workspaces/dev/PM-1/${commit}` };
+      });
+      const call = cloud.call('workspace.publishTaskBranch', [key, 'PM-1', 'PM-1-work', commit]);
+      for (const data of toEngine.splice(0)) await engine.receive(decodeFrame(data));
+      for (const data of toCloud.splice(0)) await cloud.receive(decodeFrame(data));
+      await expect(call).resolves.toEqual({
+        path: '/engine/repo',
+        ref: `refs/projectman/workspaces/dev/PM-1/${commit}`,
+      });
+      expect(received).toEqual([[key, 'PM-1', 'PM-1-work', commit]]);
+      cloud.close();
+      engine.close();
+    });
+
+    it('refuses a missing or extra parameter and a result with more than the path and the ref', () => {
+      const { params, result } = methods['workspace.publishTaskBranch'];
+      expect(params.safeParse([key, 'PM-1', 'PM-1-work', commit]).success).toBe(true);
+      expect(params.safeParse([key, 'PM-1', 'PM-1-work']).success).toBe(false);
+      expect(params.safeParse([key, 'PM-1', 'PM-1-work', commit, 'extra']).success).toBe(false);
+      expect(params.safeParse([key, 'PM-1', 'PM-1-work', 5]).success).toBe(false);
+      expect(result.safeParse({ path: '/p', ref: 'refs/x' }).success).toBe(true);
+      expect(result.safeParse({ path: '/p', ref: 'refs/x', token: 'sk-secret' }).success).toBe(false);
+    });
+  });
+
   it('keeps an unrecognised exception out of the response and the log, naming only method and class', async () => {
     const frames: Frame[] = [];
     const failures: unknown[] = [];

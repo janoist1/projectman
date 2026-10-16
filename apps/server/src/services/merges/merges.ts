@@ -369,6 +369,7 @@ export class Merges {
     let reason: 'not_merged' | 'not_on_remote' | 'engine_unavailable' = 'engine_unavailable';
     if (merger) {
       try {
+        await this.deps.sessions.prepareMergeSource(config, task, source.commit);
         const base = await merger.prepare(
           { projectKey: task.projectKey, repo: repo.name },
           { base: repo.defaultBranch, commit: source.commit },

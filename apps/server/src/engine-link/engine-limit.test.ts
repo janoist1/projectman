@@ -690,6 +690,40 @@ describe('engine local limit', () => {
       ).toBe(repo);
     });
 
+    it('hands a task commit over only for a registered repo and a full object id (PM-739)', async () => {
+      const limit = make();
+      const key = { project: projectConfig(), repoName: 'projectman', member: 'dev' };
+      const commit = 'a'.repeat(40);
+      const [arg, taskKey, branch, handed] = (await limit.check('workspace.publishTaskBranch', [
+        key,
+        'PM-1',
+        'PM-1-work',
+        commit,
+      ] as never)) as unknown as [
+        { project: { project: { workspacePath: string; repos: Array<{ path: string }> } } },
+        string,
+        string,
+        string,
+      ];
+      expect(arg.project.project.workspacePath).toBe(workspace);
+      expect(arg.project.project.repos[0]!.path).toBe(repo);
+      expect([taskKey, branch, handed]).toEqual(['PM-1', 'PM-1-work', commit]);
+      for (const bad of ['--help', 'refs/heads/main', 'a'.repeat(12), `${commit}\n`]) {
+        await refused(
+          limit,
+          'workspace.publishTaskBranch',
+          [key, 'PM-1', 'PM-1-work', bad],
+          'invalid_params',
+        );
+      }
+      await refused(
+        limit,
+        'workspace.publishTaskBranch',
+        [{ project: projectConfig('other'), repoName: 'other', member: 'dev' }, 'PM-1', 'PM-1-work', commit],
+        'repo_not_registered',
+      );
+    });
+
     it('refuses a repo or a project that is not registered', async () => {
       const limit = make();
       await refused(

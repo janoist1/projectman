@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OperatorChannel, routes, splitTeamMessageBatch } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
@@ -41,7 +41,11 @@ async function setup(): Promise<void> {
 /** The owner writes to the Operator with their own login. */
 async function ask(text: string) {
   const result = await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text });
-  await flush();
+  // Message delivery starts the session in the background; event-loop turns do not await it.
+  await vi.waitFor(() => {
+    expect(h.domain.sessions.list('AR', { member: 'operator' })).toHaveLength(1);
+    expect(opened().map((request) => request.messageId)).toEqual([result.message.id]);
+  });
   return result;
 }
 const session = () => h.domain.sessions.list('AR', { member: 'operator' })[0]!;
@@ -57,7 +61,7 @@ const requests = () => h.repos.operatorRequests.latest('AR', 50);
 /** The Operator's turn ends: its session goes idle, which closes the request and delivers what waits. */
 async function endTurn(): Promise<void> {
   h.runner.setState(session().id, 'idle');
-  await flush();
+  await vi.waitFor(() => expect(opened()).toHaveLength(0));
 }
 
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;

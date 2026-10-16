@@ -4,6 +4,8 @@ import type { FullTestSandbox, SourceHead } from '../../contracts';
 /** What the merges need from the session orchestrator (the real one satisfies it structurally). */
 export interface MergeSessions {
   sourceHead(config: ProjectConfig, task: Task, opts?: { strict?: boolean }): Promise<SourceHead | null>;
+  /** Makes the approved commit readable where the merge runs (member workspaces hand it over); idempotent. */
+  prepareMergeSource(config: ProjectConfig, task: Task, commit: string): Promise<void>;
   cardEngineId(projectKey: string, task: Task): EngineId;
   list(projectKey: string, filter?: { member?: string; taskKey?: string }): Session[];
   isRunning(sessionId: string): boolean;

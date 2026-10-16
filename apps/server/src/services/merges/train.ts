@@ -106,10 +106,25 @@ export class MergeTrains {
     return true;
   }
 
+  /**
+   * Every member's approved commit is readable in the train's repository before the first git
+   * read of any of them (PM-739): member workspaces hand them over, idempotently. A refusal stops
+   * the attempt, never the choice of another branch.
+   */
+  private async prepareSources(train: MergeTrainRecord): Promise<void> {
+    const config = await this.deps.projects.config(train.projectKey);
+    for (const member of train.members) {
+      const task = this.deps.tasks.find(train.projectKey, member.taskKey);
+      if (!task) throw new Error(`The task ${member.taskKey} of a merge train member is missing`);
+      await this.deps.sessions.prepareMergeSource(config, task, member.commit);
+    }
+  }
+
   async published(train: MergeTrainRecord): Promise<boolean> {
     if (!train.candidate) return false;
     const merger = this.deps.engines.get(train.engineId)?.merger;
     if (!merger) return false;
+    await this.prepareSources(train);
     const ref = { projectKey: train.projectKey, repo: train.repo };
     const base = await merger.prepare(ref, { base: train.base, commit: train.members[0]!.commit });
     return Boolean(
@@ -167,7 +182,7 @@ export class MergeTrains {
       const repo = config.project.repos.find((r) => r.name === row.repo);
       const engineId = task ? sessions.cardEngineId(row.projectKey, task) : undefined;
       const merger = engineId ? this.deps.engines.get(engineId)?.merger : undefined;
-      const eligible = Boolean(
+      let eligible = Boolean(
         row.commit &&
         isCommitId(row.commit) &&
         row.branch &&
@@ -179,6 +194,15 @@ export class MergeTrains {
         (await this.valid(row)),
       );
       let solo = Boolean(row.fix || row.resolution || row.landed !== 'nowhere');
+      if (eligible && !solo) {
+        try {
+          await sessions.prepareMergeSource(config, task!, row.commit!);
+        } catch (err) {
+          // Its own turn reports the refusal; it does not stop the train from forming without it.
+          ctx.logger.warn({ err, mergeId: row.id }, 'could not hand over a merge train candidate');
+          eligible = false;
+        }
+      }
       if (eligible && !solo) {
         const base = await merger!.prepare(this.steps.ref(row), { base: row.base, commit: row.commit! });
         // Reconcile existing work individually before attributing any new train work.
@@ -499,6 +523,7 @@ export class MergeTrains {
     try {
       if (!engine || !merger)
         return await this.terminal(run, 'engine_unavailable', 'The train engine is unavailable');
+      await this.prepareSources(train);
       for (let attempt = 0; attempt < 2; attempt++) {
         const base = await merger.prepare(ref, { base: train.base, commit: train.members[0]!.commit });
         // Recovery precedes cancellation or changed gates: publication already happened.

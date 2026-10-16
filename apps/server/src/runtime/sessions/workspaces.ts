@@ -25,6 +25,9 @@ import type { DomainContext } from '../../core/base';
 import { conflict, DomainError } from '../../kernel';
 import { KeyedMutex, newId } from '../../kernel';
 
+/** The refs of commits a developer's workspace handed over to the project repository (PM-739). */
+const SNAPSHOT_REF_PREFIX = 'refs/projectman/workspaces/';
+
 /** Where a task session works in its member's workspace, as `SessionOrchestrator.start` uses it. */
 export interface WorkspacePlacement {
   workspace: MemberWorkspaceRecord;
@@ -435,12 +438,12 @@ export class MemberWorkspaces {
       binding = { ...previous, kind: 'review' };
     } else {
       // A new round: the handed-over branch's commit now, and the default branch now.
-      const source = await this.reviewSource(key, task);
-      const commit = source ? await this.manager.resolveSource(source) : null;
-      if (!source || !commit)
+      const selected = await this.reviewSource(config, key, task);
+      if (!selected)
         throw conflict('workspace_source_missing', `task ${task.key} has no committed branch to review yet`, {
           taskKey: task.key,
         });
+      const { source, commit } = selected;
       const base = await this.manager.fetchBase(key);
       checkout = await this.manager.checkoutReview(key, source, commit);
       binding = {
@@ -458,7 +461,7 @@ export class MemberWorkspaces {
         'review round pinned',
       );
     }
-    const sourceBranch = binding.sourceRef!.replace(/^refs\/(heads|remotes\/origin)\//, '');
+    const sourceBranch = this.sourceBranchOf(task, binding.sourceRef!);
     const baseBranch = config.project.repos.find((r) => r.name === key.repoName)?.defaultBranch;
     return {
       checkout,
@@ -481,15 +484,60 @@ export class MemberWorkspaces {
     };
   }
 
-  /** Where the task's handed-over work is: a developer's workspace, else a branch of the repository. */
-  private async reviewSource(key: MemberWorkspaceKey, task: Task): Promise<WorkspaceSource | null> {
-    const teammate = this.workSource(key.project.project.key, task.key, key.member);
-    if (teammate) return teammate;
+  /**
+   * Where the task's handed-over work is and the commit of a new round: the developer's committed
+   * branch tip, handed over to the project repository as a snapshot that stays as it is while the
+   * developer goes on (PM-739); else a branch of the repository.
+   */
+  private async reviewSource(
+    config: ProjectConfig,
+    key: MemberWorkspaceKey,
+    task: Task,
+  ): Promise<{ source: WorkspaceSource; commit: string } | null> {
+    const work = this.workOf(key.project.project.key, task.key, key.member);
+    if (work) {
+      const commit = await this.manager.resolveSource({
+        path: work.record.path,
+        ref: `refs/heads/${work.binding.branch}`,
+      });
+      if (!commit) return null;
+      const source = await this.manager.publishTaskBranch(
+        { project: config, repoName: work.record.repo, member: work.record.member },
+        task.key,
+        work.binding.branch!,
+        commit,
+      );
+      return { source, commit };
+    }
     const found = await this.manager.findTaskBranch(key, task.key);
     if (!found) return null;
-    return (
-      found.source ?? { path: (await this.manager.location(key)).path, ref: `refs/heads/${found.branch}` }
-    );
+    const source = found.source ?? {
+      path: (await this.manager.location(key)).path,
+      ref: `refs/heads/${found.branch}`,
+    };
+    const commit = await this.manager.resolveSource(source);
+    return commit ? { source, commit } : null;
+  }
+
+  /** The branch name a review shows: a snapshot's is the developer's branch, not its internal ref. */
+  private sourceBranchOf(task: Task, ref: string): string {
+    if (!ref.startsWith(SNAPSHOT_REF_PREFIX)) return ref.replace(/^refs\/(heads|remotes\/origin)\//, '');
+    return this.workOf(task.projectKey, task.key)?.binding.branch ?? taskBranchNameOf(task);
+  }
+
+  /**
+   * Makes the approved commit of a merge readable in the project repository (PM-739): the
+   * developer's workspace hands over its committed branch, once, as a snapshot (a snapshot that is
+   * there already changes nothing). Without a developer workspace of the task the commit is
+   * expected in the repository already. Never another branch's commit instead.
+   */
+  async prepareMergeSource(config: ProjectConfig, task: Task, commit: string): Promise<void> {
+    const work = this.workOf(config.project.key, task.key);
+    if (!work?.binding.branch) return;
+    const key = { project: config, repoName: work.record.repo, member: work.record.member };
+    await this.manager.publishTaskBranch(key, task.key, work.binding.branch, commit).catch((err: unknown) => {
+      throw toDomainError(err, work.record.member);
+    });
   }
 
   /** Takes the reservation for the session, or refuses (`workspace_busy`). */

@@ -443,6 +443,11 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       inside(source.path, 'The source repository');
       return [{ ...key, project: bind(key.project, key.repoName) }, source, ref];
     },
+    // The target is always the registered repository the key names: the cloud sends no path or ref.
+    'workspace.publishTaskBranch': ([key, taskKey, branch, commit]) => {
+      commitIds(commit);
+      return [{ ...key, project: bind(key.project, key.repoName) }, taskKey, branch, commit];
+    },
     'full_test.run': async (params) => {
       const { spec } = params;
       if (

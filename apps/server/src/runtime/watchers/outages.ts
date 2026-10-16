@@ -75,11 +75,12 @@ export class WorkOutages {
   private readonly startedAt: number;
   private readonly connectedEngines = new Set<EngineId>();
   /**
-   * The task keys of each member's waiting messages, kept for one synchronous pass: a task list asks
-   * `forTask` for every card, and reading the messages again per card made a board with an engine
-   * outage unusable (thousands of cards times thousands of messages).
+   * The task keys of each member's waiting messages, kept for `PENDING_KEYS_TTL_MS` per project and
+   * member (an empty set too): a task list asks `forTask` for every card, and reading the messages
+   * again per card made a board with an engine outage unusable (thousands of cards times thousands
+   * of messages). Only the outage mark can be that much behind; message delivery never reads this.
    */
-  private pendingKeys: Map<string, ReadonlySet<string>> | null = null;
+  private readonly pendingKeys = new Map<string, { readAt: number; keys: ReadonlySet<string> }>();
 
   private readonly deps: OutageDependencies;
 
@@ -204,21 +205,14 @@ export class WorkOutages {
   }
 
   private pendingTaskKeysOf(projectKey: string, handle: string): ReadonlySet<string> {
-    if (!this.pendingKeys) {
-      const cache = new Map<string, ReadonlySet<string>>();
-      this.pendingKeys = cache;
-      // Card-by-card work awaits between cards, so the keys live for a short while instead of one
-      // tick; an outage mark a moment late is harmless.
-      setTimeout(() => {
-        if (this.pendingKeys === cache) this.pendingKeys = null;
-      }, PENDING_KEYS_TTL_MS).unref?.();
-    }
     const key = memberKey(projectKey, handle);
-    let keys = this.pendingKeys.get(key);
-    if (!keys) {
-      keys = new Set(this.deps.messaging.pendingTaskKeys(projectKey, handle));
-      this.pendingKeys.set(key, keys);
-    }
+    const now = this.deps.ctx.now().getTime();
+    const cached = this.pendingKeys.get(key);
+    // Card-by-card work awaits between cards, so the keys live for a short window instead of one
+    // pass; an outage mark a moment late is harmless.
+    if (cached && now >= cached.readAt && now - cached.readAt < PENDING_KEYS_TTL_MS) return cached.keys;
+    const keys = new Set(this.deps.messaging.pendingTaskKeys(projectKey, handle));
+    this.pendingKeys.set(key, { readAt: now, keys });
     return keys;
   }
 

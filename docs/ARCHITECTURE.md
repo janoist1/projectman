@@ -1789,6 +1789,13 @@ workers follow the machine's size.
   tag, because the release watcher tags after the switch). It reads the installation's own git checkout, so it runs
   on the server's machine and never on a remote engine; without git, on a timeout (2 s) or with a
   `PROJECTMAN_VERSION` override (a cloud package has no checkout) the tag is null.
+  PM-731: JSON turns a trailing `undefined` into `null`, so `workspace.findTaskBranch` accepts
+  `string | null | undefined` as its third element and the handler gets `undefined` (no other input
+  is loosened). An `invalid_params` answer names the method and the failing parameter paths (never
+  the values), `path_outside_roots` the refused path; an unrecognised handler exception still
+  answers `internal / Engine request failed` and only its method and class name reach the local
+  log (`onFailed`), on both sides. An engine older than this change rejects the `null`: update the
+  engine with the cloud.
   Existing inventory boundaries use these groups:
   - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
   - Codex project layer inspection: `session.assert_workspace_config`.
@@ -2592,6 +2599,16 @@ assumption or remote-engine RPC.
   directory (PM-399), plus only `packed-refs.lock` (PM-411), so Codex
   can finish rebase pseudo-ref deletion and loose branch deletion. The common git directory as a whole, other
   worktrees' metadata, configuration, hooks, alternates and admin links remain read-only.
+  PM-731 (engine limit, `engine-link/engine-limit.ts`): the engine's read candidates are its
+  write candidates plus the user's own files from `SANDBOX_HOME_READS` (`.gitconfig`,
+  `.config/git`, `.claude/shell-snapshots`, `contracts/engine.ts`) and the existing regular
+  `core.excludesfile` of its own `userHome`; they are never write candidates, and one whose real
+  path is, or holds, a sensitive place is dropped. The `db.sqlite*` pattern of the denials, the
+  cloud's and the engine's own, becomes the four file names (a file tool's rule is a path, not a
+  pattern); other wildcard entries stay as sent. A member workspace (an independent clone: a
+  `task_worktree` with `placement.workspace` and no shared `gitDir`) lets a writing Codex session
+  write its own `.git`, with `config`, `config.lock`, `config.worktree`, `hooks` and `objects/info`
+  read-only; a read-only sandbox or a placement without that marker gets nothing.
   The Codex adapter lifts only the lock entry from `sharedGitDenials`; `packed-refs` itself
   stays read-only, as do packed default-branch and replacement refs. Claude's denials remain.
   A packed branch deletion that needs a packed-refs rewrite is not granted. Residual risks:

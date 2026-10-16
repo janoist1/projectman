@@ -69,6 +69,18 @@ const FORBIDDEN_ENV = [
   /^DYLD_/i,
 ];
 
+const DATABASE_PATTERN = /[\\/]db\.sqlite\*$/;
+const DATABASE_SUFFIXES = ['', '-wal', '-shm', '-journal'];
+/**
+ * A file tool's deny rule names a path, not a pattern (Claude refuses `db.sqlite*`): the app database's
+ * pattern becomes its four file names. Any other entry stays as it is.
+ */
+function namedDatabaseFiles(entries: readonly string[]): string[] {
+  return entries.flatMap((entry) =>
+    DATABASE_PATTERN.test(entry) ? DATABASE_SUFFIXES.map((end) => entry.slice(0, -1) + end) : [entry],
+  );
+}
+
 function refuse(code: EngineErrorCode, message: string): never {
   throw new EngineRpcError(code, message);
 }
@@ -116,16 +128,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   // nor changed by a session; its configuration and status file are read but never changed.
   const engineSecrets = [config.keyFile, ...(config.linkHeadersFile ? [config.linkHeadersFile] : [])];
   const sensitive = [...sensitivePaths({ userHome, appHome: home }), ...engineSecrets];
-  // A file tool's deny rule names a path, not a pattern (Claude refuses `db.sqlite*`): name the files.
-  const sensitiveWrite = [
-    ...sensitive.flatMap((target) =>
-      target.endsWith('*')
-        ? ['', '-wal', '-shm', '-journal'].map((end) => target.slice(0, -1) + end)
-        : [target],
-    ),
-    files.config,
-    files.status,
-  ];
+  const sensitiveWrite = [...namedDatabaseFiles(sensitive), files.config, files.status];
   const sessions = new Map<string, { cwd: string; folder?: string }>();
   const present = (values: ReadonlyArray<string | null | undefined>): string[] =>
     values.filter((value): value is string => typeof value === 'string' && value.length > 0);
@@ -156,10 +159,23 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       paths.heavyLockDir ? path.dirname(paths.heavyLockDir) : null,
       paths.browsersDir,
       attachmentsCache,
-      ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
-      userExcludesFile(userHome),
     ]).map(resolveReal),
   ];
+  /**
+   * The user's own files a session's sandbox may read (git identity, the global excludes file, the shell
+   * snapshots): read exceptions only, so they join the read candidates and never the write ones. One whose
+   * real path is, or holds, a sensitive place (a symlink, a `core.excludesfile` aimed at a key) is dropped.
+   */
+  const homeReads = (): string[] => {
+    const blocked = sensitive.map(resolveReal);
+    return present([
+      ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
+      userExcludesFile(userHome),
+    ])
+      .map(resolveReal)
+      .filter((real) => !blocked.some((place) => isWithin(place, real) || isWithin(real, place)));
+  };
+  const readRoots = (): string[] => [...sandboxRoots(), ...homeReads()];
   const within = (candidates: readonly string[], target: string): boolean => {
     if (!path.isAbsolute(target) || target.includes('\0')) return false;
     const real = resolveReal(target);
@@ -248,7 +264,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   ): T => ({
     ...sandbox,
     denyRead: [...new Set([...(sandbox.denyRead ?? []), ...sensitive])],
-    denyWrite: [...new Set([...(sandbox.denyWrite ?? []), ...sensitiveWrite])],
+    denyWrite: [...new Set([...namedDatabaseFiles(sandbox.denyWrite ?? []), ...sensitiveWrite])],
     deniedEnvVars: [...new Set([...(sandbox.deniedEnvVars ?? []), ...SANDBOX_DENIED_ENV_VARS])],
   });
 
@@ -257,6 +273,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   }> = {
     'session.start': (spec) => {
       const extra = sandboxRoots();
+      const readable = readRoots();
       inside(spec.cwd, 'The working directory');
       insideAll(spec.additionalDirectories, 'An additional directory', extra);
       insideAll(spec.writableRoots, 'A writable root', extra);
@@ -270,9 +287,9 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         refuse('permission_mode_too_high', 'A full-access sandbox is not allowed on this engine');
       const { placement, filesystem } = policy;
       inside(placement.path, 'The placement', extra);
-      insideAll(filesystem.readableRoots, 'A readable root', extra);
+      insideAll(filesystem.readableRoots, 'A readable root', readable);
       insideAll(filesystem.writableRoots, 'A writable root', extra);
-      insideAll(filesystem.readOnlyPaths, 'A read-only path', extra);
+      insideAll(filesystem.readOnlyPaths, 'A read-only path', readable);
       if (filesystem.sessionFolder) inside(filesystem.sessionFolder, 'The session folder', extra);
       if (filesystem.sessionFoldersRoot)
         inside(filesystem.sessionFoldersRoot, 'The session folders root', extra);
@@ -304,7 +321,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       let sandbox = spec.sandbox;
       if (sandbox) {
         insideAll(sandbox.allowWrite, 'A writable sandbox path', extra);
-        insideAll(sandbox.allowRead, 'A readable sandbox path', extra);
+        insideAll(sandbox.allowRead, 'A readable sandbox path', readable);
         insideAll(sandbox.portable?.allowWrite, 'A portable path', extra);
         if (sandbox.portable?.tmpDir) inside(sandbox.portable.tmpDir, 'The temporary directory', extra);
         for (const command of sandbox.excludedCommands ?? [])
@@ -449,7 +466,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           );
         }
       }
-      insideAll(spec.sandbox.allowRead, 'A readable test path', sandboxRoots());
+      insideAll(spec.sandbox.allowRead, 'A readable test path', readRoots());
       return {
         ...params,
         spec: {
@@ -470,7 +487,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       )
         refuse('path_outside_roots', 'The browsers directory is not the engine’s');
       insideAll(spec.sandbox.allowWrite, 'A writable screenshot path', extra);
-      insideAll(spec.sandbox.allowRead, 'A readable screenshot path', extra);
+      insideAll(spec.sandbox.allowRead, 'A readable screenshot path', readRoots());
       // The engine assembles the command (`npm run shots -- <scenario> <flags>`): the scenario is a path
       // inside the roots, the flags are the few `screenshotArgs` builds, never `--out` or `--machine`.
       const [scenario, ...flags] = spec.args;
@@ -496,13 +513,13 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           sandbox: {
             ...spec.sandbox,
             denyRead: [...new Set([...spec.sandbox.denyRead, ...sensitive])],
-            denyWrite: [...new Set([...spec.sandbox.denyWrite, ...sensitiveWrite])],
+            denyWrite: [...new Set([...namedDatabaseFiles(spec.sandbox.denyWrite), ...sensitiveWrite])],
           },
         },
       };
     },
     'host.is_directory': (params) => {
-      inside(params.path, 'The path', sandboxRoots());
+      inside(params.path, 'The path', readRoots());
       return params;
     },
     'host.resolve_git_dir': (params) => {
@@ -510,11 +527,11 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       return params;
     },
     'host.realpath': (params) => {
-      inside(params.path, 'The path', sandboxRoots());
+      inside(params.path, 'The path', readRoots());
       return params;
     },
     'host.is_real_directory': (params) => {
-      inside(params.dir, 'The directory', sandboxRoots());
+      inside(params.dir, 'The directory', readRoots());
       return params;
     },
     'host.prepare_member_sandbox_dir': (params) => {

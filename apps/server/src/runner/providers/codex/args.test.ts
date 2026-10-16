@@ -496,6 +496,37 @@ describe('buildCodexArgs', () => {
       ).not.toContain(gitDir);
     });
 
+    describe('an independent clone of a member workspace (PM-138)', () => {
+      const clone = {
+        kind: 'task_worktree' as const,
+        path: '/work',
+        workspace: { branch: 'PM-1-work', baseCommit: null },
+      };
+      const own = '/work/.git';
+
+      it('opens its own git directory, with the configuration, hooks and alternates closed', () => {
+        const rendered = profile(policy('workspace-write', clone));
+        expect(rendered).toContain(`"${own}"="write"`);
+        for (const name of ['config', 'config.lock', 'config.worktree', 'hooks', 'objects/info'])
+          expect(rendered).toContain(`"${own}/${name}"="read"`);
+        expect(rendered).not.toContain(gitDir);
+      });
+
+      it('opens nothing in a read-only sandbox or without the member workspace marker', () => {
+        expect(profile(policy('read-only', clone))).not.toContain(own);
+        const { workspace: _workspace, ...plain } = clone;
+        expect(profile(policy('workspace-write', plain))).not.toContain(own);
+        expect(profile(policy('workspace-write', { kind: 'read_only', path: '/work' }))).not.toContain(own);
+      });
+
+      it('leaves the shared worktree rules as they were when there is a shared git directory', () => {
+        const rendered = profile(policy('workspace-write', { ...clone, gitDir, worktreeGitDir: adminDir }));
+        expect(rendered).not.toContain(`"${own}"="write"`);
+        expect(rendered).toContain(`"${gitDir}/refs"="write"`);
+        expect(rendered).toContain(`"${adminDir}"="write"`);
+      });
+    });
+
     it('does not open the git directories when they lie in a denied path', () => {
       const p = policy('workspace-write');
       const c = buildCodexArgs({

@@ -228,13 +228,17 @@ export function codexSharedGitAccess(
   const placement = policy?.placement;
   const gitDir = placement?.kind === 'task_worktree' ? placement.gitDir : undefined;
   const adminDir = placement?.kind === 'task_worktree' ? placement.worktreeGitDir : undefined;
-  // An independent clone (a member workspace on an engine, PM-138) keeps its git directory inside the
-  // checkout, where Codex makes `.git` read-only: open it the same way, its config and hooks still closed.
-  if (placement?.kind === 'task_worktree' && !gitDir) {
+  // An independent clone (a member workspace, PM-138) keeps its git directory inside the checkout, where
+  // Codex makes `.git` read-only: open it the same way, with what the host's git would run or follow
+  // outside the sandbox (configuration, hooks, alternates) still closed. Only a member workspace counts as
+  // a clone: a placement without a shared git directory and without that marker gets nothing.
+  if (placement?.kind === 'task_worktree' && placement.workspace && !gitDir) {
     const ownGitDir = path.join(placement.path, '.git');
     return {
       writable: [ownGitDir],
-      readOnly: ['config', 'config.lock', 'hooks'].map((name) => path.join(ownGitDir, name)),
+      readOnly: ['config', 'config.lock', 'config.worktree', 'hooks', path.join('objects', 'info')].map(
+        (name) => path.join(ownGitDir, name),
+      ),
     };
   }
   if (!gitDir || !adminDir) return { writable: [], readOnly: [] };

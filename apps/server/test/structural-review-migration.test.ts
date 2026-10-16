@@ -6,8 +6,8 @@ it('preserves every signal field, ordering and partial uniqueness while extendin
   const db = new Database(':memory:');
   try {
     db.pragma('foreign_keys = ON');
-    for (const migration of migrations.filter((m) => m.version < 71)) db.exec(migration.sql);
-    db.pragma('user_version = 70');
+    for (const migration of migrations.filter((m) => m.version < 72)) db.exec(migration.sql);
+    db.pragma('user_version = 71');
     const insert =
       db.prepare(`INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable,
       task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at,
@@ -35,7 +35,7 @@ it('preserves every signal field, ordering and partial uniqueness while extendin
     );
     insert.run(
       'ops_closed',
-      'process_cleanup_failed',
+      'refinement_stalled',
       'same-case',
       'resolved',
       0,
@@ -54,6 +54,7 @@ it('preserves every signal field, ordering and partial uniqueness while extendin
     );
     const before = db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all();
     migrate(db);
+    expect(db.pragma('user_version', { simple: true })).toBe(72);
     expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toEqual(before);
     migrate(db);
     expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toEqual(before);
@@ -61,6 +62,7 @@ it('preserves every signal field, ordering and partial uniqueness while extendin
       VALUES (?, 'AR', ?, ?, 'pending', ?)`);
     add.run('ops_structural', 'structural_pattern', 'pattern-case', at);
     add.run('ops_milestone', 'milestone_closed', 'milestone-case', at);
+    add.run('ops_refinement', 'refinement_stalled', 'refinement-case', at);
     expect(() => add.run('ops_unknown', 'unknown', 'unknown-case', at)).toThrow('CHECK');
     expect(() => add.run('ops_duplicate', 'structural_pattern', 'same-case', at)).toThrow('UNIQUE');
     db.prepare('UPDATE operator_signals SET resolved_at = ? WHERE id = ?').run(at, 'ops_open');

@@ -56,6 +56,7 @@ const isOutageRefusal = (code: string): boolean => OUTAGE_REFUSALS.some((value) 
 const isSetupRefusal = (code: string): boolean =>
   code === 'codex_setup_incomplete' || code === 'nanogpt_setup_incomplete';
 const memberKey = (key: string, handle: string): string => `${key}:${handle}`;
+const PENDING_KEYS_TTL_MS = 2_000;
 
 /** Instance-wide observations, with one owner warning per project and outage episode. */
 export class WorkOutages {
@@ -206,9 +207,11 @@ export class WorkOutages {
     if (!this.pendingKeys) {
       const cache = new Map<string, ReadonlySet<string>>();
       this.pendingKeys = cache;
-      queueMicrotask(() => {
+      // Card-by-card work awaits between cards, so the keys live for a short while instead of one
+      // tick; an outage mark a moment late is harmless.
+      setTimeout(() => {
         if (this.pendingKeys === cache) this.pendingKeys = null;
-      });
+      }, PENDING_KEYS_TTL_MS).unref?.();
     }
     const key = memberKey(projectKey, handle);
     let keys = this.pendingKeys.get(key);

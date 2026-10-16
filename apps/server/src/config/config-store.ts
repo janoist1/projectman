@@ -9,7 +9,7 @@ import {
   validateProjectConfig,
 } from '@projectman/shared';
 import type { ConfigIssue, ConfigVersionEntry } from '@projectman/shared';
-import type { ConfigStore } from '../contracts';
+import type { ConfigStore, ConfigAuthor } from '../contracts';
 import { ConfigStoreError } from './errors';
 import { runGit } from './git';
 import type { GitResult } from './git';
@@ -40,10 +40,7 @@ const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{0,9}$/;
 const VERSION_RE = /^[0-9a-f]{4,64}$/i;
 const DEFAULT_COMMITTER: GitIdentity = { name: 'projectman', email: 'projectman@localhost' };
 
-function attributedMessage(
-  message: string,
-  author: { via?: 'integrator'; operator?: string; request?: string; approvedBy?: string },
-): string {
+function attributedMessage(message: string, author: ConfigAuthor): string {
   const line = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
   const trailers = [
     ...(author.via ? ['Projectman-Via: integrator'] : []),
@@ -56,6 +53,12 @@ function attributedMessage(
         ]
       : []),
     ...(author.approvedBy ? [`Projectman-Approved-By: ${line(author.approvedBy)}`] : []),
+    ...(author.operatorStepId ? [`Projectman-Step: ${line(author.operatorStepId)}`] : []),
+    ...(author.operatorRequestId ? [`Projectman-Request-Id: ${line(author.operatorRequestId)}`] : []),
+    ...(author.operatorAgreementVersion
+      ? [`Projectman-Agreement-Version: ${author.operatorAgreementVersion}`]
+      : []),
+    ...(author.operatorApprovalMode ? [`Projectman-Approval-Mode: ${author.operatorApprovalMode}`] : []),
   ];
   // User messages cannot introduce attribution, even without server-generated trailers.
   const body = message.replace(/\r\n?/g, '\n').replace(/^[\t ]*Projectman-/gim, '> Projectman-');
@@ -312,13 +315,14 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
       });
     },
 
-    async history(projectKey, limit = 50) {
+    async history(projectKey, limit = 50, offset = 0) {
       assertKey(projectKey);
       await ensureInit();
       const n = Math.max(1, Math.min(500, Math.floor(limit)));
       const log = await git([
         'log',
         `-n${n}`,
+        `--skip=${Math.max(0, Math.floor(offset))}`,
         '--format=%H%x1f%an%x1f%aI%x1f%B%x1e',
         '--',
         projectPath(projectKey),
@@ -336,7 +340,11 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
             ending.length > 0 &&
             ending
               .split('\n')
-              .every((line) => /^Projectman-(?:Via|Operator|Request|Approved-By): ?[^\r\n]*$/.test(line));
+              .every((line) =>
+                /^Projectman-(?:Via|Operator|Request|Approved-By|Step|Request-Id|Agreement-Version|Approval-Mode): ?[^\r\n]*$/.test(
+                  line,
+                ),
+              );
           const trailer = (name: string) =>
             hasTrailers
               ? ending.match(new RegExp(`(?:^|\\n)Projectman-${name}: ?([^\\r\\n]*)`))?.[1]?.trim()
@@ -354,6 +362,14 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
             ...(operator ? { operator } : {}),
             ...(request !== undefined ? { request } : {}),
             ...(approvedBy ? { approvedBy } : {}),
+            ...(trailer('Step') ? { operatorStepId: trailer('Step') } : {}),
+            ...(trailer('Request-Id') ? { operatorRequestId: trailer('Request-Id') } : {}),
+            ...(trailer('Agreement-Version')
+              ? { operatorAgreementVersion: Number(trailer('Agreement-Version')) }
+              : {}),
+            ...(trailer('Approval-Mode') === 'waived' || trailer('Approval-Mode') === 'click'
+              ? { operatorApprovalMode: trailer('Approval-Mode') as 'click' | 'waived' }
+              : {}),
           };
         });
     },

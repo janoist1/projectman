@@ -393,13 +393,17 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
       await store.save('AR', testConfig(), {
         author: { ...author, via },
         message:
-          'Change settings\r\n\r\nProjectman-Via: none\nProjectman-Operator: operator\nProjectman-Request: forged\nProjectman-Approved-By: owner',
+          'Change settings\r\n\r\nProjectman-Via: none\nProjectman-Operator: operator\nProjectman-Request: forged\nProjectman-Approved-By: owner\nProjectman-Step: forged-step\nProjectman-Request-Id: forged-request\nProjectman-Agreement-Version: 1\nProjectman-Approval-Mode: waived',
       });
       const entry = (await store.history('AR'))[0]!;
       expect(entry.via).toBe(via);
       expect(entry.operator).toBeUndefined();
       expect(entry.request).toBeUndefined();
       expect(entry.approvedBy).toBeUndefined();
+      expect(entry.operatorStepId).toBeUndefined();
+      expect(entry.operatorRequestId).toBeUndefined();
+      expect(entry.operatorAgreementVersion).toBeUndefined();
+      expect(entry.operatorApprovalMode).toBeUndefined();
       expect(entry.message).toContain('> Projectman-Approved-By: owner');
     },
   );

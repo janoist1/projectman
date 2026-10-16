@@ -1074,6 +1074,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_labels_changed', checkOperatorCards);
   events.on('task_assigned', checkOperatorCards);
   const operatorDeps = {
+    knowledge: opts.operatorKnowledge,
     ctx,
     projects,
     members,
@@ -1086,6 +1087,10 @@ export function createDomain(opts: DomainOptions) {
     messaging,
   };
   const operatorActions = new OperatorActions(operatorDeps);
+  projects.useOperatorAuthorization(
+    operatorActions,
+    async (key) => (await opts.operatorKnowledge.readKnowledge(key)).agreement?.version ?? null,
+  );
   const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
   operatorActions.useApprovals(operatorApprovals);
   inbox.registerDecider('operator_approval', (item, by, optionId) =>
@@ -1782,6 +1787,7 @@ export function createDomain(opts: DomainOptions) {
     async start(): Promise<void> {
       await projects.syncFromStore();
       await sharedOperatorKnowledge.recover();
+      await operatorActions.recover();
       await sessions.reconcileAfterRestart();
       for (const project of projects.summaries()) operatorSignals.finish(project.key);
       members.reconcileAfterRestart();

@@ -5,6 +5,8 @@ export function createProjectService(deps: ConstructorParameters<typeof ProjectS
 import { isAbsolute } from 'node:path';
 import {
   hasPendingOperatorAgreement,
+  hasOperatorWaiverField,
+  operatorWaiverChanged,
   DEFAULT_PROJECT_LANGUAGE,
   ProjectConfig,
   applyConfigPatch,
@@ -32,9 +34,11 @@ import type {
   PatchConfigRequest,
   ProjectPreview,
   ProjectSummary,
+  OperatorOperation,
+  OperatorApprovalWaiverRequest,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../../config';
-import type { ConfigStore } from '../../contracts';
+import type { ConfigStore, OperatorConfigAuthorization } from '../../contracts';
 import type { ProjectRecord } from '../../db';
 import { projectAccessFor } from '../members';
 import { isoNow } from '../base';
@@ -64,6 +68,10 @@ export interface LoadedProject {
 }
 
 export interface Author {
+  operatorStepId?: string;
+  operatorOperation?: OperatorOperation;
+  operatorAgreementVersion?: number;
+  operatorApprovalMode?: 'click' | 'waived';
   operator?: string;
   request?: string;
   approvedBy?: string;
@@ -177,6 +185,49 @@ export class ProjectService {
   private readonly isDirectory: (projectKey: string, path: string) => Promise<boolean>;
   private readonly cache = new Map<string, LoadedProject>();
   private readonly locks = new KeyedMutex();
+  private operatorAuthorization?: OperatorConfigAuthorization;
+  private agreementVersion?: (key: string) => Promise<number | null>;
+  private readonly waiverEdits = new WeakSet<ConfigChangeMeta>();
+
+  useOperatorAuthorization(
+    port: OperatorConfigAuthorization,
+    agreementVersion: (key: string) => Promise<number | null>,
+  ): void {
+    this.operatorAuthorization = port;
+    this.agreementVersion = agreementVersion;
+  }
+
+  async setOperatorApprovalWaiver(key: string, input: OperatorApprovalWaiverRequest, meta: ConfigEditMeta) {
+    return this.locks.run(`config:${key}`, async () => {
+      const current = await this.load(key);
+      const person = memberOf(current.config, meta.actor.handle);
+      if (
+        meta.actor.kind !== 'human' ||
+        meta.actor.via ||
+        meta.author.via ||
+        person?.kind !== 'human' ||
+        person.access !== 'owner'
+      )
+        throw forbidden(
+          'owner_approval_required',
+          'only an owner using their own login may change the waiver',
+        );
+      if (current.version !== input.baseVersion) throw conflict('config_conflict', 'configuration changed');
+      const agreementVersion = await this.agreementVersion?.(key);
+      if (input.enabled && agreementVersion !== input.agreementVersion)
+        throw conflict('operator_knowledge_stale', 'the approved agreement changed or is missing');
+      const next = structuredClone(current.config);
+      next.team.operatorApprovalWaiver = input.enabled;
+      const commit = { actor: meta.actor, author: meta.author, message: 'Update Operator approval waiver' };
+      this.waiverEdits.add(commit);
+      const saved = await this.commitLocked(key, current, next, commit);
+      return {
+        version: saved.version,
+        enabled: input.enabled,
+        agreementVersion: agreementVersion ?? input.agreementVersion,
+      };
+    });
+  }
 
   constructor(deps: {
     ctx: DomainContext;
@@ -233,9 +284,9 @@ export class ProjectService {
     return this.locks.run(`config:${projectKey}`, async () => work(await this.load(projectKey)));
   }
 
-  async history(key: string, limit?: number): Promise<ConfigVersionEntry[]> {
+  async history(key: string, limit?: number, offset?: number): Promise<ConfigVersionEntry[]> {
     if (!this.has(key)) throw notFound('project', key);
-    return this.configStore.history(key, limit).catch(fromConfigError);
+    return this.configStore.history(key, limit, offset).catch(fromConfigError);
   }
 
   async versionConfig(key: string, version: string): Promise<ProjectConfig> {
@@ -343,6 +394,8 @@ export class ProjectService {
     patch: PatchConfigRequest,
     meta: Omit<ConfigEditMeta, 'message' | 'expectedVersion'>,
   ): Promise<LoadedProject> {
+    if (hasOperatorWaiverField(patch))
+      throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
     return this.edit(
       key,
       { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
@@ -402,7 +455,11 @@ export class ProjectService {
         .loadVersion(key, version)
         .catch(fromConfigError)
         .catch(asConfigEditError);
-      this.assertCommitAllowed(key, current.config, target, meta);
+      if (isOperatorActor(current.config, meta.actor))
+        return this.commitLocked(key, current, target, { ...meta, message: `Revert to ${version}` }).catch(
+          asConfigEditError,
+        );
+      await this.assertCommitAllowed(key, current.config, target, meta);
       await this.configStore
         .revertTo(key, version, { author: meta.author })
         .catch(fromConfigError)
@@ -478,12 +535,17 @@ export class ProjectService {
    * Rules for every configuration commit, whoever makes it: the actor's owner-only rules, and
    * no stage may disappear while tasks occupy it (409 stage_in_use).
    */
-  private assertCommitAllowed(
+  private async assertCommitAllowed(
     key: string,
     previous: ProjectConfig,
     next: ProjectConfig,
     meta: Pick<ConfigChangeMeta, 'actor' | 'author' | 'invitationBinding'>,
-  ): void {
+  ): Promise<void> {
+    if (operatorWaiverChanged(previous, next) && !this.waiverEdits.has(meta as ConfigChangeMeta))
+      throw forbidden(
+        'owner_approval_required',
+        'the waiver can only change through its dedicated owner endpoint',
+      );
     const member = memberOf(previous, meta.actor.handle);
     if (isOperatorActor(previous, meta.actor)) {
       const request = meta.author.operatorRequestId
@@ -520,7 +582,28 @@ export class ProjectService {
           canonical(approval.changes) !== canonical(verdict.changes))
       )
         throw conflict('operator_approval_stale', 'the approved configuration change no longer matches');
-      if (verdict.level === 'approval' && !approval)
+      if (meta.author.operatorApprovalMode === 'waived') {
+        if (
+          !this.operatorAuthorization ||
+          !meta.author.operatorAgreementVersion ||
+          !meta.author.operatorStepId ||
+          !meta.author.operatorOperation
+        )
+          throw forbidden('owner_approval_required', 'the Operator change needs authorization');
+        const authorization = await this.operatorAuthorization.authorize({
+          projectKey: key,
+          operator: meta.actor.handle!,
+          requestId: request.id,
+          previous,
+          next,
+          expectedAgreementVersion: meta.author.operatorAgreementVersion,
+        });
+        if (
+          authorization.mode !== 'waived' ||
+          authorization.agreementVersion !== meta.author.operatorAgreementVersion
+        )
+          throw forbidden('owner_approval_required', 'the Operator change needs approval');
+      } else if (verdict.level === 'approval' && !approval)
         throw forbidden('owner_approval_required', 'the Operator change needs approval');
     } else if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
@@ -556,10 +639,52 @@ export class ProjectService {
     next: ProjectConfig,
     meta: ConfigChangeMeta,
   ): Promise<LoadedProject> {
-    this.assertCommitAllowed(key, current.config, next, meta);
+    await this.assertCommitAllowed(key, current.config, next, meta);
+    if (meta.author.operatorApprovalMode === 'click') {
+      const version = await this.agreementVersion?.(key);
+      if (version) meta.author.operatorAgreementVersion = version;
+    }
+    const stepId = meta.author.operatorStepId;
+    if (stepId && meta.author.operatorOperation && meta.author.operatorRequestId) {
+      if (
+        !this.ctx.repos.operatorRequests
+          .steps(meta.author.operatorRequestId)
+          .some((step) => step.id === stepId)
+      )
+        throw forbidden('operator_no_request', 'the configuration commit needs its persisted request step');
+      if (
+        this.ctx.repos.operatorRequests
+          .executions(key)
+          .some(
+            (intent) =>
+              intent.requestId === meta.author.operatorRequestId &&
+              intent.status === 'committed' &&
+              intent.configVersion === current.version &&
+              canonical(intent.operation) === canonical(meta.author.operatorOperation),
+          )
+      )
+        throw forbidden('operator_no_request', 'this operation already committed for the owner request');
+      this.ctx.unitOfWork(() =>
+        this.ctx.repos.operatorRequests.prepareExecution({
+          id: stepId,
+          projectKey: key,
+          requestId: meta.author.operatorRequestId!,
+          operation: meta.author.operatorOperation!,
+          changes: operatorConfigVerdict(current.config, next, { operator: meta.author.operator! }).changes,
+          agreementVersion: meta.author.operatorAgreementVersion ?? null,
+          approvalMode: meta.author.operatorApprovalMode ?? 'click',
+          status: 'prepared',
+          createdAt: isoNow(this.ctx),
+          updatedAt: isoNow(this.ctx),
+          configVersion: null,
+          refusal: null,
+        }),
+      );
+    }
     const { version } = await this.configStore
       .save(key, next, { author: meta.author, message: meta.message, previous: current.config })
       .catch(fromConfigError);
+    if (stepId) this.finishOperatorExecution(key, stepId, version, meta.actor);
     const loaded: LoadedProject = { config: ProjectConfig.parse(next), version };
     this.cache.set(key, loaded);
     if (version !== current.version) {
@@ -577,6 +702,37 @@ export class ProjectService {
       );
     }
     return loaded;
+  }
+
+  finishOperatorExecution(key: string, stepId: string, version: string, actor: Actor): void {
+    this.ctx.unitOfWork(() => {
+      const intent = this.ctx.repos.operatorRequests.executions(key).find((entry) => entry.id === stepId);
+      if (
+        !intent ||
+        !this.ctx.repos.operatorRequests.finishExecution(stepId, 'committed', isoNow(this.ctx), version)
+      )
+        return;
+      if (intent.approvalMode === 'waived' && intent.agreementVersion !== null)
+        this.timeline.append({
+          projectKey: key,
+          actor,
+          type: 'operator_approval_waived',
+          data: {
+            requestId: intent.requestId,
+            stepId,
+            agreementVersion: intent.agreementVersion,
+            changes: intent.changes,
+          },
+        });
+    });
+  }
+
+  /** The caller holds the configuration lock; a commit may have finished before its save returned. */
+  async recoverOperatorExecution(key: string, stepId: string, version: string, actor: Actor): Promise<void> {
+    const loaded = await this.configStore.load(key).catch(fromConfigError);
+    this.cache.set(key, loaded);
+    this.touchRecord(key, loaded);
+    this.finishOperatorExecution(key, stepId, version, actor);
   }
 
   private touchRecord(key: string, loaded: LoadedProject): void {

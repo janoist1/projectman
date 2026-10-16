@@ -1493,8 +1493,21 @@ workers follow the machine's size.
   or credentials cross this boundary, and no container or DB starts during import.
   Ubuntu util-linux `flock` serializes import/build/start through the root-only
   `/var/lib/projectman/.image.lock`; current/previous immutable IDs are never dangling-image pruned.
+  PM-725 also serializes bootstrap under this lock. On the Ubuntu host, `host.sh` installs `jq`
+  before Docker dependencies, then atomically sets `/etc/docker/daemon.json`
+  `features.containerd-snapshotter=false` (root:root, 0644), preserving unrelated settings and
+  refusing malformed JSON, symlinks and non-regular configuration files. Actual `docker info`
+  must report `Driver=overlay2` without the containerd snapshotter marker in `DriverStatus`.
+  An existing unsupported store needs a Docker restart, allowed only with a provably stopped board
+  and no current/previous deploy history; unavailable or malformed daemon information fails closed.
+  A running classic daemon is not restarted. The result is verified; import/start repeat the
+  store check under the lock before side effects and retain strict config-digest image IDs.
+  Switching stores hides the old images/containers, so the approved bundle must be imported again;
+  bootstrap neither migrates nor deletes old store data and leaves the bind-mounted board data intact.
+  **Remote engine:** configuration, apt, restart and store checks run only on the central Ubuntu
+  host over the existing SSH/SSM channel. No new payload, credential or engine RPC is introduced.
 
-- **The Lightsail machine and its operation (PM-535, PM-718)** — `scripts/cloud/{host,machine,images}.ts`,
+- **The Lightsail machine and its operation (PM-535, PM-718, PM-725)** — `scripts/cloud/{host,machine,images}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
   `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle` also works on
   this legacy amd64 transport. Without it, the existing amd64 host build remains; with it, import
@@ -1502,6 +1515,10 @@ workers follow the machine's size.
   actual container imageId. Prebuilt start uses an immutable ID; health and rollback check/carry it
   and the source SHA. ARM refuses builds and digestless starts/rollback. Operations stay on the
   admin machine/target host, independent of remote engines.
+  PM-725 applies the same explicit `/etc/docker/daemon.json` classic-store setting, stopped-board
+  and empty-history restart guard, actual-daemon checks and required bundle reimport described
+  in the EC2 host channel entry above. This is an Ubuntu-host assumption; Docker Desktop and
+  remote engine configuration are unchanged.
   The commands `deploy`, `rollback`, `status`, `logs`, `ssh`,
   `stop`, `start`, `rehearse`, `seed` and `pull-data` of `npm run cloud`. **What runs where:** on the
   Mac `ssh` (and `git ls-remote`, `tar`, the `aws` CLI); on the Ubuntu machine, as root through
@@ -2786,7 +2803,10 @@ assumption or remote-engine RPC.
   `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
   (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine
   key is made on the Mac (`newMachineKey`), written to `engine.key` (0600, `wx`) last, and only its
-  hash enters the package's database; `engine.json` is made with it. **Does this work on a remote
+  hash enters the package's database; `engine.json` is made with it. After a way back the revoked engine
+  row stays as an audit record (PM-728): only a non-revoked engine makes `hybrid package` refuse, and the
+  package makes its new engine the default explicitly (`setDefault`; `create` marks only the first engine
+  ever as the default). **Does this work on a remote
   engine?** The tool is the one place that reads the Mac's home and repositories to build the
   engine's configuration (`engineProjects`), so it runs on the engine's machine by definition; the
   package is the only thing that crosses to the cloud, by a person's copy, and the key never does.
@@ -3104,11 +3124,23 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   reordering existing stages is protected even with unchanged gate definitions. Stage/member changes that
   alter `mergerOf`, the merge target or any `cardMerger` reviewer choice also need a click; roster reordering
   has its own approval row because duty-derived owner order can change the selected merger.
-  Classification never changes a verdict's level or authorizes execution. The execution switch follows in PM-692.
+  Classification never changes a verdict's level or authorizes execution.
   The Operator template uses `approver: human`; load and revert migrate legacy `none`/`ai` values to `human`
   without relaxing mode or network. Shared fixed invariants reject a nonhuman Operator approver, an Operator
   merger and boundary authorization in its role. These errors are never tolerated on load or preserved by a
   configuration write. The rules run on the server for remote engines too; no new machine-dependent part.
+- **Approval waiver execution (PM-692).** Only an owner's own login can change the switch through
+  `PUT /api/projects/:key/operator/approval-waiver`, with the current configuration and approved agreement
+  versions. Generic configuration edits and reverts cannot change it. The shared waiver rule consumes
+  `waiverEligible`; `services/operator` supplies the actual open owner message, answer or approved
+  continuation provenance. Signal rounds never qualify. `core/projects` reauthorizes the full diff through
+  `OperatorConfigAuthorization` inside the same lock as knowledge writes. Before saving it persists
+  `operator_execution_intents` (migration 69), bound to an existing step. Server-generated Step, Request-Id,
+  Agreement-Version and Approval-Mode config trailers identify the commit. Startup reconciles prepared
+  intents against paginated private history, without replaying mutations; the step and waived timeline
+  event finish in one database transaction. The Operator receives a summary of all waived old/new rows
+  from its request's log. Runtime approval paths remain separate. Configuration, knowledge and audit stay
+  on the server; no new engine data or machine-dependent operation is introduced.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
   priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.

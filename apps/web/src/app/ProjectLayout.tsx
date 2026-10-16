@@ -48,6 +48,7 @@ export function ProjectLayout() {
   const [pauseDetailsSignal, setPauseDetailsSignal] = useState(0);
   // The Operator's conversation (PM-429, PM-447): one panel for the whole project, opened from the header.
   const [operatorOpen, setOperatorOpen] = useState(false);
+  const [operatorPrefill, setOperatorPrefill] = useState<{ text: string; id: number } | null>(null);
   const operatorTrigger = useRef<HTMLElement | null>(null);
   // The pause this viewer asked for: its details open by themselves.
   const [requestedPauseId, setRequestedPauseId] = useState<string | null>(null);
@@ -77,6 +78,7 @@ export function ProjectLayout() {
     setBoardFilters(noBoardFilters);
     setRequestedPauseId(null);
     setOperatorOpen(false);
+    setOperatorPrefill(null);
   }, [projectKey]);
 
   const value = useMemo<ProjectContextValue>(
@@ -91,18 +93,35 @@ export function ProjectLayout() {
       openPause: () => setPauseOpen(true),
       openPauseDetails: () => setPauseDetailsSignal((count) => count + 1),
       operatorOpen,
-      openOperator: (trigger) => {
+      operatorPrefill,
+      openOperator: (trigger, prefill) => {
         operatorTrigger.current = trigger ?? null;
+        if (prefill !== undefined)
+          setOperatorPrefill((previous) => ({ text: prefill, id: (previous?.id ?? 0) + 1 }));
         setOperatorOpen(true);
       },
-      closeOperator: () => setOperatorOpen(false),
+      closeOperator: () => {
+        setOperatorOpen(false);
+        setOperatorPrefill(null);
+      },
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,
       boardFilters,
       setBoardFilters,
     }),
-    [projectKey, me, myHandle, isOwner, can, search, operatorOpen, themeFilter, boardFilters],
+    [
+      projectKey,
+      me,
+      myHandle,
+      isOwner,
+      can,
+      search,
+      operatorOpen,
+      operatorPrefill,
+      themeFilter,
+      boardFilters,
+    ],
   );
 
   if (board.isError && isApiError(board.error) && board.error.status === 404) {

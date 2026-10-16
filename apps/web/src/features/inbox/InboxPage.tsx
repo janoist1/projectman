@@ -6,6 +6,7 @@ import {
   InboxKind,
   handOnRequestOf,
   operatorApprovalOf,
+  operatorKnowledgeApprovalOf,
   questionPayloadOf,
   isLinkedQuestion,
 } from '@projectman/shared';
@@ -405,7 +406,7 @@ export function InboxPage() {
       }
       stale={
         // A stale Operator approval says so on its card, not in a toast.
-        operatorApprovalOf(item) !== null &&
+        (operatorApprovalOf(item) !== null || operatorKnowledgeApprovalOf(item) !== null) &&
         resolve.isError &&
         resolve.variables?.item.id === item.id &&
         isStaleError(resolve.error)
@@ -416,7 +417,7 @@ export function InboxPage() {
           {
             onSuccess: () => {
               const text =
-                operatorApprovalOf(target) !== null
+                operatorApprovalOf(target) !== null || operatorKnowledgeApprovalOf(target) !== null
                   ? operatorDecisionToast(target, body.optionId)
                   : target.kind === 'hand_on'
                     ? handOnToast(target, pipeline)

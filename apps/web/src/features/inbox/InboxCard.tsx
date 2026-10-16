@@ -7,6 +7,7 @@ import {
   alertPayloadOf,
   handOnRequestOf,
   operatorApprovalOf,
+  operatorKnowledgeApprovalOf,
   releaseApprovalOf,
   questionPayloadOf,
 } from '@projectman/shared';
@@ -51,6 +52,7 @@ import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { OperatorApprovalActions, OperatorApprovalBody } from '../operator/OperatorApproval';
+import { OperatorKnowledgeBody, OperatorKnowledgeActions } from '../operator/OperatorKnowledgeApproval';
 import styles from './InboxCard.module.css';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
@@ -195,6 +197,7 @@ export function InboxCard({
   onDismissGone,
 }: InboxCardProps) {
   const operatorApproval = operatorApprovalOf(item);
+  const operatorKnowledge = operatorKnowledgeApprovalOf(item);
   const question = questionPayloadOf(item);
   const group = question?.group;
   const grouped = !!group?.sources && group.primaryItemId === item.id;
@@ -457,6 +460,41 @@ export function InboxCard({
     );
   }
 
+  if (operatorKnowledge)
+    return (
+      <article
+        id={inboxItemDomId(item.id)}
+        className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
+        data-kind={item.kind}
+        data-operator-knowledge=""
+      >
+        <div className={styles.head}>
+          <Chip tone="kind">
+            {t(
+              operatorKnowledge.change.kind === 'agreement_replace'
+                ? 'knowledge.proposal.agreement'
+                : 'knowledge.proposal.principle',
+            )}
+          </Chip>
+        </div>
+        <Heading className={styles.title}>{item.title}</Heading>
+        <OperatorKnowledgeBody payload={operatorKnowledge} stale={stale} />
+        {item.state === 'open' ? (
+          <OperatorKnowledgeActions
+            item={item}
+            payload={operatorKnowledge}
+            pending={pending}
+            stale={stale}
+            onDecide={onResolve}
+          />
+        ) : null}
+        {error ? (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        ) : null}
+      </article>
+    );
   if (operatorApproval) {
     const isStale = operatorApproval.stale !== null || stale;
     return (

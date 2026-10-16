@@ -1,4 +1,7 @@
 import {
+  OperatorKnowledgeDocument,
+  OperatorPreferenceDocument,
+  OperatorApprovalWaiverResponse,
   EmailLoginCodeRequested,
   CreateEngineResponse,
   EngineStatusResponse,
@@ -55,6 +58,7 @@ import {
   CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
+  OperatorApprovalWaiverRequest,
   CloseFeedbackRequest,
   CreateTaskFromFeedbackRequest,
   CreateTaskFromFeedbackResponse,
@@ -283,6 +287,20 @@ export const api = {
   projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerChannel }),
   /** The viewer's own conversation with the Operator: its state, requests with steps and signals (PM-463, PM-475). */
   operator: (key: string) => apiRequest(routes.operator(key), { schema: OperatorChannel }),
+  operatorKnowledge: (key: string) =>
+    apiRequest(routes.operatorKnowledge(key), { schema: OperatorKnowledgeDocument }),
+  operatorPreferenceMe: (key: string) =>
+    apiRequest(routes.operatorPreferenceMe(key), { schema: OperatorPreferenceDocument }),
+  operatorPreferences: (key: string) =>
+    apiRequest<{ items: { handle: string; preference: OperatorPreferenceDocument }[] }>(
+      routes.operatorPreferences(key),
+    ),
+  operatorApprovalWaiver: (key: string, body: OperatorApprovalWaiverRequest) =>
+    apiRequest(routes.operatorApprovalWaiver(key), {
+      method: 'PUT',
+      body,
+      schema: OperatorApprovalWaiverResponse,
+    }),
   /** "Most ne": the owner sets a signal aside (PM-476); the answer is the signal as it is now. */
   dismissOperatorSignal: (key: string, signalId: string) =>
     apiRequest(routes.dismissOperatorSignal(key, signalId), { method: 'POST', schema: OperatorSignal }),

@@ -78,7 +78,13 @@
   text-decoration: underline;
 }
 
-/* On a phone the link is the icon alone, so the name keeps its room; the text stays for screen readers. */
+.knowledgeButton[aria-pressed='true'] {
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  border-color: var(--c-accent);
+}
+
+/* On a phone the full-session link keeps its icon and hides only its text. */
 @media (max-width: 767px) {
   .session {
     position: relative;

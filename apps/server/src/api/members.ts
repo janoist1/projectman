@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   HireMemberRequest,
+  hasOperatorWaiverField,
   AddHumanMemberRequest,
   RetireMemberRequest,
   routes,
@@ -62,6 +63,8 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
   app.post<ProjectParams>(routes.members(':key'), async (request, reply) => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
+    if (hasOperatorWaiverField(request.body))
+      throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
     const body = parseBody(HireMemberRequest, request.body);
     const hired = await domain.members.hire(key, body, {
       actor: actorOf(access),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
   OperatorAgreementData,
   OperatorKnowledgeChange,
@@ -8,6 +9,12 @@ import {
   OperatorPreferenceDocument,
   OperatorPrincipleData,
 } from './operator-knowledge';
+
+it('allows only owners and administrators to read shared knowledge', () => {
+  for (const access of ['owner', 'admin'] as const) expect(canReadOperatorKnowledge({ access })).toBe(true);
+  for (const access of ['developer', 'viewer', 'client', 'ai', undefined] as const)
+    expect(canReadOperatorKnowledge({ access })).toBe(false);
+});
 
 const agreement = { summary: 'Agreed scope', involvement: 'important', extraCritical: [] };
 const principle = { id: 'principle-1', example: 'Example', principle: 'Principle', effect: 'Effect' };

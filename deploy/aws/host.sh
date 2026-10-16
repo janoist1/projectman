@@ -48,6 +48,8 @@ DEPLOY_JSON="$STATE_DIR/deploy.json"
 SRC_DIR=/opt/projectman/src
 UNIT=projectman-cloud
 UNIT_FILE="/etc/systemd/system/$UNIT.service"
+DOCKER_DIR=/etc/docker
+DOCKER_CONFIG="$DOCKER_DIR/daemon.json"
 CONTAINER=projectman-cloud
 IMAGE_REPO=projectman-cloud
 # The uid and gid of the `projectman` user inside the image (deploy/cloud/Dockerfile).
@@ -120,17 +122,104 @@ last_stopped_at() {
   read_deploy | jq -r '.lastStoppedAt // empty'
 }
 
+# Classify the running daemon, never its version-dependent default or on-disk configuration.
+docker_image_store() {
+  local info
+  info=$(docker info --format '{{json .}}') || die "cannot query Docker daemon image store"
+  jq -e -s 'length == 1 and (.[0] | type == "object" and
+    (.Driver | type == "string" and length > 0) and
+    (.DriverStatus | type == "array" and all(.[];
+      type == "array" and length == 2 and all(.[]; type == "string"))))' <<<"$info" >/dev/null ||
+    die "invalid Docker daemon image store response"
+  if jq -e '.Driver == "overlay2" and all(.DriverStatus[];
+    . != ["driver-type", "io.containerd.snapshotter.v1"])' <<<"$info" >/dev/null; then
+    echo classic
+  else
+    echo unsupported
+  fi
+}
+
+require_classic_docker_store() {
+  local store
+  store=$(docker_image_store) || die "Docker daemon image store check failed"
+  [ "$store" = classic ] || refuse "classic Docker image store required; bootstrap the stopped host first"
+}
+
+# Preserve unrelated settings; a failed validation must leave the original file untouched.
+configure_docker_store() (
+  local config='{"features":{"containerd-snapshotter":false}}' tmp
+  [ ! -L "$DOCKER_DIR" ] || refuse "Docker configuration directory is a symlink"
+  if [ -e "$DOCKER_CONFIG" ] || [ -L "$DOCKER_CONFIG" ]; then
+    [ ! -L "$DOCKER_CONFIG" ] && [ -f "$DOCKER_CONFIG" ] || refuse "Docker configuration is not a regular file"
+    config=$(jq -ce -s 'if length == 1 and (.[0] | type == "object" and
+      ((has("features") | not) or (.features | type == "object")))
+      then .[0] | .features["containerd-snapshotter"] = false
+      else error("invalid Docker configuration") end' "$DOCKER_CONFIG") || refuse "invalid Docker configuration"
+    jq -e '.features["containerd-snapshotter"] == false' "$DOCKER_CONFIG" >/dev/null && return 0
+  fi
+  mkdir -p "$DOCKER_DIR"
+  tmp=$(mktemp "$DOCKER_DIR/.daemon.json.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT
+  trap 'exit 1' HUP INT TERM
+  printf '%s\n' "$config" >"$tmp"
+  chown root:root "$tmp"
+  chmod 644 "$tmp"
+  mv "$tmp" "$DOCKER_CONFIG"
+)
+
 bootstrap() {
   export DEBIAN_FRONTEND=noninteractive
-  local missing=() package
-  for package in docker.io docker-buildx git jq unattended-upgrades; do
+  local missing=() package store=uninstalled running=false unit_state containers updated=false
+  mkdir -p "$STATE_DIR"
+  umask 077
+  exec 9>"$STATE_DIR/.image.lock"
+  flock -x 9
+  board_running && running=true
+
+  # apt may start Docker during installation: jq and daemon.json must be ready first.
+  if ! dpkg -s jq >/dev/null 2>&1; then
+    apt-get update -qq
+    updated=true
+    apt-get install -y -qq --no-install-recommends jq
+  fi
+  if dpkg -s docker.io >/dev/null 2>&1 ||
+    command -v dockerd >/dev/null 2>&1; then
+    store=$(docker_image_store) || die "Docker daemon image store check failed"
+  fi
+  if [ "$store" != classic ]; then
+    [ "$running" = false ] || refuse "stop the board before changing the Docker image store"
+    unit_state=$(systemctl is-active "$UNIT" 2>/dev/null || true)
+    case "$unit_state" in
+      inactive|failed) ;;
+      *) refuse "cannot prove the board is stopped before changing the Docker image store" ;;
+    esac
+    if [ -e "$DEPLOY_JSON" ] || [ -L "$DEPLOY_JSON" ]; then
+      [ ! -L "$DEPLOY_JSON" ] && [ -f "$DEPLOY_JSON" ] &&
+        jq -e -s 'length == 1 and (.[0] | type == "object" and .current == null and .previous == null)' "$DEPLOY_JSON" >/dev/null ||
+        refuse "cannot change Docker image store with existing or unreadable deploy history"
+    fi
+    if [ "$store" != uninstalled ]; then
+      containers=$(docker container ls --all --filter "name=^/$CONTAINER$" --format '{{.State}}') ||
+        die "cannot check board containers before changing the Docker image store"
+      case "$containers" in
+        ''|created|exited|dead) ;;
+        *) refuse "cannot prove the board container is stopped before changing the Docker image store" ;;
+      esac
+    fi
+  fi
+  configure_docker_store
+  for package in docker.io docker-buildx git unattended-upgrades; do
     dpkg -s "$package" >/dev/null 2>&1 || missing+=("$package")
   done
   if [ "${#missing[@]}" -gt 0 ]; then
-    apt-get update -qq
+    [ "$updated" = true ] || apt-get update -qq
     apt-get install -y -qq --no-install-recommends "${missing[@]}"
   fi
   systemctl enable --now docker >/dev/null
+  if [ "$store" = unsupported ]; then
+    systemctl restart docker || die "Docker restart failed"
+  fi
+  require_classic_docker_store
 
   # (no `grep -q` in a pipe: pipefail would count the SIGPIPE it can cause)
   if ! swapon --show=NAME --noheadings | grep -x /swapfile >/dev/null; then
@@ -264,6 +353,7 @@ receive_image() (
   umask 077
   exec 9>"$STATE_DIR/.image.lock"
   flock -x 9
+  require_classic_docker_store
   [ "$(host_platform)" = "$platform" ] || refuse "image platform differs from host"
   [ "$(docker info --format '{{.OSType}}/{{.Architecture}}')" = "$platform" ] || {
     # Docker reports Go or kernel architecture names depending on its version.
@@ -306,6 +396,7 @@ start() {
   umask 077
   exec 9>"$STATE_DIR/.image.lock"
   flock -x 9
+  require_classic_docker_store
   [ -n "$ref" ] || ref=$sha
   [[ "$ref" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || die "not a usable ref name: $ref"
   platform=$(host_platform)

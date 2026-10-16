@@ -125,6 +125,8 @@ export const OperatorStepStatus = z.enum([
 ]);
 export type OperatorStepStatus = z.infer<typeof OperatorStepStatus>;
 export const OperatorStep = z.object({
+  agreementVersion: z.number().int().positive().nullable().optional(),
+  approvalMode: z.enum(['click', 'waived']).nullable().optional(),
   id: z.string(),
   requestId: z.string(),
   at: z.string(),
@@ -1150,6 +1152,10 @@ export type ResolveInboxRequest = z.infer<typeof ResolveInboxRequest>;
 /* ---------- configuration ---------- */
 
 export const ConfigVersionEntry = z.object({
+  operatorStepId: z.string().optional(),
+  operatorRequestId: z.string().optional(),
+  operatorAgreementVersion: z.number().int().positive().optional(),
+  operatorApprovalMode: z.enum(['click', 'waived']).optional(),
   operator: MemberHandle.optional(),
   request: z.string().optional(),
   approvedBy: MemberHandle.optional(),
@@ -1167,6 +1173,19 @@ export const ConfigView = z.object({
   history: z.array(ConfigVersionEntry),
 });
 export type ConfigView = z.infer<typeof ConfigView>;
+
+export const OperatorApprovalWaiverRequest = z.strictObject({
+  baseVersion: z.string(),
+  enabled: z.boolean(),
+  agreementVersion: z.number().int().min(1),
+});
+export type OperatorApprovalWaiverRequest = z.infer<typeof OperatorApprovalWaiverRequest>;
+export const OperatorApprovalWaiverResponse = z.object({
+  version: z.string(),
+  enabled: z.boolean(),
+  agreementVersion: z.number().int().min(1),
+});
+export type OperatorApprovalWaiverResponse = z.infer<typeof OperatorApprovalWaiverResponse>;
 
 export const RevertConfigRequest = z.object({ version: z.string() });
 export type RevertConfigRequest = z.infer<typeof RevertConfigRequest>;

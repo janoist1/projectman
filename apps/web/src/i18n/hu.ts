@@ -2909,6 +2909,7 @@ export const hu = {
         unreleased: 'Kiadásra váró munka',
         ready_waiting: 'Indítható kártyák várnak',
         answer_stalled: '{key}: megérkezett a válasz, de a tag nem dolgozik tovább',
+        refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
       },
       bodies: {
         outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
@@ -2924,6 +2925,8 @@ export const hu = {
         ready_waiting: 'Indításra kész kártya vár, és van szabad fejlesztő.',
         answer_stalled:
           'A tagnak már kézbesítettek egy választ vagy üzenetet, de azóta nem tett munkalépést.',
+        refinement_stalled:
+          'A kidolgozási kör véget ért, de a hozzá tartozó címke nincs a kártyán, és a tag nem dolgozik tovább.',
       },
     },
   },

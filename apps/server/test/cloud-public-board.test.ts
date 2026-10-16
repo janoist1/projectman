@@ -18,7 +18,7 @@ const PUBLIC_POLICY = 'projectman-cloud-public-board';
 const ALLOW_POLICY = 'projectman-cloud-allow-emails';
 const ENGINE_SECRET = 'engine-secret-value-0123456789abcdef';
 
-// SES needs an explicit central-account profile (config.ts).
+// SES uses aws.profile unless ses.profile names another account (config.ts, PM-729).
 const AWS = {
   profile: 'aroom',
   region: 'eu-west-1',

@@ -532,6 +532,9 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
             await gitIn(
               repoPath,
               [
+                // The objects come from an AI-written store: a malformed one must not reach the project repository.
+                '-c',
+                'fetch.fsckObjects=true',
                 'fetch',
                 '--quiet',
                 '--no-tags',

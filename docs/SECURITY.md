@@ -1058,9 +1058,17 @@ adapters reject it. The original worktree and other members' copies do not becom
 merely because they are listed as readable roots.
 
 Member workspaces (PM-138, off by default) are independent clones without a remote and without
-shared objects, so a member's repository configuration, hooks and objects never reach the project
-repository or a teammate; only committed branches travel, fetched by the server by explicit path.
-The server's git commands in a member workspace (or reading a teammate's) run with
+shared objects, so a member's repository configuration and hooks never reach the project
+repository or a teammate. Committed history does: since PM-739 the objects of a developer's
+committed task branch enter the project repository under
+`refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>`, and only that way. `publishTaskBranch`
+runs on the engine with the isolated git settings below; the commit must be in the developer's
+task branch; the branch tip is fetched by explicit path through a temporary incoming ref (deleted
+afterwards) with `fetch.fsckObjects`, so a malformed object is refused; `update-ref` creates the
+snapshot only when it does not exist (null old value), and a different commit under the same name
+is refused. The snapshot namespace is never written to by a branch, a push or a deletion, and the
+cloud receives no path or ref. Review and merge read only the pinned full OID, never a moved
+branch. The server's git commands in a member workspace (or reading a teammate's) run with
 `core.hooksPath=/dev/null`, no fsmonitor, no system or global configuration and only the local
 `file` transport. Clean/smudge filters that a repository's own configuration names still run on
 the server's checkouts there: they run as the same user the sessions already are. Workspaces are reserved for one

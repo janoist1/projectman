@@ -2,6 +2,7 @@ export function createMessaging(deps: ConstructorParameters<typeof Messaging>[0]
   return new Messaging(deps);
 }
 
+import { createHash } from 'node:crypto';
 import {
   cardBusyGroups,
   coordinationActorRefusal,
@@ -103,6 +104,8 @@ export interface SendOptions {
    * wake-up goes on in the background (`message_waiting`) and the send is not slowed. Internal, not a contract.
    */
   awaitWake?: boolean;
+  /** Server-owned group fanout only; never accepted from send_message or an HTTP request. */
+  questionGroupShare?: { primaryItemId: string; itemId: string };
 }
 
 /** What the send needs to wake a recipient and learn the result (`MessageStarts.wake`). */
@@ -163,7 +166,10 @@ export class Messaging {
   private readonly messages: MessageService;
   private readonly delivery: MessageDeliveryPort;
   private readonly refinement: MessageRefinement;
-  private readonly messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
+  private readonly messageAttachments: Pick<
+    MessageAttachmentService,
+    'assertSendable' | 'bindForSend' | 'shareForQuestionGroupAnswer'
+  >;
   private readonly engines: Pick<EngineDirectory, 'engineFor' | 'get'> | undefined;
   private readonly cardHolds = new Map<CardHoldReason, CardHold>();
 
@@ -178,7 +184,10 @@ export class Messaging {
     /** The engines (PM-315): a message to a member whose engine is not connected waits for it. */
     engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
     /** The files a message carries (PM-516): checked before the message is sent, bound to it as it is recorded. */
-    messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
+    messageAttachments: Pick<
+      MessageAttachmentService,
+      'assertSendable' | 'bindForSend' | 'shareForQuestionGroupAnswer'
+    >;
   }) {
     this.messageAttachments = deps.messageAttachments;
     this.engines = deps.engines;
@@ -230,6 +239,17 @@ export class Messaging {
     input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
     opts: SendOptions = {},
   ): Promise<{ message: TeamMessage; recipients: SentMessageRecipient[] }> {
+    const prepared = await this.prepareSend(projectKey, from, input, opts);
+    return prepared.deliver(prepared.record());
+  }
+
+  /** Validate and prepare without recording or delivering; a group records all answers in one transaction. */
+  private async prepareSend(
+    projectKey: string,
+    from: string,
+    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
+    opts: SendOptions = {},
+  ) {
     const config = await this.projects.config(projectKey);
     const text = input.text.trim();
     const attachmentIds = input.attachmentIds ?? [];
@@ -293,7 +313,8 @@ export class Messaging {
     const sender = opts.actor ?? humanActor(from);
     // The files are checked before anything else is done for the message (a refusal leaves nothing behind)
     // and bound to it in its own unit of work below.
-    if (attachmentIds.length > 0) this.messageAttachments.assertSendable(projectKey, sender, attachmentIds);
+    if (attachmentIds.length > 0 && !opts.questionGroupShare)
+      this.messageAttachments.assertSendable(projectKey, sender, attachmentIds);
     const taskKey = input.taskKey ?? null;
     const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
@@ -369,85 +390,103 @@ export class Messaging {
             reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
           }
         : undefined;
-    const message = this.ctx.unitOfWork(() => {
-      opts.beforeRecord?.();
-      if (signals.length > 0) {
-        if (coordinationActorRefusal(this.projects.cachedConfig(projectKey)!, sender))
-          throw forbidden('project_manager_only', 'the coordination actor changed before presentation');
-        for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id, from);
+    const record = () =>
+      this.ctx.unitOfWork(() => {
+        opts.beforeRecord?.();
+        if (signals.length > 0) {
+          if (coordinationActorRefusal(this.projects.cachedConfig(projectKey)!, sender))
+            throw forbidden('project_manager_only', 'the coordination actor changed before presentation');
+          for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id, from);
+        }
+        if (opts.operatorSignal !== undefined && !coordinator)
+          this.messageSignals!.decision(projectKey, opts.operatorSignal, from, true);
+        const id =
+          opts.answer && recipients.length === 1
+            ? `msg_answer_${createHash('sha256')
+                .update(JSON.stringify([opts.answer.inboxItemId, recipients[0]]))
+                .digest('hex')}`
+            : newId('msg');
+        const previous = opts.answer ? this.ctx.repos.messages.get(id) : null;
+        if (previous) return previous;
+        const attachments =
+          attachmentIds.length > 0
+            ? opts.questionGroupShare
+              ? this.messageAttachments.shareForQuestionGroupAnswer(
+                  projectKey,
+                  opts.questionGroupShare.primaryItemId,
+                  opts.questionGroupShare.itemId,
+                  attachmentIds,
+                )
+              : this.messageAttachments.bindForSend(projectKey, sender, attachmentIds, id)
+            : undefined;
+        const recorded = this.messages.record({
+          id,
+          projectKey,
+          from,
+          to: recipients,
+          taskKey,
+          body: text,
+          attachments,
+          actor: sender,
+          sessionId: opts.sessionId ?? null,
+          humanRecipients: humans,
+          delivered: recipients.every((handle) => humans.includes(handle)),
+          routes,
+          answer: opts.answer,
+          origin: opts.origin,
+          kind: opts.kind ?? 'action',
+          subject: opts.subject,
+          operatorRequest: opts.operatorRequest,
+          operatorSignal: coordinator
+            ? signals.length === 1
+              ? signals[0]!.id
+              : undefined
+            : opts.operatorSignal,
+          version,
+        });
+        for (const signal of signals)
+          this.messageSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
+        return recorded;
+      });
+    const deliver = async (message: TeamMessage) => {
+      const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
+      // The wake-ups the send waits for (`awaitWake`): not emitted as events, but started below.
+      const awaited: { handle: string; workItem: WorkItemRef }[] = [];
+      const waker = opts.awaitWake ? this.waker : undefined;
+      for (const { handle, workItem: where, running, hold } of placed)
+        decided.set(
+          handle,
+          hold
+            ? { delivery: 'held', hold }
+            : this.deliverOrWake(
+                config,
+                projectKey,
+                handle,
+                where,
+                running,
+                message,
+                opts.untilInput === true && opts.kind === 'info',
+                waker ? () => awaited.push({ handle, workItem: where }) : undefined,
+              ),
+        );
+      if (waker) {
+        const starts = await Promise.all(
+          awaited.map(({ handle, workItem: where }) => this.awaitStart(waker, projectKey, handle, where)),
+        );
+        awaited.forEach(({ handle }, index) => {
+          const entry = decided.get(handle);
+          if (entry) decided.set(handle, { ...entry, start: starts[index]! });
+        });
       }
-      if (opts.operatorSignal !== undefined && !coordinator)
-        this.messageSignals!.decision(projectKey, opts.operatorSignal, from, true);
-      const id = newId('msg');
-      const attachments =
-        attachmentIds.length > 0
-          ? this.messageAttachments.bindForSend(projectKey, sender, attachmentIds, id)
-          : undefined;
-      const recorded = this.messages.record({
-        id,
-        projectKey,
-        from,
-        to: recipients,
-        taskKey,
-        body: text,
-        attachments,
-        actor: sender,
-        sessionId: opts.sessionId ?? null,
-        humanRecipients: humans,
-        delivered: recipients.every((handle) => humans.includes(handle)),
-        routes,
-        answer: opts.answer,
-        origin: opts.origin,
-        kind: opts.kind ?? 'action',
-        subject: opts.subject,
-        operatorRequest: opts.operatorRequest,
-        operatorSignal: coordinator
-          ? signals.length === 1
-            ? signals[0]!.id
-            : undefined
-          : opts.operatorSignal,
-        version,
-      });
-      for (const signal of signals)
-        this.messageSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
-      return recorded;
-    });
-    const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
-    // The wake-ups the send waits for (`awaitWake`): not emitted as events, but started below.
-    const awaited: { handle: string; workItem: WorkItemRef }[] = [];
-    const waker = opts.awaitWake ? this.waker : undefined;
-    for (const { handle, workItem: where, running, hold } of placed)
-      decided.set(
-        handle,
-        hold
-          ? { delivery: 'held', hold }
-          : this.deliverOrWake(
-              config,
-              projectKey,
-              handle,
-              where,
-              running,
-              message,
-              opts.untilInput === true && opts.kind === 'info',
-              waker ? () => awaited.push({ handle, workItem: where }) : undefined,
-            ),
-      );
-    if (waker) {
-      const starts = await Promise.all(
-        awaited.map(({ handle, workItem: where }) => this.awaitStart(waker, projectKey, handle, where)),
-      );
-      awaited.forEach(({ handle }, index) => {
-        const entry = decided.get(handle);
-        if (entry) decided.set(handle, { ...entry, start: starts[index]! });
-      });
-    }
-    return {
-      message,
-      recipients: recipients.map((handle) => ({
-        handle,
-        ...(decided.get(handle) ?? { delivery: 'inbox' as const }),
-      })),
+      return {
+        message,
+        recipients: recipients.map((handle) => ({
+          handle,
+          ...(decided.get(handle) ?? { delivery: 'inbox' as const }),
+        })),
+      };
     };
+    return { record, deliver };
   }
 
   /**
@@ -786,6 +825,56 @@ export class Messaging {
       false,
       item.resolution?.by ?? item.assignees[0],
     ).workItem;
+  }
+
+  /** All rows and durable answer messages commit together; delivery starts only after that commit. */
+  async answerGroup(items: InboxItem[], attachmentIds: readonly string[], close: () => void): Promise<void> {
+    const prepared: Awaited<ReturnType<Messaging['prepareSend']>>[] = [];
+    for (const item of items) {
+      const resolution = item.resolution!;
+      const config = await this.projects.config(item.projectKey);
+      if (memberOf(config, item.source)?.kind !== 'ai') continue;
+      if (item.taskKey && !this.tasks.find(item.projectKey, item.taskKey)) continue;
+      const question = questionPayloadOf(item)?.question ?? item.title;
+      const workItem = await this.answerWorkItem(item);
+      prepared.push(
+        await this.prepareSend(
+          item.projectKey,
+          resolution.by,
+          {
+            to: [item.source],
+            taskKey: item.taskKey,
+            text: `Answer to your question "${question}":\n\n${answerText(item)}`,
+            attachmentIds: [...attachmentIds],
+          },
+          {
+            actor: { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
+            sessionId: item.sessionId,
+            workItem,
+            duringRefinement: true,
+            origin: { kind: 'answer', inboxItemId: item.id },
+            answer: { inboxItemId: item.id, question, answer: answerText(item) },
+            ...(prepared.length > 0
+              ? {
+                  questionGroupShare: {
+                    primaryItemId: this.ctx.repos.inbox.groupOf(item.id)!.primaryItemId,
+                    itemId: item.id,
+                  },
+                }
+              : {}),
+            beforeRecord: () => {
+              if (item.taskKey && !this.tasks.find(item.projectKey, item.taskKey))
+                throw conflict('question_group_incompatible', 'a source card was deleted before delivery');
+            },
+          },
+        ),
+      );
+    }
+    const messages = this.ctx.unitOfWork(() => {
+      close();
+      return prepared.map((send) => send.record());
+    });
+    for (const [index, send] of prepared.entries()) await send.deliver(messages[index]!);
   }
 
   /**
@@ -1263,6 +1352,7 @@ const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {
   handed_off: 'the card it was about was handed to someone else',
   assignee_changed: 'the card it was about has a new assignee',
   withdrawn: 'it was withdrawn',
+  group_withdrawn: 'every asker withdrew the shared question',
   operator_moot: 'the Operator found it moot: nothing is left to answer',
 };
 

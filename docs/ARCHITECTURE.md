@@ -3039,7 +3039,7 @@ new machine-dependent part (the start itself is the inventory's existing work st
 The selected live PM (`coordinationMemberOf`, shared `config/project-manager.ts`) receives every
 coordination signal and screens AI questions, including the Operator's. Its own questions go directly
 to people. `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
-mutations (`screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
+mutations (`combine_questions`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
 actual internal general session; other people, customer conversations, other members and external
 tokens cannot use them (`project_manager_only`, HTTP 403 / MCP forbidden). The Operator and internal
 PM may read `get_project_state`; guest access is unchanged.

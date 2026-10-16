@@ -77,6 +77,9 @@ import {
   canReadAttachments,
   canSeeTask,
   canSeeInboxItem,
+  visibleQuestionItem,
+  isPendingQuestion,
+  questionGroupLiveItemIds,
   canSeeTeamMessage,
   isUnreadBy,
   threadPeersOf,
@@ -2419,11 +2422,18 @@ export class MockBackend {
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(
-          this.inbox.filter(
-            (item) =>
-              canSeeInboxItem(this.taskViewer(), item) &&
-              (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
-          ),
+          this.inbox
+            .filter(
+              (item) =>
+                canSeeInboxItem(this.taskViewer(), item) &&
+                (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
+            )
+            .map((item) =>
+              visibleQuestionItem(this.taskViewer(), item, (key) => {
+                const task = this.findTask(key);
+                return !!task && this.canSee(task);
+              }),
+            ),
         ),
       });
     }
@@ -6084,7 +6094,18 @@ export class MockBackend {
         ...(!approved && note ? { note } : {}),
       });
     }
-    this.afterResolve(resolved, attached as MessageAttachmentRef[]);
+    const group = questionPayloadOf(item)?.group;
+    const groupLive = group ? new Set(questionGroupLiveItemIds(group)) : null;
+    if (!groupLive || groupLive.has(item.id)) this.afterResolve(resolved, attached as MessageAttachmentRef[]);
+    if (group && group.primaryItemId === item.id) {
+      for (const id of group.itemIds.filter((id) => id !== item.id)) {
+        const linked = this.inbox.find((entry) => entry.id === id);
+        if (!linked || !isPendingQuestion(linked)) continue;
+        const next: InboxItem = { ...linked, state: 'resolved', resolution: resolved.resolution };
+        this.upsertInbox(next);
+        if (groupLive?.has(id)) this.afterResolve(next, attached as MessageAttachmentRef[]);
+      }
+    }
     return ok(clone(resolved));
   }
 

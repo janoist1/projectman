@@ -1,5 +1,6 @@
 import {
   MemberHandle,
+  CombineQuestionsRequest,
   OperatorOperation,
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
@@ -115,6 +116,30 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.operate(ctx, args));
+      },
+    }),
+
+    defineTool({
+      name: 'combine_questions',
+      title: 'Combine equivalent owner questions',
+      readOnly: false,
+      description:
+        'Only the selected PM in its internal general conversation, without an owner request. Combine 2–10 distinct screened questions asking owners for the same decision. Establish semantic equivalence yourself; explain it in note. Options, recommendation, assignees and attachment sets must match. Never combine approvals, permissions, releases or todos. The oldest question represents the group. The owner answers once and every live asker receives that answer on their own card. Combining never extends the screening deadline.',
+      input: {
+        item_ids: CombineQuestionsRequest.shape.itemIds,
+        question: CombineQuestionsRequest.shape.question,
+        note: CombineQuestionsRequest.shape.note,
+      },
+      async run({ ctx, args, handler }) {
+        const result = await handler.combineQuestions(ctx, {
+          itemIds: args.item_ids,
+          question: args.question,
+          note: args.note,
+        });
+        return JSON.stringify({
+          primary_item_id: result.primaryItemId,
+          linked_item_ids: result.linkedItemIds,
+        });
       },
     }),
 

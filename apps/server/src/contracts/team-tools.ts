@@ -813,6 +813,10 @@ export interface OperatorToolsHandler {
       todo?: QuestionTodo;
     },
   ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
+  combineQuestions(
+    ctx: ToolContext,
+    args: { itemIds: string[]; question: string; note: string },
+  ): Promise<{ primaryItemId: string; linkedItemIds: string[] }>;
   dismissSignal(
     ctx: ToolContext,
     args: { signalId: string; note: string },

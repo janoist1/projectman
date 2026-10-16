@@ -68,6 +68,7 @@ describe('team tool registration', () => {
         'set_operator_preference',
         'get_project_state',
         'operate',
+        'combine_questions',
         'screen_question',
         'dismiss_signal',
         'start_task',

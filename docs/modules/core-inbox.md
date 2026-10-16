@@ -29,7 +29,36 @@ The authoritative descriptor is
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts);
 its only path is `core/inbox/` and the module is sealed.
 
-## Remote engine
+## Shared owner questions (PM-695)
+
+The selected PM's internal general session can combine two to ten equivalent screened owner
+questions through `combine_questions`, without an owner request. Compatibility is a shared pure
+rule; the PM establishes semantic equivalence and records its reason. Migration 70 retains the
+original inbox rows and records the group in `question_groups` and `question_group_items`.
+The oldest `(createdAt, id)` is the representative. Only that row falls back or appears as an
+answerable owner item; linked rows remain pending on their own cards. Combining preserves the
+earliest running deadline or smallest frozen budget, including before the delivery receipt.
+
+Resolve, close, screening and fallback serialize through the primary resolution lock. A withdrawal
+closes only the original membership. A withdrawn primary keeps representing the others, with a
+server-only `groupWithdrawn` payload flag; the public projection exposes its source as withdrawn.
+The last membership cancels the group. Waiting labels count live original questions on each card.
+`QuestionGroupAnswerer` is the inbox-owned port: all live rows, human provenance, timeline events
+and individually routed, idempotent messages commit together, before delivery starts.
+
+The attachment service binds a human answer's files to its first actual recipient message, then
+validates the remaining references through `shareForQuestionGroupAnswer`. The shared file is
+readable only through a visible carrier message. `listByAttachment` enumerates every durable
+carrier for reading and deletion; no recent-message limit hides a reference from recovery.
+REST, websocket delivery and the web fake use the same shared group redaction rule. Linked
+items carry only a pointer; full sources are projected on the primary at read time.
+Resolved primary projections include `answeredCount`, the number of distinct original questions
+with durable human answer messages. Source-card deletion and delivery receipts never change it.
+
+This is server-side state and uses the existing message and attachment transfer paths. No
+machine-dependent part or new engine-boundary method is added.
+
+## Remote engine (existing permission requests)
 
 Questions, approval records and rules remain on the server. Permission requests retain the session engine's paths, and the existing broker/engine contracts carry decisions to that engine. `InboxService` still checks a tool's canonical working directory through that engine's `realpath` before consulting its injected policy. Server paths must not replace engine paths; PM-635 adds no boundary method or payload.
 

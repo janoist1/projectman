@@ -16,6 +16,7 @@ export { QuestionClosing } from './question-closing';
 export { QuestionScreening } from './question-screening';
 export { OpenQuestionLabel } from './open-question-label';
 export type {
+  QuestionGroupAnswerer,
   InboxPermissionPolicy,
   ScreeningAttempt,
   ScreeningAdmission,

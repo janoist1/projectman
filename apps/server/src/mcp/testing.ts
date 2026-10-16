@@ -296,6 +296,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('markDecisionCandidates', ctx, args);
       return { marked: args.items.length };
     },
+    async combineQuestions(ctx, args) {
+      await enter('combineQuestions', ctx, args);
+      return { primaryItemId: args.itemIds[0]!, linkedItemIds: args.itemIds.slice(1) };
+    },
     async screenQuestion(ctx, args) {
       await enter('screenQuestion', ctx, args);
       return { inboxItemId: args.itemId, outcome: args.outcome };

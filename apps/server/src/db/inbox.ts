@@ -95,6 +95,71 @@ export function createInboxRepository(db: Db) {
   };
 
   return {
+    groupOf(id: string): {
+      primaryItemId: string;
+      projectKey: string;
+      question: string;
+      by: string;
+      note: string;
+      itemIds: string[];
+    } | null {
+      const row = db
+        .prepare(
+          `SELECT g.* FROM question_groups g JOIN question_group_items i
+        ON i.primary_item_id = g.primary_item_id WHERE i.item_id = ?`,
+        )
+        .get(id) as
+        | { primary_item_id: string; project_key: string; question: string; by_handle: string; note: string }
+        | undefined;
+      if (!row) return null;
+      const members = db
+        .prepare('SELECT item_id FROM question_group_items WHERE primary_item_id = ? ORDER BY rowid')
+        .all(row.primary_item_id) as { item_id: string }[];
+      return {
+        primaryItemId: row.primary_item_id,
+        projectKey: row.project_key,
+        question: row.question,
+        by: row.by_handle,
+        note: row.note,
+        itemIds: members.map((m) => m.item_id),
+      };
+    },
+    createGroup(input: {
+      primaryItemId: string;
+      projectKey: string;
+      question: string;
+      by: string;
+      note: string;
+      itemIds: string[];
+      at: string;
+    }): void {
+      db.prepare(
+        'INSERT INTO question_groups (primary_item_id, project_key, question, created_at, by_handle, note) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(input.primaryItemId, input.projectKey, input.question, input.at, input.by, input.note);
+      const insert = db.prepare('INSERT INTO question_group_items (item_id, primary_item_id) VALUES (?, ?)');
+      for (const id of input.itemIds) insert.run(id, input.primaryItemId);
+    },
+    /** Durable human answer messages, independent of current source-card existence or visibility. */
+    groupAnsweredCount(primaryItemId: string): number {
+      const row = db
+        .prepare(
+          `SELECT COUNT(DISTINCT i.id) AS n
+        FROM question_groups g
+        JOIN question_group_items gi ON gi.primary_item_id = g.primary_item_id
+        JOIN inbox_items i ON i.id = gi.item_id
+        JOIN inbox_items p ON p.id = g.primary_item_id
+        JOIN team_messages m ON m.project_key = g.project_key
+          AND json_extract(m.origin, '$.kind') = 'answer'
+          AND json_extract(m.origin, '$.inboxItemId') = i.id
+        WHERE g.primary_item_id = ? AND p.state = 'resolved'
+          AND json_extract(p.resolution, '$.rule') IS NULL
+          AND m.from_handle = json_extract(p.resolution, '$.by')
+          AND COALESCE(m.via, '') = COALESCE(json_extract(p.resolution, '$.via'), '')
+          AND EXISTS (SELECT 1 FROM json_each(m.to_handles) WHERE value = i.source)`,
+        )
+        .get(primaryItemId) as { n: number };
+      return row.n;
+    },
     updateOperator(
       id: string,
       payload: Record<string, unknown>,

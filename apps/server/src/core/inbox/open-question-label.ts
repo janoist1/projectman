@@ -1,5 +1,6 @@
 import {
   isRefining,
+  isPendingQuestion,
   labelDefinition,
   PENDING_INBOX_STATES,
   stageOf,
@@ -87,8 +88,8 @@ export class OpenQuestionLabel {
   }
 
   private openAutoQuestions(projectKey: string, taskKey: string): InboxItem[] {
-    return this.inbox
+    return this.ctx.repos.inbox
       .list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question', taskKey })
-      .filter((item) => item.payload.autoLabel === true);
+      .filter((item) => item.payload.autoLabel === true && isPendingQuestion(item));
   }
 }

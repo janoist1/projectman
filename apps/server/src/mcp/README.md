@@ -138,6 +138,13 @@ tests use the SDK's own client, which behaves the same way here):
   whose cards all wait on purpose. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
+- `combine_questions { item_ids, question, note }` (PM-695) lets only the selected PM's internal
+  general session group 2–10 semantically equivalent screened owner decisions without an owner request.
+  Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;
+  its human answer atomically closes all live originals and records a separate message on each original
+  card route. A withdrawn primary still represents the others, and combining never adds screening time.
+  `answered`, `forwarded` and `todo` screening outcomes refuse groups; `decision` opens the representative,
+  while `moot` closes just the named original membership. Linked items never fall back separately.
 - `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558, PM-707) is the PM's tool for
   the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
   `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`

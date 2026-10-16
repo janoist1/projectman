@@ -103,8 +103,14 @@ export type InboxState = z.infer<typeof InboxState>;
 export const PENDING_INBOX_STATES = ['open', 'screening'] as const;
 
 /** True for a question that still waits for its answer: open, or with the Operator for screening. */
-export function isPendingQuestion(item: Pick<InboxItem, 'kind' | 'state'>): boolean {
-  return item.kind === 'question' && (PENDING_INBOX_STATES as readonly string[]).includes(item.state);
+export function isPendingQuestion(
+  item: Pick<InboxItem, 'kind' | 'state'> & Partial<Pick<InboxItem, 'payload'>>,
+): boolean {
+  return (
+    item.kind === 'question' &&
+    item.payload?.groupWithdrawn !== true &&
+    (PENDING_INBOX_STATES as readonly string[]).includes(item.state)
+  );
 }
 
 /**
@@ -143,6 +149,7 @@ export const InboxResolutionRule = z.enum([
   'assignee_changed',
   /** The asking member withdrew the question (PM-556). */
   'withdrawn',
+  'group_withdrawn',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -153,6 +160,7 @@ export const QuestionCloseRule = InboxResolutionRule.extract([
   'handed_off',
   'assignee_changed',
   'withdrawn',
+  'group_withdrawn',
   'operator_moot',
 ]);
 export type QuestionCloseRule = z.infer<typeof QuestionCloseRule>;
@@ -664,7 +672,136 @@ export type ScreenedQuestionsResponse = z.infer<typeof ScreenedQuestionsResponse
  * before the plain-language fields carry only `question` and `options`, and stay valid: everything
  * else is optional.
  */
+export const QuestionGroup = z.object({
+  primaryItemId: z.string(),
+  itemIds: z.array(z.string()),
+  combinedQuestion: z.string(),
+  originalQuestion: z.string(),
+  primaryTaskKey: TaskKey.nullable().optional(),
+  note: z.string().min(1).max(2000).optional(),
+  answeredCount: z.number().int().min(0).max(10).optional(),
+  sources: z
+    .array(
+      z.object({
+        itemId: z.string(),
+        taskKey: TaskKey.nullable(),
+        taskTitle: z.string().nullable(),
+        asker: MemberHandle,
+        question: z.string().nullable(),
+        createdAt: z.string().datetime({ offset: true }),
+        state: z.enum(['live', 'withdrawn', 'deleted']),
+      }),
+    )
+    .optional(),
+});
+export type QuestionGroup = z.infer<typeof QuestionGroup>;
+
+/** Withdrawn and deleted originals do not receive the shared answer. */
+export function questionGroupLiveItemIds(group: QuestionGroup): string[] {
+  return group.sources
+    ? group.sources.filter((source) => source.state === 'live').map((source) => source.itemId)
+    : group.itemIds;
+}
+
+export const CombineQuestionsRequest = z.object({
+  itemIds: z
+    .array(z.string().min(1))
+    .min(2)
+    .max(10)
+    .refine((ids) => new Set(ids).size === ids.length, 'Question ids must be unique'),
+  question: z.string().trim().min(1).max(2000),
+  note: z.string().trim().min(1).max(2000),
+});
+export type CombineQuestionsRequest = z.infer<typeof CombineQuestionsRequest>;
+export interface CombineQuestionsResult {
+  primaryItemId: string;
+  linkedItemIds: string[];
+}
+
+/** Compatibility is structural; the PM must also establish that the decisions mean the same thing. */
+export function questionGroupCompatible(a: InboxItem, b: InboxItem): boolean {
+  const signature = (item: InboxItem) => {
+    const p = questionPayloadOf(item);
+    return JSON.stringify({
+      project: item.projectKey,
+      assignees: [...item.assignees].sort(),
+      options: item.options.map(({ id, label, consequence }) => ({ id, label, consequence })),
+      recommended: p?.recommended ?? null,
+      attachments: (p?.attachments ?? []).map((file) => file.id).sort(),
+      approval: p?.approvalLabel ?? null,
+    });
+  };
+  return signature(a) === signature(b);
+}
+
+export function isLinkedQuestion(item: Pick<InboxItem, 'id' | 'payload'>): boolean {
+  const group = questionPayloadOf(item)?.group;
+  return !!group && group.primaryItemId !== item.id;
+}
+
+/** The same group projection is used for REST, live events and the web fake. */
+export function visibleQuestionItem(
+  viewer: TaskViewer,
+  item: InboxItem,
+  canSeeKey: (key: string) => boolean,
+): InboxItem {
+  const { groupWithdrawn: _withdrawn, ...publicPayload } = item.payload;
+  const group = questionPayloadOf(item)?.group;
+  if (!group) return 'groupWithdrawn' in item.payload ? { ...item, payload: publicPayload } : item;
+  if (viewer.access === 'client') {
+    return {
+      ...item,
+      title: group.originalQuestion || item.title,
+      payload: {
+        ...publicPayload,
+        group: {
+          primaryItemId: group.primaryItemId,
+          itemIds: [],
+          combinedQuestion: '',
+          originalQuestion: '',
+          primaryTaskKey: null,
+        },
+      },
+    };
+  }
+  if (group.primaryItemId !== item.id)
+    return {
+      ...item,
+      payload: {
+        ...publicPayload,
+        group: {
+          primaryItemId: group.primaryItemId,
+          itemIds: [],
+          combinedQuestion: '',
+          originalQuestion: group.originalQuestion,
+          primaryTaskKey:
+            group.primaryTaskKey && canSeeKey(group.primaryTaskKey) ? group.primaryTaskKey : null,
+        },
+      },
+    };
+  return {
+    ...item,
+    payload: {
+      ...publicPayload,
+      group: {
+        ...group,
+        primaryTaskKey: group.primaryTaskKey && canSeeKey(group.primaryTaskKey) ? group.primaryTaskKey : null,
+        ...(group.sources
+          ? {
+              sources: group.sources.map((source) =>
+                source.taskKey && !canSeeKey(source.taskKey)
+                  ? { ...source, taskKey: null, taskTitle: null, question: null }
+                  : source,
+              ),
+            }
+          : {}),
+      },
+    },
+  };
+}
+
 export const QuestionPayload = z.object({
+  group: QuestionGroup.optional(),
   question: z.string(),
   /** The approval this question appears to request. An answer never sets it; setting it closes the question (approval_given). */
   approvalLabel: LabelId.optional(),

@@ -30,6 +30,7 @@ export class CardQuestions {
     const { limit, since } = opts;
     const items = this.ctx.repos.inbox
       .list(projectKey, { kind: 'question', taskKey })
+      .filter((item) => item.payload.groupWithdrawn !== true)
       .filter((item) => isPendingQuestion(item) || item.state === 'resolved')
       .filter((item) => !since || item.createdAt > since || (item.resolution?.at ?? '') > since);
     const latest = (list: InboxItem[], count: number) => list.slice(Math.max(0, list.length - count));

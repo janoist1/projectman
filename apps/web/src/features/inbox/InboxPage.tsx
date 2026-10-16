@@ -2,7 +2,13 @@ import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import { Outlet, useMatch } from 'react-router';
-import { InboxKind, handOnRequestOf, operatorApprovalOf } from '@projectman/shared';
+import {
+  InboxKind,
+  handOnRequestOf,
+  operatorApprovalOf,
+  questionPayloadOf,
+  isLinkedQuestion,
+} from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
 import { Button } from '../../components/Button';
@@ -51,6 +57,7 @@ import { isStaleError, operatorDecisionToast } from '../operator/OperatorApprova
 import { InboxCard } from './InboxCard';
 import { OperatorTrail } from './OperatorTrail';
 import { FoldedCommand } from './PermissionParts';
+import { QuestionSources } from './QuestionSources';
 import { ReleaseSubject } from './ReleaseInbox';
 import styles from './InboxPage.module.css';
 
@@ -90,6 +97,7 @@ function RecentRow({
   onRevoke?: ((id: string) => void) | undefined;
 }) {
   const mark = resolutionMark(item);
+  const group = questionPayloadOf(item)?.group;
   const note = resolutionNote(item);
   const delivery = answerDeliveryText(item, members, myHandle);
   const boundary = boundaryOf(item);
@@ -102,7 +110,7 @@ function RecentRow({
       <span className={clsx(styles.recentIcon, MARK_STYLE[mark])} aria-hidden="true">
         <Icon name={MARK_ICON[mark]} size={12} strokeWidth={3} />
       </span>
-      <span className={styles.recentText}>
+      <div className={styles.recentText}>
         <span className={styles.recentLine}>{decisionLine(item, members, myHandle)}</span>
         {item.kind === 'permission' ? (
           <FoldedCommand text={subject} className={styles.recentCode} lines={1} />
@@ -120,7 +128,13 @@ function RecentRow({
                 time: formatAgo(item.resolution.at),
               })
             : formatAgo(item.createdAt)}
+          {group?.sources && item.state === 'resolved'
+            ? ` · ${t('inbox.group.answeredCount', { count: group.answeredCount ?? group.sources.filter((s) => s.state === 'live').length })}`
+            : null}
         </span>
+        {group?.sources ? (
+          <QuestionSources group={group} projectKey={item.projectKey} members={members} myHandle={myHandle} />
+        ) : null}
         {note ? <span className={styles.recentNote}>{note}</span> : null}
         {delivery ? <span className={styles.recentNote}>{delivery}</span> : null}
         {boundary ? (
@@ -134,7 +148,7 @@ function RecentRow({
             {t('boundary.revoke')}
           </Button>
         ) : null}
-      </span>
+      </div>
     </li>
   );
 }
@@ -212,14 +226,21 @@ export function InboxPage() {
 
   const items = inbox.data?.items;
   const mine = useMemo(
-    () => newestFirst((items ?? []).filter((item) => item.state === 'open' && isAssignedTo(item, myHandle))),
+    () =>
+      newestFirst(
+        (items ?? []).filter(
+          (item) => item.state === 'open' && !isLinkedQuestion(item) && isAssignedTo(item, myHandle),
+        ),
+      ),
     [items, myHandle],
   );
   const { recent, automatic } = useMemo(() => {
     const decided = (items ?? [])
       .filter(
         (item) =>
-          isRecentDecision(item) && (item.resolution?.by === myHandle || isAssignedTo(item, myHandle)),
+          !isLinkedQuestion(item) &&
+          isRecentDecision(item) &&
+          (item.resolution?.by === myHandle || isAssignedTo(item, myHandle)),
       )
       .sort((a, b) => (b.resolution?.at ?? b.createdAt).localeCompare(a.resolution?.at ?? a.createdAt));
     return {

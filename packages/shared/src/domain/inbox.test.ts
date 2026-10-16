@@ -218,6 +218,7 @@ describe('screening contract (PM-556)', () => {
       'handed_off',
       'assignee_changed',
       'withdrawn',
+      'group_withdrawn',
       'operator_moot',
     ]);
     expect(() => QuestionCloseRule.parse('operator_answered')).toThrow();

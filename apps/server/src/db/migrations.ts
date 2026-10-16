@@ -1311,4 +1311,19 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     sql: 'ALTER TABLE operator_signals ADD COLUMN delivered_to TEXT;',
   },
 ];
+// PM-695 retains the original inbox rows, including their question text and provenance.
+migrations.push({
+  version: 70,
+  name: 'shared owner questions',
+  sql: `CREATE TABLE question_groups (
+    primary_item_id TEXT PRIMARY KEY, project_key TEXT NOT NULL, question TEXT NOT NULL,
+    created_at TEXT NOT NULL, by_handle TEXT NOT NULL, note TEXT NOT NULL
+  );
+  CREATE TABLE question_group_items (
+    item_id TEXT NOT NULL UNIQUE, primary_item_id TEXT NOT NULL REFERENCES question_groups(primary_item_id)
+  );
+  CREATE INDEX question_group_members ON question_group_items(primary_item_id);
+  CREATE INDEX team_messages_question_answer ON team_messages(project_key, json_extract(origin, '$.inboxItemId'))
+    WHERE json_extract(origin, '$.kind') = 'answer';`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

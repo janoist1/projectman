@@ -47,6 +47,7 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_boundary_request',
   'get_screenshot_run',
   'get_project_state',
+  'get_operator_diagnostics',
   'check_release',
   'read_project_doc',
   'list_decision_candidates',
@@ -58,6 +59,7 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
  * Never in a guest conversation.
  */
 export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
+  'combine_questions',
   'screen_question',
   'dismiss_signal',
   'triage_loop',

@@ -3,7 +3,15 @@ import { writeSecret } from '../../../../scripts/cloud/secrets';
 import { ACCOUNT, baseConfig, CloudWorld, FOREIGN_ACCOUNT } from './fake-aws';
 import { CF_TOKEN, FakeCloudflare } from './fake-cloudflare';
 
-export const SES_CONFIG = { region: 'eu-central-1', domain: 'istvan.io', from: 'login@istvan.io' };
+export const SES_CONFIG: { profile?: string; region: string; domain: string; from: string } = {
+  region: 'eu-central-1',
+  domain: 'istvan.io',
+  from: 'login@istvan.io',
+};
+/** The PM-729 target: the registrar account owns the SES identity; the central account `aroom` hosts the server. */
+export const I_SES_CONFIG = { ...SES_CONFIG, profile: 'i', region: 'eu-west-1' };
+/** Fictitious account ids of the two profiles; a call to the wrong one must be visible to the tests. */
+export const SES_ACCOUNTS: Record<string, string> = { aroom: ACCOUNT, i: FOREIGN_ACCOUNT };
 export const TOKENS = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
 export const USER = 'projectman-cloud-ses';
 const ok = (value: unknown = {}): RunResult => ({ code: 0, stdout: JSON.stringify(value), stderr: '' });
@@ -35,8 +43,16 @@ interface User {
   Tags: { Key: string; Value: string }[];
 }
 
-/** A stateful SES/IAM CLI fake; no network and no SendEmail implementation. */
+/** A stateful SES/IAM CLI fake of one AWS account (profile); no network and no SendEmail implementation. */
 export class FakeSes {
+  readonly profile: string;
+  readonly accountId: string;
+
+  constructor(profile = 'aroom', accountId = ACCOUNT) {
+    this.profile = profile;
+    this.accountId = accountId;
+  }
+
   calls: { argv: string[]; args: string[] }[] = [];
   identity: ReturnType<typeof sesIdentity> | null = null;
   account = {
@@ -64,7 +80,7 @@ export class FakeSes {
   managedUser() {
     this.user = {
       UserName: USER,
-      Arn: `arn:aws:iam::${ACCOUNT}:user/${USER}`,
+      Arn: `arn:aws:iam::${this.accountId}:user/${USER}`,
       Tags: [{ Key: 'projectman', Value: 'cloud' }],
     };
   }
@@ -75,7 +91,7 @@ export class FakeSes {
     if (
       command !== 'aws' ||
       argv[0] !== '--profile' ||
-      argv[1] !== 'aroom' ||
+      argv[1] !== this.profile ||
       argv[2] !== '--region' ||
       argv[4] !== '--output' ||
       argv[5] !== 'json'
@@ -84,7 +100,7 @@ export class FakeSes {
     const operation = args[1]!;
     if (this.failOperation === operation)
       return { code: 254, stdout: '', stderr: 'An error occurred (AccessDeniedException): denied' };
-    if (args[0] === 'sts') return ok({ Account: ACCOUNT });
+    if (args[0] === 'sts') return ok({ Account: this.accountId });
     if (args[0] === 'sesv2') {
       if (operation === 'get-account') return ok(this.account);
       if (operation === 'get-email-identity')
@@ -141,26 +157,37 @@ export class FakeSes {
   };
 }
 
+/**
+ * `ses` is the account the configuration points SES at (`ses.profile`, else `aws.profile` = aroom);
+ * `other` is the remaining account. Tests assert that `other` is never called.
+ */
 export class SesWorld extends CloudWorld {
-  readonly ses = new FakeSes();
+  readonly ses: FakeSes;
+  readonly other: FakeSes;
   readonly cf = new FakeCloudflare();
 
-  constructor() {
+  constructor(sesConfig: typeof SES_CONFIG = SES_CONFIG) {
     super();
     this.aws.accounts.set('aroom', ACCOUNT);
     this.aws.accounts.set('i', FOREIGN_ACCOUNT);
+    const target = sesConfig.profile ?? 'aroom';
+    const remaining = target === 'i' ? 'aroom' : 'i';
+    this.ses = new FakeSes(target, SES_ACCOUNTS[target]);
+    this.other = new FakeSes(remaining, SES_ACCOUNTS[remaining]);
     this.writeConfig({
       aws: { ...(baseConfig().aws as object), profile: 'aroom' },
       route53: { profile: 'i' },
       cloudflare: { zone: 'istvan.io', hostname: 'chopper.istvan.io' },
-      ses: SES_CONFIG,
+      ses: sesConfig,
     });
     writeSecret(this.secretsDir, 'cloudflare-token', CF_TOKEN);
     this.cf.addZone('istvan.io');
   }
 
   override deps(overrides: Partial<CloudDeps> = {}): CloudDeps {
-    return super.deps({ run: this.ses.run, fetch: this.cf.fetch, ...overrides });
+    const run = (command: string, argv: string[]) =>
+      (argv[1] === this.other.profile ? this.other : this.ses).run(command, argv);
+    return super.deps({ run, fetch: this.cf.fetch, ...overrides });
   }
 
   verify() {

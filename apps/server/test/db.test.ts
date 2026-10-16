@@ -17,6 +17,50 @@ import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
+it('assigns a unique schema version to every migration', () => {
+  const versions = migrations.map(({ version }) => version);
+  expect(versions).toEqual([...new Set(versions)]);
+});
+
+it('adds question groups after the refinement stalled signals migration without changing existing questions', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((item) => item.version <= 71)) db.exec(migration.sql);
+    db.pragma('user_version = 71');
+    const insert = db.prepare(`INSERT INTO inbox_items
+      (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)
+      VALUES (?, 'AR', 'question', '["owner"]', 'dev-1', ?, '{}', '[]', 'screening', ?, ?)`);
+    insert.run('inb_first', 'First question?', now, now);
+    insert.run('inb_second', 'Second question?', now, now);
+    const before = db.prepare('SELECT * FROM inbox_items ORDER BY seq').all();
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'question_groups'").get(),
+    ).toBeUndefined();
+
+    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(db.prepare('SELECT * FROM inbox_items ORDER BY seq').all()).toEqual(before);
+    expect(db.prepare('SELECT * FROM operator_execution_intents').all()).toEqual([]);
+    const inbox = createRepositories(db).inbox;
+    inbox.createGroup({
+      primaryItemId: 'inb_first',
+      projectKey: 'AR',
+      question: 'Combined question?',
+      by: 'pm',
+      note: 'Both need the same decision.',
+      itemIds: ['inb_first', 'inb_second'],
+      at: now,
+    });
+    expect(inbox.groupOf('inb_second')).toMatchObject({
+      primaryItemId: 'inb_first',
+      itemIds: ['inb_first', 'inb_second'],
+    });
+    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(inbox.groupOf('inb_first')?.question).toBe('Combined question?');
+  } finally {
+    db.close();
+  }
+});
+
 it('preserves existing merge rows and failure diagnostics through migration 49', () => {
   const db = new Database(':memory:');
   try {

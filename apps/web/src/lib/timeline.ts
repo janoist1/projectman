@@ -868,7 +868,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       };
     }
     case 'question_answered':
-      return normal(t('timeline.events.question_answered', { answer: str(d.answer) }));
+      return normal(
+        t(
+          d.groupPrimaryItemId
+            ? 'timeline.events.question_answered_grouped'
+            : 'timeline.events.question_answered',
+          { answer: str(d.answer) },
+        ),
+      );
+    case 'question_grouped':
+      return normal(
+        t('timeline.events.question_grouped', { count: Array.isArray(d.itemIds) ? d.itemIds.length : 0 }),
+      );
     case 'question_screened': {
       const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
       const note = str(d.note);

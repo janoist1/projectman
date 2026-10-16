@@ -42,6 +42,7 @@ import {
   PermissionMode,
   SelectablePermissionMode,
 } from '../domain/member';
+import { SessionState } from '../domain/session';
 import { TeamMessage } from '../domain/message';
 import { MAX_MESSAGE_ATTACHMENTS, MessageAttachmentId } from '../domain/message-attachment';
 import { LabelDefinition, LabelId } from '../domain/label';
@@ -178,8 +179,27 @@ export const OperatorSignalKind = z.enum([
   'unreleased',
   'ready_waiting',
   'answer_stalled',
+  'refinement_stalled',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+/**
+ * The facts of a `refinement_stalled` signal (PM-702): the recorded turn, the member's latest session and the
+ * open question ids of the card; never a transcript or tool input.
+ */
+export const RefinementStallFacts = z.object({
+  label: z.string(),
+  member: MemberHandle,
+  turnAt: z.string().datetime(),
+  session: z
+    .object({
+      id: z.string(),
+      state: SessionState,
+      lastActivityAt: z.string().datetime(),
+    })
+    .nullable(),
+  openQuestionIds: z.array(z.string()),
+});
+export type RefinementStallFacts = z.infer<typeof RefinementStallFacts>;
 /** The facts of an `answer_stalled` signal (PM-694): the evidence is a delivered answer or message, never its text. */
 export const AnswerStalledFacts = z.object({
   evidenceId: z.string(),

@@ -1575,12 +1575,15 @@ workers follow the machine's size.
   (no `cloudflared` login). **Remote engine:** unchanged; the public side is only the browser login boundary,
   the engine still connects outward to the protected `/engine`.
 
-- **SES identity/DKIM and sender provisioning (PM-678, part of PM-664)** —
+- **SES identity/DKIM and sender provisioning (PM-678, part of PM-664; own account PM-729)** —
   `scripts/cloud/{ses,config,commands,cli,secrets,aws-cli,cloudflare-api}.ts`,
   `deploy/aws/config.example.json`, `apps/server/test/cloud-ses.test.ts`,
   `apps/server/test/helpers/fake-ses.ts`, `docs/AWS.md`, `docs/HYBRID.md`.
   **What runs where:** the owner's approved provisioning CLI adds optional version-1
-  `ses:{region,domain,from}`. `ses plan` reads STS, SESv2 identity/account and Cloudflare DNS;
+  `ses:{profile?,region,domain,from}`; PM-729 adds the optional `profile` (absent: `aws.profile`, resolved
+  at load time without rewriting the file), so SES (identity, production access, the narrow sender IAM
+  user and its key) can live in its own account (`i`) while compute/S3/host IAM stay in `aws.profile`.
+  `ses plan` reads STS, SESv2 identity/account and Cloudflare DNS;
   `ses configure [--dry-run]` additionally verifies managed IAM ownership/groups/policies/keys,
   creates or retains the Easy DKIM domain, converges only three DNS-only CNAMEs from AWS tokens and
   SigningHostedZone, restricts `<instanceName>-ses` to `ses:SendEmail` on the region/account/domain
@@ -1592,8 +1595,10 @@ workers follow the machine's size.
   `ses check` reads verification/DKIM, production/sending, exact DNS/IAM and local sender config;
   no command sends mail. Cloudflare list responses are shape-checked so malformed reads cannot
   be mistaken for missing records. **Machine assumptions:** AWS CLI v2/profiles on the owner's
-  POSIX administration machine; every AWS call explicitly targets the central profile (`aroom`)
-  and SES region, never registrar profile `i`. Existing authoritative Cloudflare zone and protected
+  POSIX administration machine; every AWS call explicitly targets `ses.profile` and the SES region,
+  and the key is handed over only through the protected `cloud.env` (no profile env, the backend sends
+  directly with the target account's narrow key; a key of a former account is refused, not replaced).
+  Existing authoritative Cloudflare zone and protected
   DNS token, no domain transfer or cross-account SES authorization. The cloud store is 0700 and
   `cloud.env` 0600, with unsafe modes/symlinks refused and other env keys preserved; credentials
   never enter argv or reports. Live configuration/request/deploy each needs owner approval;
@@ -2420,6 +2425,16 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
   (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
   engine the machine view answers `engine_offline` (409).
+  **Filtered diagnostics (PM-697):** `services/operator/project-state.ts` projects only
+  CPU percentage, memory, sample time and free disk space through the assembly adapter.
+  The latest card session selects the stored engine id; no session, offline or a different
+  engine than the monitor's gives `machine: null`. Disk space comes from that same
+  `EngineHost`. In v1 cloud mode always returns `machine: null`: the monitor's snapshot
+  and CPU reference carry no engine identity or measurement generation, so a fresh
+  timestamp alone cannot prove their origin. A future cloud metrics source must bind
+  both to the owning engine and measurement generation. Server task, delivery
+  and check records remain readable offline. No process details or transcripts are exposed,
+  and no new probe or RPC is introduced.
   **Module:** `machine`
 - **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
   `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
@@ -2817,7 +2832,10 @@ assumption or remote-engine RPC.
   `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
   (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine
   key is made on the Mac (`newMachineKey`), written to `engine.key` (0600, `wx`) last, and only its
-  hash enters the package's database; `engine.json` is made with it. **Does this work on a remote
+  hash enters the package's database; `engine.json` is made with it. After a way back the revoked engine
+  row stays as an audit record (PM-728): only a non-revoked engine makes `hybrid package` refuse, and the
+  package makes its new engine the default explicitly (`setDefault`; `create` marks only the first engine
+  ever as the default). **Does this work on a remote
   engine?** The tool is the one place that reads the Mac's home and repositories to build the
   engine's configuration (`engineProjects`), so it runs on the engine's machine by definition; the
   package is the only thing that crosses to the cloud, by a person's copy, and the key never does.
@@ -3074,7 +3092,7 @@ new machine-dependent part (the start itself is the inventory's existing work st
 The selected live PM (`coordinationMemberOf`, shared `config/project-manager.ts`) receives every
 coordination signal and screens AI questions, including the Operator's. Its own questions go directly
 to people. `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
-mutations (`screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
+mutations (`combine_questions`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
 actual internal general session; other people, customer conversations, other members and external
 tokens cannot use them (`project_manager_only`, HTTP 403 / MCP forbidden). The Operator and internal
 PM may read `get_project_state`; guest access is unchanged.

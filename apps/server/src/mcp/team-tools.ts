@@ -97,6 +97,10 @@ export class TeamToolsService implements TeamToolsHandler {
     sessions: SessionToolsHandler;
   };
 
+  async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
+    return this.tools.operator.getOperatorDiagnostics(ctx, args);
+  }
+
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.tools.operator.getProjectState(ctx, args);
   }
@@ -350,6 +354,10 @@ export class TeamToolsService implements TeamToolsHandler {
     screening?: true;
   }> {
     return this.tools.inbox.askHuman(ctx, args);
+  }
+
+  async combineQuestions(ctx: ToolContext, args: { itemIds: string[]; question: string; note: string }) {
+    return this.tools.operator.combineQuestions(ctx, args);
   }
 
   async screenQuestion(

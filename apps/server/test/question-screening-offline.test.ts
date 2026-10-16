@@ -470,4 +470,66 @@ describe('question screening while the PM’s machine is offline', () => {
     expect(item(broken.id).state).toBe('open');
     expect(humanQueue().map((q) => q.id)).toContain(broken.id);
   });
+
+  it('holds a combined decision once while offline and resumes only its earliest remaining deadline', async () => {
+    const first = await ask('First equivalent decision?');
+    advance(2 * MINUTE);
+    const second = await ask('Second equivalent decision?');
+    const group = await h.domain.teamTools.combineQuestions(
+      { projectKey: 'AR', member: 'pm', taskKey: null, sessionId: pmSessions()[0]!.id },
+      { itemIds: [first, second], question: 'Shared decision?', note: 'Same scope' },
+    );
+    seenAt(now);
+    await setOnline(false);
+    expect(screeningOf(group.primaryItemId)?.queue?.remainingMs).toBe(8 * MINUTE);
+    advance(4 * HOUR);
+    await sweep();
+    expect(humanQueue()).toHaveLength(0);
+    await setOnline(true);
+    expect(screeningOf(group.primaryItemId)?.until).toBe(new Date(now.getTime() + 8 * MINUTE).toISOString());
+    advance(8 * MINUTE + 1);
+    await sweep();
+    expect(humanQueue().map((item) => item.id)).toEqual([group.primaryItemId]);
+    expect(h.repos.inbox.get(group.linkedItemIds[0]!)!.state).toBe('screening');
+  });
+
+  it('preserves the minimum queued group budget until its first delivery receipt', async () => {
+    await setOnline(false);
+    const first = await ask('First equivalent decision?');
+    advance(MINUTE);
+    const second = await ask('Second equivalent decision?');
+    for (const [id, remainingMs] of [
+      [first, 5 * MINUTE],
+      [second, MINUTE],
+    ] as const) {
+      const current = h.repos.inbox.get(id)!;
+      h.repos.inbox.updatePayload(
+        id,
+        {
+          ...current.payload,
+          screening: {
+            ...screeningOf(id),
+            queue: { reason: 'engine_offline', since: now.toISOString(), remainingMs },
+          },
+        },
+        now.toISOString(),
+      );
+    }
+    const group = await h.domain.inbox.combineQuestions(
+      'AR',
+      { itemIds: [first, second], question: 'Shared decision?', note: 'Same scope' },
+      'pm',
+    );
+    advance(4 * HOUR);
+    await sweep();
+    expect(humanQueue()).toHaveLength(0);
+    await setOnline(true);
+    expect(screeningOf(group.primaryItemId)?.until).toBe(new Date(now.getTime() + MINUTE).toISOString());
+    expect(screeningOf(group.primaryItemId)?.queue).toBeUndefined();
+    const notices = h.runner.started
+      .filter((s) => s.sessionId === pmSessions()[0]!.id)
+      .map((s) => s.initialMessage ?? '');
+    expect(notices.join('\n')).toContain('Shared decision?');
+    expect(notices.join('\n')).not.toContain(`"id":"${group.linkedItemIds[0]}"`);
+  });
 });

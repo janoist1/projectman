@@ -44,6 +44,26 @@ describe('Operator MCP tools', () => {
           .success,
       ).toBe(false);
   });
+  it('combine_questions validates distinct bounded ids and preserves the public argument names', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'combine_questions')!;
+    const handler = createFakeTeamToolsHandler();
+    const input = { item_ids: ['q1', 'q2'], question: '  Shared decision?  ', note: '  Same decision  ' };
+    const args = tool.inputSchema.parse(input);
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      primary_item_id: 'q1',
+      linked_item_ids: ['q2'],
+    });
+    expect(handler.calls[0]).toMatchObject({
+      method: 'combineQuestions',
+      args: {
+        itemIds: ['q1', 'q2'],
+        question: 'Shared decision?',
+        note: 'Same decision',
+      },
+    });
+    for (const item_ids of [['q1'], ['q1', 'q1'], Array.from({ length: 11 }, (_, i) => `q${i}`)])
+      expect(tool.inputSchema.safeParse({ ...input, item_ids }).success).toBe(false);
+  });
   it('dismiss_signal validates its bounds, trims the note and returns the dismissal', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'dismiss_signal')!;
     const handler = createFakeTeamToolsHandler();

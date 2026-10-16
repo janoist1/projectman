@@ -9,6 +9,7 @@ import {
   permissionDelegationOf,
   QuestionCloseRule,
   questionPayloadOf,
+  isLinkedQuestion,
   releaseApprovalOf,
   seniorWaitDecisionOf,
 } from '@projectman/shared';
@@ -785,7 +786,7 @@ export function isRecentDecision(item: InboxItem): boolean {
 }
 
 export function openItems(items: readonly InboxItem[] | undefined): InboxItem[] {
-  return (items ?? []).filter((item) => item.state === 'open');
+  return (items ?? []).filter((item) => item.state === 'open' && !isLinkedQuestion(item));
 }
 
 /** What the Operator recorded about a question (PM-556), or null. */
@@ -888,6 +889,7 @@ export function answerDeliveryText(
   members: MemberIndex,
   myHandle: string | null,
 ): string | null {
+  if (item.state === 'cancelled') return null;
   const delivery = answerDeliveryOf(item);
   if (!delivery) return null;
   if (delivery.state === 'delivered')
@@ -957,8 +959,14 @@ export function openItemIds(items: readonly InboxItem[] | undefined): Set<string
 }
 
 /** Open items waiting for this member (every open item when the handle is unknown). */
-export function openItemsFor(items: readonly InboxItem[] | undefined, handle: string | null): InboxItem[] {
-  return openItems(items).filter((item) => isAssignedTo(item, handle));
+export function openItemsFor(
+  items: readonly InboxItem[] | undefined,
+  handle: string | null,
+  includeLinked = false,
+): InboxItem[] {
+  return (includeLinked ? (items ?? []).filter((item) => item.state === 'open') : openItems(items)).filter(
+    (item) => isAssignedTo(item, handle),
+  );
 }
 
 export function newestFirst<T extends { createdAt: string }>(items: readonly T[]): T[] {

@@ -60,6 +60,7 @@ export const TimelineEventType = z.enum([
   'permission_escalated',
   'question_asked',
   'question_answered',
+  'question_grouped',
   'question_screened',
   'question_screening_skipped',
   'question_closed',
@@ -380,7 +381,8 @@ export interface TimelineEventData {
     screening?: true;
     unscreened?: { reason: string; previousItemId: string };
   };
-  question_answered: { inboxItemId: string; answer: string };
+  question_answered: { inboxItemId: string; answer: string; groupPrimaryItemId?: string };
+  question_grouped: { primaryItemId: string; itemIds: string[]; by: MemberHandle };
   /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
   question_screened: {
     inboxItemId: string;

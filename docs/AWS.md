@@ -139,7 +139,8 @@ tag-on-create `CreateTags`, `RunInstances`; IAM `GetRole`, `CreateRole`, `ListRo
 `AddRoleToInstanceProfile`, tag-on-create `TagRole`/`TagInstanceProfile`, and `PassRole` restricted to
 the host role and EC2 service. S3 and backup-user permissions are listed in the legacy/common
 resource guide below. The `i` login needs only the registrar/Route 53 rights for the requested
-DNS reads; it receives no EC2, S3, host IAM or SES provisioning call.
+DNS reads; it receives no EC2, S3 or host IAM call. SES provisioning uses `ses.profile` (PM-729), which
+may be `i`, and only its SES and narrow-user IAM calls.
 
 ## EC2 host operation through SSM (PM-677)
 
@@ -341,6 +342,7 @@ and names the field's path. `deploy/aws/config.example.json` has every field you
 | `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                         |
 | `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                    |
 | `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                         |
+| `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account      |
 
 `cloud.env` is a docker env-file: `NAME=value`, one per line, no quotes. `npm run cloud` sets only
 the names it owns and keeps every other line and comment: `aws` writes the S3 names and keys,
@@ -1003,19 +1005,35 @@ address or a code; a provider failure becomes an `EmailCodeDeliveryError` (`code
 `email_code_delivery_failed`) with a fixed message and a coarse `reason` (`rejected`, `throttled`,
 `credentials`, `unavailable`), and the caller decides the HTTP answer.
 
-**Scripted SES provisioning (PM-678).** Add the optional version-1 configuration explicitly:
+**Scripted SES provisioning (PM-678, own account PM-729).** Add the optional version-1 configuration explicitly:
 
 ```json
-"ses": { "region": "eu-central-1", "domain": "istvan.io", "from": "login@istvan.io" }
+"ses": { "profile": "i", "region": "eu-west-1", "domain": "istvan.io", "from": "login@istvan.io" }
 ```
 
-Choose the region and sender before running; this is an example, not a default. The address must belong
-to exactly `ses.domain`, and that domain must be in the configured Cloudflare zone. Without `ses`, every
-SES command refuses (exit 2) and email login stays unchanged. Use `aws.profile: "aroom"` for identity and
-sender IAM and `route53.profile: "i"` for the registrar. The SES commands never use the registrar profile,
-move the domain or change delegation. A default/explicit `i` central profile is refused. Every AWS call
-uses explicit `--profile` and `--region` (the SES region may differ from the compute region). Cloudflare's
-existing active zone proves the identity; no cross-account sending authorization is needed.
+Choose the profile, region and sender before running; this is an example, not a default. The address must
+belong to exactly `ses.domain`, and that domain must be in the configured Cloudflare zone. Without `ses`,
+every SES command refuses (exit 2) and email login stays unchanged. `ses.profile` is optional and names the
+AWS account that owns the SES identity, the production access and the narrow sender IAM user; absent, it is
+`aws.profile`, so an older configuration resolves to the same account as before (the file is never
+rewritten). The PM-729 layout keeps the domain, its mail sending and `ses.profile: "i"` together, while
+`aws.profile: "aroom"` stays the account of the server (EC2, S3, host IAM). These are two separate purposes:
+the compute/S3/host IAM rights belong to `aws.profile`, the SES identity and the `<instanceName>-ses` user
+to `ses.profile`; `route53.profile` is not a SES fallback. The SES commands never move the domain or change
+delegation. The EC2 rule that `aws.profile` is explicit and not `i` is unchanged. Every AWS call uses
+explicit `--profile <ses.profile>` and `--region <ses.region>` (the SES region may differ from the compute
+region). Cloudflare's existing active zone proves the identity; no cross-account sending authorization is
+needed. An existing identity and its DKIM tokens in that account and region are recognised and kept;
+identities and DKIM records of other accounts or regions are left alone (cleaning them up is a separate
+owner action, not part of configure).
+
+**Moving SES to another account (PM-729).** The old SES key in `cloud.env` belongs to the former account, so
+`ses configure` refuses it (exit 2, nothing changed) when it finds no matching key in the new account. The
+integrator therefore first makes a protected mode-600 copy of the config and `cloud.env`, removes only
+`PROJECTMAN_SES_ACCESS_KEY_ID`, `PROJECTMAN_SES_SECRET_ACCESS_KEY` and `PROJECTMAN_SES_SESSION_TOKEN` from the
+local env and sets `PROJECTMAN_EMAIL_LOGIN_ENABLED=0` (do not deploy that intermediate env), then runs
+`ses plan`, `ses configure --dry-run`, `ses configure` and `ses check` with the new profile. Old-account
+resources are removed only after the new path is green and the backend uses the new env.
 
 **The owner's steps**, run outside AI member sessions, each live change approved separately:
 

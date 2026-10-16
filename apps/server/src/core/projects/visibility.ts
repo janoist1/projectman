@@ -5,6 +5,7 @@ import {
   canSeeTask,
   canSeeTeamMessage,
   isCardLink,
+  visibleQuestionItem,
 } from '@projectman/shared';
 import type { MemberView, ServerEvent, Session, Task, TaskDetail, TimelineEvent } from '@projectman/shared';
 import type { ProjectAccess } from '../members';
@@ -218,6 +219,14 @@ export function visibleProjectEvent(
   taskOf: (taskKey: string) => Task | null | undefined,
   messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): ProjectEvent {
+  if (event.type === 'inbox_upserted')
+    return {
+      ...event,
+      item: visibleQuestionItem(viewer, event.item, (key) => {
+        const task = taskOf(key);
+        return !!task && canSeeTask(viewer, task);
+      }),
+    };
   if (event.type === 'timeline_appended')
     return { ...event, event: visibleTimelineEvent(viewer, event.event, messageParticipants) };
   if (event.type === 'session_upserted')

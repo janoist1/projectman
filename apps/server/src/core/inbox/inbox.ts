@@ -20,6 +20,11 @@ import {
   permissionDelegationState,
   PENDING_INBOX_STATES,
   questionPayloadOf,
+  CombineQuestionsRequest,
+  coordinationMemberOf,
+  questionGroupCompatible,
+  questionGroupLiveItemIds,
+  QUESTION_SCREENING_MS,
   routePermissionRequest,
   TODO_CANNOT_OPTION,
   TODO_DONE_OPTION,
@@ -57,7 +62,7 @@ import type {
 import { ownerHandles } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
-import type { InboxPermissionPolicy } from './ports';
+import type { InboxPermissionPolicy, QuestionGroupAnswerer } from './ports';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
@@ -233,6 +238,11 @@ export class InboxService {
     this.questionAnswer = answer;
   }
 
+  private groupAnswer?: QuestionGroupAnswerer;
+  registerQuestionGroupAnswer(answer: QuestionGroupAnswerer): void {
+    this.groupAnswer = answer;
+  }
+
   private askerStarts?: AskerStarts;
 
   registerAskerStarts(starts: AskerStarts): void {
@@ -285,6 +295,185 @@ export class InboxService {
   }
 
   private readonly resolutionLocks = new KeyedMutex();
+
+  /** Recheck after acquiring: a combine may have changed an individual lock into a primary lock. */
+  private questionLock<T>(id: string, action: () => Promise<T>): Promise<T> {
+    const key = this.ctx.repos.inbox.groupOf(id)?.primaryItemId ?? id;
+    return this.resolutionLocks.run(key, () => {
+      const current = this.ctx.repos.inbox.groupOf(id)?.primaryItemId ?? id;
+      return current === key ? action() : this.questionLock(id, action);
+    });
+  }
+
+  async combineQuestions(
+    projectKey: string,
+    input: { itemIds: string[]; question: string; note: string },
+    by: string,
+  ) {
+    const args = CombineQuestionsRequest.parse(input);
+    const config = await this.projects.config(projectKey);
+    if (coordinationMemberOf(config)?.handle !== by)
+      throw forbidden('project_manager_only', 'only the selected PM combines questions');
+    const ids = [...args.itemIds].sort();
+    const locked = (index: number): Promise<{ primaryItemId: string; linkedItemIds: string[] }> => {
+      const id = ids[index];
+      if (id) {
+        const row = this.ctx.repos.inbox.get(id);
+        const group = this.ctx.repos.inbox.groupOf(id);
+        if (
+          !row ||
+          row.projectKey !== projectKey ||
+          row.state !== 'screening' ||
+          (group && this.ctx.repos.inbox.get(group.primaryItemId)?.state !== 'screening')
+        )
+          throw conflict('question_not_screening', 'every question must still be in screening');
+        if (group) throw conflict('question_group_incompatible', 'a question already belongs to a group');
+        return this.questionLock(id, () => locked(index + 1));
+      }
+      return Promise.resolve(
+        this.ctx.unitOfWork(() => {
+          const items = ids.map((itemId) => this.ctx.repos.inbox.get(itemId));
+          if (items.some((item) => !item || item.projectKey !== projectKey || item.state !== 'screening'))
+            throw conflict('question_not_screening', 'every question must still be in screening');
+          const questions = items
+            .filter((item): item is InboxItem => item !== null)
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+          const primary = questions[0]!;
+          if (
+            questions.some((item) => {
+              const payload = questionPayloadOf(item);
+              return (
+                item.kind !== 'question' ||
+                !payload?.screening ||
+                payload.approvalLabel ||
+                payload.screening.todo ||
+                [
+                  'gate',
+                  'release',
+                  'permission',
+                  'boundary',
+                  'approval',
+                  'operatorApproval',
+                  'operatorKnowledge',
+                ].some((key) => key in item.payload) ||
+                this.ctx.repos.inbox.groupOf(item.id) ||
+                memberOf(config, item.source)?.kind !== 'ai' ||
+                item.source === by ||
+                item.assignees.some((handle) => !ownerHandles(config).includes(handle)) ||
+                !questionGroupCompatible(primary, item)
+              );
+            })
+          )
+            throw conflict(
+              'question_group_incompatible',
+              'the questions do not ask the same owners for a compatible decision',
+            );
+          const at = isoNow(this.ctx);
+          const itemIds = questions.map((item) => item.id);
+          this.ctx.repos.inbox.createGroup({
+            ...args,
+            projectKey,
+            primaryItemId: primary.id,
+            itemIds,
+            at,
+            by,
+          });
+          const records = questions.map((item) => questionPayloadOf(item)!.screening!);
+          const remainingMs = Math.min(
+            ...records.map(
+              (s) =>
+                s.queue?.remainingMs ??
+                (s.deliveredAt ? Math.max(0, Date.parse(s.until) - Date.parse(at)) : QUESTION_SCREENING_MS),
+            ),
+          );
+          const deliveredAt = records
+            .map((s) => s.deliveredAt)
+            .filter((s): s is string => !!s)
+            .sort()[0];
+          const queue = records.find((s) => s.queue)?.queue;
+          const screening = {
+            ...questionPayloadOf(primary)!.screening!,
+            by,
+            until: new Date(Date.parse(at) + remainingMs).toISOString(),
+            ...(deliveredAt ? { deliveredAt } : {}),
+            ...(queue ? { queue: { ...queue, remainingMs } } : {}),
+          };
+          this.ctx.repos.inbox.updatePayload(primary.id, { ...primary.payload, screening }, at);
+          const groupedTasks = new Set<string | null>();
+          for (const item of questions) {
+            this.publish(this.ctx.repos.inbox.get(item.id)!);
+            if (groupedTasks.has(item.taskKey)) continue;
+            groupedTasks.add(item.taskKey);
+            this.timeline.append({
+              projectKey,
+              taskKey: item.taskKey,
+              sessionId: item.sessionId,
+              actor: aiActor(by),
+              type: 'question_grouped',
+              data: { primaryItemId: primary.id, itemIds, by },
+            });
+          }
+          return { primaryItemId: primary.id, linkedItemIds: itemIds.slice(1) };
+        }),
+      );
+    };
+    return locked(0);
+  }
+
+  /** Read-time projection; original questions and the combination audit remain in their own rows. */
+  withQuestionGroup(item: InboxItem): InboxItem {
+    const group = this.ctx.repos.inbox.groupOf(item.id);
+    if (!group) return item;
+    const primary = this.ctx.repos.inbox.get(group.primaryItemId);
+    const originalQuestion = questionPayloadOf(item)?.question ?? item.title;
+    const isPrimary = item.id === group.primaryItemId;
+    const sources = isPrimary
+      ? group.itemIds.flatMap((id) => {
+          const source = this.ctx.repos.inbox.get(id);
+          if (!source) return [];
+          const task = source.taskKey ? this.ctx.repos.tasks.get(source.taskKey) : null;
+          const deleted = source.taskKey !== null && !task;
+          return [
+            {
+              itemId: id,
+              taskKey: task?.key ?? null,
+              taskTitle: task?.title ?? null,
+              asker: source.source,
+              question: deleted ? null : (questionPayloadOf(source)?.question ?? source.title),
+              createdAt: source.createdAt,
+              state: deleted
+                ? ('deleted' as const)
+                : source.state === 'cancelled' || source.payload.groupWithdrawn === true
+                  ? ('withdrawn' as const)
+                  : ('live' as const),
+            },
+          ];
+        })
+      : undefined;
+    const { groupWithdrawn: _withdrawn, ...publicPayload } = item.payload;
+    return {
+      ...item,
+      ...(isPrimary
+        ? { title: group.question }
+        : item.state === 'screening' && primary?.state === 'open'
+          ? { state: 'open' as const }
+          : {}),
+      payload: {
+        ...publicPayload,
+        group: {
+          primaryItemId: group.primaryItemId,
+          primaryTaskKey: primary?.taskKey ?? null,
+          itemIds: isPrimary ? group.itemIds : [],
+          combinedQuestion: isPrimary ? group.question : '',
+          originalQuestion,
+          ...(isPrimary && item.state === 'resolved'
+            ? { answeredCount: this.ctx.repos.inbox.groupAnsweredCount(group.primaryItemId) }
+            : {}),
+          ...(isPrimary ? { note: group.note, sources } : {}),
+        },
+      },
+    };
+  }
 
   staleOperator(id: string, payload: Record<string, unknown>): void {
     const updated = this.ctx.repos.inbox.updateOperator(
@@ -355,7 +544,7 @@ export class InboxService {
   get(projectKey: string, id: string): InboxItem {
     const item = this.ctx.repos.inbox.get(id);
     if (!item || item.projectKey !== projectKey) throw notFound('inbox item', id);
-    return item;
+    return this.withQuestionGroup(item);
   }
 
   updateOpenPayload(id: string, payload: Record<string, unknown>): InboxItem | null {
@@ -388,7 +577,7 @@ export class InboxService {
       limit?: number;
     } = {},
   ) {
-    return this.ctx.repos.inbox.list(projectKey, filter);
+    return this.ctx.repos.inbox.list(projectKey, filter).map((item) => this.withQuestionGroup(item));
   }
 
   /**
@@ -399,7 +588,11 @@ export class InboxService {
   screenedQuestions(projectKey: string, since: string): ScreenedQuestionsResponse {
     const screened = this.ctx.repos.inbox
       .list(projectKey, { kind: 'question', limit: 100_000 })
-      .map((item) => ({ item, screening: questionPayloadOf(item)?.screening }))
+      .filter((item) => {
+        const group = this.ctx.repos.inbox.groupOf(item.id);
+        return !group || group.primaryItemId === item.id;
+      })
+      .map((item) => ({ item: this.withQuestionGroup(item), screening: questionPayloadOf(item)?.screening }))
       .filter(
         ({ item, screening }) =>
           screening &&
@@ -468,7 +661,7 @@ export class InboxService {
    * requests and questions, but gate decisions belong to the named approvers only.
    */
   async resolve(projectKey: string, id: string, req: ResolveInboxRequest, by: Resolver): Promise<InboxItem> {
-    return this.resolutionLocks.run(id, () => this.resolveLocked(projectKey, id, req, by));
+    return this.questionLock(id, () => this.resolveLocked(projectKey, id, req, by));
   }
 
   private async resolveLocked(
@@ -571,6 +764,55 @@ export class InboxService {
       note,
       ...(by.via ? { via: by.via } : {}),
     };
+    const group = this.ctx.repos.inbox.groupOf(id);
+    if (group) {
+      if (id !== group.primaryItemId || !this.groupAnswer)
+        throw conflict('question_group_incompatible', 'answer the primary question');
+      const members = group.itemIds.flatMap((memberId) => {
+        const row = this.ctx.repos.inbox.get(memberId);
+        return row && isPendingQuestion(row) ? [row] : [];
+      });
+      const answered: InboxItem[] = [];
+      const closeGroup = () => {
+        for (const row of members) {
+          const resolved = this.ctx.repos.inbox.close(row.id, 'resolved', resolution, at);
+          if (!resolved) throw conflict('inbox_item_closed', 'a group member is no longer pending');
+          answered.push(resolved);
+          this.publish(resolved);
+          this.timeline.append({
+            projectKey,
+            taskKey: row.taskKey,
+            sessionId: row.sessionId,
+            actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
+            type: 'question_answered',
+            data: { inboxItemId: row.id, answer: answerText(resolved), groupPrimaryItemId: id },
+          });
+        }
+        if (!members.some((member) => member.id === id)) {
+          const representative = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
+          if (representative) this.publish(representative);
+        }
+      };
+      let committed = false;
+      const recipients = new Set(questionGroupLiveItemIds(questionPayloadOf(item)!.group!));
+      await this.groupAnswer(
+        members
+          .filter((row) => recipients.has(row.id))
+          .map((row) => ({ ...row, state: 'resolved', resolution })),
+        req.attachmentIds ?? [],
+        () => {
+          closeGroup();
+          committed = true;
+        },
+      ).finally(async () => {
+        // A failed transaction rolls back the rows too; dispatch failures must still release the labels.
+        if (committed && this.ctx.repos.inbox.get(id)?.state === 'resolved') {
+          this.publish(this.ctx.repos.inbox.get(id)!);
+          for (const row of answered) await this.ctx.events.emit('inbox_resolved', row);
+        }
+      });
+      return this.get(projectKey, id);
+    }
     const close = (): InboxItem => {
       const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
       if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
@@ -802,32 +1044,57 @@ export class InboxService {
       screened?: ScreeningSettlement;
     },
   ): Promise<InboxItem | null> {
-    return this.resolutionLocks.run(id, async () => {
+    return this.questionLock(id, async () => {
       const current = this.ctx.repos.inbox.get(id);
       if (!current || !isPendingQuestion(current)) return null;
+      const group = this.ctx.repos.inbox.groupOf(id);
+      const otherLive =
+        group?.itemIds.some((otherId) => {
+          const other = otherId !== id ? this.ctx.repos.inbox.get(otherId) : null;
+          return !!other && isPendingQuestion(other);
+        }) ?? false;
+      const primaryWithdrawal = group?.primaryItemId === id;
       const at = isoNow(this.ctx);
       const closed = this.ctx.unitOfWork(() => {
-        let item = this.ctx.repos.inbox.close(
-          id,
-          'cancelled',
-          { optionId: 'closed', by: close.by, at, note: close.note, rule: close.rule },
-          at,
-        );
+        const resolution = { optionId: 'closed', by: close.by, at, note: close.note, rule: close.rule };
+        if (primaryWithdrawal)
+          this.ctx.repos.inbox.updatePayload(id, { ...current.payload, groupWithdrawn: true }, at);
+        let item =
+          primaryWithdrawal && otherLive
+            ? { ...current, state: 'cancelled' as const, resolution }
+            : this.ctx.repos.inbox.close(
+                id,
+                'cancelled',
+                { ...resolution, ...(primaryWithdrawal ? { rule: 'group_withdrawn' as const } : {}) },
+                at,
+              );
         if (!item) return null;
         if (close.screened) {
-          item =
-            this.ctx.repos.inbox.updatePayload(
-              id,
-              withScreening(
-                current.payload,
-                { outcome: close.screened.outcome, by: close.screened.by, at, note: close.screened.note },
+          if (!primaryWithdrawal)
+            item =
+              this.ctx.repos.inbox.updatePayload(
+                id,
+                withScreening(
+                  current.payload,
+                  { outcome: close.screened.outcome, by: close.screened.by, at, note: close.screened.note },
+                  at,
+                ),
                 at,
-              ),
-              at,
-            ) ?? item;
+              ) ?? item;
           this.appendScreened(item, close.screened);
         }
-        this.publish(item);
+        this.publish(primaryWithdrawal ? this.ctx.repos.inbox.get(id)! : item);
+        if (group && !primaryWithdrawal) {
+          if (!otherLive) {
+            const representative = this.ctx.repos.inbox.close(
+              group.primaryItemId,
+              'cancelled',
+              { optionId: 'closed', by: 'system', at, note: null, rule: 'group_withdrawn' },
+              at,
+            );
+            if (representative) this.publish(representative);
+          } else this.publish(this.ctx.repos.inbox.get(group.primaryItemId)!);
+        }
         this.timeline.append({
           projectKey: item.projectKey,
           taskKey: item.taskKey,
@@ -853,7 +1120,13 @@ export class InboxService {
    * or `question_screening_skipped` for a fallback.
    */
   releaseScreened(id: string, release: ScreeningRelease): Promise<InboxItem | null> {
-    return this.resolutionLocks.run(id, async () => {
+    const primaryId = this.ctx.repos.inbox.groupOf(id)?.primaryItemId ?? id;
+    if (primaryId !== id && release.outcome === 'decision') return this.releaseScreened(primaryId, release);
+    return this.questionLock(id, async () => {
+      const group = this.ctx.repos.inbox.groupOf(id);
+      if (group && release.outcome === 'todo')
+        throw conflict('question_group_incompatible', 'a combined decision cannot become a todo');
+      if (group && group.primaryItemId !== id) return null;
       const current = this.ctx.repos.inbox.get(id);
       if (!current || current.kind !== 'question' || current.state !== 'screening') return null;
       const at = isoNow(this.ctx);
@@ -895,6 +1168,12 @@ export class InboxService {
       });
       if (!released) return null;
       this.publish(released);
+      if (group)
+        for (const memberId of group.itemIds) {
+          if (memberId === id) continue;
+          const linked = this.ctx.repos.inbox.get(memberId);
+          if (linked) this.publish(linked);
+        }
       return released;
     });
   }
@@ -919,9 +1198,11 @@ export class InboxService {
         note: settlement.note,
         screened: settlement,
       });
-    return this.resolutionLocks.run(id, async () => {
+    return this.questionLock(id, async () => {
       const item = this.ctx.repos.inbox.get(id);
       if (!item || item.kind !== 'question' || item.state !== 'screening') return null;
+      if (this.ctx.repos.inbox.groupOf(id))
+        throw conflict('question_group_incompatible', 'a combined decision must be answered by its owners');
       const at = isoNow(this.ctx);
       const answered = settlement.outcome === 'answered';
       const resolution = {
@@ -1022,14 +1303,20 @@ export class InboxService {
    * A decision and a release approval outlive their proposer: the release record stays `proposed`
    * until a human resolves the item, so cancelling it would leave the open release stuck.
    */
-  cancelOpenFromSource(projectKey: string, handle: string): InboxItem[] {
-    const cancelled: InboxItem[] = [];
+  async cancelOpenFromSource(projectKey: string, handle: string): Promise<void> {
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
       if (item.source !== handle || item.kind === 'decision' || item.kind === 'release') continue;
+      if (item.kind === 'question' && this.ctx.repos.inbox.groupOf(item.id)) {
+        await this.closeQuestion(item.id, {
+          rule: 'withdrawn',
+          by: 'system',
+          note: 'The asking member was retired.',
+        });
+        continue;
+      }
       const closed = this.cancel(item.id);
-      if (closed) cancelled.push(closed);
+      if (closed) await this.ctx.events.emit('inbox_cancelled', closed);
     }
-    return cancelled;
   }
 
   private close(id: string, state: 'cancelled' | 'expired', publish = true): InboxItem | null {
@@ -1041,7 +1328,11 @@ export class InboxService {
   }
 
   private publish(item: InboxItem): void {
-    this.ctx.bus.publish({ type: 'inbox_upserted', projectKey: item.projectKey, item });
+    this.ctx.bus.publish({
+      type: 'inbox_upserted',
+      projectKey: item.projectKey,
+      item: this.withQuestionGroup(item),
+    });
   }
 
   /**

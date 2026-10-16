@@ -18,6 +18,9 @@ import {
   WAITING_ANSWER_LABEL,
   startableCards,
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
+  refinementStallRefusal,
+  refinementTurn,
+  turnStalled,
   formatInjectedTeamMessage,
   isOperator,
   coordinationMemberOf,
@@ -50,6 +53,7 @@ import type {
   OperatorSignalStepTargets,
   OperatorWatch,
   ProjectConfig,
+  RefinementStallFacts,
   Stage,
   Task,
   TaskWait,
@@ -63,6 +67,14 @@ import type { ProjectService } from '../../core/projects';
 import type { TaskWaits } from '../../core/tasks';
 import { conflict, invalid } from '../../kernel';
 import { newId } from '../../kernel';
+
+type RefinementStallInput = {
+  projectKey: string;
+  taskKey: string;
+  label: string;
+  member: string;
+  turnAt: string;
+};
 
 type SignalInput = {
   projectKey: string;
@@ -101,7 +113,8 @@ const WAKE_NEVER =
   "On a signal never merge, release, approve, move a card, or set a label or a setting; stalled, silent, outage, nobody and process_cleanup_failed signals always go to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
   'Send the owners one message for the whole wake-up (send_message with signal_ids; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
-const WAKE_CHECK = 'Projectman system signals. Check get_project_state and session activity first.';
+const WAKE_CHECK =
+  'Projectman system signals. Check get_project_state and session activity first. Read get_task before referring to a card; distinguish active work, actual decision waits and normal offline queued work. Diagnose the cause, take only the smallest permitted coordination step, consider machine load and verify the result. Group related decisions in the single summary; screening and signals are not owner requests and grant no settings or critical-operation authority.';
 const WAKE_LOOP =
   'A loop_suspected signal is report-only: inspect current card, commits, review findings and delivery; call triage_loop with evidence and progress or loop. Message count alone is no loop. Never present it to owners as an authorization request, stop work or choose stop/let_run.';
 const WAKE_STEP =
@@ -109,17 +122,41 @@ const WAKE_STEP =
 const WAKE_DISMISS =
   'A ready_waiting signal whose cards all wait on purpose you close with dismiss_signal and a note instead of bringing it to the owners; new_cards in its facts are the cards that became ready since the last close.';
 
+const WAKE_REFINEMENT =
+  'A refinement_stalled signal is report-only and starts nothing: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; bring it to the owners only when the turn really stands stalled.';
+
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** The member of an `answer_stalled` case key: `answer_stalled:<taskKey>:<member>:<evidenceId>`. */
 function answerStalledMember(caseKey: string): string | null {
   return caseKey.split(':')[2] ?? null;
 }
+
+/** The case key of a stalled refinement turn: `refinement_stalled:<taskKey>:<label>:<member>:<turnAt>`. */
+function refinementStallCaseKey(input: RefinementStallInput): string {
+  return `refinement_stalled:${input.taskKey}:${input.label}:${input.member}:${input.turnAt}`;
+}
+
+/** The parts of a `refinement_stalled` case key; the turn time holds colons itself. */
+function refinementStallOf(projectKey: string, caseKey: string): RefinementStallInput | null {
+  const [, taskKey, label, member, ...turnAt] = caseKey.split(':');
+  return taskKey && label && member && turnAt.length
+    ? { projectKey, taskKey, label, member, turnAt: turnAt.join(':') }
+    : null;
+}
+
+/** Session states in which a member is in the middle of a turn. */
+const ENGAGED_STATES: ReadonlySet<string> = new Set([
+  'starting',
+  'working',
+  'waiting_permission',
+  'waiting_input',
+]);
 
 /** One notice per system problem episode; notices never authorize a write. */
 export class OperatorSignals {
@@ -181,6 +218,88 @@ export class OperatorSignals {
     signal.resolvedAt = isoNow(this.deps.ctx);
     if (signal.state === 'pending' || signal.state === 'open') signal.state = 'resolved';
     this.save(signal, visible);
+  }
+
+  /**
+   * Tells the project manager that a member's refinement turn ended without its label (PM-702), as a
+   * report-only signal. The case is checked against the cards, sessions and questions first; then it is
+   * stored as a pending signal (durable, one per turn) and delivered when the PM can be woken. A PM that
+   * cannot take it at all (none, AI off, leave, team pause) is `unavailable` and nothing is stored; a stored
+   * signal that waits (offline engine, admission's line, the wake interval) is `queued`, no failure; a
+   * storage or delivery error is `failed`, and the stored signal stays for the next sweep.
+   */
+  async reportRefinementStall(
+    input: RefinementStallInput,
+  ): Promise<'delivered' | 'queued' | 'unavailable' | 'failed'> {
+    const { ctx, projects } = this.deps;
+    try {
+      const config = await projects.config(input.projectKey);
+      if (
+        !coordinationMemberOf(config) ||
+        !config.team.limits.aiEnabled ||
+        isWorkPaused(ctx.repos.pauses.open(), input.projectKey)
+      )
+        return 'unavailable';
+      // Nothing left to report: the turn changed or the member works again since the runtime looked.
+      if (!this.refinementStall(config, input)) return 'delivered';
+      const signal = this.raise({
+        projectKey: input.projectKey,
+        kind: 'refinement_stalled',
+        caseKey: refinementStallCaseKey(input),
+        taskKey: input.taskKey,
+        subject: input.label,
+      });
+      await this.deliver(input.projectKey);
+      const current = ctx.repos.operatorSignals.get(signal.id);
+      return !current || current.resolvedAt || current.deliveredAt ? 'delivered' : 'queued';
+    } catch {
+      return 'failed';
+    }
+  }
+
+  /**
+   * The facts of a stalled refinement turn when it still stands, else null: the one rule
+   * (`refinementStallRefusal`) read from the card, its recorded turn, the member's sessions and the open
+   * questions of the card now.
+   */
+  private refinementStall(config: ProjectConfig, input: RefinementStallInput): RefinementStallFacts | null {
+    const { ctx, sessions } = this.deps;
+    const { projectKey, taskKey, label, member, turnAt } = input;
+    const task = ctx.repos.tasks.get(taskKey);
+    const inProject = task?.projectKey === projectKey ? task : null;
+    const turn = ctx.repos.timeline.latestOfType(projectKey, taskKey, 'refinement_turn');
+    const step = inProject ? refinementTurn(inProject, config) : null;
+    const data = (turn?.data ?? {}) as Record<string, unknown>;
+    const memberSessions = ctx.repos.sessions.list(projectKey, { member, taskKey });
+    const questions = ctx.repos.inbox.list(projectKey, {
+      state: PENDING_INBOX_STATES,
+      kind: 'question',
+      taskKey,
+    });
+    const refusal = refinementStallRefusal({
+      taskOpen: !!inProject && isOpenTask(inProject),
+      sameTurn:
+        step?.kind === 'step' &&
+        step.label === label &&
+        !!turn &&
+        turn.createdAt === turnAt &&
+        data.label === label &&
+        data.member === member &&
+        data.reason !== 'done' &&
+        data.reason !== 'stopped',
+      labelMissing: !!inProject && !inProject.labels.includes(label),
+      memberActive: memberSessions.some((s) => sessions.isRunning(s.id) && ENGAGED_STATES.has(s.state)),
+      hasOpenQuestion: !turnStalled(questions, config),
+    });
+    if (refusal) return null;
+    const latest = [...memberSessions].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0];
+    return {
+      label,
+      member,
+      turnAt,
+      session: latest ? { id: latest.id, state: latest.state, lastActivityAt: latest.lastActivityAt } : null,
+      openQuestionIds: questions.map((q) => q.id),
+    };
   }
 
   presentation(projectKey: string, id: string, by?: string): OperatorSignalRecord {
@@ -421,6 +540,8 @@ export class OperatorSignals {
           !active.has(signal.caseKey)
         )
           this.resolve(key, signal.caseKey);
+        if (signal.kind === 'refinement_stalled' && !signal.resolvedAt && !this.caseHolds(config, signal))
+          this.resolve(key, signal.caseKey);
         if (
           signal.kind === 'stalled' &&
           this.deps.ctx.repos.sessions.get(signal.subject ?? '')?.state !== 'waiting_input'
@@ -533,6 +654,10 @@ export class OperatorSignals {
         task.stageId === s.subject &&
         taskWaits.ofCard(config, task)?.reason === 'nobody'
       );
+    }
+    if (s.kind === 'refinement_stalled') {
+      const stall = refinementStallOf(s.projectKey, s.caseKey);
+      return !!config && !!stall && !!this.refinementStall(config, stall);
     }
     if (s.kind === 'silent' || s.kind === 'stalled') {
       const session = ctx.repos.sessions.get(s.subject ?? '');
@@ -767,6 +892,11 @@ export class OperatorSignals {
     return sameCaseSteps >= OPERATOR_SIGNAL_STEPS.drive;
   }
 
+  private refinementStallFacts(config: ProjectConfig, signal: OperatorSignalRecord) {
+    const stall = refinementStallOf(signal.projectKey, signal.caseKey);
+    return stall ? this.refinementStall(config, stall) : null;
+  }
+
   private answerStalledFacts(signal: OperatorSignalRecord): AnswerStalledFacts | null {
     const member = answerStalledMember(signal.caseKey);
     const task = signal.taskKey ? this.deps.ctx.repos.tasks.get(signal.taskKey) : null;
@@ -915,11 +1045,13 @@ export class OperatorSignals {
                       ? this.readyFacts(s)
                       : s.kind === 'answer_stalled'
                         ? this.answerStalledFacts(s)
-                        : s.inboxItemId
-                          ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                          : s.subject
-                            ? ctx.repos.sessions.get(s.subject)?.activity
-                            : null,
+                        : s.kind === 'refinement_stalled'
+                          ? { refinement: this.refinementStallFacts(config, s) }
+                          : s.inboxItemId
+                            ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                            : s.subject
+                              ? ctx.repos.sessions.get(s.subject)?.activity
+                              : null,
                 step: this.stepOf(level, config, s),
                 steps_left: budget.left,
                 next_step_at: budget.nextAt,

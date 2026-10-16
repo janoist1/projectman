@@ -15,6 +15,19 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
   module: 'services/operator',
   tools: [
     defineTool({
+      name: 'get_operator_diagnostics',
+      title: 'Read filtered task diagnostics',
+      readOnly: true,
+      description:
+        'Only the Operator in its owner general conversation or the selected PM in its internal general session; never guests or customer conversations. Needs no owner request. Reads current task state, structured session activity, delivery receipts, check outcomes and available engine metrics. limit applies independently to each list, newest first. No transcripts, screens, raw errors, commands, environment or SQL. One reading suggests possible causes; it does not prove a cause. Recheck before concluding.',
+      input: { task_key: TaskKey, limit: z.number().int().min(1).max(20).default(10) },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.getOperatorDiagnostics(ctx, { taskKey: args.task_key, limit: args.limit }),
+        );
+      },
+    }),
+    defineTool({
       name: 'get_operator_knowledge',
       title: 'Read approved shared Operator knowledge',
       readOnly: true,

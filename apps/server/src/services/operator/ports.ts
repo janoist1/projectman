@@ -9,8 +9,15 @@ import type {
   Task,
   TaskStartWaiting,
   WorkItemRef,
+  OperatorDiagnostics,
 } from '@projectman/shared';
 import type { EnsureSessionResult, ReleaseStateReport } from '../../contracts';
+
+/** Filtered check history and engine-bound machine readings, composed by assembly. */
+export interface OperatorDiagnosticSources {
+  checks(projectKey: string, taskKey: string): OperatorDiagnostics['checks'];
+  machine(session: Session | undefined): Promise<OperatorDiagnostics['machine']>;
+}
 
 /** The sessions the Operator looks at, stops and wakes (SessionOrchestrator). */
 export interface OperatorSessions {

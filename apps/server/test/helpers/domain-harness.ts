@@ -22,7 +22,7 @@ import { createAttachmentStorage, createMessageAttachmentStorage } from '../../s
 import { createTemplateRegistry } from '../../src/core/base';
 import type { ScheduleTimer } from '../../src/services/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
-import type { Domain } from '../../src/assembly';
+import type { Domain, DomainOptions } from '../../src/assembly';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
 import { createLocalEngine } from '../../src/engine-host';
 import { LocalEngineDirectory } from '../../src/runtime/sessions';
@@ -114,6 +114,7 @@ export async function createDomainHarness(
     heavyLockDir?: string;
     /** The machines the sessions run on (PM-311); absent: the one local engine, built from the options above. */
     engines?: EngineDirectory;
+    machineEngine?: DomainOptions['machineEngine'];
     merger?: BranchMerger | null;
     /** The project and repository that are the instance itself (PM-491); absent: releases are off. */
     releaseTarget?: { projectKey: string; repo: string };
@@ -193,6 +194,7 @@ export async function createDomainHarness(
           }
         : {}),
     engineName: opts.engineName,
+    machineEngine: opts.machineEngine,
     ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
     ...(opts.appTag ? { appTag: opts.appTag } : {}),
     // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).

@@ -382,6 +382,32 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       });
     },
 
+    async getOperatorDiagnostics(ctx, args) {
+      await enter('getOperatorDiagnostics', ctx, args);
+      return {
+        task: {
+          taskKey: args.taskKey,
+          title: 'Task',
+          stageId: 'dev',
+          stageKind: 'work',
+          assignee: null,
+          labels: [],
+          startWaiting: null,
+          startBlock: null,
+          missingGateLabels: [],
+          openQuestions: [],
+          session: null,
+          holds: [],
+          wait: null,
+          signals: [],
+        },
+        asOf: '2026-10-16T10:00:00.000Z',
+        sessions: [],
+        deliveries: [],
+        checks: [],
+        machine: null,
+      };
+    },
     async getProjectState(ctx, args) {
       await enter('getProjectState', ctx, args);
       return {

@@ -36,6 +36,7 @@ export const TEAM_TOOL_NAMES = [
   'list_members',
   'get_task',
   'get_project_state',
+  'get_operator_diagnostics',
   'list_tasks',
   'merge_task',
   'prioritize_merge',

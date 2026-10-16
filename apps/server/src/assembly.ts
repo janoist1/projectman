@@ -1134,6 +1134,60 @@ export function createDomain(opts: DomainOptions) {
     operatorSignals,
     messageStarts,
     releases,
+    requests: operatorRequests,
+    diagnostics: {
+      checks(projectKey, taskKey) {
+        const checks = opts.repos.fullTestRuns.forTask(taskKey).flatMap((run) =>
+          run.projectKey === projectKey &&
+          run.finishedAt &&
+          (run.status === 'passed' || run.status === 'failed' || run.status === 'error')
+            ? [
+                {
+                  runId: run.id,
+                  outcome: run.status,
+                  failedFiles: [...run.failedFiles],
+                  at: run.finishedAt,
+                },
+              ]
+            : [],
+        );
+        for (const merge of [
+          opts.repos.taskMerges.open(projectKey, taskKey),
+          opts.repos.taskMerges.latestMerged(projectKey, taskKey),
+        ]) {
+          const check = merge?.check;
+          if (!merge || !check?.runId || checks.some((run) => run.runId === check.runId)) continue;
+          checks.push({
+            runId: check.runId,
+            outcome: check.status,
+            failedFiles: merge.failure?.reason === 'check_failed' ? [...(merge.failure.files ?? [])] : [],
+            at: merge.failure?.at ?? merge.finishedAt ?? merge.updatedAt,
+          });
+        }
+        return checks;
+      },
+      async machine(session) {
+        // The cloud monitor's cached sample and CPU reference carry no engine identity.
+        // Until both are engine-bound, even a fresh-looking cloud sample is unproven.
+        if (!session || opts.machineEngine) return null;
+        const id = engineIdOf(session);
+        const host = engines.get(id);
+        if (!host || id !== LOCAL_ENGINE_ID) return null;
+        const [view, freeDiskBytes] = await Promise.all([
+          machine.view({ panel: false }),
+          host.freeDiskBytes(),
+        ]);
+        if (!engines.get(id)) return null;
+        return {
+          engineId: id,
+          cpuLoad: view.summary.cpuPercent,
+          memoryUsedBytes: view.summary.memoryUsedBytes,
+          memoryTotalBytes: view.summary.memoryTotalBytes,
+          freeDiskBytes,
+          measuredAt: view.sampledAt,
+        };
+      },
+    },
   });
   const sessionEngine = (sessionId: string) => engines.get(sessions.engineOf(sessionId)) ?? undefined;
   const toolCaller = new ToolCaller({

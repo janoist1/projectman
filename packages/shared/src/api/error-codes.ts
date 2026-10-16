@@ -232,6 +232,7 @@ export const ERROR_CODES = [
   'operator_no_request',
   'operator_never',
   'operator_only',
+  'project_manager_only',
   'operator_preference_no_person',
   'operator_approval_stale',
   'operator_agreement_pending',

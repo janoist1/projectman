@@ -1,7 +1,13 @@
 import type { ToolContext } from '../../contracts';
 import { TeamToolError } from '../../contracts';
 import type { ToolCaller } from '../caller';
-import { isOperator, memberOf, messageRoute, sessionWorkItemOf } from '@projectman/shared';
+import {
+  coordinationMemberOf,
+  isOperator,
+  memberOf,
+  messageRoute,
+  sessionWorkItemOf,
+} from '@projectman/shared';
 import type { ProjectConfig, WorkItemRef } from '@projectman/shared';
 import type { MessageToolsHandler } from '../../contracts';
 import type { SentMessageRecipient, WorkspaceFile } from '../../contracts';
@@ -79,6 +85,7 @@ export class MessageTools implements MessageToolsHandler {
       );
       const { config, guest } = who;
       const operator = isOperator(memberOf(config, ctx.member));
+      const coordinator = coordinationMemberOf(config)?.handle === ctx.member;
       // In a guest's conversation the Operator answers that person and nobody else; that is no step (PM-475).
       if (guest) {
         const other = args.to.find((handle) => handle !== guest.handle);
@@ -141,7 +148,7 @@ export class MessageTools implements MessageToolsHandler {
                 // The report sits under the round of the own steps on signals when no request is open (PM-545).
                 operatorRequest:
                   who.request?.id ??
-                  (operator ? this.operatorRequests.roundFor(ctx.sessionId)?.id : undefined),
+                  (operator || coordinator ? this.operatorRequests.roundFor(ctx.sessionId)?.id : undefined),
                 operatorSignals: signal
                   ? ids.map((id) => ({
                       id,

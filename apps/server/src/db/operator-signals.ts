@@ -2,6 +2,7 @@ import type { OperatorSignal, OperatorSignalKind } from '@projectman/shared';
 import type { Db } from './database';
 
 export interface OperatorSignalRecord extends OperatorSignal {
+  deliveredTo: string | null;
   projectKey: string;
   decisionNote: string | null;
   caseKey: string;
@@ -12,7 +13,7 @@ export interface OperatorSignalRecord extends OperatorSignal {
 const columns = `id, project_key AS projectKey, case_key AS caseKey, kind, state, actionable,
   task_key AS taskKey, subject, inbox_item_id AS inboxItemId, message_id AS messageId,
   raised_at AS raisedAt, decided_by AS decidedBy, decided_at AS decidedAt, resolved_at AS resolvedAt,
-  delivered_at AS deliveredAt, follow_up_at AS followUpAt, decision_note AS decisionNote`;
+  delivered_at AS deliveredAt, delivered_to AS deliveredTo, follow_up_at AS followUpAt, decision_note AS decisionNote`;
 type Row = Omit<OperatorSignalRecord, 'actionable'> & { actionable: number };
 const record = (row: Row): OperatorSignalRecord => ({ ...row, actionable: !!row.actionable });
 
@@ -49,17 +50,17 @@ export function createOperatorSignalRepository(db: Db) {
     insert(signal: OperatorSignalRecord): void {
       db.prepare(
         `INSERT INTO operator_signals (id, project_key, case_key, kind, state, actionable,
-        task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note)
+        task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to)
         VALUES (@id, @projectKey, @caseKey, @kind, @state, @actionable, @taskKey, @subject,
-        @inboxItemId, @messageId, @raisedAt, @decidedBy, @decidedAt, @resolvedAt, @deliveredAt, @followUpAt, @decisionNote)`,
-      ).run({ ...signal, actionable: Number(signal.actionable) });
+        @inboxItemId, @messageId, @raisedAt, @decidedBy, @decidedAt, @resolvedAt, @deliveredAt, @followUpAt, @decisionNote, @deliveredTo)`,
+      ).run({ ...signal, deliveredTo: signal.deliveredTo ?? null, actionable: Number(signal.actionable) });
     },
     save(signal: OperatorSignalRecord): void {
       db.prepare(
         `UPDATE operator_signals SET state = @state, actionable = @actionable,
         message_id = @messageId, decided_by = @decidedBy, decided_at = @decidedAt, decision_note = @decisionNote,
-        resolved_at = @resolvedAt, delivered_at = @deliveredAt, follow_up_at = @followUpAt WHERE id = @id`,
-      ).run({ ...signal, actionable: Number(signal.actionable) });
+        resolved_at = @resolvedAt, delivered_at = @deliveredAt, delivered_to = @deliveredTo, follow_up_at = @followUpAt WHERE id = @id`,
+      ).run({ ...signal, deliveredTo: signal.deliveredTo ?? null, actionable: Number(signal.actionable) });
     },
     /** Schedules the signal to be shown again at `at`, unless it is closed. */
     followUp(id: string, at: string): void {
@@ -69,18 +70,18 @@ export function createOperatorSignalRepository(db: Db) {
       );
     },
     /** Shows signals to the Operator again: back to pending, unpresented, the follow-up used up. */
-    redelivered(ids: string[], at: string): void {
+    redelivered(ids: string[], at: string, deliveredTo: string | null = null): void {
       const statement = db.prepare(
-        `UPDATE operator_signals SET state = 'pending', message_id = NULL, actionable = 0, delivered_at = ?,
+        `UPDATE operator_signals SET state = 'pending', message_id = NULL, actionable = 0, delivered_at = ?, delivered_to = ?,
          follow_up_at = NULL WHERE id = ? AND resolved_at IS NULL AND state IN ('pending', 'open')`,
       );
-      for (const id of ids) statement.run(at, id);
+      for (const id of ids) statement.run(at, deliveredTo, id);
     },
-    delivered(ids: string[], at: string): void {
+    delivered(ids: string[], at: string, deliveredTo: string | null = null): void {
       const statement = db.prepare(
-        "UPDATE operator_signals SET delivered_at = ? WHERE id = ? AND state = 'pending' AND delivered_at IS NULL",
+        "UPDATE operator_signals SET delivered_at = ?, delivered_to = ? WHERE id = ? AND state IN ('pending', 'open') AND message_id IS NULL AND resolved_at IS NULL",
       );
-      for (const id of ids) statement.run(at, id);
+      for (const id of ids) statement.run(at, deliveredTo, id);
     },
   };
 }

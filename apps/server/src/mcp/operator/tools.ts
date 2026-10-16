@@ -71,7 +71,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       name: 'get_project_state',
       title: 'Read project state',
       description:
-        "Operator only, in the owners' conversation or a system-signal turn; unavailable in guest conversations. The source of every fact the Operator states about the running system: the running version and release, why a card is waiting, what became of a start or a message, or the project overview (stages, live and idle sessions, waiting starts, pauses and open owner inbox items). This read needs no open owner request. Explain the result to the owner in the project language.",
+        'Operator or selected PM, in their internal general conversation; unavailable in guest conversations. The source of facts about the running system: the running version and release, why a card is waiting, what became of a start or a message, or the project overview (stages, live and idle sessions, waiting starts, pauses and open owner inbox items). This read needs no open owner request. Explain the result to the owner in the project language.',
       readOnly: true,
       input: {
         task_key: TaskKey.optional().describe(
@@ -123,7 +123,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Screen an AI member’s question',
       readOnly: false,
       description:
-        'Only the Operator, not in a guest conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (only a person can do it; needs todo with the exact step: what, where, expected; the inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.',
+        'Only the selected PM in its internal general conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (only a person can do it; needs todo with the exact step: what, where, expected; the inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.',
       input: {
         item_id: z.string().min(1).max(100).describe('The question’s inbox item id from the notice.'),
         outcome: z.enum(['answered', 'forwarded', 'moot', 'decision', 'todo']),
@@ -173,7 +173,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        "Only the Operator, not in a guest conversation; needs no owner request. Close a ready_waiting system signal of your wake-up that needs nothing, instead of bringing it to the owners: every card it names waits on purpose (for example no priority and outside the focus, parked, or waiting for a person). Give the reason in note. It does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
+        "Only the selected PM in its internal general conversation; needs no owner request. Close a ready_waiting system signal of your wake-up that needs nothing, instead of bringing it to the owners: every card it names waits on purpose (for example no priority and outside the focus, parked, or waiting for a person). Give the reason in note. It does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
       async run({ ctx, args, handler }) {
         const result = await handler.dismissSignal(ctx, { signalId: args.signal_id, note: args.note });
@@ -186,7 +186,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start work on a task',
       readOnly: false,
       description:
-        "Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the Operator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
+        "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites does not grant the PM an override. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
       input: {
         task_key: TaskKey,
         assignee: MemberHandle.optional(),
@@ -211,7 +211,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       readOnly: false,
       description:
         'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended. ' +
-        "Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the Operator act on signals, it starts the member the signal names.",
+        "Only the selected PM in its internal general conversation, during its own open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the coordinator act on signals, it starts the member the signal names.",
       input: {
         member: MemberHandle,
         despite_workers: z.boolean().optional(),

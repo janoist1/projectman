@@ -3021,6 +3021,46 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 **Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
 new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
 
+### Coordination belongs to the PM (PM-707)
+
+The selected live PM (`coordinationMemberOf`, shared `config/project-manager.ts`) receives every
+coordination signal and screens AI questions, including the Operator's. Its own questions go directly
+to people. `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
+mutations (`screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
+actual internal general session; other people, customer conversations, other members and external
+tokens cannot use them (`project_manager_only`, HTTP 403 / MCP forbidden). The Operator and internal
+PM may read `get_project_state`; guest access is unchanged.
+
+`CoordinationRequests` uses the existing request/step repositories with separate PM session rows.
+Only delivery of an owner's own-login message or answer opens its request. It expires after 30 minutes
+or at turn/session end; an Operator request and a signal round never authorize a PM start. Filtering
+the Operator channel by the request's session member keeps its own request list separate. Audit actors
+come from the real session; earlier request, message and timeline actors are never rewritten.
+`source: approval` remains reserved and is refused until a validated structural-review continuation
+exists; the Operator's knowledge approval cannot fall back to a PM message request. A human accepting
+the current PM's actionable proposal may open a separate `message` request only after actual delivery:
+the accepted signal, deciding owner, presentation author and delivery binding must all match. Saving
+the decision, pending delivery or replay alone opens no request.
+
+Migration 69 adds nullable `operator_signals.delivered_to`; public `OperatorSignal.deliveredTo` is
+optional for older DTOs. Successful delivery records the PM handle and time together. Unpresented
+legacy or changed-recipient signals are delivered again with the same id, case, evidence and budget.
+Leave invalidates their binding. Presented/accepted legacy proposals retain their original decision
+route. The current actor, target, delivery binding, case facts and persisted step budget are rechecked
+before writes; one in-flight step per signal is allowed. `team.operatorWatch` retains its name and
+report/unblock/drive meaning, without becoming a permission switch or a separate PM budget.
+
+For `answer_stalled`, report allows no start; unblock/drive allow only `start_member` for the same
+card's current assignee, with the existing one/three-step budget, 30-minute gap and task/member mute.
+Gates, prerequisites, permission waits, fix limits and normal admission still bind it. There is no
+signal authority for task movement, configuration, labels, approvals, stopping or critical operations.
+The Operator keeps its existing agreement, settings, knowledge, waiver, document and approval rules.
+The historical Operator coordination paths described below are superseded by this section.
+
+This works on a remote engine: selection, storage and checks stay on the server; the existing engine
+link and session admission boundaries carry the same messages and starts. No machine-dependent part,
+engine protocol, login, sandbox or cloud AI is added.
+
 ### The Operator (PM-447, PM-462, PM-463, PM-464)
 
 Every project has an Operator: an AI member of the built-in role `ai_operator` (duty `project_operation`, AI only;

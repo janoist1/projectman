@@ -7,26 +7,25 @@ export const OperatorWatch = z.enum(OPERATOR_WATCH_LEVELS);
 export type OperatorWatch = z.infer<typeof OperatorWatch>;
 export const DEFAULT_OPERATOR_WATCH: OperatorWatch = 'report';
 
-/** The signal kinds the Operator may close as needing nothing instead of presenting them. */
+/** The signal kinds the coordinator may close as needing nothing instead of presenting them. */
 export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = ['ready_waiting'];
 
-/** How much the Operator does on its own on a system signal (PM-545); absent means report. */
+/** How much the coordinator does on its own on a system signal (PM-545); absent means report. */
 export function operatorWatchOf(config: Pick<ProjectConfig, 'team'>): OperatorWatch {
   return config.team.operatorWatch ?? DEFAULT_OPERATOR_WATCH;
 }
 
-/** How many own steps the Operator may take on one signal at each level. */
+/** How many own steps the coordinator may take on one signal at each level. */
 export const OPERATOR_SIGNAL_STEPS: Record<OperatorWatch, number> = { report: 0, unblock: 1, drive: 3 };
 /** The least time between two own steps on one signal. */
 export const OPERATOR_SIGNAL_STEP_GAP_MINUTES = 30;
 /**
- * The signal kinds the Operator may act on without an owner's request, per level. `answer_stalled`
- * is in none of them: it only reports until the coordinator binding (PM-707) gives it a step.
+ * The signal kinds the coordinator may act on without an owner's request, per level.
  */
 export const OPERATOR_SIGNAL_STEP_KINDS: Record<OperatorWatch, readonly OperatorSignalKind[]> = {
   report: [],
-  unblock: ['idle', 'merge_waiting', 'merge_blocked'],
-  drive: ['idle', 'merge_waiting', 'merge_blocked', 'unreleased', 'ready_waiting'],
+  unblock: ['idle', 'merge_waiting', 'merge_blocked', 'answer_stalled'],
+  drive: ['idle', 'merge_waiting', 'merge_blocked', 'unreleased', 'ready_waiting', 'answer_stalled'],
 };
 /**
  * The signal kinds whose wake-ups go on the project's fast line (PM-694): at most one wake-up per
@@ -35,10 +34,10 @@ export const OPERATOR_SIGNAL_STEP_KINDS: Record<OperatorWatch, readonly Operator
 export const OPERATOR_FAST_SIGNAL_KINDS: readonly OperatorSignalKind[] = ['answer_stalled'];
 /** The least time between two own steps on cards of one member after an `answer_stalled` step. */
 export const OPERATOR_ANSWER_STALL_MUTE_MINUTES = OPERATOR_SIGNAL_STEP_GAP_MINUTES;
-/** The `from` of the request row that carries the Operator's own steps on signals; never a valid handle. */
+/** The `from` of the request row that carries the coordinator's own steps on signals; never a valid handle. */
 export const OPERATOR_SIGNAL_ROUND_FROM = '@signals';
 
-/** What a signal lets the Operator start: `startTask` is the card `start_task` may start; `members` are for `start_member`. */
+/** What a signal lets the coordinator start: `startTask` is the card `start_task` may start; `members` are for `start_member`. */
 export type OperatorSignalStepTargets = {
   startTask: string | null;
   members: string[];
@@ -68,7 +67,7 @@ export function operatorSignalBudget(
 }
 
 /**
- * Why the Operator may not take this step on a signal without an owner's request, or null when it may.
+ * Why the coordinator may not take this step on a signal without an owner's request, or null when it may.
  * It decides in this order: the level, the signal kind, the tool, the target, then the budget.
  */
 export function operatorSignalStepRefusal(input: {

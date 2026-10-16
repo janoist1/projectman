@@ -8,6 +8,7 @@ import type { ErrorCode, IntegratorRefusal } from '@projectman/shared';
 const DEFAULT_STATUS: Partial<Record<ErrorCode, number>> = {
   invalid_request: 400,
   unauthorized: 401,
+  project_manager_only: 403,
   not_found: 404,
   invalid_config: 422,
 };

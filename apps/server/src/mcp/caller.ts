@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   CardBusyDetails,
+  coordinationActorRefusal,
   ERROR_CODES,
   ownerHandles,
   isOperator,
@@ -33,7 +34,7 @@ import {
   OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
 } from '../services/operator';
-import type { OperatorRequests, OperatorSteps } from '../services/operator';
+import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/operator';
 import { canSeeTask } from '../core/projects';
 import type { Viewer } from '../core/projects';
 import type { OperatorSignals } from '../services/operator';
@@ -128,6 +129,8 @@ export interface CallerWithRequest {
   signalId?: string;
   /** The call holds its signal's step slot (`signalStepsRunning`) until `recorded` logs the step. */
   holdsSignalStep?: boolean;
+  beforeWrite?: () => Promise<void>;
+  beforeRecord?: () => void;
 }
 
 /** The Operator's own step on a system signal, as the guard sees it (PM-545). */
@@ -147,11 +150,15 @@ export const OWNER_ONLY = 'operator_owner_only';
 
 export class ToolCaller {
   private readonly ctx: DomainContext;
-  private readonly projects: Pick<ProjectService, 'config'>;
+  private readonly projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
   private readonly tasks: Pick<TaskService, 'find' | 'get'>;
   private readonly operatorRequests: Pick<OperatorRequests, 'openFor' | 'openRound' | 'approvalFor'>;
+  private readonly coordinationRequests: Pick<CoordinationRequests, 'openFor'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
-  private readonly operatorSignals: Pick<OperatorSignals, 'presentation' | 'stepTargets' | 'stepTaken'>;
+  private readonly operatorSignals: Pick<
+    OperatorSignals,
+    'presentation' | 'stepTargets' | 'currentStepTargets' | 'stepTaken'
+  >;
   private readonly sessionEngine:
     | ((
         sessionId: string,
@@ -159,11 +166,15 @@ export class ToolCaller {
     | undefined;
   constructor(deps: {
     ctx: DomainContext;
-    projects: Pick<ProjectService, 'config'>;
+    projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
     tasks: Pick<TaskService, 'find' | 'get'>;
     operatorRequests: Pick<OperatorRequests, 'openFor' | 'openRound' | 'approvalFor'>;
+    coordinationRequests: Pick<CoordinationRequests, 'openFor'>;
     operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
-    operatorSignals: Pick<OperatorSignals, 'presentation' | 'stepTargets' | 'stepTaken'>;
+    operatorSignals: Pick<
+      OperatorSignals,
+      'presentation' | 'stepTargets' | 'currentStepTargets' | 'stepTaken'
+    >;
     sessionEngine?:
       | ((
           sessionId: string,
@@ -174,6 +185,7 @@ export class ToolCaller {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.operatorRequests = deps.operatorRequests;
+    this.coordinationRequests = deps.coordinationRequests;
     this.operatorSteps = deps.operatorSteps;
     this.operatorSignals = deps.operatorSignals;
     this.sessionEngine = deps.sessionEngine;
@@ -193,6 +205,36 @@ export class ToolCaller {
     operation?: OperatorOperation,
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
+    if (['screen_question', 'dismiss_signal', 'start_task', 'start_member'].includes(tool)) {
+      this.assertCoordinationSession(ctx, config);
+      const request = this.coordinationRequests.openFor(ctx.sessionId);
+      if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request: null, guest: null };
+      // A signal always keeps its exact binding and budget, even when an owner request is open.
+      if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
+      if (!request)
+        throw new TeamToolError(
+          'forbidden',
+          'operator_no_request: coordination starts require your own open owner request or a permitted signal.',
+        );
+      const beforeRecord = () => {
+        this.assertCoordinationSession(ctx, this.projects.cachedConfig(ctx.projectKey)!);
+        if (this.coordinationRequests.openFor(ctx.sessionId)?.id !== request.id)
+          throw new TeamToolError(
+            'forbidden',
+            'operator_no_request: the coordination request expired or closed.',
+          );
+      };
+      return {
+        config,
+        request,
+        guest: null,
+        beforeRecord,
+        beforeWrite: async () => {
+          this.assertCoordinationSession(ctx, await this.projects.config(ctx.projectKey));
+          beforeRecord();
+        },
+      };
+    }
     const member = memberOf(config, ctx.member);
     if (member?.kind !== 'ai')
       throw new TeamToolError(
@@ -233,16 +275,17 @@ export class ToolCaller {
       // Signals are the owners' business: never from a guest conversation, never to anyone else.
       if (
         tool !== 'send_message' ||
-        !operator ||
+        coordinationActorRefusal(config, { kind: 'ai', handle: ctx.member }) !== null ||
         guest ||
         signal.ids.length === 0 ||
         signal.to.some((handle) => !isOwner(config, handle))
       )
         throw new TeamToolError(
           'invalid',
-          'invalid_request: only the Operator may present signals to owners.',
+          'invalid_request: only the selected PM may present signals to owners.',
         );
-      for (const id of signal.ids) this.operatorSignals.presentation(ctx.projectKey, id);
+      this.assertCoordinationSession(ctx, config);
+      for (const id of signal.ids) this.operatorSignals.presentation(ctx.projectKey, id, ctx.member);
     }
     if (!operator) return { config, request: null, guest: null };
     if (guest) {
@@ -261,16 +304,7 @@ export class ToolCaller {
         'forbidden',
         `operator_never: ${tool} is not for the Operator. Decisions of other members, hand-overs and publishing outside are not its to do; tell the owner what you found.`,
       );
-    if (signalStep && request) {
-      // An open owner request authorizes the call; the signal is only logged with the step.
-      if (this.ctx.repos.operatorSignals.get(signalStep.signalId)?.projectKey !== ctx.projectKey)
-        throw new TeamToolError('invalid', 'invalid_request: unknown signal in this project.');
-      return { config, request, guest: null, signalId: signalStep.signalId };
-    }
-    // Screening an AI member's question is the Operator's standing duty: no owner request, no step.
-    if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request, guest: null };
     if (!request && !OPERATOR_READ_TOOLS.has(tool) && !signal) {
-      if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
       throw new TeamToolError(
         'forbidden',
         `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +
@@ -333,7 +367,7 @@ export class ToolCaller {
    * Any other caller (`request` null), and a call that is no step (`step` null), just runs.
    */
   async recorded<T>(
-    { config, request, signalId, holdsSignalStep }: CallerWithRequest,
+    { config, request, signalId, holdsSignalStep, beforeWrite }: CallerWithRequest,
     step: {
       action: OperatorAction;
       taskKey?: string | null;
@@ -347,6 +381,7 @@ export class ToolCaller {
     awaitsApproval?: (err: unknown) => boolean,
   ): Promise<T> {
     try {
+      if (beforeWrite) await this.guard(beforeWrite);
       if (!step || !request) return await run();
       const target = {
         action: step.action,
@@ -494,8 +529,12 @@ export class ToolCaller {
         if (err instanceof DomainError) throw new TeamToolError('invalid', `${err.code}: ${err.message}`);
         throw err;
       });
+    const freshConfig = await this.projects.config(ctx.projectKey);
+    this.assertCoordinationSession(ctx, freshConfig);
+    if (signal.deliveredTo !== ctx.member)
+      refuse('operator_signal_closed', 'the signal was not delivered to this PM.');
     const refusal = operatorSignalStepRefusal({
-      level,
+      level: operatorWatchOf(freshConfig),
       kind: signal.kind,
       tool: step.tool,
       target: { member: step.member, taskKey: step.taskKey },
@@ -525,14 +564,72 @@ export class ToolCaller {
         'operator_signal_budget',
         'a step on this signal is still running; wait for its result before you take another.',
       );
+    const request = this.operatorRequests.openRound(ctx.projectKey, ctx.sessionId);
     this.signalStepsRunning.add(signal.id);
+    const card = step.taskKey ? this.tasks.get(ctx.projectKey, step.taskKey) : null;
+    const beforeRecord = () => {
+      const config = this.projects.cachedConfig(ctx.projectKey)!;
+      this.assertCoordinationSession(ctx, config);
+      const { signal: current, allowed } = this.operatorSignals.currentStepTargets(ctx.projectKey, signal.id);
+      const task = card && this.tasks.get(ctx.projectKey, card.key);
+      if (
+        !current ||
+        current.resolvedAt ||
+        current.deliveredTo !== ctx.member ||
+        current.deliveredAt !== signal.deliveredAt ||
+        !['pending', 'open'].includes(current.state) ||
+        (card &&
+          (!task ||
+            task.stageId !== card.stageId ||
+            task.assignee !== card.assignee ||
+            task.status !== card.status ||
+            task.fixLimit ||
+            task.labels.join() !== card.labels.join()))
+      )
+        refuse('operator_signal_closed', 'the signal or its target changed before execution.');
+      const refusal = operatorSignalStepRefusal({
+        level: operatorWatchOf(config),
+        kind: current.kind,
+        tool: step.tool,
+        target: { member: step.member, taskKey: step.taskKey },
+        allowed,
+        stepsAt: this.operatorSteps
+          .ofSignal(signal.id)
+          .filter((s) => s.status !== 'refused')
+          .map((s) => s.at),
+        now: isoNow(this.ctx),
+      });
+      if (refusal) refuse(refusal.code, `the signal no longer permits the step (${refusal.reason}).`);
+    };
     return {
       config,
-      request: this.operatorRequests.openRound(ctx.projectKey, ctx.sessionId),
+      request,
       guest: null,
       signalId: signal.id,
       holdsSignalStep: true,
+      beforeRecord,
+      beforeWrite: async () => {
+        this.assertCoordinationSession(ctx, await this.projects.config(ctx.projectKey));
+        beforeRecord();
+      },
     };
+  }
+
+  /** The token must name the selected PM's internal general session, never a customer conversation. */
+  assertCoordinationSession(ctx: ToolContext, config: ProjectConfig): void {
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    if (
+      coordinationActorRefusal(config, { kind: 'ai', handle: ctx.member }) ||
+      !session ||
+      session.projectKey !== ctx.projectKey ||
+      session.member !== ctx.member ||
+      session.workItem.type !== 'general' ||
+      session.workItem.with
+    )
+      throw new TeamToolError(
+        'forbidden',
+        'project_manager_only: coordination requires the selected PM internal conversation.',
+      );
   }
 
   /**

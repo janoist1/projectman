@@ -1305,5 +1305,10 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     );
     CREATE INDEX session_cleanups_session ON session_cleanups(session_id);`,
   },
+  {
+    version: 69,
+    name: 'coordination signal recipient',
+    sql: 'ALTER TABLE operator_signals ADD COLUMN delivered_to TEXT;',
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

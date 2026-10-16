@@ -15,6 +15,8 @@ const by = { actor: OWNER_ACTOR, author: OWNER };
 async function setup(adjust?: (config: ProjectConfig) => void) {
   h = await createDomainHarness({
     adjust: (config) => {
+      const pm = config.team.members.find((m) => m.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.onLeave = false;
       config.team.members.push({
         ...(memberOf(config, 'dev-1') as AiMemberConfig),
         handle: 'devops',
@@ -24,13 +26,13 @@ async function setup(adjust?: (config: ProjectConfig) => void) {
       adjust?.(config);
     },
   });
-  await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'Check the engine.' });
+  await h.domain.messaging.sendReporting('AR', 'owner', { to: ['pm'], text: 'Check the engine.' });
   await flush();
   ctx = {
     projectKey: 'AR',
-    member: 'operator',
+    member: 'pm',
     taskKey: null,
-    sessionId: h.domain.sessions.list('AR', { member: 'operator' })[0]!.id,
+    sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
   };
 }
 const start = () => h.domain.teamTools.startMember(ctx, { member: 'devops', text: 'Check the engine.' });
@@ -51,7 +53,7 @@ describe('Operator member starts without a card (PM-546)', () => {
       'Check the engine.',
     );
     expect(h.repos.messages.get(result.messageId)).toMatchObject({
-      from: 'operator',
+      from: 'pm',
       to: ['devops'],
       taskKey: null,
       kind: 'action',
@@ -106,7 +108,7 @@ describe('Operator member starts without a card (PM-546)', () => {
 
   it.each([
     ['owner', 'invalid', 'not_ai_member'],
-    ['operator', 'invalid', 'cannot_start_self'],
+    ['pm', 'invalid', 'cannot_start_self'],
     ['unknown', 'not_found', 'Unknown team member'],
   ])('refuses recipient %s before sending', async (member, code, message) => {
     await setup();
@@ -124,7 +126,7 @@ describe('Operator member starts without a card (PM-546)', () => {
     const before = h.repos.messages.list('AR');
     await expect(
       h.domain.teamTools.startMember({ ...ctx, member: 'dev-1' }, { member: 'devops', text: 'Work' }),
-    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('operator_only') });
+    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('project_manager_only') });
     h.runner.setState(ctx.sessionId, 'working');
     h.runner.setState(ctx.sessionId, 'idle');
     await flush();
@@ -153,19 +155,19 @@ describe('Operator member starts without a card (PM-546)', () => {
     await h.domain.messaging.sendReporting(
       'AR',
       'guest',
-      { to: ['operator'], text: 'Start devops.' },
+      { to: ['pm'], text: 'Start devops.' },
       { awaitWake: true },
     );
     await flush();
-    ctx.sessionId = h.domain.sessions
-      .list('AR', { member: 'operator' })
-      .find((s) => s.workItem.type === 'general' && s.workItem.with === 'guest')!.id;
+    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    ctx.sessionId = 'ses_pm_guest';
+    h.repos.sessions.insert({ ...session, id: ctx.sessionId, workItem: { type: 'general', with: 'guest' } });
     const before = h.repos.messages.list('AR');
     await expect(start()).rejects.toMatchObject({
       code: 'forbidden',
-      message: expect.stringContaining('operator_owner_only'),
+      message: expect.stringContaining('project_manager_only'),
     });
     expect(h.repos.messages.list('AR')).toEqual(before);
-    expect(steps().at(-1)).toMatchObject({ action: 'task_start', status: 'refused' });
+    expect(steps()).toEqual([]);
   });
 });

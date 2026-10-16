@@ -46,7 +46,11 @@ async function setup(
     now: () => now,
     ...(opts.target ? { releaseTarget: { projectKey: 'AR', repo: 'web' } } : {}),
     ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
-    ...(opts.adjust ? { adjust: opts.adjust } : {}),
+    adjust: (config) => {
+      const pm = config.team.members.find((m) => m.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.onLeave = false;
+      opts.adjust?.(config);
+    },
   });
 }
 
@@ -450,11 +454,11 @@ describe('ready_waiting signal', () => {
     await setup({ adjust: withReadyQueue });
     const card = await place({ stageId: 'ready', status: 'active' });
     const signal = await deliverReady();
-    expect(h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'operator', 'Parked.')).toMatchObject({
+    expect(h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'pm', 'Parked.')).toMatchObject({
       state: 'dismissed',
     });
     expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({
-      decidedBy: 'operator',
+      decidedBy: 'pm',
       decisionNote: 'Parked.',
     });
     await sweep();
@@ -474,7 +478,7 @@ describe('ready_waiting signal', () => {
     await setup({ adjust: withReadyQueue });
     const first = await place({ stageId: 'ready', status: 'active' });
     const signal = await deliverReady();
-    h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'operator', 'Parked.');
+    h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'pm', 'Parked.');
     later(1);
     const second = await place({ stageId: 'ready', status: 'active' });
     await sweep();
@@ -493,7 +497,7 @@ describe('ready_waiting signal', () => {
       await setup({ adjust: withReadyQueue });
       const card = await place({ stageId: 'ready', status: 'active' });
       const signal = await deliverReady();
-      h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'operator', 'Parked.');
+      h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'pm', 'Parked.');
       h.repos.tasks.update(card.id, { stageId: 'backlog' });
       if (intermediateSweep) await sweep();
       later(1);
@@ -571,15 +575,15 @@ describe('ready_waiting signal', () => {
 
   it('refuses unknown and foreign signals before checking their kind', async () => {
     await setup();
-    expect(() => h.domain.operatorSignals.dismissByOperator('AR', 'unknown', 'operator', 'Note')).toThrow(
+    expect(() => h.domain.operatorSignals.dismissByOperator('AR', 'unknown', 'pm', 'Note')).toThrow(
       'unknown signal',
     );
     const other = h.domain.operatorSignals.raise({ projectKey: 'OTHER', kind: 'idle', caseKey: 'idle:x' });
-    expect(() => h.domain.operatorSignals.dismissByOperator('AR', other.id, 'operator', 'Note')).toThrow(
+    expect(() => h.domain.operatorSignals.dismissByOperator('AR', other.id, 'pm', 'Note')).toThrow(
       'unknown signal',
     );
     const idle = h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'idle', caseKey: 'idle:x' });
-    expect(() => h.domain.operatorSignals.dismissByOperator('AR', idle.id, 'operator', 'Note')).toThrow(
+    expect(() => h.domain.operatorSignals.dismissByOperator('AR', idle.id, 'pm', 'Note')).toThrow(
       'may not dismiss this signal kind',
     );
   });
@@ -597,7 +601,7 @@ describe('ready_waiting signal', () => {
       if (how === 'dismissed' || how === 'accepted') signal.state = how;
       if (how === 'case ended') h.repos.tasks.update(card.id, { stageId: 'backlog' });
       h.repos.operatorSignals.save(signal);
-      expect(() => h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'operator', 'Note')).toThrow(
+      expect(() => h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'pm', 'Note')).toThrow(
         'the signal is no longer open',
       );
     },

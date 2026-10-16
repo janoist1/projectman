@@ -123,9 +123,6 @@ export class OperatorTools implements OperatorToolsHandler {
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.calls.guard(async () => {
-      const config = await this.projects.config(ctx.projectKey);
-      if (!isOperator(memberOf(config, ctx.member)))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may dismiss signals.');
       await this.calls.callerWithRequest(ctx, 'dismiss_signal');
       try {
         const signal = this.operatorSignals.dismissByOperator(
@@ -146,8 +143,7 @@ export class OperatorTools implements OperatorToolsHandler {
     return this.calls.guard(async () => {
       const config = await this.calls.caller(ctx, 'get_project_state');
       const member = memberOf(config, ctx.member);
-      if (!member || !isOperator(member))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may read project state.');
+      if (!isOperator(member)) this.calls.assertCoordinationSession(ctx, config);
       if (args.messageId !== undefined) {
         if (args.taskKey !== undefined)
           throw new TeamToolError('invalid', 'Give either task_key or message_id, not both.');
@@ -180,8 +176,8 @@ export class OperatorTools implements OperatorToolsHandler {
   }
 
   /**
-   * The Operator settles a question it screens (PM-558): it answers it, passes it to a member, closes it as
-   * moot, or sends it on to the people as a decision or a todo. Only the Operator, and not from a guest
+   * The PM settles a question it screens: it answers it, passes it to a member, closes it as
+   * moot, or sends it on to the people as a decision or a todo. Only the selected PM, never from a guest
    * conversation. Throws before anything changes when the fields do not fit the outcome.
    */
   async screenQuestion(
@@ -196,10 +192,7 @@ export class OperatorTools implements OperatorToolsHandler {
     },
   ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }> {
     return this.calls.guard(async () => {
-      const config = await this.projects.config(ctx.projectKey);
-      if (!isOperator(memberOf(config, ctx.member)))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may screen questions.');
-      await this.calls.callerWithRequest(ctx, 'screen_question');
+      const { config } = await this.calls.callerWithRequest(ctx, 'screen_question');
       const { outcome } = args;
       const note = args.note.trim();
       const answer = args.answer?.trim();
@@ -225,17 +218,19 @@ export class OperatorTools implements OperatorToolsHandler {
       const asker = memberOf(config, item.source);
       // A moot question may also be one that already went to the people, if an AI member asked it.
       const mootOpen =
-        outcome === 'moot' && item.state === 'open' && asker?.kind === 'ai' && !isOperator(asker);
+        outcome === 'moot' && item.state === 'open' && asker?.kind === 'ai' && item.source !== ctx.member;
+      if (item.source === ctx.member)
+        throw new TeamToolError('forbidden', 'project_manager_only: the PM cannot screen its own question.');
       if (item.state !== 'screening' && !mootOpen)
         throw new TeamToolError(
           'invalid',
-          `question_not_screening: ${item.id} is not waiting for the Operator (it is ${item.state}).`,
+          `question_not_screening: ${item.id} is not waiting for the PM (it is ${item.state}).`,
         );
       if (forwardTo !== undefined) {
         const recipient = memberOf(config, forwardTo);
-        if (recipient?.kind !== 'ai' || isOperator(recipient) || forwardTo === item.source)
+        if (recipient?.kind !== 'ai' || forwardTo === ctx.member || forwardTo === item.source)
           throw fieldError(
-            `forward_to must be an AI member of the project other than the asker and the Operator; ${forwardTo} is not.`,
+            `forward_to must be an AI member of the project other than the asker and the PM; ${forwardTo} is not.`,
           );
       }
       const by = ctx.member;
@@ -266,7 +261,7 @@ export class OperatorTools implements OperatorToolsHandler {
       if (!settled)
         throw new TeamToolError(
           'invalid',
-          `question_not_screening: ${item.id} is not waiting for the Operator any more.`,
+          `question_not_screening: ${item.id} is not waiting for the PM any more.`,
         );
       return { inboxItemId: item.id, outcome };
     });
@@ -276,12 +271,6 @@ export class OperatorTools implements OperatorToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
   ) {
-    const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError(
-        'forbidden',
-        'operator_only: only the Operator may start tasks through this tool.',
-      );
     const { signalId, ...startArgs } = args;
     // On a signal the call starts the card's own assignee and nothing else (PM-545).
     if (signalId !== undefined && (args.assignee !== undefined || args.despitePrerequisites !== undefined))
@@ -297,25 +286,33 @@ export class OperatorTools implements OperatorToolsHandler {
         ? { signalId, tool: 'start_task', member: null, taskKey: args.taskKey }
         : undefined,
     );
+    const config = caller.config;
     return this.calls
       .recorded<Awaited<ReturnType<OperatorToolsHandler['startTask']>>>(
         caller,
         { action: 'task_start', taskKey: args.taskKey, madeMember: (result) => result.hired },
         async () => {
-          const operator = memberOf(config, ctx.member)!;
+          const coordinator = memberOf(config, ctx.member)!;
           const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
           const card = signalId !== undefined ? this.tasks.get(ctx.projectKey, taskKey) : null;
           if (card && !card.assignee)
             throw new TeamToolError('invalid', 'invalid_request: the card has no assignee to start.');
           const result = await this.taskStarts.start(ctx.projectKey, taskKey, {
             ...startArgs,
+            stillWanted: () => {
+              caller.beforeRecord?.();
+              return true;
+            },
             actor: aiActor(ctx.member),
-            author: { name: operator.displayName, email: `${ctx.member}@projectman.local` },
+            author: { name: coordinator.displayName, email: `${ctx.member}@projectman.local` },
             ...(card
               ? {
                   // The assignee as the signal named it; a card that moved on meanwhile is left alone.
                   assignee: card.assignee!,
-                  stillWanted: (now: Task) => now.assignee === card.assignee && now.stageId === card.stageId,
+                  stillWanted: (now: Task) => {
+                    caller.beforeRecord?.();
+                    return now.assignee === card.assignee && now.stageId === card.stageId;
+                  },
                 }
               : { startSetters: true, sponsor: caller.request!.fromHandle }),
           });
@@ -342,12 +339,6 @@ export class OperatorTools implements OperatorToolsHandler {
     ctx: ToolContext,
     args: { member: string; text: string; taskKey?: string; signalId?: string; despiteWorkers?: boolean },
   ): Promise<MemberStartResult> {
-    const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError(
-        'forbidden',
-        'operator_only: only the Operator may start members through this tool.',
-      );
     const who = await this.calls.callerWithRequest(
       ctx,
       'start_member',
@@ -361,46 +352,53 @@ export class OperatorTools implements OperatorToolsHandler {
           }
         : undefined,
     );
-    return this.calls.recorded<MemberStartResult>(
-      who,
-      { action: 'task_start', taskKey: args.taskKey ?? null, member: args.member },
-      async () => {
-        // The message is the card's: the member needs a role on it (PM-545).
-        const card = args.taskKey
-          ? this.tasks.get(ctx.projectKey, this.calls.validTaskKey(ctx, args.taskKey))
-          : null;
-        const member = memberOf(config, args.member);
-        if (!member) throw new TeamToolError('not_found', `Unknown team member: ${args.member}.`);
-        if (member.kind === 'human')
-          throw new TeamToolError(
-            'invalid',
-            `not_ai_member: ${args.member} is a person; ask them with ask_human.`,
-          );
-        if (isOperator(member)) throw new TeamToolError('invalid', 'cannot_start_self');
-        if (card && !recipientHasCardRole(this.ctx, config, card, member.handle))
-          throw new TeamToolError(
-            'invalid',
-            `not_card_role: ${member.handle} has no role on ${card.key}; start a member who holds it, or use start_task.`,
-          );
-        const { message, recipients } = await this.messaging
-          .sendReporting(
-            ctx.projectKey,
-            ctx.member,
-            { to: [member.handle], text: args.text, taskKey: card?.key ?? null },
-            {
-              actor: aiActor(ctx.member),
-              sessionId: ctx.sessionId,
-              kind: 'action',
-              operatorRequest: who.request!.id,
-              awaitWake: true,
-              workerCheck: !args.despiteWorkers,
-            },
-          )
-          .catch((err: unknown) => {
-            throw toMessageToolError(err);
-          });
-        return { messageId: message.id, recipient: recipients[0]! };
-      },
-    );
+    const config = who.config;
+    return this.calls
+      .recorded<MemberStartResult>(
+        who,
+        { action: 'task_start', taskKey: args.taskKey ?? null, member: args.member },
+        async () => {
+          // The message is the card's: the member needs a role on it (PM-545).
+          const card = args.taskKey
+            ? this.tasks.get(ctx.projectKey, this.calls.validTaskKey(ctx, args.taskKey))
+            : null;
+          const member = memberOf(config, args.member);
+          if (!member) throw new TeamToolError('not_found', `Unknown team member: ${args.member}.`);
+          if (member.kind === 'human')
+            throw new TeamToolError(
+              'invalid',
+              `not_ai_member: ${args.member} is a person; ask them with ask_human.`,
+            );
+          if (isOperator(member) || member.handle === ctx.member)
+            throw new TeamToolError('invalid', 'cannot_start_self');
+          if (card && !recipientHasCardRole(this.ctx, config, card, member.handle))
+            throw new TeamToolError(
+              'invalid',
+              `not_card_role: ${member.handle} has no role on ${card.key}; start a member who holds it, or use start_task.`,
+            );
+          const { message, recipients } = await this.messaging
+            .sendReporting(
+              ctx.projectKey,
+              ctx.member,
+              { to: [member.handle], text: args.text, taskKey: card?.key ?? null },
+              {
+                actor: aiActor(ctx.member),
+                sessionId: ctx.sessionId,
+                kind: 'action',
+                operatorRequest: who.request!.id,
+                awaitWake: true,
+                workerCheck: !args.despiteWorkers,
+                beforeRecord: who.beforeRecord,
+              },
+            )
+            .catch((err: unknown) => {
+              throw toMessageToolError(err);
+            });
+          return { messageId: message.id, recipient: recipients[0]! };
+        },
+      )
+      .catch((err: unknown) => {
+        throw toToolError(err);
+      });
   }
 }

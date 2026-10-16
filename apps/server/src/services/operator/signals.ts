@@ -7,6 +7,7 @@ import type {
 } from './ports';
 import {
   answerStallEvidence,
+  conditionHolds,
   dutyMembers,
   isOpenTask,
   isTheme,
@@ -19,7 +20,7 @@ import {
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
   formatInjectedTeamMessage,
   isOperator,
-  operatorOf,
+  coordinationMemberOf,
   projectManagersOf,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
@@ -32,6 +33,7 @@ import {
   isOnLeave,
   isWorkPaused,
   memberOf,
+  openPrerequisites,
   stageOf,
   stageOwners,
   OPERATOR_IDLE_MINUTES,
@@ -104,7 +106,7 @@ const WAKE_STEP =
 const WAKE_DISMISS =
   'A ready_waiting signal whose cards all wait on purpose you close with dismiss_signal and a note instead of bringing it to the owners; new_cards in its facts are the cards that became ready since the last close.';
 
-/** The wake-up text by level; it says in short what `operatorRule` (context/system-prompt.ts) says. */
+/** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
   report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
   unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
@@ -162,6 +164,7 @@ export class OperatorSignals {
       decisionNote: null,
       resolvedAt: null,
       deliveredAt: null,
+      deliveredTo: null,
       followUpAt: null,
     };
     ctx.repos.operatorSignals.insert(signal);
@@ -177,7 +180,7 @@ export class OperatorSignals {
     this.save(signal, visible);
   }
 
-  presentation(projectKey: string, id: string): OperatorSignalRecord {
+  presentation(projectKey: string, id: string, by?: string): OperatorSignalRecord {
     const signal = this.deps.ctx.repos.operatorSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
@@ -185,6 +188,8 @@ export class OperatorSignals {
       signal.resolvedAt ||
       signal.messageId ||
       !signal.deliveredAt ||
+      signal.deliveredTo !== coordinationMemberOf(this.deps.projects.cachedConfig(projectKey)!)?.handle ||
+      (by !== undefined && signal.deliveredTo !== by) ||
       !(signal.state === 'open' || signal.state === 'pending')
     )
       throw conflict('operator_signal_closed', 'the signal is no longer open for presentation');
@@ -201,9 +206,11 @@ export class OperatorSignals {
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
     if (!OPERATOR_DISMISSIBLE_SIGNAL_KINDS.includes(signal.kind))
-      throw invalid('operator_signal_not_dismissible', 'the Operator may not dismiss this signal kind');
+      throw invalid('operator_signal_not_dismissible', 'the PM may not dismiss this signal kind');
     if (
       !signal.deliveredAt ||
+      signal.deliveredTo !== by ||
+      coordinationMemberOf(this.deps.projects.cachedConfig(projectKey)!)?.handle !== by ||
       signal.messageId ||
       signal.resolvedAt ||
       !['pending', 'open'].includes(signal.state) ||
@@ -243,21 +250,31 @@ export class OperatorSignals {
   }
 
   /**
-   * What the signal lets the Operator start without an owner's request (PM-545). The case must still hold
-   * and the signal be open for the Operator; a person on leave, a person and the Operator itself are never targets.
+   * What the signal lets the coordinator start without an owner's request (PM-545). The case must still hold
+   * and the signal be open for the coordinator; a person on leave, a person and the coordinator itself are never targets.
    */
   async stepTargets(
     projectKey: string,
     signalId: string,
   ): Promise<{ signal: OperatorSignalRecord; allowed: OperatorSignalStepTargets }> {
+    await this.deps.projects.config(projectKey);
+    return this.currentStepTargets(projectKey, signalId);
+  }
+
+  /** The same facts at the synchronous write boundary, after asynchronous admission or git reads. */
+  currentStepTargets(
+    projectKey: string,
+    signalId: string,
+  ): { signal: OperatorSignalRecord; allowed: OperatorSignalStepTargets } {
     const { ctx, projects } = this.deps;
     const signal = ctx.repos.operatorSignals.get(signalId);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
-    const config = await projects.config(projectKey);
+    const config = projects.cachedConfig(projectKey)!;
     if (
       signal.resolvedAt ||
       !signal.deliveredAt ||
+      signal.deliveredTo !== coordinationMemberOf(config)?.handle ||
       !(signal.state === 'open' || signal.state === 'pending') ||
       !this.caseHolds(config, signal)
     )
@@ -265,7 +282,7 @@ export class OperatorSignals {
     return { signal, allowed: this.stepTargetsOf(config, signal) };
   }
 
-  /** The targets by the case alone, whether or not the signal is open for the Operator yet. */
+  /** The targets by the case alone, whether or not the signal is open for the coordinator yet. */
   private stepTargetsOf(config: ProjectConfig, signal: OperatorSignalRecord): OperatorSignalStepTargets {
     const { ctx, taskWaits } = this.deps;
     const projectKey = signal.projectKey;
@@ -293,11 +310,22 @@ export class OperatorSignals {
       allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle));
     } else if (signal.kind === 'ready_waiting') {
       allowed.members = startable(projectManagersOf(config).map((m) => m.handle));
+    } else if (signal.kind === 'answer_stalled' && task) {
+      const stage = stageOf(config, task.stageId);
+      const wait = taskWaits.ofCard(config, task);
+      const ready =
+        !task.fixLimit &&
+        (wait?.reason === 'assignee' || wait?.reason === 'queued') &&
+        (stage?.gate?.conditions ?? []).every((condition) => conditionHolds(task, condition)) &&
+        openPrerequisites(task, ctx.repos.tasks.list(projectKey)).length === 0;
+      allowed.members =
+        ready && task.assignee === answerStalledMember(signal.caseKey) ? startable([task.assignee!]) : [];
+      allowed.taskKey = task.key;
     }
     return allowed;
   }
 
-  /** The one step a signal allows at this level, as the Operator is told (the budget is told apart). */
+  /** The one step a signal allows at this level, as the coordinator is told (the budget is told apart). */
   private stepOf(level: OperatorWatch, config: ProjectConfig, signal: OperatorSignalRecord) {
     if (!OPERATOR_SIGNAL_STEP_KINDS[level].includes(signal.kind)) return null;
     const allowed = this.stepTargetsOf(config, signal);
@@ -307,7 +335,7 @@ export class OperatorSignals {
       : null;
   }
 
-  /** The Operator took a step on the signal: it is shown again if the case still stands in half an hour. */
+  /** The coordinator took a step on the signal: it is shown again if the case still stands in half an hour. */
   stepTaken(signalId: string): void {
     const at = this.deps.ctx.now().getTime() + OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000;
     this.deps.ctx.repos.operatorSignals.followUp(signalId, new Date(at).toISOString());
@@ -399,7 +427,22 @@ export class OperatorSignals {
     return this.pending(spec.projectKey).length ? this.start(spec.projectKey) : null;
   }
 
-  /** The Operator finished its turn, or startup recovered a turn that ended before being recorded. */
+  /** A recipient change or leave invalidates unpresented delivery, without touching earlier human decisions. */
+  recheckRecipients(projectKey: string): void {
+    const config = this.deps.projects.cachedConfig(projectKey);
+    const recipient = config && coordinationMemberOf(config)?.handle;
+    for (const signal of this.deps.ctx.repos.operatorSignals.list(projectKey))
+      if (
+        !signal.resolvedAt &&
+        !signal.messageId &&
+        ['pending', 'open'].includes(signal.state) &&
+        signal.deliveredTo &&
+        signal.deliveredTo !== recipient
+      )
+        this.save({ ...signal, deliveredTo: null }, false);
+  }
+
+  /** The coordinator finished its turn, or startup recovered a turn that ended before being recorded. */
   finish(projectKey: string): void {
     for (const signal of this.deps.ctx.repos.operatorSignals.list(projectKey))
       if (signal.state === 'pending' && signal.deliveredAt) this.save({ ...signal, state: 'open' });
@@ -425,13 +468,18 @@ export class OperatorSignals {
     let board: Map<string, SignalInput> | undefined;
     return ctx.repos.operatorSignals.list(projectKey).filter((s) => {
       if (s.resolvedAt) return false;
-      // A signal the Operator took a step on is shown again once its follow-up time has come (PM-545).
+      // A signal the coordinator took a step on is shown again once its follow-up time has come (PM-545).
+      const config = projects.cachedConfig(projectKey);
+      const recipient = config && coordinationMemberOf(config)?.handle;
+      // A proposal already shown to a person stays on its original decision path during handover.
+      if (s.messageId && s.deliveredTo !== recipient) return false;
+      const rebound =
+        !s.messageId && (s.state === 'pending' || s.state === 'open') && s.deliveredTo !== recipient;
       const again =
         s.followUpAt !== null &&
         Date.parse(s.followUpAt) <= now &&
         (s.state === 'pending' || s.state === 'open');
-      if (!again && (s.state !== 'pending' || s.deliveredAt)) return false;
-      const config = projects.cachedConfig(projectKey);
+      if (!again && !rebound && (s.state !== 'pending' || s.deliveredAt)) return false;
       const valid = this.caseHolds(config, s, () => {
         board ??= config ? this.boardCases(config, ctx.repos.tasks.list(projectKey)) : new Map();
         return board;
@@ -440,7 +488,7 @@ export class OperatorSignals {
         this.resolve(projectKey, s.caseKey);
         return false;
       }
-      // Free capacity is raised at once but wakes the Operator only if it lasts (PM-547).
+      // Free capacity is raised at once but wakes the coordinator only if it lasts (PM-547).
       return !(
         s.kind === 'ready_waiting' &&
         !again &&
@@ -674,7 +722,7 @@ export class OperatorSignals {
   }
 
   /**
-   * A card and member stay quiet for half an hour after the Operator's own step on any earlier signal of
+   * A card and member stay quiet for half an hour after the coordinator's own step on any earlier signal of
    * theirs (PM-694), so new evidence is no unlimited authority. The open signal of the case itself is never
    * muted (its follow-up stays), but a case that came back after its signal closed counts its steps all
    * together: once they used up the largest step budget it stays quiet.
@@ -757,7 +805,7 @@ export class OperatorSignals {
     return stage.kind === 'step' ? available(stageOwners(config, stage)) : [];
   }
   /**
-   * The pending signals whose line may wake the Operator now (PM-694): the general line waits
+   * The pending signals whose line may wake the coordinator now (PM-694): the general line waits
    * `OPERATOR_SIGNAL_WAKE_INTERVAL_MS` after its last delivery, the fast line (`answer_stalled`) only
    * `OPERATOR_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds.
    */
@@ -783,7 +831,13 @@ export class OperatorSignals {
     if (!signals.length) return signals;
     const dueFast = due(true);
     const dueGeneral = due(false);
-    return signals.filter((s) => (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral));
+    const config = this.deps.projects.cachedConfig(projectKey);
+    const recipient = config && coordinationMemberOf(config)?.handle;
+    return signals.filter(
+      (s) =>
+        (s.deliveredAt && s.deliveredTo !== recipient) ||
+        (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral),
+    );
   }
   private save(signal: OperatorSignalRecord, publish = true): void {
     this.deps.ctx.repos.operatorSignals.save(signal);
@@ -802,7 +856,7 @@ export class OperatorSignals {
       taskKey: null,
       spec: () => ({ kind: 'operator_signals', projectKey }),
       stillValid: () => this.pending(projectKey).length > 0,
-      waitsFor: () => operatorOf(projects.cachedConfig(projectKey)!)?.handle,
+      waitsFor: () => coordinationMemberOf(projects.cachedConfig(projectKey)!)?.handle,
       retry: () => this.deliver(projectKey),
       log: {
         deferred: 'operator signal start deferred',
@@ -812,7 +866,7 @@ export class OperatorSignals {
       run: async () => {
         if (!this.wakeable(projectKey).length) return;
         const config = await projects.config(projectKey);
-        const member = operatorOf(config);
+        const member = coordinationMemberOf(config);
         if (!member) return;
         if (isWorkPaused(ctx.repos.pauses.open(), projectKey))
           throw conflict('team_paused', 'the team is paused');
@@ -825,9 +879,8 @@ export class OperatorSignals {
           signals
             .map((s) => {
               const steps = ctx.repos.operatorRequests.stepsOfSignal(s.id);
-              // answer_stalled has no step at any level yet (PM-707), so it shows no budget either.
               const budget = operatorSignalBudget(
-                s.kind === 'answer_stalled' ? 'report' : level,
+                level,
                 steps.filter((step) => step.status !== 'refused').map((step) => step.at),
                 now,
               );
@@ -848,6 +901,9 @@ export class OperatorSignals {
                 next_step_at: budget.nextAt,
                 steps: steps.map((step) => ({
                   at: step.at,
+                  by:
+                    ctx.repos.sessions.get(ctx.repos.operatorRequests.get(step.requestId)?.sessionId ?? '')
+                      ?.member ?? null,
                   member: step.member,
                   task_key: step.taskKey,
                   status: step.status,
@@ -857,17 +913,30 @@ export class OperatorSignals {
             })
             .join('\n');
         const workItem = { type: 'general' } as const;
-        // A signal shown again after an own step is shown from the start (PM-545): the Operator may present it anew.
+        // A signal shown again after an own step is shown from the start (PM-545): the coordinator may present it anew.
         const markDelivered = () =>
           ctx.unitOfWork(() => {
+            if (coordinationMemberOf(projects.cachedConfig(projectKey)!)?.handle !== member.handle) return;
             const at = isoNow(ctx);
             ctx.repos.operatorSignals.delivered(
               signals.filter((s) => s.followUpAt === null).map((s) => s.id),
               at,
+              member.handle,
             );
             ctx.repos.operatorSignals.redelivered(
-              signals.filter((s) => s.followUpAt !== null).map((s) => s.id),
+              signals
+                .filter((s) => {
+                  const current = ctx.repos.operatorSignals.get(s.id);
+                  return (
+                    s.followUpAt !== null &&
+                    current?.followUpAt === s.followUpAt &&
+                    current.messageId === s.messageId &&
+                    current.deliveredTo === s.deliveredTo
+                  );
+                })
+                .map((s) => s.id),
               at,
+              member.handle,
             );
           });
         const running = sessions.findRunning(projectKey, member.handle, workItem);

@@ -17,6 +17,8 @@ const owner = { handle: 'owner', access: 'owner' as const };
 
 /** A person who is no owner, and a client, for the guest conversation and the endpoint's access check. */
 function withPeople(config: ProjectConfig): void {
+  const pm = config.team.members.find((m) => m.handle === 'pm')!;
+  if (pm.kind === 'ai') pm.onLeave = false;
   for (const [handle, access] of [
     ['dana', 'developer'],
     ['cleo', 'client'],
@@ -58,8 +60,8 @@ describe('the Operator screens AI members’ questions', () => {
   const sessionsOf = (member: string): Session[] => h.domain.sessions.list('AR', { member });
   const operatorTool = (): ToolContext => ({
     projectKey: 'AR',
-    member: 'operator',
-    sessionId: sessionsOf('operator')[0]!.id,
+    member: 'pm',
+    sessionId: sessionsOf('pm')[0]!.id,
     taskKey: null,
   });
   /** What a session got: its first input and the messages typed into it later. */
@@ -70,13 +72,13 @@ describe('the Operator screens AI members’ questions', () => {
   /** The owner has a request open with the Operator, as every write of the Operator needs (PM-463). */
   async function ownerAsksOperator(): Promise<ToolContext> {
     // A screening round in progress takes the message only when its turn ends.
-    for (const running of sessionsOf('operator')) h.runner.setState(running.id, 'idle');
-    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'Please help' });
+    for (const running of sessionsOf('pm')) h.runner.setState(running.id, 'idle');
+    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['pm'], text: 'Please help' });
     await vi.waitFor(() => expect(h.repos.operatorRequests.latest('AR', 1)).toHaveLength(1), {
       timeout: 5000,
     });
     const [request] = h.repos.operatorRequests.latest('AR', 1);
-    return { projectKey: 'AR', member: 'operator', sessionId: request!.sessionId, taskKey: null };
+    return { projectKey: 'AR', member: 'pm', sessionId: request!.sessionId, taskKey: null };
   }
   /** The asking member's turn ended: an answer is typed into its session now. */
   const askerIdle = () => h.runner.setState(devSession, 'idle');
@@ -106,7 +108,7 @@ describe('the Operator screens AI members’ questions', () => {
       expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
       expect(timelineOf('question_asked')[0]?.data).toMatchObject({ inboxItemId, screening: true });
 
-      const [operator] = sessionsOf('operator');
+      const [operator] = sessionsOf('pm');
       expect(operator).toBeDefined();
       const notice = typedInto(operator!.id).join('\n');
       expect(notice).toContain('Projectman question screening');
@@ -114,12 +116,12 @@ describe('the Operator screens AI members’ questions', () => {
       expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeTruthy();
     });
 
-    it('screens the project manager’s question too', async () => {
+    it('sends the PM own question directly to the people', async () => {
       const { inboxItemId } = await h.domain.teamTools.askHuman(
         { projectKey: 'AR', member: 'pm', sessionId: devSession, taskKey: null },
         { question: 'Which card first?' },
       );
-      expect(item(inboxItemId).state).toBe('screening');
+      expect(item(inboxItemId).state).toBe('open');
     });
 
     it('does not screen the Operator’s own question or a human’s', async () => {
@@ -149,8 +151,8 @@ describe('the Operator screens AI members’ questions', () => {
     it('waits for the first input while admitting other work and delivering concurrent questions once', async () => {
       h.runner.holdFirstInput = true;
       const questions = await Promise.all([ask('Which font?'), ask('Which colour?')]);
-      await vi.waitFor(() => expect(sessionsOf('operator')).toHaveLength(1));
-      const operator = sessionsOf('operator')[0]!;
+      await vi.waitFor(() => expect(sessionsOf('pm')).toHaveLength(1));
+      const operator = sessionsOf('pm')[0]!;
       for (const { inboxItemId } of questions)
         expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
 
@@ -174,7 +176,7 @@ describe('the Operator screens AI members’ questions', () => {
       });
       const notices = typedInto(operator.id).join('\n');
       for (const { inboxItemId } of questions) expect(notices.split(inboxItemId)).toHaveLength(2);
-      expect(h.runner.started.filter((start) => start.member === 'operator')).toHaveLength(1);
+      expect(h.runner.started.filter((start) => start.member === 'pm')).toHaveLength(1);
       expect(h.domain.questionScreening.rebuild(spec)).toBeNull();
       expect(humanQueue()).toEqual([]);
     });
@@ -182,8 +184,8 @@ describe('the Operator screens AI members’ questions', () => {
     it('releases the question without marking it delivered when the first input resolves false', async () => {
       h.runner.holdFirstInput = true;
       const { inboxItemId } = await ask();
-      await vi.waitFor(() => expect(sessionsOf('operator')).toHaveLength(1));
-      const operator = sessionsOf('operator')[0]!;
+      await vi.waitFor(() => expect(sessionsOf('pm')).toHaveLength(1));
+      const operator = sessionsOf('pm')[0]!;
       expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
 
       await h.domain.sessions.stop('AR', operator.id);
@@ -211,11 +213,11 @@ describe('the Operator screens AI members’ questions', () => {
       expect(settled).toEqual({ inboxItemId, outcome: 'answered' });
       expect(item(inboxItemId)).toMatchObject({
         state: 'resolved',
-        resolution: { by: 'operator', rule: 'operator_answered', note: 'Use Inter.' },
+        resolution: { by: 'pm', rule: 'operator_answered', note: 'Use Inter.' },
       });
       expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({
         outcome: 'answered',
-        by: 'operator',
+        by: 'pm',
         note: 'The style guide says so.',
       });
       expect(humanQueue()).toEqual([]);
@@ -246,7 +248,7 @@ describe('the Operator screens AI members’ questions', () => {
 
       expect(item(inboxItemId)).toMatchObject({
         state: 'resolved',
-        resolution: { by: 'operator', rule: 'operator_forwarded' },
+        resolution: { by: 'pm', rule: 'operator_forwarded' },
       });
       expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({
         outcome: 'forwarded',
@@ -272,7 +274,7 @@ describe('the Operator screens AI members’ questions', () => {
 
       expect(item(inboxItemId)).toMatchObject({
         state: 'cancelled',
-        resolution: { by: 'operator', rule: 'operator_moot', note: 'The card is done already.' },
+        resolution: { by: 'pm', rule: 'operator_moot', note: 'The card is done already.' },
       });
       expect(questionPayloadOf(item(inboxItemId))?.screening?.outcome).toBe('moot');
       expect(humanQueue()).toEqual([]);
@@ -327,27 +329,29 @@ describe('the Operator screens AI members’ questions', () => {
         h.domain.teamTools.screenQuestion(dev, { itemId: inboxItemId, outcome: 'moot', note: 'Mine.' }),
       );
       expect(err.code).toBe('forbidden');
-      expect(err.message).toContain('operator_only');
+      expect(err.message).toContain('project_manager_only');
       expect(item(inboxItemId).state).toBe('screening');
     });
 
     it('refuses the Operator from a conversation with a guest', async () => {
       const { inboxItemId } = await ask();
-      await h.domain.messaging.sendReporting('AR', 'dana', { to: ['operator'], text: 'Hello' });
+      await h.domain.messaging.sendReporting('AR', 'dana', { to: ['pm'], text: 'Hello' });
       await settle();
-      const guest = sessionsOf('operator').find(
-        (s) => s.workItem.type === 'general' && s.workItem.with === 'dana',
-      );
-      expect(guest).toBeDefined();
+      const guest = {
+        ...sessionsOf('pm')[0]!,
+        id: 'ses_pm_guest',
+        workItem: { type: 'general', with: 'dana' } as const,
+      };
+      h.repos.sessions.insert(guest);
 
       const err = await refusal(
         h.domain.teamTools.screenQuestion(
-          { projectKey: 'AR', member: 'operator', sessionId: guest!.id, taskKey: null },
+          { projectKey: 'AR', member: 'pm', sessionId: guest!.id, taskKey: null },
           { itemId: inboxItemId, outcome: 'moot', note: 'Not for a guest.' },
         ),
       );
       expect(err.code).toBe('forbidden');
-      expect(err.message).toContain('operator_owner_only');
+      expect(err.message).toContain('project_manager_only');
       expect(item(inboxItemId).state).toBe('screening');
     });
 
@@ -363,7 +367,7 @@ describe('the Operator screens AI members’ questions', () => {
         { outcome: 'decision' as const, note: 'x', todo },
         { outcome: 'moot' as const, note: '  ' },
         { outcome: 'forwarded' as const, note: 'x', forwardTo: 'owner' },
-        { outcome: 'forwarded' as const, note: 'x', forwardTo: 'operator' },
+        { outcome: 'forwarded' as const, note: 'x', forwardTo: 'pm' },
         { outcome: 'forwarded' as const, note: 'x', forwardTo: 'dev-1' },
       ];
       for (const fields of bad) {
@@ -390,7 +394,7 @@ describe('the Operator screens AI members’ questions', () => {
       const asking = await ownerAsksOperator();
       const own = await h.domain.teamTools.askHuman(asking, { question: 'May I?' });
       const refused = await refusal(screen({ itemId: own.inboxItemId, outcome: 'moot', note: 'x' }));
-      expect(refused.message).toContain('question_not_screening');
+      expect(refused.message).toContain('the PM cannot screen its own question');
     });
   });
 
@@ -526,7 +530,7 @@ describe('the Operator screens AI members’ questions', () => {
       expect(screening).toBeUndefined();
       expect(stored.state).toBe('open');
       expect(questionPayloadOf(stored)?.screening?.fallback).toBe('unavailable');
-      expect(sessionsOf('operator')).toEqual([]);
+      expect(sessionsOf('pm')).toEqual([]);
       expect(timelineOf('question_screening_skipped')[0]?.data).toMatchObject({ reason: 'unavailable' });
     });
 
@@ -554,7 +558,7 @@ describe('the Operator screens AI members’ questions', () => {
       expect(screening).toBe(true);
       expect(item(stored.id).state).toBe('open');
       expect(questionPayloadOf(item(stored.id))?.screening?.fallback).toBe('unavailable');
-      expect(sessionsOf('operator')).toEqual([]);
+      expect(sessionsOf('pm')).toEqual([]);
     });
   });
 });
@@ -572,7 +576,7 @@ describe('a team without an Operator', () => {
     const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
     // The configuration refuses to lose its Operator, so the loaded one is edited.
     const config = h.domain.projects.cachedConfig('AR')!;
-    config.team.members = config.team.members.filter((member) => member.handle !== 'operator');
+    config.team.members = config.team.members.filter((member) => member.handle !== 'pm');
     const dev = { sessionId: started.session!.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
 
     const { inboxItemId, screening } = await h.domain.teamTools.askHuman(dev, { question: 'Which font?' });
@@ -592,6 +596,12 @@ describe('GET /api/projects/:key/inbox/screened (PM-558)', () => {
     app = await createAppHarness({ app: { screenQuestions: true } });
     const cookie = await setupOwner(app.app);
     await createProject(app, cookie);
+    await app.app.projectman.domain.members.update(
+      'AR',
+      'pm',
+      { onLeave: false },
+      { actor: OWNER_ACTOR, author: OWNER },
+    );
     return cookie;
   }
   const get = (cookie: string, query: string) =>
@@ -633,12 +643,12 @@ describe('GET /api/projects/:key/inbox/screened (PM-558)', () => {
     // The Operator's settled questions come in with the screening record the domain wrote.
     await domain.inbox.settleScreened(answered, {
       outcome: 'answered',
-      by: 'operator',
+      by: 'pm',
       note: 'Yes.',
       answer: 'Yes.',
     });
-    await domain.inbox.settleScreened(moot, { outcome: 'moot', by: 'operator', note: 'Gone.' });
-    await domain.inbox.releaseScreened(decision, { outcome: 'decision', by: 'operator', note: 'A person.' });
+    await domain.inbox.settleScreened(moot, { outcome: 'moot', by: 'pm', note: 'Gone.' });
+    await domain.inbox.releaseScreened(decision, { outcome: 'decision', by: 'pm', note: 'A person.' });
 
     const res = await get(cookie, `?since=${encodeURIComponent('2000-01-01T00:00:00.000Z')}`);
     expect(res.statusCode).toBe(200);

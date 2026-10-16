@@ -282,6 +282,8 @@ describe('dismiss_signal authorization and domain errors', () => {
   beforeEach(async () => {
     h = await createDomainHarness({
       adjust: (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm')!;
+        if (pm.kind === 'ai') pm.onLeave = false;
         config.team.members.push({
           kind: 'human',
           handle: 'guest',
@@ -298,8 +300,8 @@ describe('dismiss_signal authorization and domain errors', () => {
         });
       },
     });
-    const { session } = await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
-    operator = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    operator = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
   });
   afterEach(async () => {
     await h?.cleanup();
@@ -313,22 +315,20 @@ describe('dismiss_signal authorization and domain errors', () => {
       ),
     ).rejects.toMatchObject({
       code: 'forbidden',
-      message: 'operator_only: only the Operator may dismiss signals.',
+      message: expect.stringContaining('project_manager_only'),
     });
   });
 
   it('rejects guest conversations even for the Operator', async () => {
-    await h.domain.messaging.sendReporting('AR', 'guest', { to: ['operator'], text: 'Hello' });
-    await settle();
-    const guest = h.domain.sessions
-      .list('AR', { member: 'operator' })
-      .find((s) => s.workItem.type === 'general' && s.workItem.with === 'guest')!;
+    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const guest = { ...session, id: 'ses_pm_guest', workItem: { type: 'general', with: 'guest' } as const };
+    h.repos.sessions.insert(guest);
     await expect(
       h.domain.teamTools.dismissSignal(
         { ...operator, sessionId: guest.id },
         { signalId: 'unknown', note: 'Note' },
       ),
-    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('operator_owner_only') });
+    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('project_manager_only') });
   });
 
   it('dismisses without an owner request and hides the record-only note from the DTO', async () => {
@@ -336,7 +336,7 @@ describe('dismiss_signal authorization and domain errors', () => {
     h.repos.tasks.update(card.id, { stageId: 'ready', status: 'active' });
     await h.domain.operatorSignals.sweep('AR');
     const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'ready_waiting')!;
-    h.repos.operatorSignals.delivered([signal.id], new Date().toISOString());
+    h.repos.operatorSignals.delivered([signal.id], new Date().toISOString(), 'pm');
     expect(h.repos.operatorRequests.latest('AR', 1)).toEqual([]);
     await expect(
       h.domain.teamTools.dismissSignal(operator, { signalId: signal.id, note: 'Waits intentionally.' }),
@@ -354,7 +354,7 @@ describe('dismiss_signal authorization and domain errors', () => {
     const idle = h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'idle', caseKey: 'idle:missing' });
     await expect(
       h.domain.teamTools.dismissSignal(operator, { signalId: idle.id, note: 'Note' }),
-    ).rejects.toMatchObject({ code: 'invalid', message: 'the Operator may not dismiss this signal kind' });
+    ).rejects.toMatchObject({ code: 'invalid', message: 'the PM may not dismiss this signal kind' });
     const ready = h.domain.operatorSignals.raise({
       projectKey: 'AR',
       kind: 'ready_waiting',

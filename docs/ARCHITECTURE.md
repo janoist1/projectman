@@ -1366,6 +1366,17 @@ workers follow the machine's size.
   PM-717 adds a mandatory first-start seed integrity gate in `scripts/cloud/machine.ts`: the
   administration machine hashes the closed package DB before/after upload and compares hash/bytes
   with the stopped host through the existing SSH boundary; no engine RPC or credentials are added.
+  PM-719 adds `trial-reset-plan`/`trial-reset-apply` in `scripts/cloud/trial-reset.ts`: the admin
+  hashes the retained final return copy and exact mode 0600 plan bytes, checks explicit EC2
+  account/profile/region/instance/network and two never-versioned trial buckets, and requires a
+  separately owner-approved plan hash. It creates a durable one-use local result receipt, archives
+  the stopped/disabled host before any deletion, and deletes only enumerated keys with exact ETag
+  conditions and expected owner. AWS CLI model support is required; delete operations set
+  AWS_MAX_ATTEMPTS=1/standard mode. Partial results preserve receipts/copies and require separate
+  recovery approval; no retry, resource teardown, seed or start is implicit. The two round runbook
+  retains the final download and host archive through round two's full backup/isolated restore.
+  **Remote engine:** plans/copies and AWS CLI remain on the administrator, not on an engine;
+  the existing SSH-over-SSM boundary returns only fixed metadata, hashes, counts and bytes.
   A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
@@ -1441,6 +1452,21 @@ workers follow the machine's size.
   the same. **Remote engine:** this runs only on the owner's administration machine for the central
   server; no AWS credentials or new RPC/payload crosses the server/engine boundary. It works
   independently of the Mac engine link. Live execution/recovery remains an approved owner round.
+  PM-719 adds three fixed-path `host.sh` operations: `trial-reset-inspect`, `trial-reset-archive`
+  and read-only `trial-reset-verify`. The last two accept only UUIDv4 and exact SHA-256/none
+  arguments, with no payload/path override. An embedded existing Python3 standard-library program
+  runs with `-I -S`; Linux/POSIX dir_fd/no-follow descriptors and `/proc/self/mountinfo` are required
+  before writes. Missing interpreter/capabilities refuse without installation or fallback.
+  It reads systemd/Docker and process writers, hashes the full UTF-8 byte-sorted NUL inventory,
+  refuses symlinks/special entries/mounts/detectable changes and takes the existing `.image.lock`
+  without creating or changing it (a previously deployed trial target must have this lock).
+  Archive uses root-only 0700 `/var/lib/projectman/trial-archive/<UUID>` and atomic 0600 reset.json,
+  preserves deploy.json/image.env before same-filesystem data rename, and creates empty 0700
+  uid/gid 10001 active data. cloud.env and other credentials/images stay in place. Incomplete
+  markers block further resets. Final verify rehashes the specified archive after S3 deletion,
+  checks its strict archived receipt, missing active metadata, empty data and stopped state.
+  **Remote engine:** Python and filesystem mutations run only on EC2 through the same SSH/SSM
+  path; Node/AWS CLI stay on the admin machine. No engine RPC, secret or inbound Mac port is added.
   PM-717 carries `seed-digest` over this same SSH/SSM session, with no arguments or stdin payload:
   only the database SHA-256 and byte count return. On Ubuntu 24.04 the host uses coreutils to read
   the fixed `/var/lib/projectman/data/db.sqlite`, refuses live/starting units, non-regular/symlink
@@ -1869,6 +1895,14 @@ workers follow the machine's size.
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  PM-719's trial reset (admin `scripts/cloud/trial-reset.ts`, EC2 `deploy/aws/host.sh`) refuses
+  active unit/container/backup writers, bucket versioning including Suspended, Object Lock,
+  replication and multipart uploads. Automatic Litestream/restic writes can exist even when
+  round one's backup acceptance was omitted, so both full inventories are always read.
+  It preserves the host archive and final Mac download, retains the EC2/buckets/IAM/credentials,
+  and leaves the host disabled with empty active data. Only an exact separately approved reset
+  plan may conditionally delete the trial objects. Round two uses a new stopped-source package;
+  no backup process or seed/start is invoked by reset. This adds no engine-side dependency.
   PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
   driver and native builders/emulation exports separate linux/amd64 and linux/arm64 Docker archives
   at one clean HEAD SHA, using a tracked-source-only context and the existing .dockerignore. The

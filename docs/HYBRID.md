@@ -532,7 +532,15 @@ For when the owner wants the single-machine mode again.
    single-machine mode as before. Activating from the `engine` role needs a database that holds the
    cloud's engine row, so that the old pre-hybrid database does not replace the cloud's later work;
    `--discard-cloud-data` states the opposite on purpose.
-5. **Clean up the secrets.** After `hybrid back`, delete the downloaded copy (`--from`): it holds the
+5. **PM-675 trial retention exception (PM-719).** Between the two trial rounds retain the final
+   downloaded copy in a protected mode 0700 location outside the live home and repositories.
+   After verified Mac single/watcher operation, follow [the exact-plan reset procedure](AWS.md#reset-between-the-two-pm-675-trial-rounds-pm-719):
+   same EC2 and buckets, stopped/disabled host, matching full content inventories, separate owner
+   approval of the exact plan SHA-256, host archive before conditional object deletion, no seed/start.
+   Keep both this copy and the root-only host archive at least through round two's full backup and
+   isolated restore acceptance; later removal needs a separate owner decision. The next seed comes
+   from a new package of the Mac's then-current stopped state, with PM-717 integrity and PM-718 image.
+6. **Clean up the secrets outside that retention window.** After `hybrid back`, delete the downloaded copy (`--from`): it holds the
    live cookie key, the secrets and the database, in a folder the sessions' sandboxes do not deny.
    `pre-hybrid/` and `.hybrid-back/` inside the home are denied to every session (they hold the old
    database, the old keys and the former machine key). Once the single-machine mode has run well, delete

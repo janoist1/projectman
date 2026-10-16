@@ -13,6 +13,14 @@ export interface AwsTarget {
   region: string;
 }
 
+export interface AwsCallOptions {
+  /** Conditional trial deletes must never be retried, even by the AWS CLI. */
+  singleAttempt?: boolean;
+  signal?: AbortSignal;
+  /** Suppress raw AWS output in the trial-reset protocol. */
+  redactErrors?: boolean;
+}
+
 /** A failed `aws` call; `awsCode` is the error code the CLI prints (`NoSuchEntity`, `404`, …) when there is one. */
 export class AwsCallError extends CloudError {
   readonly awsCode: string | null;
@@ -32,10 +40,12 @@ const ERROR_CODE = /An error occurred \(([^)]+)\)/;
 export class AwsCli {
   private readonly deps: CloudDeps;
   private readonly target: AwsTarget;
+  private readonly options: AwsCallOptions;
 
-  constructor(deps: CloudDeps, target: AwsTarget) {
+  constructor(deps: CloudDeps, target: AwsTarget, options: AwsCallOptions = {}) {
     this.deps = deps;
     this.target = target;
+    this.options = options;
   }
 
   /** The argv of a call: the global options first, so the profile and the region are never forgotten. */
@@ -44,7 +54,20 @@ export class AwsCli {
   }
 
   private async exec(args: readonly string[]): Promise<RunResult> {
-    return this.deps.run('aws', this.argv(args), { timeoutMs: CALL_TIMEOUT_MS });
+    if (this.options.signal?.aborted) throw new CloudError('interrupted');
+    return this.deps.run('aws', this.argv(args), {
+      timeoutMs: CALL_TIMEOUT_MS,
+      ...(this.options.signal ? { signal: this.options.signal } : {}),
+      ...(this.options.singleAttempt || this.options.redactErrors
+        ? {
+            env: {
+              AWS_CLI_AUTO_PROMPT: 'off',
+              AWS_PAGER: '',
+              ...(this.options.singleAttempt ? { AWS_MAX_ATTEMPTS: '1', AWS_RETRY_MODE: 'standard' } : {}),
+            },
+          }
+        : {}),
+    });
   }
 
   private fail(args: readonly string[], result: RunResult): AwsCallError {
@@ -53,6 +76,12 @@ export class AwsCli {
       return new AwsCallError(operation, null, 'the aws CLI is not installed (https://aws.amazon.com/cli/)');
     const text = (result.stderr || result.stdout).trim();
     const code = ERROR_CODE.exec(text)?.[1] ?? null;
+    if (this.options.redactErrors)
+      return new AwsCallError(
+        operation,
+        code && /^[A-Za-z0-9]{1,80}$/.test(code) ? code : null,
+        `aws ${operation} failed (${code && /^[A-Za-z0-9]{1,80}$/.test(code) ? code : 'transport or CLI error'})`,
+      );
     const lastLine = text.split('\n').filter(Boolean).slice(-1)[0] ?? `exit status ${result.code}`;
     return new AwsCallError(operation, code, `aws ${operation} failed: ${lastLine}`);
   }

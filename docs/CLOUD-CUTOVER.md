@@ -418,7 +418,22 @@ Az owner előre elfogadott rollback-útja és konkrét határideje szerint; ezen
    útját előbb izolált másolaton igazold, és nevezd meg az elvesző DB/fájl időszakot,
    kártyákat/üzeneteket/uploads-ot az owner jóváhagyásában.
 
-5. Package és downloaded copy eltávolítása vagy offline titkosított archiválása az owner
+5. **Két próbakör között (PM-719):** a végleges downloaded copy maradjon meg védett,
+   0700 könyvtárban, repón és a live forráson kívül. A sikeres cloud stop/végleges pull-data,
+   hybrid back, activate és Mac single/watcher működésellenőrzés jegyzetének event ID-jával
+   készíts resettervet az [AWS runbook](AWS.md#reset-between-the-two-pm-675-trial-rounds-pm-719) szerint.
+   Az owner eldöntötte: **„Ugyanaz a gép, kiürítve”**; ezt nem kérdezzük újra. A konkrét tervfájl
+   SHA-256-a és a cél/account/bucketek viszont külön végrehajtási jóváhagyást igényelnek.
+   Előbb dry-run, csak a pontos jóváhagyás után apply. Nincs élő resetengedély a fejlesztési kártyából.
+   Csak hostarchiválás, majd a két próba-bucket leltározott objektumainak feltételes törlése történik;
+   nincs gép/bucket/EBS/IAM/DNS/credential törlés, seed vagy start. Bármely eltérés vagy részleges
+   hiba STOP és külön jóváhagyott helyreállítás; a régi terv nem futtatható újra.
+   A kártyára csak hash/szám/méret és védett tárolási hely kerülhet, objektum-/fájllista nem.
+   A hostarchívum és a végleges letöltés legalább a 2. kör teljes backup/izolált restore elfogadásáig
+   megmarad; későbbi törlésük külön döntés. A 2. kör új package/verify/seed-integrity-vel indul
+   a Mac **akkori megállított állapotából**, PM-718 kész ARM képpel.
+
+6. A fenti megőrzési időszakon kívül package és downloaded copy eltávolítása vagy offline titkosított archiválása az owner
    által. Új AI session előtt ne maradjon titkos csomag szabadon olvasható könyvtárban.
    A régi `pre-hybrid` archívumot csak ellenőrzött single működés után takarítsa az owner.
    EC2/EBS/IPv4/bucket/IAM erőforrások nem törlődnek a rollbacktől; költségük és későbbi

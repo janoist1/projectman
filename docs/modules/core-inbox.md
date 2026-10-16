@@ -52,6 +52,10 @@ readable only through a visible carrier message. `listByAttachment` enumerates e
 carrier for reading and deletion; no recent-message limit hides a reference from recovery.
 REST, websocket delivery and the web fake use the same shared group redaction rule. Linked
 items carry only a pointer; full sources are projected on the primary at read time.
+An original without a task key is a general source, with a null task key/title and its original
+question text. It remains live until withdrawn and receives the answer on its general/session route.
+Only an original with a task key whose card disappeared is deleted; its question is null, as is a
+hidden card's question. The UI distinguishes general sources by null task key and non-null question.
 Resolved primary projections include `answeredCount`, the number of distinct original questions
 with durable human answer messages. Source-card deletion and delivery receipts never change it.
 

@@ -227,14 +227,13 @@ export class OperatorTools implements OperatorToolsHandler {
       const primary = group ? this.ctx.repos.inbox.get(group.primaryItemId) : null;
       // A moot question may also be one that already went to the people, if an AI member asked it.
       const mootOpen =
-        outcome === 'moot' && item.state === 'open' && asker?.kind === 'ai' && item.source !== ctx.member;
+        outcome === 'moot' &&
+        (item.state === 'open' || (item.state === 'screening' && primary?.state === 'open')) &&
+        asker?.kind === 'ai' &&
+        item.source !== ctx.member;
       if (item.source === ctx.member)
         throw new TeamToolError('forbidden', 'project_manager_only: the PM cannot screen its own question.');
-      if (
-        (item.state !== 'screening' || (group && primary?.state !== 'screening')) &&
-        !mootOpen &&
-        outcome !== 'moot'
-      )
+      if ((item.state !== 'screening' || (group && primary?.state !== 'screening')) && !mootOpen)
         throw new TeamToolError(
           'invalid',
           `question_not_screening: ${item.id} is not waiting for the PM (it is ${item.state}).`,

@@ -432,15 +432,16 @@ export class InboxService {
           const source = this.ctx.repos.inbox.get(id);
           if (!source) return [];
           const task = source.taskKey ? this.ctx.repos.tasks.get(source.taskKey) : null;
+          const deleted = source.taskKey !== null && !task;
           return [
             {
               itemId: id,
               taskKey: task?.key ?? null,
               taskTitle: task?.title ?? null,
               asker: source.source,
-              question: task ? (questionPayloadOf(source)?.question ?? source.title) : null,
+              question: deleted ? null : (questionPayloadOf(source)?.question ?? source.title),
               createdAt: source.createdAt,
-              state: !task
+              state: deleted
                 ? ('deleted' as const)
                 : source.state === 'cancelled' || source.payload.groupWithdrawn === true
                   ? ('withdrawn' as const)

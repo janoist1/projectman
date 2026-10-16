@@ -10,14 +10,23 @@ import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import styles from './QuestionSources.module.css';
 
+export function generalQuestionSources(group: QuestionGroup) {
+  return (group.sources ?? []).filter((source) => source.taskKey === null && source.question !== null);
+}
+
 export function QuestionSourcesLine({ group, projectKey }: { group: QuestionGroup; projectKey: string }) {
-  const sources = group.sources ?? [];
+  const general = generalQuestionSources(group);
+  const sources = (group.sources ?? []).filter((source) => !general.includes(source));
   const cards = sources.filter(
     (source, index) => !source.taskKey || sources.findIndex((s) => s.taskKey === source.taskKey) === index,
   );
   return (
     <p className={styles.line}>
-      <span>{t('inbox.group.line', { count: cards.length })}</span>{' '}
+      <span>
+        {t(general.length ? 'inbox.group.lineMixed' : 'inbox.group.line', {
+          count: cards.length + general.length,
+        })}
+      </span>{' '}
       {cards.map((source, index) => (
         <Fragment key={source.itemId}>
           {index ? ' · ' : ''}
@@ -33,6 +42,12 @@ export function QuestionSourcesLine({ group, projectKey }: { group: QuestionGrou
           )}
         </Fragment>
       ))}
+      {general.length ? (
+        <>
+          {cards.length ? ' · ' : ''}
+          <span>{t('inbox.group.generalCount', { count: general.length })}</span>
+        </>
+      ) : null}
     </p>
   );
 }
@@ -48,6 +63,7 @@ export function QuestionSources({
   members: MemberIndex;
   myHandle: string | null;
 }) {
+  const general = generalQuestionSources(group);
   return (
     <Fold summary={t('inbox.group.sources', { count: group.sources?.length ?? group.itemIds.length })}>
       <ul className={styles.sources}>
@@ -60,6 +76,8 @@ export function QuestionSources({
                   <span className={styles.key}>{source.taskKey}</span>
                   {source.taskTitle ? ` ${source.taskTitle}` : ''}
                 </Link>
+              ) : general.includes(source) ? (
+                <p className={styles.general}>{t('inbox.group.sourceGeneral')}</p>
               ) : (
                 <p>
                   {t(source.state === 'deleted' ? 'inbox.group.sourceDeleted' : 'inbox.group.sourceHidden')}

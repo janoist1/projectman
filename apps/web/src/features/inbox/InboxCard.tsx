@@ -57,7 +57,7 @@ import { OutageAlert, OutageCheck } from './OutageAlert';
 import { ReleaseAlertBody, ReleaseInboxActions, ReleaseInboxBody, isReleaseDown } from './ReleaseInbox';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails, showInboxItem } from './Question';
-import { QuestionSources, QuestionSourcesLine } from './QuestionSources';
+import { generalQuestionSources, QuestionSources, QuestionSourcesLine } from './QuestionSources';
 import { QuestionAttachments } from './QuestionAttachments';
 import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
 import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
@@ -200,6 +200,9 @@ export function InboxCard({
   const grouped = !!group?.sources && group.primaryItemId === item.id;
   const groupAskers = [...new Set(group?.sources?.map((source) => source.asker) ?? [])];
   const groupLiveCount = group?.sources?.filter((source) => source.state === 'live').length ?? 0;
+  const hasLiveGeneral = group
+    ? generalQuestionSources(group).some((source) => source.state === 'live')
+    : false;
   const handOn = handOnRequestOf(item);
   // A question the Operator made a todo of (PM-556): the result field is always open, with two buttons.
   const todo = isTodo(item);
@@ -660,9 +663,16 @@ export function InboxCard({
       ) : null}
       {grouped ? (
         <p id={`${answerId}-fanout`} className={styles.note}>
-          {t(groupLiveCount === 1 ? 'inbox.group.fanoutOne' : 'inbox.group.fanout', {
-            count: groupLiveCount,
-          })}
+          {t(
+            groupLiveCount === 1
+              ? 'inbox.group.fanoutOne'
+              : hasLiveGeneral
+                ? 'inbox.group.fanoutMixed'
+                : 'inbox.group.fanout',
+            {
+              count: groupLiveCount,
+            },
+          )}
         </p>
       ) : null}
       {describesChoices && !assignedToOthers ? (

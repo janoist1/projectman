@@ -3285,6 +3285,9 @@ export const hu = {
   inbox: {
     group: {
       line: 'Közös kérdés {count} kártyáról:',
+      lineMixed: 'Közös kérdés {count} forrásból:',
+      generalCount: '{count} általános kérdés',
+      sourceGeneral: 'Általános kérdés',
       hiddenCard: 'nem látható',
       deletedCard: 'törölt',
       sources: 'Honnan jött ({count} kérdés)',
@@ -3292,6 +3295,7 @@ export const hu = {
       sourceDeleted: 'Törölt kártya',
       withdrawn: 'Visszavonta, nem kapja meg',
       fanout: 'A válaszod mind a {count} kérdésre elmegy, mindegyik a saját kártyájára.',
+      fanoutMixed: 'A válaszod mind a {count} kérdésre elmegy, mindegyik oda, ahonnan jött.',
       fanoutOne: 'A válaszod 1 kérdésre megy el.',
       answeredCount: '{count} kérdésre ment el',
       pointer: '{asker} kérdése egy közös kérdés része, ott válaszolhatsz rá.',

@@ -159,6 +159,38 @@ describe('combined questions in the inbox', () => {
     expect(screen.getByText(t('inbox.group.sourceDeleted'))).toBeTruthy();
     expect(screen.queryByText('Second original question')).toBeNull();
     expect(screen.queryByText('AC-22')).toBeNull();
+    expect(screen.queryByText(t('inbox.group.sourceGeneral'))).toBeNull();
+  });
+
+  it.each([false, true])('describes general sources without card links (all general: %s)', (allGeneral) => {
+    const data: QuestionGroup = {
+      ...group,
+      sources: group.sources!.map((source, index) =>
+        allGeneral || index === 0 ? { ...source, taskKey: null, taskTitle: null } : source,
+      ),
+    };
+    render(entry({}, data));
+    const line = screen.getByText(t('inbox.group.lineMixed', { count: allGeneral ? 3 : 2 })).closest('p')!;
+    expect(within(line).getByText(t('inbox.group.generalCount', { count: allGeneral ? 3 : 1 }))).toBeTruthy();
+    expect(within(line).queryAllByRole('link')).toHaveLength(allGeneral ? 0 : 1);
+    expect(screen.getByText(t('inbox.group.fanoutMixed', { count: 2 }))).toBeTruthy();
+    fireEvent.click(screen.getByText(t('inbox.group.sources', { count: 3 })).closest('summary')!);
+    expect(screen.getAllByText(t('inbox.group.sourceGeneral'))).toHaveLength(allGeneral ? 3 : 1);
+    expect(screen.getByText('First original question')).toBeTruthy();
+  });
+
+  it('uses the card-only fanout text after the general source withdraws', () => {
+    const data: QuestionGroup = {
+      ...group,
+      sources: group.sources!.map((source, index) =>
+        index === 0
+          ? { ...source, taskKey: null, taskTitle: null, state: 'withdrawn' }
+          : { ...source, state: 'live' },
+      ),
+    };
+    render(entry({}, data));
+    expect(screen.getByText(t('inbox.group.fanout', { count: 2 }))).toBeTruthy();
+    expect(screen.queryByText(t('inbox.group.fanoutMixed', { count: 2 }))).toBeNull();
   });
 
   it('renders a linked pointer with no answer controls, and excludes it from the inbox count', () => {

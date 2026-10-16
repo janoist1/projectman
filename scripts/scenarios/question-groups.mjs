@@ -103,6 +103,36 @@ export default async ({ instance, open, shoot, step }) => {
       await expand();
       await shoot(page, '02-question-sources', { widths: WIDTHS });
     });
+    await step('Mixed and general question sources', async () => {
+      const originals = IDS.map((id) =>
+        db.prepare('SELECT task_key, title, payload FROM inbox_items WHERE id = ?').get(id),
+      );
+      const makeGeneral = (id) => {
+        const question = 'Which error presentation should the form use for an invalid email address?';
+        db.prepare(
+          "UPDATE inbox_items SET task_key = NULL, title = ?, payload = json_set(payload, '$.question', ?) WHERE id = ?",
+        ).run(question, question, id);
+      };
+      makeGeneral(PRIMARY);
+      await resetPage();
+      await shoot(page, '08-mixed-question', { widths: WIDTHS });
+      await expand();
+      await shoot(page, '09-mixed-sources', { widths: WIDTHS });
+      for (const id of IDS) makeGeneral(id);
+      await resetPage();
+      await expand();
+      await shoot(page, '10-general-sources', { widths: [390] });
+      for (const [index, id] of IDS.entries()) {
+        const original = originals[index];
+        db.prepare('UPDATE inbox_items SET task_key = ?, title = ?, payload = ? WHERE id = ?').run(
+          original.task_key,
+          original.title,
+          original.payload,
+          id,
+        );
+      }
+      await resetPage();
+    });
     await step('Linked card points to the shared question', async () => {
       await page.goto(new URL(`/p/AC/tasks/${tasks[1]}`, page.url()).href);
       await page

@@ -112,6 +112,94 @@ describe('combined owner questions', () => {
     expect(h.repos.messages.list('AR', {}).filter((m) => m.origin?.kind === 'answer')).toHaveLength(2);
   });
 
+  it.each(['primary', 'linked', 'both'] as const)(
+    'answers a cardless %s source on its original general route',
+    async (cardless) => {
+      await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+      const originals: string[] = [];
+      for (const [index, as] of [dev, dev2].entries()) {
+        if (cardless === 'both' || cardless === (index === 0 ? 'primary' : 'linked')) {
+          const { session } = await h.domain.sessions.ensureSession('AR', as.member, { type: 'general' });
+          const { inboxItemId } = await h.domain.teamTools.askHuman(
+            { ...as, taskKey: null, sessionId: session.id },
+            { question: `General question ${index + 1}?`, options: ['Yes', 'No'] },
+          );
+          originals.push(inboxItemId);
+          await settle();
+          now = new Date(now.getTime() + 1);
+        } else originals.push(await ask(as.taskKey!, `Card question ${index + 1}?`, ['Yes', 'No'], as));
+      }
+      const { primaryItemId } = await combine(originals);
+      const sources = questionPayloadOf(row(primaryItemId))!.group!.sources!;
+      expect(sources.every((source) => source.state === 'live')).toBe(true);
+      for (const id of originals) {
+        const original = h.repos.inbox.get(id)!;
+        expect(sources.find((source) => source.itemId === id)?.question).toBe(original.payload.question);
+        h.runner.setState(original.sessionId!, 'idle');
+      }
+      await h.domain.inbox.releaseScreened(primaryItemId, { outcome: 'decision', by: 'pm' });
+      await resolve(primaryItemId);
+      const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
+      expect(answers).toHaveLength(2);
+      expect(questionPayloadOf(row(primaryItemId))!.group!.answeredCount).toBe(2);
+      for (const id of originals) {
+        const original = h.repos.inbox.get(id)!;
+        const answer = answers.find(
+          (message) => message.origin?.kind === 'answer' && message.origin.inboxItemId === id,
+        )!;
+        expect(original.state).toBe('resolved');
+        expect(answer.from).toBe('owner');
+        expect(answer.to).toEqual([original.source]);
+        expect(answer.taskKey).toBe(original.taskKey);
+        expect(
+          answer.receipts?.find((receipt) => receipt.handle === original.source)?.route ??
+            (answer.taskKey ? { type: 'task', taskKey: answer.taskKey } : { type: 'general' }),
+        ).toEqual(original.taskKey ? { type: 'task', taskKey: original.taskKey } : { type: 'general' });
+      }
+    },
+  );
+
+  it('withdraws a cardless primary membership while preserving the shared card answer', async () => {
+    await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+    const as = { ...dev, taskKey: null, sessionId: session.id };
+    const { inboxItemId: first } = await h.domain.teamTools.askHuman(as, {
+      question: 'General question?',
+      options: ['Yes', 'No'],
+    });
+    now = new Date(now.getTime() + 1);
+    const second = await ask('AR-2', 'Card question?', ['Yes', 'No'], dev2);
+    await combine([first, second]);
+    await withdraw(first, as);
+    expect(questionPayloadOf(row(first))!.group!.sources![0]).toMatchObject({
+      taskKey: null,
+      question: 'General question?',
+      state: 'withdrawn',
+    });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await resolve(first);
+    const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
+    expect(answers.map((message) => message.answer!.inboxItemId)).toEqual([second]);
+    expect(questionPayloadOf(row(first))!.group!.answeredCount).toBe(1);
+  });
+
+  it('keeps a deleted card distinct from a general source and skips its delivery', async () => {
+    const [first, second] = await pair();
+    h.repos.db.prepare('DELETE FROM tasks WHERE key = ?').run('AR-2');
+    expect(
+      questionPayloadOf(row(first))!.group!.sources!.find((source) => source.itemId === second),
+    ).toMatchObject({
+      taskKey: null,
+      taskTitle: null,
+      question: null,
+      state: 'deleted',
+    });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await resolve(first);
+    const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
+    expect(answers.map((message) => message.answer!.inboxItemId)).toEqual([first]);
+  });
+
   it('rejects incompatible choices without writing a group or changing any question', async () => {
     const first = await ask('AR-1', 'First?');
     const second = await ask('AR-2', 'Second?', ['Different']);
@@ -231,6 +319,24 @@ describe('combined owner questions', () => {
       'withdrawn',
     );
     expect(h.repos.inbox.get(second)!.state).toBe('screening');
+  });
+
+  it('allows moot for an opened group linked member while preserving the other answer', async () => {
+    const [first, second] = await pair();
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.teamTools.screenQuestion(pm(), {
+      itemId: second,
+      outcome: 'moot',
+      note: 'No longer needed',
+    });
+    expect(row(second)).toMatchObject({ state: 'cancelled', resolution: { rule: 'operator_moot' } });
+    expect(row(first).state).toBe('open');
+    await expect(
+      h.domain.teamTools.screenQuestion(pm(), { itemId: second, outcome: 'moot', note: 'Already closed' }),
+    ).rejects.toThrow('question_not_screening');
+    await resolve(first);
+    const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
+    expect(answers.map((message) => message.answer!.inboxItemId)).toEqual([first]);
   });
 
   it('serializes a withdrawal against the owner answer and fallback without duplicating a recipient', async () => {

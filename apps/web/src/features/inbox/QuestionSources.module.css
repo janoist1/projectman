@@ -39,6 +39,10 @@
   color: var(--c-ink);
   font-size: 13px;
 }
+.general {
+  font-size: 13px;
+  line-height: 1.6;
+}
 .meta {
   color: var(--c-ink-3);
   font-size: 12px;

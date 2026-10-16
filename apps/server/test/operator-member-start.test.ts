@@ -26,8 +26,17 @@ async function setup(adjust?: (config: ProjectConfig) => void) {
       adjust?.(config);
     },
   });
-  await h.domain.messaging.sendReporting('AR', 'owner', { to: ['pm'], text: 'Check the engine.' });
-  await flush();
+  const sent = await h.domain.messaging.sendReporting('AR', 'owner', {
+    to: ['pm'],
+    text: 'Check the engine.',
+  });
+  await vi.waitFor(() => {
+    const sessions = h.domain.sessions.list('AR', { member: 'pm' });
+    expect(sessions).toHaveLength(1);
+    expect(
+      h.repos.operatorRequests.openOfSession(sessions[0]!.id).map((request) => request.messageId),
+    ).toEqual([sent.message.id]);
+  });
   ctx = {
     projectKey: 'AR',
     member: 'pm',

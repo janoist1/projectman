@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useMemo } from 'react';
 import { Link } from 'react-router';
-import { operatorApprovalOf } from '@projectman/shared';
+import { operatorApprovalOf, operatorKnowledgeApprovalOf } from '@projectman/shared';
 import type { InboxItem, OperatorRequestView, OperatorStep } from '@projectman/shared';
 import { useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
@@ -13,6 +13,7 @@ import { nameOf } from '../../lib/members';
 import { TaskChip } from '../messages/TaskChip';
 import { OperatorApprovalActions, OperatorApprovalBody, useOperatorDecision } from './OperatorApproval';
 import { OperatorChanges } from './OperatorChanges';
+import { OperatorKnowledgeBody, OperatorKnowledgeActions } from './OperatorKnowledgeApproval';
 import styles from './OperatorSteps.module.css';
 
 type Group = 'done' | 'queued' | 'awaiting' | 'refused';
@@ -96,6 +97,7 @@ function StepRow({
   const decision = useOperatorDecision();
   const group = GROUP_OF[step.status];
   const approval = inboxItem && inboxItem.state === 'open' ? operatorApprovalOf(inboxItem) : null;
+  const knowledge = inboxItem && inboxItem.state === 'open' ? operatorKnowledgeApprovalOf(inboxItem) : null;
   return (
     <li className={styles.step} data-group={group} data-status={step.status}>
       <span className={styles.icon}>
@@ -121,6 +123,18 @@ function StepRow({
         {group === 'done' && step.changes.length > 0 ? (
           <div className={styles.doneChanges}>
             <OperatorChanges changes={step.changes} />
+          </div>
+        ) : null}
+        {inboxItem && knowledge ? (
+          <div className={styles.approval}>
+            <OperatorKnowledgeBody payload={knowledge} stale={decision.staleFor(inboxItem)} />
+            <OperatorKnowledgeActions
+              item={inboxItem}
+              payload={knowledge}
+              pending={decision.pending(inboxItem)}
+              stale={decision.staleFor(inboxItem)}
+              onDecide={decision.decide}
+            />
           </div>
         ) : null}
         {inboxItem && approval ? (

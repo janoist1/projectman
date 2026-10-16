@@ -7,6 +7,7 @@ import {
   alertPayloadOf,
   handOnRequestOf,
   operatorApprovalOf,
+  operatorKnowledgeApprovalOf,
   releaseApprovalOf,
 } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
@@ -50,6 +51,7 @@ import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { OperatorApprovalActions, OperatorApprovalBody } from '../operator/OperatorApproval';
+import { OperatorKnowledgeBody, OperatorKnowledgeActions } from '../operator/OperatorKnowledgeApproval';
 import styles from './InboxCard.module.css';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
@@ -193,6 +195,7 @@ export function InboxCard({
   onDismissGone,
 }: InboxCardProps) {
   const operatorApproval = operatorApprovalOf(item);
+  const operatorKnowledge = operatorKnowledgeApprovalOf(item);
   const handOn = handOnRequestOf(item);
   // A question the Operator made a todo of (PM-556): the result field is always open, with two buttons.
   const todo = isTodo(item);
@@ -407,6 +410,41 @@ export function InboxCard({
   }
 
   // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
+  if (operatorKnowledge)
+    return (
+      <article
+        id={inboxItemDomId(item.id)}
+        className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
+        data-kind={item.kind}
+        data-operator-knowledge=""
+      >
+        <div className={styles.head}>
+          <Chip tone="kind">
+            {t(
+              operatorKnowledge.change.kind === 'agreement_replace'
+                ? 'knowledge.proposal.agreement'
+                : 'knowledge.proposal.principle',
+            )}
+          </Chip>
+        </div>
+        <Heading className={styles.title}>{item.title}</Heading>
+        <OperatorKnowledgeBody payload={operatorKnowledge} stale={stale} />
+        {item.state === 'open' ? (
+          <OperatorKnowledgeActions
+            item={item}
+            payload={operatorKnowledge}
+            pending={pending}
+            stale={stale}
+            onDecide={onResolve}
+          />
+        ) : null}
+        {error ? (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        ) : null}
+      </article>
+    );
   if (operatorApproval) {
     const isStale = operatorApproval.stale !== null || stale;
     return (

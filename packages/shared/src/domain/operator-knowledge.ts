@@ -1,5 +1,11 @@
 import { z } from 'zod';
 import { MemberHandle } from './member';
+import type { HumanAccess } from './member';
+
+/** Shared agreement and principles are visible only to owners and administrators. */
+export function canReadOperatorKnowledge({ access }: { access: HumanAccess | undefined }): boolean {
+  return access === 'owner' || access === 'admin';
+}
 
 export const OperatorAgreementData = z.strictObject({
   summary: z.string().min(1).max(4000),

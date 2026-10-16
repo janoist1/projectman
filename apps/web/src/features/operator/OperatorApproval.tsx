@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useState } from 'react';
 import type { InboxItem, OperatorApprovalPayload, ResolveInboxRequest } from '@projectman/shared';
+import { operatorKnowledgeApprovalOf } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useResolveInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
@@ -21,11 +22,20 @@ const STALE_CODE = 'operator_approval_stale';
 
 /** Whether an error is the server's "this approval is out of date": it shows on the card, not as a toast. */
 export function isStaleError(error: unknown): boolean {
-  return isApiError(error) && error.code === STALE_CODE;
+  return isApiError(error) && (error.code === STALE_CODE || error.code === 'operator_knowledge_stale');
 }
 
 /** What the toast says after an approval was decided; dismissing a stale one says nothing. */
 export function operatorDecisionToast(item: InboxItem, optionId: string): string | null {
+  const knowledge = operatorKnowledgeApprovalOf(item);
+  if (optionId === 'approve' && knowledge)
+    return t(
+      knowledge.change.kind === 'agreement_replace'
+        ? 'knowledge.proposal.approvedAgreement'
+        : knowledge.change.kind === 'principle_remove'
+          ? 'knowledge.proposal.approvedRemove'
+          : 'knowledge.proposal.approvedPrinciple',
+    );
   if (optionId === 'approve') return t('operator.approval.approved', { title: item.title });
   if (optionId === 'reject') return t('operator.approval.rejected');
   return null;

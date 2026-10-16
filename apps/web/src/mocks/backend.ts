@@ -1,5 +1,11 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
+  canReadOperatorKnowledge,
+  DEFAULT_OPERATOR_PREFERENCE,
+  OperatorApprovalWaiverRequest,
+  OperatorKnowledgeDocument,
+  OperatorPreferenceDocument,
+  operatorKnowledgeApprovalOf,
   maskEmail,
   CreateEngineRequest,
   StopOrphansRequest,
@@ -531,6 +537,14 @@ export class MockBackend {
   });
   /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
   operatorRequests: OperatorRequestView[] = [];
+  operatorKnowledge: OperatorKnowledgeDocument = {
+    schemaVersion: 1,
+    revision: 0,
+    agreement: null,
+    principles: [],
+    appliedProposalIds: [],
+  };
+  operatorPreferences: Record<string, OperatorPreferenceDocument> = {};
   /** The Operator's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
   operatorSignals: OperatorSignal[] = [];
   memories: Record<string, string> = {
@@ -2081,6 +2095,55 @@ export class MockBackend {
     }
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     if (rest === '/operator' && method === 'GET') return this.operatorChannel();
+    if (rest === '/operator/preferences/me' && method === 'GET')
+      return ok(
+        clone(
+          this.operatorPreferences[this.viewerHandle] ?? {
+            schemaVersion: 1,
+            revision: 0,
+            data: DEFAULT_OPERATOR_PREFERENCE,
+            updatedAt: null,
+          },
+        ),
+      );
+    if ((rest === '/operator/knowledge' || rest === '/operator/preferences') && method === 'GET') {
+      if (!canReadOperatorKnowledge({ access: this.viewerAccess() }))
+        return error(403, 'operator_owner_only', 'Owner or admin access required');
+      return rest === '/operator/knowledge'
+        ? ok(clone(this.operatorKnowledge))
+        : ok({
+            items: this.config.team.members
+              .filter((member) => member.kind === 'human')
+              .map(({ handle }) => ({
+                handle,
+                preference: clone(
+                  this.operatorPreferences[handle] ?? {
+                    schemaVersion: 1,
+                    revision: 0,
+                    data: DEFAULT_OPERATOR_PREFERENCE,
+                    updatedAt: null,
+                  },
+                ),
+              })),
+          });
+    }
+    if (rest === '/operator/approval-waiver' && method === 'PUT') {
+      if (this.viewerAccess() !== 'owner')
+        return error(403, 'owner_approval_required', 'Owner login required');
+      const input = parseBody(OperatorApprovalWaiverRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid waiver request');
+      if (input.baseVersion !== this.configVersion)
+        return error(409, 'config_conflict', 'Configuration changed');
+      if (input.agreementVersion !== this.operatorKnowledge.agreement?.version)
+        return error(409, 'operator_knowledge_stale', 'Agreement changed');
+      this.config.team.operatorApprovalWaiver = input.enabled;
+      this.configVersion = mockId('config');
+      return ok({
+        version: this.configVersion,
+        enabled: input.enabled,
+        agreementVersion: input.agreementVersion,
+      });
+    }
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
     if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
@@ -6013,6 +6076,60 @@ export class MockBackend {
     if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
     if (item.kind === 'boundary') return error(403, 'insufficient_access', 'Use the boundary endpoint');
     const operatorApproval = operatorApprovalOf(item);
+    const knowledge = operatorKnowledgeApprovalOf(item);
+    if (knowledge) {
+      if (this.viewerAccess() !== 'owner')
+        return error(403, 'owner_approval_required', 'Owner login required');
+      if (knowledge.applying) return error(409, 'operator_approval_used', 'Proposal is being recorded');
+      const reason =
+        knowledge.stale?.reason ??
+        (knowledge.baseRevision !== this.operatorKnowledge.revision
+          ? 'knowledge_changed'
+          : knowledge.baseConfigVersion !== null && knowledge.baseConfigVersion !== this.configVersion
+            ? 'config_changed'
+            : null);
+      if (input.optionId === 'approve' && reason) {
+        this.upsertInbox({
+          ...item,
+          options: [OPERATOR_DISMISS_OPTION],
+          payload: { ...item.payload, operatorKnowledge: { ...knowledge, stale: { reason, at: nowIso() } } },
+        });
+        return error(409, 'operator_knowledge_stale', 'Proposal is out of date');
+      }
+      if (input.optionId === 'approve') {
+        const document = this.operatorKnowledge;
+        const change = knowledge.change;
+        if (change.kind === 'agreement_replace')
+          document.agreement = {
+            version: (document.agreement?.version ?? 0) + 1,
+            data: clone(change.agreement),
+            approvedBy: viewer.handle,
+            approvedAt: nowIso(),
+          };
+        else if (change.kind === 'principle_put') {
+          const id = change.principle.id ?? mockId('principle');
+          document.principles = [
+            ...document.principles.filter((entry) => entry.id !== id),
+            { ...change.principle, id, approvedBy: viewer.handle, approvedAt: nowIso() },
+          ];
+        } else document.principles = document.principles.filter((entry) => entry.id !== change.id);
+        document.revision++;
+        document.appliedProposalIds.push(knowledge.id);
+      }
+      const step = this.operatorRequests
+        .flatMap((request) => request.steps)
+        .find((entry) => entry.id === knowledge.stepId);
+      if (step)
+        step.status =
+          input.optionId === 'approve' ? 'approved' : input.optionId === 'reject' ? 'rejected' : 'stale';
+      const resolved: InboxItem = {
+        ...item,
+        state: 'resolved',
+        resolution: { optionId: input.optionId, by: viewer.handle, at: nowIso(), note: null },
+      };
+      this.upsertInbox(resolved);
+      return ok(clone(resolved));
+    }
     if (operatorApproval) {
       if (!item.assignees.includes(viewer.handle) && viewer.access !== 'owner')
         return error(403, 'not_an_assignee', 'Only assignees may decide');

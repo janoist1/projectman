@@ -78,9 +78,10 @@
   text-decoration: underline;
 }
 
-/* On a phone the link is the icon alone, so the name keeps its room; the text stays for screen readers. */
+/* The knowledge and close controls keep the phone header usable. */
 @media (max-width: 767px) {
   .session {
+    display: none;
     position: relative;
     justify-content: center;
     width: 44px;

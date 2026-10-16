@@ -10,6 +10,11 @@ export interface AllMessagesFilter {
  * ['project', key] so a reconnect can refetch a whole project at once.
  */
 export const queryKeys = {
+  operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
+  operatorPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
+  operatorPreferenceMe: (key: string, handle: string | null) =>
+    ['project', key, 'operator-preference', handle] as const,
+  operatorPreferences: (key: string) => ['project', key, 'operator-preferences'] as const,
   profiles: (key: string) => ['project', key, 'profile'] as const,
   profile: (key: string, handle: string) => ['project', key, 'profile', handle] as const,
   memories: (key: string, handle: string) => ['project', key, 'memory', handle] as const,

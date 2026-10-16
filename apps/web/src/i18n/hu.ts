@@ -2899,6 +2899,7 @@ export const hu = {
       closed: 'Ez a jelzés már nem nyitott.',
       failed: 'Nem sikerült. Próbáld újra.',
       kinds: {
+        loop_suspected: '{key}: körbejárás gyanúja',
         outage: 'Kiesés: a munka egy része áll',
         process_cleanup_failed: '{key}: egy ülés folyamatai nem álltak le',
         nobody: '{key}: senki nem viheti',
@@ -2913,6 +2914,7 @@ export const hu = {
         refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
       },
       bodies: {
+        loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
         outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
         process_cleanup_failed:
           'Egy véget ért ülés háttérfolyamatai a leállítás után is futnak; a munkaterülete foglalt marad. A Gép panelen leállíthatók.',
@@ -4273,6 +4275,7 @@ export const hu = {
       task_assigned: 'Kiosztva: {assignee}',
       task_unassigned: 'Kiosztás visszavonva',
       task_check_changed: '{check}: {state}',
+      loop_triaged: 'Megvizsgálta a körbejárás gyanúját.',
       task_link_added: '{link} csatolva',
       session_started: 'Munkamenet indult',
       session_resumed: 'Munkamenet folytatva',

@@ -67,6 +67,7 @@ export const TimelineEventType = z.enum([
   'question_answer_delivery',
   'refinement_turn',
   'task_loop',
+  'loop_triaged',
   'task_fix_limit',
   'task_handoff',
   'task_full_test',
@@ -417,6 +418,14 @@ export interface TimelineEventData {
     label: string | null;
     member: string | null;
     reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped';
+  };
+  /** A report-only PM assessment (PM-712); the private note is kept only in the loop record. */
+  loop_triaged: {
+    loopId: string;
+    generation: number;
+    outcome: 'progress' | 'loop';
+    evidenceIds: string[];
+    headCommit: string | null;
   };
   /**
    * A loop on the card (PM-261, actor system): `raised` it was found and `notified` was told (null when

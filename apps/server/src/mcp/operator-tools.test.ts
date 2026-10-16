@@ -7,6 +7,43 @@ import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
+  it('triage_loop is strict, validates evidence and forwards only assessment fields', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'triage_loop')!;
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({
+      signal_id: 'ops_loop',
+      outcome: 'progress',
+      note: '  Review is advancing.  ',
+    });
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      state: 'observing',
+      loop_id: 'loop_1',
+      inbox_item_id: null,
+    });
+    expect(handler.calls[0]).toMatchObject({
+      method: 'triageLoop',
+      args: {
+        signalId: 'ops_loop',
+        outcome: 'progress',
+        note: 'Review is advancing.',
+        evidenceIds: [],
+      },
+    });
+    for (const change of [
+      { note: ' ' },
+      { note: 'x'.repeat(2001) },
+      { outcome: 'let_run' },
+      { outcome: 'stop_work' },
+      { loop_id: 'other' },
+      { member: 'owner' },
+      { evidence_ids: ['same', 'same'] },
+      { evidence_ids: Array(21).fill('event') },
+    ])
+      expect(
+        tool.inputSchema.safeParse({ signal_id: 'ops_loop', outcome: 'progress', note: 'Review.', ...change })
+          .success,
+      ).toBe(false);
+  });
   it('combine_questions validates distinct bounded ids and preserves the public argument names', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'combine_questions')!;
     const handler = createFakeTeamToolsHandler();

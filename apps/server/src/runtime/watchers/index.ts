@@ -4,6 +4,7 @@ export { FixLimitWatch } from './fix-limit';
 export type { FixLimitDecision } from './fix-limit';
 export { InputStallAlerts } from './input-stall-alert';
 export { LoopWatch } from './loop-watch';
+export type { LoopTriageNotices, LoopTriageEngine } from './ports';
 export { MachineMonitor } from './machine';
 export { WorkOutages } from './outages';
 export { ReviewWatch } from './review-watch';

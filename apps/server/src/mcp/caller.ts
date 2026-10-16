@@ -206,7 +206,14 @@ export class ToolCaller {
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     if (
-      ['combine_questions', 'screen_question', 'dismiss_signal', 'start_task', 'start_member'].includes(tool)
+      [
+        'combine_questions',
+        'screen_question',
+        'dismiss_signal',
+        'triage_loop',
+        'start_task',
+        'start_member',
+      ].includes(tool)
     ) {
       this.assertCoordinationSession(ctx, config);
       const request = this.coordinationRequests.openFor(ctx.sessionId);

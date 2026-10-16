@@ -31,6 +31,7 @@ import {
   operatorSignalBudget,
   operatorWatchOf,
   OperatorSignal,
+  LoopTriageFacts,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
   aiLimitReached,
   isOnLeave,
@@ -114,6 +115,8 @@ const WAKE_ONE_MESSAGE =
   'Send the owners one message for the whole wake-up (send_message with signal_ids; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
 const WAKE_CHECK =
   'Projectman system signals. Check get_project_state and session activity first. Read get_task before referring to a card; distinguish active work, actual decision waits and normal offline queued work. Diagnose the cause, take only the smallest permitted coordination step, consider machine load and verify the result. Group related decisions in the single summary; screening and signals are not owner requests and grant no settings or critical-operation authority.';
+const WAKE_LOOP =
+  'A loop_suspected signal is report-only: inspect current card, commits, review findings and delivery; call triage_loop with evidence and progress or loop. Message count alone is no loop. Never present it to owners as an authorization request, stop work or choose stop/let_run.';
 const WAKE_STEP =
   'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
 const WAKE_DISMISS =
@@ -303,6 +306,11 @@ export class OperatorSignals {
     const signal = this.deps.ctx.repos.operatorSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
+    if (signal.kind === 'loop_suspected')
+      throw invalid(
+        'invalid_request',
+        'use triage_loop for a suspected loop, not an owner signal presentation',
+      );
     if (
       signal.resolvedAt ||
       signal.messageId ||
@@ -626,6 +634,17 @@ export class OperatorSignals {
       config ? this.boardCases(config, this.deps.ctx.repos.tasks.list(s.projectKey)) : new Map(),
   ): boolean {
     const { ctx, taskWaits } = this.deps;
+    if (s.kind === 'loop_suspected') {
+      const facts = LoopTriageFacts.parse(JSON.parse(s.subject!));
+      const loop = ctx.repos.taskLoops.get(facts.loopId);
+      return (
+        !!loop &&
+        !loop.endedAt &&
+        loop.phase === 'notified' &&
+        loop.triage?.generation === facts.generation &&
+        !loop.triage.assessed
+      );
+    }
     if (BOARD_KINDS.has(s.kind)) return board().has(s.caseKey);
     if (s.kind === 'nobody') {
       const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
@@ -1005,29 +1024,34 @@ export class OperatorSignals {
         const level = operatorWatchOf(config);
         const now = isoNow(ctx);
         const text =
-          `${WAKE_HEADERS[level]}\n` +
+          `${WAKE_HEADERS[level]} ${WAKE_LOOP}\n` +
           signals
             .map((s) => {
               const steps = ctx.repos.operatorRequests.stepsOfSignal(s.id);
-              const budget = operatorSignalBudget(
-                level,
-                steps.filter((step) => step.status !== 'refused').map((step) => step.at),
-                now,
-              );
+              const budget =
+                s.kind === 'loop_suspected'
+                  ? { left: 0, nextAt: null }
+                  : operatorSignalBudget(
+                      level,
+                      steps.filter((step) => step.status !== 'refused').map((step) => step.at),
+                      now,
+                    );
               return JSON.stringify({
                 ...OperatorSignal.parse(s),
                 facts:
-                  s.kind === 'ready_waiting'
-                    ? this.readyFacts(s)
-                    : s.kind === 'answer_stalled'
-                      ? this.answerStalledFacts(s)
-                      : s.kind === 'refinement_stalled'
-                        ? { refinement: this.refinementStallFacts(config, s) }
-                        : s.inboxItemId
-                          ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                          : s.subject
-                            ? ctx.repos.sessions.get(s.subject)?.activity
-                            : null,
+                  s.kind === 'loop_suspected'
+                    ? LoopTriageFacts.parse(JSON.parse(s.subject!))
+                    : s.kind === 'ready_waiting'
+                      ? this.readyFacts(s)
+                      : s.kind === 'answer_stalled'
+                        ? this.answerStalledFacts(s)
+                        : s.kind === 'refinement_stalled'
+                          ? { refinement: this.refinementStallFacts(config, s) }
+                          : s.inboxItemId
+                            ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                            : s.subject
+                              ? ctx.repos.sessions.get(s.subject)?.activity
+                              : null,
                 step: this.stepOf(level, config, s),
                 steps_left: budget.left,
                 next_step_at: budget.nextAt,

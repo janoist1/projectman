@@ -1825,6 +1825,17 @@ workers follow the machine's size.
     since only the link state crosses the boundary. Signals and team messages already queue on
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
     trials belong to PM-664.
+    PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
+    `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
+    online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
+    report-only `loop_suspected` signal to the selected PM, even when it participates in the loop.
+    The engine link state freezes the deadline while offline, and reconnect sweeps resume it.
+    Queued delivery alone never creates an owner decision. No new engine operation or CLI mount.
+    Before reporting, assessing or falling back to the existing human loop decision, the watcher
+    re-reads the task, timeline work and branch head through `SessionOrchestrator.sourceHead`.
+    The existing engine git read runs beside the repository; only commit/time facts cross the
+    boundary. A null/offline head never proves progress. Queue, deduplication and assessment stay
+    on the server and work unchanged with a remote engine.
     **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -2529,6 +2540,9 @@ assumption or remote-engine RPC.
   operations. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `runtime/admission` (`HandoffService`) uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
+  PM-712 uses the existing engine-local `sourceHead` read again before loop triage and human
+  fallback, so a review fix committed since detection closes the loop. Only commit/time facts
+  reach the server; unavailable heads never count as progress. No new git or shell capability.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
@@ -2911,12 +2925,16 @@ the work of a team that does not write code: a note, an attachment or a new desc
 new one; an imported comment is no work); the window
 and the count are `team.limits.loopWatch` (`enabled`, `count` 3..50, `minutes` 5..240; default on, 6 in 30).
 A loop is a row of `task_loops` (migration 29) with the phase `notified` → `owner` → `let_run`, and the card
-carries it as `Task.loop` (a "Körbe fut" mark; clients do not see it). The first notice is a system message to the
-AI holder of the `scheduling` duty (not stored as a team message). People get an inbox decision (`stop_work` or
-`let_run`) only when nobody holds the duty, admission refuses the holder for good, or the loop went on after the
-notice. A refusal that can clear (the AI limit, the holder's capacity, paused plan usage, low disk space) only makes
-the notice wait: it is an automatic start (`StartSpec` kind `loop_notice`) kept and retried like the others, the loop
-stays `notified` with `notified_count` 0, and the "went on" count starts from the delivery. A loop closes itself when the card moves on, its labels change, work is recorded on it, a commit lands, nobody wrote for a whole window,
+carries it as `Task.loop` (a "Körbe fut" mark; clients do not see it). Since PM-712 the selected PM gets a
+report-only `loop_suspected` signal in its internal general session, even when it participates.
+`triage_loop` records an attributed `loop_triaged` event: `progress` keeps observing from the current count;
+another threshold of unchanged messages starts a new generation. `loop` asks the existing human deciders
+(`stop_work` or `let_run`), once. The private note stays in `triage_json`, outside the public DTO and timeline.
+Missing/on-leave/AI-disabled PMs and definitive delivery failures fall back to people after a fresh progress
+check. Deferred delivery uses the existing durable `operator_signals` queue; no queued signal alone reaches
+people. Ten minutes after successful delivery, counting only online engine time, the same guarded fallback
+applies. The watcher rechecks card, work and branch head under its task lock before each assessment or fallback.
+A loop closes itself when the card moves on, its labels change, work is recorded on it, a commit lands, nobody wrote for a whole window,
 or the watch is switched off; its decision then closes with the `loop_ended` rule. `let_run` ends the loop at once
 too (end reason `let_run`, PM-431): the mark goes, and another loop needs new talk after that, with no progress.
 The phase `let_run` and the `let_run` event only remain for loops let run before PM-431. The timeline event is

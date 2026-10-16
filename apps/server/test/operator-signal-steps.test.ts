@@ -413,7 +413,12 @@ describe('start_member on a card', () => {
   it('needs a role on the card for the member it starts, also on an owner request', async () => {
     await setup('report');
     const card = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
-    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['pm'], text: 'Wake dev-2.' });
+    await h.domain.messaging.sendReporting(
+      'AR',
+      'owner',
+      { to: ['pm'], text: 'Wake dev-2.' },
+      { awaitWake: true },
+    );
     await flush();
     const ask = (member: string) =>
       h.domain.teamTools.startMember(operator(), { member, text: 'Look.', taskKey: card.key });

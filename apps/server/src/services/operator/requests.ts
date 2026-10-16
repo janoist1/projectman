@@ -62,6 +62,7 @@ export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
   'combine_questions',
   'screen_question',
   'dismiss_signal',
+  'triage_loop',
 ]);
 
 /**

@@ -25,6 +25,7 @@ export const TEAM_TOOL_NAMES = [
   'screen_question',
   'combine_questions',
   'dismiss_signal',
+  'triage_loop',
   'start_task',
   'start_member',
   'submit_boundary_request',

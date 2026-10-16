@@ -2574,6 +2574,21 @@ assumption or remote-engine RPC.
   `workspace_source_missing` (`details.reason: engine_update_required`). **Does this work on a remote
   engine?** Yes: the workspace, the repository and the transfer are all on the engine; only the
   request and the `{path, ref}` answer cross the link.
+  **A fresh base at every start (PM-740):** a member workspace has no remote, so its default
+  branch goes stale unless the server fetches it. `MemberWorkspaces.prepare` calls
+  `MemberWorkspaceManager.fetchBase` (RPC `workspace.fetchBase`, unchanged) once per session
+  preparation, after the reservation and `ensure` and before any checkout: for new and continued
+  developer sessions and for new and continued reviews. A failed fetch is `workspace_fetch_failed`
+  and the session does not start (the reservation is released). The fetch moves only
+  `refs/remotes/upstream/<default>` (forced, so it shows the fetch result) and fast-forwards the
+  member's own default branch when it is not checked out and does not diverge (a divergence is
+  logged, never overwritten); the task branch, its files and the binding's `baseCommit` or review
+  pins of a continued round stay as they are, and a new task or review round pins the commit
+  fetched for that start. A reviewer's valid action message to the assignee's running session is
+  preceded by `SessionOrchestrator.refreshWorkspaceBase(config, task, member)` (from
+  `runtime/delivery`), the same fetch without a start or checkout; when it fails the message stays
+  waiting and is retried. **Does this work on a remote engine?** Yes: the fetch runs on the engine
+  that holds the workspace and the repository; only the existing RPC crosses the link.
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
   **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`

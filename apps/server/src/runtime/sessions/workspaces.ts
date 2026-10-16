@@ -25,6 +25,9 @@ import type { DomainContext } from '../../core/base';
 import { conflict, DomainError } from '../../kernel';
 import { KeyedMutex, newId } from '../../kernel';
 
+/** The default branch as `MemberWorkspaceManager.fetchBase` leaves it in the workspace. */
+type FetchedBase = Awaited<ReturnType<MemberWorkspaceManager['fetchBase']>>;
+
 /** The refs of commits a developer's workspace handed over to the project repository (PM-739). */
 const SNAPSHOT_REF_PREFIX = 'refs/projectman/workspaces/';
 
@@ -163,10 +166,13 @@ export class MemberWorkspaces {
         }
         record = store.get(record.id)!;
         const previous = store.binding(projectKey, task.key, member.handle, record.id);
+        // Every start, new or continued, begins from a fresh default branch (PM-740): the one fetch of
+        // this preparation, before anything is checked out. A failed fetch ends the start.
+        const base = await this.manager.fetchBase(key);
         const prepared =
           kind === 'work'
-            ? await this.prepareWork(config, key, task, record, previous)
-            : await this.prepareReview(config, key, task, record, previous);
+            ? await this.prepareWork(config, key, task, record, previous, base)
+            : await this.prepareReview(config, key, task, record, previous, base);
         const now = isoNow(this.ctx);
         const binding: TaskWorkspaceBinding = {
           ...prepared.binding,
@@ -257,6 +263,25 @@ export class MemberWorkspaces {
   }
 
   /**
+   * Brings the default branch of the member's workspace for the task up to date without starting
+   * anything (PM-740): a developer's running session is about to be told by a reviewer, e.g. to merge
+   * main. Only tracking refs (and a fast-forward of an unused own default branch) move: the checkout,
+   * the task branch, its files and the binding's pins stay as they are, and the reservation is kept.
+   * Without a workspace of the member for the task it does nothing; a failed fetch throws.
+   */
+  async refreshBase(config: ProjectConfig, task: Task, member: string): Promise<void> {
+    const binding = this.ctx.repos.memberWorkspaces
+      .bindingsOfTask(config.project.key, task.key)
+      .find((b) => b.member === member && b.kind === 'work');
+    const record = binding ? this.ctx.repos.memberWorkspaces.get(binding.workspaceId) : null;
+    if (!record) return;
+    const key: MemberWorkspaceKey = { project: config, repoName: record.repo, member };
+    await this.manager.fetchBase(key).catch((err: unknown) => {
+      throw toDomainError(err, member);
+    });
+  }
+
+  /**
    * The workspace that holds the task's committed work, for readers, reviewers and a developer who
    * takes it over: the assignee's, whoever else opened the task since (another developer's copy
    * may be stale); without one, the most recently used other copy (the previous assignee's).
@@ -317,6 +342,7 @@ export class MemberWorkspaces {
     task: Task,
     record: MemberWorkspaceRecord,
     previous: TaskWorkspaceBinding | null,
+    base: FetchedBase,
   ) {
     let checkout: WorkspaceCheckout | null = null;
     let baseCommit: string | null = null;
@@ -375,8 +401,7 @@ export class MemberWorkspaces {
         // The task had a branch: it is not started over from the default branch.
         throw lost;
       } else {
-        // A new task: its own branch from the freshly fetched default branch.
-        const base = await this.manager.fetchBase(key);
+        // A new task: its own branch from the default branch fetched for this start.
         checkout = await this.manager.checkoutTaskBranch(key, {
           mode: 'create',
           branch: wanted,
@@ -416,6 +441,7 @@ export class MemberWorkspaces {
     task: Task,
     record: MemberWorkspaceRecord,
     previous: TaskWorkspaceBinding | null,
+    base: FetchedBase,
   ) {
     const sameRound =
       previous?.kind === 'review' &&
@@ -437,14 +463,13 @@ export class MemberWorkspaces {
       );
       binding = { ...previous, kind: 'review' };
     } else {
-      // A new round: the handed-over branch's commit now, and the default branch now.
+      // A new round: the handed-over branch's commit now, and the default branch fetched for this start.
       const selected = await this.reviewSource(config, key, task);
       if (!selected)
         throw conflict('workspace_source_missing', `task ${task.key} has no committed branch to review yet`, {
           taskKey: task.key,
         });
       const { source, commit } = selected;
-      const base = await this.manager.fetchBase(key);
       checkout = await this.manager.checkoutReview(key, source, commit);
       binding = {
         kind: 'review',

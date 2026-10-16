@@ -618,6 +618,26 @@ export class SessionOrchestrator {
   }
 
   /**
+   * Brings the default branch of the member's workspace for the task up to date before a message is
+   * typed into the member's running session (PM-740). Nothing is started and the session's work is
+   * left as it is. A no-op without a member workspace; a failed fetch throws.
+   */
+  async refreshWorkspaceBase(config: ProjectConfig, task: Task, member: string): Promise<void> {
+    if (!effectiveRepo(config, task)) return;
+    const session = this.ctx.repos.sessions.findByWorkItem(config.project.key, member, {
+      type: 'task',
+      taskKey: task.key,
+    });
+    const engineId = this.deps.engines.engineFor(config.project.key, member);
+    const workspaces = session
+      ? this.workspacesOfSession(session)
+      : engineId
+        ? this.workspacesOf(engineId)
+        : null;
+    await workspaces?.refreshBase(config, task, member);
+  }
+
+  /**
    * The session's review round is over while it is still in a turn: messages for it wait instead of
    * reaching the old round, and it restarts on the new commit once it idles (see `handleRunnerEvent`).
    */

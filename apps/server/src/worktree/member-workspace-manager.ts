@@ -379,9 +379,19 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
           '--',
           info.path,
           `${tracking}:refs/heads/${defaultBranch}`,
-        ]).catch((err: unknown) =>
-          log.debug({ err, path: info.path }, 'the workspace default branch was not fast-forwarded'),
-        );
+        ]).catch(async (err: unknown) => {
+          const own = `refs/heads/${defaultBranch}`;
+          // The member's own default branch has commits the project's does not: it stays as it is.
+          if (
+            (await refExists(info.path, own)) &&
+            !(await gitInSucceeds(info.path, ['merge-base', '--is-ancestor', own, tracking]))
+          )
+            log.warn(
+              { path: info.path, branch: defaultBranch, tracking: commit },
+              'the workspace default branch has diverged from the project default branch; left as it is',
+            );
+          else log.debug({ err, path: info.path }, 'the workspace default branch was not fast-forwarded');
+        });
       }
       return { branch: defaultBranch, commit };
     });

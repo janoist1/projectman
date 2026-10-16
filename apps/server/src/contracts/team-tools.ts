@@ -748,6 +748,10 @@ export interface ProjectDocToolsHandler {
 
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
+  requestStructuralReview(
+    ctx: ToolContext,
+    args: { signalId: string; note: string },
+  ): Promise<import('@projectman/shared').StructuralReviewResult>;
   getOperatorKnowledge(ctx: ToolContext): Promise<OperatorKnowledgeDocument>;
   proposeOperatorKnowledge(
     ctx: ToolContext,

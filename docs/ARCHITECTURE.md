@@ -3053,6 +3053,24 @@ new machine-dependent part (the start itself is the inventory's existing work st
 
 ### Coordination belongs to the PM (PM-707)
 
+PM-696 adds report-only `structural_pattern` and `milestone_closed` signals. The server's
+`services/operator/structural-patterns.ts` reads structured timeline evidence in a seven-day window:
+the same repository-relative conflict or failed-test file on two independent cards, or at least three
+fix rounds on each of two cards. Retries on one card and raw output never form a pattern. Signal cases
+retain a short SHA256 fingerprint; their original timeline window reconstructs the evidence after restart.
+The same fingerprint is suppressed for seven days and structural deliveries share a daily project budget.
+Theme closure and collecting-card completion use actual transition events, never ordinary card completion.
+`request_structural_review` is restricted to the selected PM's internal general session. Without an open
+owner request it creates a question with server evidence and approve/reject options. The registered
+`operator_structural_review` decider requires the owner's own login. Its answer opens a separately
+validated `CoordinationRequests` approval continuation for the PM, never an Operator request; approval
+itself starts nobody. The PM then requests the review again, rechecking the signal and selecting a live
+`technical_direction` AI holder by capacity, load and handle. `start_member` carries the short review
+through the existing message/session boundary and records the source request and decision. The review
+reports suggestions (including no change), creates no cards automatically and never writes Operator knowledge.
+No machine-dependent part changes: detection and selection run on the server, delivery uses the existing
+session boundary and works with remote engines.
+
 The selected live PM (`coordinationMemberOf`, shared `config/project-manager.ts`) receives every
 coordination signal and screens AI questions, including the Operator's. Its own questions go directly
 to people. `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination

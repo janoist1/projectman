@@ -1,5 +1,6 @@
 import {
   coordinationMemberOf,
+  structuralReviewContinuation,
   memberOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationOf,
@@ -287,14 +288,48 @@ export class CoordinationRequests extends OperatorRequests {
   override open(input: OpenCoordinationRequest): OperatorRequestRecord {
     if (!this.isCoordinationSession(input.sessionId, input.projectKey))
       throw forbidden('project_manager_only', 'coordination requires the selected PM internal conversation');
-    if (input.source === 'approval')
+    if (input.source === 'approval' && !this.validApproval(input))
       throw forbidden('operator_no_request', 'no structural approval continuation is authorized for the PM');
     return super.open(input);
   }
 
   override openFor(sessionId: string): OperatorRequestRecord | null {
     const request = this.isCoordinationSession(sessionId) ? super.openFor(sessionId) : null;
-    return request?.source === 'approval' ? null : request;
+    if (
+      request?.source === 'approval' &&
+      !this.validApproval({
+        projectKey: request.projectKey,
+        sessionId,
+        messageId: request.messageId,
+        inboxItemId: request.inboxItemId,
+        source: 'approval',
+        from: request.fromHandle,
+        text: request.quote,
+      })
+    )
+      return null;
+    return request;
+  }
+
+  private validApproval(input: OpenCoordinationRequest): boolean {
+    const { repos } = this.coordinationCtx;
+    const message = input.messageId && repos.messages.get(input.messageId);
+    const item = input.inboxItemId && repos.inbox.get(input.inboxItemId);
+    const config = this.projects.cachedConfig(input.projectKey);
+    const pm = config && coordinationMemberOf(config);
+    const owner = config && memberOf(config, input.from);
+    return !!(
+      message &&
+      item &&
+      pm &&
+      message.from === input.from &&
+      structuralReviewContinuation(
+        item,
+        message,
+        pm.handle,
+        owner?.kind === 'human' && owner.access === 'owner',
+      )
+    );
   }
 
   private isCoordinationSession(sessionId: string, projectKey?: string): boolean {

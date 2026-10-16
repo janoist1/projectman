@@ -80,6 +80,20 @@ export function createTimelineRepository(db: Db) {
     ),
   };
   return {
+    /** Structured detector evidence in a fixed time window, independent of unrelated project traffic. */
+    structuralEvidence(projectKey: string, since: string, until: string): TimelineEvent[] {
+      return (
+        db
+          .prepare(
+            `SELECT * FROM timeline_events WHERE project_key = ?
+        AND created_at >= ? AND created_at <= ?
+        AND type IN ('task_merge_requested', 'task_merge_failed', 'task_full_test',
+          'task_stage_changed', 'task_labels_changed', 'task_updated')
+        ORDER BY seq`,
+          )
+          .all(projectKey, since, until) as TimelineRow[]
+      ).map(toEvent);
+    },
     involvements(projectKey: string, query: InvolvementQuery, cursor?: [string, string]) {
       const params: (string | number)[] = [projectKey];
       let where = `project_key = ? AND type IN ('session_started', 'session_ended')

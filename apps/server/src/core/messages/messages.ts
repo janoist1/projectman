@@ -1,5 +1,7 @@
 import {
   coordinationMemberOf,
+  structuralReviewOf,
+  structuralReviewContinuation,
   isOperator,
   isProjectManager,
   isUnreadBy,
@@ -332,10 +334,13 @@ export class MessageService {
     if (route.type === 'general' && route.with) return;
     const session = this.ctx.repos.sessions.findByWorkItem(message.projectKey, handle, { type: 'general' });
     if (!session || session.workItem.type !== 'general' || session.workItem.with) return;
+    const answerItem = message.answer && this.ctx.repos.inbox.get(message.answer.inboxItemId);
+    const structural = answerItem && structuralReviewOf(answerItem);
+    if (structural && !structuralReviewContinuation(answerItem, message, handle, true)) return;
     this.coordinationRequests.open({
       projectKey: message.projectKey,
       sessionId: session.id,
-      source: message.answer ? 'answer' : 'message',
+      source: structural ? 'approval' : message.answer ? 'answer' : 'message',
       messageId: message.id,
       inboxItemId: message.answer?.inboxItemId ?? null,
       from: message.from,

@@ -15,6 +15,19 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
   module: 'services/operator',
   tools: [
     defineTool({
+      name: 'request_structural_review',
+      title: 'Request an occasional architecture review',
+      readOnly: false,
+      description:
+        'Selected PM internal general session only. Weigh a delivered structural_pattern or milestone_closed signal and give a short reason. Without your own open owner request this only proposes an owner approval; nobody starts before approval. On approval call this tool again with the same signal_id. The server selects a live technical_direction holder with capacity and uses start_member; do not create cards or refactor from this standing review.',
+      input: { signal_id: z.string().min(1), note: z.string().trim().min(1).max(2000) },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.requestStructuralReview(ctx, { signalId: args.signal_id, note: args.note }),
+        );
+      },
+    }),
+    defineTool({
       name: 'get_operator_knowledge',
       title: 'Read approved shared Operator knowledge',
       readOnly: true,

@@ -2,6 +2,13 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** Hungarian default display names and role texts (the only place for Hungarian text in this package). */
 export const hu: TemplateLocale = {
+  structuralReview: {
+    details:
+      'A PM a jóváhagyás után friss bizonyíték és szabad kapacitás alapján választ műszaki felelőst. A szemle újraellenőrzi az érintett kártyákat és felelősséghatárokat, majd néhány javaslatot ad. Az is elfogadott eredmény, hogy nincs mit változtatni. Nem nyit automatikusan kártyát és nem indít refaktort.',
+    question: 'Induljon alkalmi architektúraszemle?',
+    approve: 'Szemle jóváhagyása',
+    reject: 'Most nem szükséges',
+  },
   language: 'hu',
   timezone: 'Europe/Budapest',
   columns: {

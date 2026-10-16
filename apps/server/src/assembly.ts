@@ -98,7 +98,7 @@ import {
   OperatorRequests,
   OperatorSteps,
 } from './services/operator';
-import { OperatorSignals } from './services/operator';
+import { OperatorSignals, StructuralReviews } from './services/operator';
 import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
 import { ProjectState } from './services/operator';
@@ -973,6 +973,18 @@ export function createDomain(opts: DomainOptions) {
     releases,
   });
   messaging.registerSignals(operatorSignals);
+  const structuralReviews = new StructuralReviews({
+    ctx,
+    projects,
+    inbox,
+    signals: operatorSignals,
+    requests: coordinationRequests,
+    steps: operatorSteps,
+    admission,
+  });
+  inbox.registerDecider('operator_structural_review', (item, by, option) =>
+    structuralReviews.decide(item, by, option),
+  );
   events.on('config_changed', ({ projectKey }) => operatorSignals.recheckRecipients(projectKey));
   const questionScreening = new QuestionScreening({
     ctx,
@@ -1159,6 +1171,7 @@ export function createDomain(opts: DomainOptions) {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       operator: new OperatorTools({
+        structuralReviews,
         operatorPreferences,
         operatorKnowledge: sharedOperatorKnowledge,
         calls: toolCaller,

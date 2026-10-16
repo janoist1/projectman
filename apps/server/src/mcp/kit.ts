@@ -24,6 +24,7 @@ export const TEAM_TOOL_NAMES = [
   'mark_decision_candidates',
   'screen_question',
   'dismiss_signal',
+  'request_structural_review',
   'start_task',
   'start_member',
   'submit_boundary_request',

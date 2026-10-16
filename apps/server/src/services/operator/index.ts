@@ -1,4 +1,5 @@
 export { OperatorSignals } from './signals';
+export { StructuralReviews } from './structural-review';
 export { OperatorPreferences } from './preferences';
 export { OperatorKnowledge } from './knowledge';
 export * from './requests';

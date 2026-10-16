@@ -2,6 +2,13 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** English default display names and role texts. */
 export const en: TemplateLocale = {
+  structuralReview: {
+    details:
+      'After approval the PM rechecks the evidence and selects a technical direction holder with free capacity. The review re-reads the affected cards and responsibility boundaries and reports a few suggestions, including no change when appropriate. It never creates cards or starts a refactor automatically.',
+    question: 'Start an occasional architecture review?',
+    approve: 'Approve review',
+    reject: 'No review needed now',
+  },
   language: 'en',
   timezone: 'UTC',
   columns: {

@@ -237,6 +237,10 @@ export function formatReleaseCheck(check: ReleaseCheckResult): string {
 
 function signalLine(signal: OperatorSignal): string {
   const explanations: Record<OperatorSignal['kind'], string> = {
+    structural_pattern:
+      'Repeated structured evidence across independent cards; report only. Weigh request_structural_review; it needs an owner approval before starting anyone.',
+    milestone_closed:
+      'A theme or collecting milestone closed; report only. Consider an occasional review with request_structural_review.',
     process_cleanup_failed:
       "An ended session still has running processes; its workspace remains reserved. Bring this to the owners; never stop another member's processes yourself.",
     outage: 'A provider or engine outage needs attention.',

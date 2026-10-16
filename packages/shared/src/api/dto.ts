@@ -112,6 +112,7 @@ export const OperatorAction = z.enum([
   'docs_write',
   'decision_offer',
   'knowledge_change',
+  'structural_review',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([
@@ -177,6 +178,8 @@ export const OperatorSignalKind = z.enum([
   'unreleased',
   'ready_waiting',
   'answer_stalled',
+  'structural_pattern',
+  'milestone_closed',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
 /** The facts of an `answer_stalled` signal (PM-694): the evidence is a delivered answer or message, never its text. */

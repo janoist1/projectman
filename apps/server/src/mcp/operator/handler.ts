@@ -25,6 +25,7 @@ import type {
   OperatorSignals,
   OperatorPreferences,
   OperatorKnowledge,
+  StructuralReviews,
 } from '../../services/operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
@@ -41,6 +42,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
   private readonly operatorPreferences: OperatorPreferences;
   private readonly operatorKnowledge: OperatorKnowledge;
+  private readonly structuralReviews: StructuralReviews;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -55,6 +57,7 @@ export class OperatorTools implements OperatorToolsHandler {
     operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
     operatorPreferences: OperatorPreferences;
     operatorKnowledge: OperatorKnowledge;
+    structuralReviews: StructuralReviews;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -68,6 +71,16 @@ export class OperatorTools implements OperatorToolsHandler {
     this.operatorSignals = deps.operatorSignals;
     this.operatorPreferences = deps.operatorPreferences;
     this.operatorKnowledge = deps.operatorKnowledge;
+    this.structuralReviews = deps.structuralReviews;
+  }
+
+  async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'request_structural_review');
+      return this.structuralReviews.request(ctx, args.signalId, args.note, (member, text) =>
+        this.startMember(ctx, { member, text }),
+      );
+    });
   }
 
   async getOperatorKnowledge(ctx: ToolContext) {
@@ -359,6 +372,7 @@ export class OperatorTools implements OperatorToolsHandler {
         { action: 'task_start', taskKey: args.taskKey ?? null, member: args.member },
         async () => {
           // The message is the card's: the member needs a role on it (PM-545).
+          this.structuralReviews.assertStart(ctx, args);
           const card = args.taskKey
             ? this.tasks.get(ctx.projectKey, this.calls.validTaskKey(ctx, args.taskKey))
             : null;
@@ -388,7 +402,10 @@ export class OperatorTools implements OperatorToolsHandler {
                 operatorRequest: who.request!.id,
                 awaitWake: true,
                 workerCheck: !args.despiteWorkers,
-                beforeRecord: who.beforeRecord,
+                beforeRecord: () => {
+                  who.beforeRecord?.();
+                  this.structuralReviews.assertStart(ctx, args);
+                },
               },
             )
             .catch((err: unknown) => {

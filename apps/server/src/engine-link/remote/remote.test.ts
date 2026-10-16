@@ -213,6 +213,27 @@ describe('cloud mode remote parts', () => {
       expect(await host.heavyRunSessions()).toEqual([]);
     });
 
+    it('skips preparation on old engines, otherwise returns readiness and preserves dependency refusals', async () => {
+      const engine = await online();
+      const manager = remote.directory.host('eng_a' as never)!.memberWorkspaces!;
+      const key = { project: testConfig(), repoName: testConfig().project.repos[0]!.name, member: 'dev' };
+      expect(await manager.prepareDependencies(key)).toEqual({ status: 'skipped', reason: 'not_configured' });
+      const ready = { status: 'ready' as const, key: 'a'.repeat(64), changed: true };
+      engine.answer('workspace.prepareDependencies', () => ready);
+      expect(await manager.prepareDependencies(key)).toEqual(ready);
+      expect(engine.requests.at(-1)).toEqual({ method: 'workspace.prepareDependencies', params: [key] });
+      engine.answer('workspace.prepareDependencies', () => {
+        throw Object.assign(new Error('still running'), {
+          code: 'workspace_dependencies_pending',
+          details: { startedAt: '2026-10-16T20:00:00.000Z' },
+        });
+      });
+      await expect(manager.prepareDependencies(key)).rejects.toMatchObject({
+        code: 'workspace_dependencies_pending',
+        details: { startedAt: '2026-10-16T20:00:00.000Z' },
+      });
+    });
+
     it('hands a task commit over on the engine, and asks for an update when the engine cannot (PM-739)', async () => {
       const engine = await online();
       const host = remote.directory.host('eng_a' as never)!;

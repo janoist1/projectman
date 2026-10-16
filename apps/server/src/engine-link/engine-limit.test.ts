@@ -58,7 +58,9 @@ describe('engine local limit', () => {
     name: 'mac',
     keyFile: path.join(home, 'engine.key'),
     projects: [{ project: 'PM', workspacePath: workspace }],
-    repos: [{ project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test' }],
+    repos: [
+      { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', workspaceSetup: null },
+    ],
     maxPermissionMode: 'auto',
     allowRemoteTerminalInput: true,
     ...overrides,
@@ -690,6 +692,32 @@ describe('engine local limit', () => {
       ).toBe(repo);
     });
 
+    it('binds dependency preparation to the engine repository and exposes only copies of its read denials', async () => {
+      const limit = make({ linkHeadersFile: path.join(home, 'link-headers.json') });
+      const key = { project: projectConfig(), repoName: 'projectman', member: 'dev' };
+      const [bound] = await limit.check('workspace.prepareDependencies', [key] as never);
+      expect(bound.project.project.workspacePath).toBe(workspace);
+      expect(bound.project.project.repos[0]?.path).toBe(repo);
+      await refused(
+        limit,
+        'workspace.prepareDependencies',
+        [{ ...key, repoName: 'other' }],
+        'repo_not_registered',
+      );
+      await refused(
+        limit,
+        'workspace.prepareDependencies',
+        [{ ...key, project: { project: { key: 'XX' } } }],
+        'repo_not_registered',
+      );
+      const sensitive = limit.sensitiveRead();
+      expect(sensitive).toContain(path.join(home, 'engine.key'));
+      expect(sensitive).toContain(path.join(home, 'link-headers.json'));
+      expect(sensitive).toContain(path.join(userHome, '.ssh'));
+      sensitive.length = 0;
+      expect(limit.sensitiveRead().length).toBeGreaterThan(0);
+    });
+
     it('hands a task commit over only for a registered repo and a full object id (PM-739)', async () => {
       const limit = make();
       const key = { project: projectConfig(), repoName: 'projectman', member: 'dev' };
@@ -796,7 +824,7 @@ describe('engine local limit', () => {
       await expect(limit.check('full_test.run', fullTest() as never)).resolves.toBeDefined();
       await refused(limit, 'full_test.run', fullTest({ command: 'rm -rf ~' }), 'command_not_allowed');
       await refused(
-        make({ repos: [{ project: 'PM', repo: 'projectman', path: repo }] }),
+        make({ repos: [{ project: 'PM', repo: 'projectman', path: repo, workspaceSetup: null }] }),
         'full_test.run',
         fullTest(),
         'command_not_allowed',
@@ -811,7 +839,14 @@ describe('engine local limit', () => {
       mkdirSync(cwd, { recursive: true });
       const limit = make({
         repos: [
-          { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', mergeBranch: 'main' },
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
         ],
       });
       const result = (await limit.check(
@@ -852,8 +887,16 @@ describe('engine local limit', () => {
             path: repo,
             fullTestCommand: 'npm run check',
             mergeBranch: 'main',
+            workspaceSetup: null,
           },
-          { project: 'PM', repo: 'other', path: workspace, fullTestCommand: 'npm test', mergeBranch: 'main' },
+          {
+            project: 'PM',
+            repo: 'other',
+            path: workspace,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
         ],
       });
       await refused(
@@ -1120,7 +1163,14 @@ describe('engine local limit', () => {
     const merging = (overrides: Partial<ResolvedEngineConfig> = {}) =>
       make({
         repos: [
-          { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', mergeBranch: 'main' },
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
         ],
         ...overrides,
       });

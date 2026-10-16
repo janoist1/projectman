@@ -81,6 +81,8 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   workspace_busy: 'Another session holds the workspace.',
   workspace_dirty: 'The workspace has unfinished changes.',
   workspace_fetch_failed: 'The workspace could not fetch the default branch.',
+  workspace_dependencies_pending: 'Workspace dependency preparation is still running.',
+  workspace_dependencies_failed: 'Workspace dependency preparation failed.',
   prerequisite_open: 'A prerequisite is still open.',
   no_free_member: 'No eligible member is free.',
   label_missing: 'The start waits for labels.',

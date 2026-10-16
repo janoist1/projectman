@@ -1,5 +1,6 @@
 import path from 'node:path';
-import type { FullTestSpec } from '../contracts';
+
+type SandboxSpec = { sandbox: { denyRead: string[]; allowRead: string[] } };
 
 /** The git identity and settings of a full test run: neutral, and no automatic maintenance. */
 export const FULL_TEST_GIT_CONFIG =
@@ -62,7 +63,7 @@ export const SRT_DEFAULT_TMP = ['/tmp/claude', '/private/tmp/claude'] as const;
  *   directory, which srt would open on its own, is denied);
  * - network: nothing outward, local ports open (decision 24); PTYs allowed (macOS only).
  */
-export function srtSettings(spec: FullTestSpec, paths: RunPaths) {
+export function srtSettings(spec: SandboxSpec, paths: RunPaths) {
   return {
     network: { allowedDomains: [] as string[], deniedDomains: [] as string[], allowLocalBinding: true },
     filesystem: {
@@ -78,7 +79,7 @@ export function srtSettings(spec: FullTestSpec, paths: RunPaths) {
 }
 
 /** Installer writes only package trees; lifecycle scripts keep the source and git metadata read-only. */
-export function installerSettings(spec: FullTestSpec, paths: RunPaths, nodeModules: string[]) {
+export function installerSettings(spec: SandboxSpec, paths: RunPaths, nodeModules: string[]) {
   const settings = srtSettings(spec, paths);
   return {
     ...settings,

@@ -16,6 +16,7 @@ import type {
   RunnerModule,
   RunnerModuleOptions,
   ScreenshotExecutor,
+  WorkspaceDependencyInstaller,
 } from './contracts';
 import { createLocalEngine } from './engine-host';
 import {
@@ -39,6 +40,7 @@ import type { EngineEvent, Hello, LinkSocketFactory } from './engine-link';
 import {
   createFullTestExecutor,
   createScreenshotExecutor,
+  createWorkspaceDependencyInstaller,
   defaultHeavyLockDir,
   readHeavyRunSessions,
 } from './full-test';
@@ -308,9 +310,14 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     cloneDependencies: options.cloneDependencies ?? false,
   });
   const workspacesDir = path.join(home, 'workspaces');
+  let workspaceDependencies: WorkspaceDependencyInstaller | undefined;
   const memberWorkspaces = createMemberWorkspaceManager({
     rootDir: workspacesDir,
     logger: log.child({ module: 'workspace' }),
+    // The limit needs the engine's paths; install the port before the link can accept any call.
+    get dependencies() {
+      return workspaceDependencies;
+    },
   });
   const nanogptCodexHome = path.join(home, 'providers', 'nanogpt', 'codex-home');
   const geminiConfigDir = path.join(home, 'providers', 'gemini');
@@ -399,6 +406,28 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
   const exportDir = path.join(home, 'export-tmp');
+  const dependencyPaths = engine.paths();
+  workspaceDependencies = createWorkspaceDependencyInstaller({
+    home,
+    heavyLockDir,
+    worktreesRoot: path.join(home, 'worktrees'),
+    denyRead: [
+      // Match the merge installer's home-wide denials; lifecycle scripts get only their clone.
+      userHome,
+      home,
+      ...limit.sensitiveRead(),
+      ...dependencyPaths.claudeTmpRoots,
+      ...(dependencyPaths.sessionTmpRoot ? [path.dirname(dependencyPaths.sessionTmpRoot)] : []),
+      ...(dependencyPaths.sessionFoldersRoot ? [path.dirname(dependencyPaths.sessionFoldersRoot)] : []),
+      workspacesDir,
+      path.join(home, 'worktrees'),
+      path.join(home, 'workspace-deps'),
+    ],
+    setupOf: (project, repo) =>
+      resolved.repos.find((entry) => entry.project === project && entry.repo === repo)?.workspaceSetup ??
+      null,
+    logger: log.child({ module: 'workspace-dependencies' }),
+  });
   mkdirSync(exportDir, { recursive: true, mode: 0o700 });
   handlers = createEngineHandlers({
     limit,
@@ -601,6 +630,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       closed = true;
       clearInterval(poll);
       handlers.dispose();
+      await workspaceDependencies?.close();
       // The sessions stop first so that their last events (exit, paused) are in what is sent.
       await runner
         .shutdown()

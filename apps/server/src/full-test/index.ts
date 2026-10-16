@@ -14,6 +14,8 @@ import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHO
 import type { RunPaths } from './sandbox';
 import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
 export { assertNpmCiCheckout } from './npm-ci';
+export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } from './workspace-dependencies';
+export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
 
 export { failedFiles, failureReport, outputTail, stripAnsi } from './output';
 export {

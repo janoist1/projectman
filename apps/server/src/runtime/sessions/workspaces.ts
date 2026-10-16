@@ -173,6 +173,7 @@ export class MemberWorkspaces {
           kind === 'work'
             ? await this.prepareWork(config, key, task, record, previous, base)
             : await this.prepareReview(config, key, task, record, previous, base);
+        await this.manager.prepareDependencies(key);
         const now = isoNow(this.ctx);
         const binding: TaskWorkspaceBinding = {
           ...prepared.binding,
@@ -645,6 +646,9 @@ function toDomainError(err: unknown, member: string): DomainError {
       return conflict('workspace_dirty', message, details);
     case 'workspace_fetch_failed':
       return conflict('workspace_fetch_failed', message, details);
+    case 'workspace_dependencies_pending':
+    case 'workspace_dependencies_failed':
+      return conflict(code, message, details);
     case 'workspace_branch_missing':
       return conflict('workspace_branch_missing', message, details);
     case 'workspace_source_missing':

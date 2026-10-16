@@ -13,12 +13,14 @@ import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fullTest from '../src/full-test';
 import { buildEngineApp } from '../src/engine-app';
 import type { EngineApp, EngineAppOptions } from '../src/engine-app';
 import {
   EngineConfig,
   EngineConfigError,
+  loadEngineConfig,
   saveEngineConfig,
   writeSecretFile,
 } from '../src/engine-link/engine-config';
@@ -215,6 +217,46 @@ describe('engine process', () => {
   });
 
   describe('start-up', () => {
+    it('wires engine-local workspace setup and read denials into the installer, and closes it on shutdown', async () => {
+      const config = loadEngineConfig(home);
+      config.repos[0]!.workspaceSetup = { kind: 'npm_ci' };
+      saveEngineConfig(home, config);
+      const close = vi.fn(async () => undefined);
+      const factory = vi.spyOn(fullTest, 'createWorkspaceDependencyInstaller').mockReturnValue({
+        prepare: async () => ({ status: 'ready', key: 'a'.repeat(64), changed: true }),
+        busy: () => false,
+        close,
+      });
+      try {
+        const sessionFoldersDir = path.join(base, 'session-folders', 'instance');
+        const sessionTmpDir = path.join(base, 'session-tmp', 'instance');
+        const claudeTmpBase = path.join(base, 'claude-tmp');
+        const heavyLockDir = path.join(base, 'heavy', 'lock');
+        const built = await build({ sessionFoldersDir, sessionTmpDir, claudeTmpBase, heavyLockDir });
+        const options = factory.mock.calls[0]![0];
+        expect(options.setupOf('PM', 'projectman')).toEqual({ kind: 'npm_ci', timeoutMs: 600_000 });
+        expect(options.setupOf('PM', 'other')).toBeNull();
+        expect(options.heavyLockDir).toBe(heavyLockDir);
+        expect(options.worktreesRoot).toBe(path.join(home, 'worktrees'));
+        for (const entry of ['engine.key', 'providers', 'workspaces', 'worktrees', 'workspace-deps'])
+          expect(options.denyRead).toContain(path.join(home, entry));
+        expect(options.denyRead).toContain(path.join(userHome, '.ssh'));
+        expect(options.denyRead).toContain(userHome);
+        expect(options.denyRead).toContain(home);
+        expect(options.denyRead).toContain(path.dirname(sessionTmpDir));
+        expect(options.denyRead).toContain(path.dirname(sessionFoldersDir));
+        expect(options.denyRead).toContain('/tmp/claude');
+        expect(options.denyRead).toContain(
+          path.join(claudeTmpBase, `claude-${process.getuid?.() ?? 'user'}`),
+        );
+        expect(options).not.toHaveProperty('execute');
+        await built.close();
+        expect(close).toHaveBeenCalledOnce();
+      } finally {
+        factory.mockRestore();
+      }
+    });
+
     it('connects with the machine key and tells the cloud what it serves', async () => {
       await startEngine();
       await cloud.connected();

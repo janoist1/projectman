@@ -112,6 +112,8 @@ export const TaskStartWaiting = z.object({
     'workspace_busy',
     'workspace_dirty',
     'workspace_fetch_failed',
+    'workspace_dependencies_pending',
+    'workspace_dependencies_failed',
     // A prerequisite of the card (PM-192) is not closed: the start continues when the last one is.
     'prerequisite_open',
     // A card moved into a work stage without an assignee (PM-119): no developer is free (or on

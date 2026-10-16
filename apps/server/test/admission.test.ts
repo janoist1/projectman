@@ -822,6 +822,26 @@ describe('deferred starts', () => {
     });
   });
 
+  it.each(['workspace_dependencies_pending', 'workspace_dependencies_failed'] as const)(
+    'defers %s and retries when preparation is ready',
+    async (code) => {
+      const { admission, deferred } = admissionFor({ tasks: [task('AR-1', { stageId: 'code_review' })] });
+      let pending = true;
+      const { automatic, run, retry } = start('hand-over:AR-1', {
+        taskKey: 'AR-1',
+        refuse: () => (pending ? code : null),
+      });
+      await admission.attempt(automatic);
+      expect(deferred.waitingFor(task('AR-1', { stageId: 'code_review' }))).toMatchObject({ reason: code });
+      pending = false;
+      await admission.retryDeferred();
+      expect(retry).toHaveBeenCalledOnce();
+      await admission.attempt(automatic);
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(deferred.list()).toEqual([]);
+    },
+  );
+
   it.each(['no_free_member', 'session_start_failed', 'previous_run_live', 'repo_required'])(
     'lets the refusal %s through without keeping the start',
     async (code) => {

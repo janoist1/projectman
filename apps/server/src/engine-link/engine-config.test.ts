@@ -63,6 +63,43 @@ describe('engine configuration', () => {
     expect(() => base({ repos: [{ ...repo, mergeBranch: '' }] })).toThrow();
   });
 
+  it.each([
+    [undefined, null],
+    [{ kind: 'none' }, null],
+    [{ kind: 'npm_ci' }, { kind: 'npm_ci', timeoutMs: 600_000 }],
+    [
+      { kind: 'npm_ci', timeoutMs: 1_000 },
+      { kind: 'npm_ci', timeoutMs: 1_000 },
+    ],
+  ])('resolves the optional workspace setup %j', (workspaceSetup, expected) => {
+    const workspace = path.join(dir, 'workspace');
+    const repo = path.join(workspace, 'app');
+    mkdirSync(repo, { recursive: true });
+    const config = base({
+      projects: [{ project: 'PM', workspacePath: workspace }],
+      repos: [{ project: 'PM', repo: 'app', path: repo, ...(workspaceSetup ? { workspaceSetup } : {}) }],
+    });
+    saveEngineConfig(dir, config);
+    expect(loadEngineConfig(dir).schemaVersion).toBe(1);
+    expect(
+      resolveEngineConfig(config, path.join(dir, 'home'), { tmpdir: path.join(dir, 'tmp') }).repos[0]
+        ?.workspaceSetup,
+    ).toEqual(expected);
+  });
+
+  it.each([
+    { kind: 'shell', command: 'npm install' },
+    { kind: 'none', timeoutMs: 1_000 },
+    { kind: 'npm_ci', command: 'npm install' },
+    { kind: 'npm_ci', timeoutMs: 999 },
+    { kind: 'npm_ci', timeoutMs: 1_800_001 },
+    { kind: 'npm_ci', timeoutMs: 1_000.5 },
+  ])('rejects invalid workspace setup %j', (workspaceSetup) => {
+    expect(() =>
+      base({ repos: [{ project: 'PM', repo: 'app', path: '/fixture', workspaceSetup }] }),
+    ).toThrow();
+  });
+
   describe('secret files', () => {
     const file = () => path.join(dir, 'secret');
 

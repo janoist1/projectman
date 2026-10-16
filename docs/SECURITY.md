@@ -674,6 +674,20 @@ a command of their own, so a chain, a pipe, a substitution or a redirection into
 whole command inside. That is the CLI's behaviour, read in its code, not a rule of ours: a later
 version must be checked again (SANDBOX-PROBE.md). A local-only repository gets no exception.
 
+**Engine dependency installers (PM-681, PM-710, PM-741).** Merge checks and opted-in member
+workspaces prepare npm dependencies outside member sessions, in the engine's macOS srt sandbox.
+Lifecycle scripts remain untrusted code: the entire user home and app home, engine credentials
+and shared session temporary roots are denied reads. A member installer opens only its clone,
+its private run sandbox and empty npm configuration files; it never opens other repositories,
+attachments or sessions. It writes only validated `node_modules` trees and its private home,
+tmp and npm cache, and reaches only `registry.npmjs.org` and `nodejs.org`, without local port
+binding. The member installer's fixed `npm ci` command receives an allowlisted environment without credentials or
+`PROJECTMAN_*` variables. There is no unsandboxed fallback. The engine owns readiness markers
+outside member write access; a matching merge dependency store may be copied under the heavy
+lock, but member installations never publish there. Timeout and engine shutdown stop and await
+the installer's process group; a caller timing out or disconnecting does not cancel preparation.
+All paths, sandbox enforcement and subprocesses stay on the execution engine, including remotely.
+
 **The session folder (PM-268).** A Claude session in the legacy profile, a reader too, writes one
 more place: its own session folder, for the screenshots and reports it attaches. It is outside
 every checkout and the app home (`<tmp>/projectman-sessions/<hash of the app home>/<session id>.<random>`),

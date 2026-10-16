@@ -119,6 +119,14 @@ export interface MessageSignals {
   decision(projectKey: string, signalId: string, by: string, accepted: boolean): void;
   present(projectKey: string, signalId: string, messageId: string, actionable: boolean): void;
 }
+
+type SendReport = { message: TeamMessage; recipients: SentMessageRecipient[] };
+
+interface PreparedSend {
+  record(): TeamMessage;
+  deliver(message: TeamMessage): SendReport | Promise<SendReport>;
+}
+
 /** A card-level hold another module answers; who is held stays messaging's rule. */
 export type CardHoldReason = Extract<SentMessageHold, 'fix_limit' | 'full_test'>;
 export interface CardHold {
@@ -233,23 +241,23 @@ export class Messaging {
   }
 
   /** `send`, and what happens to the message for each recipient (PM-144), in the order of `input.to`. */
-  async sendReporting(
+  sendReporting(
     projectKey: string,
     from: string,
     input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
     opts: SendOptions = {},
   ): Promise<{ message: TeamMessage; recipients: SentMessageRecipient[] }> {
-    const prepared = await this.prepareSend(projectKey, from, input, opts);
-    return prepared.deliver(prepared.record());
+    return this.prepareSend(projectKey, from, input, opts, (prepared) => prepared.deliver(prepared.record()));
   }
 
-  /** Validate and prepare without recording or delivering; a group records all answers in one transaction. */
-  private async prepareSend(
+  /** Continue before yielding: ordinary sends record and deliver immediately; groups retain the preparation. */
+  private async prepareSend<T>(
     projectKey: string,
     from: string,
     input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
-    opts: SendOptions = {},
-  ) {
+    opts: SendOptions,
+    complete: (prepared: PreparedSend) => T | Promise<T>,
+  ): Promise<T> {
     const config = await this.projects.config(projectKey);
     const text = input.text.trim();
     const attachmentIds = input.attachmentIds ?? [];
@@ -448,7 +456,7 @@ export class Messaging {
           this.messageSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
         return recorded;
       });
-    const deliver = async (message: TeamMessage) => {
+    const deliver = (message: TeamMessage) => {
       const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
       // The wake-ups the send waits for (`awaitWake`): not emitted as events, but started below.
       const awaited: { handle: string; workItem: WorkItemRef }[] = [];
@@ -469,24 +477,26 @@ export class Messaging {
                 waker ? () => awaited.push({ handle, workItem: where }) : undefined,
               ),
         );
-      if (waker) {
-        const starts = await Promise.all(
-          awaited.map(({ handle, workItem: where }) => this.awaitStart(waker, projectKey, handle, where)),
-        );
-        awaited.forEach(({ handle }, index) => {
-          const entry = decided.get(handle);
-          if (entry) decided.set(handle, { ...entry, start: starts[index]! });
-        });
-      }
-      return {
+      const report = (): SendReport => ({
         message,
         recipients: recipients.map((handle) => ({
           handle,
           ...(decided.get(handle) ?? { delivery: 'inbox' as const }),
         })),
-      };
+      });
+      // Preserve ordinary send completion timing; only explicit wake-result waits add a promise.
+      if (!waker) return report();
+      return Promise.all(
+        awaited.map(({ handle, workItem: where }) => this.awaitStart(waker, projectKey, handle, where)),
+      ).then((starts) => {
+        awaited.forEach(({ handle }, index) => {
+          const entry = decided.get(handle);
+          if (entry) decided.set(handle, { ...entry, start: starts[index]! });
+        });
+        return report();
+      });
     };
-    return { record, deliver };
+    return complete({ record, deliver });
   }
 
   /**
@@ -829,7 +839,7 @@ export class Messaging {
 
   /** All rows and durable answer messages commit together; delivery starts only after that commit. */
   async answerGroup(items: InboxItem[], attachmentIds: readonly string[], close: () => void): Promise<void> {
-    const prepared: Awaited<ReturnType<Messaging['prepareSend']>>[] = [];
+    const prepared: PreparedSend[] = [];
     for (const item of items) {
       const resolution = item.resolution!;
       const config = await this.projects.config(item.projectKey);
@@ -867,6 +877,7 @@ export class Messaging {
                 throw conflict('question_group_incompatible', 'a source card was deleted before delivery');
             },
           },
+          (send) => send,
         ),
       );
     }

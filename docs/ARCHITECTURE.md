@@ -1466,6 +1466,16 @@ workers follow the machine's size.
   the same. **Remote engine:** this runs only on the owner's administration machine for the central
   server; no AWS credentials or new RPC/payload crosses the server/engine boundary. It works
   independently of the Mac engine link. Live execution/recovery remains an approved owner round.
+  PM-748 adds fault tolerance to the same transport (`scripts/cloud/{ec2-host,host,errors}.ts`): a second
+  fixed read-only `AWS-RunShellScript` reads `Ec2HostDiagnostics` (CPU count, 1-minute load, available
+  memory, free disk, cumulative OOM kills, EIC status-124 journal count of the last 10 minutes) on EC2;
+  nothing else leaves it. On the admin machine, `status` and a connection probe retry at most 3 times
+  (5 s, 15 s; 120 s total including child shutdown) with a fresh EIC key each; state changes and
+  tar/secret streams are never repeated and a lost answer raises `CloudTransportError` with
+  `commandStarted: 'unknown'`. The first state change of a session waits (same bound) for a not-busy
+  machine (`load1 <= 2 x CPUs`, `>= 128 MiB` available) and refuses otherwise. **Remote engine:** all
+  AWS/EIC/SSM calls stay on the admin machine, the measuring commands run on EC2; the engine gets no
+  AWS credential and only measurement metadata crosses the admin–cloud boundary. Related task: PM-748.
   PM-719 adds three fixed-path `host.sh` operations: `trial-reset-inspect`, `trial-reset-archive`
   and read-only `trial-reset-verify`. The last two accept only UUIDv4 and exact SHA-256/none
   arguments, with no payload/path override. An embedded existing Python3 standard-library program

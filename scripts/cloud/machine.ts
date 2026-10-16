@@ -635,6 +635,8 @@ export async function runSeed(context: CloudContext, options: SeedOptions): Prom
       if (host.signal.aborted) throw new CloudError('interrupted');
       if (result.code === 3)
         throw refused('the host refused receive-data; the target state no longer permits a seed');
+      const lost = result.code !== 0 ? host.transportError('receive-data', result) : null;
+      if (lost) throw lost;
       if (result.code !== 0)
         throw new CloudError(
           `the upload failed (status ${result.code}): ${result.stderr.trim().split('\n').slice(-2).join(' | ')}`,
@@ -729,6 +731,8 @@ export async function runPullData(context: CloudContext, options: PullOptions): 
           args: ['-x', '-p', '-f', '-', '-C', directory],
         });
         if (host.signal.aborted) throw new CloudError('interrupted');
+        const lost = result.code !== 0 ? host.transportError('send-data', result) : null;
+        if (lost) throw lost;
         if (result.code !== 0)
           throw new CloudError(
             `the download failed (status ${result.code}): ${result.stderr.trim().split('\n').slice(-2).join(' | ')}`,

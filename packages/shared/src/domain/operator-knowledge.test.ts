@@ -12,7 +12,7 @@ import {
 
 it('allows only owners and administrators to read shared knowledge', () => {
   for (const access of ['owner', 'admin'] as const) expect(canReadOperatorKnowledge({ access })).toBe(true);
-  for (const access of ['developer', 'viewer', 'client', undefined] as const)
+  for (const access of ['developer', 'viewer', 'client', 'ai', undefined] as const)
     expect(canReadOperatorKnowledge({ access })).toBe(false);
 });
 

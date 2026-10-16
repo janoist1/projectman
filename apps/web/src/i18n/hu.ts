@@ -3715,6 +3715,7 @@ export const hu = {
       forwardedToPlain: '{name} kapta meg.',
       at: 'Operátornál',
       until: 'Legkésőbb {time}-kor hozzád kerül.',
+      queued: 'Az Operátor gépére vár; amíg nem érhető el, nem kerül hozzád.',
     },
     resolvedBy: '{who} · {time}',
     allDone: 'Ebben a szűrésben minden el van intézve.',

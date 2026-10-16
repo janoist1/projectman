@@ -134,7 +134,8 @@ function withScreening(
   patch: Partial<QuestionScreening>,
   at: string,
 ): Record<string, unknown> {
-  const current = (payload.screening ?? {}) as Partial<QuestionScreening>;
+  // Whatever settles the screening ends its hold for a machine (PM-708).
+  const { queue: _held, ...current } = (payload.screening ?? {}) as Partial<QuestionScreening>;
   return { ...payload, screening: { until: at, ...current, ...patch } };
 }
 

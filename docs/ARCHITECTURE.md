@@ -2218,6 +2218,8 @@ assumption or remote-engine RPC.
   only registry.npmjs.org and nodejs.org are reachable, with no local binding. The entire user home,
   app home, engine secrets and shared session temporary roots (Claude roots and the parents of
   session tmp/folder roots) are denied reads, following the merge installer's home-wide boundary.
+  Node or npm installed inside the user home (for example through nvm or Volta) makes the sandbox
+  runtime probe fail with `sandbox_unavailable`, as on the merge installer path.
   Only the target clone, the run's own sandbox and its empty npm configuration files are allowed
   within those denials; other repositories, attachments, session files and dependency markers stay closed.
   Local install hooks, npm overrides, binding.gyp and linked inputs/targets are refused using the

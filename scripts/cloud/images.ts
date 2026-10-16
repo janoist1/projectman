@@ -134,6 +134,10 @@ export async function receiveImage(
   ]);
   const result = await context.deps.pipe({ command: 'cat', args: [image.file] }, command);
   if (result.code === 3) throw refused('the host refused the image import');
+  // A lost answer: the import may have happened; the caller reconciles instead of streaming again.
+  const lost =
+    result.code !== 0 && !host.signal.aborted ? host.transportError('receive-image', result) : null;
+  if (lost) throw lost;
   if (result.code !== 0 || host.signal.aborted) throw new CloudError('image stream or import failed');
   const schema = z.strictObject({
     imageId: imageIdSchema,

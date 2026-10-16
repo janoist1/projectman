@@ -197,6 +197,48 @@ The connection sequence is:
    This observation window does not guarantee AWS consistency; failed verification needs the manual
    inspection below.
 
+### Failure tolerance and load diagnostics (PM-748)
+
+Under load the EC2 Instance Connect authorized-keys helper on the host can time out
+(`eic_run_authorized_keys failed, status 124`), and the client then sees only
+`Permission denied (publickey)` (ssh status 255). The transport handles this inside the same boundary:
+empty inbound rules, SSH over SSM, the pinned host key. It adds no instance resizing, reboot, network
+access, sshd/EIC timeout change, durable SSH key or host build.
+
+- **Fixed read-only diagnostics.** A second fixed `AWS-RunShellScript` command (instance-scoped, same
+  `CommandId`/instance checks and bounded poll as the host key read, output limit 512 characters, strict
+  seven-line parse, no raw output on failure) returns `Ec2HostDiagnostics`: `sampledAt`, `cpuCount`,
+  `load1`, `availableMemoryBytes`, `freeDiskBytes`, `oomKills` and `eicTimeouts10m`. It takes no
+  parameter and returns no credential, environment or journal text. `oomKills` is the kernel counter since
+  boot: it shows that something was killed, not when or why. `eicTimeouts10m` counts only the journal lines
+  of the last 10 minutes that match `eic_run_authorized_keys` with status 124. A missing or unreadable
+  measurement (for example an unreadable journal) is an error, never a guessed zero. It works while SSH
+  authentication fails.
+- **Reads retry, writes never.** Only `status` and the pre-change connection probe (`ssh … true`) may be
+  repeated: at most 3 attempts, waiting 5 s and then 15 s, inside one 120-second wall-clock budget that
+  includes stopping the child process and reserves time for the diagnosis. Each attempt publishes a fresh
+  EIC key. Ctrl-C and identity, ownership, host-key and schema errors stop at once with no retry. The
+  explicit lists are `RETRYABLE_READS` and `READ_ONLY_SUBCOMMANDS` in `scripts/cloud/host.ts`; a new
+  subcommand is neither retried nor treated as read-only. A state-changing command or a tar/secret stream
+  (`bootstrap`, `receive-env`, `receive-image`, `build`, `start`, `stop`, `receive-data`, …) is never
+  repeated by the transport.
+- **Load check before the first change.** Once per session, before its first state-changing subcommand,
+  the diagnostics must not show `load1 > 2 × cpuCount` or less than 128 MiB available memory, and a
+  connection probe must succeed; otherwise the same bounded wait runs, then the change is refused
+  (`cloud_host_busy`, exit 2). Unreachable diagnostics are a refusal too, never leave for a blind change.
+  The check is not repeated mid-session, because the session's own build would otherwise block its `start`.
+  Interactive `ssh` is not gated.
+- **Errors.** `CloudTransportError` (`scripts/cloud/errors.ts`, internal; the CLI still exits 0/1/2/64)
+  carries `code` (`cloud_ssh_auth_timeout`, `cloud_ssh_unavailable`, `cloud_host_busy`,
+  `cloud_host_identity_mismatch`), `commandStarted` (`no` or `unknown`) and `retryable`. After a lost
+  answer to a state change `commandStarted` is `unknown` and `retryable` is `false`: the PM-735 coordinator
+  reconciles the machine's state (`status`) before it acts again. Status 255/124 alone never proves EIC:
+  `cloud_ssh_auth_timeout` is used only when SSH rejected the key **and** the host journal shows EIC
+  status 124 events in the last 10 minutes. The message keeps the _connection diagnosis_ (what the logs
+  prove) apart from the _suspected cause_ (what load, memory and OOM measurements hint at, not proven).
+  A failed cleanup keeps the main failure visible (`FAIL operation before SSM cleanup`), and only
+  the sessions with this invocation's reasons are terminated.
+
 ### Owner/integrator live rehearsal
 
 No live AWS operation runs as part of the card's fake tests. Run the following only in the

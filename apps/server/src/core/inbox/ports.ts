@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   AiMemberConfig,
   EngineId,
+  MemberHandle,
   ProjectConfig,
   RoleId,
   Session,
@@ -62,6 +63,18 @@ export interface ScreeningAdmission {
     capacity: boolean;
     messages: string[];
   }): Promise<EnsureSessionResult>;
+}
+
+/**
+ * Whether the machine a member's sessions run on is reachable (PM-708). `online`: its link is up; `offline`:
+ * known but not connected; `unknown`: no machine is chosen. `lastConfirmedOnlineAt` is the last moment the
+ * server recorded the machine online (null: never recorded). The state is data of the link, not a member setting.
+ */
+export interface ScreeningEngineState {
+  read(
+    projectKey: string,
+    member: MemberHandle,
+  ): { state: 'online' | 'offline' | 'unknown'; lastConfirmedOnlineAt: string | null };
 }
 
 /** Only the running-session and pause queries used to deliver screened questions. */

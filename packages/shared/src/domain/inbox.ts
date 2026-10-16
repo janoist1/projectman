@@ -561,10 +561,30 @@ export const QuestionTodo = z.object({
 });
 export type QuestionTodo = z.infer<typeof QuestionTodo>;
 
+/** The whole screening window in milliseconds (`QUESTION_SCREENING_MINUTES`). */
+export const QUESTION_SCREENING_MS = QUESTION_SCREENING_MINUTES * 60_000;
+
+/**
+ * The question waits for the machine its project manager runs on (PM-708): the human fallback clock is
+ * frozen at `remainingMs` and starts again when the machine is back.
+ */
+export const QuestionScreeningQueue = z.object({
+  reason: z.literal('engine_offline'),
+  /** ISO: when the question was put on hold. */
+  since: z.string().datetime(),
+  remainingMs: z.number().int().min(0).max(QUESTION_SCREENING_MS),
+});
+export type QuestionScreeningQueue = z.infer<typeof QuestionScreeningQueue>;
+
 /** `payload.screening` of a question: the Operator looks at it first (PM-556). */
 export const QuestionScreening = z.object({
-  /** ISO: when it was asked plus `QUESTION_SCREENING_MINUTES`. */
+  /**
+   * ISO: when it was asked plus `QUESTION_SCREENING_MINUTES`; set again from the delivery receipt. While
+   * `queue` is present it is not an active deadline (it stays as the historical value).
+   */
   until: z.string(),
+  /** Present while the question waits for an offline machine; the fallback clock does not run (PM-708). */
+  queue: QuestionScreeningQueue.optional(),
   /** The Operator got it. */
   deliveredAt: z.string().optional(),
   outcome: ScreeningOutcome.optional(),
@@ -583,6 +603,38 @@ export const QuestionScreening = z.object({
   feedbackId: z.string().optional(),
 });
 export type QuestionScreening = z.infer<typeof QuestionScreening>;
+
+const clampScreeningMs = (ms: number): number =>
+  Number.isFinite(ms) ? Math.max(0, Math.min(QUESTION_SCREENING_MS, Math.floor(ms))) : 0;
+
+/**
+ * Whether a screened question's ten minutes are up (PM-708); the server and the web fake use this one rule.
+ * The clock runs only for a question the Operator got (`deliveredAt`), while its machine is online and the
+ * question is not held in a `queue`; otherwise it is stopped and `remainingMs` is what is left of it. An
+ * unreadable `until` counts as no time left, so a broken record goes to the people and never waits unseen.
+ */
+export function screeningDeadline(input: {
+  until: string;
+  deliveredAt: string | null;
+  queue: { remainingMs: number } | null;
+  now: string;
+  engineOnline: boolean;
+}): { timeout: boolean; remainingMs: number } {
+  if (input.queue) return { timeout: false, remainingMs: clampScreeningMs(input.queue.remainingMs) };
+  if (!input.deliveredAt) return { timeout: false, remainingMs: QUESTION_SCREENING_MS };
+  const remainingMs = clampScreeningMs(Date.parse(input.until) - Date.parse(input.now));
+  return { timeout: input.engineOnline && remainingMs === 0, remainingMs };
+}
+
+/**
+ * What is left of a delivered question's ten minutes when its machine went away (PM-708): the time up to
+ * `until` counted from the last moment the machine was confirmed online. No such moment: nothing is left, the
+ * running time is not guessed.
+ */
+export function screeningFrozenRemainingMs(until: string, lastConfirmedOnlineAt: string | null): number {
+  if (!lastConfirmedOnlineAt) return 0;
+  return clampScreeningMs(Date.parse(until) - Date.parse(lastConfirmedOnlineAt));
+}
 
 /** Whether the answer reached the asking member: it waits for the member's session, or it was delivered. */
 export const AnswerDelivery = z.discriminatedUnion('state', [

@@ -934,6 +934,7 @@ export function operatorTrailNote(
   myHandle: string | null,
 ): string | null {
   const screening = screeningOf(item);
+  if (item.state === 'screening' && screening?.queue) return t('inbox.operatorTrail.queued');
   if (item.state === 'screening' && screening)
     return t('inbox.operatorTrail.until', { time: formatTime(screening.until) });
   const note = screening?.note?.trim();

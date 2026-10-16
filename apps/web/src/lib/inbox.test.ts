@@ -187,6 +187,14 @@ describe('the screened question helpers (PM-561)', () => {
     expect(operatorTrailNote(screened({ outcome: 'moot' }), members, 'owner')).toBeNull();
   });
 
+  it('says a question waits for the Operator’s machine instead of naming a time (PM-708)', () => {
+    const queued = screened(
+      { queue: { reason: 'engine_offline', since: '2026-09-30T10:00:00.000Z', remainingMs: 600_000 } },
+      { state: 'screening' },
+    );
+    expect(operatorTrailNote(queued, new Map(), 'owner')).toBe(t('inbox.operatorTrail.queued'));
+  });
+
   it('names who a forwarded question went to', () => {
     const members = new Map();
     const forwarded = (note?: string) =>

@@ -10,10 +10,13 @@ import {
   isPendingQuestion,
   PENDING_INBOX_STATES,
   QUESTION_SCREENING_MINUTES,
+  QUESTION_SCREENING_MS,
   QuestionCloseRule,
   QuestionScreening,
   QuestionTodo,
   ScreeningOutcome,
+  screeningDeadline,
+  screeningFrozenRemainingMs,
   questionAttachmentsOf,
   questionChoices,
   questionPayloadOf,
@@ -245,6 +248,79 @@ describe('screening contract (PM-556)', () => {
     expect(AnswerDelivery.parse({ state: 'delivered', at: 'x' }).state).toBe('delivered');
     expect(() => AnswerDelivery.parse({ state: 'delivered' })).toThrow();
     expect(() => QuestionTodo.parse({ ...todo, expected: '' })).toThrow();
+  });
+
+  it('reads the queue of a question that waits for an offline machine (PM-708)', () => {
+    const queue = { reason: 'engine_offline', since: '2026-01-01T00:00:00.000Z', remainingMs: 600_000 };
+    expect(QuestionScreening.parse({ until: 'x', queue }).queue).toEqual(queue);
+    // An old row has none; a wrong reason or an out-of-range time is no queue.
+    expect(QuestionScreening.parse({ until: 'x' }).queue).toBeUndefined();
+    for (const bad of [
+      { ...queue, reason: 'other' },
+      { ...queue, remainingMs: 600_001 },
+      { ...queue, remainingMs: -1 },
+    ])
+      expect(() => QuestionScreening.parse({ until: 'x', queue: bad })).toThrow();
+  });
+
+  describe('screeningDeadline (PM-708)', () => {
+    const now = '2026-01-01T01:00:00.000Z';
+    const base = {
+      until: '2026-01-01T01:05:00.000Z',
+      deliveredAt: '2026-01-01T00:55:00.000Z',
+      queue: null,
+      now,
+      engineOnline: true,
+    };
+
+    it('counts down a delivered question while its machine is online', () => {
+      expect(screeningDeadline(base)).toEqual({ timeout: false, remainingMs: 5 * 60_000 });
+      expect(screeningDeadline({ ...base, now: base.until })).toEqual({ timeout: true, remainingMs: 0 });
+      expect(screeningDeadline({ ...base, now: '2026-01-01T02:00:00.000Z' })).toEqual({
+        timeout: true,
+        remainingMs: 0,
+      });
+    });
+
+    it('never times out in a queue, and reports what the queue holds', () => {
+      expect(
+        screeningDeadline({ ...base, queue: { remainingMs: 0 }, now: '2026-02-01T00:00:00.000Z' }),
+      ).toEqual({
+        timeout: false,
+        remainingMs: 0,
+      });
+      expect(screeningDeadline({ ...base, queue: { remainingMs: 1234 } })).toEqual({
+        timeout: false,
+        remainingMs: 1234,
+      });
+    });
+
+    it('does not start the clock before the delivery', () => {
+      expect(screeningDeadline({ ...base, deliveredAt: null, now: '2027-01-01T00:00:00.000Z' })).toEqual({
+        timeout: false,
+        remainingMs: QUESTION_SCREENING_MS,
+      });
+    });
+
+    it('stops the clock while the machine is offline, even before a queue is written', () => {
+      expect(screeningDeadline({ ...base, engineOnline: false, now: '2026-01-01T05:00:00.000Z' })).toEqual({
+        timeout: false,
+        remainingMs: 0,
+      });
+    });
+
+    it('counts an unreadable time as none left', () => {
+      expect(screeningDeadline({ ...base, until: 'not a time' })).toEqual({ timeout: true, remainingMs: 0 });
+    });
+
+    it('freezes the time up to `until` from the last online moment, clamped to the window', () => {
+      const until = '2026-01-01T00:10:00.000Z';
+      expect(screeningFrozenRemainingMs(until, '2026-01-01T00:04:00.000Z')).toBe(6 * 60_000);
+      expect(screeningFrozenRemainingMs(until, '2026-01-01T00:11:00.000Z')).toBe(0);
+      expect(screeningFrozenRemainingMs(until, '2025-12-31T00:00:00.000Z')).toBe(QUESTION_SCREENING_MS);
+      expect(screeningFrozenRemainingMs(until, null)).toBe(0);
+      expect(screeningFrozenRemainingMs('broken', '2026-01-01T00:04:00.000Z')).toBe(0);
+    });
   });
 
   it('a question is pending while it is open or screened', () => {

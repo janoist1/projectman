@@ -981,6 +981,16 @@ export function createDomain(opts: DomainOptions) {
     admission,
     delivery,
     inbox,
+    // The PM's machine from the engine directory; the last confirmed online moment is the registry's own
+    // record (`last_seen_at`, written on connect and on every pong), which survives a restart of this server.
+    engine: {
+      read: (projectKey, member) => {
+        const id = engines.engineFor(projectKey, member);
+        if (id === null) return { state: 'unknown', lastConfirmedOnlineAt: null };
+        if (engines.get(id)) return { state: 'online', lastConfirmedOnlineAt: isoNow(ctx) };
+        return { state: 'offline', lastConfirmedOnlineAt: ctx.repos.engines.get(id)?.last_seen_at ?? null };
+      },
+    },
     enabled: opts.screenQuestions ?? true,
   });
   const finishOperatorSignals = (session: Session) => {
@@ -1255,6 +1265,11 @@ export function createDomain(opts: DomainOptions) {
     background.run(
       () => outages.engineChanged(id, online),
       (err) => opts.logger.warn({ err }, 'outage engine check failed'),
+    );
+    // Screened questions are held while the PM's machine is away and go on, with their time, when it is back (PM-708).
+    background.run(
+      () => questionScreening.sweep(),
+      (err) => opts.logger.warn({ err, engineId: id }, 'question screening engine check failed'),
     );
     if (!online) return;
     // A remote engine that connects later is checked for the full test sandbox like a local one at startup.

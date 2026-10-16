@@ -1,12 +1,15 @@
 import {
+  QUESTION_SCREENING_MS,
   formatInjectedTeamMessage,
   isOnLeave,
   isWorkPaused,
   coordinationMemberOf,
   questionPayloadOf,
+  screeningDeadline,
+  screeningFrozenRemainingMs,
 } from '@projectman/shared';
-import type { InboxItem, ProjectConfig } from '@projectman/shared';
-import type { ScreeningAdmission, ScreeningAttempt, ScreeningSessions } from './ports';
+import type { InboxItem, ProjectConfig, QuestionScreening as ScreeningRecord } from '@projectman/shared';
+import type { ScreeningAdmission, ScreeningAttempt, ScreeningEngineState, ScreeningSessions } from './ports';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import type { InboxService } from './inbox';
@@ -27,6 +30,11 @@ const SCREENING_NOTICE =
  * waits in the inbox state `screening`; this wakes the PM for it, through admission like every
  * server-started session, and gives the question to the people (`fallback`) when the PM cannot take
  * it (`unavailable`, at once) or does not settle it in time (`timeout`, `payload.screening.until`).
+ *
+ * The ten minutes run only after the PM got the question (the delivery receipt) and only while the machine
+ * the PM runs on is online (PM-708). A question that waits for an offline machine is held in
+ * `payload.screening.queue` with the time that is left; it is not a failure and no person is asked. When the
+ * machine is back the held time runs again. Any other refusal still gives the question to the people at once.
  */
 export class QuestionScreening {
   private readonly waking = new Set<string>();
@@ -39,6 +47,8 @@ export class QuestionScreening {
     admission: ScreeningAdmission;
     delivery: Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>;
     inbox: InboxService;
+    /** Whether the PM's machine is reachable (PM-708). */
+    engine: ScreeningEngineState;
     /** False: no question is screened (tests that are not about screening). */
     enabled: boolean;
   };
@@ -71,13 +81,30 @@ export class QuestionScreening {
     await this.deliver(projectKey);
   }
 
-  /** Timer and startup: releases the questions whose time is up, then gives the PM what it has not got. */
+  /**
+   * Timer, startup and a link change of the PM's machine: holds the questions while the machine is offline
+   * (or lets their time run again when it is back), releases the ones whose time is up, then gives the PM what
+   * it has not got.
+   */
   async sweep(): Promise<void> {
     const { ctx, projects } = this.deps;
     for (const { key } of projects.summaries()) {
-      const now = ctx.now().getTime();
-      for (const item of this.screening(key))
-        if (Date.parse(this.untilOf(item)) <= now) await this.release(item, 'timeout');
+      const online = this.applyEngineState(key);
+      const now = isoNow(ctx);
+      for (const item of this.screening(key)) {
+        const screening = questionPayloadOf(item)?.screening;
+        // A record that cannot be read is no time left: it goes to the people, never waits unseen.
+        const timeout =
+          !screening ||
+          screeningDeadline({
+            until: screening.until,
+            deliveredAt: screening.deliveredAt ?? null,
+            queue: screening.queue ?? null,
+            now,
+            engineOnline: online,
+          }).timeout;
+        if (timeout) await this.release(item, 'timeout');
+      }
       await this.deliver(key);
     }
   }
@@ -94,8 +121,71 @@ export class QuestionScreening {
     return this.screening(projectKey).filter((item) => !questionPayloadOf(item)?.screening?.deliveredAt);
   }
 
-  private untilOf(item: InboxItem): string {
-    return questionPayloadOf(item)?.screening?.until ?? item.createdAt;
+  /** The PM's machine as the server knows it; a project with no PM has nothing to wait for. */
+  private engineState(projectKey: string): { online: boolean; lastConfirmedOnlineAt: string | null } {
+    const config = this.deps.projects.cachedConfig(projectKey);
+    const member = config && coordinationMemberOf(config);
+    if (!member) return { online: true, lastConfirmedOnlineAt: null };
+    const { state, lastConfirmedOnlineAt } = this.deps.engine.read(projectKey, member.handle);
+    return { online: state === 'online', lastConfirmedOnlineAt };
+  }
+
+  /**
+   * Brings the questions of the project in line with the machine (PM-708), in one synchronous step so
+   * the sweep, a link event and a delivery cannot interleave. Offline (or unknown): a question without a queue
+   * is held with what is left of its time (a new or undelivered one keeps all ten minutes; a delivered one the
+   * time up to `until` counted from the last confirmed online moment, none when there is no such moment); a
+   * queue already there is kept. Online: a held question gets its time back from now (`until`), or, when the PM
+   * has not got it yet, simply no queue. `offline` forces the held state when a start was refused for the
+   * machine. Returns whether the machine is online.
+   */
+  private applyEngineState(projectKey: string, offline = false): boolean {
+    const { ctx } = this.deps;
+    const state = this.engineState(projectKey);
+    const online = state.online && !offline;
+    const nowMs = ctx.now().getTime();
+    const at = new Date(nowMs).toISOString();
+    for (const item of this.screening(projectKey)) {
+      const screening = questionPayloadOf(item)?.screening;
+      if (!screening) continue;
+      if (!online && !screening.queue) {
+        const remainingMs = screening.deliveredAt
+          ? screeningFrozenRemainingMs(screening.until, state.lastConfirmedOnlineAt)
+          : QUESTION_SCREENING_MS;
+        this.writeScreening(item, { queue: { reason: 'engine_offline', since: at, remainingMs } }, at);
+      } else if (online && screening.queue) {
+        this.writeScreening(
+          item,
+          {
+            queue: undefined,
+            ...(screening.deliveredAt
+              ? { until: new Date(nowMs + screening.queue.remainingMs).toISOString() }
+              : {}),
+          },
+          at,
+        );
+      }
+    }
+    return online;
+  }
+
+  /** Changes fields of the screening record of an item that is still in screening; `undefined` removes one. */
+  private writeScreening(
+    item: InboxItem,
+    patch: Partial<Record<keyof ScreeningRecord, unknown>>,
+    at: string,
+  ) {
+    const { ctx } = this.deps;
+    ctx.unitOfWork(() => {
+      const current = ctx.repos.inbox.get(item.id);
+      if (current?.state !== 'screening') return;
+      const screening: Record<string, unknown> = {
+        ...((current.payload.screening ?? {}) as object),
+        ...patch,
+      };
+      for (const key of Object.keys(screening)) if (screening[key] === undefined) delete screening[key];
+      ctx.repos.inbox.updatePayload(item.id, { ...current.payload, screening }, at);
+    });
   }
 
   private async release(item: InboxItem, fallback: 'timeout' | 'unavailable'): Promise<void> {
@@ -127,14 +217,22 @@ export class QuestionScreening {
           await this.releaseAll(projectKey);
           continue;
         }
+        // The PM's machine is away: the questions wait for it, held with their time; its return wakes this again.
+        if (!this.applyEngineState(projectKey)) continue;
         try {
           const outcome = await this.deps.admission.attempt(this.start(projectKey));
           // The CLI may still wait for its first input; admission's lock is free by now.
           await this.firstDeliveries.get(projectKey);
-          if (outcome.kind === 'deferred') await this.releaseAll(projectKey);
+          if (outcome.kind === 'deferred') {
+            if (outcome.waiting.reason === 'engine_offline') this.applyEngineState(projectKey, true);
+            else await this.releaseAll(projectKey);
+          }
         } catch (err) {
-          this.deps.ctx.logger.warn({ err, projectKey }, 'could not give the PM the screened questions');
-          await this.releaseAll(projectKey);
+          // A machine that dropped meanwhile is not a failure of the PM: the questions wait for it.
+          if (this.applyEngineState(projectKey)) {
+            this.deps.ctx.logger.warn({ err, projectKey }, 'could not give the PM the screened questions');
+            await this.releaseAll(projectKey);
+          }
         } finally {
           this.firstDeliveries.delete(projectKey);
         }
@@ -169,22 +267,37 @@ export class QuestionScreening {
         if (!member) return;
         const items = this.undelivered(projectKey);
         if (!items.length) return;
-        const text = `${SCREENING_NOTICE}\n${items.map((item) => JSON.stringify(noticeOf(item))).join('\n')}`;
+        const nowMs = ctx.now().getTime();
+        const text = `${SCREENING_NOTICE}\n${items.map((item) => JSON.stringify(noticeOf(item, nowMs))).join('\n')}`;
         const workItem = { type: 'general' } as const;
-        const markDelivered = () =>
+        // The receipt starts the ten minutes (a held question keeps the time it had); the machine decides
+        // right after whether they run or stay held.
+        const markDelivered = () => {
           ctx.unitOfWork(() => {
             const at = isoNow(ctx);
             for (const item of items) {
               const current = ctx.repos.inbox.get(item.id);
               if (current?.state !== 'screening') continue;
               const screening = (current.payload.screening ?? {}) as Record<string, unknown>;
+              const held = questionPayloadOf(current)?.screening?.queue;
               ctx.repos.inbox.updatePayload(
                 item.id,
-                { ...current.payload, screening: { ...screening, deliveredAt: at } },
+                {
+                  ...current.payload,
+                  screening: {
+                    ...screening,
+                    deliveredAt: at,
+                    until: new Date(
+                      Date.parse(at) + (held?.remainingMs ?? QUESTION_SCREENING_MS),
+                    ).toISOString(),
+                  },
+                },
                 at,
               );
             }
           });
+          this.applyEngineState(projectKey);
+        };
         const running = sessions.findRunning(projectKey, member.handle, workItem);
         if (running && !sessions.isPaused(running)) {
           if (!(await delivery.notice(running, 'projectman', text, null)))
@@ -220,8 +333,12 @@ export class QuestionScreening {
 }
 
 /** One question as the PM's notice carries it. */
-function noticeOf(item: InboxItem) {
+function noticeOf(item: InboxItem, nowMs: number) {
   const payload = questionPayloadOf(item);
+  // The question is delivered now: its time starts from here (what a held question had left, else all of it).
+  const until = new Date(
+    nowMs + (payload?.screening?.queue?.remainingMs ?? QUESTION_SCREENING_MS),
+  ).toISOString();
   return {
     id: item.id,
     asker: item.source,
@@ -231,6 +348,6 @@ function noticeOf(item: InboxItem) {
     details: payload?.details ?? null,
     options: payload?.options ?? [],
     recommended: payload?.recommended ?? null,
-    until: payload?.screening?.until ?? null,
+    until,
   };
 }

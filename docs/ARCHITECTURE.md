@@ -1783,6 +1783,19 @@ workers follow the machine's size.
     `full_test_started` event when the run got its turn in the queue (PM-489).
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
+  - Offline machine and the question screening (PM-708): the durable queue, the timer and the
+    delivery receipt all run on the server. A screened question that waits for the PM's engine stays
+    in the inbox with `payload.screening.queue` (`engine_offline`); it raises no owner alert, no
+    `screening_skipped` and no human fallback. The ten minutes start from the receipt
+    (`deliveredAt`) and run only while the engine is online (`screeningDeadline`,
+    `screeningFrozenRemainingMs` in `packages/shared`). The server learns the link state from
+    `EngineRegistry` and `engines.last_seen_at` (`lastConfirmedOnlineAt`, through the
+    `ScreeningEngineState` port in `assembly.ts`); the sweep also runs on each `engines.onChange`.
+    The Mac only holds the existing engine link, and the CLIs and their login stay there. No new
+    process, shell, socket or credential operation, no new table. Remote engine: works unchanged,
+    since only the link state crosses the boundary. Signals and team messages already queue on
+    `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
+    trials belong to PM-664.
     **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,

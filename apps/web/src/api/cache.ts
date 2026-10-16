@@ -13,7 +13,7 @@ import type {
   Task,
   TaskDetail,
 } from '@projectman/shared';
-import { operatorApprovalOf, withSessionWork } from '@projectman/shared';
+import { operatorApprovalOf, operatorKnowledgeApprovalOf, withSessionWork } from '@projectman/shared';
 import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
@@ -131,7 +131,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
     void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
   }
-  if ('projectKey' in event && event.type === 'inbox_upserted' && operatorApprovalOf(event.item)) {
+  if (
+    'projectKey' in event &&
+    event.type === 'inbox_upserted' &&
+    (operatorApprovalOf(event.item) || operatorKnowledgeApprovalOf(event.item))
+  ) {
     void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
   }
   switch (event.type) {
@@ -151,6 +155,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'timeline_appended': {
       const { projectKey: key, event: entry } = event;
+      if (entry.type === 'operator_knowledge_changed')
+        void client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });
       if (entry.type === 'session_started' || entry.type === 'session_ended')
         void client.invalidateQueries({ queryKey: ['involvements', key] });
       if (!entry.taskKey) return;
@@ -267,6 +273,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       // The feed, its unread count, the threads and the unread list all change: refetch them.
       // An updated message (a file of it deleted, PM-516) shows in the same places.
       void client.invalidateQueries({ queryKey: queryKeys.messages(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorPreferenceMeAll(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorPreferences(event.projectKey) });
       return;
     }
     case 'feedback_changed': {

@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import { routes, TASK_CREATE_MIN_ACCESS, OperatorApprovalWaiverRequest } from '@projectman/shared';
+import {
+  routes,
+  TASK_CREATE_MIN_ACCESS,
+  OperatorApprovalWaiverRequest,
+  canReadOperatorKnowledge,
+} from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
 import { requireAccess, actorOf, authorOf } from './context';
@@ -22,7 +27,7 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
   });
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    if (access.via || !['owner', 'admin'].includes(access.access))
+    if (access.via || !canReadOperatorKnowledge({ access: access.access }))
       throw forbidden(
         'operator_owner_only',
         'shared knowledge requires an owner or admin using their own login',

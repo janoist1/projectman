@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
 import { Link, useLocation, useMatch } from 'react-router';
-import { canSeeOperatorSessions } from '@projectman/shared';
+import { canSeeOperatorSessions, canReadOperatorKnowledge } from '@projectman/shared';
 import { useBoard, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -15,6 +15,7 @@ import { dragHasFiles, droppedFiles } from '../../lib/attachmentInput';
 import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
 import { Composer } from '../session/Composer';
 import { OperatorThread } from './OperatorThread';
+import { OperatorKnowledgeView } from './OperatorKnowledgeView';
 import type { FailedOperatorMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
 import { operatorStatusText } from './operatorChannel';
@@ -31,7 +32,7 @@ const PANEL_WIDTH = 440;
  * Operator only reads and answers.
  */
 export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
-  const { key, me, closeOperator } = useProject();
+  const { key, me, closeOperator, operatorPrefill } = useProject();
   const isMobile = useIsMobile();
   const { pathname } = useLocation();
   const openedAt = useRef(pathname);
@@ -43,6 +44,8 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const dragDepth = useRef(0);
   const panel = useRef<HTMLElement>(null);
   const titleId = useId();
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const knowledgeButton = useRef<HTMLButtonElement>(null);
   const access = me.projects.find((project) => project.key === key)?.access;
   const sessionVisible = access !== undefined && canSeeOperatorSessions({ access });
   const readOnly = state?.readOnly ?? false;
@@ -58,6 +61,11 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
 
   // An example from the introduction goes into the box to be edited and sent.
   const [prefill, setPrefill] = useState<{ text: string; id: number } | null>(null);
+  useEffect(() => {
+    if (!operatorPrefill) return;
+    setKnowledgeOpen(false);
+    setPrefill((previous) => ({ text: operatorPrefill.text, id: (previous?.id ?? 0) + 1 }));
+  }, [operatorPrefill]);
 
   const [failed, setFailed] = useState<FailedOperatorMessage | null>(null);
   const post = (
@@ -99,6 +107,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   }, [isMobile, pathname, closeOperator]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.target instanceof Element && event.target.closest('dialog[open]')) return;
     if (event.key === 'Escape') {
       event.stopPropagation();
       closeOperator();
@@ -176,6 +185,20 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             <Icon name="external" size={13} strokeWidth={2.2} />
           </Link>
         ) : null}
+        {!me.via ? (
+          <Button
+            ref={knowledgeButton}
+            className={styles.knowledgeButton}
+            variant="ghost"
+            size="lg"
+            iconOnly
+            icon="doc"
+            aria-pressed={knowledgeOpen}
+            aria-label={t(canReadOperatorKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
+            title={t(canReadOperatorKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
+            onClick={() => setKnowledgeOpen(!knowledgeOpen)}
+          />
+        ) : null}
         <Button
           variant="ghost"
           size="md"
@@ -186,7 +209,18 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         />
       </header>
 
-      {channel.isPending ? (
+      {knowledgeOpen ? (
+        <OperatorKnowledgeView
+          onBack={() => {
+            setKnowledgeOpen(false);
+            knowledgeButton.current?.focus();
+          }}
+          onPrefill={(text) => {
+            setPrefill({ text, id: (prefill?.id ?? 0) + 1 });
+            setKnowledgeOpen(false);
+          }}
+        />
+      ) : channel.isPending ? (
         <div className={styles.body} role="status" aria-label={t('app.loading')}>
           <div className={styles.skeleton}>
             <span />

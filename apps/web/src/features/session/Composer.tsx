@@ -70,6 +70,10 @@ export function Composer({
     if (prefillId === undefined || prefillText === undefined) return;
     setText(prefillText);
     ref.current?.focus();
+    const frame = requestAnimationFrame(() => {
+      ref.current?.setSelectionRange(prefillText.length, prefillText.length);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [prefillId, prefillText]);
 
   useEffect(() => {

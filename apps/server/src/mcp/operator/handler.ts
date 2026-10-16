@@ -191,6 +191,13 @@ export class OperatorTools implements OperatorToolsHandler {
    * moot, or sends it on to the people as a decision or a todo. Only the selected PM, never from a guest
    * conversation. Throws before anything changes when the fields do not fit the outcome.
    */
+  async combineQuestions(ctx: ToolContext, args: { itemIds: string[]; question: string; note: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'combine_questions');
+      return this.inbox.combineQuestions(ctx.projectKey, args, ctx.member);
+    });
+  }
+
   async screenQuestion(
     ctx: ToolContext,
     args: {
@@ -227,12 +234,17 @@ export class OperatorTools implements OperatorToolsHandler {
       if (!item || item.projectKey !== ctx.projectKey || item.kind !== 'question')
         throw new TeamToolError('not_found', `No question ${args.itemId} in this project.`);
       const asker = memberOf(config, item.source);
+      const group = this.ctx.repos.inbox.groupOf(item.id);
+      const primary = group ? this.ctx.repos.inbox.get(group.primaryItemId) : null;
       // A moot question may also be one that already went to the people, if an AI member asked it.
       const mootOpen =
-        outcome === 'moot' && item.state === 'open' && asker?.kind === 'ai' && item.source !== ctx.member;
+        outcome === 'moot' &&
+        (item.state === 'open' || (item.state === 'screening' && primary?.state === 'open')) &&
+        asker?.kind === 'ai' &&
+        item.source !== ctx.member;
       if (item.source === ctx.member)
         throw new TeamToolError('forbidden', 'project_manager_only: the PM cannot screen its own question.');
-      if (item.state !== 'screening' && !mootOpen)
+      if ((item.state !== 'screening' || (group && primary?.state !== 'screening')) && !mootOpen)
         throw new TeamToolError(
           'invalid',
           `question_not_screening: ${item.id} is not waiting for the PM (it is ${item.state}).`,

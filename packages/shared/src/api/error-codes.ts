@@ -161,6 +161,7 @@ export const ERROR_CODES = [
   // question is not in screening; the outcome's fields do not fit; the question may not be asked again unscreened.
   'todo_reason_required',
   'question_not_screening',
+  'question_group_incompatible',
   'invalid_outcome_fields',
   'reask_not_allowed',
   'ai_approval_forbidden',

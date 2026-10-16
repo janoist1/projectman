@@ -431,6 +431,28 @@ describe('the Operator screens AI members’ questions', () => {
   });
 
   describe('asking again', () => {
+    it('refuses moot for a human question or a question that already closed', async () => {
+      const closed = await ask('No longer needed?');
+      await screen({ itemId: closed.inboxItemId, outcome: 'moot', note: 'No longer needed.' });
+      const resolved = await ask('Already answered?');
+      await screen({ itemId: resolved.inboxItemId, outcome: 'answered', answer: 'Yes.', note: 'Known.' });
+      const human = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dana',
+        title: 'A human question',
+        payload: { question: 'A human question' },
+        options: [],
+      });
+      for (const id of [closed.inboxItemId, resolved.inboxItemId, human.id]) {
+        const before = item(id);
+        const error = await refusal(screen({ itemId: id, outcome: 'moot', note: 'Not allowed.' }));
+        expect(error.message).toContain('question_not_screening');
+        expect(item(id)).toEqual(before);
+      }
+    });
+
     async function answered(question = 'Which font?') {
       const { inboxItemId } = await ask(question);
       await screen({ itemId: inboxItemId, outcome: 'answered', answer: 'Use Inter.', note: 'Style guide.' });

@@ -1,6 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { InboxKind, InboxState, ResolveInboxRequest, routes } from '@projectman/shared';
+import {
+  InboxKind,
+  InboxState,
+  ResolveInboxRequest,
+  routes,
+  visibleQuestionItem,
+  canSeeTask,
+  isLinkedQuestion,
+} from '@projectman/shared';
 import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { canSeeInboxItem } from '../core/projects';
@@ -38,7 +46,14 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const mine = query.mine === 'true' || query.mine === '1';
     const items = domain.inbox
       .list(key, { state, kind: query.kind, limit: 500 })
-      .filter((item) => canSeeInboxItem(access, item) && (!mine || item.assignees.includes(access.handle)));
+      .filter((item) => canSeeInboxItem(access, item) && (!mine || item.assignees.includes(access.handle)))
+      .filter((item) => state === undefined || !isLinkedQuestion(item))
+      .map((item) =>
+        visibleQuestionItem(access, item, (taskKey) => {
+          const task = domain.tasks.find(key, taskKey);
+          return !!task && canSeeTask(access, task);
+        }),
+      );
     return { items: await domain.inbox.withAskerStart(key, items) };
   });
 
@@ -59,6 +74,10 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const access = await requireAccess(domain, request, key);
     const body = parseBody(ResolveInboxRequest, request.body);
     if (!canSeeInboxItem(access, domain.inbox.get(key, itemId))) throw notFound('inbox item', itemId);
-    return domain.inbox.resolve(key, itemId, body, access);
+    const resolved = await domain.inbox.resolve(key, itemId, body, access);
+    return visibleQuestionItem(access, resolved, (taskKey) => {
+      const task = domain.tasks.find(key, taskKey);
+      return !!task && canSeeTask(access, task);
+    });
   });
 }

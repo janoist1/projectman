@@ -543,8 +543,7 @@ export class MemberService {
       this.prepareRetire(draft, handle, handoverTo);
       return `Retire ${handle}${handoverTo ? ` (handover to ${handoverTo})` : ''}`;
     });
-    for (const item of this.inbox.cancelOpenFromSource(projectKey, handle))
-      await this.ctx.events.emit('inbox_cancelled', item);
+    await this.inbox.cancelOpenFromSource(projectKey, handle);
 
     this.timeline.append({
       projectKey,

@@ -109,7 +109,7 @@ export function isOwner(config: ProjectConfig, handle: string): boolean {
 
 export function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
-  if (err.code === 'operator_signal_closed')
+  if (['question_group_incompatible', 'question_not_screening', 'operator_signal_closed'].includes(err.code))
     return new TeamToolError('invalid', `${err.code}: ${err.message}`);
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
   if (err.status === 403) return new TeamToolError('forbidden', err.message);
@@ -205,7 +205,9 @@ export class ToolCaller {
     operation?: OperatorOperation,
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
-    if (['screen_question', 'dismiss_signal', 'start_task', 'start_member'].includes(tool)) {
+    if (
+      ['combine_questions', 'screen_question', 'dismiss_signal', 'start_task', 'start_member'].includes(tool)
+    ) {
       this.assertCoordinationSession(ctx, config);
       const request = this.coordinationRequests.openFor(ctx.sessionId);
       if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request: null, guest: null };

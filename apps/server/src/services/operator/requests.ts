@@ -58,7 +58,11 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
  * question screening and signal triage are answered on their own records.
  * Never in a guest conversation.
  */
-export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set(['screen_question', 'dismiss_signal']);
+export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
+  'combine_questions',
+  'screen_question',
+  'dismiss_signal',
+]);
 
 /**
  * The team tools the Operator never calls, request or not: decisions of other members, handovers and

@@ -356,6 +356,10 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.inbox.askHuman(ctx, args);
   }
 
+  async combineQuestions(ctx: ToolContext, args: { itemIds: string[]; question: string; note: string }) {
+    return this.tools.operator.combineQuestions(ctx, args);
+  }
+
   async screenQuestion(
     ctx: ToolContext,
     args: {

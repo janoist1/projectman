@@ -1866,7 +1866,10 @@ workers follow the machine's size.
   `instanceTag`, `pid`, `uid` and `bootId`. The NanoGPT key is asked from the cloud for a starting
   NanoGPT session only and lives in memory for that start; the audit log records that request (method,
   session id, ok or error) but never the key. On SIGINT/SIGTERM the engine pauses its
-  running sessions first, then stops them and closes the link. The link client reconnects with a back-off of 1 to 30 seconds, replays
+  running sessions first, then stops them and closes the link. The link client reconnects with a back-off
+  of 1 to 30 seconds after a lost connection, a failed handshake (Node 22–23 WebSockets emit only
+  `error`, without `close`) or a handshake without a welcome within 30 seconds (PM-732). Each attempt
+  ends only once, so delayed socket events cannot start concurrent connections. It replays
   unacknowledged events by sequence number, buffers at most 10,000 events or 50 MB (the oldest are
   dropped and counted), and sends terminal data only for sessions the cloud attached.
   **Assumptions:** the code (a git checkout), the CLIs, their logged-in accounts (Claude, Codex,

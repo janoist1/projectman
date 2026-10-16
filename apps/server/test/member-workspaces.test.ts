@@ -235,10 +235,10 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
       wrapMemberWorkspaces: (inner) => ({
         ...inner,
         prepareDependencies: async (key) => {
-          prepared.push(key.member);
           expect(await branchOf((await inner.location(key)).path)).toBe('AR-1-login-page');
           await new Promise<void>((resolve) => {
             ready = resolve;
+            prepared.push(key.member);
           });
           return { status: 'ready', key: 'a'.repeat(64), changed: true };
         },
@@ -300,10 +300,11 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
         prepareDependencies: async (key) => {
           if (key.member === 'cr') {
             const ws = await inner.location(key);
-            reviewHeads.push(await git(ws.path, 'rev-parse', 'HEAD'));
+            const head = await git(ws.path, 'rev-parse', 'HEAD');
             expect(await branchOf(ws.path)).toBe('');
             await new Promise<void>((resolve) => {
               ready = resolve;
+              reviewHeads.push(head);
             });
           }
           return { status: 'ready', key: key.member, changed: true };

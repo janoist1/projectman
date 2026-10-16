@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PatternFacts, structuralReviewOf } from '@projectman/shared';
 import type { AiMemberConfig, TimelineEvent } from '@projectman/shared';
 import { StructuralPatterns, normalizedEvidencePath } from '../src/services/operator/structural-patterns';
 import { CoordinationRequests } from '../src/services/operator';
+import { OperatorTools } from '../src/mcp/operator/handler';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -11,6 +12,7 @@ let h: DomainHarness;
 let now: Date;
 let sequence = 0;
 afterEach(async () => {
+  vi.restoreAllMocks();
   await h?.cleanup();
 });
 async function setup(architect = true) {
@@ -199,6 +201,40 @@ describe('structured pattern evidence', () => {
 });
 
 describe('owner-approved occasional review', () => {
+  it('keeps an approved signal open after a failed start so the PM can retry', async () => {
+    await setup();
+    const { ctx, signal } = await detected();
+    const proposal = await h.domain.teamTools.requestStructuralReview(ctx, {
+      signalId: signal.id,
+      note: 'Review the repeated failure.',
+    });
+    await h.domain.inbox.resolve(
+      'AR',
+      proposal.inbox_item_id!,
+      { optionId: 'approve' },
+      { handle: 'owner', access: 'owner' },
+    );
+    await flush();
+    const start = vi.spyOn(OperatorTools.prototype, 'startMember').mockResolvedValueOnce({
+      messageId: 'msg_failed_review',
+      recipient: { handle: 'planner', delivery: 'wake', start: { state: 'failed', code: 'start_failed' } },
+    });
+    expect(
+      await h.domain.teamTools.requestStructuralReview(ctx, { signalId: signal.id, note: 'Review.' }),
+    ).toMatchObject({ status: 'failed' });
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'structural_review', status: 'failed' }),
+      ]),
+    );
+    start.mockRestore();
+    expect(
+      await h.domain.teamTools.requestStructuralReview(ctx, { signalId: signal.id, note: 'Retry.' }),
+    ).toMatchObject({ status: 'started' });
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
+  });
+
   it('uses a fresh eligible duty holder after approval and holds while all holders are unavailable', async () => {
     await setup();
     const { ctx, signal } = await detected();

@@ -154,16 +154,16 @@ export class StructuralReviews {
       }
       this.starting.set(ctx.sessionId, payload);
       const result = await start(member.handle, structuralReviewText(payload));
+      const state = result.recipient.start?.state;
       this.deps.steps.record({
         requestId: request.id,
         action: 'structural_review',
-        status: 'done',
+        status: state === 'failed' ? 'failed' : 'done',
         signalId,
         member: member.handle,
         inboxItemId: approvedItem?.id ?? null,
       });
-      this.deps.signals.resolve(ctx.projectKey, signal.caseKey);
-      const state = result.recipient.start?.state;
+      if (state !== 'failed') this.deps.signals.resolve(ctx.projectKey, signal.caseKey);
       return {
         status:
           state === 'failed'

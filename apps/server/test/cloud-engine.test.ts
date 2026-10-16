@@ -276,10 +276,14 @@ describe('the link across drops, restarts and refusals', () => {
     it('keeps a message sent while the link is down and delivers it once when the link is back', async () => {
       const { key, session } = await startCard('The link drops');
       const runner = world.fake!.runner;
+      // The engine records the start before its RPC reply reaches the cloud. Dropping the link
+      // before that reply fails the in-flight start and makes the next message wake the member.
+      await vi.waitFor(() => expect(domain().sessions.isRunning(session.id)).toBe(true));
       world.reconnectJitter = 1;
       dropLinks(cloud());
       // The registry keeps the engine online for two minutes after a drop; the link itself is what is gone.
       await vi.waitFor(() => expect(cloud().websocketServer.clients.size).toBe(0));
+      expect(domain().sessions.isRunning(session.id)).toBe(true);
 
       const sent = await message(key, 'Written while the Mac was away');
       // The cloud waits for the link rather than failing the delivery: it goes through once the engine is back.

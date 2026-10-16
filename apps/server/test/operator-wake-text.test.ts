@@ -94,6 +94,24 @@ const header = (text = wakeText()) =>
 
 const noStep = { step: null, steps_left: 0, next_step_at: null, steps: [], follow_up: false };
 
+it.each(['report', 'unblock', 'drive'] as const)(
+  'keeps diagnosis and the single verified report within PM authority at %s',
+  async (level) => {
+    await setup(level);
+    await idleCard();
+    const text = header();
+    expect(h.runner.started.some((session) => session.member === 'operator')).toBe(false);
+    expect(text).toContain('Read get_task before referring to a card');
+    expect(text).toContain('distinguish active work, actual decision waits and normal offline queued work');
+    expect(text).toContain('smallest permitted coordination step');
+    expect(text).toContain('consider machine load and verify the result');
+    expect(text).toContain('Group related decisions in the single summary');
+    expect(text).toContain('screening and signals are not owner requests');
+    expect(text).toContain('grant no settings or critical-operation authority');
+    expect(text).toContain('one message for the whole wake-up');
+  },
+);
+
 describe('level report', () => {
   it('keeps the ban, adds the one message and gives no step', async () => {
     await setup('report');

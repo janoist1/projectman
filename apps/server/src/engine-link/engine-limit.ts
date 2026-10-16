@@ -7,6 +7,7 @@ import {
   OPEN_OUTBOUND_DOMAINS,
   READER_UNSANDBOXED_COMMANDS,
   SANDBOX_DENIED_ENV_VARS,
+  SANDBOX_HOME_READS,
   sensitivePaths,
 } from '../contracts';
 import {
@@ -17,7 +18,7 @@ import {
   isMergeMessage,
   isRepoFilePath,
 } from '../engine-host';
-import { isWithin } from '../engine-host';
+import { isWithin, userExcludesFile } from '../engine-host';
 import { BILLING_ENV_VARS } from '../runner';
 import { assertNpmCiCheckout } from '../full-test';
 import { engineFiles } from './engine-config';
@@ -115,7 +116,16 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   // nor changed by a session; its configuration and status file are read but never changed.
   const engineSecrets = [config.keyFile, ...(config.linkHeadersFile ? [config.linkHeadersFile] : [])];
   const sensitive = [...sensitivePaths({ userHome, appHome: home }), ...engineSecrets];
-  const sensitiveWrite = [...sensitive, files.config, files.status];
+  // A file tool's deny rule names a path, not a pattern (Claude refuses `db.sqlite*`): name the files.
+  const sensitiveWrite = [
+    ...sensitive.flatMap((target) =>
+      target.endsWith('*')
+        ? ['', '-wal', '-shm', '-journal'].map((end) => target.slice(0, -1) + end)
+        : [target],
+    ),
+    files.config,
+    files.status,
+  ];
   const sessions = new Map<string, { cwd: string; folder?: string }>();
   const present = (values: ReadonlyArray<string | null | undefined>): string[] =>
     values.filter((value): value is string => typeof value === 'string' && value.length > 0);
@@ -146,6 +156,8 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       paths.heavyLockDir ? path.dirname(paths.heavyLockDir) : null,
       paths.browsersDir,
       attachmentsCache,
+      ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
+      userExcludesFile(userHome),
     ]).map(resolveReal),
   ];
   const within = (candidates: readonly string[], target: string): boolean => {
@@ -154,7 +166,8 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     return candidates.some((root) => isWithin(root, real));
   };
   const inside = (target: string, what: string, candidates: readonly string[] = roots()): string => {
-    if (!within(candidates, target)) refuse('path_outside_roots', `${what} is outside the engine's roots`);
+    if (!within(candidates, target))
+      refuse('path_outside_roots', `${what} is outside the engine's roots: ${target}`);
     return target;
   };
   const insideAll = (

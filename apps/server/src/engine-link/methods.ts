@@ -406,7 +406,8 @@ const workspaces = {
   sourceHead: method(z.tuple([key, text]), head.nullable()),
   fetchBase: method(z.tuple([key]), z.strictObject({ branch: text, commit: text })),
   findTaskBranch: method(
-    z.tuple([key, text, text.optional()]),
+    // JSON turns a trailing undefined into null.
+    z.tuple([key, text, text.nullish().transform((value) => value ?? undefined)]),
     z.strictObject({ branch: text, source: source.nullable() }).nullable(),
   ),
   resolveSource: method(z.tuple([source]), text.nullable()),

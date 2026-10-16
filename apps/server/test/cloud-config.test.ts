@@ -300,6 +300,42 @@ describe('the validation', () => {
     expect(refusal(config((value) => (value.access.boardMode = 'open')))).toContain('access.boardMode');
   });
 
+  describe('the SES profile (PM-729)', () => {
+    const ses = { region: 'eu-west-1', domain: 'example.com', from: 'board@example.com' };
+    const withSes = (profile: unknown, awsProfile?: string) =>
+      config((value) => {
+        if (awsProfile) value.aws.profile = awsProfile;
+        value.ses = profile === undefined ? ses : { ...ses, profile };
+      });
+
+    it('falls back to aws.profile, so an old configuration resolves to the same target', () => {
+      expect(parseConfig(withSes(undefined, 'aroom'), HOME).ses).toEqual({ ...ses, profile: 'aroom' });
+      expect(parseConfig(withSes(undefined), HOME).ses).toEqual({ ...ses, profile: 'i' });
+    });
+
+    it('takes an explicit profile, including the registrar profile i beside another aws.profile', () => {
+      expect(parseConfig(withSes('i', 'aroom'), HOME).ses?.profile).toBe('i');
+      expect(parseConfig(withSes('other', 'aroom'), HOME).ses?.profile).toBe('other');
+      expect(parseConfig(withSes('i', 'aroom'), HOME).aws.profile).toBe('aroom');
+    });
+
+    it.each(['', '   ', null, 7])('refuses the profile %j on its own path', (profile) => {
+      expect(refusal(withSes(profile, 'aroom'))).toContain('ses.profile');
+    });
+
+    it('keeps SES off without a block and keeps the EC2 compute profile rule', () => {
+      expect(parseConfig(baseConfig(), HOME).ses).toBeUndefined();
+      const ec2 = (profile: string | undefined) =>
+        config((value) => {
+          value.aws = { ...value.aws, compute: 'ec2', profile, ec2: EC2_CONFIG };
+          value.ses = { ...ses, profile: 'i' };
+        });
+      expect(refusal(ec2(undefined))).toContain('aws.profile');
+      expect(refusal(ec2('i'))).toContain('aws.profile');
+      expect(parseConfig(ec2('aroom'), HOME).ses?.profile).toBe('i');
+    });
+  });
+
   it('checks the hosted zone id and the session duration', () => {
     expect(refusal(config((value) => (value.route53 = { hostedZoneId: 'nope' })))).toContain(
       'route53.hostedZoneId',

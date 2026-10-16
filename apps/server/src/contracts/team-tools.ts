@@ -9,6 +9,7 @@ import type {
   FeedbackStatus,
   FocusPlace,
   MemberHandle,
+  OperatorDiagnostics,
   MessageAttachmentRef,
   MessageKind,
   RelationsChange,
@@ -752,6 +753,10 @@ export interface OperatorToolsHandler {
     ctx: ToolContext,
     args: { signalId: string; note: string },
   ): Promise<import('@projectman/shared').StructuralReviewResult>;
+  getOperatorDiagnostics(
+    ctx: ToolContext,
+    args: { taskKey: string; limit?: number },
+  ): Promise<OperatorDiagnostics>;
   getOperatorKnowledge(ctx: ToolContext): Promise<OperatorKnowledgeDocument>;
   proposeOperatorKnowledge(
     ctx: ToolContext,
@@ -817,8 +822,25 @@ export interface OperatorToolsHandler {
       todo?: QuestionTodo;
     },
   ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
+  combineQuestions(
+    ctx: ToolContext,
+    args: { itemIds: string[]; question: string; note: string },
+  ): Promise<{ primaryItemId: string; linkedItemIds: string[] }>;
   dismissSignal(
     ctx: ToolContext,
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }>;
+  triageLoop(
+    ctx: ToolContext,
+    args: {
+      signalId: string;
+      outcome: 'progress' | 'loop';
+      note: string;
+      evidenceIds: string[];
+    },
+  ): Promise<{
+    state: 'observing' | 'awaiting_owner' | 'resolved';
+    loopId: string;
+    inboxItemId: string | null;
+  }>;
 }

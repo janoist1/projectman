@@ -11,6 +11,7 @@ export * from './domain/engine';
 export * from './domain/outage';
 export * from './domain/session';
 export * from './domain/session-work';
+export * from './domain/operator-diagnostics';
 export * from './domain/card-busy';
 export * from './domain/involvement';
 export * from './domain/pause';

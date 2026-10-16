@@ -193,7 +193,12 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           drop(1002, 'unexpected_frame');
           return;
         }
-        connection = createEngineRpc({ side: 'engine', send, onRefused: options.onRefused });
+        connection = createEngineRpc({
+          side: 'engine',
+          send,
+          onRefused: options.onRefused,
+          onFailed: (failure) => logger.warn(failure, 'engine link: a request failed'),
+        });
         options.register(connection);
         try {
           // Replay everything the cloud has not acknowledged, in order.

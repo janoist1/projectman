@@ -56,6 +56,7 @@ const isOutageRefusal = (code: string): boolean => OUTAGE_REFUSALS.some((value) 
 const isSetupRefusal = (code: string): boolean =>
   code === 'codex_setup_incomplete' || code === 'nanogpt_setup_incomplete';
 const memberKey = (key: string, handle: string): string => `${key}:${handle}`;
+const PENDING_KEYS_TTL_MS = 2_000;
 
 /** Instance-wide observations, with one owner warning per project and outage episode. */
 export class WorkOutages {
@@ -73,6 +74,13 @@ export class WorkOutages {
   private stopped = false;
   private readonly startedAt: number;
   private readonly connectedEngines = new Set<EngineId>();
+  /**
+   * The task keys of each member's waiting messages, kept for `PENDING_KEYS_TTL_MS` per project and
+   * member (an empty set too): a task list asks `forTask` for every card, and reading the messages
+   * again per card made a board with an engine outage unusable (thousands of cards times thousands
+   * of messages). Only the outage mark can be that much behind; message delivery never reads this.
+   */
+  private readonly pendingKeys = new Map<string, { readAt: number; keys: ReadonlySet<string> }>();
 
   private readonly deps: OutageDependencies;
 
@@ -189,13 +197,23 @@ export class WorkOutages {
     for (const payload of outages.values()) {
       if (
         payload.outage.kind === 'engine' &&
-        payload.members.some((handle) =>
-          this.deps.messaging.pendingTaskKeys(task.projectKey, handle).includes(task.key),
-        )
+        payload.members.some((handle) => this.pendingTaskKeysOf(task.projectKey, handle).has(task.key))
       )
         candidates.push(payload.outage);
     }
     return candidates.sort((a, b) => a.since.localeCompare(b.since))[0];
+  }
+
+  private pendingTaskKeysOf(projectKey: string, handle: string): ReadonlySet<string> {
+    const key = memberKey(projectKey, handle);
+    const now = this.deps.ctx.now().getTime();
+    const cached = this.pendingKeys.get(key);
+    // Card-by-card work awaits between cards, so the keys live for a short window instead of one
+    // pass; an outage mark a moment late is harmless.
+    if (cached && now >= cached.readAt && now - cached.readAt < PENDING_KEYS_TTL_MS) return cached.keys;
+    const keys = new Set(this.deps.messaging.pendingTaskKeys(projectKey, handle));
+    this.pendingKeys.set(key, { readAt: now, keys });
+    return keys;
   }
 
   async checkNow(projectKey: string, itemId: string, access: ProjectAccess): Promise<CheckOutageResponse> {

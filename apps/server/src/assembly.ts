@@ -98,7 +98,7 @@ import {
   OperatorRequests,
   OperatorSteps,
 } from './services/operator';
-import { OperatorSignals, StructuralReviews } from './services/operator';
+import { LoopTriages, OperatorSignals, StructuralReviews } from './services/operator';
 import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
 import { ProjectState } from './services/operator';
@@ -985,6 +985,16 @@ export function createDomain(opts: DomainOptions) {
   inbox.registerDecider('operator_structural_review', (item, by, option) =>
     structuralReviews.decide(item, by, option),
   );
+  const loopTriages = new LoopTriages({
+    ctx,
+    projects,
+    signals: operatorSignals,
+    actions: {
+      assess: (input) => loopWatch.assess(input),
+    },
+  });
+  // A refinement turn that ended without its label goes to the PM as a report-only signal (PM-702).
+  refinement.useStallNotices({ report: (input) => operatorSignals.reportRefinementStall(input) });
   events.on('config_changed', ({ projectKey }) => operatorSignals.recheckRecipients(projectKey));
   const questionScreening = new QuestionScreening({
     ctx,
@@ -1146,6 +1156,60 @@ export function createDomain(opts: DomainOptions) {
     operatorSignals,
     messageStarts,
     releases,
+    requests: operatorRequests,
+    diagnostics: {
+      checks(projectKey, taskKey) {
+        const checks = opts.repos.fullTestRuns.forTask(taskKey).flatMap((run) =>
+          run.projectKey === projectKey &&
+          run.finishedAt &&
+          (run.status === 'passed' || run.status === 'failed' || run.status === 'error')
+            ? [
+                {
+                  runId: run.id,
+                  outcome: run.status,
+                  failedFiles: [...run.failedFiles],
+                  at: run.finishedAt,
+                },
+              ]
+            : [],
+        );
+        for (const merge of [
+          opts.repos.taskMerges.open(projectKey, taskKey),
+          opts.repos.taskMerges.latestMerged(projectKey, taskKey),
+        ]) {
+          const check = merge?.check;
+          if (!merge || !check?.runId || checks.some((run) => run.runId === check.runId)) continue;
+          checks.push({
+            runId: check.runId,
+            outcome: check.status,
+            failedFiles: merge.failure?.reason === 'check_failed' ? [...(merge.failure.files ?? [])] : [],
+            at: merge.failure?.at ?? merge.finishedAt ?? merge.updatedAt,
+          });
+        }
+        return checks;
+      },
+      async machine(session) {
+        // The cloud monitor's cached sample and CPU reference carry no engine identity.
+        // Until both are engine-bound, even a fresh-looking cloud sample is unproven.
+        if (!session || opts.machineEngine) return null;
+        const id = engineIdOf(session);
+        const host = engines.get(id);
+        if (!host || id !== LOCAL_ENGINE_ID) return null;
+        const [view, freeDiskBytes] = await Promise.all([
+          machine.view({ panel: false }),
+          host.freeDiskBytes(),
+        ]);
+        if (!engines.get(id)) return null;
+        return {
+          engineId: id,
+          cpuLoad: view.summary.cpuPercent,
+          memoryUsedBytes: view.summary.memoryUsedBytes,
+          memoryTotalBytes: view.summary.memoryTotalBytes,
+          freeDiskBytes,
+          measuredAt: view.sampledAt,
+        };
+      },
+    },
   });
   const sessionEngine = (sessionId: string) => engines.get(sessions.engineOf(sessionId)) ?? undefined;
   const toolCaller = new ToolCaller({
@@ -1184,6 +1248,7 @@ export function createDomain(opts: DomainOptions) {
         operatorActions,
         taskStarts,
         operatorSignals,
+        loopTriages,
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
       releases: new ReleaseTools({ calls: toolCaller, releases }),
@@ -1288,6 +1353,10 @@ export function createDomain(opts: DomainOptions) {
     background.run(
       () => questionScreening.sweep(),
       (err) => opts.logger.warn({ err, engineId: id }, 'question screening engine check failed'),
+    );
+    background.run(
+      () => loopWatch.sweep(),
+      (err) => opts.logger.warn({ err, engineId: id }, 'loop triage engine check failed'),
     );
     if (!online) return;
     // A remote engine that connects later is checked for the full test sandbox like a local one at startup.
@@ -1433,6 +1502,10 @@ export function createDomain(opts: DomainOptions) {
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
   inbox.registerQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
+  inbox.registerQuestionGroupAnswer((items, attachmentIds, close) =>
+    messaging.answerGroup(items, attachmentIds, close),
+  );
+  messages.registerQuestionProjection((item) => inbox.withQuestionGroup(item));
   // The card's other workers learn what was answered, so they do not ask it again (PM-249).
   events.on('inbox_resolved', (item) =>
     item.kind === 'question' ? messaging.answeredNotice(item) : undefined,
@@ -1442,9 +1515,25 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
   // A question closed without an answer (PM-556): its asking session, when it runs, is told not to wait.
   events.on('inbox_cancelled', (item) => messaging.closedNotice(item));
-  // AI members writing round in circles on a card: the scheduling duty's holder is told first, people
-  // only when that did not help (PM-261). A loop ends when the card makes progress or goes quiet.
-  const loopWatch = new LoopWatch({ ctx, projects, tasks, sessions, admission, delivery, inbox, timeline });
+  // The selected PM filters suspected loops before a human decision (PM-712), including its own traffic.
+  // A loop ends when the card makes progress or goes quiet.
+  const loopWatch = new LoopWatch({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    inbox,
+    timeline,
+    notices: loopTriages,
+    engine: {
+      read: (projectKey, member) => {
+        const id = engines.engineFor(projectKey, member);
+        if (id === null) return { state: 'unknown', lastConfirmedOnlineAt: null };
+        if (engines.get(id)) return { state: 'online', lastConfirmedOnlineAt: isoNow(ctx) };
+        return { state: 'offline', lastConfirmedOnlineAt: ctx.repos.engines.get(id)?.last_seen_at ?? null };
+      },
+    },
+  });
   events.on('task_talk_recorded', ({ event }) => loopWatch.check(event));
   events.on('task_work_recorded', ({ event }) => loopWatch.worked(event));
   events.on('task_stage_changed', (change) => loopWatch.progressed(change.task, 'stage'));
@@ -1912,6 +2001,7 @@ export function createDomain(opts: DomainOptions) {
         {
           name: 'loop-watch',
           everyMs: opts.loopWatchMs ?? 60_000,
+          atStart: true,
           run: () => loopWatch.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
         },

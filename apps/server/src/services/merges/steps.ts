@@ -283,6 +283,10 @@ export class MergeSteps {
       branch = row.branch;
     this.save(row, { state: 'running', step: 'merging', block: undefined, prioritizedAt: undefined });
     const ref = this.ref(row);
+    // Member workspaces: the approved commit reaches the repository before anything reads it, on
+    // a restart or a recovery as well. A refusal blocks this attempt (the merge row says why).
+    await sessions.prepareMergeSource(config, task, commit);
+    if (!this.continue(running)) return;
     for (let attempt = 0; attempt < 2; attempt++) {
       const base = await merger.prepare(ref, { base: row.base, commit: commit });
       if (!this.continue(running)) return;

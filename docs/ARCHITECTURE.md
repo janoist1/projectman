@@ -1575,12 +1575,15 @@ workers follow the machine's size.
   (no `cloudflared` login). **Remote engine:** unchanged; the public side is only the browser login boundary,
   the engine still connects outward to the protected `/engine`.
 
-- **SES identity/DKIM and sender provisioning (PM-678, part of PM-664)** —
+- **SES identity/DKIM and sender provisioning (PM-678, part of PM-664; own account PM-729)** —
   `scripts/cloud/{ses,config,commands,cli,secrets,aws-cli,cloudflare-api}.ts`,
   `deploy/aws/config.example.json`, `apps/server/test/cloud-ses.test.ts`,
   `apps/server/test/helpers/fake-ses.ts`, `docs/AWS.md`, `docs/HYBRID.md`.
   **What runs where:** the owner's approved provisioning CLI adds optional version-1
-  `ses:{region,domain,from}`. `ses plan` reads STS, SESv2 identity/account and Cloudflare DNS;
+  `ses:{profile?,region,domain,from}`; PM-729 adds the optional `profile` (absent: `aws.profile`, resolved
+  at load time without rewriting the file), so SES (identity, production access, the narrow sender IAM
+  user and its key) can live in its own account (`i`) while compute/S3/host IAM stay in `aws.profile`.
+  `ses plan` reads STS, SESv2 identity/account and Cloudflare DNS;
   `ses configure [--dry-run]` additionally verifies managed IAM ownership/groups/policies/keys,
   creates or retains the Easy DKIM domain, converges only three DNS-only CNAMEs from AWS tokens and
   SigningHostedZone, restricts `<instanceName>-ses` to `ses:SendEmail` on the region/account/domain
@@ -1592,8 +1595,10 @@ workers follow the machine's size.
   `ses check` reads verification/DKIM, production/sending, exact DNS/IAM and local sender config;
   no command sends mail. Cloudflare list responses are shape-checked so malformed reads cannot
   be mistaken for missing records. **Machine assumptions:** AWS CLI v2/profiles on the owner's
-  POSIX administration machine; every AWS call explicitly targets the central profile (`aroom`)
-  and SES region, never registrar profile `i`. Existing authoritative Cloudflare zone and protected
+  POSIX administration machine; every AWS call explicitly targets `ses.profile` and the SES region,
+  and the key is handed over only through the protected `cloud.env` (no profile env, the backend sends
+  directly with the target account's narrow key; a key of a former account is refused, not replaced).
+  Existing authoritative Cloudflare zone and protected
   DNS token, no domain transfer or cross-account SES authorization. The cloud store is 0700 and
   `cloud.env` 0600, with unsafe modes/symlinks refused and other env keys preserved; credentials
   never enter argv or reports. Live configuration/request/deploy each needs owner approval;
@@ -1766,6 +1771,11 @@ workers follow the machine's size.
   socket; machine keys grant no human API access. The method table is the sole RPC gateway,
   validated in both directions and tied to the engine contracts, including the PM-312 disk operations.
   File export forwards `exactRoot` when the caller requires a root without symbolic links.
+  PM-739 adds `workspace.publishTaskBranch` (`[key, taskKey, branch, commit]` → strict `{path, ref}`):
+  the engine hands a developer's task commit over to its own repository; the cloud never names a path
+  or ref, `engine-limit.ts` binds the repository and requires a full object id. Protocol version stays
+  1; an older engine answers `unknown_method` and the call fails with an update message, so update the
+  engines before the hybrid hand-over is used.
   Events are acknowledged after handling, and engine-scoped request
   results survive reconnects for five minutes in memory. `secret.nanogpt_key` is never cached or
   logged; the starting-session condition is enforced by the PM-315 handler, unavailable by default.
@@ -1784,6 +1794,13 @@ workers follow the machine's size.
   tag, because the release watcher tags after the switch). It reads the installation's own git checkout, so it runs
   on the server's machine and never on a remote engine; without git, on a timeout (2 s) or with a
   `PROJECTMAN_VERSION` override (a cloud package has no checkout) the tag is null.
+  PM-731: JSON turns a trailing `undefined` into `null`, so `workspace.findTaskBranch` accepts
+  `string | null | undefined` as its third element and the handler gets `undefined` (no other input
+  is loosened). An `invalid_params` answer names the method and the failing parameter paths (never
+  the values), `path_outside_roots` the refused path; an unrecognised handler exception still
+  answers `internal / Engine request failed` and only its method and class name reach the local
+  log (`onFailed`), on both sides. An engine older than this change rejects the `null`: update the
+  engine with the cloud.
   Existing inventory boundaries use these groups:
   - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
   - Codex project layer inspection: `session.assert_workspace_config`.
@@ -1813,6 +1830,17 @@ workers follow the machine's size.
     since only the link state crosses the boundary. Signals and team messages already queue on
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
     trials belong to PM-664.
+    PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
+    `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
+    online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
+    report-only `loop_suspected` signal to the selected PM, even when it participates in the loop.
+    The engine link state freezes the deadline while offline, and reconnect sweeps resume it.
+    Queued delivery alone never creates an owner decision. No new engine operation or CLI mount.
+    Before reporting, assessing or falling back to the existing human loop decision, the watcher
+    re-reads the task, timeline work and branch head through `SessionOrchestrator.sourceHead`.
+    The existing engine git read runs beside the repository; only commit/time facts cross the
+    boundary. A null/offline head never proves progress. Queue, deduplication and assessment stay
+    on the server and work unchanged with a remote engine.
     **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -2409,6 +2437,16 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
   (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
   engine the machine view answers `engine_offline` (409).
+  **Filtered diagnostics (PM-697):** `services/operator/project-state.ts` projects only
+  CPU percentage, memory, sample time and free disk space through the assembly adapter.
+  The latest card session selects the stored engine id; no session, offline or a different
+  engine than the monitor's gives `machine: null`. Disk space comes from that same
+  `EngineHost`. In v1 cloud mode always returns `machine: null`: the monitor's snapshot
+  and CPU reference carry no engine identity or measurement generation, so a fresh
+  timestamp alone cannot prove their origin. A future cloud metrics source must bind
+  both to the owning engine and measurement generation. Server task, delivery
+  and check records remain readable offline. No process details or transcripts are exposed,
+  and no new probe or RPC is introduced.
   **Module:** `machine`
 - **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
   `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
@@ -2507,10 +2545,32 @@ assumption or remote-engine RPC.
   operations. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `runtime/admission` (`HandoffService`) uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
+  PM-712 uses the existing engine-local `sourceHead` read again before loop triage and human
+  fallback, so a review fix committed since detection closes the loop. Only commit/time facts
+  reach the server; unavailable heads never count as progress. No new git or shell capability.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
   as shared storage.
+  **Handing a commit over (PM-739):** a member workspace is an independent clone without a remote, so
+  the repository, the reviewers and the merger do not know a developer's commit.
+  `MemberWorkspaceManager.publishTaskBranch(key, taskKey, branch, commit)` (RPC
+  `workspace.publishTaskBranch`, params `[key, taskKey, branch, commit]`, result strict `{path, ref}`)
+  runs on the engine that holds both the developer's workspace and the repository: it checks that the
+  commit is on the developer's task branch, takes the branch tip through `WorkspaceAccess.transfer`
+  (the same keyed lock and isolated git as every other workspace operation) into a temporary
+  `refs/projectman/incoming/<member>/<TASK-KEY>/<random>` ref, proves the commit is in the fetched
+  history and creates `refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>` in the repository only
+  if it is missing (`update-ref` with a null old value; an identical object id is accepted, another
+  one is refused). Nothing else of the repository moves: no push, no remote, no branch write, and
+  snapshots are never removed. The cloud sends no path or ref; `engine-limit.ts` binds the repository
+  and checks the full object id. A review round pins `sourcePath/sourceRef/sourceCommit` to the
+  snapshot; rounds pinned before keep their direct workspace path. A task branch can also be found
+  through its snapshots (`findTaskBranch`); several distinct commits are chosen only by the exact
+  one named. An engine that does not know the RPC makes the hand-over fail with
+  `workspace_source_missing` (`details.reason: engine_update_required`). **Does this work on a remote
+  engine?** Yes: the workspace, the repository and the transfer are all on the engine; only the
+  request and the `{path, ref}` answer cross the link.
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
   **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
@@ -2577,6 +2637,17 @@ assumption or remote-engine RPC.
   directory (PM-399), plus only `packed-refs.lock` (PM-411), so Codex
   can finish rebase pseudo-ref deletion and loose branch deletion. The common git directory as a whole, other
   worktrees' metadata, configuration, hooks, alternates and admin links remain read-only.
+  PM-731 (engine limit, `engine-link/engine-limit.ts`): the engine's read candidates are its
+  write candidates plus the user's own files from `SANDBOX_HOME_READS` (`.gitconfig`,
+  `.config/git`, `.claude/shell-snapshots`, `contracts/engine.ts`) and the existing regular
+  `core.excludesfile` of its own `userHome`; they are never write candidates, and one whose real
+  path is, or holds, a sensitive place is dropped. The `db.sqlite*` pattern of the denials, the
+  cloud's and the engine's own, becomes the four file names (a file tool's rule is a path, not a
+  pattern); other wildcard entries stay as sent. A member workspace (an independent clone: a
+  `task_worktree` with `placement.workspace` and no shared `gitDir`) lets a writing Codex session
+  write its own `.git`, with `config`, `config.lock`, `config.worktree`, `commondir`, `gitdir`,
+  `hooks`, `modules` and `objects/info` read-only (the links and submodule directories would
+  redirect the host's git to a path the session wrote); a read-only sandbox or a placement without that marker gets nothing.
   The Codex adapter lifts only the lock entry from `sharedGitDenials`; `packed-refs` itself
   stays read-only, as do packed default-branch and replacement refs. Claude's denials remain.
   A packed branch deletion that needs a packed-refs rewrite is not granted. Residual risks:
@@ -2756,6 +2827,14 @@ assumption or remote-engine RPC.
   must share an engine and no new RPC or command allowlist entry is required.
   Diagnostic bisection (PM-661), its transactional requeue and parent/size limits stay on the
   server; smaller attempts reuse these same engine operations and the required heavy lock.
+  Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the
+  first `merge.prepare`, `merge.is_ancestor` or `merge.build` of a standalone merge, a train (also its
+  recovery and its candidate selection) and the merge gate, the server calls
+  `MergeSessions.prepareMergeSource(config, task, commit)` for every commit involved. It reaches
+  `workspace.publishTaskBranch` on the card's engine (see "Task worktrees and shared git storage"),
+  which makes the commit readable in the engine's repository as a snapshot ref; a refusal blocks the
+  attempt through the usual `merge_error` path, a train candidate that cannot be handed over stays
+  out of the train. A task without a developer workspace binding changes nothing.
   No new local machine assumption or server/engine boundary field is introduced.
   **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
@@ -2803,7 +2882,10 @@ assumption or remote-engine RPC.
   `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
   (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine
   key is made on the Mac (`newMachineKey`), written to `engine.key` (0600, `wx`) last, and only its
-  hash enters the package's database; `engine.json` is made with it. **Does this work on a remote
+  hash enters the package's database; `engine.json` is made with it. After a way back the revoked engine
+  row stays as an audit record (PM-728): only a non-revoked engine makes `hybrid package` refuse, and the
+  package makes its new engine the default explicitly (`setDefault`; `create` marks only the first engine
+  ever as the default). **Does this work on a remote
   engine?** The tool is the one place that reads the Mac's home and repositories to build the
   engine's configuration (`engineProjects`), so it runs on the engine's machine by definition; the
   package is the only thing that crosses to the cloud, by a person's copy, and the key never does.
@@ -2875,12 +2957,16 @@ the work of a team that does not write code: a note, an attachment or a new desc
 new one; an imported comment is no work); the window
 and the count are `team.limits.loopWatch` (`enabled`, `count` 3..50, `minutes` 5..240; default on, 6 in 30).
 A loop is a row of `task_loops` (migration 29) with the phase `notified` → `owner` → `let_run`, and the card
-carries it as `Task.loop` (a "Körbe fut" mark; clients do not see it). The first notice is a system message to the
-AI holder of the `scheduling` duty (not stored as a team message). People get an inbox decision (`stop_work` or
-`let_run`) only when nobody holds the duty, admission refuses the holder for good, or the loop went on after the
-notice. A refusal that can clear (the AI limit, the holder's capacity, paused plan usage, low disk space) only makes
-the notice wait: it is an automatic start (`StartSpec` kind `loop_notice`) kept and retried like the others, the loop
-stays `notified` with `notified_count` 0, and the "went on" count starts from the delivery. A loop closes itself when the card moves on, its labels change, work is recorded on it, a commit lands, nobody wrote for a whole window,
+carries it as `Task.loop` (a "Körbe fut" mark; clients do not see it). Since PM-712 the selected PM gets a
+report-only `loop_suspected` signal in its internal general session, even when it participates.
+`triage_loop` records an attributed `loop_triaged` event: `progress` keeps observing from the current count;
+another threshold of unchanged messages starts a new generation. `loop` asks the existing human deciders
+(`stop_work` or `let_run`), once. The private note stays in `triage_json`, outside the public DTO and timeline.
+Missing/on-leave/AI-disabled PMs and definitive delivery failures fall back to people after a fresh progress
+check. Deferred delivery uses the existing durable `operator_signals` queue; no queued signal alone reaches
+people. Ten minutes after successful delivery, counting only online engine time, the same guarded fallback
+applies. The watcher rechecks card, work and branch head under its task lock before each assessment or fallback.
+A loop closes itself when the card moves on, its labels change, work is recorded on it, a commit lands, nobody wrote for a whole window,
 or the watch is switched off; its decision then closes with the `loop_ended` rule. `let_run` ends the loop at once
 too (end reason `let_run`, PM-431): the mark goes, and another loop needs new talk after that, with no progress.
 The phase `let_run` and the `let_run` event only remain for loops let run before PM-431. The timeline event is
@@ -3074,7 +3160,7 @@ session boundary and works with remote engines.
 The selected live PM (`coordinationMemberOf`, shared `config/project-manager.ts`) receives every
 coordination signal and screens AI questions, including the Operator's. Its own questions go directly
 to people. `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
-mutations (`screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
+mutations (`combine_questions`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
 actual internal general session; other people, customer conversations, other members and external
 tokens cannot use them (`project_manager_only`, HTTP 403 / MCP forbidden). The Operator and internal
 PM may read `get_project_state`; guest access is unchanged.

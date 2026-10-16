@@ -607,6 +607,17 @@ export class SessionOrchestrator {
   }
 
   /**
+   * Makes the approved `commit` of a task readable in the repository the merge runs in (PM-739):
+   * with member workspaces the developer's workspace hands it over, without them the task's
+   * branch is in the repository already. A refusal stops the merge attempt.
+   */
+  async prepareMergeSource(config: ProjectConfig, task: Task, commit: string): Promise<void> {
+    if (!effectiveRepo(config, task)) return;
+    const workspaces = this.workspacesOf(this.cardEngineId(config.project.key, task));
+    await workspaces?.prepareMergeSource(config, task, commit);
+  }
+
+  /**
    * The session's review round is over while it is still in a turn: messages for it wait instead of
    * reaching the old round, and it restarts on the new commit once it idles (see `handleRunnerEvent`).
    */

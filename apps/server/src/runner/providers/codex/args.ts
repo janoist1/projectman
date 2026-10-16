@@ -228,6 +228,28 @@ export function codexSharedGitAccess(
   const placement = policy?.placement;
   const gitDir = placement?.kind === 'task_worktree' ? placement.gitDir : undefined;
   const adminDir = placement?.kind === 'task_worktree' ? placement.worktreeGitDir : undefined;
+  // An independent clone (a member workspace, PM-138) keeps its git directory inside the checkout, where
+  // Codex makes `.git` read-only: open it the same way, with what the host's git would run or follow
+  // outside the sandbox (configuration, hooks, alternates, and the `commondir` / `gitdir` links that
+  // redirect git to a directory the session wrote, and the submodule directories under `modules` with
+  // their own configuration) still closed. Only a member workspace counts as a clone: a placement
+  // without a shared git directory and without that marker gets nothing.
+  if (placement?.kind === 'task_worktree' && placement.workspace && !gitDir) {
+    const ownGitDir = path.join(placement.path, '.git');
+    return {
+      writable: [ownGitDir],
+      readOnly: [
+        'config',
+        'config.lock',
+        'config.worktree',
+        'commondir',
+        'gitdir',
+        'hooks',
+        'modules',
+        path.join('objects', 'info'),
+      ].map((name) => path.join(ownGitDir, name)),
+    };
+  }
   if (!gitDir || !adminDir) return { writable: [], readOnly: [] };
   const packedRefsLock = path.join(gitDir, 'packed-refs.lock');
   return {

@@ -16,6 +16,7 @@ import {
 import type {
   Actor,
   AnswerDelivery,
+  InboxItem,
   MessageAttachmentRef,
   ProjectConfig,
   TeamMessage,
@@ -66,6 +67,10 @@ export interface RecordMessageInput {
  * read (by a human recipient).
  */
 export class MessageService {
+  private questionProjection: (item: InboxItem) => InboxItem = (item) => item;
+  registerQuestionProjection(project: (item: InboxItem) => InboxItem): void {
+    this.questionProjection = project;
+  }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
@@ -220,7 +225,11 @@ export class MessageService {
       at,
     );
     if (!updated) return;
-    this.ctx.bus.publish({ type: 'inbox_upserted', projectKey: item.projectKey, item: updated });
+    this.ctx.bus.publish({
+      type: 'inbox_upserted',
+      projectKey: item.projectKey,
+      item: this.questionProjection(updated),
+    });
     if (delivery.state === 'waiting' || previous?.state === 'waiting')
       this.timeline.append({
         projectKey: item.projectKey,

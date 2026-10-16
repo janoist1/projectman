@@ -1006,6 +1006,7 @@ export const hu = {
       answer_required: 'Írj választ, mielőtt elküldöd.',
       todo_reason_required: 'Írd le, miért nem végezhető el a teendő.',
       question_not_screening: 'Ezt a kérdést az Operátor már nem szűri.',
+      question_group_incompatible: 'Ezek a kérdések nem vonhatók közös döntésbe.',
       invalid_outcome_fields: 'A kimenethez hiányzik vagy fölösleges egy mező.',
       reask_not_allowed: 'Ezt a kérdést nem lehet szűrés nélkül újra feltenni.',
       invalid_credentials: 'Hibás e-mail cím vagy jelszó.',
@@ -2899,6 +2900,7 @@ export const hu = {
       closed: 'Ez a jelzés már nem nyitott.',
       failed: 'Nem sikerült. Próbáld újra.',
       kinds: {
+        loop_suspected: '{key}: körbejárás gyanúja',
         outage: 'Kiesés: a munka egy része áll',
         process_cleanup_failed: '{key}: egy ülés folyamatai nem álltak le',
         nobody: '{key}: senki nem viheti',
@@ -2912,8 +2914,10 @@ export const hu = {
         answer_stalled: '{key}: megérkezett a válasz, de a tag nem dolgozik tovább',
         structural_pattern: 'Több kártyán ismétlődő szerkezeti minta',
         milestone_closed: 'Lezárult szakasz',
+        refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
       },
       bodies: {
+        loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
         outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
         process_cleanup_failed:
           'Egy véget ért ülés háttérfolyamatai a leállítás után is futnak; a munkaterülete foglalt marad. A Gép panelen leállíthatók.',
@@ -2929,6 +2933,8 @@ export const hu = {
           'A tagnak már kézbesítettek egy választ vagy üzenetet, de azóta nem tett munkalépést.',
         structural_pattern: 'Konkrét bizonyíték alapján érdemes lehet egy rövid architektúraszemlét kérni.',
         milestone_closed: 'Egy téma vagy gyűjtőkártya lezárult; a PM mérlegeli egy alkalmi szemle hasznát.',
+        refinement_stalled:
+          'A kidolgozási kör véget ért, de a hozzá tartozó címke nincs a kártyán, és a tag nem dolgozik tovább.',
       },
     },
   },
@@ -3287,6 +3293,26 @@ export const hu = {
   },
 
   inbox: {
+    group: {
+      line: 'Közös kérdés {count} kártyáról:',
+      lineMixed: 'Közös kérdés {count} forrásból:',
+      generalCount: '{count} általános kérdés',
+      sourceGeneral: 'Általános kérdés',
+      hiddenCard: 'nem látható',
+      deletedCard: 'törölt',
+      sources: 'Honnan jött ({count} kérdés)',
+      sourceHidden: 'Olyan kártya, amit nem látsz',
+      sourceDeleted: 'Törölt kártya',
+      withdrawn: 'Visszavonta, nem kapja meg',
+      fanout: 'A válaszod mind a {count} kérdésre elmegy, mindegyik a saját kártyájára.',
+      fanoutMixed: 'A válaszod mind a {count} kérdésre elmegy, mindegyik oda, ahonnan jött.',
+      fanoutOne: 'A válaszod 1 kérdésre megy el.',
+      answeredCount: '{count} kérdésre ment el',
+      pointer: '{asker} kérdése egy közös kérdés része, ott válaszolhatsz rá.',
+      pointerJump: 'Ugrás a közös kérdéshez ({key})',
+      pointerPlain: 'A kérdés egy közös kérdésben vár válaszra.',
+      openKey: '{key} megnyitása',
+    },
     title: 'Rád vár',
     subtitle: 'Ami itt van, az nélküled nem halad.',
     mobileSubtitle: '{count} tétel · a legfrissebb: {time}',
@@ -3617,6 +3643,7 @@ export const hu = {
       handed_off: 'Tárgytalan: átadta a kártyát',
       assignee_changed: 'Tárgytalan: a kártya új felelőst kapott',
       withdrawn: 'Visszavonta',
+      group_withdrawn: 'Minden kérdező visszavonta',
       operator_moot: 'Tárgytalan: az Operátor szerint',
       todo_done: 'Megcsináltad',
       todo_cannot: 'Nem csinálod meg',
@@ -3639,6 +3666,7 @@ export const hu = {
       handed_off: 'Átadták a kártyát',
       assignee_changed: 'Új felelőse lett a kártyának',
       withdrawn: 'Visszavonták',
+      group_withdrawn: 'Minden kérdező visszavonta',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -3676,6 +3704,7 @@ export const hu = {
       handed_off: 'a kérdező átadta a kártyát',
       assignee_changed: 'a kártya új felelőst kapott',
       withdrawn: 'a kérdező visszavonta',
+      group_withdrawn: 'minden kérdező visszavonta',
       operator_moot: 'az Operátor szerint tárgytalan',
     },
     /** The card of a question that closed while the viewer was answering it (PM-556). */
@@ -4251,6 +4280,7 @@ export const hu = {
       task_assigned: 'Kiosztva: {assignee}',
       task_unassigned: 'Kiosztás visszavonva',
       task_check_changed: '{check}: {state}',
+      loop_triaged: 'Megvizsgálta a körbejárás gyanúját.',
       task_link_added: '{link} csatolva',
       session_started: 'Munkamenet indult',
       session_resumed: 'Munkamenet folytatva',
@@ -4298,6 +4328,8 @@ export const hu = {
       question_asked_screening: 'Kérdés: {question} · az Operátornál',
       question_asked_unscreened: 'Kérdés újra, az Operátor szűrése nélkül: {question} · indok: {reason}',
       question_answered: 'Válasz: {answer}',
+      question_answered_grouped: 'Válasz a közös kérdésre: {answer}',
+      question_grouped: 'Közös kérdésbe vonta: {count} kérdés, egy válasz',
       // The Operator's screening of a question (PM-556); the row names who acted.
       question_screened_answered: 'Megválaszolta {asker} kérdését: „{answer}”',
       question_screened_forwarded: 'Továbbadta {to} részére {asker} kérdését: {note}',

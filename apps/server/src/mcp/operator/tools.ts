@@ -1,5 +1,6 @@
 import {
   MemberHandle,
+  CombineQuestionsRequest,
   OperatorOperation,
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
@@ -24,6 +25,49 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       async run({ ctx, args, handler }) {
         return JSON.stringify(
           await handler.requestStructuralReview(ctx, { signalId: args.signal_id, note: args.note }),
+        );
+      },
+    }),
+    defineTool({
+      name: 'triage_loop',
+      title: 'Assess a suspected loop',
+      readOnly: false,
+      description:
+        'Only the selected PM in its internal general session, without an owner request. Read get_task and get_project_state, current work and review findings, commits and delivery receipts. Many messages alone do not prove a loop. Give progress to keep observing, or loop to ask the existing human deciders. This never stops work, lets it run, approves anything or resolves a human decision. Use only evidence ids from work, stage, label or check events of this card.',
+      input: {
+        signal_id: z.string().min(1),
+        outcome: z.enum(['progress', 'loop']),
+        note: z.string().trim().min(1).max(2000),
+        evidence_ids: z
+          .array(z.string())
+          .max(20)
+          .refine((ids) => new Set(ids).size === ids.length, 'Evidence ids must be unique.')
+          .default([]),
+      },
+      async run({ ctx, args, handler }) {
+        const result = await handler.triageLoop(ctx, {
+          signalId: args.signal_id,
+          outcome: args.outcome,
+          note: args.note,
+          evidenceIds: args.evidence_ids,
+        });
+        return JSON.stringify({
+          state: result.state,
+          loop_id: result.loopId,
+          inbox_item_id: result.inboxItemId,
+        });
+      },
+    }),
+    defineTool({
+      name: 'get_operator_diagnostics',
+      title: 'Read filtered task diagnostics',
+      readOnly: true,
+      description:
+        'Only the Operator in its owner general conversation or the selected PM in its internal general session; never guests or customer conversations. Needs no owner request. Reads current task state, structured session activity, delivery receipts, check outcomes and available engine metrics. limit applies independently to each list, newest first. No transcripts, screens, raw errors, commands, environment or SQL. One reading suggests possible causes; it does not prove a cause. Recheck before concluding.',
+      input: { task_key: TaskKey, limit: z.number().int().min(1).max(20).default(10) },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.getOperatorDiagnostics(ctx, { taskKey: args.task_key, limit: args.limit }),
         );
       },
     }),
@@ -132,6 +176,30 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
 
     defineTool({
+      name: 'combine_questions',
+      title: 'Combine equivalent owner questions',
+      readOnly: false,
+      description:
+        'Only the selected PM in its internal general conversation, without an owner request. Combine 2–10 distinct screened questions asking owners for the same decision. Establish semantic equivalence yourself; explain it in note. Options, recommendation, assignees and attachment sets must match. Never combine approvals, permissions, releases or todos. The oldest question represents the group. The owner answers once and every live asker receives that answer on their own card. Combining never extends the screening deadline.',
+      input: {
+        item_ids: CombineQuestionsRequest.shape.itemIds,
+        question: CombineQuestionsRequest.shape.question,
+        note: CombineQuestionsRequest.shape.note,
+      },
+      async run({ ctx, args, handler }) {
+        const result = await handler.combineQuestions(ctx, {
+          itemIds: args.item_ids,
+          question: args.question,
+          note: args.note,
+        });
+        return JSON.stringify({
+          primary_item_id: result.primaryItemId,
+          linked_item_ids: result.linkedItemIds,
+        });
+      },
+    }),
+
+    defineTool({
       name: 'screen_question',
       title: 'Screen an AI member’s question',
       readOnly: false,
@@ -186,7 +254,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. Close a ready_waiting system signal of your wake-up that needs nothing, instead of bringing it to the owners: every card it names waits on purpose (for example no priority and outside the focus, parked, or waiting for a person). Give the reason in note. It does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
+        "Only the selected PM in its internal general conversation; needs no owner request. Close a ready_waiting or refinement_stalled system signal of your wake-up that needs nothing, instead of bringing it to the owners: every card a ready_waiting signal names waits on purpose (for example no priority and outside the focus, parked, or waiting for a person); a refinement_stalled signal is an intermediate or resolved situation (the member works again, the label is on, a question is open, the card moved on). It is a plain closing, not a human decision. Give the reason in note. A ready_waiting signal does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
       async run({ ctx, args, handler }) {
         const result = await handler.dismissSignal(ctx, { signalId: args.signal_id, note: args.note });

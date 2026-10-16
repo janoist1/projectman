@@ -406,7 +406,8 @@ const workspaces = {
   sourceHead: method(z.tuple([key, text]), head.nullable()),
   fetchBase: method(z.tuple([key]), z.strictObject({ branch: text, commit: text })),
   findTaskBranch: method(
-    z.tuple([key, text, text.optional()]),
+    // JSON turns a trailing undefined into null.
+    z.tuple([key, text, text.nullish().transform((value) => value ?? undefined)]),
     z.strictObject({ branch: text, source: source.nullable() }).nullable(),
   ),
   resolveSource: method(z.tuple([source]), text.nullable()),
@@ -422,6 +423,7 @@ const workspaces = {
     checkout,
   ),
   checkoutReview: method(z.tuple([key, source, text]), checkout),
+  publishTaskBranch: method(z.tuple([key, text, text, text]), source),
 } satisfies ManagerMethods<MemberWorkspaceManager>;
 const transcriptOptions = z.strictObject({
   provider: AgentProvider.optional(),
@@ -493,6 +495,7 @@ export const methods = {
   'workspace.resolveSource': workspaces.resolveSource,
   'workspace.checkoutTaskBranch': workspaces.checkoutTaskBranch,
   'workspace.checkoutReview': workspaces.checkoutReview,
+  'workspace.publishTaskBranch': workspaces.publishTaskBranch,
   'github.is_available': method(empty, z.boolean()),
   'github.get_pull_request': method(z.strictObject({ repo: text, number: int.min(1) }), PullRequest),
   'github.find_pull_requests_for_branch': method(

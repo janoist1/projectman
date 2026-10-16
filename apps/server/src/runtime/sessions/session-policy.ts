@@ -36,7 +36,7 @@ import {
   SESSION_DIR_VARIABLE,
 } from '../../contracts';
 import type { FullTestSandbox, SessionPolicy } from '../../contracts';
-import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../../contracts';
+import { SANDBOX_HOME_READS, claudeShellRule, claudeToolRules, directoryRulePaths } from '../../contracts';
 import type { AgentSandbox } from '../../contracts';
 import { isWithin, isWithinAny } from '../permissions';
 import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from '../permissions';
@@ -173,7 +173,7 @@ function portableShared(
  * Never the credentials, the app home or another `.claude` path; not the user's npm cache and
  * development data either, which the host uses outside any sandbox (PM-193).
  */
-export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-snapshots'];
+export { SANDBOX_HOME_READS } from '../../contracts';
 
 /**
  * Git settings of a developer's sandboxed commands (PM-216): a system-level git configuration

@@ -469,3 +469,23 @@
   width: 100%;
   min-height: 44px;
 }
+.groupAvatars {
+  display: flex;
+  align-items: center;
+  padding-left: 6px;
+}
+.groupAvatars > * {
+  margin-left: -6px;
+  outline: 2px solid var(--c-surface);
+  border-radius: 50%;
+}
+.groupPointer {
+  background: var(--c-needs-bg);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.groupPointer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}

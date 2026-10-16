@@ -6,8 +6,8 @@ it('preserves every signal field, ordering and partial uniqueness while extendin
   const db = new Database(':memory:');
   try {
     db.pragma('foreign_keys = ON');
-    for (const migration of migrations.filter((m) => m.version < 72)) db.exec(migration.sql);
-    db.pragma('user_version = 71');
+    for (const migration of migrations.filter((m) => m.version < 74)) db.exec(migration.sql);
+    db.pragma('user_version = 73');
     const insert =
       db.prepare(`INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable,
       task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at,
@@ -52,9 +52,13 @@ it('preserves every signal field, ordering and partial uniqueness while extendin
       null,
       null,
     );
+    db.prepare(
+      `INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at)
+      VALUES ('ops_loop', 'AR', 'loop_suspected', 'loop-case', 'open', ?)`,
+    ).run(at);
     const before = db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all();
     migrate(db);
-    expect(db.pragma('user_version', { simple: true })).toBe(72);
+    expect(db.pragma('user_version', { simple: true })).toBe(74);
     expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toEqual(before);
     migrate(db);
     expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toEqual(before);

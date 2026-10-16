@@ -305,6 +305,7 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
 
   // A question the Operator still screens (PM-556) is a pending question too: the card waits for its answer.
   const items = input.openItems.filter((item) => {
+    if (item.kind === 'question' && item.payload.groupWithdrawn === true) return false;
     // Legacy completion notices ask for acknowledgement, not an action on the card.
     if (isInformationalAlert(item)) return false;
     return item.state === 'open' || isPendingQuestion(item);

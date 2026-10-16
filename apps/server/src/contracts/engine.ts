@@ -55,6 +55,8 @@ export const MEMBER_SANDBOX_DIRS = [
  * `domain/session-policy.ts`).
  */
 export const SANDBOX_GIT_CONFIG_FILE = 'gitconfig';
+/** The user's own files a session's sandbox may read under the home folder (git identity, shell snapshots). */
+export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-snapshots'];
 export const SANDBOX_GIT_CONFIG =
   '[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n[core]\n\tpackedRefsTimeout = 0\n';
 

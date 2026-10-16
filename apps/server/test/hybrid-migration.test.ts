@@ -347,6 +347,135 @@ describe('verify --hybrid-cloud', () => {
     withCloudDb(data, (db) => db.prepare("UPDATE sessions SET engine_id = 'local'").run());
     expect(await codes(data)).toEqual(['session_engine_missing']);
   });
+
+  it('counts a revoked engine as no default, and ignores revoked history beside an active default (PM-728)', async () => {
+    const data = cloudData();
+    withCloudDb(data, (db) =>
+      createRepositories(db).engines.create({
+        id: 'eng_aaaaaaaaaaaa',
+        name: 'Old',
+        hash: 'h'.repeat(64),
+        prefix: 'pme_old',
+        userId: (db.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id,
+        at: AT.toISOString(),
+      }),
+    );
+    withCloudDb(data, (db) =>
+      createRepositories(db).engines.revoke(
+        'eng_aaaaaaaaaaaa',
+        (db.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id,
+        AT.toISOString(),
+      ),
+    );
+    expect(await codes(data)).toEqual([]);
+    // Only the revoked one stays: the engine that sessions point to is no default any more.
+    withCloudDb(data, (db) =>
+      db
+        .prepare('UPDATE engines SET revoked_at = ?, is_default = 0 WHERE id = ?')
+        .run(AT.toISOString(), result.engine.id),
+    );
+    expect(await codes(data)).toContain('default_engine');
+  });
+});
+
+describe('a new package after the way back (PM-728)', () => {
+  const engineRows = (home: string) =>
+    dbRows<{
+      id: string;
+      key_hash: string;
+      is_default: number;
+      revoked_at: string | null;
+      revoked_by: string | null;
+      created_at: string;
+    }>(
+      home,
+      'SELECT id, key_hash, is_default, revoked_at, revoked_by, created_at FROM engines ORDER BY rowid',
+    );
+
+  it('packages again beside the revoked engine row, which stays as the audit record', async () => {
+    const data = cloudData();
+    engineHome(src.home, 'hybrid', AT);
+    await hybridBack({
+      home: src.home,
+      from: data,
+      confirmCloudStopped: true,
+      now: () => AT,
+      isRunning: () => false,
+    });
+    activateHome({ home: src.home, confirmSourceRetired: true });
+    const [revoked] = engineRows(src.home);
+    expect(revoked).toMatchObject({ id: result.engine.id, is_default: 0, revoked_at: AT.toISOString() });
+    const oldKeyHash = revoked!.key_hash;
+    const homeBefore = sha256(join(src.home, 'db.sqlite'));
+    const secondOut = join(src.root, 'second-package');
+
+    const second = await createHybridPackage({
+      home: src.home,
+      out: secondOut,
+      engineName: 'MacBook 2',
+      cloudUrl: CLOUD_URL,
+      now: () => new Date('2026-10-16T09:00:00.000Z'),
+    });
+
+    expect(second.engine.id).not.toBe(result.engine.id);
+    expect(second.sessionsMoved).toBe(3);
+    const rows = engineRows(join(secondOut, 'home'));
+    expect(rows).toHaveLength(2);
+    // The audit record is untouched; the new engine is the only active default.
+    expect(rows[0]).toEqual(revoked);
+    expect(rows[1]).toMatchObject({ id: second.engine.id, is_default: 1, revoked_at: null });
+    expect(rows[1]!.key_hash).not.toBe(oldKeyHash);
+    expect(rows[1]!.key_hash).toBe(machineKeyHash(readFileSync(second.keyFile, 'utf8').trim()));
+    expect(
+      dbRows<{ engine_id: string }>(join(secondOut, 'home'), 'SELECT DISTINCT engine_id FROM sessions').map(
+        (s) => s.engine_id,
+      ),
+    ).toEqual([second.engine.id]);
+    expect(
+      (
+        await verifyHome({ home: join(secondOut, 'home'), checkPaths: false, hybridCloud: true })
+      ).findings.filter((f) => f.severity === 'blocker'),
+    ).toEqual([]);
+    // The source is only read: its rows and sessions are as the way back left them.
+    expect(engineRows(src.home)).toEqual([revoked]);
+    expect(
+      dbRows<{ engine_id: string }>(src.home, 'SELECT DISTINCT engine_id FROM sessions').map(
+        (s) => s.engine_id,
+      ),
+    ).toEqual(['local']);
+    expect(sha256(join(src.home, 'db.sqlite'))).toBe(homeBefore);
+  });
+
+  it('still refuses an active engine, default or not, and leaves nothing behind', async () => {
+    const fresh = await createSourceHome();
+    try {
+      await fresh.stop();
+      const db = new Database(join(fresh.home, 'db.sqlite'));
+      try {
+        const repo = createRepositories(db).engines;
+        repo.create({
+          id: 'eng_bbbbbbbbbbbb',
+          name: 'Active',
+          hash: 'a'.repeat(64),
+          prefix: 'pme_act',
+          userId: (db.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id,
+          at: AT.toISOString(),
+        });
+        db.prepare('UPDATE engines SET is_default = 0').run();
+      } finally {
+        db.close();
+      }
+      const target = join(fresh.root, 'p');
+      await expect(
+        createHybridPackage({ home: fresh.home, out: target, engineName: 'Mac', cloudUrl: CLOUD_URL }),
+      ).rejects.toThrow(/engines already/);
+      expect(existsSync(target)).toBe(false);
+      expect(existsSync(join(fresh.home, 'engine.key'))).toBe(false);
+      expect(existsSync(join(fresh.home, 'engine.json'))).toBe(false);
+    } finally {
+      await fresh.cleanup();
+    }
+  });
 });
 
 describe('the engine role', () => {

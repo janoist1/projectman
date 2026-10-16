@@ -307,6 +307,81 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceCommit: fixed, roundId: '2' });
   });
 
+  it('pins a review round to a snapshot in the project repository and imports the approved commit for the merge (PM-739)', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const dev1 = await workspaceOf('dev-1');
+    const handedOver = await commitFile(dev1, 'login.txt', 'v1\n');
+    const known = (commit: string) =>
+      git(h.workspace, 'cat-file', '-e', `${commit}^{commit}`).then(
+        () => true,
+        () => false,
+      );
+    expect(await known(handedOver)).toBe(false);
+
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await startedCount(2);
+    const snapshot = `refs/projectman/workspaces/dev-1/AR-1/${handedOver}`;
+    const pin = () => h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1').find((b) => b.kind === 'review')!;
+    expect(pin()).toMatchObject({
+      sourcePath: await realpath(h.workspace),
+      sourceRef: snapshot,
+      sourceCommit: handedOver,
+      round: 1,
+    });
+    expect(await git(h.workspace, 'rev-parse', snapshot)).toBe(handedOver);
+    expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceBranch: 'AR-1-login-page' });
+    // The developer's branch name is not made in the project repository.
+    expect(await git(h.workspace, 'branch', '--list', 'AR-1-login-page')).toBe('');
+
+    // Later work of the developer does not change the pin; the same round continues on it.
+    await commitFile(dev1, 'login.txt', 'v2\n');
+    const review = h.runner.lastStarted();
+    await h.domain.sessions.stop('AR', review.sessionId);
+    await ensure('cr', 'AR-1');
+    expect(pin()).toMatchObject({ sourceRef: snapshot, sourceCommit: handedOver, round: 1 });
+
+    // The merge reads the approved commit from the project repository: it is imported once.
+    const approved = await commitFile(dev1, 'login.txt', 'v3\n');
+    expect(await known(approved)).toBe(false);
+    const config = await h.domain.projects.config('AR');
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    await h.domain.sessions.prepareMergeSource(config, task, approved);
+    await h.domain.sessions.prepareMergeSource(config, task, approved);
+    expect(await known(approved)).toBe(true);
+    expect(await git(h.workspace, 'rev-parse', `refs/projectman/workspaces/dev-1/AR-1/${approved}`)).toBe(
+      approved,
+    );
+    // A commit the developer's branch does not hold is refused, never taken from anywhere else.
+    await expect(h.domain.sessions.prepareMergeSource(config, task, 'f'.repeat(40))).rejects.toMatchObject({
+      code: 'workspace_source_missing',
+    });
+  });
+
+  it('still reads a round pinned before PM-739 directly on the developer workspace', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const dev1 = await workspaceOf('dev-1');
+    const handedOver = await commitFile(dev1, 'login.txt', 'v1\n');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await startedCount(2);
+    const pin = () => h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1').find((b) => b.kind === 'review')!;
+    // The old shape: the pin names the developer's workspace and branch directly.
+    h.repos.memberWorkspaces.saveBinding({
+      ...pin(),
+      sourcePath: dev1,
+      sourceRef: 'refs/heads/AR-1-login-page',
+    });
+    await h.domain.sessions.stop('AR', h.runner.lastStarted().sessionId);
+    await ensure('cr', 'AR-1');
+    expect(h.runner.lastStarted().policy?.placement).toMatchObject({
+      sourceCommit: handedOver,
+      sourceBranch: 'AR-1-login-page',
+      roundId: '1',
+    });
+    expect(pin()).toMatchObject({ sourcePath: dev1, sourceRef: 'refs/heads/AR-1-login-page' });
+  });
+
   it('keeps a reservation over a restart until the old processes are proven gone', async () => {
     const liveProcesses = new Set<number>();
     await setup({ liveProcesses });

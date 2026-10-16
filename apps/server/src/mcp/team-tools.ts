@@ -100,6 +100,10 @@ export class TeamToolsService implements TeamToolsHandler {
     sessions: SessionToolsHandler;
   };
 
+  async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
+    return this.tools.operator.getOperatorDiagnostics(ctx, args);
+  }
+
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.tools.operator.getProjectState(ctx, args);
   }
@@ -355,6 +359,10 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.inbox.askHuman(ctx, args);
   }
 
+  async combineQuestions(ctx: ToolContext, args: { itemIds: string[]; question: string; note: string }) {
+    return this.tools.operator.combineQuestions(ctx, args);
+  }
+
   async screenQuestion(
     ctx: ToolContext,
     args: {
@@ -372,6 +380,10 @@ export class TeamToolsService implements TeamToolsHandler {
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {
     return this.tools.members.saveMemory(ctx, args);
   }
+  async triageLoop(ctx: ToolContext, args: Parameters<OperatorToolsHandler['triageLoop']>[1]) {
+    return this.tools.operator.triageLoop(ctx, args);
+  }
+
   async dismissSignal(
     ctx: ToolContext,
     args: { signalId: string; note: string },

@@ -241,6 +241,8 @@ function signalLine(signal: OperatorSignal): string {
       'Repeated structured evidence across independent cards; report only. Weigh request_structural_review; it needs an owner approval before starting anyone.',
     milestone_closed:
       'A theme or collecting milestone closed; report only. Consider an occasional review with request_structural_review.',
+    loop_suspected:
+      'A suspected loop awaits PM assessment with triage_loop; report only, no stop or approval authority.',
     process_cleanup_failed:
       "An ended session still has running processes; its workspace remains reserved. Bring this to the owners; never stop another member's processes yourself.",
     outage: 'A provider or engine outage needs attention.',
@@ -254,6 +256,8 @@ function signalLine(signal: OperatorSignal): string {
     ready_waiting: 'Startable cards (subject) wait while a developer has free capacity.',
     answer_stalled:
       'An answer or request reached the assignee (subject: the message), but no work followed; report only, it has no step.',
+    refinement_stalled:
+      "A member's refinement turn ended without its label (subject: the label); report only, it has no step. Check the card first; close an intermediate or resolved case with dismiss_signal.",
   };
   return `- signal_${signal.kind}: ${explanations[signal.kind]} ${signal.id}, ${signal.state}, task ${signal.taskKey ?? 'none'}, subject ${signal.subject ?? 'none'}, since ${signal.raisedAt}; actionable ${signal.actionable}.`;
 }

@@ -25,6 +25,7 @@ export interface QuestionChoicesProps {
   /** Phone layout: full-width 44px buttons. */
   mobile?: boolean;
   onPick: (option: InboxOption) => void;
+  describedBy?: string;
 }
 
 /**
@@ -41,10 +42,11 @@ export function QuestionChoices({
   disabled = false,
   mobile = false,
   onPick,
+  describedBy,
 }: QuestionChoicesProps) {
   const base = useId();
   return (
-    <ul className={clsx(styles.choices, mobile && styles.mobile)}>
+    <ul className={clsx(styles.choices, mobile && styles.mobile)} aria-describedby={describedBy}>
       {choices.map((option) => {
         const recommended = option.id === recommendedOptionId;
         const badgeId = `${base}-${option.id}-badge`;
@@ -199,7 +201,7 @@ const FLASH_MS = 1400;
 const flashTimers = new WeakMap<HTMLElement, number>();
 
 /** Brings the card of an inbox item into view, puts the focus on its heading and lights its frame once. */
-function showInboxItem(target: HTMLElement) {
+export function showInboxItem(target: HTMLElement) {
   const reduceMotion =
     typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });

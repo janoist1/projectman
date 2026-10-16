@@ -48,6 +48,7 @@ import { canStartRefinement } from '../../lib/refinement';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
+import { showInboxItem } from '../inbox/Question';
 import { Todo as OutageTodoBox } from '../inbox/OutageAlert';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
 import { SeniorWarning } from './SeniorWarning';
@@ -228,7 +229,8 @@ export function TaskDrawer() {
   const { key, myHandle, can, me } = useProject();
   const [searchParams, setSearchParams] = useSearchParams();
   // A link to one event of the timeline (#timeline-<id>) scrolls the timeline to that row itself.
-  const eventLink = useLocation().hash.startsWith('#timeline-');
+  const location = useLocation();
+  const eventLink = location.hash.startsWith('#timeline-');
   const mobile = useIsMobile();
   const size: CardSize = !mobile && searchParams.get(SIZE_PARAM) === 'large' ? 'large' : 'quick';
   const twoColumns = useMediaQuery(WIDE_QUERY) && size === 'large';
@@ -378,7 +380,12 @@ export function TaskDrawer() {
   const openIds = useMemo(() => openItemIds(inbox.data?.items), [inbox.data]);
   // The "Miért áll?" box carries the button of the viewer's hand-on item (PM-461): no card of it as well.
   const handOnId = entry?.state.next?.you ? entry.state.wait?.inboxItemId : null;
-  const myItems = openItemsFor(inbox.data?.items, myHandle).filter(
+  useEffect(() => {
+    const id = location.hash.slice(1);
+    const target = id ? document.getElementById(id) : null;
+    if (target) showInboxItem(target);
+  }, [location.hash, inbox.data, taskKey]);
+  const myItems = openItemsFor(inbox.data?.items, myHandle, true).filter(
     (item) => item.taskKey === taskKey && !(item.kind === 'hand_on' && item.id === handOnId),
   );
 

@@ -260,6 +260,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'workspace.checkoutReview'([key, source, commit]) {
       return memberWorkspaces().checkoutReview(key, source, commit);
     },
+    async 'workspace.publishTaskBranch'([key, taskKey, branch, commit]) {
+      return memberWorkspaces().publishTaskBranch(key, taskKey, branch, commit);
+    },
     async 'github.is_available'() {
       return github.isAvailable();
     },

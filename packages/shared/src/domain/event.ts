@@ -60,12 +60,14 @@ export const TimelineEventType = z.enum([
   'permission_escalated',
   'question_asked',
   'question_answered',
+  'question_grouped',
   'question_screened',
   'question_screening_skipped',
   'question_closed',
   'question_answer_delivery',
   'refinement_turn',
   'task_loop',
+  'loop_triaged',
   'task_fix_limit',
   'task_handoff',
   'task_full_test',
@@ -379,7 +381,8 @@ export interface TimelineEventData {
     screening?: true;
     unscreened?: { reason: string; previousItemId: string };
   };
-  question_answered: { inboxItemId: string; answer: string };
+  question_answered: { inboxItemId: string; answer: string; groupPrimaryItemId?: string };
+  question_grouped: { primaryItemId: string; itemIds: string[]; by: MemberHandle };
   /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
   question_screened: {
     inboxItemId: string;
@@ -415,6 +418,14 @@ export interface TimelineEventData {
     label: string | null;
     member: string | null;
     reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped';
+  };
+  /** A report-only PM assessment (PM-712); the private note is kept only in the loop record. */
+  loop_triaged: {
+    loopId: string;
+    generation: number;
+    outcome: 'progress' | 'loop';
+    evidenceIds: string[];
+    headCommit: string | null;
   };
   /**
    * A loop on the card (PM-261, actor system): `raised` it was found and `notified` was told (null when

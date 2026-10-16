@@ -119,6 +119,16 @@ export function createMessageRepository(db: Db) {
 
   return {
     get,
+    /** Every durable carrier, without a recent-message limit (shared question answers, PM-695). */
+    listByAttachment(projectKey: string, attachmentId: string): TeamMessage[] {
+      const rows = db
+        .prepare(
+          `SELECT * FROM team_messages WHERE project_key = ? AND
+        EXISTS (SELECT 1 FROM json_each(attachments) WHERE json_extract(value, '$.id') = ?) ORDER BY seq`,
+        )
+        .all(projectKey, attachmentId) as MessageRow[];
+      return rows.map(toMessage);
+    },
     hasNewerAction(message: TeamMessage, recipient: string): boolean {
       const subject = message.subject?.inboxItemId ?? null;
       if (message.from === 'system' && subject === null) return false;

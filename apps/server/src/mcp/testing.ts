@@ -300,9 +300,21 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('markDecisionCandidates', ctx, args);
       return { marked: args.items.length };
     },
+    async combineQuestions(ctx, args) {
+      await enter('combineQuestions', ctx, args);
+      return { primaryItemId: args.itemIds[0]!, linkedItemIds: args.itemIds.slice(1) };
+    },
     async screenQuestion(ctx, args) {
       await enter('screenQuestion', ctx, args);
       return { inboxItemId: args.itemId, outcome: args.outcome };
+    },
+    async triageLoop(ctx, args) {
+      await enter('triageLoop', ctx, args);
+      return {
+        state: args.outcome === 'loop' ? 'awaiting_owner' : 'observing',
+        loopId: 'loop_1',
+        inboxItemId: null,
+      };
     },
     async dismissSignal(ctx, args) {
       await enter('dismissSignal', ctx, args);
@@ -386,6 +398,32 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       });
     },
 
+    async getOperatorDiagnostics(ctx, args) {
+      await enter('getOperatorDiagnostics', ctx, args);
+      return {
+        task: {
+          taskKey: args.taskKey,
+          title: 'Task',
+          stageId: 'dev',
+          stageKind: 'work',
+          assignee: null,
+          labels: [],
+          startWaiting: null,
+          startBlock: null,
+          missingGateLabels: [],
+          openQuestions: [],
+          session: null,
+          holds: [],
+          wait: null,
+          signals: [],
+        },
+        asOf: '2026-10-16T10:00:00.000Z',
+        sessions: [],
+        deliveries: [],
+        checks: [],
+        machine: null,
+      };
+    },
     async getProjectState(ctx, args) {
       await enter('getProjectState', ctx, args);
       return {

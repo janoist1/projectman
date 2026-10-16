@@ -17,6 +17,7 @@ import type {
   StartSessionSpec,
 } from '../../contracts';
 import { MergeError } from '../../contracts';
+import { testConfig } from '../../../test/helpers/test-template';
 import type { EngineEvent } from '../protocol';
 import { createCloudRemote } from './index';
 import type { CloudDomain, CloudRemote } from './index';
@@ -210,6 +211,33 @@ describe('cloud mode remote parts', () => {
       expect(await host.heavyRunSessions()).toEqual(['s1']);
       engine.disconnect();
       expect(await host.heavyRunSessions()).toEqual([]);
+    });
+
+    it('hands a task commit over on the engine, and asks for an update when the engine cannot (PM-739)', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      const key = {
+        project: testConfig({ workspacePath: '/cloud/path' }),
+        repoName: testConfig().project.repos[0]!.name,
+        member: 'dev',
+      };
+      const commit = 'a'.repeat(40);
+      // An older engine has no handler: the call is refused, and nothing is assumed handed over.
+      await expect(
+        host.memberWorkspaces!.publishTaskBranch(key, 'PM-1', 'PM-1-work', commit),
+      ).rejects.toMatchObject({
+        code: 'workspace_source_missing',
+        details: { reason: 'engine_update_required', method: 'workspace.publishTaskBranch' },
+      });
+      const source = { path: '/engine/repo', ref: `refs/projectman/workspaces/dev/PM-1/${commit}` };
+      engine.answer('workspace.publishTaskBranch', () => source);
+      await expect(
+        host.memberWorkspaces!.publishTaskBranch(key, 'PM-1', 'PM-1-work', commit),
+      ).resolves.toEqual(source);
+      // The fake records the calls it answered: only the second.
+      expect(engine.requests.filter((item) => item.method === 'workspace.publishTaskBranch')).toEqual([
+        { method: 'workspace.publishTaskBranch', params: [key, 'PM-1', 'PM-1-work', commit] },
+      ]);
     });
 
     it('starts on the default engine with the token, not the address, and mirrors the session', async () => {

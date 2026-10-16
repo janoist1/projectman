@@ -1,4 +1,5 @@
 export { OperatorSignals } from './signals';
+export { LoopTriages } from './loop-triage';
 export { OperatorPreferences } from './preferences';
 export { OperatorKnowledge } from './knowledge';
 export * from './requests';

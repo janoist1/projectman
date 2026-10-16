@@ -145,6 +145,7 @@ describe('project state from server records', () => {
     });
     h.repos.seniorWaits.create({ id: 'senior_test', projectKey: 'AR', taskKey: 'AR-1', since: at });
     h.repos.taskLoops.create({
+      triage: null,
       id: 'loop_test',
       projectKey: 'AR',
       taskKey: 'AR-1',

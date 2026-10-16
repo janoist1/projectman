@@ -605,6 +605,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'task_loop':
       return normal(loopEventText(d, ctx));
+    case 'loop_triaged':
+      return normal(t('timeline.events.loop_triaged'));
     case 'task_fix_limit':
       return normal(fixLimitEventText(d, ctx));
     case 'task_link_added':

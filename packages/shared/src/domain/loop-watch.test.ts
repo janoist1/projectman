@@ -1,8 +1,96 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_LOOP_WATCH, ProjectConfig, TeamLimits } from '../config/schema';
 import { applyConfigPatch } from '../config/edit';
-import { countsForLoop, findLoop, isLoopWork, loopDeciders, loopWatchOf, loopWatchers } from './loop-watch';
+import {
+  countsForLoop,
+  findLoop,
+  isLoopWork,
+  loopDeciders,
+  loopWatchOf,
+  loopWatchers,
+  LoopTriageFacts,
+  LoopTriageState,
+  loopTriageDeadline,
+} from './loop-watch';
+import { operatorSignalStepRefusal } from '../config/operator-watch';
 import type { LoopTalk } from './loop-watch';
+
+describe('loop triage contract (PM-712)', () => {
+  const facts = {
+    loopId: 'loop_1',
+    generation: 0,
+    reason: 'initial',
+    members: ['dev', 'cr'],
+    count: 6,
+    startedAt: '2026-10-01T10:00:00.000Z',
+    lastMessageAt: '2026-10-01T10:02:00.000Z',
+    head: null,
+    latestWorkAt: null,
+    evidenceIds: [],
+  };
+  it('accepts only the sanitized facts, including strict nested heads', () => {
+    expect(LoopTriageFacts.safeParse(facts).success).toBe(true);
+    for (const extra of ['transcript', 'tool', 'command', 'outputTail'])
+      expect(LoopTriageFacts.safeParse({ ...facts, [extra]: 'RAW_SENTINEL' }).success).toBe(false);
+    expect(
+      LoopTriageFacts.safeParse({
+        ...facts,
+        head: { commit: 'c1', committedAt: facts.startedAt, command: 'RAW' },
+      }).success,
+    ).toBe(false);
+    for (const change of [
+      { generation: -1 },
+      { count: -1 },
+      { members: ['dev'] },
+      { evidenceIds: Array(21).fill('event') },
+    ])
+      expect(LoopTriageFacts.safeParse({ ...facts, ...change }).success).toBe(false);
+  });
+  it('freezes a delivered handover while the current recipient has not received it', () => {
+    const deadline = loopTriageDeadline({
+      deadline: { remainingMs: 600000, resumedAt: facts.startedAt },
+      deliveredAt: null,
+      engineOnline: true,
+      lastConfirmedOnlineAt: null,
+      now: facts.lastMessageAt,
+    });
+    expect(deadline).toEqual({ remainingMs: 480000, resumedAt: null });
+    expect(
+      loopTriageDeadline({
+        deadline,
+        deliveredAt: null,
+        engineOnline: false,
+        lastConfirmedOnlineAt: null,
+        now: '2026-10-02T10:00:00.000Z',
+      }),
+    ).toEqual(deadline);
+  });
+  it('validates durable deadline bounds and keeps legacy null state separate', () => {
+    const state = { generation: 0, pendingSignalId: null, requestedCount: 6, assessed: null };
+    expect(LoopTriageState.safeParse(state).success).toBe(true);
+    expect(
+      LoopTriageState.safeParse({ ...state, deadline: { remainingMs: 600000, resumedAt: null } }).success,
+    ).toBe(true);
+    expect(
+      LoopTriageState.safeParse({ ...state, deadline: { remainingMs: 600001, resumedAt: null } }).success,
+    ).toBe(false);
+    expect(LoopTriageState.safeParse({ ...state, humanDecision: 'let_run' }).success).toBe(false);
+  });
+  it.each(['report', 'unblock', 'drive'] as const)('grants no autonomous start authority at %s', (level) => {
+    for (const tool of ['start_task', 'start_member'] as const)
+      expect(
+        operatorSignalStepRefusal({
+          level,
+          kind: 'loop_suspected',
+          tool,
+          target: { member: 'dev', taskKey: 'AR-1' },
+          allowed: { startTask: 'AR-1', members: ['dev'], taskKey: 'AR-1' },
+          stepsAt: [],
+          now: facts.lastMessageAt,
+        })?.code,
+      ).toBe('operator_no_request');
+  });
+});
 
 function config(extra: object[] = []) {
   return ProjectConfig.parse({

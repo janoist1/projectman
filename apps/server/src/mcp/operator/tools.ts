@@ -15,6 +15,36 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
   module: 'services/operator',
   tools: [
     defineTool({
+      name: 'triage_loop',
+      title: 'Assess a suspected loop',
+      readOnly: false,
+      description:
+        'Only the selected PM in its internal general session, without an owner request. Read get_task and get_project_state, current work and review findings, commits and delivery receipts. Many messages alone do not prove a loop. Give progress to keep observing, or loop to ask the existing human deciders. This never stops work, lets it run, approves anything or resolves a human decision. Use only evidence ids from work, stage, label or check events of this card.',
+      input: {
+        signal_id: z.string().min(1),
+        outcome: z.enum(['progress', 'loop']),
+        note: z.string().trim().min(1).max(2000),
+        evidence_ids: z
+          .array(z.string())
+          .max(20)
+          .refine((ids) => new Set(ids).size === ids.length, 'Evidence ids must be unique.')
+          .default([]),
+      },
+      async run({ ctx, args, handler }) {
+        const result = await handler.triageLoop(ctx, {
+          signalId: args.signal_id,
+          outcome: args.outcome,
+          note: args.note,
+          evidenceIds: args.evidence_ids,
+        });
+        return JSON.stringify({
+          state: result.state,
+          loop_id: result.loopId,
+          inbox_item_id: result.inboxItemId,
+        });
+      },
+    }),
+    defineTool({
       name: 'get_operator_knowledge',
       title: 'Read approved shared Operator knowledge',
       readOnly: true,

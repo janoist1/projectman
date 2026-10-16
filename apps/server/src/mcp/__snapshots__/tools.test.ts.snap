@@ -4614,6 +4614,53 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
+      "title": "Assess a suspected loop",
+    },
+    "description": "Only the selected PM in its internal general session, without an owner request. Read get_task and get_project_state, current work and review findings, commits and delivery receipts. Many messages alone do not prove a loop. Give progress to keep observing, or loop to ask the existing human deciders. This never stops work, lets it run, approves anything or resolves a human decision. Use only evidence ids from work, stage, label or check events of this card.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "evidence_ids": {
+          "default": [],
+          "items": {
+            "type": "string",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "note": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "outcome": {
+          "enum": [
+            "progress",
+            "loop",
+          ],
+          "type": "string",
+        },
+        "signal_id": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "signal_id",
+        "outcome",
+        "note",
+      ],
+      "type": "object",
+    },
+    "name": "triage_loop",
+    "title": "Assess a suspected loop",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
       "title": "Update a task",
     },
     "description": "Record progress on a task: add or remove labels, add a note, rewrite its title or description (for example a specification with acceptance criteria, or a technical plan), set the repository it works in and/or move it to another stage. The outcome of a review, a test or a client answer is a label from the project's label list (in your instructions: meaning, who may set it). Some labels require a note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is refused while a label its gate requires is missing or a blocking label is on the task. One call is all or nothing: labels and the note are recorded before the stage move, and if a label is refused or the gate blocks the move, nothing is recorded. A move that needs a human approval records the rest and waits for the approval. Relations between cards (part of, prerequisite, related, duplicate of) are set with add_relations and removed with remove_relations, in the same call: give the order of work as a prerequisite relation, not as a "Dependencies" text in the description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or moved. developer_level (with developer_level_reason) sets the recommended developer of the card.",

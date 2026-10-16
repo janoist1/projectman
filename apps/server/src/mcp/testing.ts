@@ -300,6 +300,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('screenQuestion', ctx, args);
       return { inboxItemId: args.itemId, outcome: args.outcome };
     },
+    async triageLoop(ctx, args) {
+      await enter('triageLoop', ctx, args);
+      return {
+        state: args.outcome === 'loop' ? 'awaiting_owner' : 'observing',
+        loopId: 'loop_1',
+        inboxItemId: null,
+      };
+    },
     async dismissSignal(ctx, args) {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };

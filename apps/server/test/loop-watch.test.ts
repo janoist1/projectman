@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loopDecisionOf } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, TimelineEvent } from '@projectman/shared';
 import { aiActor } from '../src/kernel';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 
@@ -31,9 +31,9 @@ describe('loop watch', () => {
       if (manager?.kind === 'ai' && (opts.scheduler ?? true)) delete manager.onLeave;
     };
 
-  async function prepare(opts: Parameters<typeof setup>[0] = {}) {
+  async function prepare(opts: Parameters<typeof setup>[0] = {}, persistent = false) {
     now = new Date('2026-10-01T12:00:00.000Z');
-    h = await createDomainHarness({ now: () => now, adjust: setup(opts) });
+    h = await createDomainHarness({ now: () => now, adjust: setup(opts), persistent });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.tasks.create('AR', { title: 'Other card' }, OWNER_ACTOR);
     tick(1);
@@ -67,6 +67,22 @@ describe('loop watch', () => {
   const loopEvents = () =>
     h.repos.timeline.list('AR', { taskKey: 'AR-1' }).filter((event) => event.type === 'task_loop');
   const firstInputs = () => h.runner.started.map((spec) => spec.initialMessage ?? '');
+  const signal = () => h.repos.operatorSignals.get(loop()!.triage!.pendingSignalId!);
+  const pmContext = () => ({
+    projectKey: 'AR',
+    member: 'pm',
+    taskKey: null,
+    sessionId: h.domain.sessions
+      .list('AR', { member: 'pm' })
+      .find((s) => s.workItem.type === 'general' && !s.workItem.with)!.id,
+  });
+  const assess = (outcome: 'progress' | 'loop', evidenceIds: string[] = []) =>
+    h.domain.teamTools.triageLoop(pmContext(), {
+      signalId: signal()!.id,
+      outcome,
+      note: 'Checked current review findings and delivery.',
+      evidenceIds,
+    });
 
   describe('finding a loop', () => {
     beforeEach(() => prepare());
@@ -82,9 +98,7 @@ describe('loop watch', () => {
       });
       expect(items()).toEqual([]);
       await vi.waitFor(() =>
-        expect(firstInputs().some((text) => text.includes('[team message from projectman about AR-1]'))).toBe(
-          true,
-        ),
+        expect(firstInputs().some((text) => text.includes('loop_suspected'))).toBe(true),
       );
       expect(h.runner.started.some((spec) => spec.member === 'pm')).toBe(true);
       // The notice is not a team message: only the three of the loop are stored.
@@ -106,7 +120,7 @@ describe('loop watch', () => {
       await vi.waitFor(() =>
         expect(
           h.repos.deferredStarts.list().map((record) => (record.spec as { kind: string }).kind),
-        ).toContain('loop_notice'),
+        ).toContain('operator_signals'),
       );
       expect(h.runner.started).toEqual([]);
       await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
@@ -196,6 +210,28 @@ describe('loop watch', () => {
       expect(h.runner.started).toEqual([]);
     });
 
+    it('falls back once when AI work is disabled', async () => {
+      await prepare();
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        config.team.limits.aiEnabled = false;
+        return 'Disable AI';
+      });
+      await goRound();
+      await h.domain.loopWatch.sweep();
+      expect(items()).toHaveLength(1);
+      expect(loop()!.ownerReason).toBe('no_watcher');
+    });
+
+    it('falls back when the signal cannot be stored', async () => {
+      await prepare();
+      vi.spyOn(h.repos.operatorSignals, 'insert').mockImplementation(() => {
+        throw new Error('storage failed');
+      });
+      await goRound();
+      expect(items()).toHaveLength(1);
+      expect(loop()!.ownerReason).toBe('no_watcher');
+    });
+
     it('goes to the owner when admission refuses the scheduler for good, and says nobody was told', async () => {
       await prepare();
       vi.spyOn(h.domain.admission, 'start').mockRejectedValue(new Error('the session cannot start'));
@@ -209,11 +245,11 @@ describe('loop watch', () => {
   });
 
   describe('when admission only makes the scheduler wait', () => {
-    const switchAi = (aiEnabled: boolean) =>
-      h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
-        config.team.limits.aiEnabled = aiEnabled;
-        return 'Switch AI';
-      });
+    const switchAi = (enabled: boolean) =>
+      h.domain.pauses[enabled ? 'resume' : 'pause'](
+        { scope: 'project', projectKey: 'AR' },
+        { userId: null, source: 'system' },
+      );
 
     it('keeps the loop with the scheduler, raises no item, and tells it once there is room', async () => {
       await prepare();
@@ -223,7 +259,7 @@ describe('loop watch', () => {
       await settle();
       // Not told yet: no decision, no "raised" event, and the loop still belongs to the scheduler.
       expect(items()).toEqual([]);
-      expect(loop()).toMatchObject({ phase: 'notified', notified: 'pm', notifiedCount: 0 });
+      expect(loop()).toMatchObject({ phase: 'notified', notified: null, notifiedCount: 0 });
       expect(loopEvents()).toEqual([]);
       expect(h.runner.started).toEqual([]);
 
@@ -237,6 +273,7 @@ describe('loop watch', () => {
 
       await switchAi(true);
       await vi.waitFor(() => expect(h.runner.started.some((spec) => spec.member === 'pm')).toBe(true));
+      await h.domain.loopWatch.sweep();
       await vi.waitFor(() => expect(loop()).toMatchObject({ notified: 'pm', notifiedCount: 7 }));
       expect(items()).toEqual([]);
       expect(loopEvents().map((event) => event.data)).toMatchObject([{ phase: 'raised', notified: 'pm' }]);
@@ -263,19 +300,28 @@ describe('loop watch', () => {
       await vi.waitFor(() => expect(loop()).not.toBeNull());
     });
 
-    it('does not count the scheduler, and escalates after as many messages again', async () => {
+    it('counts a participating PM and waits for its assessment instead of escalating on more messages', async () => {
       await talk('pm', ['dev-1', 'cr']);
       await talk('cr', ['pm']);
       await talk('pm', ['dev-1']);
       expect(items()).toEqual([]);
-      expect(loop()).toMatchObject({ phase: 'notified', count: 3 });
+      expect(loop()).toMatchObject({ phase: 'notified', count: 6 });
 
       await talk('dev-1', ['cr']);
       await talk('cr', ['dev-1']);
       expect(items()).toEqual([]);
       await talk('dev-1', ['cr']);
+      expect(items()).toEqual([]);
+      const id = signal()!.id;
+      await assess('loop');
+      await h.domain.teamTools.triageLoop(pmContext(), {
+        signalId: id,
+        outcome: 'loop',
+        note: 'Same assessment.',
+        evidenceIds: [],
+      });
       await vi.waitFor(() => expect(items()).toHaveLength(1));
-      expect(loopDecisionOf(items()[0]!)).toMatchObject({ reason: 'continued', watcher: 'pm', count: 6 });
+      expect(loopDecisionOf(items()[0]!)).toMatchObject({ reason: 'continued', watcher: 'pm', count: 9 });
       expect(loop()).toMatchObject({ phase: 'owner', ownerReason: 'continued', deciders: ['owner'] });
       expect(loopEvents().map((event) => event.data.phase)).toEqual(['raised', 'escalated']);
 
@@ -284,8 +330,269 @@ describe('loop watch', () => {
       await talk('dev-1', ['cr']);
       await talk('cr', ['dev-1']);
       expect(items()).toHaveLength(1);
-      expect(loop()!.count).toBe(9);
+      expect(loop()!.count).toBe(12);
     });
+  });
+
+  describe('PM filtering (PM-712)', () => {
+    beforeEach(async () => {
+      await prepare();
+      await goRound();
+    });
+
+    it('keeps observing from the assessment count, and queues exactly one new generation at the next threshold', async () => {
+      const stop = vi.spyOn(h.domain.sessions, 'stopTask');
+      const id = signal()!.id;
+      const first = await assess('progress');
+      expect(first).toMatchObject({ state: 'observing', inboxItemId: null });
+      expect(loop()).toMatchObject({
+        phase: 'notified',
+        triage: { generation: 0, assessed: { count: 3, outcome: 'progress', by: 'pm' } },
+      });
+      expect(h.repos.operatorSignals.get(id)?.state).toBe('resolved');
+      await expect(
+        h.domain.teamTools.triageLoop(pmContext(), {
+          signalId: id,
+          outcome: 'loop',
+          note: 'A retry cannot change the result.',
+          evidenceIds: [],
+        }),
+      ).resolves.toEqual(first);
+      expect(stop).not.toHaveBeenCalled();
+      expect(items()).toEqual([]);
+      expect(
+        loopEvents().some((event) => ['let_run', 'stopped'].includes(String(event.data.endReason))),
+      ).toBe(false);
+      await talk('cr', ['dev-1']);
+      await talk('dev-1', ['cr']);
+      expect(loop()!.triage!.generation).toBe(0);
+      await talk('cr', ['dev-1']);
+      expect(loop()!.triage).toMatchObject({ generation: 1, requestedCount: 6, assessed: null });
+      await h.domain.loopWatch.sweep();
+      expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'loop_suspected')).toHaveLength(2);
+      await expect(
+        h.domain.teamTools.triageLoop(pmContext(), {
+          signalId: id,
+          outcome: 'loop',
+          note: 'Stale.',
+          evidenceIds: [],
+        }),
+      ).rejects.toMatchObject({ code: 'invalid' });
+      const event = h.repos.timeline.list('AR', { taskKey: 'AR-1' }).find((e) => e.type === 'loop_triaged')!;
+      expect(event.actor).toEqual(aiActor('pm'));
+      expect(event.data).toMatchObject({
+        generation: 0,
+        outcome: 'progress',
+        evidenceIds: [],
+        headCommit: null,
+      });
+      expect(event.data).not.toHaveProperty('note');
+    });
+
+    it('filters even when the selected PM took part before the threshold', async () => {
+      await h.domain.tasks.addNote('AR', 'AR-1', 'New review round.', OWNER_ACTOR);
+      tick(1);
+      await talk('pm', ['dev-1']);
+      await talk('dev-1', ['pm']);
+      await talk('pm', ['dev-1']);
+      expect(loop()).toMatchObject({ phase: 'notified', members: ['dev-1', 'pm'] });
+      expect(items()).toEqual([]);
+      expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'loop_suspected')).toHaveLength(2);
+    });
+
+    it('rechecks a new commit before the sixth message could reach an owner', async () => {
+      const id = signal()!.id;
+      await talk('cr', ['dev-1']);
+      await talk('dev-1', ['cr']);
+      vi.spyOn(h.domain.sessions, 'sourceHead').mockResolvedValue({
+        commit: 'fixed-review',
+        branch: 'task/AR-1',
+        dirty: false,
+        changes: 0,
+        path: '/fake/worktree',
+        committedAt: now.toISOString(),
+      });
+      await talk('cr', ['dev-1']);
+      expect(loop()).toBeNull();
+      expect(items()).toEqual([]);
+      expect(h.repos.operatorSignals.get(id)?.state).toBe('resolved');
+      expect(loopEvents().at(-1)?.data.endReason).toBe('commit');
+    });
+
+    it('resolves an assessment racing a fresh branch head without creating a human item', async () => {
+      vi.spyOn(h.domain.sessions, 'sourceHead').mockResolvedValue({
+        commit: 'fixed',
+        branch: 'task/AR-1',
+        dirty: false,
+        changes: 0,
+        path: '/fake/worktree',
+        committedAt: now.toISOString(),
+      });
+      await expect(assess('loop')).resolves.toMatchObject({ state: 'resolved', inboxItemId: null });
+      expect(loop()).toBeNull();
+      expect(items()).toEqual([]);
+    });
+
+    it('rejects another card, message evidence and duplicate ids, but accepts this card check evidence', async () => {
+      const wrong = h.domain.timeline.append({
+        projectKey: 'AR',
+        taskKey: 'AR-2',
+        actor: aiActor('cr'),
+        type: 'task_check_changed',
+        data: { check: 'code_review', from: 'pending', to: 'failed' },
+      });
+      const message = h.repos.timeline
+        .list('AR', { taskKey: 'AR-1' })
+        .find((e) => e.type === 'team_message')!;
+      const valid = h.domain.timeline.append({
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        actor: aiActor('cr'),
+        type: 'task_check_changed',
+        data: { check: 'code_review', from: 'pending', to: 'failed' },
+      });
+      for (const ids of [[wrong.id], [message.id], [valid.id, valid.id], ['missing']]) {
+        await expect(assess('loop', ids)).rejects.toMatchObject({ code: 'invalid' });
+        expect(items()).toEqual([]);
+      }
+      await expect(assess('progress', [valid.id])).resolves.toMatchObject({ state: 'observing' });
+    });
+
+    it('allows concurrent assessments only one decision and one attributed event', async () => {
+      const id = signal()!.id;
+      await Promise.all(
+        [1, 2].map(() =>
+          h.domain.teamTools.triageLoop(pmContext(), {
+            signalId: id,
+            outcome: 'loop',
+            note: 'The same review point repeats.',
+            evidenceIds: [],
+          }),
+        ),
+      );
+      expect(items()).toHaveLength(1);
+      expect(
+        h.repos.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type === 'loop_triaged'),
+      ).toHaveLength(1);
+    });
+
+    it('rejects non-PMs and guest sessions, and a signal delivered to another handle', async () => {
+      const args = { signalId: signal()!.id, outcome: 'loop' as const, note: 'Review.', evidenceIds: [] };
+      await expect(
+        h.domain.teamTools.triageLoop({ ...pmContext(), member: 'dev-1' }, args),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+      const current = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+      h.repos.sessions.insert({ ...current, id: 'ses_guest', workItem: { type: 'general', with: 'owner' } });
+      await expect(
+        h.domain.teamTools.triageLoop({ ...pmContext(), sessionId: 'ses_guest' }, args),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+      h.repos.operatorSignals.save({ ...signal()!, deliveredTo: 'dev-1' });
+      await expect(h.domain.teamTools.triageLoop(pmContext(), args)).rejects.toMatchObject({
+        code: 'invalid',
+      });
+      expect(items()).toEqual([]);
+    });
+
+    it('does not turn a report into an owner request or start permission at any watch level', async () => {
+      const id = signal()!.id;
+      expect(() => h.domain.operatorSignals.presentation('AR', id, 'pm')).toThrow('use triage_loop');
+      for (const level of ['report', 'unblock', 'drive'] as const) {
+        await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+          config.team.operatorWatch = level;
+          return 'Change watch level';
+        });
+        await expect(
+          h.domain.teamTools.startTask(pmContext(), { taskKey: 'AR-1', signalId: id }),
+        ).rejects.toMatchObject({ code: 'forbidden' });
+      }
+      expect(h.repos.operatorRequests.latest('AR', 10)).toEqual([]);
+      expect(items()).toEqual([]);
+    });
+
+    it('falls back once after ten online minutes', async () => {
+      tick(9);
+      await h.domain.loopWatch.sweep();
+      expect(items()).toHaveLength(1);
+      await h.domain.loopWatch.sweep();
+      expect(items()).toHaveLength(1);
+      expect(loop()!.phase).toBe('owner');
+    });
+
+    it('rechecks progress before a timed-out candidate creates a human decision', async () => {
+      tick(12);
+      vi.spyOn(h.domain.sessions, 'sourceHead').mockResolvedValue({
+        commit: 'fixed-before-deadline',
+        branch: 'task/AR-1',
+        dirty: false,
+        changes: 0,
+        path: '/fake/worktree',
+        committedAt: now.toISOString(),
+      });
+      await h.domain.loopWatch.sweep();
+      expect(loop()).toBeNull();
+      expect(items()).toEqual([]);
+    });
+
+    it('rechecks the PM after an asynchronous head read and refuses a stale member', async () => {
+      const config = h.domain.projects.cachedConfig('AR')!;
+      const pm = config.team.members.find((m) => m.handle === 'pm')!;
+      vi.spyOn(h.domain.sessions, 'sourceHead').mockImplementation(async () => {
+        if (pm.kind === 'ai') pm.onLeave = true;
+        return null;
+      });
+      await expect(assess('loop')).rejects.toMatchObject({ code: 'forbidden' });
+      expect(items()).toEqual([]);
+    });
+
+    it('keeps a legacy owner decision visible and never opens it again through AI triage', async () => {
+      await assess('loop');
+      const current = loop()!;
+      const id = items()[0]!.id;
+      h.repos.taskLoops.save({ ...current, triage: null });
+      await h.domain.loopWatch.sweep();
+      expect(items()).toHaveLength(1);
+      expect(items()[0]).toMatchObject({ id, state: 'open' });
+      expect(loop()!.triage).toBeNull();
+    });
+  });
+
+  it('recovers an unassessed delivery and its remaining deadline across restart', async () => {
+    await prepare({}, true);
+    await goRound();
+    const id = signal()!.id;
+    tick(3);
+    h = await restartDomainHarness(h, { now: () => now });
+    await h.domain.loopWatch.sweep();
+    expect(loop()!.triage).toMatchObject({
+      generation: 0,
+      pendingSignalId: id,
+      deadline: { remainingMs: 6 * MINUTE, resumedAt: now.toISOString() },
+    });
+    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'loop_suspected')).toHaveLength(1);
+    expect(items()).toEqual([]);
+  });
+
+  it('recovers the same assessed generation and owner item across restart', async () => {
+    await prepare({}, true);
+    await goRound();
+    const id = signal()!.id;
+    await assess('loop');
+    const itemId = items()[0]!.id;
+    h = await restartDomainHarness(h, { now: () => now });
+    await h.domain.loopWatch.sweep();
+    const session = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    await expect(
+      h.domain.teamTools.triageLoop(
+        { projectKey: 'AR', member: 'pm', taskKey: null, sessionId: session.session.id },
+        {
+          signalId: id,
+          outcome: 'loop',
+          note: 'Retry after restart.',
+          evidenceIds: [],
+        },
+      ),
+    ).resolves.toMatchObject({ state: 'awaiting_owner', inboxItemId: itemId });
+    expect(items()).toHaveLength(1);
   });
 
   describe('the decision', () => {

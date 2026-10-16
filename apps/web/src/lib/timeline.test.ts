@@ -15,6 +15,16 @@ const creation: TimelineEvent = {
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
+it('renders a PM loop assessment without exposing its private note', () => {
+  const event: TimelineEvent = {
+    ...creation,
+    actor: { kind: 'ai', handle: 'pm' },
+    type: 'loop_triaged',
+    data: { loopId: 'loop_1', generation: 0, outcome: 'progress', evidenceIds: [], headCommit: null },
+  };
+  expect(describeEvent(event, context).text).toBe(t('timeline.events.loop_triaged'));
+});
+
 describe('merge queue timeline text (PM-576)', () => {
   it('names the cards a merge was put ahead of and the reason', () => {
     const event: TimelineEvent = {

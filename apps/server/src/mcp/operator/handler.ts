@@ -25,6 +25,7 @@ import type {
   OperatorSignals,
   OperatorPreferences,
   OperatorKnowledge,
+  LoopTriages,
 } from '../../services/operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
@@ -41,6 +42,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
   private readonly operatorPreferences: OperatorPreferences;
   private readonly operatorKnowledge: OperatorKnowledge;
+  private readonly loopTriages: LoopTriages;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -55,6 +57,7 @@ export class OperatorTools implements OperatorToolsHandler {
     operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
     operatorPreferences: OperatorPreferences;
     operatorKnowledge: OperatorKnowledge;
+    loopTriages: LoopTriages;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -68,6 +71,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.operatorSignals = deps.operatorSignals;
     this.operatorPreferences = deps.operatorPreferences;
     this.operatorKnowledge = deps.operatorKnowledge;
+    this.loopTriages = deps.loopTriages;
   }
 
   async getOperatorKnowledge(ctx: ToolContext) {
@@ -116,6 +120,21 @@ export class OperatorTools implements OperatorToolsHandler {
         throw new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
       throw err;
     }
+  }
+
+  async triageLoop(
+    ctx: ToolContext,
+    args: {
+      signalId: string;
+      outcome: 'progress' | 'loop';
+      note: string;
+      evidenceIds: string[];
+    },
+  ) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'triage_loop');
+      return this.loopTriages.assess({ ...args, projectKey: ctx.projectKey, by: ctx.member });
+    });
   }
 
   async dismissSignal(

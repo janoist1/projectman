@@ -817,4 +817,17 @@ export interface OperatorToolsHandler {
     ctx: ToolContext,
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }>;
+  triageLoop(
+    ctx: ToolContext,
+    args: {
+      signalId: string;
+      outcome: 'progress' | 'loop';
+      note: string;
+      evidenceIds: string[];
+    },
+  ): Promise<{
+    state: 'observing' | 'awaiting_owner' | 'resolved';
+    loopId: string;
+    inboxItemId: string | null;
+  }>;
 }

@@ -98,7 +98,7 @@ import {
   OperatorRequests,
   OperatorSteps,
 } from './services/operator';
-import { OperatorSignals } from './services/operator';
+import { LoopTriages, OperatorSignals } from './services/operator';
 import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
 import { ProjectState } from './services/operator';
@@ -973,6 +973,14 @@ export function createDomain(opts: DomainOptions) {
     releases,
   });
   messaging.registerSignals(operatorSignals);
+  const loopTriages = new LoopTriages({
+    ctx,
+    projects,
+    signals: operatorSignals,
+    actions: {
+      assess: (input) => loopWatch.assess(input),
+    },
+  });
   events.on('config_changed', ({ projectKey }) => operatorSignals.recheckRecipients(projectKey));
   const questionScreening = new QuestionScreening({
     ctx,
@@ -1171,6 +1179,7 @@ export function createDomain(opts: DomainOptions) {
         operatorActions,
         taskStarts,
         operatorSignals,
+        loopTriages,
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
       releases: new ReleaseTools({ calls: toolCaller, releases }),
@@ -1275,6 +1284,10 @@ export function createDomain(opts: DomainOptions) {
     background.run(
       () => questionScreening.sweep(),
       (err) => opts.logger.warn({ err, engineId: id }, 'question screening engine check failed'),
+    );
+    background.run(
+      () => loopWatch.sweep(),
+      (err) => opts.logger.warn({ err, engineId: id }, 'loop triage engine check failed'),
     );
     if (!online) return;
     // A remote engine that connects later is checked for the full test sandbox like a local one at startup.
@@ -1429,9 +1442,25 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
   // A question closed without an answer (PM-556): its asking session, when it runs, is told not to wait.
   events.on('inbox_cancelled', (item) => messaging.closedNotice(item));
-  // AI members writing round in circles on a card: the scheduling duty's holder is told first, people
-  // only when that did not help (PM-261). A loop ends when the card makes progress or goes quiet.
-  const loopWatch = new LoopWatch({ ctx, projects, tasks, sessions, admission, delivery, inbox, timeline });
+  // The selected PM filters suspected loops before a human decision (PM-712), including its own traffic.
+  // A loop ends when the card makes progress or goes quiet.
+  const loopWatch = new LoopWatch({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    inbox,
+    timeline,
+    notices: loopTriages,
+    engine: {
+      read: (projectKey, member) => {
+        const id = engines.engineFor(projectKey, member);
+        if (id === null) return { state: 'unknown', lastConfirmedOnlineAt: null };
+        if (engines.get(id)) return { state: 'online', lastConfirmedOnlineAt: isoNow(ctx) };
+        return { state: 'offline', lastConfirmedOnlineAt: ctx.repos.engines.get(id)?.last_seen_at ?? null };
+      },
+    },
+  });
   events.on('task_talk_recorded', ({ event }) => loopWatch.check(event));
   events.on('task_work_recorded', ({ event }) => loopWatch.worked(event));
   events.on('task_stage_changed', (change) => loopWatch.progressed(change.task, 'stage'));
@@ -1899,6 +1928,7 @@ export function createDomain(opts: DomainOptions) {
         {
           name: 'loop-watch',
           everyMs: opts.loopWatchMs ?? 60_000,
+          atStart: true,
           run: () => loopWatch.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
         },

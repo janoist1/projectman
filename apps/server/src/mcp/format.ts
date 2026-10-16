@@ -237,6 +237,8 @@ export function formatReleaseCheck(check: ReleaseCheckResult): string {
 
 function signalLine(signal: OperatorSignal): string {
   const explanations: Record<OperatorSignal['kind'], string> = {
+    loop_suspected:
+      'A suspected loop awaits PM assessment with triage_loop; report only, no stop or approval authority.',
     process_cleanup_failed:
       "An ended session still has running processes; its workspace remains reserved. Bring this to the owners; never stop another member's processes yourself.",
     outage: 'A provider or engine outage needs attention.',

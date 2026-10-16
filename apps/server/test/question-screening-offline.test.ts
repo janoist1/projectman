@@ -9,6 +9,7 @@ import { createLocalEngine } from '../src/engine-host';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { capturingLogger, FakeWorktreeManager, settle } from './helpers/fakes';
+import { aiActor } from '../src/kernel';
 
 const START = new Date('2026-10-13T10:00:00.000Z');
 const REMOTE: EngineId = 'eng_abcdefghijkl';
@@ -49,6 +50,7 @@ class TestEngines implements EngineDirectory {
 function withPm(config: ProjectConfig): void {
   const pm = config.team.members.find((m) => m.handle === 'pm')!;
   if (pm.kind === 'ai') pm.onLeave = false;
+  config.team.limits.loopWatch = { enabled: true, count: 3, minutes: 240 };
 }
 
 /**
@@ -343,6 +345,106 @@ describe('question screening while the PM’s machine is offline', () => {
 
     expect(item(id).state).toBe('cancelled');
     expect(pmSessions()).toHaveLength(0);
+  });
+
+  describe('loop triage queue and deadline (PM-712)', () => {
+    const loop = () => h.repos.taskLoops.open('AR-1');
+    const signals = () => h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'loop_suspected');
+    const decisions = () => h.domain.inbox.list('AR', { kind: 'decision', taskKey: 'AR-1' });
+    async function candidate() {
+      for (const from of ['dev-1', 'cr', 'dev-1']) {
+        advance(1000);
+        h.domain.timeline.append({
+          projectKey: 'AR',
+          taskKey: 'AR-1',
+          actor: aiActor(from),
+          type: 'team_message',
+          data: {
+            messageId: `msg-${now.getTime()}`,
+            from,
+            to: [from === 'cr' ? 'dev-1' : 'cr'],
+            excerpt: 'RAW_LOOP_SENTINEL',
+          },
+        });
+        await settle();
+      }
+      await h.domain.loopWatch.sweep();
+    }
+    it('holds a queued candidate offline for hours, then delivers it once on reconnect', async () => {
+      await setOnline(false);
+      await candidate();
+      expect(loop()!.triage!.deadline).toBeUndefined();
+      expect(signals()).toHaveLength(1);
+      expect(signals()[0]!.deliveredAt).toBeNull();
+      advance(2 * HOUR);
+      await h.domain.loopWatch.sweep();
+      expect(decisions()).toEqual([]);
+      expect(pmSessions()).toEqual([]);
+      await setOnline(true);
+      await h.domain.loopWatch.sweep();
+      await setOnline(true);
+      await h.domain.loopWatch.sweep();
+      expect(signals()).toHaveLength(1);
+      expect(signals()[0]!.deliveredAt).not.toBeNull();
+      expect(loop()!.triage!.deadline!.remainingMs).toBe(10 * MINUTE);
+      expect(pmSessions()).toHaveLength(1);
+      expect(decisions()).toEqual([]);
+      const text = h.runner.started
+        .filter((s) => s.member === 'pm')
+        .map((s) => s.initialMessage)
+        .join('');
+      expect(text).toContain('triage_loop');
+      expect(text).not.toContain('RAW_LOOP_SENTINEL');
+      expect(text).not.toContain('outputTail');
+      expect(text).not.toContain('transcript');
+    });
+
+    it('holds the signal when the engine drops before first input succeeds', async () => {
+      h.runner.holdFirstInput = true;
+      const pending = candidate();
+      await vi.waitFor(() => expect(pmSessions()).toHaveLength(1));
+      expect(signals()[0]!.deliveredAt).toBeNull();
+      engines.online.delete(REMOTE);
+      await h.domain.sessions.stop('AR', pmSessions()[0]!.id);
+      await pending;
+      expect(loop()!.phase).toBe('notified');
+      expect(signals()[0]!.deliveredAt).toBeNull();
+      expect(loop()!.triage!.deadline).toBeUndefined();
+      expect(decisions()).toEqual([]);
+    });
+
+    it('freezes the delivered deadline using durable last-seen time and resumes the remaining budget', async () => {
+      await candidate();
+      advance(4 * MINUTE);
+      seenAt(now);
+      await setOnline(false);
+      expect(loop()!.triage!.deadline).toEqual({ remainingMs: 6 * MINUTE, resumedAt: null });
+      advance(2 * HOUR);
+      await h.domain.loopWatch.sweep();
+      expect(decisions()).toEqual([]);
+      expect(loop()!.triage!.deadline).toEqual({ remainingMs: 6 * MINUTE, resumedAt: null });
+      await setOnline(true);
+      advance(5 * MINUTE);
+      await h.domain.loopWatch.sweep();
+      expect(decisions()).toEqual([]);
+      advance(MINUTE);
+      await h.domain.loopWatch.sweep();
+      await h.domain.loopWatch.sweep();
+      expect(decisions()).toHaveLength(1);
+      expect(loop()!.phase).toBe('owner');
+    });
+
+    it('resolves a progressed queued candidate before reconnect can wake the PM', async () => {
+      await setOnline(false);
+      await candidate();
+      await h.domain.tasks.addNote('AR', 'AR-1', 'The review fix is ready.', aiActor('dev-1'));
+      await settle();
+      await setOnline(true);
+      expect(loop()).toBeNull();
+      expect(signals()[0]!.state).toBe('resolved');
+      expect(pmSessions()).toEqual([]);
+      expect(decisions()).toEqual([]);
+    });
   });
 
   it('releases a question whose record cannot be read instead of holding it unseen', async () => {

@@ -2215,8 +2215,11 @@ assumption or remote-engine RPC.
   Member clones may opt in through engine-local `repos[].workspaceSetup: {kind: 'npm_ci', timeoutMs?}`
   (PM-741, owner option 1). `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
   member session, in srt on macOS only: package trees and a private run home/tmp/cache are writable;
-  only registry.npmjs.org and nodejs.org are reachable, with no local binding. Engine secrets and
-  other workspaces/worktrees/dependency markers are denied reads; only the target clone is allowed.
+  only registry.npmjs.org and nodejs.org are reachable, with no local binding. The entire user home,
+  app home, engine secrets and shared session temporary roots (Claude roots and the parents of
+  session tmp/folder roots) are denied reads, following the merge installer's home-wide boundary.
+  Only the target clone, the run's own sandbox and its empty npm configuration files are allowed
+  within those denials; other repositories, attachments, session files and dependency markers stay closed.
   Local install hooks, npm overrides, binding.gyp and linked inputs/targets are refused using the
   merge installer's checks. The environment is the full-test allowlist without PROJECTMAN variables.
   A per-clone single flight survives caller/link timeouts; shutdown aborts and awaits its process group.

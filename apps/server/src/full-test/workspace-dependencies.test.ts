@@ -64,10 +64,15 @@ describe('engine-owned member dependency preparation', () => {
       worktreesRoot: path.join(root, 'worktrees'),
       tmpDir: root,
       denyRead: [
+        path.join(root, 'user'),
+        path.join(root, 'home'),
         path.join(root, 'secrets'),
         path.join(root, 'workspaces'),
         path.join(root, 'worktrees'),
         path.join(root, 'home/workspace-deps'),
+        path.join(root, 'claude-tmp'),
+        path.join(root, 'session-tmp'),
+        path.join(root, 'session-folders'),
       ],
       setupOf: () => (configured ? { kind: 'npm_ci', timeoutMs: 10_000 } : null),
       logger,
@@ -406,7 +411,18 @@ describe('engine-owned member dependency preparation', () => {
       ]);
       expect(settings.filesystem.denyRead).toContain(path.join(root, 'secrets'));
       expect(settings.filesystem.denyRead).toContain(path.join(root, 'home/workspace-deps'));
-      expect(settings.filesystem.allowRead).toContain(request.repoPath);
+      for (const entry of ['user', 'home', 'claude-tmp', 'session-tmp', 'session-folders'])
+        expect(settings.filesystem.denyRead).toContain(path.join(root, entry));
+      const configFiles = ['npm-user.conf', 'npm-global.conf'].map((file) =>
+        path.join(path.dirname(run.settings), file),
+      );
+      expect(settings.filesystem.allowRead).toEqual([
+        request.repoPath,
+        path.dirname(run.env.HOME!),
+        ...configFiles,
+      ]);
+      const gitProbe = calls.find((call) => call.command.startsWith('git '))!;
+      expect(gitProbe.command).toContain('-c core.fsmonitor=false -c core.hooksPath=/dev/null');
     } finally {
       vi.unstubAllEnvs();
     }

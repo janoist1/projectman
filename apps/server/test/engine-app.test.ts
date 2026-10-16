@@ -228,15 +228,27 @@ describe('engine process', () => {
         close,
       });
       try {
-        const built = await build();
+        const sessionFoldersDir = path.join(base, 'session-folders', 'instance');
+        const sessionTmpDir = path.join(base, 'session-tmp', 'instance');
+        const claudeTmpBase = path.join(base, 'claude-tmp');
+        const heavyLockDir = path.join(base, 'heavy', 'lock');
+        const built = await build({ sessionFoldersDir, sessionTmpDir, claudeTmpBase, heavyLockDir });
         const options = factory.mock.calls[0]![0];
         expect(options.setupOf('PM', 'projectman')).toEqual({ kind: 'npm_ci', timeoutMs: 600_000 });
         expect(options.setupOf('PM', 'other')).toBeNull();
-        expect(options.heavyLockDir).toBe(path.join(base, 'heavy'));
+        expect(options.heavyLockDir).toBe(heavyLockDir);
         expect(options.worktreesRoot).toBe(path.join(home, 'worktrees'));
         for (const entry of ['engine.key', 'providers', 'workspaces', 'worktrees', 'workspace-deps'])
           expect(options.denyRead).toContain(path.join(home, entry));
         expect(options.denyRead).toContain(path.join(userHome, '.ssh'));
+        expect(options.denyRead).toContain(userHome);
+        expect(options.denyRead).toContain(home);
+        expect(options.denyRead).toContain(path.dirname(sessionTmpDir));
+        expect(options.denyRead).toContain(path.dirname(sessionFoldersDir));
+        expect(options.denyRead).toContain('/tmp/claude');
+        expect(options.denyRead).toContain(
+          path.join(claudeTmpBase, `claude-${process.getuid?.() ?? 'user'}`),
+        );
         expect(options).not.toHaveProperty('execute');
         await built.close();
         expect(close).toHaveBeenCalledOnce();

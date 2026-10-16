@@ -406,12 +406,19 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
   const exportDir = path.join(home, 'export-tmp');
+  const dependencyPaths = engine.paths();
   workspaceDependencies = createWorkspaceDependencyInstaller({
     home,
     heavyLockDir,
     worktreesRoot: path.join(home, 'worktrees'),
     denyRead: [
+      // Match the merge installer's home-wide denials; lifecycle scripts get only their clone.
+      userHome,
+      home,
       ...limit.sensitiveRead(),
+      ...dependencyPaths.claudeTmpRoots,
+      ...(dependencyPaths.sessionTmpRoot ? [path.dirname(dependencyPaths.sessionTmpRoot)] : []),
+      ...(dependencyPaths.sessionFoldersRoot ? [path.dirname(dependencyPaths.sessionFoldersRoot)] : []),
       workspacesDir,
       path.join(home, 'worktrees'),
       path.join(home, 'workspace-deps'),

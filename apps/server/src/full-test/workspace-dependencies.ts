@@ -268,7 +268,7 @@ export function createWorkspaceDependencyInstaller(
           await sandboxFiles(before.nodeModules);
           // A tracked package tree must never be removed by the engine.
           const tracked = await execute(
-            `git --literal-pathspecs ls-files -z --format=PROJECTMAN_TRACKED_NODE_MODULES -- ${before.nodeModules.map(quoteShellWord).join(' ')}`,
+            `git -c core.fsmonitor=false -c core.hooksPath=/dev/null --literal-pathspecs ls-files -z --format=PROJECTMAN_TRACKED_NODE_MODULES -- ${before.nodeModules.map(quoteShellWord).join(' ')}`,
             true,
           );
           if (tracked.includes('PROJECTMAN_TRACKED_NODE_MODULES\0'))

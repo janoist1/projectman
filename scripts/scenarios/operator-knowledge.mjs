@@ -102,6 +102,10 @@ export default async ({ instance, open, shoot, step }) => {
       ? json(route, 503, { error: { code: 'operator_knowledge_unavailable', message: 'Unavailable' } })
       : json(route, 200, state.knowledge);
   });
+  await page.route('**/api/projects/AC/operator', async (route) => {
+    const response = await route.fetch();
+    return json(route, 200, { ...(await response.json()), sessionId: 'ses_review' });
+  });
   await page.route('**/api/projects/AC/operator/preferences/me', (route) => json(route, 200, preference));
   await page.route('**/api/projects/AC/operator/preferences', (route) =>
     json(route, 200, {
@@ -212,9 +216,21 @@ export default async ({ instance, open, shoot, step }) => {
     ['stale-proposal', payload.change, { reason: 'knowledge_changed', at: now }],
   ])
     await step(name, async () => {
-      state.items = [{ ...item, payload: { operatorKnowledge: { ...payload, change, stale } } }];
+      state.items = [
+        {
+          ...item,
+          title: change.kind === 'principle_put' ? 'Egy kérdés, egy döntés' : item.title,
+          payload: { operatorKnowledge: { ...payload, change, stale } },
+        },
+      ];
       await page.goto(`${new URL(page.url()).origin}/p/AC/inbox`);
       await page.locator('[data-operator-knowledge]').waitFor();
       await shoot(page, name, { widths: [1512, 390] });
+      if (stale) {
+        await page
+          .getByRole('button', { name: hu.knowledge.proposal.retry, exact: true })
+          .scrollIntoViewIfNeeded();
+        await shoot(page, `${name}-lower`, { widths: [390] });
+      }
     });
 };

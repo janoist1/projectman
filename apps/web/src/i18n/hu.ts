@@ -5377,7 +5377,7 @@ export const hu = {
   },
   knowledge: {
     title: 'Ahogy együtt dolgozunk',
-    back: '← Beszélgetés',
+    back: 'Beszélgetés',
     agreement: 'Megállapodásunk',
     more: 'Az egész',
     less: 'Rövidebben',

@@ -188,6 +188,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         {!me.via ? (
           <Button
             ref={knowledgeButton}
+            className={styles.knowledgeButton}
             variant="ghost"
             size="lg"
             iconOnly

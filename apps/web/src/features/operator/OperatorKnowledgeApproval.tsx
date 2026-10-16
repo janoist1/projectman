@@ -76,7 +76,7 @@ export function OperatorKnowledgeBody({
         </>
       ) : change.kind === 'principle_put' ? (
         <>
-          <p>{t('knowledge.proposal.rule')}</p>
+          <strong>{t('knowledge.proposal.rule')}</strong>
           <strong>{change.principle.principle}</strong>
           {principle ? (
             <p className={styles.meta}>{t('knowledge.proposal.previous', { value: principle.principle })}</p>

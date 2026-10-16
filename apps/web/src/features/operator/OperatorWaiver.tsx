@@ -125,18 +125,18 @@ export function OperatorWaiver({
                 else setConfirm(versions);
               }}
             />
+            <span id={description}>
+              {t(
+                saving
+                  ? 'knowledge.waiver.saving'
+                  : agreementVersion === null
+                    ? 'knowledge.waiver.missing'
+                    : enabled
+                      ? 'knowledge.waiver.on'
+                      : 'knowledge.waiver.off',
+              )}
+            </span>
           </label>
-          <p id={description}>
-            {t(
-              saving
-                ? 'knowledge.waiver.saving'
-                : agreementVersion === null
-                  ? 'knowledge.waiver.missing'
-                  : enabled
-                    ? 'knowledge.waiver.on'
-                    : 'knowledge.waiver.off',
-            )}
-          </p>
         </>
       ) : (
         <>
@@ -172,8 +172,10 @@ export function OperatorWaiver({
           </>
         }
       >
-        <p>{t('knowledge.waiver.description', { version: confirm?.agreementVersion ?? '' })}</p>
-        <WaiverScope />
+        <div className={styles.confirmBody}>
+          <p>{t('knowledge.waiver.description', { version: confirm?.agreementVersion ?? '' })}</p>
+          <WaiverScope />
+        </div>
       </Dialog>
     </section>
   );

@@ -78,10 +78,15 @@
   text-decoration: underline;
 }
 
-/* The knowledge and close controls keep the phone header usable. */
+.knowledgeButton[aria-pressed='true'] {
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  border-color: var(--c-accent);
+}
+
+/* On a phone the full-session link keeps its icon and hides only its text. */
 @media (max-width: 767px) {
   .session {
-    display: none;
     position: relative;
     justify-content: center;
     width: 44px;

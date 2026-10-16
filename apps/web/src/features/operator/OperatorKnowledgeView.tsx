@@ -64,7 +64,7 @@ export function OperatorKnowledgeView({
     preferences.data?.items.filter((item) => item.handle !== myHandle && item.preference.revision > 0) ?? [];
   return (
     <div className={styles.view}>
-      <Button variant="ghost" size="lg" onClick={onBack}>
+      <Button variant="ghost" size="lg" icon="chevronLeft" className={styles.edit} onClick={onBack}>
         {t('knowledge.back')}
       </Button>
       <h3>{t(readable ? 'knowledge.title' : 'knowledge.style')}</h3>
@@ -117,7 +117,11 @@ export function OperatorKnowledgeView({
                         })}
                   </p>
                   {isOwner ? (
-                    <Button variant="ghost" onClick={() => onPrefill(t('knowledge.editPrompt'))}>
+                    <Button
+                      variant="ghost"
+                      className={styles.edit}
+                      onClick={() => onPrefill(t('knowledge.editPrompt'))}
+                    >
                       {t('knowledge.edit')}
                     </Button>
                   ) : (
@@ -128,7 +132,11 @@ export function OperatorKnowledgeView({
                 <>
                   <p>{t(isOwner ? 'knowledge.emptyOwner' : 'knowledge.emptyAdmin')}</p>
                   {isOwner ? (
-                    <Button variant="ghost" onClick={() => onPrefill(t('knowledge.startPrompt'))}>
+                    <Button
+                      variant="ghost"
+                      className={styles.edit}
+                      onClick={() => onPrefill(t('knowledge.startPrompt'))}
+                    >
                       {t('knowledge.start')}
                     </Button>
                   ) : null}
@@ -153,7 +161,7 @@ export function OperatorKnowledgeView({
                     <p>{t('knowledge.effect', { effect: principle.effect })}</p>
                     <Fold summary={t('knowledge.example')}>{principle.example}</Fold>
                     {isOwner ? (
-                      <div className={styles.actions}>
+                      <div className={styles.editActions}>
                         {(['rewrite', 'remove'] as const).map((action) => (
                           <Button
                             key={action}
@@ -192,7 +200,7 @@ export function OperatorKnowledgeView({
         />
       ) : (
         <section className={styles.section}>
-          <h4>{t('knowledge.style')}</h4>
+          {readable ? <h4>{t('knowledge.style')}</h4> : null}
           <dl className={styles.style}>
             {fields.map((field, index) => (
               <Fragment key={field}>
@@ -204,7 +212,11 @@ export function OperatorKnowledgeView({
           {preference.data.revision === 0 ? (
             <p className={styles.meta}>{t('knowledge.defaultStyle')}</p>
           ) : null}
-          <Button variant="ghost" onClick={() => onPrefill(t('knowledge.stylePrompt'))}>
+          <Button
+            variant="ghost"
+            className={styles.edit}
+            onClick={() => onPrefill(t('knowledge.stylePrompt'))}
+          >
             {t('knowledge.styleEdit')}
           </Button>
           {readable ? (

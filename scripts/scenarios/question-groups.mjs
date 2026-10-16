@@ -173,17 +173,16 @@ export default async ({ instance, open, shoot, step }) => {
     });
     await step('Every asker withdrew while an answer was being written', async () => {
       for (const [index, id] of IDS.entries())
-        db.prepare('UPDATE inbox_items SET state = ?, resolution = NULL WHERE id = ?').run(
-          index === 0 ? 'open' : 'screening',
-          id,
-        );
+        db.prepare(
+          "UPDATE inbox_items SET state = ?, resolution = NULL, payload = json_remove(payload, '$.answerDelivery') WHERE id = ?",
+        ).run(index === 0 ? 'open' : 'screening', id);
       await page.goto(new URL('/p/AC/inbox', page.url()).href);
       await groupCard().waitFor();
       await groupCard().getByRole('button', { name: 'Saját válasz' }).click();
       await groupCard().locator('textarea').fill('A draft answer');
       const resolution = JSON.stringify({
         optionId: 'closed',
-        by: owner,
+        by: 'system',
         at,
         note: null,
         rule: 'group_withdrawn',

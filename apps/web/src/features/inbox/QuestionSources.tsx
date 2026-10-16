@@ -56,11 +56,7 @@ export function QuestionSources({
             <Avatar member={members.get(source.asker)} handle={source.asker} size="sm" />
             <div className={styles.source}>
               {source.taskKey ? (
-                <Link
-                  className={styles.cardLink}
-                  to={`/p/${projectKey}/tasks/${source.taskKey}`}
-                  aria-label={t('inbox.group.openKey', { key: source.taskKey })}
-                >
+                <Link className={styles.cardLink} to={`/p/${projectKey}/tasks/${source.taskKey}`}>
                   <span className={styles.key}>{source.taskKey}</span>
                   {source.taskTitle ? ` ${source.taskTitle}` : ''}
                 </Link>

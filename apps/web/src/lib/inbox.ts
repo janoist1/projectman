@@ -889,6 +889,7 @@ export function answerDeliveryText(
   members: MemberIndex,
   myHandle: string | null,
 ): string | null {
+  if (item.state === 'cancelled') return null;
   const delivery = answerDeliveryOf(item);
   if (!delivery) return null;
   if (delivery.state === 'delivered')

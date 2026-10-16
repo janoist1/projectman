@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InboxItem, QuestionGroup } from '@projectman/shared';
 import { t } from '../../i18n/t';
+import { formatTime } from '../../i18n/format';
 import { plainLanguageQuestion } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
 import { InboxCard } from './InboxCard';
@@ -67,6 +68,21 @@ function render(entry: InboxItem) {
 }
 
 describe('combined questions in the inbox', () => {
+  it('does not show a delivery receipt for a withdrawn group with stale answer data', async () => {
+    const project = mockProject();
+    const at = new Date().toISOString();
+    project.backend.inbox = [
+      entry({
+        state: 'cancelled',
+        resolution: { optionId: 'closed', by: 'system', at, note: null, rule: 'group_withdrawn' },
+        payload: { ...entry().payload, answerDelivery: { state: 'delivered', at } },
+      }),
+    ];
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const history = await screen.findByRole('complementary');
+    expect(history.textContent).toContain(t('inbox.closedBySystem'));
+    expect(history.textContent).not.toContain(t('inbox.awaitsStart.delivered', { time: formatTime(at) }));
+  });
   it('uses the durable answered count in history even when a source was deleted', async () => {
     const project = mockProject();
     const data: QuestionGroup = {
@@ -109,6 +125,7 @@ describe('combined questions in the inbox', () => {
     expect(fold.getAttribute('aria-expanded')).toBe('false');
     expect(screen.getByText(t('inbox.group.fanout', { count: 2 }))).toBeTruthy();
     fireEvent.click(fold);
+    expect(screen.getByRole('link', { name: 'AC-21 First card' })).toBeTruthy();
     expect(screen.getByText('First original question')).toBeTruthy();
     expect(screen.getByText('Second original question')).toBeTruthy();
     expect(screen.getByText(t('inbox.group.withdrawn'))).toBeTruthy();

@@ -84,9 +84,9 @@ describe('operatorSignalStepRefusal', () => {
     expect(operatorSignalStepRefusal({ ...unreleased, level: 'drive', target, allowed })).toBeNull();
   });
 
-  it('gives answer_stalled no step at any level, with either tool, even with a target', () => {
+  it('binds answer_stalled to start_member at unblock and drive, with no task start', () => {
     for (const level of ['report', 'unblock', 'drive'] as const) {
-      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('answer_stalled');
+      expect(OPERATOR_SIGNAL_STEP_KINDS[level].includes('answer_stalled')).toBe(level !== 'report');
       for (const tool of ['start_task', 'start_member'] as const) {
         expect(
           operatorSignalStepRefusal({
@@ -95,9 +95,15 @@ describe('operatorSignalStepRefusal', () => {
             kind: 'answer_stalled',
             tool,
             target: { member: tool === 'start_member' ? 'dev-1' : null, taskKey: 'AR-1' },
-            allowed: { startTask: 'AR-1', members: ['dev-1'], taskKey: 'AR-1' },
+            allowed: { startTask: null, members: ['dev-1'], taskKey: 'AR-1' },
           }),
-        ).toEqual({ code: 'operator_no_request', reason: level === 'report' ? 'level' : 'kind' });
+        ).toEqual(
+          level === 'report'
+            ? { code: 'operator_no_request', reason: 'level' }
+            : tool === 'start_task'
+              ? { code: 'operator_no_request', reason: 'tool' }
+              : null,
+        );
       }
     }
   });

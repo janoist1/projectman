@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   OPERATOR_ANSWER_STALL_GRACE_MS,
   OPERATOR_ANSWER_STALL_WAKE_MS,
@@ -11,7 +11,7 @@ import {
 } from '@projectman/shared';
 import type { OperatorSignalKind, OperatorWatch, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, restartDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -40,8 +40,11 @@ async function setup(level: OperatorWatch = 'drive') {
   now = new Date('2026-10-14T10:00:00Z');
   messageCount = 0;
   h = await createDomainHarness({
+    persistent: true,
     now: () => now,
     adjust: (config) => {
+      const pm = config.team.members.find((m) => m.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.onLeave = false;
       config.team.operatorWatch = level;
     },
   });
@@ -132,9 +135,9 @@ function session(
 
 const operator = (): ToolContext => ({
   projectKey: 'AR',
-  member: 'operator',
+  member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'operator' })[0]!.id,
+  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
 });
 const wakeTexts = () =>
   [...h.runner.started.map((s) => s.initialMessage ?? ''), ...h.runner.messages.map((m) => m.text)].filter(
@@ -171,7 +174,7 @@ describe('detection', () => {
       {
         kind: 'answer_stalled',
         facts: { evidenceId: id, evidenceAt: iso(-GRACE), member: 'dev-1', lastActionAt: null },
-        step: null,
+        step: { tool: 'start_member', task_key: card.key, members: ['dev-1'] },
       },
     ]);
   });
@@ -433,16 +436,22 @@ describe('the Operator’s steps', () => {
   }
 
   it.each(['report', 'unblock', 'drive'] as const)(
-    'level %s only reports: no step, no budget, and no start from the signal',
+    'level %s binds the PM step to the current assignee and tool',
     async (level) => {
       const { card, signal } = await stalled(level);
       expect(wakeRows()).toMatchObject([
-        { kind: 'answer_stalled', step: null, steps_left: 0, next_step_at: null },
+        {
+          kind: 'answer_stalled',
+          step: level === 'report' ? null : { tool: 'start_member', task_key: card.key, members: ['dev-1'] },
+          steps_left: level === 'report' ? 0 : level === 'unblock' ? 1 : 3,
+          next_step_at: null,
+        },
       ]);
-      await expect(push(card, signal)).rejects.toMatchObject({
-        code: 'forbidden',
-        message: expect.stringContaining('operator_no_request'),
-      });
+      if (level === 'report')
+        await expect(push(card, signal)).rejects.toMatchObject({
+          code: 'forbidden',
+          message: expect.stringContaining('operator_no_request'),
+        });
       await expect(
         h.domain.teamTools.startTask(operator(), { taskKey: card.key, signalId: signal.id }),
       ).rejects.toMatchObject({ message: expect.stringContaining('operator_no_request') });
@@ -458,8 +467,82 @@ describe('the Operator’s steps', () => {
       expect(h.domain.sessions.list('AR', { member: 'dev-2' })).toEqual([]);
       expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
       expect(h.repos.tasks.get(card.key)).toMatchObject({ stageId: 'development', assignee: 'dev-1' });
+      if (level !== 'report') {
+        const result = await push(card, signal);
+        expect(h.repos.messages.get(result.messageId)).toMatchObject({
+          from: 'pm',
+          to: ['dev-1'],
+          taskKey: card.key,
+        });
+        const [step] = h.repos.operatorRequests.stepsOfSignal(signal.id);
+        expect(h.repos.operatorRequests.get(step!.requestId)?.sessionId).toBe(operator().sessionId);
+      }
     },
   );
+
+  it.each(['assignee', 'stage', 'evidence', 'permission', 'gate', 'prerequisite'] as const)(
+    'rechecks %s before a PM answer-stalled push',
+    async (change) => {
+      const { card, signal } = await stalled('drive');
+      if (change === 'assignee') h.repos.tasks.update(card.id, { assignee: 'dev-2' });
+      if (change === 'stage')
+        h.repos.tasks.update(card.id, { stageId: 'code_review', stageEnteredAt: iso(1) });
+      if (change === 'evidence') message(card, { deliveredAt: 1 });
+      if (change === 'permission') await session(card, 'waiting_permission');
+      if (change === 'gate') {
+        const config = h.domain.projects.cachedConfig('AR')!;
+        config.pipeline.stages.find((s) => s.id === 'development')!.gate = {
+          conditions: [{ type: 'has_label', label: 'code-review-ok' }],
+        };
+      }
+      if (change === 'prerequisite') {
+        const first = await develop('dev-2');
+        await h.domain.tasks.update(
+          'AR',
+          card.key,
+          { relations: { add: [{ kind: 'prerequisite', key: first.key }] } },
+          OWNER_ACTOR,
+        );
+      }
+      await expect(push(card, signal)).rejects.toThrow(/operator_signal_closed|operator_no_request/);
+      expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+    },
+  );
+
+  it('rechecks evidence at the message write boundary and releases its mutex after refusal', async () => {
+    const { card, signal } = await stalled('drive');
+    const read = h.domain.sessions.sourceHead.bind(h.domain.sessions);
+    const changed = vi.spyOn(h.domain.sessions, 'sourceHead').mockImplementationOnce(async (...args) => {
+      message(card, { deliveredAt: 1 });
+      return read(...args);
+    });
+    await expect(push(card, signal)).rejects.toThrow('no longer open');
+    changed.mockRestore();
+    expect(h.repos.operatorRequests.stepsOfSignal(signal.id).every((s) => s.status === 'refused')).toBe(true);
+    seconds(GRACE + 1);
+    await sweep();
+    const current = open()[0]!;
+    await expect(push(card, current)).resolves.toHaveProperty('messageId');
+  });
+
+  it('serializes simultaneous pushes and retains the used budget across restart', async () => {
+    const { card, signal } = await stalled('unblock');
+    const outcomes = await Promise.allSettled([push(card, signal), push(card, signal)]);
+    expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
+    expect(
+      h.repos.operatorRequests.stepsOfSignal(signal.id).filter((s) => s.status !== 'refused'),
+    ).toHaveLength(1);
+    const worker = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    h.runner.setState(worker.id, 'idle');
+    await flush();
+    minutes(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    h = await restartDomainHarness(h, { now: () => now });
+    await sweep();
+    await expect(push(card, signal)).rejects.toThrow(/operator_signal_budget|operator_signal_closed/);
+    expect(
+      h.repos.operatorRequests.stepsOfSignal(signal.id).filter((s) => s.status !== 'refused'),
+    ).toHaveLength(1);
+  });
 
   it('closes the signal when the member does real work', async () => {
     const { card } = await stalled('drive');

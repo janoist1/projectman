@@ -1,4 +1,5 @@
 import {
+  coordinationMemberOf,
   memberOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationOf,
@@ -14,9 +15,10 @@ import type {
   ProjectConfig,
 } from '@projectman/shared';
 import type { OperatorRequestRecord, OperatorStepRecord } from '../../db';
+import type { ProjectService } from '../../core/projects';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
-import { newId } from '../../kernel';
+import { forbidden, newId } from '../../kernel';
 
 /** An owner's request to the Operator stays open this long at most; the end of its turn closes it sooner. */
 export const OPERATOR_REQUEST_TTL_MS = 30 * 60_000;
@@ -51,8 +53,8 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The team tools the Operator may call with no owner request open and no step logged (PM-558): the
- * question screening and signal triage are its standing duties, answered on their own records.
+ * The PM's standing screening tools (legacy constant name), with no owner request or step logged:
+ * question screening and signal triage are answered on their own records.
  * Never in a guest conversation.
  */
 export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set(['screen_question', 'dismiss_signal']);
@@ -245,17 +247,19 @@ export class OperatorRequests {
    * The latest requests that these members made with their steps, the newest last; the ones past their
    * time are closed first. The owners' channel lists the owners' requests, a guest's their own (PM-475).
    */
-  views(projectKey: string, fromHandles: string[]): OperatorRequestView[] {
+  views(projectKey: string, fromHandles: string[], recipient?: string): OperatorRequestView[] {
     const { operatorRequests } = this.ctx.repos;
     for (const request of operatorRequests.openOfProject(projectKey)) this.expire(request);
-    return operatorRequests.latestFrom(projectKey, fromHandles, OPERATOR_CHANNEL_REQUESTS).map((request) => ({
-      id: request.id,
-      messageId: request.messageId,
-      quote: request.quote,
-      openedAt: request.openedAt,
-      closedAt: request.closedAt,
-      steps: operatorRequests.steps(request.id).map(stepView),
-    }));
+    return operatorRequests
+      .latestFrom(projectKey, fromHandles, OPERATOR_CHANNEL_REQUESTS, recipient)
+      .map((request) => ({
+        id: request.id,
+        messageId: request.messageId,
+        quote: request.quote,
+        openedAt: request.openedAt,
+        closedAt: request.closedAt,
+        steps: operatorRequests.steps(request.id).map(stepView),
+      }));
   }
 
   /** Closes the request when its time is up, at the moment it ran out; true when it is closed. */
@@ -264,6 +268,46 @@ export class OperatorRequests {
     if (this.ctx.now().getTime() < until) return false;
     this.ctx.repos.operatorRequests.close(request.id, new Date(until).toISOString());
     return true;
+  }
+}
+
+/** The PM's requests use separate session rows and never inherit an Operator request or signal round. */
+export interface OpenCoordinationRequest extends OpenOperatorRequest {}
+
+export class CoordinationRequests extends OperatorRequests {
+  private readonly coordinationCtx: DomainContext;
+  private readonly projects: Pick<ProjectService, 'cachedConfig'>;
+
+  constructor(deps: { ctx: DomainContext; projects: Pick<ProjectService, 'cachedConfig'> }) {
+    super(deps);
+    this.coordinationCtx = deps.ctx;
+    this.projects = deps.projects;
+  }
+
+  override open(input: OpenCoordinationRequest): OperatorRequestRecord {
+    if (!this.isCoordinationSession(input.sessionId, input.projectKey))
+      throw forbidden('project_manager_only', 'coordination requires the selected PM internal conversation');
+    if (input.source === 'approval')
+      throw forbidden('operator_no_request', 'no structural approval continuation is authorized for the PM');
+    return super.open(input);
+  }
+
+  override openFor(sessionId: string): OperatorRequestRecord | null {
+    const request = this.isCoordinationSession(sessionId) ? super.openFor(sessionId) : null;
+    return request?.source === 'approval' ? null : request;
+  }
+
+  private isCoordinationSession(sessionId: string, projectKey?: string): boolean {
+    const session = this.coordinationCtx.repos.sessions.get(sessionId);
+    const config = session && this.projects.cachedConfig(session.projectKey);
+    return !!(
+      session &&
+      config &&
+      (!projectKey || session.projectKey === projectKey) &&
+      coordinationMemberOf(config)?.handle === session.member &&
+      session.workItem.type === 'general' &&
+      !session.workItem.with
+    );
   }
 }
 

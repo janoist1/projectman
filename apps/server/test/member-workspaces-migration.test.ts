@@ -22,7 +22,7 @@ describe('member workspaces migration (PM-138)', () => {
         VALUES ('ops_old', 'opr_old', '2026-01-01', 'config_change', 'done');`);
       migrate(db);
       expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toEqual(signalsBefore);
+      expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toMatchObject(signalsBefore);
       expect(() =>
         db.exec(`INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at)
         VALUES ('sig_cleanup', 'AR', 'process_cleanup_failed', 'cleanup:scope', 'pending', '2026-01-01');`),
@@ -41,6 +41,13 @@ describe('member workspaces migration (PM-138)', () => {
       expect(repos.operatorSignals.get('sig_old')).toMatchObject({
         followUpAt: '2026-01-02',
         decisionNote: 'kept',
+        deliveredTo: null,
+      });
+      expect(repos.operatorSignals.get('sig_answer')).toMatchObject({
+        state: 'open',
+        followUpAt: '2026-01-03',
+        decisionNote: 'answer kept',
+        deliveredTo: null,
       });
       repos.memberWorkspaces.setHolderPid('wsp_old', 'ses_old', 4242, 'scp_0123456789abcdef');
       repos.memberWorkspaces.failCleanup('wsp_old', 'ses_old', 'scp_1111111111111111');

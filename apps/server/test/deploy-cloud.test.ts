@@ -331,6 +331,12 @@ describe('deploy/cloud shell scripts', () => {
 });
 
 describe('deploy/cloud image', () => {
+  it('copies the built feedback widget into the runtime image', () => {
+    const runtime = dockerfile.split(/^FROM .* AS runtime\s*$/m)[1];
+    expect(runtime).toBeDefined();
+    expect(runtime).toContain('COPY --from=build /app/apps/feedback-widget/dist ./apps/feedback-widget/dist');
+  });
+
   it('copies every workspace manifest before installing build dependencies', () => {
     const { workspaces } = JSON.parse(read('package.json')) as { workspaces: string[] };
     const manifests = globSync(

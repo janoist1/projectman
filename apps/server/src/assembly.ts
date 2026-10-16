@@ -27,6 +27,7 @@ import { createTaskService } from './core/tasks';
 import { createProjectService } from './core/projects';
 import {
   canManageInstancePause,
+  coordinationMemberOf,
   isOnLeave,
   isOpenTask,
   OPERATOR_SILENT_WORK_MINUTES,
@@ -90,7 +91,13 @@ import { AttachmentService } from './core/attachments';
 import { MessageAttachmentService } from './core/attachments';
 import { BackgroundTasks } from './kernel';
 import { BoardService } from './core/tasks';
-import { OperatorKnowledge, OperatorPreferences, OperatorRequests, OperatorSteps } from './services/operator';
+import {
+  CoordinationRequests,
+  OperatorKnowledge,
+  OperatorPreferences,
+  OperatorRequests,
+  OperatorSteps,
+} from './services/operator';
 import { OperatorSignals } from './services/operator';
 import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
@@ -435,6 +442,7 @@ export function createDomain(opts: DomainOptions) {
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
   const operatorRequests = new OperatorRequests({ ctx });
+  const coordinationRequests = new CoordinationRequests({ ctx, projects });
   const operatorPreferences = new OperatorPreferences({
     ctx,
     projects,
@@ -442,7 +450,7 @@ export function createDomain(opts: DomainOptions) {
     store: opts.operatorKnowledge,
   });
   const operatorSteps = new OperatorSteps({ ctx });
-  const messages = new MessageService({ ctx, timeline, projects, operatorRequests });
+  const messages = new MessageService({ ctx, timeline, projects, operatorRequests, coordinationRequests });
   const sharedOperatorKnowledge = new OperatorKnowledge({
     ctx,
     projects,
@@ -604,6 +612,8 @@ export function createDomain(opts: DomainOptions) {
   // the owner's next message opens a new request after this one closed, not before.
   events.on('session_idle', (session) => operatorRequests.closeForSession(session.id));
   events.on('session_ended', (session) => operatorRequests.closeForSession(session.id));
+  events.on('session_idle', (session) => coordinationRequests.closeForSession(session.id));
+  events.on('session_ended', (session) => coordinationRequests.closeForSession(session.id));
   const decisionCandidates = new DecisionCandidates({ ctx });
   const delivery = new MessageDelivery({ ctx, sessions, messages, projects, decisionCandidates });
   const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
@@ -963,6 +973,7 @@ export function createDomain(opts: DomainOptions) {
     releases,
   });
   messaging.registerSignals(operatorSignals);
+  events.on('config_changed', ({ projectKey }) => operatorSignals.recheckRecipients(projectKey));
   const questionScreening = new QuestionScreening({
     ctx,
     projects,
@@ -974,7 +985,8 @@ export function createDomain(opts: DomainOptions) {
   });
   const finishOperatorSignals = (session: Session) => {
     const config = projects.cachedConfig(session.projectKey);
-    if (config && session.member === operatorOf(config)?.handle) operatorSignals.finish(session.projectKey);
+    if (config && session.member === coordinationMemberOf(config)?.handle)
+      operatorSignals.finish(session.projectKey);
   };
   events.on('session_idle', finishOperatorSignals);
   events.on('session_ended', finishOperatorSignals);
@@ -1122,6 +1134,7 @@ export function createDomain(opts: DomainOptions) {
     operatorSteps,
     operatorSignals,
     sessionEngine,
+    coordinationRequests,
   });
   const teamTools = new TeamToolsService({
     tools: {

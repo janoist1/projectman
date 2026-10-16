@@ -21,7 +21,13 @@ afterEach(async () => {
 });
 async function setup() {
   now = new Date('2026-10-11T10:00:00Z');
-  h = await createDomainHarness({ now: () => now });
+  h = await createDomainHarness({
+    now: () => now,
+    adjust: (config) => {
+      const pm = config.team.members.find((m) => m.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.onLeave = false;
+    },
+  });
 }
 it('raises a failed process cleanup signal and resolves it on confirmed recovery', async () => {
   await setup();
@@ -64,14 +70,14 @@ function raise(caseKey = 'outage:test') {
 const get = (id: string) => h.repos.operatorSignals.get(id)!;
 const tool = (): ToolContext => ({
   projectKey: 'AR',
-  member: 'operator',
+  member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'operator' })[0]!.id,
+  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
 });
 async function deliver() {
   await h.domain.operatorSignals.deliver('AR');
   await flush();
-  const session = h.domain.sessions.list('AR', { member: 'operator' })[0];
+  const session = h.domain.sessions.list('AR', { member: 'pm' })[0];
   if (session) {
     h.runner.setState(session.id, 'working');
     h.runner.setState(session.id, 'idle');
@@ -145,7 +151,14 @@ describe('Operator system signals', () => {
     'preserves a %s outage signal before the first restart evaluation',
     async (state) => {
       now = new Date('2026-10-11T10:00:00Z');
-      h = await createDomainHarness({ persistent: true, now: () => now });
+      h = await createDomainHarness({
+        persistent: true,
+        now: () => now,
+        adjust: (config) => {
+          const pm = config.team.members.find((m) => m.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = false;
+        },
+      });
       const signal = raise();
       if (state === 'open') await deliver();
       expect(get(signal.id).state).toBe(state);
@@ -165,7 +178,14 @@ describe('Operator system signals', () => {
 
   it('resolves an acknowledged outage after restart so the same provider can signal again', async () => {
     now = new Date('2026-10-11T10:00:00Z');
-    h = await createDomainHarness({ persistent: true, now: () => now });
+    h = await createDomainHarness({
+      persistent: true,
+      now: () => now,
+      adjust: (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm')!;
+        if (pm.kind === 'ai') pm.onLeave = false;
+      },
+    });
     Object.assign(h.runner, {
       providerStatus: async (provider: string) => ({
         provider,
@@ -231,7 +251,7 @@ describe('Operator system signals', () => {
       h.domain.messaging.send(
         'AR',
         'owner',
-        { to: ['operator'], text: 'Yes' },
+        { to: ['pm'], text: 'Yes' },
         { actor: OWNER_ACTOR, operatorSignal: signal.id },
       ),
     ).rejects.toThrow('Recording failed');
@@ -240,7 +260,7 @@ describe('Operator system signals', () => {
   });
   it('keeps a failed notice pending and retries without spending the wake interval', async () => {
     await setup();
-    await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
+    await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
     const signal = raise();
     vi.spyOn(h.runner, 'sendUserMessage').mockRejectedValueOnce(new Error('Delivery failed'));
     await expect(h.domain.operatorSignals.deliver('AR')).rejects.toThrow('delivery failed');
@@ -303,9 +323,9 @@ describe('Operator system signals', () => {
     await setup();
     const signal = raise();
     await deliver();
-    await expect(h.domain.teamTools.createTask(tool(), { title: 'Unauthorized' })).rejects.toThrow(
-      'operator_no_request',
-    );
+    await expect(
+      h.domain.teamTools.startMember(tool(), { member: 'dev-1', text: 'Unauthorized' }),
+    ).rejects.toThrow('operator_no_request');
     const sent = await h.domain.teamTools.sendMessage(tool(), {
       to: ['owner'],
       kind: 'info',
@@ -328,13 +348,16 @@ describe('Operator system signals', () => {
     const accepted = await h.domain.messaging.send(
       'AR',
       'owner',
-      { to: ['operator'], text: 'Yes, handle it' },
+      { to: ['pm'], text: 'Yes, handle it' },
       { actor: OWNER_ACTOR, operatorSignal: signal.id },
     );
     await flush();
     expect(get(signal.id)).toMatchObject({ state: 'accepted', decidedBy: 'owner' });
     expect(h.repos.operatorRequests.openOfSession(tool().sessionId)[0]?.messageId).toBe(accepted.id);
-    await expect(h.domain.teamTools.createTask(tool(), { title: 'Authorized' })).resolves.toBeDefined();
+    expect(accepted.operatorSignal).toBe(signal.id);
+    await expect(
+      h.domain.teamTools.startMember(tool(), { member: 'dev-2', text: 'Authorized work.' }),
+    ).resolves.toHaveProperty('messageId');
   });
 
   it('rejects pending, foreign, resolved and non-Operator presentations', async () => {
@@ -369,7 +392,7 @@ describe('Operator system signals', () => {
       h.domain.messaging.send(
         'AR',
         'owner',
-        { to: ['operator'], text: 'Yes' },
+        { to: ['pm'], text: 'Yes' },
         { actor: OWNER_ACTOR, operatorSignal: signal.id },
       ),
     ).rejects.toMatchObject({ code: 'operator_signal_closed', status: 409 });
@@ -384,7 +407,7 @@ describe('Operator system signals', () => {
       h.domain.messaging.send(
         'AR',
         'owner',
-        { to: ['operator'], text: 'Yes' },
+        { to: ['pm'], text: 'Yes' },
         { actor: { ...OWNER_ACTOR, via: 'integrator' }, operatorSignal: signal.id },
       ),
     ).rejects.toMatchObject({ code: 'operator_signal_closed', status: 409 });
@@ -426,7 +449,14 @@ describe('Operator system signals', () => {
 
   it('recovers delivered turns and keeps the wake interval across a restart', async () => {
     now = new Date('2026-10-11T10:00:00Z');
-    h = await createDomainHarness({ persistent: true, now: () => now });
+    h = await createDomainHarness({
+      persistent: true,
+      now: () => now,
+      adjust: (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm')!;
+        if (pm.kind === 'ai') pm.onLeave = false;
+      },
+    });
     const first = raise();
     await h.domain.operatorSignals.deliver('AR');
     await flush();
@@ -466,7 +496,7 @@ describe('Operator system signals', () => {
       outageId: 'provider',
       inboxItemId: 'alert_1',
     });
-    await vi.waitFor(() => expect(h.domain.sessions.list('AR', { member: 'operator' })).toHaveLength(1));
+    await vi.waitFor(() => expect(h.domain.sessions.list('AR', { member: 'pm' })).toHaveLength(1));
     await flush();
     h.runner.setState(tool().sessionId, 'idle');
     await flush();
@@ -513,6 +543,12 @@ describe('Operator system signals', () => {
     app = await createAppHarness({ app: { claudeTmpRoots: [] } });
     const cookie = await setupOwner(app.app);
     await createProject(app, cookie);
+    await app.app.projectman.domain.members.update(
+      'AR',
+      'pm',
+      { onLeave: false },
+      { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.test' } },
+    );
     const other = await addHumanAndLogin(app.app, {
       handle: 'dana',
       email: 'dana@example.test',
@@ -526,7 +562,7 @@ describe('Operator system signals', () => {
     });
     await app.app.projectman.domain.operatorSignals.deliver('AR');
     await flush();
-    app.runner.setState(app.app.projectman.domain.sessions.list('AR', { member: 'operator' })[0]!.id, 'idle');
+    app.runner.setState(app.app.projectman.domain.sessions.list('AR', { member: 'pm' })[0]!.id, 'idle');
     await flush();
     const url = routes.dismissOperatorSignal('AR', signal.id);
     expect((await app.app.inject({ method: 'POST', url, headers: { cookie: other } })).statusCode).toBe(403);

@@ -1307,6 +1307,11 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   },
   {
     version: 69,
+    name: 'coordination signal recipient',
+    sql: 'ALTER TABLE operator_signals ADD COLUMN delivered_to TEXT;',
+  },
+  {
+    version: 70,
     name: 'operator execution journal and approval provenance',
     sql: `ALTER TABLE operator_steps ADD COLUMN agreement_version INTEGER NULL;
     ALTER TABLE operator_steps ADD COLUMN approval_mode TEXT NULL;

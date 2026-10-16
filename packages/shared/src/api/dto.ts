@@ -191,6 +191,7 @@ export const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismi
 export type OperatorSignalState = z.infer<typeof OperatorSignalState>;
 export const OperatorSignal = z.object({
   id: z.string(),
+  deliveredTo: MemberHandle.nullable().optional(),
   kind: OperatorSignalKind,
   state: OperatorSignalState,
   actionable: z.boolean(),

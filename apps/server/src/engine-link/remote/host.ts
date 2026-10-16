@@ -36,6 +36,8 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FULL_TEST_GRACE_MS = 60_000;
 const SCREENSHOT_GRACE_MS = 60_000;
 const CANCEL_TIMEOUT_MS = 10_000;
+// A full test's cancel is answered when the run has ended, after its processes were stopped.
+const FULL_TEST_CANCEL_WAIT_MS = 60_000;
 // One git step of the engine's merger waits up to 120 s. These are the engine's worst cases (steps in a
 // row, and the five-minute dependency copy), so the cloud never gives up before the engine has.
 const MERGE_WAIT_MS = 600_000; // up to five git steps
@@ -187,19 +189,31 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
         const startedAt = now();
         // An older engine never sends `full_test_started`: the caller stays at its waiting step.
         if (onStarted) fullStarted.set(spec.runId, onStarted);
-        const cancel = () => {
-          call('full_test.cancel', { runId: spec.runId }, { timeoutMs: CANCEL_TIMEOUT_MS }).catch(() => {});
+        // The engine answers a cancel when the run has ended and cleaned up; one cancel serves both paths.
+        let cancelled: Promise<void> | null = null;
+        const cancel = (): Promise<void> => {
+          cancelled ??= call(
+            'full_test.cancel',
+            { runId: spec.runId },
+            { timeoutMs: FULL_TEST_CANCEL_WAIT_MS },
+          ).then(
+            () => {},
+            () => {},
+          );
+          return cancelled;
         };
-        if (signal.aborted) cancel();
-        else signal.addEventListener('abort', cancel, { once: true });
+        const onAbort = () => void cancel();
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
         try {
           return await call('full_test.run', { spec }, { timeoutMs: spec.timeoutMs + FULL_TEST_GRACE_MS });
         } catch (err) {
           logger.warn({ err, engineId: id, runId: spec.runId }, 'a full test did not end on its engine');
           // The call timed out or was cut off while the engine may still run it: a dependency installation
-          // must not go on unattended (PM-681). The engine ends the run and frees its heavy-run lock.
+          // must not go on unattended (PM-681). The engine ends the run and frees its heavy-run lock; the
+          // caller removes the check checkout only after that, so the cancel is waited for.
           if (err instanceof EngineCallError && err.linkCode === 'timeout') {
-            if (!signal.aborted) cancel();
+            await cancel();
             return {
               outcome: 'error',
               reason: signal.aborted ? 'killed' : 'timeout',
@@ -241,7 +255,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           };
         } finally {
           fullStarted.delete(spec.runId);
-          signal.removeEventListener('abort', cancel);
+          signal.removeEventListener('abort', onAbort);
         }
       },
     };

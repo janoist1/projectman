@@ -781,7 +781,15 @@ describe('cloud mode remote parts', () => {
     it('cancels the run on its engine when the call times out, ending it as a timeout (PM-681)', async () => {
       const engine = await online();
       engine.answer('full_test.run', () => new Promise(() => {}));
-      engine.answer('full_test.cancel', () => null);
+      // The engine answers the cancel only when the run has ended, so the caller removes the checkout after.
+      let engineStopped: () => void = () => {};
+      engine.answer(
+        'full_test.cancel',
+        () =>
+          new Promise<null>((resolve) => {
+            engineStopped = () => resolve(null);
+          }),
+      );
       const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
       vi.useFakeTimers({ toFake: ['setTimeout'] });
       try {
@@ -790,10 +798,19 @@ describe('cloud mode remote parts', () => {
           { ...fullTestSpec('f1'), npmCi, requireHeavyLock: true },
           new AbortController().signal,
         );
+        let ended = false;
+        void run.then(() => {
+          ended = true;
+        });
         await vi.waitFor(() =>
           expect(engine.requests.some((item) => item.method === 'full_test.run')).toBe(true),
         );
         await vi.advanceTimersByTimeAsync(1000 + 60_000);
+        await vi.waitFor(() =>
+          expect(engine.requests.some((item) => item.method === 'full_test.cancel')).toBe(true),
+        );
+        expect(ended).toBe(false);
+        engineStopped();
         await expect(run).resolves.toMatchObject({ outcome: 'error', reason: 'timeout' });
       } finally {
         vi.useRealTimers();

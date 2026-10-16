@@ -1257,7 +1257,10 @@ regular root lockfile keeps the preferred-source copy behavior, and a symlinked 
 installation. Preparation errors (`dependency_install_failed`, `timeout`, `killed`, an unusable queue)
 are `error` results: the merge blocks with `check_error` (no developer fix round, no owner question, no
 test, no push) and the check checkout is released after the executor has ended; only a test that runs
-and fails is `check_failed`.
+and fails is `check_failed`. On a remote engine this holds for an RPC timeout too: the cloud sends
+`full_test.cancel`, and the engine answers it only when the run has ended and cleaned up (the
+installation stopped, the lock freed), so the checkout is removed after that; an engine that stays
+unreachable is `engine_offline`.
 
 `BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
 (PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where

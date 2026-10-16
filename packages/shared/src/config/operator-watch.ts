@@ -8,7 +8,10 @@ export type OperatorWatch = z.infer<typeof OperatorWatch>;
 export const DEFAULT_OPERATOR_WATCH: OperatorWatch = 'report';
 
 /** The signal kinds the coordinator may close as needing nothing instead of presenting them. */
-export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = ['ready_waiting'];
+export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
+  'ready_waiting',
+  'refinement_stalled',
+];
 
 /** How much the coordinator does on its own on a system signal (PM-545); absent means report. */
 export function operatorWatchOf(config: Pick<ProjectConfig, 'team'>): OperatorWatch {

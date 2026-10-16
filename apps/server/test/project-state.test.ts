@@ -305,7 +305,7 @@ describe('project state from server records', () => {
       h.domain.teamTools.getProjectState({ ...operator, member: 'dev-1' }, {}),
     ).rejects.toMatchObject({
       code: 'forbidden',
-      message: 'operator_only: only the Operator may read project state.',
+      message: expect.stringContaining('project_manager_only'),
     });
     expect(await h.domain.teamTools.getProjectState(operator, {})).toHaveProperty('stages');
     expect(await h.domain.teamTools.getProjectState(operator, { taskKey: 'AR-1' })).toHaveProperty(

@@ -30,6 +30,8 @@ async function setup(level: OperatorWatch | undefined, adjust?: (config: Project
   h = await createDomainHarness({
     now: () => now,
     adjust: (config) => {
+      const pm = config.team.members.find((m) => m.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.onLeave = false;
       if (level) config.team.operatorWatch = level;
       adjust?.(config);
     },
@@ -72,9 +74,9 @@ function mergeRow(taskKey: string): MergeRecord {
 
 const operator = (): ToolContext => ({
   projectKey: 'AR',
-  member: 'operator',
+  member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'operator' })[0]!.id,
+  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
 });
 
 /** The wake-up texts the Operator got, the last one first read. */
@@ -210,7 +212,7 @@ describe('level drive', () => {
     expect(wakeRows()[0]!.facts).toEqual({
       cards: [first.key, second.key],
       new_cards: [second.key],
-      last_dismissed: { at, by: 'operator', note: 'Parked intentionally.', cards: [first.key] },
+      last_dismissed: { at, by: 'pm', note: 'Parked intentionally.', cards: [first.key] },
     });
   });
 

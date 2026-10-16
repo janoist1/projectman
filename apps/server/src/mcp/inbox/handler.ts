@@ -3,6 +3,7 @@ import { TeamToolError } from '../../contracts';
 import { type ToolCaller, toToolError, isOwner } from '../caller';
 import {
   canReadAttachments,
+  coordinationMemberOf,
   ownerHandles,
   isOperator,
   memberOf,
@@ -116,7 +117,7 @@ export class InboxTools implements InboxToolsHandler {
       // Every other AI member's question goes through the Operator first (PM-558); a re-ask does not.
       const screened =
         this.questionScreening.enabled &&
-        !operator &&
+        coordinationMemberOf(config)?.handle !== ctx.member &&
         !unscreened &&
         memberOf(config, ctx.member)?.kind === 'ai';
       let assignees: string[];

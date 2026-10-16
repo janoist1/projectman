@@ -240,6 +240,40 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(task(keys[3]!).assignee).toBeNull();
   });
 
+  it.each(['withdrawn', 'refused'] as const)(
+    'retires a new temp worker when the final start check is %s',
+    async (outcome) => {
+      h = await createDomainHarness({ adjust: temp });
+      await setLeave('dev-1', true);
+      await setLeave('dev-2', true);
+      const key = await create();
+      const hire = h.domain.members.hire.bind(h.domain.members);
+      let hiredHandle: string | undefined;
+      vi.spyOn(h.domain.members, 'hire').mockImplementation(async (...args) => {
+        const member = await hire(...args);
+        hiredHandle = member.handle;
+        return member;
+      });
+      const refusal = new Error('The start is no longer authorized');
+      const result = h.domain.taskStarts.start('AR', key, {
+        ...by(),
+        stillWanted: () => {
+          if (!hiredHandle) return true;
+          if (outcome === 'refused') throw refusal;
+          return false;
+        },
+      });
+      if (outcome === 'refused') await expect(result).rejects.toBe(refusal);
+      else await expect(result).resolves.toMatchObject({ session: null, hired: null });
+      expect(hiredHandle).toBeDefined();
+      expect((await h.domain.projects.config('AR')).team.members.map((m) => m.handle)).not.toContain(
+        hiredHandle,
+      );
+      expect(task(key)).toMatchObject({ stageId: 'backlog', assignee: null });
+      expect(sessionsOf(key)).toEqual([]);
+    },
+  );
+
   it('leaves a card that has an assignee alone: it is only told, as before', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const key = await create();

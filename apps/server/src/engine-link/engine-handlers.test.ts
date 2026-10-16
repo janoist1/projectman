@@ -85,6 +85,58 @@ describe('engine handlers', () => {
     expect(events).toEqual(['before', { kind: 'full_test_started', runId: 'f9' }]);
   });
 
+  it('answers a full test cancel only when the run has ended and cleaned up (PM-681)', async () => {
+    const handlers = new Map<string, (params: unknown, context: unknown) => Promise<unknown>>();
+    const rpc = {
+      handle: (method: string, handler: never) => {
+        handlers.set(method, handler);
+        return () => undefined;
+      },
+    } as unknown as EngineRpc;
+    const log: string[] = [];
+    let finishCleanup: () => void = () => {};
+    const executor = {
+      run: (_spec: unknown, signal: AbortSignal) =>
+        new Promise((resolve) => {
+          signal.addEventListener('abort', () => {
+            log.push('aborted');
+            finishCleanup = () => {
+              log.push('cleaned');
+              resolve({ outcome: 'error', reason: 'killed', exitCode: null });
+            };
+          });
+        }),
+    };
+    createEngineHandlers({
+      limit: { check: async (_method: string, params: unknown) => params } as never,
+      audit: { record: () => undefined } as never,
+      runner: {} as never,
+      transcripts: {} as never,
+      planUsageFor: (() => ({})) as never,
+      engine: { fullTestExecutor: executor } as never,
+      github: {} as never,
+      probe: {} as never,
+      transfers: {} as never,
+      mcpBase: 'http://127.0.0.1:4801',
+      emit: () => undefined,
+      terminals: new Set(),
+      exportDir: '/nonexistent',
+    }).register(rpc);
+    const run = handlers.get('full_test.run')!({ spec: { runId: 'f8' } }, { id: 'r1' });
+    const cancel = handlers.get('full_test.cancel')!({ runId: 'f8' }, { id: 'r2' }).then(() => {
+      log.push('cancel answered');
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(log).toEqual(['aborted']);
+    finishCleanup();
+    await cancel;
+    await run;
+    expect(log).toEqual(['aborted', 'cleaned', 'cancel answered']);
+    // A run that is gone answers at once.
+    await expect(handlers.get('full_test.cancel')!({ runId: 'f8' }, { id: 'r3' })).resolves.toBeNull();
+  });
+
   it('lists exactly the cloud-direction methods as the ones the engine does not answer', () => {
     const cloudMethods = (Object.keys(methods) as EngineMethod[]).filter(
       (name) => methods[name].direction === 'cloud',

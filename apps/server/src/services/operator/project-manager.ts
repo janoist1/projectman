@@ -50,6 +50,7 @@ export class ProjectManagerChannels {
       requests: this.deps.operatorRequests.views(
         projectKey,
         readOnly ? [viewer] : [...ownerHandles(config), OPERATOR_SIGNAL_ROUND_FROM],
+        operator?.handle,
       ),
       readOnly,
       // The system signals are the owners' business (a card key, a subject): a person reading along sees none.

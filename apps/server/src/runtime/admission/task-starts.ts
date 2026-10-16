@@ -1,6 +1,7 @@
 import {
   aiLabelSetters,
   canAutomaticallyStartTask,
+  coordinationActorRefusal,
   developerLevelOf,
   evaluateStart,
   isOnLeave,
@@ -210,8 +211,11 @@ export class TaskStarts {
     if (opts.automatic && !canAutomaticallyStartTask(task, this.tasks.list(projectKey))) return skipped;
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
-    if (isOperatorActor(config, opts.actor) && task.fixLimit)
-      throw forbidden('operator_never', 'the Operator cannot start a task held by its fix round limit');
+    if (
+      (isOperatorActor(config, opts.actor) || !coordinationActorRefusal(config, opts.actor)) &&
+      task.fixLimit
+    )
+      throw forbidden('operator_never', 'the coordinator cannot start a task held by its fix round limit');
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
     const workStage = workStageOf(config, task);
     if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');
@@ -276,17 +280,20 @@ export class TaskStarts {
       member = hired;
     }
 
-    if (!wanted()) {
-      // The card was taken while the temp worker was hired: it has no task to carry.
-      if (hired)
+    let startWanted = false;
+    try {
+      startWanted = wanted();
+    } finally {
+      // A withdrawn or refused start leaves the new temp worker with no task to carry.
+      if (!startWanted && hired)
         await this.members.retire(
           projectKey,
           hired.handle,
           {},
           { actor: SYSTEM_ACTOR, author: SYSTEM_AUTHOR },
         );
-      return skipped;
     }
+    if (!startWanted) return skipped;
     // A person's Start of a card held by its fix round limit (PM-262) is one more round for its assignee.
     const anotherRound =
       opts.actor.kind === 'human' &&

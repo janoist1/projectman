@@ -637,7 +637,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('operator_only:') });
     await expect(
       h.domain.teamTools.startTask({ ...ctx, member: 'dev-1' }, { taskKey: 'AR-1' }),
-    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('operator_only:') });
+    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('project_manager_only:') });
   });
 
   it('requires an open owner request before either tool writes', async () => {
@@ -648,7 +648,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       message: expect.stringContaining('operator_no_request:'),
     });
     await expect(h.domain.teamTools.startTask(ctx, { taskKey: 'AR-1' })).rejects.toMatchObject({
-      message: expect.stringContaining('operator_no_request:'),
+      message: expect.stringContaining('project_manager_only:'),
     });
   });
 
@@ -739,15 +739,35 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     expect((await member()).outboundNetwork).toBe(true);
   });
 
+  async function startAsPm(args: Parameters<typeof h.domain.teamTools.startTask>[1]) {
+    const config = h.domain.projects.cachedConfig('AR')!;
+    const pm = memberOf(config, 'pm') as AiMemberConfig;
+    if (pm.onLeave) await h.domain.members.update('AR', 'pm', { onLeave: false }, by);
+    if (!h.domain.sessions.list('AR', { member: 'pm' }).length) {
+      await h.domain.messaging.sendReporting(
+        'AR',
+        'owner',
+        { to: ['pm'], text: 'Coordinate the card.' },
+        { awaitWake: true },
+      );
+      await flush();
+    }
+    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    return h.domain.teamTools.startTask(
+      { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null },
+      args,
+    );
+  }
+
   it('starts ready work and restarts a stalled work-stage task', async () => {
     await setup();
     const task = await h.domain.tasks.create('AR', { title: 'Write', stageId: 'ready' }, OWNER_ACTOR);
-    const first = await h.domain.teamTools.startTask(ctx, { taskKey: task.key, assignee: 'dev-1' });
+    const first = await startAsPm({ taskKey: task.key, assignee: 'dev-1' });
     expect(first.session_id).toBeTruthy();
     expect(first.assignee).toBe('dev-1');
     expect(h.domain.tasks.get('AR', task.key).stageId).toBe('development');
     await h.domain.sessions.stop('AR', first.session_id!);
-    const second = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
+    const second = await startAsPm({ taskKey: task.key });
     expect(second.session_id).toBeTruthy();
     expect(h.domain.sessions.isRunning(second.session_id!)).toBe(true);
   });
@@ -757,9 +777,9 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       (memberOf(config, 'dev-1') as AiMemberConfig).onLeave = true;
     });
     const task = await h.domain.tasks.create('AR', { title: 'Write', stageId: 'ready' }, OWNER_ACTOR);
-    await expect(
-      h.domain.teamTools.startTask(ctx, { taskKey: task.key, assignee: 'dev-1' }),
-    ).rejects.toMatchObject({ message: expect.stringContaining('member_on_leave') });
+    await expect(startAsPm({ taskKey: task.key, assignee: 'dev-1' })).rejects.toMatchObject({
+      message: expect.stringContaining('member_on_leave'),
+    });
     expect(h.domain.tasks.get('AR', task.key)).toMatchObject({ stageId: 'ready', assignee: null });
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
     const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
@@ -775,7 +795,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       (memberOf(config, 'dev-2') as AiMemberConfig).senior = true;
     });
     const busy = await h.domain.tasks.create('AR', { title: 'Busy', stageId: 'ready' }, OWNER_ACTOR);
-    await h.domain.teamTools.startTask(ctx, { taskKey: busy.key, assignee: 'dev-2' });
+    await startAsPm({ taskKey: busy.key, assignee: 'dev-2' });
     const task = await h.domain.tasks.create(
       'AR',
       {
@@ -785,11 +805,11 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       },
       OWNER_ACTOR,
     );
-    const result = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
+    const result = await startAsPm({ taskKey: task.key });
     expect(result).toMatchObject({ assignee: null, session_id: null, senior_wait: { seniors: ['dev-2'] } });
   });
 
-  it('honors the explicit prerequisite override only for the owner-requested Operator start', async () => {
+  it('refuses the prerequisite override for a PM even with its own owner request', async () => {
     await setup();
     const task = await h.domain.tasks.create('AR', { title: 'Dependent', stageId: 'ready' }, OWNER_ACTOR);
     const prerequisite = await h.domain.tasks.create('AR', { title: 'First' }, OWNER_ACTOR);
@@ -799,12 +819,11 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       { relations: { add: [{ kind: 'prerequisite', key: prerequisite.key }] } },
       OWNER_ACTOR,
     );
-    await expect(h.domain.teamTools.startTask(ctx, { taskKey: task.key })).rejects.toThrow();
-    const result = await h.domain.teamTools.startTask(ctx, { taskKey: task.key, despitePrerequisites: true });
-    expect(result.session_id).toBeTruthy();
+    await expect(startAsPm({ taskKey: task.key })).rejects.toThrow();
+    await expect(startAsPm({ taskKey: task.key, despitePrerequisites: true })).rejects.toThrow();
   });
 
-  it('starts AI gate setters and waits for their label', async () => {
+  it('does not inherit the Operator AI gate-setter exception', async () => {
     await setup(false, (config) => {
       config.team.members.push({
         kind: 'ai',
@@ -828,14 +847,9 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       };
     });
     const task = await h.domain.tasks.create('AR', { title: 'Screen', stageId: 'ready' }, OWNER_ACTOR);
-    const result = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
-    expect(result.session_id).toBeNull();
-    expect(result.awaiting).toEqual({ labels: ['design-ok'], members: ['des'] });
-    expect(result.assignee).toBeNull();
-    expect(h.domain.sessions.list('AR', { taskKey: task.key }).map((s) => s.member)).toEqual(['des']);
-    expect(h.domain.tasks.get('AR', task.key).startWaiting).toMatchObject({
-      reason: 'label_missing',
-    });
+    await expect(startAsPm({ taskKey: task.key })).rejects.toThrow();
+    expect(h.domain.sessions.list('AR', { taskKey: task.key })).toEqual([]);
+    expect(h.domain.tasks.get('AR', task.key).assignee).toBeNull();
   });
 
   it('refuses a fix-limit hold without granting another fix round', async () => {
@@ -853,14 +867,14 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       reason: 'again',
       inboxItemId: null,
     });
-    await expect(h.domain.teamTools.startTask(ctx, { taskKey: task.key })).rejects.toMatchObject({
+    await expect(startAsPm({ taskKey: task.key })).rejects.toMatchObject({
       code: 'forbidden',
-      message: expect.stringContaining('the Operator cannot start'),
+      message: expect.stringContaining('cannot start a task held'),
     });
     expect(h.repos.taskFixLimits.get(task.key)?.extraRounds).toBe(0);
   });
 
-  it('hires a policy-limited temp worker as the system and names it in the start step', async () => {
+  it('refuses temp hiring without inheriting the Operator configuration exception', async () => {
     await setup(false, (config) => {
       (memberOf(config, 'dev-1') as AiMemberConfig).onLeave = true;
       (memberOf(config, 'dev-2') as AiMemberConfig).onLeave = true;
@@ -871,20 +885,15 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       { title: 'Temporary work', stageId: 'ready' },
       OWNER_ACTOR,
     );
-    const result = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
-    expect(result.hired).toBeTruthy();
-    expect(await member(result.hired!)).toMatchObject({ temp: true, sponsor: 'owner' });
+    await expect(startAsPm({ taskKey: task.key })).rejects.toThrow('insufficient_access');
+    expect(
+      (await h.domain.projects.config('AR')).team.members.filter((m) => m.kind === 'ai' && m.temp),
+    ).toEqual([]);
     const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
     expect(h.repos.operatorRequests.steps(request.id).at(-1)).toMatchObject({
       action: 'task_start',
-      status: 'done',
-      member: result.hired,
+      status: 'refused',
+      refusal: { code: 'insufficient_access' },
     });
-    expect(h.domain.timeline.list('AR').find((e) => e.type === 'member_hired')?.actor.kind).toBe('system');
-    const next = await h.domain.tasks.create('AR', { title: 'No more temps', stageId: 'ready' }, OWNER_ACTOR);
-    await expect(h.domain.teamTools.startTask(ctx, { taskKey: next.key })).rejects.toThrow();
-    expect(
-      (await h.domain.projects.config('AR')).team.members.filter((m) => m.kind === 'ai' && m.temp),
-    ).toHaveLength(1);
   });
 });

@@ -115,6 +115,8 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     return engine.merger;
   };
   const fullRuns = new Map<string, AbortController>();
+  /** Settles when the run of a `full_test.run` has ended and its executor has cleaned up. */
+  const fullRunEnds = new Map<string, Promise<void>>();
   const shotRuns = new Map<string, AbortController>();
   const watches = new Map<string, () => void>();
 
@@ -289,16 +291,28 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
         throw new EngineRpcError('command_not_allowed', 'This engine runs no full test');
       const controller = new AbortController();
       fullRuns.set(spec.runId, controller);
+      const running = engine.fullTestExecutor.run(spec, controller.signal, () =>
+        deps.emit({ kind: 'full_test_started', runId: spec.runId }),
+      );
+      fullRunEnds.set(
+        spec.runId,
+        running.then(
+          () => {},
+          () => {},
+        ),
+      );
       try {
-        return await engine.fullTestExecutor.run(spec, controller.signal, () =>
-          deps.emit({ kind: 'full_test_started', runId: spec.runId }),
-        );
+        return await running;
       } finally {
         fullRuns.delete(spec.runId);
+        fullRunEnds.delete(spec.runId);
       }
     },
     async 'full_test.cancel'({ runId }) {
       fullRuns.get(runId)?.abort();
+      // The answer comes when the run has ended: the cloud removes the check checkout after it (PM-681),
+      // so a dependency installation must be gone by then.
+      await fullRunEnds.get(runId);
       return none;
     },
     async 'screenshots.run'({ runId, spec }) {

@@ -547,12 +547,6 @@ describe('shared knowledge session boundaries', () => {
         }),
       () => h.domain.teamTools.saveMemory(ctx, { note: 'Expand authority' }),
       () =>
-        h.domain.teamTools.startMember(ctx, {
-          member: 'dev-1',
-          text: 'Unstored work',
-          signalId: 'sig_forged',
-        }),
-      () =>
         h.domain.teamTools.sendMessage(ctx, {
           to: ['owner'],
           text: 'Unstored signal',
@@ -566,6 +560,9 @@ describe('shared knowledge session boundaries', () => {
         }),
     ])
       await expect(write()).rejects.toThrow('operator_no_request');
+    await expect(
+      h.domain.teamTools.startMember(ctx, { member: 'dev-1', text: 'Unstored work', signalId: 'sig_forged' }),
+    ).rejects.toThrow('project_manager_only');
     await expect(
       h.domain.operatorActions.run('AR', request.id, 'Direct unstored operation', {
         ...immediate,

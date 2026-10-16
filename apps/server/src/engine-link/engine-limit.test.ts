@@ -914,6 +914,10 @@ describe('engine local limit', () => {
         ['merge.checkout_for_check', { ref, mergeId, mergeCommit: sha, depsFrom: null }],
         [
           'merge.checkout_for_check',
+          { ref, mergeId, mergeCommit: sha, depsFrom: null, allowDependencyInstall: true },
+        ],
+        [
+          'merge.checkout_for_check',
           { ref, mergeId, mergeCommit: sha, depsFrom: path.join(worktrees, 'PM-1') },
         ],
         ['merge.release_check', { ref, mergeId }],

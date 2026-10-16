@@ -29,6 +29,7 @@ it(
         author: OWNER_LOGIN,
       },
       (config) => {
+        (memberOf(config, 'pm') as AiMemberConfig).onLeave = false;
         config.team.members.push({
           ...(memberOf(config, 'dev-1') as AiMemberConfig),
           handle: 'devops',
@@ -43,13 +44,13 @@ it(
       'AR',
       'owner',
       {
-        to: ['operator'],
+        to: ['pm'],
         text: 'SLOW Check the engine with Devops.',
       },
       { awaitWake: true },
     );
     expect(ownerMessage.recipients[0]!.start?.state).toBe('started');
-    const operator = domain.sessions.list('AR', { member: 'operator' })[0]!;
+    const operator = domain.sessions.list('AR', { member: 'pm' })[0]!;
     // The fake CLI finishes the owner's turn itself. Open a request fixture after that turn,
     // so the tool call does not race the Stop hook that closes the original request.
     await vi.waitFor(
@@ -76,7 +77,7 @@ it(
     const result = await domain.teamTools.startMember(
       {
         projectKey: 'AR',
-        member: 'operator',
+        member: 'pm',
         sessionId: operator.id,
         taskKey: null,
       },

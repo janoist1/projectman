@@ -26,6 +26,23 @@ export function projectManagerOf(config: Pick<ProjectConfig, 'team'>): AiMemberC
   return managers.find((m) => !isOnLeave(m)) ?? managers[0] ?? null;
 }
 
+/** The selected, available coordinator; an Operator never substitutes for a missing PM. */
+export function coordinationMemberOf(config: Pick<ProjectConfig, 'team'>): AiMemberConfig | null {
+  const member = projectManagerOf(config);
+  return member && !isOnLeave(member) ? member : null;
+}
+
+/** Coordination mutations require the selected PM acting directly, never an integrator or a human. */
+export function coordinationActorRefusal(
+  config: Pick<ProjectConfig, 'team'>,
+  actor: Pick<Actor, 'kind' | 'handle' | 'via'>,
+): 'project_manager_only' | null {
+  const member = coordinationMemberOf(config);
+  return member && actor.kind === 'ai' && actor.handle === member.handle && !actor.via
+    ? null
+    : 'project_manager_only';
+}
+
 /**
  * The project manager among member views (`MemberView`): the same choice as `projectManagerOf`; a temp or
  * retired one never counts (PM-488).

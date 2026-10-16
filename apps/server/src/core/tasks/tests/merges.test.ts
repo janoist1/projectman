@@ -694,6 +694,112 @@ describe('member initiated merge', () => {
     expect(merger.advance).not.toHaveBeenCalled();
   });
 
+  describe('dependency preparation (PM-681)', () => {
+    const withCheck = (config: ProjectConfig) => {
+      config.project.repos[0]!.reviewTest = reviewTest;
+    };
+
+    it('asks the engine for an installation and passes the request on to the executor under the heavy-run queue', async () => {
+      const steps: unknown[] = [];
+      const executor = fakeExecutor();
+      vi.mocked(executor.run).mockImplementation(async (_spec, _signal, onStarted) => {
+        steps.push(row()?.step);
+        onStarted?.();
+        steps.push(row()?.step);
+        return passed;
+      });
+      await setup({ executor, adjust: withCheck });
+      merger.checkoutForCheck.mockResolvedValueOnce({
+        path: '/fake/check',
+        gitDir: '/fake/git',
+        dependencyInstallRequired: true,
+      });
+      await start();
+      await merged();
+      expect(merger.checkoutForCheck.mock.calls[0]![1]).toMatchObject({ allowDependencyInstall: true });
+      const spec = vi.mocked(executor.run).mock.calls[0]![0];
+      expect(spec).toMatchObject({
+        requireHeavyLock: true,
+        npmCi: {
+          ref: { projectKey: 'AR', repo: expect.any(String) },
+          mergeId: expect.stringMatching(/^merge_/),
+        },
+      });
+      expect(spec.npmCi!.mergeId).toBe(merger.checkoutForCheck.mock.calls[0]![1].mergeId);
+      expect(steps).toEqual(['check_waiting', 'checking']);
+      expect(vi.mocked(executor.run)).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([{}, { dependencyInstallRequired: false }])(
+      'sends no installation request when the engine answers %j',
+      async (extra) => {
+        const executor = fakeExecutor();
+        await setup({ executor, adjust: withCheck });
+        merger.checkoutForCheck.mockResolvedValueOnce({ path: '/fake/check', gitDir: '/fake/git', ...extra });
+        await start();
+        await merged();
+        const spec = vi.mocked(executor.run).mock.calls[0]![0];
+        expect(spec).not.toHaveProperty('npmCi');
+        expect(spec.requireHeavyLock).toBe(true);
+      },
+    );
+
+    it.each(['dependency_install_failed', 'timeout', 'killed', 'engine_offline'] as const)(
+      'blocks as check_error, not as a failed check, when the preparation ends with %s',
+      async (reason) => {
+        const executor = fakeExecutor({
+          ...passed,
+          outcome: 'error',
+          reason,
+          exitCode: 1,
+          outputTail: 'npm ERR! network',
+        });
+        await setup({ executor, adjust: withCheck });
+        merger.checkoutForCheck.mockResolvedValueOnce({
+          path: '/fake/check',
+          gitDir: '/fake/git',
+          dependencyInstallRequired: true,
+        });
+        await start();
+        await blocked('check_error');
+        expect(row()?.block?.message).toContain(reason);
+        expect(row()?.failure).toBeUndefined();
+        expect(task().stageId).not.toBe('development');
+        expect(executor.run).toHaveBeenCalledTimes(1);
+        expect(merger.push).not.toHaveBeenCalled();
+        expect(merger.advance).not.toHaveBeenCalled();
+        expect(merger.releaseCheck).toHaveBeenCalled();
+      },
+    );
+
+    it('releases the checkout after the executor has ended when the merge is cancelled', async () => {
+      const executor = fakeExecutor();
+      const finish = deferred<FullTestResult>();
+      let signal: AbortSignal | undefined;
+      vi.mocked(executor.run).mockImplementation((_spec, runSignal) => {
+        signal = runSignal;
+        return finish.promise;
+      });
+      await setup({ executor, adjust: withCheck });
+      merger.checkoutForCheck.mockResolvedValueOnce({
+        path: '/fake/check',
+        gitDir: '/fake/git',
+        dependencyInstallRequired: true,
+      });
+      await start();
+      await vi.waitFor(() => expect(executor.run).toHaveBeenCalled());
+      const id = row()!.id;
+      await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+      await vi.waitFor(() => expect(signal?.aborted).toBe(true));
+      // The child of the installation has not ended yet: its checkout stays.
+      expect(merger.releaseCheck).not.toHaveBeenCalled();
+      finish.resolve({ ...passed, outcome: 'error', reason: 'killed', exitCode: null });
+      await vi.waitFor(() => expect(merger.releaseCheck).toHaveBeenCalled());
+      await vi.waitFor(() => expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled'));
+      expect(merger.push).not.toHaveBeenCalled();
+    });
+  });
+
   it.each(['local_ahead', 'diverged'] as const)('blocks base %s', async (relation) => {
     await setup();
     merger.base.relation = relation;

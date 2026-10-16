@@ -117,12 +117,13 @@ describe('same-role card workers before sending', () => {
     });
   });
 
-  it('Operator start_member reports card_busy and permits an explicit override', async () => {
-    await h.domain.messaging.send('AR', 'owner', { to: ['operator'], text: 'Arrange checkout review.' });
+  it('PM start_member reports card_busy and permits an explicit override', async () => {
+    await h.domain.members.update('AR', 'pm', { onLeave: false }, { actor: OWNER_ACTOR, author: OWNER });
+    await h.domain.messaging.send('AR', 'owner', { to: ['pm'], text: 'Arrange checkout review.' });
     await flush();
     await run('cr');
-    const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
-    const ctx = { projectKey: 'AR', member: 'operator', taskKey: null, sessionId: session.id };
+    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const ctx = { projectKey: 'AR', member: 'pm', taskKey: null, sessionId: session.id };
     const args = { member: 'cr-2', taskKey: 'AR-1', text: 'Review checkout.' };
     const before = h.repos.messages.list('AR');
     await expect(h.domain.teamTools.startMember(ctx, args)).rejects.toMatchObject({

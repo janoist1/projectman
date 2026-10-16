@@ -40,6 +40,8 @@ async function setup(
     ...(opts.target ? { releaseTarget: { projectKey: 'AR', repo: 'web' } } : {}),
     ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
     adjust: (config) => {
+      const pm = config.team.members.find((m) => m.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.onLeave = false;
       if (level) config.team.operatorWatch = level;
       opts.adjust?.(config);
     },
@@ -94,9 +96,9 @@ async function mergeCard(kind: 'merge_waiting' | 'merge_blocked') {
 
 const operator = (): ToolContext => ({
   projectKey: 'AR',
-  member: 'operator',
+  member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'operator' })[0]!.id,
+  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
 });
 const roundSteps = () =>
   h.repos.operatorRequests
@@ -207,7 +209,10 @@ describe('level unblock', () => {
     await setup('unblock');
     const { card } = await idleCard();
     await expect(
-      h.domain.teamTools.updateTask(operator(), { taskKey: card.key, addLabels: ['scope-ok'] }),
+      h.domain.teamTools.operate(operator(), {
+        title: 'Settings',
+        operation: { op: 'member_update', handle: 'dev-1', changes: { capacity: 2 } },
+      }),
     ).rejects.toMatchObject({ code: 'forbidden' });
   });
 
@@ -237,7 +242,7 @@ describe('level unblock', () => {
     const result = await startMerger(card, signal);
     expect(result.recipient.handle).toBe('dev-1');
     expect(h.repos.messages.get(result.messageId)).toMatchObject({
-      from: 'operator',
+      from: 'pm',
       to: ['dev-1'],
       taskKey: card.key,
     });
@@ -333,8 +338,8 @@ describe('level drive', () => {
           owners: ['owner'],
           columnId: 'todo',
         });
-        const pm = config.team.members.find((m) => m.handle === 'pm');
-        if (pm?.kind === 'ai') pm.onLeave = false;
+        const pm = config.team.members.find((m) => m.handle === 'pm')!;
+        config.team.members.push({ ...pm, handle: 'pm-2', displayName: 'Second PM' });
       },
     });
     await place({ stageId: 'ready', status: 'active' });
@@ -347,13 +352,13 @@ describe('level drive', () => {
       h.domain.teamTools.startMember(operator(), { member: 'dev-1', text: 'Take it.', signalId: signal.id }),
     ).rejects.toThrow('operator_no_request');
     const result = await h.domain.teamTools.startMember(operator(), {
-      member: 'pm',
+      member: 'pm-2',
       text: 'Cards stand ready.',
       signalId: signal.id,
     });
-    expect(result.recipient.handle).toBe('pm');
+    expect(result.recipient.handle).toBe('pm-2');
     expect(roundSteps()).toMatchObject([
-      { action: 'task_start', taskKey: null, member: 'pm', status: 'done', signalId: signal.id },
+      { action: 'task_start', taskKey: null, member: 'pm-2', status: 'done', signalId: signal.id },
     ]);
   });
 
@@ -408,7 +413,7 @@ describe('start_member on a card', () => {
   it('needs a role on the card for the member it starts, also on an owner request', async () => {
     await setup('report');
     const card = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
-    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'Wake dev-2.' });
+    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['pm'], text: 'Wake dev-2.' });
     await flush();
     const ask = (member: string) =>
       h.domain.teamTools.startMember(operator(), { member, text: 'Look.', taskKey: card.key });

@@ -329,7 +329,8 @@ export async function createHybridPackage(options: HybridPackageOptions): Promis
       db.pragma('foreign_keys = ON');
       migrate(db);
       const registry = createRepositories(db).engines;
-      if (registry.list().length > 0)
+      // A revoked engine (the leftover of an earlier way back) stays as the audit trail and is no obstacle.
+      if (registry.list().some((row) => row.revoked_at === null))
         throw new MigrationRefused('the database has engines already: it is not a single-machine database');
       const userId = earliestUser(db);
       if (!userId) throw new MigrationRefused('the database has no account to register the engine under');
@@ -341,6 +342,8 @@ export async function createHybridPackage(options: HybridPackageOptions): Promis
         userId,
         at: (options.now?.() ?? new Date()).toISOString(),
       });
+      // `create` marks only the very first engine ever as the default: with revoked rows it must be explicit.
+      registry.setDefault(identity.id);
       sessionsMoved = db
         .prepare("UPDATE sessions SET engine_id = ? WHERE engine_id = 'local'")
         .run(identity.id).changes;

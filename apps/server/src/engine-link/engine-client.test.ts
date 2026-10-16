@@ -5,7 +5,12 @@ import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startFakeCloud } from '../../test/helpers/fake-cloud';
 import type { FakeCloud } from '../../test/helpers/fake-cloud';
-import { createEngineClient, ENGINE_BACKOFF_MAX_MS, ENGINE_BACKOFF_MIN_MS } from './engine-client';
+import {
+  createEngineClient,
+  ENGINE_BACKOFF_MAX_MS,
+  ENGINE_BACKOFF_MIN_MS,
+  ENGINE_HANDSHAKE_TIMEOUT_MS,
+} from './engine-client';
 import type { EngineClient, LinkSocket } from './engine-client';
 import type { ResolvedEngineConfig } from './engine-config';
 import { createEngineStatusWriter } from './engine-status';
@@ -252,6 +257,16 @@ describe('engine link client', () => {
     expect(cloud.hellos).toHaveLength(2);
   });
 
+  it('retries after the cloud rejects the first WebSocket upgrade', async () => {
+    cloud = await startFakeCloud({ rejectUpgrades: 1 });
+    const { client: started, status } = make();
+    started.start();
+    await online(started);
+    expect(cloud.hellos).toHaveLength(1);
+    expect(cloud.connections()).toBe(1);
+    expect(status.get()).toMatchObject({ connection: 'connected', attempts: 2 });
+  });
+
   it('closes the link cleanly on close and does not come back', async () => {
     cloud = await startFakeCloud();
     const { client: started } = make();
@@ -287,6 +302,208 @@ describe('engine link client', () => {
     await waitFor(() => status.get().lastError?.code === 'link_headers_invalid', 'the refusal');
     expect(cloud.hellos).toHaveLength(0);
   });
+});
+
+describe('engine link handshake recovery', () => {
+  let dir: string;
+  let client: EngineClient;
+
+  const manualSocket = () => {
+    const events = new EventTarget();
+    const socket = {
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      addEventListener: events.addEventListener.bind(events) as LinkSocket['addEventListener'],
+    } satisfies LinkSocket;
+    return {
+      socket,
+      error: () => events.dispatchEvent(new Event('error')),
+      close: (code = 1006) => events.dispatchEvent(Object.assign(new Event('close'), { code })),
+      open() {
+        socket.readyState = 1;
+        events.dispatchEvent(new Event('open'));
+      },
+      welcome: () =>
+        events.dispatchEvent(
+          Object.assign(new Event('message'), {
+            data: JSON.stringify({
+              t: 'welcome',
+              engineId: 'eng_aaaaaaaaaaaa',
+              ackedSeq: 0,
+              serverTime: new Date().toISOString(),
+            }),
+          }),
+        ),
+    };
+  };
+
+  const make = () => {
+    const sockets: ReturnType<typeof manualSocket>[] = [];
+    const createSocket = vi.fn(() => {
+      const created = manualSocket();
+      sockets.push(created);
+      return created.socket;
+    });
+    const hello = vi.fn(async () => facts());
+    const register = vi.fn();
+    const status = createEngineStatusWriter(path.join(dir, 'status.json'), {
+      pid: 4242,
+      bootId: 'b'.repeat(16),
+    });
+    client = createEngineClient({
+      config: {
+        schemaVersion: 1,
+        cloudUrl: 'http://127.0.0.1:1',
+        engineId: 'eng_aaaaaaaaaaaa',
+        name: 'mac',
+        keyFile: path.join(dir, 'engine.key'),
+        projects: [],
+        repos: [],
+        maxPermissionMode: 'auto',
+        allowRemoteTerminalInput: true,
+      },
+      hello,
+      register,
+      onRefused: () => undefined,
+      buffer: createEngineEventBuffer(),
+      status,
+      logger,
+      createSocket,
+      random: () => 1 - Number.EPSILON,
+    });
+    client.start();
+    return { sockets, createSocket, hello, register, status };
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    dir = mkdtempSync(path.join(os.tmpdir(), 'engine-handshake-'));
+    writeFileSync(path.join(dir, 'engine.key'), `${KEY}\n`, { mode: 0o600 });
+    chmodSync(path.join(dir, 'engine.key'), 0o600);
+  });
+
+  afterEach(async () => {
+    await client?.close();
+    vi.useRealTimers();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('retries when a handshake emits only an error without a close', async () => {
+    const { sockets, createSocket, status } = make();
+    sockets[0]!.error();
+    expect(status.get().connection).toBe('disconnected');
+    expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
+    expect(createSocket).toHaveBeenCalledTimes(2);
+    expect(status.get().attempts).toBe(2);
+  });
+
+  it.each(['immediate', 'delayed'])(
+    'schedules only one retry when the close after an error is %s',
+    async (timing) => {
+      const { sockets, createSocket, status } = make();
+      sockets[0]!.error();
+      if (timing === 'immediate') sockets[0]!.close();
+      await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
+      expect(createSocket).toHaveBeenCalledTimes(2);
+      sockets[1]!.open();
+      await vi.advanceTimersByTimeAsync(0);
+      sockets[1]!.welcome();
+      sockets[0]!.close(4410);
+      sockets[0]!.error();
+      await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MAX_MS);
+      expect(createSocket).toHaveBeenCalledTimes(2);
+      expect(status.get().connection).toBe('connected');
+      expect(client.connected()).toBe(true);
+    },
+  );
+
+  it('ignores late open and welcome events from a failed attempt', async () => {
+    const { sockets, hello, register } = make();
+    sockets[0]!.error();
+    sockets[0]!.open();
+    sockets[0]!.welcome();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hello).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+    expect(client.connected()).toBe(false);
+  });
+
+  it.each([false, true])('retries a handshake without a welcome (opened: %s)', async (opened) => {
+    const { sockets, createSocket, status } = make();
+    if (opened) sockets[0]!.open();
+    await vi.advanceTimersByTimeAsync(ENGINE_HANDSHAKE_TIMEOUT_MS - 1);
+    expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
+    expect(createSocket).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(status.get()).toMatchObject({
+      connection: 'disconnected',
+      lastError: { code: 'handshake_timeout' },
+    });
+    expect(sockets[0]!.socket.close).toHaveBeenCalledExactlyOnceWith(4000, 'handshake_timeout');
+    await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
+    expect(createSocket).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the timeout diagnostic when closing the socket emits error and close synchronously', async () => {
+    const { sockets, createSocket, status } = make();
+    sockets[0]!.socket.close.mockImplementation(() => {
+      sockets[0]!.error();
+      sockets[0]!.close();
+    });
+    await vi.advanceTimersByTimeAsync(ENGINE_HANDSHAKE_TIMEOUT_MS);
+    expect(status.get().lastError?.code).toBe('handshake_timeout');
+    await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
+    expect(createSocket).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancels the handshake timeout after a welcome and waits for close after an established link error', async () => {
+    const { sockets, createSocket, status } = make();
+    sockets[0]!.open();
+    await vi.advanceTimersByTimeAsync(0);
+    sockets[0]!.welcome();
+    sockets[0]!.error();
+    await vi.advanceTimersByTimeAsync(ENGINE_HANDSHAKE_TIMEOUT_MS + ENGINE_BACKOFF_MAX_MS);
+    expect(client.connected()).toBe(true);
+    expect(status.get().connection).toBe('connected');
+    expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
+    expect(createSocket).toHaveBeenCalledTimes(1);
+    sockets[0]!.close();
+    expect(client.connected()).toBe(false);
+    await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
+    expect(createSocket).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([4403, 4410])('stops permanently on close code %s before welcome', async (code) => {
+    const { sockets, createSocket, status } = make();
+    sockets[0]!.close(code);
+    expect(status.get()).toMatchObject({
+      connection: 'stopped',
+      lastError: { code: code === 4403 ? 'engine_revoked' : 'engine_replaced' },
+    });
+    await vi.advanceTimersByTimeAsync(ENGINE_HANDSHAKE_TIMEOUT_MS + ENGINE_BACKOFF_MAX_MS);
+    expect(createSocket).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['handshake', 'backoff'])(
+    'does not retry or overwrite the status after shutdown during %s',
+    async (phase) => {
+      const { sockets, createSocket, status } = make();
+      if (phase === 'backoff') sockets[0]!.error();
+      await client.close();
+      status.flush();
+      const stopped = status.get();
+      sockets[0]!.open();
+      sockets[0]!.welcome();
+      sockets[0]!.error();
+      sockets[0]!.close();
+      await vi.advanceTimersByTimeAsync(ENGINE_HANDSHAKE_TIMEOUT_MS + ENGINE_BACKOFF_MAX_MS);
+      expect(createSocket).toHaveBeenCalledTimes(1);
+      expect(status.get()).toEqual(stopped);
+      expect(client.connected()).toBe(false);
+    },
+  );
 });
 
 describe('engine link client backoff', () => {

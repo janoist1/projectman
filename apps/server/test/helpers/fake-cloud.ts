@@ -28,6 +28,8 @@ import type {
  */
 
 export interface FakeCloudOptions {
+  /** Reject the first N WebSocket upgrades with HTTP 503. */
+  rejectUpgrades?: number;
   /** Do not acknowledge events by themselves (tests acknowledge with `ackUpTo`). */
   holdAcks?: boolean;
   /** Close the socket right after the hello with this code instead of a welcome. */
@@ -85,6 +87,13 @@ export async function startFakeCloud(options: FakeCloudOptions = {}): Promise<Fa
   let current: { rpc: EngineRpc; socket: { send(data: string): void; close(code?: number): void } } | null =
     null;
   const waiters = new Set<() => void>();
+  let upgrades = 0;
+
+  app.addHook('preValidation', async (request, reply) => {
+    if (request.url === '/engine/link' && upgrades++ < (options.rejectUpgrades ?? 0)) {
+      return reply.code(503).send();
+    }
+  });
 
   app.get('/engine/link', { websocket: true }, (socket, request) => {
     authorizations.push(String(request.headers.authorization ?? ''));

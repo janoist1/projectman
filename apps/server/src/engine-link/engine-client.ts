@@ -21,6 +21,7 @@ const CLOSE_REVOKED = 4403;
 const CLOSE_REPLACED = 4410;
 export const ENGINE_BACKOFF_MIN_MS = 1000;
 export const ENGINE_BACKOFF_MAX_MS = 30_000;
+export const ENGINE_HANDSHAKE_TIMEOUT_MS = 30_000;
 
 type EventBuffer = ReturnType<typeof createEngineEventBuffer>;
 
@@ -118,7 +119,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
   };
 
   const schedule = () => {
-    if (stopped) return;
+    if (stopped || timer) return;
     const base = Math.min(ENGINE_BACKOFF_MAX_MS, ENGINE_BACKOFF_MIN_MS * 2 ** Math.max(0, failures - 1));
     // Half to full of the base: a restart of the cloud does not bring every engine back at once.
     const delay = Math.round(base * (0.5 + random() * 0.5));
@@ -150,17 +151,58 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     }
     socket = ws;
     let welcomed = false;
+    let ended = false;
+    let failureReported = false;
     let connection: EngineRpc | null = null;
     const send = (data: string) => {
       if (ws.readyState === OPEN) ws.send(data);
     };
     const drop = (code: number, reason: string) => closeSocket(ws, code, reason);
+    const end = (code: number) => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(handshake);
+      if (socket === ws) socket = null;
+      if (rpc === connection) rpc = null;
+      connection?.close();
+      buffer.disconnect();
+      if (stopped) return;
+      if (code === CLOSE_REVOKED || code === CLOSE_REPLACED) {
+        // The cloud will not take this engine again: reconnecting would only fight it.
+        stopped = true;
+        status.set({ connection: 'stopped' });
+        fail(
+          code === CLOSE_REVOKED ? 'engine_revoked' : 'engine_replaced',
+          code === CLOSE_REVOKED
+            ? 'The cloud revoked this engine; create a new one and run init again'
+            : 'Another process connected with this engine key; this one stopped',
+        );
+        logger.error({ code }, 'engine link: closed by the cloud for good');
+        for (const wake of [...waiters]) wake();
+        return;
+      }
+      failures += 1;
+      status.set({ connection: 'disconnected' });
+      // Keep the specific handshake error instead of replacing it with a generic refusal.
+      if (!welcomed && !failureReported) fail('connect_failed', 'The cloud did not accept the connection');
+      publish();
+      schedule();
+    };
+    const handshake = setTimeout(() => {
+      if (stopped || ended || welcomed) return;
+      failureReported = true;
+      fail('handshake_timeout', 'The cloud did not answer the connection in time');
+      drop(4000, 'handshake_timeout');
+      end(1006);
+    }, ENGINE_HANDSHAKE_TIMEOUT_MS);
+    handshake.unref?.();
 
     ws.addEventListener('open', () => {
+      if (ended || stopped) return;
       void options
         .hello()
         .then((facts) => {
-          if (stopped || socket !== ws) return;
+          if (ended || stopped || socket !== ws) return;
           send(
             encodeFrame({
               t: 'hello',
@@ -170,10 +212,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
             }),
           );
         })
-        .catch(() => drop(1011, 'hello_failed'));
+        .catch(() => {
+          if (!ended && !stopped) drop(1011, 'hello_failed');
+        });
     });
 
     ws.addEventListener('message', (event) => {
+      if (ended || stopped) return;
       lastFrameAt = now();
       let frame;
       try {
@@ -210,6 +255,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           return;
         }
         welcomed = true;
+        clearTimeout(handshake);
         rpc = connection;
         failures = 0;
         status.set({
@@ -237,36 +283,17 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     });
 
     ws.addEventListener('error', () => {
-      // The reason is in the close event; an error message can carry the URL.
-      fail('connection_error', 'The connection to the cloud failed');
+      if (ended || stopped) return;
+      // An error message can carry the URL. Preserve an already reported timeout when drop emits error.
+      if (!failureReported) {
+        failureReported = true;
+        fail('connection_error', 'The connection to the cloud failed');
+      }
+      // Node 22–23 (undici 6) do not emit close after a failed handshake.
+      if (!welcomed) end(1006);
     });
 
-    ws.addEventListener('close', (event) => {
-      if (socket === ws) socket = null;
-      if (rpc === connection) rpc = null;
-      connection?.close();
-      buffer.disconnect();
-      if (stopped) return;
-      if (event.code === CLOSE_REVOKED || event.code === CLOSE_REPLACED) {
-        // The cloud will not take this engine again: reconnecting would only fight it.
-        stopped = true;
-        status.set({ connection: 'stopped' });
-        fail(
-          event.code === CLOSE_REVOKED ? 'engine_revoked' : 'engine_replaced',
-          event.code === CLOSE_REVOKED
-            ? 'The cloud revoked this engine; create a new one and run init again'
-            : 'Another process connected with this engine key; this one stopped',
-        );
-        logger.error({ code: event.code }, 'engine link: closed by the cloud for good');
-        for (const wake of [...waiters]) wake();
-        return;
-      }
-      failures += 1;
-      status.set({ connection: 'disconnected' });
-      if (!welcomed) fail('connect_failed', 'The cloud did not accept the connection');
-      publish();
-      schedule();
-    });
+    ws.addEventListener('close', (event) => end(event.code));
   };
 
   return {

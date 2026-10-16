@@ -30,6 +30,7 @@ export { createScreenshotExecutor, screenshotEnv, screenshotSettings } from './s
 export {
   closedStdin,
   fullTestEnv,
+  installerSettings,
   niceSrtCommand,
   quoteShellWord,
   runDirOf,

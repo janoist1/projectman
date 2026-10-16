@@ -41,7 +41,7 @@ export interface SelectedImage extends BundleImage {
 }
 
 /** No symlink component may redirect a bundle or an output to another directory. */
-function noSymlinks(file: string): void {
+export function noSymlinks(file: string): void {
   for (let current = path.resolve(file); ; current = path.dirname(current)) {
     if (fs.lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink())
       throw refused('image paths must not contain symlinks');

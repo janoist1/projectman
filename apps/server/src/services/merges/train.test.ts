@@ -167,6 +167,42 @@ describe('merge train execution', () => {
     },
   );
 
+  it('hands every member commit over before it prepares or builds the train (PM-739)', async () => {
+    await setup(3);
+    const handOver = vi.spyOn(h.domain.sessions, 'prepareMergeSource');
+    merger.prepare.mockClear();
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+    await settled();
+    const handed = new Set(handOver.mock.calls.map(([, , commit]) => commit));
+    expect(handed).toEqual(new Set([sha(1), sha(2), sha(3)]));
+    // Nothing was prepared or built before the first hand-over, and no build before all were handed over.
+    const firstPrepare = Math.min(...merger.prepare.mock.invocationCallOrder);
+    expect(Math.min(...handOver.mock.invocationCallOrder)).toBeLessThan(firstPrepare);
+    const firstBuild = Math.min(...merger.build.mock.invocationCallOrder);
+    const lastHandOver = (commit: string) =>
+      Math.min(
+        ...handOver.mock.calls.flatMap(([, , c], i) =>
+          c === commit ? [handOver.mock.invocationCallOrder[i]!] : [],
+        ),
+      );
+    for (const i of [1, 2, 3]) expect(lastHandOver(sha(i))).toBeLessThan(firstBuild);
+  });
+
+  it('leaves a candidate whose commit cannot be handed over out of the train and blocks it on its own (PM-739)', async () => {
+    await setup();
+    vi.spyOn(h.domain.sessions, 'prepareMergeSource').mockImplementation(async (_config, _task, commit) => {
+      if (commit === sha(2)) throw new Error('The commit is not known in this repository');
+    });
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined());
+    await settled();
+    expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeUndefined();
+    expect(row('AR-2')?.block?.reason).toBe('merge_error');
+    for (const [, input] of merger.build.mock.calls) expect(input.commit).not.toBe(sha(2));
+    for (const [, input] of merger.prepare.mock.calls) expect(input.commit).not.toBe(sha(2));
+  });
+
   it.each([
     'timeout',
     'engine_offline',

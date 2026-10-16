@@ -375,7 +375,10 @@ export interface WorkspaceCheckout {
 export interface WorkspaceSource {
   /** A repository the server may read: a member workspace or the project's repository. */
   path: string;
-  /** Full ref name, e.g. `refs/heads/AR-2-fix` or `refs/remotes/origin/AR-2-fix`. */
+  /**
+   * Full ref name, e.g. `refs/heads/AR-2-fix`, `refs/remotes/origin/AR-2-fix` or a handed-over
+   * snapshot `refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>` (PM-739).
+   */
   ref: string;
 }
 
@@ -460,6 +463,20 @@ export interface MemberWorkspaceManager {
     source: WorkspaceSource,
     commit: string,
   ): Promise<WorkspaceCheckout>;
+  /**
+   * Hands the developer's committed work over to the project repository (PM-739), where reviewers
+   * and the merge can read it: `commit` (a full object id on the developer's `branch` of `taskKey`)
+   * becomes the ref `refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>` there. The ref is
+   * made once and never moved: an existing one at the same commit is reused, one at another commit
+   * is `workspace_source_missing`, as is a commit that is not on the branch (any more). A branch
+   * or ref of the project repository is never written. Returns the project repository and that ref.
+   */
+  publishTaskBranch(
+    key: MemberWorkspaceKey,
+    taskKey: string,
+    branch: string,
+    commit: string,
+  ): Promise<WorkspaceSource>;
 }
 
 export interface MemberWorkspaceManagerOptions {

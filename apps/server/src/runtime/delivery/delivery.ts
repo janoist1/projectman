@@ -3,10 +3,12 @@ import {
   formatTeamMessageBatch,
   messageTextWithAttachments,
   isOperator,
+  memberDuties,
   memberOf,
+  REVIEW_DUTIES,
   stageOf,
 } from '@projectman/shared';
-import type { ProjectConfig, Session, TeamMessage, WorkItemRef } from '@projectman/shared';
+import type { ProjectConfig, Session, Task, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { Cause, Data, Effect, Exit, FiberMap, Scope } from 'effect';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../core/base';
@@ -41,6 +43,7 @@ export interface DeliveryDeps {
     | 'reviewRoundDue'
     | 'typeInto'
     | 'sourceHead'
+    | 'refreshWorkspaceBase'
   >;
   readonly projects: Pick<ProjectService, 'cachedConfig' | 'config'>;
   readonly messages: Pick<MessageService, 'waiting' | 'get' | 'wakes' | 'markRecipientDelivered'>;
@@ -144,6 +147,35 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         catch: (cause) => new TypeIntoFailed({ cause }),
       });
 
+    /**
+     * The developer's workspace gets a fresh default branch before a reviewer's action message is typed
+     * into their running session (PM-740), whatever the message says ("merge main" included). Only a
+     * message that is still valid counts. A failed fetch fails the delivery: the message stays waiting
+     * and is tried again, like one the session did not take.
+     */
+    const refreshBaseFor = (session: Session, batchMessages: readonly TeamMessage[]) =>
+      Effect.gen(function* () {
+        const config = projects.cachedConfig(session.projectKey);
+        if (!config || session.workItem.type !== 'task') return;
+        const task: Task | null = ctx.repos.tasks.get(session.workItem.taskKey);
+        if (!task || task.assignee !== session.member) return;
+        const fromReviewer = (message: TeamMessage) => {
+          const sender = memberOf(config, message.from);
+          return (
+            !!sender &&
+            (message.kind ?? 'action') === 'action' &&
+            message.taskKey === task.key &&
+            memberDuties(config, sender).some((duty) => REVIEW_DUTIES.includes(duty)) &&
+            staleReasonFor(ctx, config, message, session.member) === null
+          );
+        };
+        if (!batchMessages.some(fromReviewer)) return;
+        yield* Effect.tryPromise({
+          try: () => sessions.refreshWorkspaceBase(config, task, session.member),
+          catch: (cause) => new TypeIntoFailed({ cause }),
+        });
+      });
+
     const keep = (session: Session, notice: HeldNotice) => {
       const kept = held.get(session.id) ?? [];
       kept.push(notice);
@@ -224,6 +256,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         claims.add(claim);
         const plain = asWritten.has(claim);
         const typing = Effect.gen(function* () {
+          yield* refreshBaseFor(session, [message]);
           const {
             text: typed,
             messageIds,
@@ -400,6 +433,9 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         for (const message of waiting) claims.add(`${message.id}:${current.member}`);
         return yield* Effect.gen(function* () {
           const batch = yield* batchOf(current.projectKey, current.member, current.workItem, waiting);
+          // The workspace's default branch is refreshed before the text goes in; the session is looked up
+          // again after it, as the fetch takes a while.
+          yield* refreshBaseFor(current, batch.messages).pipe(Effect.tapError(() => retryLater(current)));
           const fresh = sessions.find(current.id);
           if (
             !fresh ||

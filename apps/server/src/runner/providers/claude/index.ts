@@ -209,6 +209,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     permissionOutput,
     denyOutput,
     refuseQuestionOutput,
+    refuseToolOutput: (message) => refuseQuestionOutput('PreToolUse', message),
     // Claude Code ends the turn at a hook answer with `continue: false`, then runs the Stop hook.
     haltOutput: (reason) => ({ continue: false, stopReason: reason }),
     hookAuthError(payload) {

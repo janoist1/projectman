@@ -48,9 +48,14 @@ import { freeBytesOf } from './engine-host';
 import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
-import { createRunnerModule } from './runner';
+import { createRunnerModule, DEPENDENCY_GATE_WAIT_S } from './runner';
 import { createGithubService } from './services/github';
-import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
+import {
+  createDependencyGate,
+  createMemberWorkspaceManager,
+  createMemberWorkspaceRegistry,
+  createWorktreeManager,
+} from './worktree';
 
 /**
  * The engine process (PM-314): the runner, the worktrees and the local tools on the machine the work
@@ -311,13 +316,21 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   });
   const workspacesDir = path.join(home, 'workspaces');
   let workspaceDependencies: WorkspaceDependencyInstaller | undefined;
+  const memberClones = createMemberWorkspaceRegistry();
   const memberWorkspaces = createMemberWorkspaceManager({
     rootDir: workspacesDir,
     logger: log.child({ module: 'workspace' }),
+    onEnsured: memberClones.register,
     // The limit needs the engine's paths; install the port before the link can accept any call.
     get dependencies() {
       return workspaceDependencies;
     },
+  });
+  // A running session's command tools wait for its clone's dependencies (PM-743).
+  const dependencyGate = createDependencyGate({
+    prepare: (key, opts) => memberWorkspaces.prepareDependencies(key, opts),
+    waitMs: DEPENDENCY_GATE_WAIT_S * 1000,
+    logger: log.child({ module: 'workspace' }),
   });
   const nanogptCodexHome = path.join(home, 'providers', 'nanogpt', 'codex-home');
   const geminiConfigDir = path.join(home, 'providers', 'gemini');
@@ -339,7 +352,14 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       processes: () => probe.processes(),
       envValues: (pids, names) => probe.envValues(pids, names),
     },
-    refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
+    refreshDependencies: async (cwd) => {
+      const key = await memberClones.keyOf(cwd);
+      if (!key) {
+        await worktrees.refreshDependencies(cwd);
+        return;
+      }
+      return dependencyGate(key);
+    },
     permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
     logger: log.child({ module: 'runner' }),
   });

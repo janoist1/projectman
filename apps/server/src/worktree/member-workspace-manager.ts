@@ -77,6 +77,8 @@ export interface MemberWorkspaceManagerSettings extends MemberWorkspaceManagerOp
   access?: WorkspaceAccess;
   /** The root of a member's workspaces (default: `rootDir` for every member). */
   rootFor?: (member: string) => string;
+  /** Called at the end of every successful `ensure` with the clone's canonical path (PM-743). */
+  onEnsured?: (key: MemberWorkspaceKey, repoPath: string) => void;
 }
 
 /**
@@ -264,6 +266,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
       await assertWorkspace(info);
       await access.mkdir(owner, info.cacheDir);
       await access.mkdir(owner, info.tempDir);
+      opts.onEnsured?.(key, await canonical(info.path));
       return { ...info, created };
     });
   }

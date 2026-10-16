@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import type { SessionState } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PermissionBroker, PermissionDecision, RunnerEvent, StartSessionSpec } from '../contracts';
+import type {
+  DependencyGate,
+  PermissionBroker,
+  PermissionDecision,
+  RunnerEvent,
+  StartSessionSpec,
+} from '../contracts';
 import type { HookPayload } from './hook-payload';
 import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL } from './pause';
 import { CLAUDE_TIMING, createClaudeAdapter } from './providers/claude';
@@ -279,7 +285,7 @@ function start(
     spec?: Partial<StartSessionSpec>;
     /** The launch put the initial message on the command line (Codex). */
     initialMessageSent?: boolean;
-    refreshDependencies?: (cwd: string) => Promise<void>;
+    refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
     logger?: ReturnType<typeof silentLogger>;
     transcriptRoot?: string;
   } = {},
@@ -375,6 +381,90 @@ describe('worktree dependency preparation', () => {
       gemini_args: { CommandLine: 'npm test', Cwd: '/work' },
     };
     expect(await s.hook(hook)).toEqual({ decision: 'allow' });
+  });
+});
+
+describe('dependency gate (PM-743)', () => {
+  const claudeBash: HookPayload = {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_use_id: 't1',
+    tool_input: { command: 'npm test' },
+  };
+  const geminiBash: HookPayload = {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command: 'npm test', cwd: '/work' },
+    gemini_tool: 'run_command',
+    gemini_args: { CommandLine: 'npm test', Cwd: '/work' },
+  };
+  const refuse = { refuse: 'wait for the dependencies' };
+
+  it('answers a command tool with the adapter refusal and changes nothing', async () => {
+    const decide = vi.fn();
+    const refreshDependencies = vi.fn(async () => refuse);
+    const s = await ready({ broker: { decide }, refreshDependencies });
+    const before = s.session.state;
+    expect(await s.hook(claudeBash)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: 'wait for the dependencies',
+      },
+    });
+    expect(refreshDependencies).toHaveBeenCalledWith('/work');
+    expect(s.session.state).toEqual(before);
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Gemini command and a subagent command the same way', async () => {
+    const gemini = start({
+      adapter: createGeminiAdapter({ bin: 'unused', logger: silentLogger() }),
+      spec: geminiSpec(),
+      refreshDependencies: async () => refuse,
+    });
+    expect(await gemini.hook(geminiBash)).toEqual({ decision: 'deny', reason: refuse.refuse });
+    const claude = await ready({ refreshDependencies: async () => refuse });
+    expect(await claude.hook({ ...claudeBash, agent_id: 'child' })).toMatchObject({
+      hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: refuse.refuse },
+    });
+  });
+
+  it('lets the command run, and logs, when the CLI cannot refuse (Codex)', async () => {
+    const warn = vi.fn();
+    const logger = { ...silentLogger(), warn } as ReturnType<typeof silentLogger>;
+    const adapter = createCodexAdapter({ bin: 'unused', logger, codexHome: '/unused-codex-home' });
+    expect(adapter.refuseToolOutput).toBeUndefined();
+    const s = start({ adapter, logger, refreshDependencies: async () => refuse });
+    expect(await s.hook(claudeBash)).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ tool: 'Bash' }),
+      'dependency gate cannot refuse on this CLI',
+    );
+  });
+
+  it('does not call the gate for file, search, team or input tools', async () => {
+    const refreshDependencies = vi.fn(async () => refuse);
+    const s = await ready({ refreshDependencies });
+    for (const tool_name of [
+      'Read',
+      'Write',
+      'Grep',
+      'WebFetch',
+      'mcp__team__send_message',
+      'AskUserQuestion',
+    ])
+      await s.hook({ ...claudeBash, tool_name, tool_use_id: tool_name });
+    expect(refreshDependencies).not.toHaveBeenCalled();
+  });
+
+  it('does not wait for the gate while a pause is stopping the session', async () => {
+    const refreshDependencies = vi.fn(async () => refuse);
+    const s = await ready({ refreshDependencies });
+    await s.hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' });
+    void s.session.pause();
+    expect(await s.hook(claudeBash)).toEqual({ continue: false, stopReason: PAUSED_BEFORE_TOOL });
+    expect(refreshDependencies).not.toHaveBeenCalled();
   });
 });
 

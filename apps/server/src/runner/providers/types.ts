@@ -169,6 +169,8 @@ export interface ProviderAdapter {
    * PreToolUse or PermissionRequest hook it came with. Absent: the CLI's questions stay at its terminal.
    */
   refuseQuestionOutput?(event: 'PreToolUse' | 'PermissionRequest', message: string): unknown;
+  /** A PreToolUse answer that turns any tool call away with `message` (PM-743); absent when the CLI cannot. */
+  refuseToolOutput?(message: string): unknown;
   /**
    * The answer to a PreToolUse, PostToolUse or PostToolUseFailure hook that makes the CLI end the
    * turn there (PM-218), with `reason` as its message. Absent: the CLI has no such answer, and a

@@ -2237,6 +2237,17 @@ assumption or remote-engine RPC.
   checkout refuses while preparation is busy. Single mode and unconfigured/older engines skip it;
   a configured non-macOS engine fails with `sandbox_unavailable`. All files, copies, subprocesses
   and queue operations stay on the execution engine; only the key-bound request and result cross RPC.
+  A running session is gated too (PM-743): before a command tool (`needsDependencies` in `runner/tools.ts`;
+  not file, search, web or team tools) the PreToolUse path of `runner/session.ts` calls
+  `refreshDependencies`, which in `engine-app.ts` finds the session's clone in the engine-local
+  `worktree/member-workspace-registry.ts` (filled by `onEnsured` after each `ensure`; no RPC, the
+  `MemberWorkspaceManager` contract is unchanged) and runs `worktree/dependency-gate.ts` over
+  `prepareDependencies` with an 80 s wait (`DEPENDENCY_GATE_WAIT_S`). A pending preparation turns every
+  command away through the adapter's `refuseToolOutput` (Claude, Gemini); a failed one once per clone,
+  key and reason, then the command runs with the dependencies as they are. Codex and NanoGPT cannot
+  refuse: the command waits at most 80 s and then runs (warn). Gemini's PreToolUse hook timeout grows by
+  80 s. A command already running when an install starts is not stopped. A clone the registry does not
+  know takes the worktree path above.
   Target workspace ancestors must be real directories: component-wise `lstat` checks run
   during selection and immediately before every copy, rename and removal, including rollback
   and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,

@@ -12,6 +12,11 @@
 export const FAST_HOOK_TIMEOUT_S = 10;
 /** Allows the bounded worktree dependency copy to finish before the next tool runs. */
 export const TOOL_PREPARE_HOOK_TIMEOUT_S = 120;
+/**
+ * How long the PreToolUse dependency gate waits for the installer before it answers (PM-743).
+ * Gemini's one PreToolUse hook adds it to its permission wait; Claude's and Codex's 120 s cover it.
+ */
+export const DEPENDENCY_GATE_WAIT_S = 80;
 /** Extra time the CLI waits beyond our own permission timeout, so we always answer first. */
 export const PERMISSION_TIMEOUT_MARGIN_S = 30;
 

@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { LaunchInput } from '../types';
-import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
+import {
+  DEPENDENCY_GATE_WAIT_S,
+  FAST_HOOK_TIMEOUT_S,
+  forwarderCommand,
+  permissionHookTimeoutS,
+} from '../../hook-forwarder';
 
 export const GEMINI_DENY_FALLBACK = JSON.stringify({
   decision: 'deny',
@@ -83,7 +88,9 @@ export async function prepareGeminiDir(configDir: string | undefined, input: Lau
   const hooks: Record<string, unknown> = {};
   for (const event of ['PreInvocation', 'PreToolUse', 'PostToolUse', 'Stop']) {
     const timeout =
-      event === 'PreToolUse' ? permissionHookTimeoutS(input.permissionTimeoutMs) : FAST_HOOK_TIMEOUT_S;
+      event === 'PreToolUse'
+        ? permissionHookTimeoutS(input.permissionTimeoutMs) + DEPENDENCY_GATE_WAIT_S
+        : FAST_HOOK_TIMEOUT_S;
     const hook = {
       type: 'command',
       command: forwarderCommand(`${input.hookUrl}/${event}`, process.execPath, {

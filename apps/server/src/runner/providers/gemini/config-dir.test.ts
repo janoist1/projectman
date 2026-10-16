@@ -1,6 +1,7 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEPENDENCY_GATE_WAIT_S } from '../../hook-forwarder';
 import { tempDirs } from '../../test-helpers';
 import { prepareGeminiDir } from './config-dir';
 import { geminiSpec, CONVERSATION_ID } from './test-helpers';
@@ -25,7 +26,8 @@ describe('Gemini conversation directory', () => {
     ])
       expect((await stat(path.join(dir, file))).mode & 0o777).toBe(0o600);
     const hooks = JSON.parse(await readFile(path.join(dir, 'config/hooks.json'), 'utf8')).projectman;
-    expect(hooks.PreToolUse[0].hooks[0]).toMatchObject({ timeout: 630 });
+    expect(hooks.PreToolUse[0].hooks[0]).toMatchObject({ timeout: 630 + DEPENDENCY_GATE_WAIT_S });
+    expect(DEPENDENCY_GATE_WAIT_S).toBe(80);
     expect(hooks.PreToolUse[0].hooks[0].command).toContain('/PreToolUse');
     expect(hooks.PreToolUse[0].hooks[0].command).toContain('blocked');
     expect(

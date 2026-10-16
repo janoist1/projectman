@@ -5,6 +5,17 @@ export const TEAM_SEND_MESSAGE_TOOL = 'mcp__team__send_message';
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'NotebookRead']);
 
+/** Tools that never run project code, so a half-installed `node_modules` cannot hurt them. */
+const CODE_FREE_TOOLS = new Set(['Grep', 'Glob', 'TodoWrite', 'ToolSearch', 'WebFetch', 'WebSearch']);
+
+/**
+ * Whether a tool call may run code that needs the dependencies (PM-743): the shell and anything
+ * unknown. File, search, web and team tools do not.
+ */
+export function needsDependencies(name: string): boolean {
+  return !FILE_TOOLS.has(name) && !CODE_FREE_TOOLS.has(name) && !name.startsWith('mcp__team__');
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)

@@ -40,6 +40,7 @@ describe('Gemini adapter', () => {
       decision: 'allow',
     });
     expect(adapter.haltOutput!('pause')).toEqual({ decision: 'deny', reason: 'pause' });
+    expect(adapter.refuseToolOutput!('wait')).toEqual({ decision: 'deny', reason: 'wait' });
     expect(await adapter.planUsage.get()).toBeNull();
   });
 });

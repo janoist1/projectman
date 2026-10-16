@@ -1575,12 +1575,15 @@ workers follow the machine's size.
   (no `cloudflared` login). **Remote engine:** unchanged; the public side is only the browser login boundary,
   the engine still connects outward to the protected `/engine`.
 
-- **SES identity/DKIM and sender provisioning (PM-678, part of PM-664)** —
+- **SES identity/DKIM and sender provisioning (PM-678, part of PM-664; own account PM-729)** —
   `scripts/cloud/{ses,config,commands,cli,secrets,aws-cli,cloudflare-api}.ts`,
   `deploy/aws/config.example.json`, `apps/server/test/cloud-ses.test.ts`,
   `apps/server/test/helpers/fake-ses.ts`, `docs/AWS.md`, `docs/HYBRID.md`.
   **What runs where:** the owner's approved provisioning CLI adds optional version-1
-  `ses:{region,domain,from}`. `ses plan` reads STS, SESv2 identity/account and Cloudflare DNS;
+  `ses:{profile?,region,domain,from}`; PM-729 adds the optional `profile` (absent: `aws.profile`, resolved
+  at load time without rewriting the file), so SES (identity, production access, the narrow sender IAM
+  user and its key) can live in its own account (`i`) while compute/S3/host IAM stay in `aws.profile`.
+  `ses plan` reads STS, SESv2 identity/account and Cloudflare DNS;
   `ses configure [--dry-run]` additionally verifies managed IAM ownership/groups/policies/keys,
   creates or retains the Easy DKIM domain, converges only three DNS-only CNAMEs from AWS tokens and
   SigningHostedZone, restricts `<instanceName>-ses` to `ses:SendEmail` on the region/account/domain
@@ -1592,8 +1595,10 @@ workers follow the machine's size.
   `ses check` reads verification/DKIM, production/sending, exact DNS/IAM and local sender config;
   no command sends mail. Cloudflare list responses are shape-checked so malformed reads cannot
   be mistaken for missing records. **Machine assumptions:** AWS CLI v2/profiles on the owner's
-  POSIX administration machine; every AWS call explicitly targets the central profile (`aroom`)
-  and SES region, never registrar profile `i`. Existing authoritative Cloudflare zone and protected
+  POSIX administration machine; every AWS call explicitly targets `ses.profile` and the SES region,
+  and the key is handed over only through the protected `cloud.env` (no profile env, the backend sends
+  directly with the target account's narrow key; a key of a former account is refused, not replaced).
+  Existing authoritative Cloudflare zone and protected
   DNS token, no domain transfer or cross-account SES authorization. The cloud store is 0700 and
   `cloud.env` 0600, with unsafe modes/symlinks refused and other env keys preserved; credentials
   never enter argv or reports. Live configuration/request/deploy each needs owner approval;

@@ -105,6 +105,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       },
     };
 
+    let warnedWorkspaceSetup = false;
     const memberWorkspaces: MemberWorkspaceManager = {
       location: (key) => call('workspace.location', [key]),
       home: (key) => call('workspace.home', [key]),
@@ -112,6 +113,18 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       status: (key) => call('workspace.status', [key]),
       sourceHead: (key, branch) => call('workspace.sourceHead', [key, branch]),
       fetchBase: (key) => call('workspace.fetchBase', [key]),
+      prepareDependencies: async (key) => {
+        try {
+          return await call('workspace.prepareDependencies', [key]);
+        } catch (err) {
+          if (!(err instanceof EngineCallError) || err.linkCode !== 'unknown_method') throw err;
+          if (!warnedWorkspaceSetup) {
+            warnedWorkspaceSetup = true;
+            logger.warn({ engine: id }, 'the engine does not support workspace dependency preparation');
+          }
+          return { status: 'skipped', reason: 'not_configured' };
+        }
+      },
       findTaskBranch: (key, taskKey, ref) => call('workspace.findTaskBranch', [key, taskKey, ref]),
       resolveSource: (source) => call('workspace.resolveSource', [source]),
       checkoutTaskBranch: (key, request) => call('workspace.checkoutTaskBranch', [key, request]),

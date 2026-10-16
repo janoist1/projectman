@@ -10,6 +10,7 @@ import type {
   SourceHead,
   WorkspaceCheckout,
   WorkspaceSource,
+  WorkspaceDependenciesResult,
 } from '../contracts';
 import { isTaskBranch } from '@projectman/shared';
 import { git, GitCommandError, isoOrNull } from './git';
@@ -293,6 +294,53 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
       await assertWorkspace(info);
       return inspect(info);
     });
+  }
+
+  async function prepareDependencies(
+    key: MemberWorkspaceKey,
+    options: { waitMs?: number } = {},
+  ): Promise<WorkspaceDependenciesResult> {
+    const { dir, info } = await locate(key);
+    // Start while holding the checkout lock, but release it before awaiting the engine operation.
+    const started = await withLock(dir, async () => {
+      await assertWorkspace(info);
+      if (!opts.dependencies || access.ownerOf(info.path) !== null) return null;
+      return {
+        promise: opts.dependencies.prepare(
+          {
+            project: key.project.project.key,
+            member: key.member,
+            repo: key.repoName,
+            repoPath: await canonical(info.path),
+          },
+          { waitMs: options.waitMs ?? 45_000 },
+        ),
+      };
+    });
+    if (!started) return { status: 'skipped', reason: 'not_configured' };
+    try {
+      return await started.promise;
+    } catch (err) {
+      throw dependencyError(err);
+    }
+  }
+
+  async function assertDependenciesIdle(key: MemberWorkspaceKey, info: MemberWorkspaceInfo): Promise<void> {
+    if (!opts.dependencies?.busy(info.path)) return;
+    try {
+      // Join without waiting so the installer supplies the actual operation's startedAt.
+      await opts.dependencies.prepare(
+        {
+          project: key.project.project.key,
+          member: key.member,
+          repo: key.repoName,
+          repoPath: info.path,
+        },
+        { waitMs: 0 },
+      );
+    } catch (err) {
+      throw dependencyError(err);
+    }
   }
 
   async function sourceHead(key: MemberWorkspaceKey, branch: string): Promise<SourceHead | null> {
@@ -627,6 +675,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     const { dir, info } = await locate(key);
     return withLock(dir, async () => {
       await assertWorkspace(info);
+      await assertDependenciesIdle(key, info);
       await assertBranchName(target.branch);
       // Already there (a resumed task): its own unfinished work stays as it is.
       const before = await checkoutOf(info.path);
@@ -682,6 +731,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     const { dir, info } = await locate(key);
     return withLock(dir, async () => {
       await assertWorkspace(info);
+      await assertDependenciesIdle(key, info);
       if (!OID.test(commit)) throw new MemberWorkspaceError('workspace_invalid', 'invalid review commit');
       if (!(await plainGitSucceeds(['check-ref-format', source.ref])))
         throw new MemberWorkspaceError('workspace_invalid', 'invalid source ref');
@@ -720,12 +770,20 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     status,
     sourceHead,
     fetchBase,
+    prepareDependencies,
     findTaskBranch,
     resolveSource,
     checkoutTaskBranch,
     checkoutReview,
     publishTaskBranch,
   };
+}
+
+function dependencyError(err: unknown): unknown {
+  const failure = err as { code?: unknown; details?: Record<string, unknown> } | null;
+  if (failure?.code === 'workspace_dependencies_pending' || failure?.code === 'workspace_dependencies_failed')
+    return new MemberWorkspaceError(failure.code, (err as Error).message, failure.details);
+  return err;
 }
 
 async function assertBranchName(branch: string): Promise<void> {

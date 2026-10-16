@@ -248,6 +248,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'workspace.fetchBase'([key]) {
       return memberWorkspaces().fetchBase(key);
     },
+    async 'workspace.prepareDependencies'([key]) {
+      return memberWorkspaces().prepareDependencies(key);
+    },
     async 'workspace.findTaskBranch'([key, taskKey, ref]) {
       return memberWorkspaces().findTaskBranch(key, taskKey, ref);
     },

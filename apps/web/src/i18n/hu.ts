@@ -998,6 +998,9 @@ export const hu = {
       workspace_dirty:
         'A tag munkaállomásán el nem mentett változás vagy félbehagyott git-művelet van, ezért nem vált feladatot.',
       workspace_fetch_failed: 'A friss alapágat nem sikerült letölteni, ezért az új feladat nem indult el.',
+      workspace_dependencies_pending: 'A függőségek előkészítése folyamatban van; az indítás várakozik.',
+      workspace_dependencies_failed:
+        'A függőségek előkészítése nem sikerült; az indítás később újrapróbálkozik.',
       workspace_branch_missing: 'A feladat ága hiányzik a tag munkaállomásáról.',
       workspace_source_missing: 'Az átadott commit már nincs rajta a feladat ágán; kérj új átadást.',
       project_exists: 'Ilyen kulcsú projekt már van.',
@@ -1381,6 +1384,8 @@ export const hu = {
       workspace_busy: 'Indulásra vár: {name} munkaállomásán más feladat fut',
       workspace_dirty: 'Indulásra vár: {name} munkaállomásán befejezetlen munka van',
       workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
+      workspace_dependencies_pending: 'Indulásra vár: a függőségek előkészítése folyamatban',
+      workspace_dependencies_failed: 'Indulásra vár: a függőségek előkészítése nem sikerült',
       prerequisite_open: 'Előfeltételre vár: {prerequisites}',
       no_free_member: 'Szabad fejlesztőre vár',
       senior_busy: 'A Seniorra vár',
@@ -1436,6 +1441,10 @@ export const hu = {
         'A tag munkaállomásán el nem mentett változás vagy félbehagyott git-művelet van. Kérd meg a tagot (vagy nézd meg magad), hogy mentse el vagy fejezze be; automatikusan semmit nem törlünk.',
       workspace_fetch_failed:
         'Az új feladatág csak friss alapról indulhat. Ellenőrizd a hálózatot és a repó elérését; az indítás magától újrapróbálkozik.',
+      workspace_dependencies_pending:
+        'A motor előkészíti a tag munkaállomásának függőségeit. A munkamenet ezután automatikusan elindul.',
+      workspace_dependencies_failed:
+        'A motor nem tudta előkészíteni a függőségeket. A naplóban látható a hiba oka; az indítás később automatikusan újrapróbálkozik.',
       prerequisite_open:
         'A munka magától elindul, amikor az utolsó előfeltétel is lezárul (kész vagy visszavont). Ember az Indítás gombbal előbb is elindíthatja.',
       no_free_member:
@@ -1501,6 +1510,8 @@ export const hu = {
         workspace_busy: 'más munkán dolgozik ugyanabban a repóban',
         workspace_dirty: 'befejezetlen munka van a gépén',
         workspace_fetch_failed: 'a friss alapágat nem sikerült letölteni',
+        workspace_dependencies_pending: 'a függőségek előkészítése folyamatban',
+        workspace_dependencies_failed: 'a függőségek előkészítése nem sikerült',
         no_free_member: 'mindenki mással foglalkozik',
         senior_busy: 'mással foglalkozik, utána sorra kerül',
         label_missing: 'előbb ő dolgozik rajta: {labels}',

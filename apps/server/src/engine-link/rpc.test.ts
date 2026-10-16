@@ -366,6 +366,24 @@ describe('engine RPC', () => {
     });
   });
 
+  it('limits dependency preparation to a workspace key and a strict ready or skipped result', () => {
+    const { params, result } = methods['workspace.prepareDependencies'];
+    const key = { project: testConfig(), repoName: testConfig().project.repos[0]!.name, member: 'dev' };
+    expect(params.safeParse([key]).success).toBe(true);
+    for (const value of [
+      [key, { waitMs: 1 }],
+      [{ ...key, cwd: '/other' }],
+      [{ ...key, command: 'npm install' }],
+    ])
+      expect(params.safeParse(value).success).toBe(false);
+    expect(result.safeParse({ status: 'ready', key: 'a'.repeat(64), changed: true }).success).toBe(true);
+    expect(result.safeParse({ status: 'skipped', reason: 'not_configured' }).success).toBe(true);
+    expect(result.safeParse({ status: 'ready', key: '', changed: true }).success).toBe(false);
+    expect(
+      result.safeParse({ status: 'ready', key: 'a'.repeat(64), changed: true, output: 'extra' }).success,
+    ).toBe(false);
+  });
+
   describe('workspace.publishTaskBranch over the wire (PM-739)', () => {
     const key = {
       project: testConfig({ workspacePath: '/cloud/path' }),

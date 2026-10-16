@@ -205,6 +205,8 @@ export const ERROR_CODES = [
   'workspace_busy',
   'workspace_dirty',
   'workspace_fetch_failed',
+  'workspace_dependencies_pending',
+  'workspace_dependencies_failed',
   'workspace_branch_missing',
   'workspace_source_missing',
   // The fix round limit (PM-262): the card is not held, the caller does not decide it, nobody can plan.

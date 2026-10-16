@@ -7,9 +7,10 @@ import type { FastifyBaseLogger } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
-import type { MemberWorkspaceKey, MemberWorkspaceManager } from '../contracts';
+import type { MemberWorkspaceKey, MemberWorkspaceManager, WorkspaceDependencyInstaller } from '../contracts';
 import { createMemberWorkspaceManager } from './index';
 import { MemberWorkspaceError } from './member-workspace-manager';
+import { localWorkspaceAccess } from './workspace-access';
 
 /*
  * Every test builds its own repositories in a temp directory: a bare "remote", the project
@@ -125,6 +126,108 @@ async function startTask(member: string, branch: string): Promise<string> {
 
 // Real git in temp repositories: slower than the default timeout when the whole suite runs.
 describe('member workspaces', { timeout: 30_000 }, () => {
+  it('does not install in worker-owned clones or accept an invalid member key', async () => {
+    const prepare = vi.fn<WorkspaceDependencyInstaller['prepare']>();
+    manager = createMemberWorkspaceManager({
+      rootDir: path.join(base, 'workspaces'),
+      logger: silentLogger(),
+      access: { ...localWorkspaceAccess(), ownerOf: () => 'worker' },
+      dependencies: { prepare, busy: () => false, close: async () => undefined },
+    });
+    await manager.ensure(key('dev'));
+    expect(await manager.prepareDependencies(key('dev'))).toEqual({
+      status: 'skipped',
+      reason: 'not_configured',
+    });
+    await expect(manager.prepareDependencies(key('../owner'))).rejects.toMatchObject({
+      code: 'workspace_invalid',
+    });
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('skips dependency setup when unconfigured and refuses invalid clones before calling an installer', async () => {
+    const ws = await manager.ensure(key('dev'));
+    expect(await manager.prepareDependencies(key('dev'))).toEqual({
+      status: 'skipped',
+      reason: 'not_configured',
+    });
+    await rm(ws.gitDir, { recursive: true });
+    await expect(manager.prepareDependencies(key('dev'))).rejects.toMatchObject({
+      code: 'workspace_invalid',
+    });
+  });
+
+  it('releases the git lock while installing and blocks work and review checkouts, including resumes', async () => {
+    let finish!: () => void;
+    let busy = true;
+    const dependencies = {
+      prepare: vi.fn<WorkspaceDependencyInstaller['prepare']>(async (_request, options) => {
+        if (options.waitMs === 0)
+          throw Object.assign(new Error('still running'), {
+            code: 'workspace_dependencies_pending',
+            details: { startedAt: '2026-10-16T20:00:00.000Z' },
+          });
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        busy = false;
+        return { status: 'ready' as const, key: 'a'.repeat(64), changed: true };
+      }),
+      busy: () => busy,
+      close: async () => undefined,
+    };
+    manager = createMemberWorkspaceManager({
+      rootDir: path.join(base, 'workspaces'),
+      logger: silentLogger(),
+      dependencies,
+    });
+    const ws = await manager.ensure(key('dev'));
+    const preparing = manager.prepareDependencies(key('dev'), { waitMs: 12 });
+    await vi.waitFor(() => expect(dependencies.prepare).toHaveBeenCalled());
+    expect(dependencies.prepare).toHaveBeenCalledWith(
+      { project: 'AR', member: 'dev', repo: 'app', repoPath: ws.path },
+      { waitMs: 12 },
+    );
+    const { commit } = await manager.fetchBase(key('dev'));
+    await expect(
+      manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'main' }),
+    ).rejects.toMatchObject({
+      code: 'workspace_dependencies_pending',
+      details: { startedAt: '2026-10-16T20:00:00.000Z' },
+    });
+    await expect(
+      manager.checkoutReview(key('dev'), { path: projectRepo, ref: 'refs/heads/main' }, commit),
+    ).rejects.toMatchObject({ code: 'workspace_dependencies_pending' });
+    finish();
+    await preparing;
+    expect(await manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'main' })).toMatchObject({
+      branch: 'main',
+    });
+  });
+
+  it.each(['workspace_dependencies_pending', 'workspace_dependencies_failed'] as const)(
+    'preserves installer %s details in a manager error',
+    async (code) => {
+      const details = code.endsWith('pending')
+        ? { startedAt: '2026-10-16T20:00:00.000Z' }
+        : { reason: 'install_failed', exitCode: 1, key: 'a'.repeat(64) };
+      manager = createMemberWorkspaceManager({
+        rootDir: path.join(base, 'workspaces'),
+        logger: silentLogger(),
+        dependencies: {
+          prepare: async () => {
+            throw Object.assign(new Error('fixture failure'), { code, details });
+          },
+          busy: () => false,
+          close: async () => undefined,
+        },
+      });
+      await manager.ensure(key('dev'));
+      const err = await refusal(manager.prepareDependencies(key('dev')));
+      expect(err).toMatchObject({ code, details });
+    },
+  );
+
   it('are independent clones with their own git directory, cache and temp, under project/member/repo', async () => {
     const ws = await manager.ensure(key('dev'));
     expect(ws.created).toBe(true);

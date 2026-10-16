@@ -396,9 +396,42 @@ export interface WorkspaceSource {
 export type MemberWorkspaceErrorCode =
   | 'workspace_dirty'
   | 'workspace_fetch_failed'
+  | 'workspace_dependencies_pending'
+  | 'workspace_dependencies_failed'
   | 'workspace_branch_missing'
   | 'workspace_source_missing'
   | 'workspace_invalid';
+
+export type WorkspaceDependenciesResult =
+  { status: 'ready'; key: string; changed: boolean } | { status: 'skipped'; reason: 'not_configured' };
+
+export type WorkspaceDependencyFailure =
+  | 'invalid_inputs'
+  | 'install_failed'
+  | 'timeout'
+  | 'aborted'
+  | 'heavy_lock_timeout'
+  | 'heavy_lock_unavailable'
+  | 'sandbox_unavailable';
+
+export interface WorkspaceDependencyRequest {
+  project: string;
+  member: string;
+  repo: string;
+  /** The manager's independent clone, at its real path. */
+  repoPath: string;
+}
+
+export interface WorkspaceDependencyInstaller {
+  /** Starts or joins preparation; throws workspace_dependencies_pending after waitMs. */
+  prepare(
+    request: WorkspaceDependencyRequest,
+    opts: { waitMs: number },
+  ): Promise<WorkspaceDependenciesResult>;
+  busy(repoPath: string): boolean;
+  /** Aborts all preparations and awaits their process groups. */
+  close(): Promise<void>;
+}
 
 export interface MemberWorkspaceManager {
   /** Where the workspace is (or would be), without creating anything. */
@@ -430,6 +463,11 @@ export interface MemberWorkspaceManager {
    * and returns its commit; `workspace_fetch_failed` when a fetch fails.
    */
   fetchBase(key: MemberWorkspaceKey): Promise<{ branch: string; commit: string }>;
+  /** Prepares dependencies before launch, outside the member session. Default wait: 45 seconds. */
+  prepareDependencies(
+    key: MemberWorkspaceKey,
+    opts?: { waitMs?: number },
+  ): Promise<WorkspaceDependenciesResult>;
   /**
    * A branch of `taskKey` (`<KEY>` or `<KEY>-*`, `preferred` first): in the workspace (`source`
    * null), else in the project repository's branches or its `origin` tracking branches.
@@ -483,4 +521,5 @@ export interface MemberWorkspaceManagerOptions {
   /** Where member workspaces live, e.g. ~/.projectman/workspaces. */
   rootDir: string;
   logger: FastifyBaseLogger;
+  dependencies?: WorkspaceDependencyInstaller;
 }

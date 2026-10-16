@@ -228,6 +228,98 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(h.runner.started).toHaveLength(0);
   });
 
+  it('waits for dependency readiness after checkout and before recording the binding or launching, including resume', async () => {
+    let ready!: () => void;
+    const prepared: string[] = [];
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        prepareDependencies: async (key) => {
+          prepared.push(key.member);
+          expect(await branchOf((await inner.location(key)).path)).toBe('AR-1-login-page');
+          await new Promise<void>((resolve) => {
+            ready = resolve;
+          });
+          return { status: 'ready', key: 'a'.repeat(64), changed: true };
+        },
+      }),
+    });
+    const starting = startTask('AR-1', 'dev-1');
+    await vi.waitFor(() => expect(prepared).toEqual(['dev-1']));
+    expect(h.runner.started).toHaveLength(0);
+    expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toHaveLength(0);
+    ready();
+    await starting;
+    expect(h.runner.started).toHaveLength(1);
+    const first = h.runner.lastStarted();
+    h.runner.emit({ type: 'transcript_path', sessionId: first.sessionId, path: '/tmp/fictional-deps.jsonl' });
+    await h.domain.sessions.stop('AR', first.sessionId);
+    const resuming = ensure('dev-1', 'AR-1');
+    await vi.waitFor(() => expect(prepared).toHaveLength(2));
+    expect(h.runner.started).toHaveLength(1);
+    ready();
+    await resuming;
+    expect(h.runner.started).toHaveLength(2);
+  });
+
+  it.each(['workspace_dependencies_pending', 'workspace_dependencies_failed'] as const)(
+    'releases the reservation after %s and permits a later retry',
+    async (code) => {
+      let refuse = true;
+      const details = code.endsWith('pending')
+        ? { startedAt: '2026-10-16T20:00:00.000Z' }
+        : { reason: 'install_failed', exitCode: 23, key: 'a'.repeat(64) };
+      await setup({
+        wrapMemberWorkspaces: (inner) => ({
+          ...inner,
+          prepareDependencies: async () => {
+            if (refuse) throw Object.assign(new Error('fixture dependency refusal'), { code, details });
+            return { status: 'ready', key: 'a'.repeat(64), changed: false };
+          },
+        }),
+      });
+      await expect(startTask('AR-1', 'dev-1')).rejects.toMatchObject({
+        code,
+        details: { member: 'dev-1', ...details },
+      });
+      expect(h.runner.started).toHaveLength(0);
+      expect(h.repos.memberWorkspaces.find('AR', 'dev-1', 'web')?.holder).toBeNull();
+      expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toHaveLength(0);
+      refuse = false;
+      await startTask('AR-1', 'dev-1');
+      expect(h.runner.started).toHaveLength(1);
+    },
+  );
+
+  it('prepares review dependencies after checking out the snapshot commit and before launching', async () => {
+    let ready!: () => void;
+    const reviewHeads: string[] = [];
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        prepareDependencies: async (key) => {
+          if (key.member === 'cr') {
+            const ws = await inner.location(key);
+            reviewHeads.push(await git(ws.path, 'rev-parse', 'HEAD'));
+            expect(await branchOf(ws.path)).toBe('');
+            await new Promise<void>((resolve) => {
+              ready = resolve;
+            });
+          }
+          return { status: 'ready', key: key.member, changed: true };
+        },
+      }),
+    });
+    await startTask('AR-1', 'dev-1');
+    const commit = await commitFile(await workspaceOf('dev-1'), 'login.txt', 'review version');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await vi.waitFor(() => expect(reviewHeads).toEqual([commit]));
+    expect(h.runner.started).toHaveLength(1);
+    ready();
+    await startedCount(2);
+    expect(h.runner.lastStarted()).toMatchObject({ member: 'cr' });
+  });
+
   it('reports a missing task branch instead of starting the task over', async () => {
     await setup();
     await startTask('AR-1', 'dev-1');

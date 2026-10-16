@@ -103,6 +103,8 @@ export function resolveReal(target: string): string {
 }
 
 export interface EngineLimit {
+  /** Engine-owned read denials, including key and link headers. */
+  sensitiveRead(): string[];
   /** Throws an `EngineRpcError` for a refused request; returns the parameters to use (some are rewritten from `engine.json`). */
   check<M extends EngineMethod>(method: M, params: MethodParams<M>): Promise<MethodParams<M>>;
   /** The paths the cloud may export files from for a session: its working directory and its folder. */
@@ -426,6 +428,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     'workspace.status': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.sourceHead': ([key, branch]) => [{ ...key, project: bind(key.project, key.repoName) }, branch],
     'workspace.fetchBase': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
+    'workspace.prepareDependencies': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.findTaskBranch': ([key, taskKey, ref]) => [
       { ...key, project: bind(key.project, key.repoName) },
       taskKey,
@@ -681,6 +684,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   };
 
   const limit: EngineLimit = {
+    sensitiveRead: () => [...sensitive],
     async check(method, params) {
       const rule = rules[method];
       return rule ? ((await rule(params as never)) as MethodParams<typeof method>) : params;

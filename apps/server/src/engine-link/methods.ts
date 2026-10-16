@@ -405,6 +405,13 @@ const workspaces = {
   ),
   sourceHead: method(z.tuple([key, text]), head.nullable()),
   fetchBase: method(z.tuple([key]), z.strictObject({ branch: text, commit: text })),
+  prepareDependencies: method(
+    z.tuple([key]),
+    z.discriminatedUnion('status', [
+      z.strictObject({ status: z.literal('ready'), key: z.string().min(1).max(128), changed: z.boolean() }),
+      z.strictObject({ status: z.literal('skipped'), reason: z.literal('not_configured') }),
+    ]),
+  ),
   findTaskBranch: method(
     // JSON turns a trailing undefined into null.
     z.tuple([key, text, text.nullish().transform((value) => value ?? undefined)]),
@@ -491,6 +498,7 @@ export const methods = {
   'workspace.status': workspaces.status,
   'workspace.sourceHead': workspaces.sourceHead,
   'workspace.fetchBase': workspaces.fetchBase,
+  'workspace.prepareDependencies': workspaces.prepareDependencies,
   'workspace.findTaskBranch': workspaces.findTaskBranch,
   'workspace.resolveSource': workspaces.resolveSource,
   'workspace.checkoutTaskBranch': workspaces.checkoutTaskBranch,

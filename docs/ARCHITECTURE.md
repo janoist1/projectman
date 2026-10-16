@@ -2212,6 +2212,24 @@ assumption or remote-engine RPC.
   restricts targets, failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
   time for preparation (`runner/hook-forwarder.ts`, 120 seconds for Claude and Codex).
   No npm install runs outside a sandbox.
+  Member clones may opt in through engine-local `repos[].workspaceSetup: {kind: 'npm_ci', timeoutMs?}`
+  (PM-741, owner option 1). `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
+  member session, in srt on macOS only: package trees and a private run home/tmp/cache are writable;
+  only registry.npmjs.org and nodejs.org are reachable, with no local binding. Engine secrets and
+  other workspaces/worktrees/dependency markers are denied reads; only the target clone is allowed.
+  Local install hooks, npm overrides, binding.gyp and linked inputs/targets are refused using the
+  merge installer's checks. The environment is the full-test allowlist without PROJECTMAN variables.
+  A per-clone single flight survives caller/link timeouts; shutdown aborts and awaits its process group.
+  The engine atomically records `{version:1,key,nodeModules,preparedAt}` under
+  `<home>/workspace-deps/<sha256(JSON [project,member,repo])>/ready.json`, outside member write access.
+  The byte-based npm dependency key includes manifests and runtime versions; listed trees must still
+  exist as real directories. Persistent input/install/timeout/sandbox failures retry after ten minutes
+  (a changed key retries immediately); queue and abort errors are not memoized.
+  `workspace.prepareDependencies` runs after checkout and before binding/launch for work and review,
+  including resumes. Pending/failed preparations release the session reservation and defer its start;
+  checkout refuses while preparation is busy. Single mode and unconfigured/older engines skip it;
+  a configured non-macOS engine fails with `sandbox_unavailable`. All files, copies, subprocesses
+  and queue operations stay on the execution engine; only the key-bound request and result cross RPC.
   Target workspace ancestors must be real directories: component-wise `lstat` checks run
   during selection and immediately before every copy, rename and removal, including rollback
   and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,
@@ -2234,6 +2252,9 @@ assumption or remote-engine RPC.
   Optional merge dependency preparation (PM-710, connected to the card merge in PM-711) shares that
   mandatory reservation with the test (one acquisition, one `full_test_started`) and
   publishes at most one current and one temporary dependency generation per repository on this host.
+  Member dependency preparation (PM-741) also requires this lock, labelled
+  `workspace-deps <project>/<member>/<repo>`, waiting at most 30 minutes. Queue time is separate from
+  the configured install timeout; an unavailable queue refuses preparation before installation.
   **Remote engine:** queue competing runs on each execution host and size workers there;
   `requireHeavyLock` and the `heavy_lock_unavailable` result cross the `full_test.run` boundary and the
   lock directory, PIDs and queue stay on the engine's machine. An older engine's strict spec schema
@@ -2591,6 +2612,9 @@ assumption or remote-engine RPC.
   that holds the workspace and the repository; only the existing RPC crosses the link.
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
+  PM-741 adds a read-only consumer of the engine's `_merge-deps/<sha256(JSON [project,repo])>/current`
+  store: member dependency preparation copies a complete matching generation under the same heavy
+  lock, replacing only validated package trees. Member installations never publish into this store.
   **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
   is required.
   **Module:** `worktree`

@@ -439,8 +439,17 @@ the systemd unit `projectman-cloud.service`.
 2. **`cloud.env`** (from `npm run cloud -- aws`) is read; a missing file or missing bucket keys is
    exit 2. Its secrets are sent on the standard input of `ssh` only, never in an argument, and are
    written on the machine to `/etc/projectman/cloud.env` (root only, mode 600).
-3. **`bootstrap`** installs Docker, git and `jq`, turns on unattended upgrades, makes a 2 GB swap file
-   (the 2 GB machine builds a Node image), and installs the unit file. It is safe to run again.
+3. **`bootstrap`** installs `jq` first and atomically sets
+   `/etc/docker/daemon.json` `features.containerd-snapshotter=false` before installing Docker or
+   dependencies that might start it (PM-725). It preserves unrelated JSON settings and refuses
+   malformed configuration, symlinks and non-regular files. The new file is root:root, mode 0644.
+   The host requires the classic `overlay2` image store so immutable image IDs remain config digests.
+   Bootstrap checks the actual daemon's `Driver` and `DriverStatus`, restarts an existing unsupported
+   store only when the board is provably stopped and neither current nor previous deploy history exists,
+   and checks the result. Unavailable or malformed daemon information stops bootstrap; a running classic
+   daemon needs no restart. Repeated bootstrap is safe, including seed's two calls.
+   It also installs git, turns on unattended upgrades, makes a 2 GB swap file (the 2 GB machine builds
+   a Node image), and installs the unit file.
 4. **`build`** fetches the repository at the commit and builds the image on the machine. It refuses
    below 3 GiB of free disk. Old images beyond the current and the previous one, and build cache
    beyond 2 GB, are removed.
@@ -455,16 +464,27 @@ go back, and every `rollback`, prints when the board last stopped before the upd
 (`lastStoppedAt`) and how to restore the database to that moment
 ([Restoring the database to a point in time](#restoring-the-database-to-a-point-in-time)).
 
+`receive-image` and `start` check the actual classic store under the image lock before import, board
+stop, metadata writes or unit start. Unsupported stores are refused (exit 3); unreadable or malformed
+daemon information fails (exit 1). Image ID, platform, revision and version checks remain strict.
+Changing stores [hides images and containers from the previous store](https://docs.docker.com/engine/storage/containerd/)
+without deleting them. After a permitted stopped-host switch, import the approved bundle again through
+`receive-image`; the prior import is not available in the classic store. Bootstrap does not migrate or
+prune store data and leaves `/var/lib/projectman/data` intact. Hosts with retained deploy history need
+an explicit recovery plan instead of an automatic switch. Live cutover stays within PM-675's approved
+procedure and PM-719's trial reset; this bootstrap change grants no additional live-operation permission.
+
 ### The machine's files
 
-| Path                                           | What                                                                                         |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `/etc/systemd/system/projectman-cloud.service` | the unit (`deploy/aws/projectman-cloud.service`); no published port, only `/data` is mounted |
-| `/etc/projectman/cloud.env`                    | the container's environment (root only, 600)                                                 |
-| `/etc/projectman/image.env`                    | the image the unit runs                                                                      |
-| `/var/lib/projectman/data`                     | the board's data (`/data` in the container, owner 10001, mode 700)                           |
-| `/var/lib/projectman/deploy.json`              | the deploy history and the time the board last stopped                                       |
-| `/opt/projectman/src`                          | the checkout the image is built from                                                         |
+| Path                                           | What                                                                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `/etc/systemd/system/projectman-cloud.service` | the unit (`deploy/aws/projectman-cloud.service`); no published port, only `/data` is mounted                  |
+| `/etc/projectman/cloud.env`                    | the container's environment (root only, 600)                                                                  |
+| `/etc/projectman/image.env`                    | the image the unit runs                                                                                       |
+| `/etc/docker/daemon.json`                      | explicit classic image store (`features.containerd-snapshotter=false`); unrelated settings preserved (PM-725) |
+| `/var/lib/projectman/data`                     | the board's data (`/data` in the container, owner 10001, mode 700)                                            |
+| `/var/lib/projectman/deploy.json`              | the deploy history and the time the board last stopped                                                        |
+| `/opt/projectman/src`                          | the checkout the image is built from                                                                          |
 
 ### How the Lightsail SSH connection is made
 

@@ -103,7 +103,8 @@ tests use the SDK's own client, which behaves the same way here):
   to a session that runs on the server's machine; a session on a remote engine is told to read the image
   from the card's attachment once a card is opened from the mark.
 
-- `get_project_state { task_key? }` (PM-465) is a read-only Operator tool, available without an open owner request.
+- `get_project_state { task_key? }` (PM-465, PM-707) is read-only for the Operator and selected PM in internal
+  general conversations, available without an open owner request.
   A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
   Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
   Guest conversations cannot call it until a separate task provides a viewer filter.
@@ -134,14 +135,14 @@ tests use the SDK's own client, which behaves the same way here):
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
 - `dismiss_signal { signal_id, note }` (PM-679) closes a delivered, unpresented `ready_waiting` signal
-  whose cards all wait on purpose. Only the Operator, outside guest conversations, without an owner
+  whose cards all wait on purpose. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
-- `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558) is the Operator's tool for
+- `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558, PM-707) is the PM's tool for
   the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
   `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`
   `{ what, where, expected }`); `note` is always required, a field the outcome does not take is refused
-  (`invalid_outcome_fields`). Only the Operator, not in guest conversations, no open request needed; a question
+  (`invalid_outcome_fields`). Only the selected PM, not in guest conversations, no open request needed; a question
   no longer in screening answers `question_not_screening` (moot still works). `ask_human` answers
   `{ screening: true }` for a screened question and takes `reask_of` + `reask_reason` (together) to ask a settled
   question again unscreened (`reask_not_allowed` otherwise). Handler method: `screenQuestion(ctx, { itemId,

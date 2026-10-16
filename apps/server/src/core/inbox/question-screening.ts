@@ -2,7 +2,7 @@ import {
   formatInjectedTeamMessage,
   isOnLeave,
   isWorkPaused,
-  operatorOf,
+  coordinationMemberOf,
   questionPayloadOf,
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
@@ -13,7 +13,7 @@ import type { InboxService } from './inbox';
 import type { MessageDeliveryPort } from '../messages';
 import type { ProjectService } from '../projects';
 
-/** The first lines of the notice the Operator gets for the questions it screens. */
+/** The first lines of the notice the PM gets for the questions it screens. */
 const SCREENING_NOTICE =
   'Projectman question screening. AI members asked questions meant for people. Handle every one of them now ' +
   'with screen_question (item_id, outcome, note; answered also needs answer, forwarded forward_to, todo todo). ' +
@@ -23,9 +23,9 @@ const SCREENING_NOTICE =
   'A question you leave alone goes to the people when its `until` time comes.';
 
 /**
- * The Operator looks at an AI member's question before any person sees it (PM-558, PM-556). A new question
- * waits in the inbox state `screening`; this wakes the Operator for it, through admission like every
- * server-started session, and gives the question to the people (`fallback`) when the Operator cannot take
+ * The PM looks at an AI member's question before any person sees it (PM-558, PM-556). A new question
+ * waits in the inbox state `screening`; this wakes the PM for it, through admission like every
+ * server-started session, and gives the question to the people (`fallback`) when the PM cannot take
  * it (`unavailable`, at once) or does not settle it in time (`timeout`, `payload.screening.until`).
  */
 export class QuestionScreening {
@@ -47,17 +47,17 @@ export class QuestionScreening {
     this.deps = deps;
   }
 
-  /** Whether new questions of AI members go to the Operator first at all. */
+  /** Whether new questions of AI members go to the PM first at all. */
   get enabled(): boolean {
     return this.deps.enabled;
   }
 
   /**
-   * Whether the Operator cannot take questions now: nobody to ask, AI work off, on leave, or the team paused.
+   * Whether the PM cannot take questions now: nobody to ask, AI work off, on leave, or the team paused.
    * The same rule the fallback uses; `ask_human` waits for the release only when this holds.
    */
   cannotScreen(projectKey: string, config: ProjectConfig): boolean {
-    const operator = operatorOf(config);
+    const operator = coordinationMemberOf(config);
     return (
       !operator ||
       !config.team.limits.aiEnabled ||
@@ -66,12 +66,12 @@ export class QuestionScreening {
     );
   }
 
-  /** A question was put into screening: the Operator gets it, or the people do at once when it cannot. */
+  /** A question was put into screening: the PM gets it, or the people do at once when it cannot. */
   async enqueue(projectKey: string): Promise<void> {
     await this.deliver(projectKey);
   }
 
-  /** Timer and startup: releases the questions whose time is up, then gives the Operator what it has not got. */
+  /** Timer and startup: releases the questions whose time is up, then gives the PM what it has not got. */
   async sweep(): Promise<void> {
     const { ctx, projects } = this.deps;
     for (const { key } of projects.summaries()) {
@@ -109,9 +109,9 @@ export class QuestionScreening {
   }
 
   /**
-   * Wakes the Operator for the questions it has not got. When it cannot be woken now (nobody to ask, AI work
+   * Wakes the PM for the questions it has not got. When it cannot be woken now (nobody to ask, AI work
    * off, on leave, the team paused, admission defers the start, or the start fails), the questions go to the
-   * people at once: nothing waits ten minutes for an Operator that is not coming.
+   * people at once: nothing waits ten minutes for a PM that is not coming.
    */
   private async deliver(projectKey: string): Promise<void> {
     if (this.waking.has(projectKey)) {
@@ -133,10 +133,7 @@ export class QuestionScreening {
           await this.firstDeliveries.get(projectKey);
           if (outcome.kind === 'deferred') await this.releaseAll(projectKey);
         } catch (err) {
-          this.deps.ctx.logger.warn(
-            { err, projectKey },
-            'could not give the Operator the screened questions',
-          );
+          this.deps.ctx.logger.warn({ err, projectKey }, 'could not give the PM the screened questions');
           await this.releaseAll(projectKey);
         } finally {
           this.firstDeliveries.delete(projectKey);
@@ -159,7 +156,7 @@ export class QuestionScreening {
       taskKey: null,
       spec: () => ({ kind: 'question_screening', projectKey }),
       stillValid: () => this.undelivered(projectKey).length > 0,
-      waitsFor: () => operatorOf(projects.cachedConfig(projectKey)!)?.handle,
+      waitsFor: () => coordinationMemberOf(projects.cachedConfig(projectKey)!)?.handle,
       retry: () => this.deliver(projectKey),
       log: {
         deferred: 'question screening start deferred',
@@ -168,7 +165,7 @@ export class QuestionScreening {
       },
       run: async () => {
         const config = await projects.config(projectKey);
-        const member = operatorOf(config);
+        const member = coordinationMemberOf(config);
         if (!member) return;
         const items = this.undelivered(projectKey);
         if (!items.length) return;
@@ -200,7 +197,7 @@ export class QuestionScreening {
               member,
               workItem,
               cause: { kind: 'question_screening' },
-              // The Operator's conversation with the owners is not a card's work: it takes no capacity.
+              // The PM's conversation with the owners is not a card's work: it takes no capacity.
               capacity: false,
               messages: [...messages, formatInjectedTeamMessage('projectman', text, null)],
             });
@@ -222,7 +219,7 @@ export class QuestionScreening {
   }
 }
 
-/** One question as the Operator's notice carries it. */
+/** One question as the PM's notice carries it. */
 function noticeOf(item: InboxItem) {
   const payload = questionPayloadOf(item);
   return {

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { memberOf } from './lookup';
 import {
   actorMoveRefusal,
+  coordinationActorRefusal,
+  coordinationMemberOf,
   isProjectManager,
   isRequiredProjectManager,
   PROJECT_MANAGER_ROLE,
@@ -15,6 +17,27 @@ import { ProjectConfig } from './schema';
 import type { MemberConfig } from './schema';
 
 type MemberInput = Record<string, unknown>;
+
+describe('coordination actors', () => {
+  it('selects the live PM and never substitutes the Operator or a member on leave', () => {
+    const config = configWith([
+      ai('away', { onLeave: true }),
+      ai('pm'),
+      ai('operator', { role: 'ai_operator' }),
+    ]);
+    expect(coordinationMemberOf(config)?.handle).toBe('pm');
+    expect(coordinationMemberOf(configWith([ai('away', { onLeave: true })]))).toBeNull();
+    expect(coordinationMemberOf(configWith([]))).toBeNull();
+    expect(coordinationActorRefusal(config, { kind: 'ai', handle: 'pm' })).toBeNull();
+    for (const actor of [
+      { kind: 'human', handle: 'pm' },
+      { kind: 'ai', handle: 'away' },
+      { kind: 'ai', handle: 'operator' },
+      { kind: 'ai', handle: 'pm', via: 'integrator' },
+    ] as const)
+      expect(coordinationActorRefusal(config, actor)).toBe('project_manager_only');
+  });
+});
 
 const OWNER: MemberInput = {
   kind: 'human',

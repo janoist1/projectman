@@ -1,4 +1,5 @@
 import {
+  coordinationMemberOf,
   isOperator,
   isProjectManager,
   isUnreadBy,
@@ -68,17 +69,20 @@ export class MessageService {
   private readonly projects: ProjectService;
 
   private readonly operatorRequests: MessageRequests;
+  private readonly coordinationRequests: MessageRequests;
 
   constructor(deps: {
     ctx: DomainContext;
     timeline: TimelineService;
     projects: ProjectService;
     operatorRequests: MessageRequests;
+    coordinationRequests: MessageRequests;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.operatorRequests = deps.operatorRequests;
+    this.coordinationRequests = deps.coordinationRequests;
   }
 
   get(id: string): TeamMessage | null {
@@ -182,9 +186,12 @@ export class MessageService {
     const message = this.ctx.repos.messages.updateReceipts(id, receipts, deliveredAt);
     if (message) {
       this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
-      const first = !before.receipts?.find((r) => r.handle === handle)?.deliveredAt;
+      const first = !(before.receipts
+        ? before.receipts.find((r) => r.handle === handle)?.deliveredAt
+        : before.deliveredAt);
       if (first) {
         this.openOperatorRequest(message, handle);
+        this.openCoordinationRequest(message, handle);
         this.recordAnswerDelivery(message, handle, { state: 'delivered', at });
       }
     }
@@ -281,6 +288,51 @@ export class MessageService {
     );
     if (!session) return;
     this.operatorRequests.open({
+      projectKey: message.projectKey,
+      sessionId: session.id,
+      source: message.answer ? 'answer' : 'message',
+      messageId: message.id,
+      inboxItemId: message.answer?.inboxItemId ?? null,
+      from: message.from,
+      text: message.answer?.answer ?? message.body,
+    });
+  }
+
+  /** Only a delivered owner's own-login message or answer opens a PM request. Signal rounds never do. */
+  private openCoordinationRequest(message: TeamMessage, handle: string): void {
+    const config = this.projects.cachedConfig(message.projectKey);
+    if (!config || coordinationMemberOf(config)?.handle !== handle) return;
+    const owner = memberOf(config, message.from);
+    if (
+      owner?.kind !== 'human' ||
+      owner.access !== 'owner' ||
+      message.via ||
+      !message.to.includes(handle) ||
+      message.operatorRequest ||
+      (message.origin && message.origin.kind !== 'answer')
+    )
+      return;
+    if (message.operatorSignal) {
+      const signal = this.ctx.repos.operatorSignals.get(message.operatorSignal);
+      const presentation = signal?.messageId && this.ctx.repos.messages.get(signal.messageId);
+      if (
+        !signal ||
+        signal.projectKey !== message.projectKey ||
+        signal.state !== 'accepted' ||
+        !signal.actionable ||
+        signal.decidedBy !== message.from ||
+        signal.deliveredTo !== handle ||
+        !presentation ||
+        presentation.projectKey !== message.projectKey ||
+        presentation.from !== handle
+      )
+        return;
+    }
+    const route = messageRoute(message, handle);
+    if (route.type === 'general' && route.with) return;
+    const session = this.ctx.repos.sessions.findByWorkItem(message.projectKey, handle, { type: 'general' });
+    if (!session || session.workItem.type !== 'general' || session.workItem.with) return;
+    this.coordinationRequests.open({
       projectKey: message.projectKey,
       sessionId: session.id,
       source: message.answer ? 'answer' : 'message',

@@ -395,10 +395,13 @@ describe('GET /api/projects/:key/operator (PM-463)', () => {
     const owner = await setupOwner(app.app);
     await createProject(app, owner);
     const { repos } = app.app.projectman;
+    const { session } = await app.app.projectman.domain.sessions.ensureSession('AR', 'operator', {
+      type: 'general',
+    });
     repos.operatorRequests.insert({
       id: 'opr_1',
       projectKey: 'AR',
-      sessionId: 'ses_1',
+      sessionId: session.id,
       source: 'message',
       messageId: null,
       inboxItemId: null,

@@ -1,6 +1,7 @@
 import {
   aiLabelSetters,
   canAutomaticallyStartTask,
+  coordinationActorRefusal,
   developerLevelOf,
   evaluateStart,
   isOnLeave,
@@ -210,8 +211,11 @@ export class TaskStarts {
     if (opts.automatic && !canAutomaticallyStartTask(task, this.tasks.list(projectKey))) return skipped;
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
-    if (isOperatorActor(config, opts.actor) && task.fixLimit)
-      throw forbidden('operator_never', 'the Operator cannot start a task held by its fix round limit');
+    if (
+      (isOperatorActor(config, opts.actor) || !coordinationActorRefusal(config, opts.actor)) &&
+      task.fixLimit
+    )
+      throw forbidden('operator_never', 'the coordinator cannot start a task held by its fix round limit');
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
     const workStage = workStageOf(config, task);
     if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');

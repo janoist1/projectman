@@ -4,6 +4,7 @@ export function createMessaging(deps: ConstructorParameters<typeof Messaging>[0]
 
 import {
   cardBusyGroups,
+  coordinationActorRefusal,
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
   isOpenTask,
@@ -111,7 +112,7 @@ export interface MessageWaker {
 
 /** What presenting or accepting Operator signals records with the message (PM-593). */
 export interface MessageSignals {
-  presentation(projectKey: string, signalId: string): void;
+  presentation(projectKey: string, signalId: string, by?: string): void;
   decision(projectKey: string, signalId: string, by: string, accepted: boolean): void;
   present(projectKey: string, signalId: string, messageId: string, actionable: boolean): void;
 }
@@ -244,15 +245,15 @@ export class Messaging {
         status: 404,
         details: { what: 'member', id: unknown[0], ids: unknown },
       });
-    const operator = isOperator(memberOf(config, from));
+    const coordinator = coordinationActorRefusal(config, opts.actor ?? humanActor(from)) === null;
     const signals =
       opts.operatorSignals ??
-      (operator && opts.operatorSignal !== undefined
+      (coordinator && opts.operatorSignal !== undefined
         ? [{ id: opts.operatorSignal, actionable: opts.signalActionable ?? false }]
         : []);
     if (
       opts.operatorSignals !== undefined &&
-      (!operator ||
+      (!coordinator ||
         opts.operatorSignal !== undefined ||
         signals.length === 0 ||
         signals.length > 20 ||
@@ -260,16 +261,27 @@ export class Messaging {
     )
       throw invalid('invalid_request', 'invalid signal presentation arguments');
     if (signals.length > 0) {
+      const session = opts.sessionId && this.ctx.repos.sessions.get(opts.sessionId);
+      if (
+        !session ||
+        session.projectKey !== projectKey ||
+        session.member !== from ||
+        session.workItem.type !== 'general' ||
+        session.workItem.with
+      )
+        throw forbidden('project_manager_only', 'signal presentation requires the PM internal conversation');
       if (recipients.some((handle) => !ownerHandles(config).includes(handle)))
         throw invalid('invalid_request', 'signals go only to owners');
-      for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id);
+      for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id, from);
     }
-    if (opts.operatorSignal !== undefined && !operator) {
+    if (opts.operatorSignal !== undefined && !coordinator) {
+      const signal = this.ctx.repos.operatorSignals.get(opts.operatorSignal);
+      const presentation = signal?.messageId && this.ctx.repos.messages.get(signal.messageId);
       if (
         !ownerHandles(config).includes(from) ||
         (opts.actor && (opts.actor.kind !== 'human' || opts.actor.handle !== from || opts.actor.via)) ||
         recipients.length !== 1 ||
-        recipients[0] !== operatorOf(config)?.handle
+        recipients[0] !== (presentation ? presentation.from : operatorOf(config)?.handle)
       ) {
         throw conflict(
           'operator_signal_closed',
@@ -359,7 +371,12 @@ export class Messaging {
         : undefined;
     const message = this.ctx.unitOfWork(() => {
       opts.beforeRecord?.();
-      if (opts.operatorSignal !== undefined && !isOperator(memberOf(config, from)))
+      if (signals.length > 0) {
+        if (coordinationActorRefusal(this.projects.cachedConfig(projectKey)!, sender))
+          throw forbidden('project_manager_only', 'the coordination actor changed before presentation');
+        for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id, from);
+      }
+      if (opts.operatorSignal !== undefined && !coordinator)
         this.messageSignals!.decision(projectKey, opts.operatorSignal, from, true);
       const id = newId('msg');
       const attachments =
@@ -384,7 +401,11 @@ export class Messaging {
         kind: opts.kind ?? 'action',
         subject: opts.subject,
         operatorRequest: opts.operatorRequest,
-        operatorSignal: operator ? (signals.length === 1 ? signals[0]!.id : undefined) : opts.operatorSignal,
+        operatorSignal: coordinator
+          ? signals.length === 1
+            ? signals[0]!.id
+            : undefined
+          : opts.operatorSignal,
         version,
       });
       for (const signal of signals)

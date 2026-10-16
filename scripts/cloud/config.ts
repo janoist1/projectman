@@ -129,6 +129,12 @@ const route53Schema = z.strictObject({
 });
 
 const sesSchema = z.strictObject({
+  /** The AWS account that owns the SES identity and the sender IAM user; defaults to `aws.profile` (PM-729). */
+  profile: z
+    .string()
+    .min(1)
+    .refine((value) => value.trim().length > 0, 'a non-empty profile')
+    .optional(),
   region: z.string().regex(REGION, 'an explicit AWS SES region'),
   domain: z.string().max(253).regex(ZONE, 'a lowercase domain name'),
   from: z.email().max(254),
@@ -156,11 +162,6 @@ const configSchema = z
         issue(['ses', 'from'], 'must be an address of exactly ses.domain');
       if (config.ses.domain !== cloudflare.zone && !config.ses.domain.endsWith(`.${cloudflare.zone}`))
         issue(['ses', 'domain'], 'must belong to the configured Cloudflare zone');
-      if (aws.profile === 'i')
-        issue(
-          ['aws', 'profile'],
-          'SES requires an explicit central-account profile; registrar profile i is refused',
-        );
     }
     if (aws.compute === 'ec2' && !aws.ec2)
       issue(['aws', 'ec2'], 'required for EC2; explicitly choose the type, AMI, VPC, subnet and disk size');
@@ -222,7 +223,8 @@ export interface CloudConfig {
     boardMode: 'private' | 'public';
   };
   route53: { profile: string; hostedZoneId?: string };
-  ses?: NonNullable<ParsedCloudConfig['ses']>;
+  /** `profile` is `ses.profile`, or `aws.profile` when the block names none (PM-729). */
+  ses?: NonNullable<ParsedCloudConfig['ses']> & { profile: string };
 }
 
 export function defaultConfigPath(homeDir: string): string {
@@ -267,7 +269,7 @@ export function parseConfig(raw: unknown, homeDir: string, configDir = process.c
     },
     access: parsed.access,
     route53: { ...parsed.route53, profile: parsed.route53.profile ?? parsed.aws.profile },
-    ...(parsed.ses ? { ses: parsed.ses } : {}),
+    ...(parsed.ses ? { ses: { ...parsed.ses, profile: parsed.ses.profile ?? parsed.aws.profile } } : {}),
     ...(parsed.deployment
       ? {
           deployment: {

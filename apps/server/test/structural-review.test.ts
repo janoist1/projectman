@@ -224,9 +224,7 @@ describe('owner-approved occasional review', () => {
     ).toMatchObject({ status: 'failed' });
     expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
     expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ action: 'structural_review', status: 'failed' }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ action: 'structural_review', status: 'failed' })]),
     );
     start.mockRestore();
     expect(

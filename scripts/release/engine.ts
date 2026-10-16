@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
+import { defaultSessionTmpRoot, sharedClaudeTmpRoots } from '../../apps/server/src/engine-host';
 import {
   fullTestEnv,
   installerSettings,
@@ -107,6 +108,22 @@ function outputTail(end: SandboxedEnd): string {
   return tail ? `: ${tail}` : '';
 }
 
+/**
+ * The temporary roots every session of the machine shares (PM-353), closed like the server's full test and merge
+ * check close them: Claude Code's (scratchpads, background outputs), the base of the sessions' own temporary
+ * directories and the members' session folders. The install runs third-party lifecycle scripts with the registry
+ * in reach, so none of these may be readable. The run's own directory is none of them and stays readable.
+ */
+function sharedTmpRoots(env: NodeJS.ProcessEnv): string[] {
+  return [
+    ...new Set([
+      ...sharedClaudeTmpRoots({ claudeTmpBase: env.CLAUDE_CODE_TMPDIR || undefined }),
+      defaultSessionTmpRoot(),
+      path.join(fs.realpathSync(os.tmpdir()), 'projectman-sessions'),
+    ]),
+  ];
+}
+
 /** One run directory for the sandboxed steps; its settings files are outside the child's write access. */
 async function withSandboxRun<T>(
   run: EngineRun,
@@ -127,7 +144,12 @@ async function withSandboxRun<T>(
     command: '',
     maxWorkers: 1,
     timeoutMs: DEFAULT_TIMEOUTS.install,
-    sandbox: fullTestSandbox({ checkout: root, userHome, appHome: run.paths.engineHome }),
+    sandbox: fullTestSandbox({
+      checkout: root,
+      userHome,
+      appHome: run.paths.engineHome,
+      closedTmpRoots: sharedTmpRoots(options.baseEnv ?? process.env),
+    }),
     requireHeavyLock: true,
   };
   fs.mkdirSync(runDir, { mode: 0o700 });

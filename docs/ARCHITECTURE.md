@@ -2954,7 +2954,9 @@ outputDir, engineReleasesDir})` builds, from one exact commit, the linux/amd64 a
   build run in the Anthropic Sandbox Runtime through the full-test facade (`runSandboxed`,
   `srtSettings`, `installerSettings`): only the install reaches `registry.npmjs.org` and
   `nodejs.org`, nothing else has a network, writes go only to the candidate's package trees or server
-  bundle and a throwaway home, the sensitive-path list and the engine home are unreadable, and the
+  bundle and a throwaway home, the sensitive-path list, the engine home and the temporary roots the
+  machine's sessions share (Claude Code's `claude-<uid>`, the sessions' tmp base, `projectman-sessions`,
+  as the full test closes them, PM-353) are unreadable, and the
   environment is the full-test allow list (no token, key or `PROJECTMAN_*` of the server). A missing,
   refusing, timed-out or interrupted sandbox ends the preparation; nothing runs on the host instead.
   The machine's heavy-run queue is held for the whole run (an unusable queue is a failure). The
@@ -2962,7 +2964,9 @@ outputDir, engineReleasesDir})` builds, from one exact commit, the linux/amd64 a
   is written last, after the manifest hash, both archives, the image IDs, the candidate's HEAD and
   clean state and the lockfile hash were verified again; a finished candidate carries a sibling
   `<candidate>.candidate.json` marker, and only a directory that matches it is reused.
-  Foreign or partial directories are refused and never overwritten.
+  Foreign or partial directories are refused and never overwritten. A failed run leaves its
+  `outputDir` (with `build-source`) as it was; a rerun needs a new `outputDir`, because an existing one
+  is refused.
   **Assumptions:** an admin Mac with Docker and a pre-existing docker-container Buildx builder for both
   platforms (as PM-718), Node and the Sandbox Runtime of the full test, `git` and https access to the
   configured repository, and `outputDir`/`engineReleasesDir` on a local disk of the user, outside the

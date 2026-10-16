@@ -11,7 +11,13 @@ import { DEFAULT_TIMEOUTS, validatePrepareInput } from './config';
 import type { HeldLock, PrepareOptions, PrepareReleaseInput } from './config';
 import { prepareEngineCandidate, reverifyEngineCandidate } from './engine';
 import type { EngineRun } from './engine';
-import { hashRegularFile, preparedHybridReleaseSchema, readReceipt, writeReceipt } from './receipt';
+import {
+  hashRegularFile,
+  preparedHybridReleaseSchema,
+  readReceipt,
+  readRegularFileWithHash,
+  writeReceipt,
+} from './receipt';
 import type { PreparedHybridRelease, SmokeEvidence } from './receipt';
 import { assertImageLoaded, smokeImage } from './smoke';
 
@@ -90,8 +96,7 @@ interface VerifiedBundle {
 /** The manifest as the single source of the archives' hashes, sizes and image IDs, and every archive against it. */
 function readBundle(imagesDir: string, commit: string): VerifiedBundle {
   const manifestPath = path.join(imagesDir, 'manifest.json');
-  const manifestSha256 = hashRegularFile(manifestPath);
-  const manifestText = fs.readFileSync(manifestPath, 'utf8');
+  const { text: manifestText, sha256: manifestSha256 } = readRegularFileWithHash(manifestPath);
   const bundle = bundleSchema.parse(JSON.parse(manifestText));
   if (bundle.sourceSha !== commit) throw refused('the image bundle was built from another commit');
   for (const image of bundle.images) {

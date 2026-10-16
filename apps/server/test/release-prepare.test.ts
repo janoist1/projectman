@@ -1,6 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -11,6 +12,7 @@ import { Report } from '../../../scripts/cloud/report';
 import { prepareHybridRelease } from '../../../scripts/release/prepare';
 import type { PrepareOptions, PreparedHybridRelease } from '../../../scripts/release/prepare';
 import { candidateMarkerFile, preparedHybridReleaseSchema } from '../../../scripts/release/receipt';
+import { defaultSessionTmpRoot, sharedClaudeTmpRoots } from '../src/engine-host';
 import type { SandboxedEnd, SandboxedRun } from '../src/full-test';
 import { CloudWorld } from './helpers/fake-aws';
 
@@ -777,6 +779,27 @@ describe('the preparer sandbox', () => {
         expect(denied).toContain(closed);
       expect(entry.settings.filesystem.allowRead).not.toContain(world.userHome);
       expect(entry.settings.filesystem.allowRead).not.toContain(world.engineHome);
+    }
+  });
+
+  it('closes the temporary roots the machine shares, in every sandboxed run', async () => {
+    const claudeBase = path.join(world.home, 'claude-base');
+    await world.prepare({
+      baseEnv: { ...world.options().baseEnv, CLAUDE_CODE_TMPDIR: claudeBase },
+    });
+    const shared = [
+      ...sharedClaudeTmpRoots({ claudeTmpBase: claudeBase }),
+      defaultSessionTmpRoot(),
+      path.join(fs.realpathSync(os.tmpdir()), 'projectman-sessions'),
+    ];
+    expect(shared).toContain(path.join(claudeBase, `claude-${process.getuid?.()}`));
+    expect(world.sandboxRuns.length).toBeGreaterThan(0);
+    for (const entry of world.sandboxRuns) {
+      expect(entry.settings.filesystem.denyRead).toEqual(expect.arrayContaining(shared));
+      // The run's own directory is readable although it may stand below a closed root.
+      expect(entry.settings.filesystem.allowRead).toContain(
+        path.join(path.dirname(entry.settingsFile), 'sandbox'),
+      );
     }
   });
 

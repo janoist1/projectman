@@ -92,6 +92,19 @@ export function hashRegularFile(file: string): string {
   }
 }
 
+/** A small regular file read once: the text and its SHA-256 come from the same bytes, so they cannot differ. */
+export function readRegularFileWithHash(file: string): { text: string; sha256: string } {
+  noSymlinks(file);
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw refused('a hashed input must be a regular file');
+    const bytes = fs.readFileSync(fd);
+    return { text: bytes.toString('utf8'), sha256: createHash('sha256').update(bytes).digest('hex') };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /** Writes a new 0600 file without ever replacing an existing one (hard link of a complete temporary file). */
 function writeNewFile(file: string, content: string): void {
   const temporary = path.join(

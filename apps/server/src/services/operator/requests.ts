@@ -47,6 +47,7 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_boundary_request',
   'get_screenshot_run',
   'get_project_state',
+  'get_operator_diagnostics',
   'check_release',
   'read_project_doc',
   'list_decision_candidates',

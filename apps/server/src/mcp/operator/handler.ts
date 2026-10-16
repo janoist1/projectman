@@ -139,6 +139,17 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
+  async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
+    return this.calls.guard(async () => {
+      await this.calls.caller(ctx, 'get_operator_diagnostics');
+      return this.projectState.diagnostics(ctx, args.taskKey, args.limit).catch((err: unknown) => {
+        if (err instanceof DomainError && err.status === 403)
+          throw new TeamToolError('forbidden', `${err.code}: ${err.message}`);
+        throw err;
+      });
+    });
+  }
+
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.calls.guard(async () => {
       const config = await this.calls.caller(ctx, 'get_project_state');

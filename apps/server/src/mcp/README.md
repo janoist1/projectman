@@ -249,6 +249,16 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
 
 ## Wiring
 
+`get_operator_diagnostics { task_key, limit? }` (PM-697) returns the shared
+`OperatorDiagnostics` projection. Only the Operator's owner general session and the selected
+PM's internal general session may read it, without an owner request. Each list is limited
+independently to 1–20 entries (default 10), newest first. Session tools and errors come only
+from structured work metadata. Raw messages, transcripts, screens, tool arguments, commands,
+environment, SQL and check output are excluded. A reading suggests causes; recheck before
+claiming one as proven. Offline engine measurements are null; server records remain readable.
+In v1 cloud mode also returns a null machine block: the monitor's cached snapshot and CPU
+reference do not yet identify their engine. Local single-machine metrics keep their sample time.
+
 ```ts
 createMcpModule({ handler, resolveContext, logger: app.log }).registerRoutes(app);
 ```

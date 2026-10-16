@@ -1,31 +1,6 @@
-import type {
-  InboxKind,
-  SessionState,
-  StageKind,
-  StaleReason,
-  StartBlock,
-  TaskStartWaiting,
-  WakeBlock,
-  WorkItemRef,
-} from '@projectman/shared';
-import type { TaskWait, OperatorSignal, OperatorWatch } from '@projectman/shared';
-
-export interface TaskStateReport {
-  taskKey: string;
-  title: string;
-  stageId: string;
-  stageKind: StageKind;
-  assignee: string | null;
-  labels: string[];
-  startWaiting: TaskStartWaiting | null;
-  startBlock: StartBlock | null;
-  missingGateLabels: string[];
-  openQuestions: Array<{ id: string; from: string; at: string; title: string }>;
-  session: { id: string; member: string; state: SessionState; since: string } | null;
-  holds: Array<'fix_limit' | 'senior_wait' | 'loop' | 'paused'>;
-  wait: TaskWait | null;
-  signals: OperatorSignal[];
-}
+import type { InboxKind, SessionState, TaskStartWaiting } from '@projectman/shared';
+import type { OperatorSignal, OperatorWatch } from '@projectman/shared';
+export type { TaskStateReport, MessageStateReport, OperatorDiagnostics } from '@projectman/shared';
 
 export interface ReleaseStateReport {
   running: { version: string; commit: string | null; tag: string | null };
@@ -70,29 +45,4 @@ export interface ProjectStateReport {
   release: ReleaseStateReport | null;
   /** The undelivered team messages of the AI members, per member; a member with none is left out. */
   waitingMessages: Array<{ member: string; count: number; oldestAt: string }>;
-}
-
-/** What became of one team message for each recipient (PM-543), from today's facts. */
-export interface MessageStateReport {
-  messageId: string;
-  from: string;
-  taskKey: string | null;
-  kind: 'action' | 'info';
-  sentAt: string;
-  recipients: Array<{
-    handle: string;
-    human: boolean;
-    deliveredAt: string | null;
-    /** Where the recipient gets it: the receipt's route, else the card's (or the general chat). */
-    route: WorkItemRef;
-    /** The recipient's live session on that route. */
-    session: { id: string; state: SessionState; since: string } | null;
-    /** The admission deferral of the recipient's start on that route. */
-    waiting: { reason: TaskStartWaiting['reason']; since: string } | null;
-    /** The last failed start on that route since the server started (MessageStarts memory). */
-    lastStartFailure: { code: string; at: string } | null;
-    /** Why it does not wake, from today's facts. */
-    noWake: WakeBlock | 'info' | null;
-    stale: StaleReason | null;
-  }>;
 }

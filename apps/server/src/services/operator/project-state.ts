@@ -1,4 +1,10 @@
-import type { OperatorPauses, OperatorReleases, WaitingStarts, OperatorMessageStarts } from './ports';
+import type {
+  OperatorPauses,
+  OperatorReleases,
+  WaitingStarts,
+  OperatorMessageStarts,
+  OperatorDiagnosticSources,
+} from './ports';
 import {
   conditionHolds,
   isOpenTask,
@@ -12,15 +18,22 @@ import {
   sessionWorkItemOf,
   stageOf,
   startBlock,
+  isOperator,
+  isProjectManager,
+  coordinationActorRefusal,
+  LOCAL_ENGINE_ID,
 } from '@projectman/shared';
-import type { Session } from '@projectman/shared';
+import type { Session, OperatorDiagnostics } from '@projectman/shared';
+import { z } from 'zod';
+import type { ToolContext } from '../../contracts';
+import type { OperatorRequests } from './requests';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { OperatorSignals } from './signals';
 import { LIVE_SESSION_STATES } from '@projectman/shared';
-import { invalid, notFound } from '../../kernel';
+import { forbidden, invalid, notFound } from '../../kernel';
 import { staleReasonFor, wakeFactsFor } from '../../core/messages';
 
 /** Read-only reports over the server's existing work records. */
@@ -35,10 +48,93 @@ export class ProjectState {
     operatorSignals: Pick<OperatorSignals, 'active'>;
     messageStarts: OperatorMessageStarts;
     releases: Pick<OperatorReleases, 'overview'>;
+    requests: Pick<OperatorRequests, 'openFor'>;
+    diagnostics: OperatorDiagnosticSources;
   };
 
   constructor(deps: ProjectState['deps']) {
     this.deps = deps;
+  }
+
+  /** Read current records only; no transcript, log parsing, SQL or shell access. */
+  async diagnostics(ctx: ToolContext, taskKey: string, limit = 10): Promise<OperatorDiagnostics> {
+    if (!z.number().int().min(1).max(20).safeParse(limit).success)
+      throw invalid('invalid_request', 'limit must be an integer from 1 to 20');
+    await this.diagnosticCaller(ctx);
+    this.deps.tasks.get(ctx.projectKey, taskKey);
+    const sessionsForTask = () =>
+      this.deps.ctx.repos.sessions
+        .list(ctx.projectKey, { taskKey })
+        .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt) || a.id.localeCompare(b.id));
+    const machine = await this.deps.diagnostics.machine(sessionsForTask()[0]).catch(() => null);
+    // Machine reads can wait for an engine: recheck the actor and card after that boundary.
+    await this.diagnosticCaller(ctx);
+    const task = await this.task(ctx.projectKey, taskKey);
+    const sessions = sessionsForTask()
+      .slice(0, limit)
+      .map((session) => ({
+        id: session.id,
+        member: session.member,
+        state: session.state,
+        lastActivityAt: session.lastActivityAt,
+        lastTool: session.workMetadata?.lastTool
+          ? { name: session.workMetadata.lastTool.name, at: session.workMetadata.lastTool.at }
+          : null,
+        lastError: session.workMetadata?.lastError
+          ? { code: session.workMetadata.lastError.code, at: session.workMetadata.lastError.at }
+          : null,
+      }));
+    const messages = this.deps.ctx.repos.messages
+      .list(ctx.projectKey, { taskKey, limit })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+      .slice(0, limit);
+    const deliveries = await Promise.all(messages.map((message) => this.message(ctx.projectKey, message.id)));
+    const checks = this.deps.diagnostics
+      .checks(ctx.projectKey, taskKey)
+      .sort((a, b) => b.at.localeCompare(a.at) || b.runId.localeCompare(a.runId))
+      .slice(0, limit)
+      .map((check) => ({
+        runId: check.runId,
+        outcome: check.outcome,
+        failedFiles: [...check.failedFiles],
+        at: check.at,
+      }));
+    await this.diagnosticCaller(ctx);
+    const latest = sessionsForTask()[0];
+    const currentMachine =
+      latest && (latest.engineId ?? LOCAL_ENGINE_ID) === machine?.engineId ? machine : null;
+    return {
+      task,
+      asOf: this.deps.ctx.now().toISOString(),
+      sessions,
+      deliveries,
+      checks,
+      machine: currentMachine,
+    };
+  }
+
+  private async diagnosticCaller(ctx: ToolContext): Promise<void> {
+    const config = await this.deps.projects.config(ctx.projectKey);
+    const member = memberOf(config, ctx.member);
+    if (!isOperator(member) && !isProjectManager(member))
+      throw forbidden('operator_only', 'only the Operator or selected project manager may read diagnostics');
+    const operator = isOperator(member);
+    const session = this.deps.ctx.repos.sessions.get(ctx.sessionId);
+    if (
+      (!operator && coordinationActorRefusal(config, { kind: 'ai', handle: ctx.member })) ||
+      !session ||
+      session.projectKey !== ctx.projectKey ||
+      session.member !== ctx.member ||
+      session.workItem.type !== 'general' ||
+      session.workItem.with !== undefined
+    )
+      throw forbidden(
+        operator ? 'operator_owner_only' : 'project_manager_only',
+        'diagnostics require your internal general session',
+      );
+    const request = this.deps.requests.openFor(ctx.sessionId);
+    if (operator && request && !ownerHandles(config).includes(request.fromHandle))
+      throw forbidden('operator_owner_only', 'guest requests cannot read diagnostics');
   }
 
   async task(projectKey: string, taskKey: string): Promise<TaskStateReport> {

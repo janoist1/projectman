@@ -9,6 +9,7 @@ import type {
   FeedbackStatus,
   FocusPlace,
   MemberHandle,
+  OperatorDiagnostics,
   MessageAttachmentRef,
   MessageKind,
   RelationsChange,
@@ -748,6 +749,10 @@ export interface ProjectDocToolsHandler {
 
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
+  getOperatorDiagnostics(
+    ctx: ToolContext,
+    args: { taskKey: string; limit?: number },
+  ): Promise<OperatorDiagnostics>;
   getOperatorKnowledge(ctx: ToolContext): Promise<OperatorKnowledgeDocument>;
   proposeOperatorKnowledge(
     ctx: ToolContext,

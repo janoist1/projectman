@@ -2414,6 +2414,16 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
   (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
   engine the machine view answers `engine_offline` (409).
+  **Filtered diagnostics (PM-697):** `services/operator/project-state.ts` projects only
+  CPU percentage, memory, sample time and free disk space through the assembly adapter.
+  The latest card session selects the stored engine id; no session, offline or a different
+  engine than the monitor's gives `machine: null`. Disk space comes from that same
+  `EngineHost`. In v1 cloud mode always returns `machine: null`: the monitor's snapshot
+  and CPU reference carry no engine identity or measurement generation, so a fresh
+  timestamp alone cannot prove their origin. A future cloud metrics source must bind
+  both to the owning engine and measurement generation. Server task, delivery
+  and check records remain readable offline. No process details or transcripts are exposed,
+  and no new probe or RPC is introduced.
   **Module:** `machine`
 - **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
   `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside

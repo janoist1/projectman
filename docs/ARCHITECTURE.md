@@ -3341,7 +3341,7 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   provided by the timeline repository) returns for each sibling its last state event (stage change, cancel, reopen)
   created strictly before the window start, found through the partial index `timeline_task_state_before` (project,
   card, creation time, seq) with one probe per card; the window's own events are then replayed in seq order. A sibling
-  without any state evidence stays unknown and does not count as closed. Migration 79 adds both indexes and rewrites
+  without any state evidence stays unknown and does not count as closed. Migration 80 adds both indexes and rewrites
   no event. The query plans are asserted in `test/timeline-state-history.test.ts`; the tenfold-history read counts in
   `test/structural-history-reads.test.ts`.
 - **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of

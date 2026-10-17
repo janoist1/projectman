@@ -1783,7 +1783,11 @@ workers follow the machine's size.
   `scripts/merge-test/{run,scope,impact}.ts` (PM-657) selects checks in that detached checkout using
   argv-based git first-parent diff (`--no-renames -z`) and batched blob reads of both revisions.
   It uses the architecture module map, never evaluates old TypeScript or writes a selection cache,
-  and retains the configured worker limits. **Remote engine:** selection runs on the engine with
+  and retains the configured worker limits. Cloud-only infrastructure diffs under `scripts/cloud/`,
+  `deploy/aws/` and `deploy/cloud/` (PM-734), optionally with direct cloud/deploy/release test-family
+  changes, run server typecheck and the cloud, deploy, release, architecture and merge-test test
+  prefixes. Manifest, lockfile, TypeScript/Vitest configuration and mixed code changes retain full
+  checks; test-only diffs retain existing selection. **Remote engine:** selection runs on the engine with
   its two git trees; no engine files or new selection API cross the server/engine boundary.
   **Module:** `scripts`
 

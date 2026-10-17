@@ -30,6 +30,7 @@ import type {
   StructuralReviews,
   LoopTriages,
 } from '../../services/operator';
+import type { SuperHandoffService } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 export class OperatorTools implements OperatorToolsHandler {
@@ -47,6 +48,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly operatorKnowledge: OperatorKnowledge;
   private readonly structuralReviews: StructuralReviews;
   private readonly loopTriages: LoopTriages;
+  private readonly superHandoffs: Pick<SuperHandoffService, 'request'>;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -63,6 +65,7 @@ export class OperatorTools implements OperatorToolsHandler {
     operatorKnowledge: OperatorKnowledge;
     structuralReviews: StructuralReviews;
     loopTriages: LoopTriages;
+    superHandoffs: Pick<SuperHandoffService, 'request'>;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -78,6 +81,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.operatorKnowledge = deps.operatorKnowledge;
     this.structuralReviews = deps.structuralReviews;
     this.loopTriages = deps.loopTriages;
+    this.superHandoffs = deps.superHandoffs;
   }
 
   async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
@@ -248,6 +252,47 @@ export class OperatorTools implements OperatorToolsHandler {
           );
         throw err;
       });
+  }
+
+  /**
+   * The Operator hands one command to the super-mode integrator (PM-762). Only the base Operator, in its own
+   * general conversation, during a direct internal owner request (a message or an answer; not an approval
+   * continuation, a signal or a guest). The handoff is only a record: the integrator executes it later.
+   */
+  async requestSuperOperation(
+    ctx: ToolContext,
+    args: Parameters<OperatorToolsHandler['requestSuperOperation']>[1],
+  ) {
+    return this.calls.guard(async () => {
+      const caller = await this.calls.callerWithRequest(ctx, 'request_super_operation');
+      if (!isOperator(memberOf(caller.config, ctx.member)))
+        throw new TeamToolError(
+          'forbidden',
+          'operator_only: only the Operator may hand work to the super mode.',
+        );
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (
+        !caller.request ||
+        caller.guest ||
+        (caller.request.source !== 'message' && caller.request.source !== 'answer') ||
+        !session ||
+        session.projectKey !== ctx.projectKey ||
+        session.member !== ctx.member ||
+        session.workItem.type !== 'general' ||
+        session.workItem.with
+      )
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: a super-mode handoff needs your own general conversation and an open request of an owner.',
+        );
+      const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : undefined;
+      return this.calls.recorded(caller, { action: 'super_handoff', taskKey: taskKey ?? null }, async () => ({
+        handoff: await this.superHandoffs.request(ctx.projectKey, aiActor(ctx.member), {
+          ...args,
+          ...(taskKey ? { taskKey } : {}),
+        }),
+      }));
+    });
   }
 
   /**

@@ -887,6 +887,31 @@ two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on cus
 hashes); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
+## Durable super-mode handoff (PM-762, part of the super mode PM-757)
+
+`request_super_operation` (the base Operator, in its own general conversation during an open owner request)
+stores a `SuperHandoff`: one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`,
+`merge`, `merge_order`, `administration`), a reason and, optionally, the configuration version it was made
+against. It grants no execution right and no approval. The integrator lists the handoffs (`GET
+…/operator-super/handoffs`) and starts one with `POST …/handoffs/:id/execute {requestId}` (202 `{operation}`),
+authenticated by the owner's super token; one `(project, token, request id)` is one `SuperOperation`, so a retry
+returns the same record and a different command under the same id is 409 `super_request_conflict`.
+
+The server classifies the command itself (`superCommandEffects`, a projection onto the closed mutation list of
+PM-759; what cannot be classified is refused). With no cost, deletion, publication or direction effect it runs on
+the integrator's own power. With one, the operation waits (`waiting_owner`) and an owner question carries
+`payload.superOperation = {operationId, commandHash, expectedConfigVersion, expiresAt}`; only the owner's own
+login answers it (not the token, not a relay), within 24 hours. After a yes the integrator executes the same
+request id again; the service verifies the config version, the command hash and that the same token is still
+valid (stale: 409 `super_operation_stale`) and opens a grant for that one command only. A no cancels it
+(`owner_declined`); an expiry cancels the operation and frees the handoff. After a restart a running operation is
+`unknown` and never started again by itself.
+
+The relay (`POST …/inbox/:id/relay-answer`) lets the integrator give the owner's words as the answer to an open
+question the asker marked as plain information (`ask_human` `response_purpose: "information"`). It is marked
+`ownerAnswerRelayed`, is not an owner decision and never reaches the decision candidates. The external MCP
+tools (`execute_super_handoff`, `list_super_handoffs`, relay) belong to PM-760.
+
 ## Project change journal (PM-761, part of the super mode PM-757)
 
 A durable, cursor-read record of what changed in a project, for the integrator's readers (and the
@@ -1461,6 +1486,23 @@ workers follow the machine's size.
   separate owner-approved rollout, and it accepts a state and socket directory only below
   `<app home>/administration`, the folder the session sandbox denies (members run as the same OS user). See
   docs/SECURITY.md "Administration adapter".
+
+- **Durable super-mode handoff and owner-bound operations (PM-762, Super mode 6/10)** —
+  `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
+  `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
+  `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
+  and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
+  Operator records a command and a reason; nothing runs until the owner's integrator (a super token) starts it with
+  a request id. A command with a cost, deletion, publication or direction effect waits for the owner's own login
+  to answer a bound question (24 hours; the question names the command hash, the config version and the token). The
+  service and its state are on the hub only. **Machine assumptions:** none of its own — it holds no path, process,
+  socket or account; the executors it calls (the Operator operations, member, invite and merge services, and the
+  administration adapter above) carry their own. **Remote engine:** yes, by staying on the hub: handoffs, the
+  owner question and the token check are processed on the hub. Only the executor of an `administration` command
+  crosses the server/engine boundary, through the `AdministrationPort` entry above and its strict zod-checked
+  commands; the integrator's token, the owner's answer and the question never cross it. After a restart of the hub
+  an operation that was running is marked `unknown` and never started again by itself. The executors of the
+  command kinds are wired by PM-760 and PM-764; until then execute answers 503 `super_executor_unavailable`.
 
 - **Project change journal (PM-761)** — `apps/server/src/db/change-triggers.ts`,
   `apps/server/src/db/project-change-events.ts`, `apps/server/src/core/base/change-journal.ts`,

@@ -19,6 +19,7 @@ export const TEAM_TOOL_NAMES = [
   'propose_operator_knowledge',
   'set_operator_preference',
   'operate',
+  'request_super_operation',
   'read_project_doc',
   'write_project_docs',
   'list_decision_candidates',

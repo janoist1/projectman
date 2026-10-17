@@ -316,6 +316,23 @@ export const ERROR_CODES = [
   'task_not_found',
   // Two feedback surfaces with the same id or address.
   'duplicate_feedback_surface',
+  // Super mode durable handoff (PM-762).
+  // The same request id arrived with another command (409).
+  'super_request_conflict',
+  // The configuration or the target changed since the handoff or the owner's answer (409).
+  'super_operation_stale',
+  // Another client already executes the handoff (409).
+  'super_handoff_busy',
+  // The handoff or its operation is finished and cannot run again (409).
+  'super_handoff_closed',
+  // The owner's question about the operation is still open (409).
+  'super_owner_decision_pending',
+  // The owner did not answer in time (409).
+  'super_operation_expired',
+  // No executor is registered for the command in this installation (503).
+  'super_executor_unavailable',
+  // The answer cannot be relayed for the owner (403).
+  'super_relay_refused',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

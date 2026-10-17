@@ -1,21 +1,18 @@
 import { z } from 'zod';
-import { EngineId, ERROR_CODES, TaskKey } from '@projectman/shared';
+import { AdministrationCommandSchema, AdministrationTargetSchema, ERROR_CODES } from '@projectman/shared';
 import {
   ADMINISTRATION_CAPABILITIES,
   ADMINISTRATION_LIMITS,
   ADMINISTRATION_SOCKET_METHODS,
-  FULL_TEST_PROFILES,
   IMAGE_PLATFORMS,
   MAX_DIAGNOSTIC_ENTRIES,
   MAX_DIAGNOSTIC_MESSAGE,
 } from '../contracts';
 import type {
-  AdministrationCommand,
   AdministrationJob,
   AdministrationResult,
   AdministrationStatus,
   AdministrationSubmit,
-  AdministrationTarget,
   DiagnosticLogEntry,
   ImageArtifact,
 } from '../contracts';
@@ -46,35 +43,8 @@ const iso = z
   .max(40)
   .regex(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
 
-export const AdministrationTargetSchema: z.ZodType<AdministrationTarget> = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('hub') }),
-  z.strictObject({ kind: z.literal('engine'), id: EngineId }),
-]);
-
-export const AdministrationCommandSchema: z.ZodType<AdministrationCommand> = z.discriminatedUnion('kind', [
-  z.strictObject({
-    kind: z.literal('restart'),
-    target: AdministrationTargetSchema,
-    expectedBootId: BootId,
-  }),
-  z.strictObject({
-    kind: z.literal('full_test'),
-    taskKey: TaskKey,
-    commit: Commit,
-    profile: z.enum(FULL_TEST_PROFILES),
-  }),
-  z.strictObject({
-    kind: z.literal('image_build'),
-    taskKey: TaskKey,
-    commit: Commit,
-    platforms: z
-      .array(Platform)
-      .min(1)
-      .max(2)
-      .refine((platforms) => new Set(platforms).size === platforms.length, { message: 'Duplicate platform' }),
-  }),
-  z.strictObject({ kind: z.literal('deploy'), releaseId: OperationId }),
-]);
+// The command and target schemas are shared with the super-mode handoff (PM-762).
+export { AdministrationCommandSchema, AdministrationTargetSchema };
 
 export const AdministrationStatusSchema: z.ZodType<AdministrationStatus> = z.strictObject({
   target: AdministrationTargetSchema,

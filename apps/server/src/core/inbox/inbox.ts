@@ -13,6 +13,7 @@ import {
   gateRequestOf,
   handOnRequestOf,
   isPendingQuestion,
+  isRelayableQuestion,
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
@@ -147,6 +148,12 @@ function withScreening(
   return { ...payload, screening: { until: at, ...current, ...patch } };
 }
 
+/**
+ * Runs inside the transaction that closes the owner's question about a super operation (PM-762): it checks the
+ * answer against the operation and moves it, or throws to leave both unchanged.
+ */
+export type SuperOperationAnswer = (item: InboxItem, optionId: string, at: string, handle: string) => void;
+
 export interface Resolver {
   via?: 'integrator';
   /** The Operator's super origin of a step the owner's token made (PM-757); `handle` stays the owner. */
@@ -243,9 +250,15 @@ export class InboxService {
   private readonly deciders = new Map<InboxDeciderKey, InboxDecider>();
   private readonly resolvingGates = new Map<string, { projectKey: string; gate: GateRequestPayload }>();
   private questionAnswer?: QuestionAnswerer;
+  private superOperationAnswer?: SuperOperationAnswer;
 
   registerQuestionAnswer(answer: QuestionAnswerer): void {
     this.questionAnswer = answer;
+  }
+
+  /** The super-mode handoff service takes the owner's yes or no to its question (PM-762). */
+  registerSuperOperationAnswer(answer: SuperOperationAnswer): void {
+    this.superOperationAnswer = answer;
   }
 
   private groupAnswer?: QuestionGroupAnswerer;
@@ -696,6 +709,24 @@ export class InboxService {
       );
     if (item.state !== 'open')
       throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
+    // The owner's question about a super operation (PM-762) is answered by their own login only: neither a
+    // token, nor the integrator's relay, nor anyone but an owner closes it.
+    const superOperation = item.kind === 'question' ? questionPayloadOf(item)?.superOperation : undefined;
+    if (superOperation && (by.via || by.superActor || by.access !== 'owner'))
+      throw forbidden('owner_approval_required', 'Only the owner may decide this, using their own login', {
+        kind: item.kind,
+      });
+    // A super-mode step on any other question only relays an answer to a plain information question.
+    let relayed = false;
+    if (by.superActor && item.kind === 'question') {
+      const payload = questionPayloadOf(item);
+      if (!payload || !isRelayableQuestion(payload))
+        throw forbidden(
+          'super_relay_refused',
+          'The integrator may relay an answer only to a question that asks for information',
+        );
+      relayed = true;
+    }
     const operator = operatorApprovalOf(item);
     if (operatorKnowledgeApprovalOf(item)?.stale && req.optionId !== 'dismiss')
       throw conflict('operator_knowledge_stale', 'the knowledge proposal is stale; dismiss it');
@@ -784,6 +815,7 @@ export class InboxService {
       note,
       ...(by.via ? { via: by.via } : {}),
       ...(by.superActor ? { actor: by.superActor } : {}),
+      ...(relayed ? { ownerAnswerRelayed: true as const } : {}),
     };
     const group = this.ctx.repos.inbox.groupOf(id);
     if (group) {
@@ -835,6 +867,11 @@ export class InboxService {
       return this.get(projectKey, id);
     }
     const close = (): InboxItem => {
+      if (superOperation) {
+        if (!this.superOperationAnswer)
+          throw conflict('inbox_item_closed', 'the super operation is no longer available');
+        this.superOperationAnswer(item, req.optionId, at, by.handle);
+      }
       const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
       if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
       this.publish(resolved);
@@ -865,7 +902,7 @@ export class InboxService {
       return resolved;
     };
     const answered =
-      item.kind === 'question' && this.questionAnswer
+      item.kind === 'question' && this.questionAnswer && !superOperation
         ? await this.questionAnswer(
             { ...item, state: 'resolved', resolution },
             req.attachmentIds ?? [],

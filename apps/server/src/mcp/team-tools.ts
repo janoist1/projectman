@@ -37,6 +37,7 @@ import type {
   Attachment,
   MemberView,
   QuestionAttachment,
+  QuestionResponsePurpose,
   QuestionOptionInput,
   ScreeningOutcome,
   Task,
@@ -356,6 +357,7 @@ export class TeamToolsService implements TeamToolsHandler {
       /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
       reaskOf?: string;
       reaskReason?: string;
+      responsePurpose?: QuestionResponsePurpose;
     },
   ): Promise<{
     inboxItemId: string;
@@ -409,6 +411,13 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async operate(ctx: ToolContext, args: Parameters<OperatorToolsHandler['operate']>[1]) {
     return this.tools.operator.operate(ctx, args);
+  }
+
+  async requestSuperOperation(
+    ctx: ToolContext,
+    args: Parameters<OperatorToolsHandler['requestSuperOperation']>[1],
+  ) {
+    return this.tools.operator.requestSuperOperation(ctx, args);
   }
 
   async readProjectDoc(

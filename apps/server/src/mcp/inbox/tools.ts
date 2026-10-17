@@ -4,6 +4,7 @@ import {
   MAX_QUESTION_ATTACHMENTS,
   MemberHandle,
   questionChoices,
+  QuestionResponsePurpose,
   TaskKey,
 } from '@projectman/shared';
 import { formatQuestionAsked } from '../format';
@@ -147,6 +148,11 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .describe(
             'Why a person must see it after all (the Operator’s answer was not enough). Needs reask_of.',
           ),
+        response_purpose: QuestionResponsePurpose.optional().describe(
+          'information: a plain factual question whose answer is no decision (for example "what is the port?"); ' +
+            'the integrator working for the owner may relay the answer. owner_decision (default): a choice, an ' +
+            'approval or anything with cost, deletion or publication; only the owner’s own login answers it.',
+        ),
       },
       check(args, issue) {
         if ((args.reask_of === undefined) !== (args.reask_reason === undefined))
@@ -181,6 +187,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           ...(args.attachments ? { attachmentIds: unique(args.attachments) } : {}),
           ...(args.reask_of !== undefined ? { reaskOf: args.reask_of } : {}),
           ...(args.reask_reason !== undefined ? { reaskReason: args.reask_reason } : {}),
+          ...(args.response_purpose ? { responsePurpose: args.response_purpose } : {}),
         });
         return formatQuestionAsked(
           inboxItemId,

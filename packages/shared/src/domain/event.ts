@@ -99,6 +99,8 @@ export const TimelineEventType = z.enum([
   'focus_changed',
   'team_paused',
   'team_resumed',
+  'super_handoff_changed',
+  'super_operation_changed',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
 
@@ -120,6 +122,8 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  super_handoff_changed: { handoffId: string; state: string };
+  super_operation_changed: { operationId: string; state: string; resultKind: string | null };
   task_hand_on_requested: {
     fromStageId: string;
     toStageId: string;

@@ -1,4 +1,4 @@
-import { changeTriggersSql } from './change-triggers';
+import { V83_CHANGE_TRIGGER_TABLES, changeTriggerSql, changeTriggersSql } from './change-triggers';
 import { PENDING_MESSAGE_RECIPIENTS } from './message-pending';
 
 /**
@@ -1556,5 +1556,52 @@ migrations.push({
     INSERT INTO merge_queue_revisions (project_key, repo)
       SELECT DISTINCT project_key, repo FROM task_merges;
     ALTER TABLE task_merges ADD COLUMN queue_rank INTEGER;`,
+});
+migrations.push({
+  version: 83,
+  name: 'super mode durable handoffs and operations',
+  // PM-762: what the base Operator hands over to the super-mode integrator survives a restart, and what the
+  // integrator starts from it is one record per (project, token, request id). `revision` is the CAS counter of
+  // the state machine; `command_hash` pins the exact command the owner's yes was given for.
+  sql: `CREATE TABLE super_handoffs (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      task_key TEXT,
+      request_id TEXT NOT NULL,
+      requested_by TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      command TEXT NOT NULL,
+      command_hash TEXT NOT NULL,
+      expected_config_version TEXT,
+      state TEXT NOT NULL,
+      operation_id TEXT,
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (project_key, request_id)
+    );
+    CREATE INDEX super_handoffs_state ON super_handoffs(project_key, state, created_at);
+    CREATE TABLE super_operations (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      task_key TEXT,
+      key_id TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      handoff_id TEXT,
+      command TEXT NOT NULL,
+      command_hash TEXT NOT NULL,
+      expected_config_version TEXT,
+      state TEXT NOT NULL,
+      owner_question_id TEXT,
+      expires_at TEXT,
+      error_code TEXT,
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (project_key, key_id, request_id)
+    );
+    CREATE INDEX super_operations_state ON super_operations(project_key, state);
+    CREATE INDEX super_operations_handoff ON super_operations(handoff_id);
+    ${V83_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

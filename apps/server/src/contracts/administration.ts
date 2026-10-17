@@ -1,4 +1,10 @@
-import type { EngineId, ErrorCode, TaskKey } from '@projectman/shared';
+import type {
+  AdministrationCommand,
+  AdministrationCommit,
+  AdministrationTarget,
+  ErrorCode,
+  ImagePlatform,
+} from '@projectman/shared';
 
 /**
  * The protected administration adapter (PM-763, "Super mode" 7/10): the typed, audited way to look at, restart
@@ -9,7 +15,15 @@ import type { EngineId, ErrorCode, TaskKey } from '@projectman/shared';
  * in `administration/schemas.ts`; this file is the contract the rest of the server codes against.
  */
 
-export type AdministrationTarget = { kind: 'hub' } | { kind: 'engine'; id: EngineId };
+// The command, its target and its closed value lists are shared with the super-mode handoff (PM-762).
+export { FULL_TEST_PROFILES, IMAGE_PLATFORMS } from '@projectman/shared';
+export type {
+  AdministrationCommand,
+  AdministrationCommit,
+  AdministrationTarget,
+  FullTestProfile,
+  ImagePlatform,
+} from '@projectman/shared';
 
 export const ADMINISTRATION_CAPABILITIES = [
   'status',
@@ -20,23 +34,6 @@ export const ADMINISTRATION_CAPABILITIES = [
   'deploy',
 ] as const;
 export type AdministrationCapability = (typeof ADMINISTRATION_CAPABILITIES)[number];
-
-export const IMAGE_PLATFORMS = ['linux/amd64', 'linux/arm64'] as const;
-export type ImagePlatform = (typeof IMAGE_PLATFORMS)[number];
-
-export const FULL_TEST_PROFILES = ['merge-test', 'full-test'] as const;
-export type FullTestProfile = (typeof FULL_TEST_PROFILES)[number];
-
-/** The full 40-hex commit of a card's work; an abbreviation or a ref is never accepted. */
-export type AdministrationCommit = string;
-
-export type AdministrationCommand =
-  /** `expectedBootId` is the `bootId` the caller saw in `status`: a restart of a machine that has booted since is refused. */
-  | { kind: 'restart'; target: AdministrationTarget; expectedBootId: string }
-  | { kind: 'full_test'; taskKey: TaskKey; commit: AdministrationCommit; profile: FullTestProfile }
-  | { kind: 'image_build'; taskKey: TaskKey; commit: AdministrationCommit; platforms: ImagePlatform[] }
-  /** Only the release a human approved, to the target PM-752 recorded for it; no new image, no `release_report`. */
-  | { kind: 'deploy'; releaseId: string };
 
 export interface AdministrationStatus {
   target: AdministrationTarget;

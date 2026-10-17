@@ -971,7 +971,8 @@ export const hu = {
       release_protocol_unavailable: 'Ezen a példányon a kiadás a hybrid protokollon át megy.',
       release_artifact_changed: 'A kiadás csomagja eltér a korábban rögzítettől.',
       release_engine_mismatch: 'Az engine nem a kiadás szerinti verziót futtatja.',
-      administration_unavailable: 'A gép felügyelője nem érhető el, vagy ez a gép nem kínálja ezt a műveletet.',
+      administration_unavailable:
+        'A gép felügyelője nem érhető el, vagy ez a gép nem kínálja ezt a műveletet.',
       administration_target_mismatch: 'A művelet célja nem az a gép, amelyet ez a felügyelő kezel.',
       administration_operation_conflict:
         'A művelet azonosítója másik parancsé, vagy már fut egy másik felügyeleti művelet.',
@@ -1032,6 +1033,15 @@ export const hu = {
       integrator_not_allowed: 'Ezzel az integrálói kulccsal ez a művelet nem érhető el.',
       integrator_read_only: 'Ezzel az integrálói kulccsal csak olvasni lehet.',
       merge_queue_conflict: 'Az összefésülési sor megváltozott. Frissítsd, majd próbáld újra.',
+      super_request_conflict: 'Ugyanezzel az azonosítóval már más kérés érkezett.',
+      super_operation_stale:
+        'A beállítás vagy a célpont megváltozott a kérés óta. Új kérés és új jóváhagyás kell.',
+      super_handoff_busy: 'Az átadást már egy másik kliens végrehajtja.',
+      super_handoff_closed: 'Az átadás vagy a művelete már lezárult, nem futtatható újra.',
+      super_owner_decision_pending: 'A tulajdonos döntésére még várunk.',
+      super_operation_expired: 'A tulajdonos nem válaszolt időben, a művelet lejárt.',
+      super_executor_unavailable: 'Ezt a műveletet ez a telepítés még nem tudja végrehajtani.',
+      super_relay_refused: 'Ezt a választ nem lehet a tulajdonos nevében továbbítani.',
       integrator_https_required: 'Az integrálói kulcs csak HTTPS-en vagy ezen a gépen használható.',
       invalid_event_cursor: 'A változáskövetési kurzor érvénytelen, vagy másik projekté.',
       event_cursor_expired:
@@ -2797,6 +2807,7 @@ export const hu = {
         decision_offer: 'Döntésjelöltek jelölése',
         knowledge_change: 'Megállapodás vagy tanult elv módosítása',
         structural_review: 'Alkalmi architektúraszemle',
+        super_handoff: 'Munka átadása az integrálónak',
       },
     },
     change: {
@@ -4392,6 +4403,8 @@ export const hu = {
       team_paused_instance_reason: 'Az egész példány szünetelt: {reason}',
       team_resumed: 'Folytatta a csapat munkáját',
       team_resumed_instance: 'Az egész példány folytatta a munkát',
+      super_handoff_changed: 'Az integrálónak átadott munka állapota: {state}',
+      super_operation_changed: 'Az integrálói művelet állapota: {state}',
       gate_requested: 'Jóváhagyást kért: {from} → {to}',
       gate_rejected: 'A jóváhagyást elutasították: {to}',
       gate_blocked: 'A kapu nem engedte tovább: {to}',

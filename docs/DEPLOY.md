@@ -868,7 +868,9 @@ secret). It is replaced atomically after each written event, so a consumer that 
 the next run starts behind the last event that was written, and an event that was not written comes again.
 An expired or foreign cursor is the server's `event_cursor_expired` / `invalid_event_cursor`; delete the
 file to start from the current state. Ctrl-C ends the command with `0` and keeps the file. A network failure
-is retried with a pause of 1 s growing to 30 s; a refusal ends the command.
+and a gateway answer without a server error code (502, 503, 504, for example while the server restarts) are
+retried with a pause of 1 s growing to 30 s; any other refusal ends the command. For a change, a gateway 502 or
+504 counts as an unknown outcome (above), and a 503 as not served.
 
 The REST and events requests carry the non-secret header `X-Projectman-Client: cli`, so the key's list
 shows the use as the CLI channel. The header is a label, not a credential: it grants nothing, and the server

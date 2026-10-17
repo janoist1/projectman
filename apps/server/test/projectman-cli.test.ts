@@ -72,6 +72,29 @@ describe('projectman CLI (PM-765)', () => {
       expect(none.requests.length + help.requests.length).toBe(0);
     });
 
+    it('a wrong argument is a usage error (2) even when the configuration is wrong too', async () => {
+      fs.chmodSync(fx.keyFile, 0o644);
+      const wrongArgument = await run(['inbox', 'list'], accepted);
+      expect(wrongArgument.code).toBe(CLIENT_EXIT.usage);
+      const rightArgument = await run(['inbox', 'list', '--project', 'PM'], accepted);
+      expect(rightArgument.code).toBe(CLIENT_EXIT.auth);
+      expect(rightArgument.requests).toEqual([]);
+    });
+
+    it('--file - ends on the signal while standard input is open and silent', async () => {
+      const stdin: AsyncIterable<string> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise<IteratorResult<string>>(() => undefined),
+          return: async () => ({ done: true, value: undefined }),
+        }),
+      };
+      const t = createTestIo(fx.home, accepted, { stdin });
+      const finished = main(['tasks', 'create', '--project', 'PM', '--file', '-'], t.io);
+      setTimeout(() => t.controller.abort(), 10);
+      expect(await finished).toBe(CLIENT_EXIT.ok);
+      expect(t.requests).toEqual([]);
+    });
+
     it.each([
       [['nonsense']],
       [['tasks']],
@@ -418,6 +441,35 @@ describe('projectman CLI (PM-765)', () => {
       expect(text).toContain('ECONNRESET');
       expect(text).toContain('unknown');
       expect(text).toContain(REQUEST_1);
+    });
+
+    it.each([502, 504])(
+      'a gateway %i on a write is an unknown outcome, with the request id; the server is not asked again',
+      async (status) => {
+        const result = await run(
+          ['tasks', 'start', 'PM-1'],
+          () => new Response('<html>gateway</html>', { status, headers: { 'content-type': 'text/html' } }),
+        );
+        expect(result.code).toBe(CLIENT_EXIT.failed);
+        expect(result.requests).toHaveLength(1);
+        expect(result.stderr.join('')).toContain('gateway_error');
+        expect(result.stderr.join('')).toContain('unknown');
+        expect(result.stderr.join('')).toContain(REQUEST_1);
+      },
+    );
+
+    it('a 503 on a write was not served, and the server own error code wins over the gateway reading', async () => {
+      const unserved = await run(
+        ['tasks', 'start', 'PM-1'],
+        () => new Response('unavailable', { status: 503 }),
+      );
+      expect(unserved.code).toBe(CLIENT_EXIT.failed);
+      expect(unserved.stderr.join('')).not.toContain('unknown');
+      const own = await run(['tasks', 'start', 'PM-1'], () =>
+        jsonResponse({ error: { code: 'busy', message: 'try later' } }, 503),
+      );
+      expect(own.stderr.join('')).toContain('busy');
+      expect(own.stderr.join('')).not.toContain('gateway_error');
     });
 
     it('does not claim an unknown outcome for a read', async () => {

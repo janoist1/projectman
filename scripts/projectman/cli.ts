@@ -88,20 +88,31 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
     if (command.positionals === 'rest' ? count === 0 : count !== command.positionals)
       throw new UsageError(`usage: projectman ${command.usage}`);
 
-    const credentials: ClientCredentials = loadCredentials({
-      home: io.home,
-      configFile: parsed.values.config as string | undefined,
-    });
-    secrets = credentials.secrets;
+    // The credential files are read when the command first needs them, so a wrong argument is a usage error
+    // (status 2) even when the configuration is wrong too.
     const verbose = parsed.values.verbose === true;
+    let loaded: ClientCredentials | undefined;
+    let client: ReturnType<typeof createApiClient> | undefined;
+    const credentialsOf = (): ClientCredentials => {
+      if (!loaded) {
+        loaded = loadCredentials({ home: io.home, configFile: parsed.values.config as string | undefined });
+        secrets = loaded.secrets;
+      }
+      return loaded;
+    };
     const context: CommandContext = {
       io,
-      credentials,
-      api: createApiClient({
-        credentials,
-        fetch: io.fetch,
-        verbose: verbose ? (line) => out(`${line}\n`) : undefined,
-      }),
+      get credentials() {
+        return credentialsOf();
+      },
+      get api() {
+        client ??= createApiClient({
+          credentials: credentialsOf(),
+          fetch: io.fetch,
+          verbose: verbose ? (line) => out(`${line}\n`) : undefined,
+        });
+        return client;
+      },
       json: parsed.values.json === true,
       values: parsed.values as CommandContext['values'],
       positionals: parsed.positionals,

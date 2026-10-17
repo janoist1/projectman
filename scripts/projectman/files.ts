@@ -124,15 +124,43 @@ export function isInside(candidate: string, guarded: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-/** Reads all of a stream up to the limit, as text. */
-export async function readStream(stream: AsyncIterable<string | Uint8Array>): Promise<string> {
+/**
+ * Reads all of a stream up to the limit, as text. An abort of `signal` ends the wait even while the stream is
+ * open and silent (a terminal that waits for input must still answer Ctrl-C); the read then fails with an
+ * `AbortError`.
+ */
+export async function readStream(
+  stream: AsyncIterable<string | Uint8Array>,
+  signal?: AbortSignal,
+): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of stream) {
-    const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > MAX_INPUT_BYTES) fail('input_file_too_large', 'the input is larger than 1 MiB');
-    chunks.push(buffer);
+  const iterator = stream[Symbol.asyncIterator]();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    if (!signal) return;
+    const abort = () => reject(Object.assign(new Error('the read was aborted'), { name: 'AbortError' }));
+    if (signal.aborted) return abort();
+    onAbort = abort;
+    signal.addEventListener('abort', abort, { once: true });
+  });
+  aborted.catch(() => undefined);
+  try {
+    for (;;) {
+      const next = await Promise.race([iterator.next(), aborted]);
+      if (next.done) break;
+      const chunk = next.value;
+      const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > MAX_INPUT_BYTES) fail('input_file_too_large', 'the input is larger than 1 MiB');
+      chunks.push(buffer);
+    }
+  } catch (error) {
+    // Do not wait for the reader to settle: a pending read on a silent pipe never does.
+    void Promise.resolve(iterator.return?.()).catch(() => undefined);
+    throw error;
+  } finally {
+    if (signal && onAbort) signal.removeEventListener('abort', onAbort);
   }
   return Buffer.concat(chunks).toString('utf8');
 }

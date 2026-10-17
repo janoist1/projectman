@@ -129,6 +129,17 @@ export function createApiClient(options: ApiClientOptions) {
         request.write,
       );
     }
+    // A gateway answer (Cloudflare or a proxy while the server restarts) says nothing about the request: the
+    // server's own refusals carry an error code. It is a network-like failure, which `events follow` retries; a
+    // change behind a 502 or 504 may have run, a 503 was not served.
+    if (GATEWAY_STATUSES.has(response.status) && !hasServerErrorCode(text))
+      throw new ApiError(
+        'network',
+        'gateway_error',
+        `the server could not be reached through its gateway (HTTP ${response.status})`,
+        response.status,
+        request.write && response.status !== 503,
+      );
     let json: unknown = null;
     if (text.trim() !== '') {
       try {
@@ -154,6 +165,16 @@ export function createApiClient(options: ApiClientOptions) {
   return { send, origin };
 }
 export type ApiClient = ReturnType<typeof createApiClient>;
+
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
+
+function hasServerErrorCode(text: string): boolean {
+  try {
+    return typeof (JSON.parse(text) as { error?: { code?: unknown } } | null)?.error?.code === 'string';
+  } catch {
+    return false;
+  }
+}
 
 function errorOf(json: unknown): { code: string; message: string } {
   const error = (json as { error?: { code?: unknown; message?: unknown } } | null)?.error;

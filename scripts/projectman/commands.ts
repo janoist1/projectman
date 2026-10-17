@@ -76,7 +76,7 @@ function projectOfTask(ctx: CommandContext, taskKey: string): string {
 async function contentOf(ctx: CommandContext, name = 'file'): Promise<string> {
   const file = required(ctx, name);
   try {
-    if (file === '-') return await readStream(ctx.io.stdin);
+    if (file === '-') return await readStream(ctx.io.stdin, ctx.io.signal);
     return readInputFile(file, [...ctx.credentials.credentialFiles, ...ctx.credentials.protectedDirectories]);
   } catch (error) {
     if (error instanceof ClientFileError) throw new UsageError(error.message);

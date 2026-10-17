@@ -181,6 +181,26 @@ describe('projectman events follow (PM-765)', () => {
     expect(t.stdout.join('')).toContain(' c1\n');
   });
 
+  it('retries a gateway answer (502, 503, 504) like a network failure', async () => {
+    const delays: number[] = [];
+    let t: ReturnType<typeof createTestIo> | undefined;
+    t = createTestIo(
+      fx.home,
+      (_request, index) => {
+        if (index < 3)
+          return new Response('<html>gateway</html>', { status: [502, 503, 504][index]!, headers: {} });
+        if (index === 3) return page([1], 'c1');
+        t?.controller.abort();
+        throw abortError();
+      },
+      { delays },
+    );
+    expect(await main(['events', 'follow', '--project', 'PM'], t.io)).toBe(0);
+    expect(delays).toEqual([1000, 2000, 4000]);
+    expect(t.stderr.join('')).toContain('gateway');
+    expect(t.stdout.join('')).toContain(' c1\n');
+  });
+
   it.each([
     [401, 'integrator_key_invalid', CLIENT_EXIT.auth],
     [403, 'integrator_not_allowed', CLIENT_EXIT.failed],

@@ -134,6 +134,8 @@ export async function createDomainHarness(
     releaseTarget?: { projectKey: string; repo: string };
     /** The hybrid release binding and the engines' facts (PM-752); absent: the single-target release only. */
     releaseHybrid?: DomainOptions['releaseHybrid'];
+    /** The protected administration adapter (PM-764); absent: the domain has none. */
+    administration?: DomainOptions['administration'];
     /** The commit the server runs (PM-491); default `dev`. */
     appVersion?: string;
     /** The release tag of the running build (PM-542); absent: none. */
@@ -216,6 +218,7 @@ export async function createDomainHarness(
     ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
     ...(opts.releaseHybrid ? { releaseHybrid: opts.releaseHybrid } : {}),
     ...(opts.appTag ? { appTag: opts.appTag } : {}),
+    ...(opts.administration ? { administration: opts.administration } : {}),
     // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).
     get appVersion() {
       return runningVersion.value;

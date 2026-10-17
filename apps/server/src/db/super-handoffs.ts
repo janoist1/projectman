@@ -152,6 +152,12 @@ export function createSuperHandoffRepository(db: Db) {
     operationsOfHandoff: db.prepare(
       'SELECT * FROM super_operations WHERE project_key = ? AND handoff_id = ? ORDER BY created_at, rowid',
     ),
+    operationsOfProject: db.prepare(
+      'SELECT * FROM super_operations WHERE project_key = ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
+    ),
+    operationsOfTask: db.prepare(
+      'SELECT * FROM super_operations WHERE project_key = ? AND task_key = ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
+    ),
     operationOfQuestion: db.prepare('SELECT * FROM super_operations WHERE owner_question_id = ?'),
     operationsOpen: db.prepare(
       `SELECT * FROM super_operations WHERE state IN ${OPEN} ORDER BY created_at, rowid`,
@@ -250,6 +256,15 @@ export function createSuperHandoffRepository(db: Db) {
     },
     operationsOfHandoff(projectKey: string, handoffId: string): StoredSuperOperation[] {
       return (st.operationsOfHandoff.all(projectKey, handoffId) as OperationRow[]).map(toOperation);
+    },
+    /** The project's operations, newest first, optionally of one card. */
+    listOperations(projectKey: string, opts: { taskKey?: string; limit: number }): StoredSuperOperation[] {
+      const rows = (
+        opts.taskKey
+          ? st.operationsOfTask.all(projectKey, opts.taskKey, opts.limit)
+          : st.operationsOfProject.all(projectKey, opts.limit)
+      ) as OperationRow[];
+      return rows.map(toOperation);
     },
     operationOfQuestion(questionId: string): StoredSuperOperation | null {
       const row = st.operationOfQuestion.get(questionId) as OperationRow | undefined;

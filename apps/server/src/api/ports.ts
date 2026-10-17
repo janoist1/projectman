@@ -1,5 +1,5 @@
 import type { AuthDomain } from '../auth';
-import type { SuperHandoffService, SuperOperator } from '../services/super-operator';
+import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
 import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
 import type { ChangeJournal, TemplateRegistry } from '../core/base';
@@ -35,6 +35,7 @@ import type {
 export interface ApiDomain extends AuthDomain {
   readonly superOperator: SuperOperator;
   readonly superHandoffs: SuperHandoffService;
+  readonly superAdministration: SuperAdministration;
   readonly structure: StructureService;
   readonly attachments: AttachmentService;
   readonly board: BoardService;

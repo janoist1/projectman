@@ -52,6 +52,7 @@ export * from './config/invariants';
 export * from './api/dto';
 export * from './api/routes';
 export * from './api/super-handoff';
+export * from './api/super-operate';
 export * from './api/error-codes';
 export * from './ws/protocol';
 export * from './domain/role';

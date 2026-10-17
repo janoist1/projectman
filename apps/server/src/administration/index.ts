@@ -23,6 +23,8 @@ export {
   SocketValues,
   SupervisorConfig,
 } from './schemas';
+export { createBuilderExecutors, FULL_TEST_COMMANDS } from './executors';
+export type { BuilderImage, BuilderTestRun, BuilderToolbox } from './executors';
 export { startSupervisor } from './run';
 export type { RunningSupervisor, StartSupervisorOptions } from './run';
 export { AdministrationSetupError, ensurePrivateDir, writeFileAtomic } from './secure-fs';

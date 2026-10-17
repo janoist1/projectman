@@ -573,6 +573,7 @@ export class ProjectService {
         !bound ||
         bound.handle !== meta.actor.handle ||
         bound.credential.id !== meta.actor.credential.id ||
+        bound.credential.prefix !== meta.actor.credential.prefix ||
         !isSuperOperatorActor(previous, meta.actor) ||
         owner?.kind !== 'human' ||
         owner.access !== 'owner'
@@ -778,8 +779,8 @@ export class ProjectService {
   async settleSuperAudit(): Promise<number> {
     let settled = 0;
     for (const { key } of this.summaries())
-      settled += await this.superAudit.settleOpen(key, (auditId) =>
-        this.configStore.hasSuperAuditCommit(key, auditId),
+      settled += await this.locks.run(`config:${key}`, () =>
+        this.superAudit.settleOpen(key, (auditId) => this.configStore.hasSuperAuditCommit(key, auditId)),
       );
     return settled;
   }

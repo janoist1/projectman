@@ -10,7 +10,7 @@ type Statement = 'INSERT' | 'UPDATE' | 'DELETE';
  * is named (project key, kind, entity id, time), never the content, and no rule: what a row means is
  * decided in the domain, not in SQL.
  *
- * Used by migration 80 only: its text is frozen there, so a table added later needs a migration of its
+ * Used by migration 81 only: its text is frozen there, so a table added later needs a migration of its
  * own that calls `changeTriggerSql`. A migration that rebuilds one of these tables drops its
  * triggers; `project-change-journal.test.ts` fails until the rebuild creates them again, and also when
  * a table is in neither this list nor `UNJOURNALED_TABLES`.

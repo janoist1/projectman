@@ -895,7 +895,7 @@ changed and **which entity**; the content is read from the normal APIs. Nothing 
 text, chat text or secret, only ids.
 
 - **Table.** `project_change_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, project_key, kind, entity_id,
-at)`, index `(project_key, seq)` (migration 80). `seq` never goes back, also not after a delete of the
+at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not after a delete of the
   newest row. Kinds: `task`, `timeline`, `message`, `inbox`, `configuration`, `pause`, `engine`,
   `handoff`, `operation`. No row is deleted automatically (a journal that forgets cannot tell a reader
   that it missed something).
@@ -948,7 +948,7 @@ at)`, index `(project_key, seq)` (migration 80). `seq` never goes back, also not
   (no number precision loss); a malformed cursor or one of another project is `400 invalid_event_cursor`,
   one of another generation (or past the end of this journal) is `409 event_cursor_expired`. The same cursor
   works after a restart: the generation is a UUID stored in `instance_meta` under
-  `project_change_generation`, made once with the database (migration 80) and never changed by a restart.
+  `project_change_generation`, made once with the database (migration 81) and never changed by a restart.
 - **Access during the wait.** Internal members only (clients are refused). The credential and the
   membership are checked again on every wake and before the answer: a key revoked or expired during the
   wait gets `401 integrator_key_invalid` at once (revocation wakes the waiter, expiry has a timer), a

@@ -1485,7 +1485,12 @@ workers follow the machine's size.
   409 `release_pause_conflict`. The installer only prepares files; installing and starting the supervisors is a
   separate owner-approved rollout, and it accepts a state and socket directory only below
   `<app home>/administration`, the folder the session sandbox denies (members run as the same OS user). See
-  docs/SECURITY.md "Administration adapter".
+  docs/SECURITY.md "Administration adapter". Since PM-762 the strict command schema (`AdministrationCommand`,
+  `AdministrationTargetSchema`, `AdministrationCommandSchema`, the commit, boot-id and operation-id validators,
+  `FULL_TEST_PROFILES`, `IMAGE_PLATFORMS`) lives in `packages/shared/src/api/administration.ts`, so the handoff
+  and the adapter share one definition; `contracts/administration.ts` and `administration/schemas.ts` re-export it
+  under the old names. Only the schema moved: the port, the executors, the socket protocol, the installation and
+  the engine RPCs stay on the server, and the hub/engine boundary is unchanged.
 
 - **Durable super-mode handoff and owner-bound operations (PM-762, Super mode 6/10)** —
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:

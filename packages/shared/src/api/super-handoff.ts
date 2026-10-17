@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AdministrationCommandSchema } from '../domain/administration-command';
+import { AdministrationCommandSchema } from './administration';
 import { Actor } from '../domain/event';
 import { MemberHandle } from '../domain/member';
 import { TaskKey } from '../domain/task';

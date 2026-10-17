@@ -1,3 +1,4 @@
+import type { AdministrationCommand } from '../api/administration';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AgentProvider } from '../domain/member';
 import { applyConfigPatch, prepareOperatorConfigPatch } from './edit';
@@ -54,6 +55,23 @@ function memberUpdate(
   return [{ kind: 'routine', operation: 'member_update' }];
 }
 
+/** Exhaustive on purpose: a new administration command does not classify until someone decides its effect. */
+function administrationMutation(request: AdministrationCommand): SuperMutationCommand {
+  switch (request.kind) {
+    case 'restart':
+    case 'full_test':
+    case 'image_build':
+    case 'deploy':
+      return { kind: 'administration', command: request.kind };
+    default: {
+      const unknown: never = request;
+      throw new SuperCommandUnclassifiable(
+        `unknown administration command ${String((unknown as { kind?: unknown }).kind)}`,
+      );
+    }
+  }
+}
+
 /** The mutations a handoff command would make; every one must classify, or the whole command is refused. */
 export function superCommandMutations(
   command: SuperCommand,
@@ -106,7 +124,7 @@ export function superCommandMutations(
     case 'merge_order':
       return [{ kind: 'routine', operation: 'merge_order' }];
     case 'administration':
-      return [{ kind: 'administration', command: command.request.kind }];
+      return [administrationMutation(command.request)];
     default:
       throw new SuperCommandUnclassifiable('unknown command');
   }

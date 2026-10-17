@@ -8,7 +8,7 @@ export * from './domain/board-order';
 export * from './domain/relations';
 export * from './domain/theme';
 export * from './domain/engine';
-export * from './domain/administration-command';
+export * from './api/administration';
 export * from './domain/outage';
 export * from './domain/session';
 export * from './domain/session-work';

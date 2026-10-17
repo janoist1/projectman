@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { EngineId } from './engine';
-import { TaskKey } from './task';
+import { EngineId } from '../domain/engine';
+import { TaskKey } from '../domain/task';
 
 /**
  * The commands of the protected administration adapter (PM-763) that a super-mode handoff can carry
@@ -34,6 +34,7 @@ const COMMIT = /^[0-9a-f]{40}$/;
 
 export const AdministrationOperationId = z.string().regex(SAFE_ID);
 export const AdministrationBootId = z.string().regex(BOOT_ID);
+export const AdministrationCommitSchema = z.string().regex(COMMIT);
 
 export const AdministrationTargetSchema: z.ZodType<AdministrationTarget> = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('hub') }),
@@ -49,13 +50,13 @@ export const AdministrationCommandSchema: z.ZodType<AdministrationCommand> = z.d
   z.strictObject({
     kind: z.literal('full_test'),
     taskKey: TaskKey,
-    commit: z.string().regex(COMMIT),
+    commit: AdministrationCommitSchema,
     profile: z.enum(FULL_TEST_PROFILES),
   }),
   z.strictObject({
     kind: z.literal('image_build'),
     taskKey: TaskKey,
-    commit: z.string().regex(COMMIT),
+    commit: AdministrationCommitSchema,
     platforms: z
       .array(z.enum(IMAGE_PLATFORMS))
       .min(1)

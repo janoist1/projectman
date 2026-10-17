@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { AdministrationCommandSchema, AdministrationTargetSchema, ERROR_CODES } from '@projectman/shared';
+import {
+  AdministrationBootId,
+  AdministrationCommandSchema,
+  AdministrationCommitSchema,
+  AdministrationOperationId,
+  AdministrationTargetSchema,
+  ERROR_CODES,
+} from '@projectman/shared';
 import {
   ADMINISTRATION_CAPABILITIES,
   ADMINISTRATION_LIMITS,
@@ -24,16 +31,14 @@ import type {
  * a container.
  */
 
-const COMMIT = /^[0-9a-f]{40}$/;
-const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
-const BOOT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const VERSION = /^[A-Za-z0-9._+-]{1,64}$/;
 
-export const OperationId = z.string().regex(SAFE_ID);
-export const AdministrationRequestId = z.string().regex(SAFE_ID);
-export const BootId = z.string().regex(BOOT_ID);
+// The scalar validators of the command live in packages/shared (PM-762): one source, no second copy.
+export const OperationId = AdministrationOperationId;
+export const AdministrationRequestId = AdministrationOperationId;
+export const BootId = AdministrationBootId;
 const Version = z.string().regex(VERSION);
-const Commit = z.string().regex(COMMIT);
+const Commit = AdministrationCommitSchema;
 const Capability = z.enum(ADMINISTRATION_CAPABILITIES);
 const Platform = z.enum(IMAGE_PLATFORMS);
 const ErrorCodeSchema = z.enum(ERROR_CODES);

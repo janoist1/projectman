@@ -1338,9 +1338,13 @@ task_merged event, followed by each card's ordinary afterMerge/AutoAdvance.
 
 A failed group check retires the manifest as failed and atomically requeues its members
 with internal `task_merges.diagnostic_json` (PM-661): the failed parent's id and an integer
-`maxCards = ceil(member count / 2)`. Original creation times and manifest priority snapshots
-are restored; candidate, check, failure, block and active membership are cleared. Only
-adjacent diagnostic members of the same parent can group, bounded by every member's limit.
+`maxCards = ceil(member count / 2)`. A conflict while building the ordered source chain uses
+the same atomic requeue with `maxCards = 1` (PM-778), so every member automatically retries
+individually on current main. A source that still conflicts uses the individual `conflict`
+failure path; the full check and review gates remain required. Original creation times and
+manifest priority snapshots are restored; candidate, check, failure, block and active
+membership are cleared. Only adjacent diagnostic members of the same parent can group,
+bounded by every member's limit.
 Each smaller attempt gets a fresh candidate and check on current main; successful prefixes
 therefore participate in the next half's check. Singletons use the individual path and only
 their failed check identifies a blocking card. Success clears diagnostic state; operational
@@ -3222,6 +3226,9 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   must share an engine and no new RPC or command allowlist entry is required.
   Diagnostic bisection (PM-661), its transactional requeue and parent/size limits stay on the
   server; smaller attempts reuse these same engine operations and the required heavy lock.
+  Conflicting train sources use that same server-side requeue with a one-card limit (PM-778);
+  individual attempts read current main and retain the full check and review gates. Git and checks
+  still run on the selected engine through the existing RPCs, with no new machine assumption.
   Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the
   first `merge.prepare`, `merge.is_ancestor` or `merge.build` of a standalone merge, a train (also its
   recovery and its candidate selection) and the merge gate, the server calls

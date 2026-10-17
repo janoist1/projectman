@@ -37,6 +37,7 @@ import type {
   EngineSessionFolders,
   WorkspaceFileRefusal,
 } from '../contracts';
+import { SocketParams, SocketValues } from '../administration';
 import { EngineStartSpec } from './session-schemas';
 import {
   EngineUploaded,
@@ -652,6 +653,12 @@ export const methods = {
     z.strictObject({ pid: int.min(2), signal: z.enum(['SIGTERM', 'SIGKILL']) }),
     z.enum(['sent', 'gone', 'denied']),
   ),
+  // The administration of this engine's own machine (PM-763): the engine hands the call to its local
+  // supervisor, and only for its own target; there is no engine-to-cloud counterpart.
+  'admin.status': method(SocketParams.status, SocketValues.status),
+  'admin.logs': method(SocketParams.logs, SocketValues.logs),
+  'admin.submit': method(SocketParams.submit, SocketValues.submit),
+  'admin.inspect': method(SocketParams.inspect, SocketValues.inspect),
   'permission.decide': method(z.strictObject({ request: permissionRequest }), permissionDecision, 'cloud'),
   'permission.cancel': method(z.strictObject({ reqId: text }), done, 'cloud'),
   'permission.forward_question': method(z.strictObject({ info: question }), z.boolean(), 'cloud'),

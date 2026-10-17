@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HybridReleaseTarget } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseMode, parseTerminalMode } from './app';
@@ -63,6 +63,10 @@ import {
  *   `/api`, only a loopback listener for the CLIs' hooks and team tools and one outbound link to the cloud.
  *   Its settings are `<home>/engine.json` (`npm run engine -- init`).
  *   PROJECTMAN_ENGINE_PORT (4801): the engine's loopback port (engine mode only).
+ *   PROJECTMAN_ADMIN_SOCKET (unset): the absolute path of the Unix socket of this machine's administration
+ *   supervisor (PM-763, docs/SECURITY.md "Administration adapter"). The hub uses it for its own restart, an
+ *   engine for its own machine. Unset: this process has no administration; a path that is not absolute or is
+ *   too long for a socket stops the start.
  *   PROJECTMAN_VERSION (unset): shared cloud/engine version; otherwise the installation git HEAD, then dev.
  *   PROJECTMAN_EMAIL_LOGIN_ENABLED (0): `1` turns the mailer of the one-time e-mail login code on (PM-669,
  *   docs/AWS.md); then PROJECTMAN_SES_REGION, PROJECTMAN_SES_FROM, PROJECTMAN_SES_ACCESS_KEY_ID and
@@ -187,6 +191,7 @@ async function configFromEnv(
     ? parseReleaseTarget(env.PROJECTMAN_RELEASE_TARGET.trim())
     : undefined;
   const releaseHybrid = parseHybridReleaseTarget(env);
+  const administrationSocket = parseAdministrationSocket(env.PROJECTMAN_ADMIN_SOCKET);
   // The e-mail login mailer (PM-669): off unless switched on; a wrong or incomplete setting stops the start.
   const emailLogin = parseEmailLoginEnv(env);
   // The public board (PM-672): off unless switched on; buildApp refuses it where its conditions do not hold.
@@ -205,6 +210,7 @@ async function configFromEnv(
       appTag: createAppTagReader(installDir, env.PROJECTMAN_VERSION),
       ...(releaseTarget ? { releaseTarget } : {}),
       ...(releaseHybrid ? { releaseHybrid } : {}),
+      ...(administrationSocket ? { administrationSocket } : {}),
       modules: machineFixture
         ? {
             createMachineProbe: (opts) => createFixtureProbe(machineFixture, opts),
@@ -258,6 +264,15 @@ async function configFromEnv(
   };
 }
 
+/** `PROJECTMAN_ADMIN_SOCKET` (PM-763): an absolute socket path that fits a Unix socket address, or undefined. */
+function parseAdministrationSocket(value: string | undefined): string | undefined {
+  const socketPath = value?.trim();
+  if (!socketPath) return undefined;
+  if (!isAbsolute(socketPath) || socketPath.length > 103 || socketPath.includes('\0'))
+    throw new Error('invalid PROJECTMAN_ADMIN_SOCKET (an absolute path of at most 103 characters)');
+  return socketPath;
+}
+
 /**
  * The engine process (PM-314): `npm run engine -- start`. The environment is read here into the engine's
  * options; the engine's own configuration (cloud address, projects, repos, limits) is `<home>/engine.json`.
@@ -307,6 +322,7 @@ async function engineMain(env: NodeJS.ProcessEnv): Promise<void> {
     }),
     ghBin: env.GH_BIN,
     ghHost: env.GH_HOST || undefined,
+    administrationSocket: parseAdministrationSocket(env.PROJECTMAN_ADMIN_SOCKET),
     logger: loggerOptions(env, home, 'engine'),
     shutdownPauseMs,
   });

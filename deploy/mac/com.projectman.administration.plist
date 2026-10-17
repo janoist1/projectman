@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The administration supervisor of an engine machine as a LaunchAgent (PM-763). A TEMPLATE: the "prepare"
+  command of the administration tool fills the double-brace placeholders and writes the result to a folder of the
+  owner's choosing; it does not load anything. Loading it is the owner-approved rollout step.
+  A LaunchAgent in the same gui domain as the engine it may restart, run by the same user (the supervisor
+  and the engine check each other's files by that user). launchd gives the job no shell environment, so
+  nothing but PATH reaches it: no API key, no token. The only argument is the protected configuration file.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>{{LABEL}}</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{{NODE}}</string>
+      <string>--import</string>
+      <string>tsx</string>
+      <string>{{ROOT}}/scripts/administration/supervisor.ts</string>
+      <string>{{CONFIG}}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{ROOT}}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>Umask</key>
+    <integer>63</integer>
+    <key>StandardOutPath</key>
+    <string>{{STATE}}/supervisor.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{STATE}}/supervisor.err.log</string>
+  </dict>
+</plist>

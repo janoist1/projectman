@@ -5,6 +5,8 @@ import { Readable } from 'node:stream';
 import { routes } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
 import type {
+  AdministrationPort,
+  AdministrationTarget,
   EngineHost,
   FullTestExecutor,
   GithubService,
@@ -15,6 +17,7 @@ import type {
   TranscriptReader,
 } from '../contracts';
 import { WorkspaceFileRefusal } from '../contracts';
+import { conflict } from '../kernel';
 import { git } from '../worktree';
 import type { EngineAudit } from './engine-audit';
 import type { EngineLimit } from './engine-limit';
@@ -79,6 +82,11 @@ export interface EngineHandlerDeps {
   exportDir: string;
   /** Runs a NanoGPT session start inside the scope in which the key may be fetched for that session. */
   nanogptStart?: <T>(sessionId: string, start: () => Promise<T>) => Promise<T>;
+  /**
+   * This machine's administration supervisor over its local socket (PM-763), with the one target this engine
+   * answers for. Absent: the `admin.*` methods are unknown here.
+   */
+  administration?: { port: AdministrationPort; target: AdministrationTarget };
 }
 
 type Handlers = {
@@ -113,6 +121,16 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
   const merger = () => {
     if (!engine.merger) throw new EngineRpcError('merge_not_allowed', 'This engine does not merge');
     return engine.merger;
+  };
+  const administration = () => {
+    if (!deps.administration) throw new EngineRpcError('unknown_method', 'This engine has no administration');
+    return deps.administration;
+  };
+  /** The hub names a target; this engine answers for its own machine only. */
+  const ownTarget = (target: AdministrationTarget) => {
+    const own = administration().target;
+    if (!(target.kind === 'engine' && own.kind === 'engine' && target.id === own.id))
+      throw conflict('administration_target_mismatch', 'This engine manages its own machine only');
   };
   const fullRuns = new Map<string, AbortController>();
   /** Settles when the run of a `full_test.run` has ended and its executor has cleaned up. */
@@ -489,6 +507,24 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     },
     async 'machine.signal'({ pid, signal }) {
       return limit.signal(pid, signal);
+    },
+    async 'admin.status'({ target }) {
+      ownTarget(target);
+      return administration().port.status(target);
+    },
+    async 'admin.logs'({ target, limit: count }) {
+      ownTarget(target);
+      return administration().port.logs(target, { limit: count });
+    },
+    async 'admin.submit'(input) {
+      // A restart names its machine; the deploy of a release is the hub's and never runs on an engine.
+      if (input.command.kind === 'restart') ownTarget(input.command.target);
+      if (input.command.kind === 'deploy')
+        throw conflict('administration_target_mismatch', 'A deployment is not an engine operation');
+      return administration().port.submit(input);
+    },
+    async 'admin.inspect'({ operationId }) {
+      return administration().port.inspect(operationId);
     },
   };
 

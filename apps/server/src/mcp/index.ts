@@ -2,7 +2,15 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { McpModule, McpModuleOptions, ToolContext } from '../contracts';
 import { nonLocalReason } from '../kernel';
+import {
+  MAX_BODY_BYTES,
+  sendJsonRpcError,
+  sendTransportResponse,
+  toWebRequest,
+  useRawJsonBody,
+} from './http';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, type TeamServerDeps } from './server';
+import { registerExternalRoutes } from './super-operator/route';
 
 export { FeedbackTools } from './feedback';
 export { OperatorTools } from './operator';
@@ -22,6 +30,7 @@ export { MessageTools } from './messages';
 export { AdmissionTools } from './admission';
 export { WatcherTools } from './watchers';
 export { SessionTools } from './sessions';
+export { ExternalTools } from './super-operator/handler';
 
 export {
   TEAM_TOOLS,
@@ -48,23 +57,6 @@ export interface CreateMcpModuleOptions extends McpModuleOptions {
   toolTimeoutMs?: number;
 }
 
-/** Tool calls are small; anything bigger is refused before it is parsed. */
-const MAX_BODY_BYTES = 1024 * 1024;
-
-/** Request headers that are not copied to the web Request handed to the SDK transport. */
-const SKIPPED_HEADERS = new Set([
-  'host',
-  'connection',
-  'keep-alive',
-  'proxy-connection',
-  'transfer-encoding',
-  'upgrade',
-  'content-length',
-  'expect',
-  'te',
-  'trailer',
-]);
-
 export function createMcpModule(opts: CreateMcpModuleOptions): McpModule {
   const logger = opts.logger.child({ module: 'mcp' });
   const deps: TeamServerDeps = {
@@ -72,6 +64,9 @@ export function createMcpModule(opts: CreateMcpModuleOptions): McpModule {
     logger,
     toolTimeoutMs: opts.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
   };
+  const external = opts.external
+    ? { backend: opts.external, logger, toolTimeoutMs: deps.toolTimeoutMs }
+    : undefined;
   /** Context resolved by the guard, read by the route handler. */
   const contexts = new WeakMap<FastifyRequest, ToolContext>();
 
@@ -105,12 +100,7 @@ export function createMcpModule(opts: CreateMcpModuleOptions): McpModule {
     });
     try {
       await server.connect(transport);
-      const response = await transport.handleRequest(toWebRequest(request));
-      reply.code(response.status);
-      response.headers.forEach((value, name) => {
-        if (name !== 'content-length') reply.header(name, value);
-      });
-      return reply.send(response.body ? await response.text() : undefined);
+      return await sendTransportResponse(reply, await transport.handleRequest(toWebRequest(request)));
     } finally {
       await server.close();
     }
@@ -129,42 +119,14 @@ export function createMcpModule(opts: CreateMcpModuleOptions): McpModule {
     registerRoutes(app: FastifyInstance) {
       // Encapsulated so that the body parser and the guard apply to these routes only.
       app.register(async (scope) => {
-        // The raw JSON text goes to the SDK transport (which parses and validates JSON-RPC),
-        // whatever body parsing the application configures for its other routes.
-        scope.removeAllContentTypeParsers();
-        scope.addContentTypeParser(
-          'application/json',
-          { parseAs: 'string', bodyLimit: MAX_BODY_BYTES },
-          (_request, body, done) => done(null, body),
-        );
+        useRawJsonBody(scope);
         scope.addHook('onRequest', guard);
         // Request logs would contain the token (it is part of the URL): keep them out of the info log.
         const route = { url: '/mcp/:token', logLevel: 'warn', bodyLimit: MAX_BODY_BYTES } as const;
         scope.route({ ...route, method: 'POST', handler: handlePost });
         scope.route({ ...route, method: ['GET', 'DELETE'], handler: handleNotAllowed });
       });
+      if (external) registerExternalRoutes(app, external);
     },
   };
-}
-
-/** Converts the Fastify request into the web Request the SDK transport works with. */
-function toWebRequest(request: FastifyRequest): Request {
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(request.headers)) {
-    if (value === undefined || SKIPPED_HEADERS.has(name)) continue;
-    for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
-  }
-  // The token is left out of the URL: the transport only passes it on as request info.
-  return new Request('http://localhost/mcp', {
-    method: request.method,
-    headers,
-    body: typeof request.body === 'string' ? request.body : null,
-  });
-}
-
-function sendJsonRpcError(reply: FastifyReply, status: number, message: string) {
-  return reply
-    .code(status)
-    .type('application/json')
-    .send(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }));
 }

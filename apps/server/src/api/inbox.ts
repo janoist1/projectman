@@ -12,11 +12,11 @@ import {
 } from '@projectman/shared';
 import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
 import type { ApiDomain } from './ports';
-import { ANSWER_OPTION } from '../core/inbox';
 import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
-import { forbidden, notFound } from '../kernel';
+import { notFound } from '../kernel';
+import { relayOwnerAnswer } from '../services/super-operator';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
@@ -80,24 +80,7 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
       const { key, itemId } = request.params;
       const access = await requireAccess(domain, request, key);
       const body = parseBody(RelayOwnerAnswerRequest, request.body);
-      if (!access.superActor)
-        throw forbidden('super_relay_refused', 'only the integrator in super mode relays an answer');
-      const item = domain.inbox.get(key, itemId);
-      if (!canSeeInboxItem(access, item)) throw notFound('inbox item', itemId);
-      if (item.kind !== 'question')
-        throw forbidden('super_relay_refused', 'only a question can be answered by a relay');
-      const resolved = await domain.inbox.resolve(
-        key,
-        itemId,
-        { optionId: ANSWER_OPTION.id, note: body.answer },
-        access,
-      );
-      return {
-        item: visibleQuestionItem(access, resolved, (taskKey) => {
-          const task = domain.tasks.find(key, taskKey);
-          return !!task && canSeeTask(access, task);
-        }),
-      };
+      return relayOwnerAnswer(domain, key, itemId, body.answer, access);
     },
   );
 

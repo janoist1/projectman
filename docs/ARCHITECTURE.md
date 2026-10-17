@@ -909,8 +909,45 @@ valid (stale: 409 `super_operation_stale`) and opens a grant for that one comman
 
 The relay (`POST …/inbox/:id/relay-answer`) lets the integrator give the owner's words as the answer to an open
 question the asker marked as plain information (`ask_human` `response_purpose: "information"`). It is marked
-`ownerAnswerRelayed`, is not an owner decision and never reaches the decision candidates. The external MCP
-tools (`execute_super_handoff`, `list_super_handoffs`, relay) belong to PM-760.
+`ownerAnswerRelayed`, is not an owner decision and never reaches the decision candidates. The rule lives in
+`services/super-operator/relay.ts`; the REST route and the MCP tool `relay_owner_answer` (PM-760) both call it.
+
+## The external MCP endpoint (PM-760, part of the super mode PM-757)
+
+`POST /mcp` (no token in the path) is the integrator's MCP door: a bearer `pmi_` key, HTTPS or a local connection,
+no login, no session and no engine. The member door `/mcp/:token` is separate and unchanged (a session token, a local
+connection, `ToolContext` with a `sessionId`).
+
+- **Stateless.** The SDK `WebStandardStreamableHTTPServerTransport` runs per request with no session id, over the SDK's
+  low-level `Server` (`mcp/super-operator/server.ts`), so an unknown or forbidden tool is a domain denial and not an
+  `isError` text. `GET` and `DELETE` are `405` with `Allow: POST`. The route (`mcp/super-operator/route.ts`) requires the
+  `request.principal` the root auth hook resolved (`resolveIntegratorCredential(secret, 'mcp')`); a missing, wrong, expired,
+  revoked or over-HTTP key is `401` (`integrator_key_invalid`, `integrator_https_required`), never the member door's `404`
+  and never a `200` with an error text, also for a batch element and a notification. The key is re-read in each tool call
+  (`assertActive`); a key found revoked in the middle of a request turns the whole answer into `401`. The `Authorization`
+  and `Cookie` headers are removed before the request reaches the SDK (`requestInfo`) and nothing logs a body or a header.
+- **Its own context.** `ExternalToolContext = {principal, projectKey, actor, requestId}` (`contracts/team-tools.ts`) has
+  no `sessionId`; `ToolContext` is not changed. The shared tool definitions get a caller adapter: a definition is
+  **denied by default** until it carries an explicit `external` binding (`mcp/kit.ts`: modes, read or write access, the
+  project and card argument). `mcp/super-operator/registry.ts` lists the served tools (`EXTERNAL_TOOLS`) and the denied
+  shared ones with the reason (`EXTERNAL_DENIED`); a test checks that every shared tool is exactly one of the two.
+- **Project switching is stateless.** Every project tool takes a required `project_key`; `list_projects {}` returns the
+  projects where the key's holder is an owner at this moment. An unknown project and one the holder does not own are
+  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a forbidden
+  tool called directly is refused by the same table (`integrator_not_allowed`, `integrator_read_only`).
+- **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
+  the audit row `mcp_<tool>`); a `legacy` key keeps the unscoped, unaudited REST behaviour. The super tools
+  (`list_super_handoffs`, `execute_super_handoff`, `super_operate`, `get_super_operation`, `query_super_diagnostics`,
+  `get_administration_status`, `get_administration_logs`, `relay_owner_answer`) are `super` only and answer with structured
+  JSON plus the domain `errorCode`.
+- **Entrance.** The tunnel and proxy rules pass `/mcp` and refuse `/mcp/` and `/hooks` (`^/mcp/` in
+  `scripts/cloud/cloudflare.ts` and `deploy/cloudflare/config.example.yml`); the root auth hook treats `/hooks/` and `/mcp/` as
+  literal prefixes so no spelling opens the member door to a bearer. [DEPLOY.md](DEPLOY.md) "The integrator's MCP endpoint".
+
+**Does this work on a remote engine?** The endpoint, the key check and the audit run on the server and nothing of them
+crosses to an engine: the tools call the same domain facades as the REST routes. A tool that needs an engine (the
+administration status and logs, a diagnostics run) uses the engine path the matching REST route uses; the key is never sent
+to an engine.
 
 ## Super-mode diagnostics, test and build (PM-764, part of the super mode PM-757)
 
@@ -2359,13 +2396,20 @@ workers follow the machine's size.
   use one hub SQLite transaction (`merge_queue_revisions` and `task_merges.queue_rank`, migration 82,
   after PM-771's migration 80 and PM-761's migration 81); the running merge remains behind the existing
   BranchMerger facade.
-  External bearer MCP remains closed until PM-760 composes its operation policy.
+  The external bearer MCP endpoint (PM-760, "The external MCP endpoint" below) uses this resolver on
+  every HTTP request.
   The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
   Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
   `PROJECTMAN_INTEGRATOR_KEY` before launching members.
   **Remote engine:** key authentication and audit stay on the server; the credential is never
   sent to an engine or member session. Engines must deny the same directory in their worker
   homes and strip the environment variable before spawning a CLI.
+  **External MCP endpoint (PM-760):** `mcp/super-operator/*`, `mcp/http.ts`, `services/super-operator/relay.ts`,
+  `scripts/cloud/cloudflare.ts` (`ingressRules`). `POST /mcp` takes the bearer key per request, with no session or
+  engine. Machine assumptions: a local or HTTPS connection (`requestProtocol` trusts `X-Forwarded-Proto` only from a
+  loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
+  tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
+  runs on or crosses to an engine.
   **Cloud (PM-317):** in front of the cloud the integrator also passes Cloudflare Access with a
   service token of its own, kept beside the key in `~/.config/projectman/` (DEPLOY.md,
   "Integrator access"); the key still works only over HTTPS, which the container sees as

@@ -128,7 +128,7 @@ describe('edge for the public board', () => {
       { hostname: 'mark.example.com', path: '^/feedback/', service: 'http://127.0.0.1:4700' },
       { hostname: 'mark.example.com', service: 'http_status:404' },
       { hostname: 'board.example.com', path: '^/hooks', service: 'http_status:404' },
-      { hostname: 'board.example.com', path: '^/mcp', service: 'http_status:404' },
+      { hostname: 'board.example.com', path: '^/mcp/', service: 'http_status:404' },
       {
         hostname: 'board.example.com',
         path: '^/engine(/|$)',
@@ -299,7 +299,7 @@ describe('publish for the public board', () => {
       'the main hostname demands the main audience',
       (aud: { main: string; engine: string }) => [
         { hostname: 'board.example.com', path: '^/hooks', service: 'http_status:404' },
-        { hostname: 'board.example.com', path: '^/mcp', service: 'http_status:404' },
+        { hostname: 'board.example.com', path: '^/mcp/', service: 'http_status:404' },
         {
           hostname: 'board.example.com',
           service: 'http://127.0.0.1:4700',
@@ -311,7 +311,7 @@ describe('publish for the public board', () => {
     [
       '/hooks is passed on',
       (aud: { main: string; engine: string }) => [
-        { hostname: 'board.example.com', path: '^/mcp', service: 'http_status:404' },
+        { hostname: 'board.example.com', path: '^/mcp/', service: 'http_status:404' },
         {
           hostname: 'board.example.com',
           path: '^/engine(/|$)',
@@ -326,7 +326,7 @@ describe('publish for the public board', () => {
       '/engine needs no audience',
       () => [
         { hostname: 'board.example.com', path: '^/hooks', service: 'http_status:404' },
-        { hostname: 'board.example.com', path: '^/mcp', service: 'http_status:404' },
+        { hostname: 'board.example.com', path: '^/mcp/', service: 'http_status:404' },
         { hostname: 'board.example.com', service: 'http://127.0.0.1:4700' },
         { service: 'http_status:404' },
       ],

@@ -58,18 +58,41 @@ export class ProjectState {
 
   /** Read current records only; no transcript, log parsing, SQL or shell access. */
   async diagnostics(ctx: ToolContext, taskKey: string, limit = 10): Promise<OperatorDiagnostics> {
+    return this.readDiagnostics(ctx.projectKey, taskKey, limit, () => this.diagnosticCaller(ctx));
+  }
+
+  /**
+   * The same report for the integrator's bearer MCP (PM-760), which has no member and no session. The
+   * caller has already been authorized for the project by the external adapter; `recheck` asks it again after
+   * the machine read, which can wait for an engine.
+   */
+  async externalDiagnostics(
+    projectKey: string,
+    taskKey: string,
+    limit: number | undefined,
+    recheck: () => Promise<void>,
+  ): Promise<OperatorDiagnostics> {
+    return this.readDiagnostics(projectKey, taskKey, limit ?? 10, recheck);
+  }
+
+  private async readDiagnostics(
+    projectKey: string,
+    taskKey: string,
+    limit: number,
+    caller: () => Promise<void>,
+  ): Promise<OperatorDiagnostics> {
     if (!z.number().int().min(1).max(20).safeParse(limit).success)
       throw invalid('invalid_request', 'limit must be an integer from 1 to 20');
-    await this.diagnosticCaller(ctx);
-    this.deps.tasks.get(ctx.projectKey, taskKey);
+    await caller();
+    this.deps.tasks.get(projectKey, taskKey);
     const sessionsForTask = () =>
       this.deps.ctx.repos.sessions
-        .list(ctx.projectKey, { taskKey })
+        .list(projectKey, { taskKey })
         .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt) || a.id.localeCompare(b.id));
     const machine = await this.deps.diagnostics.machine(sessionsForTask()[0]).catch(() => null);
     // Machine reads can wait for an engine: recheck the actor and card after that boundary.
-    await this.diagnosticCaller(ctx);
-    const task = await this.task(ctx.projectKey, taskKey);
+    await caller();
+    const task = await this.task(projectKey, taskKey);
     const sessions = sessionsForTask()
       .slice(0, limit)
       .map((session) => ({
@@ -85,12 +108,12 @@ export class ProjectState {
           : null,
       }));
     const messages = this.deps.ctx.repos.messages
-      .list(ctx.projectKey, { taskKey, limit })
+      .list(projectKey, { taskKey, limit })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
       .slice(0, limit);
-    const deliveries = await Promise.all(messages.map((message) => this.message(ctx.projectKey, message.id)));
+    const deliveries = await Promise.all(messages.map((message) => this.message(projectKey, message.id)));
     const checks = this.deps.diagnostics
-      .checks(ctx.projectKey, taskKey)
+      .checks(projectKey, taskKey)
       .sort((a, b) => b.at.localeCompare(a.at) || b.runId.localeCompare(a.runId))
       .slice(0, limit)
       .map((check) => ({
@@ -99,7 +122,7 @@ export class ProjectState {
         failedFiles: [...check.failedFiles],
         at: check.at,
       }));
-    await this.diagnosticCaller(ctx);
+    await caller();
     const latest = sessionsForTask()[0];
     const currentMachine =
       latest && (latest.engineId ?? LOCAL_ENGINE_ID) === machine?.engineId ? machine : null;

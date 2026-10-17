@@ -787,8 +787,8 @@ at the first refused change, name the right they lack and change nothing further
    policy only). Their policy lists must be exactly these: an extra policy is removed. With the
    integrator token switched off, its policy, token and file are deleted.
 8. **The tunnel** `<N>` (managed from Cloudflare, `config_src: cloudflare`; a tunnel that is configured
-   from a local file exits 2) and its **ingress**: `/hooks*` and `/mcp*` answer 404 (the board's
-   webhook and MCP doors stay closed to the world), the board's name goes to `127.0.0.1:4700` with the
+   from a local file exits 2) and its **ingress**: `/hooks*` and `/mcp/*` answer 404 (the board's
+   webhook and member MCP doors stay closed to the world; the bare `/mcp` is the integrator's bearer endpoint, PM-760), the board's name goes to `127.0.0.1:4700` with the
    `access.required` check against the audience tags of both applications (the origin checks the
    Access JWT itself), with a feedback name the `/feedback/` path of it goes to the same port and the
    rest is 404, everything else 404.
@@ -849,8 +849,8 @@ What `edge` does differently with `boardMode: public` (the order of the steps is
   their meaning; the integrator token (`access.integratorServiceToken`) has no use on the main name, so
   `check` skips the integrator smoke test.
 - **Ingress.** With a feedback name, its `^/feedback/` goes to `127.0.0.1:4700` and the rest of that name
-  is 404 (unchanged). On the main name: `^/hooks` and `^/mcp` answer 404 (the webhook and MCP doors never
-  open to the world); `^/engine(/|$)` goes to the port with `originRequest.access` required, the team
+  is 404 (unchanged). On the main name: `^/hooks` and `^/mcp/` answer 404 (the webhook and member MCP doors never
+  open to the world; the bare `/mcp` is the integrator's bearer endpoint and takes the way of `/api`, PM-760); `^/engine(/|$)` goes to the port with `originRequest.access` required, the team
   name and **the audience tag of the engine application only**; everything else on the name goes to the
   port with no audience check (the board's login guards it); the last rule is 404.
 - **`cloud.env`** gets `PROJECTMAN_PUBLIC_BOARD=1`; in `private` mode `edge` removes the line.

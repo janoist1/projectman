@@ -9,9 +9,10 @@ import {
   TaskStatus,
   Visibility,
 } from '@projectman/shared';
-import type { DeveloperLevelRequest } from '@projectman/shared';
+import type { DeveloperLevelRequest, MemberView, Task } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
+import type { ListTasksInput, TaskSummary, TaskToolDetail, TaskToolsHandler } from '../../contracts';
 import { formatTaskCreated, formatTaskDetail, formatTaskUpdate, MAX_DESCRIPTION_CHARS } from '../format';
 
 import { defineTool, type TeamToolGroup, unique, taskKeyInput } from '../kit';
@@ -66,6 +67,179 @@ const addedRelationInput = z.object({
   kind: AddableRelationKind.describe(ADDED_RELATIONS_HELP),
   task_key: taskKeyInput.describe('The other card, in this project.'),
 });
+
+/**
+ * The runs below serve the member tools and the bearer endpoint alike (PM-760): they depend on the handler
+ * methods they call, typed over the caller's context, so neither caller needs the other's context type.
+ */
+interface Call<Context, Args, Handler> {
+  ctx: Context;
+  args: Args;
+  handler: Handler;
+}
+
+async function runListTasks<C>({
+  ctx,
+  args,
+  handler,
+}: Call<C, ListTasksInput, { listTasks(ctx: C, args: ListTasksInput): Promise<TaskSummary[]> }>) {
+  return JSON.stringify(await handler.listTasks(ctx, args));
+}
+
+async function runGetTask<C>({
+  ctx,
+  args,
+  handler,
+}: Call<
+  C,
+  { task_key: string; event_id?: string | undefined; description_offset?: number | undefined },
+  { getTask(ctx: C, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail> }
+>) {
+  const event = args.event_id === undefined ? {} : { eventId: args.event_id };
+  return formatTaskDetail(await handler.getTask(ctx, { taskKey: args.task_key, ...event }), {
+    descriptionOffset: args.description_offset ?? 0,
+  });
+}
+
+interface UpdateTaskArgs {
+  task_key: string;
+  developer_level?: DeveloperLevel | undefined;
+  developer_level_reason?: string | undefined;
+  stage_id?: string | undefined;
+  add_labels?: string[] | undefined;
+  remove_labels?: string[] | undefined;
+  note?: string | undefined;
+  title?: string | undefined;
+  description?: string | undefined;
+  repo?: string | null | undefined;
+  add_relations?: { kind: AddableRelationKind; task_key: string }[] | undefined;
+  remove_relations?: { kind: TaskRelationKind; task_key: string }[] | undefined;
+  theme_key?: string | null | undefined;
+  priority?: TaskPriority | null | undefined;
+}
+
+async function runUpdateTask<C>({
+  ctx,
+  args,
+  handler,
+}: Call<
+  C,
+  UpdateTaskArgs,
+  {
+    updateTask(ctx: C, args: Parameters<TaskToolsHandler['updateTask']>[1]): Promise<{ task: Task }>;
+    listMembers(ctx: C): Promise<MemberView[]>;
+  }
+>) {
+  const {
+    task_key: taskKey,
+    stage_id: stageId,
+    priority,
+    add_labels: addLabels,
+    remove_labels: removeLabels,
+    note,
+    title,
+    description,
+    repo,
+    add_relations: addRelations,
+    remove_relations: removeRelations,
+    theme_key: themeKey,
+  } = args;
+  const developerLevel = developerLevelArg(args);
+  if (
+    !stageId &&
+    themeKey === undefined &&
+    priority === undefined &&
+    !developerLevel &&
+    !addLabels?.length &&
+    !removeLabels?.length &&
+    !note &&
+    !title &&
+    !description &&
+    repo === undefined &&
+    !addRelations?.length &&
+    !removeRelations?.length
+  ) {
+    throw new TeamToolError(
+      'invalid',
+      'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
+        'add_relations, remove_relations, theme_key, priority and/or developer_level.',
+    );
+  }
+  const relations = {
+    add: (addRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
+    remove: (removeRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
+  };
+  const { task } = await handler.updateTask(ctx, {
+    taskKey,
+    ...(stageId ? { stageId } : {}),
+    ...(addLabels?.length ? { addLabels } : {}),
+    ...(removeLabels?.length ? { removeLabels } : {}),
+    ...(note ? { note } : {}),
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
+    ...(repo !== undefined ? { repo } : {}),
+    ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
+    ...(themeKey !== undefined ? { themeKey } : {}),
+    ...(priority !== undefined ? { priority } : {}),
+    ...(developerLevel ? { developerLevel } : {}),
+  });
+  const moverName =
+    task.handOn && stageId
+      ? (await handler.listMembers(ctx)).find((member) => member.handle === task.handOn!.mover)?.displayName
+      : undefined;
+  return formatTaskUpdate(task, {
+    ...(moverName ? { moverName } : {}),
+    stageId,
+    ...(priority !== undefined ? { priority } : {}),
+    ...(developerLevel ? { developerLevel: true } : {}),
+    ...(themeKey !== undefined ? { themeKey } : {}),
+    labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
+    note: !!note,
+    title: !!title,
+    description: !!description,
+    repo,
+    relations,
+  });
+}
+
+interface CreateTaskArgs {
+  kind?: 'task' | 'theme' | undefined;
+  theme_key?: string | undefined;
+  parent_key?: string | undefined;
+  title: string;
+  description?: string | undefined;
+  labels?: string[] | undefined;
+  visibility?: Visibility | undefined;
+  relations?: { kind: AddableRelationKind; task_key: string }[] | undefined;
+  developer_level?: DeveloperLevel | undefined;
+  developer_level_reason?: string | undefined;
+}
+
+async function runCreateTask<C>({
+  ctx,
+  args,
+  handler,
+}: Call<
+  C,
+  CreateTaskArgs,
+  { createTask(ctx: C, args: Parameters<TaskToolsHandler['createTask']>[1]): Promise<{ task: Task }> }
+>) {
+  const developerLevel = developerLevelArg(args);
+  const { task } = await handler.createTask(ctx, {
+    title: args.title,
+    ...(developerLevel ? { developerLevel } : {}),
+    ...(args.relations?.length
+      ? { relations: args.relations.map((r) => ({ kind: r.kind, key: r.task_key })) }
+      : {}),
+    ...(args.parent_key ? { parentKey: args.parent_key } : {}),
+    ...(args.kind === 'theme' ? { kind: args.kind } : {}),
+    ...(args.theme_key ? { themeKey: args.theme_key } : {}),
+    ...(args.description ? { description: args.description } : {}),
+    ...(args.labels ? { labels: unique(args.labels) } : {}),
+    ...(args.visibility ? { visibility: args.visibility } : {}),
+  });
+  return formatTaskCreated(task);
+}
 export const TASK_TOOL_GROUP: TeamToolGroup = {
   module: 'core/tasks',
   tools: [
@@ -85,9 +259,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
         assignee: MemberHandle.optional().describe('Member handle, or "me" for your own tasks.'),
         limit: z.number().int().min(1).max(200).default(50),
       },
-      async run({ ctx, args, handler }) {
-        return JSON.stringify(await handler.listTasks(ctx, args));
-      },
+      external: { access: 'read', run: runListTasks },
+      run: runListTasks,
     }),
     defineTool({
       name: 'get_task',
@@ -125,12 +298,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
               'said the description is cut, and it names the offset.',
           ),
       },
-      async run({ ctx, args, handler }) {
-        const event = args.event_id === undefined ? {} : { eventId: args.event_id };
-        return formatTaskDetail(await handler.getTask(ctx, { taskKey: args.task_key, ...event }), {
-          descriptionOffset: args.description_offset ?? 0,
-        });
-      },
+      external: { access: 'read', run: runGetTask },
+      run: runGetTask,
     }),
     defineTool({
       name: 'update_task',
@@ -249,79 +418,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
               'development by the system; the other levels only inform.',
           ),
       },
-      async run({ ctx, args, handler }) {
-        const {
-          task_key: taskKey,
-          stage_id: stageId,
-          priority,
-          add_labels: addLabels,
-          remove_labels: removeLabels,
-          note,
-          title,
-          description,
-          repo,
-          add_relations: addRelations,
-          remove_relations: removeRelations,
-          theme_key: themeKey,
-        } = args;
-        const developerLevel = developerLevelArg(args);
-        if (
-          !stageId &&
-          themeKey === undefined &&
-          priority === undefined &&
-          !developerLevel &&
-          !addLabels?.length &&
-          !removeLabels?.length &&
-          !note &&
-          !title &&
-          !description &&
-          repo === undefined &&
-          !addRelations?.length &&
-          !removeRelations?.length
-        ) {
-          throw new TeamToolError(
-            'invalid',
-            'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-              'add_relations, remove_relations, theme_key, priority and/or developer_level.',
-          );
-        }
-        const relations = {
-          add: (addRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
-          remove: (removeRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
-        };
-        const { task } = await handler.updateTask(ctx, {
-          taskKey,
-          ...(stageId ? { stageId } : {}),
-          ...(addLabels?.length ? { addLabels } : {}),
-          ...(removeLabels?.length ? { removeLabels } : {}),
-          ...(note ? { note } : {}),
-          ...(title ? { title } : {}),
-          ...(description ? { description } : {}),
-          ...(repo !== undefined ? { repo } : {}),
-          ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
-          ...(themeKey !== undefined ? { themeKey } : {}),
-          ...(priority !== undefined ? { priority } : {}),
-          ...(developerLevel ? { developerLevel } : {}),
-        });
-        const moverName =
-          task.handOn && stageId
-            ? (await handler.listMembers(ctx)).find((member) => member.handle === task.handOn!.mover)
-                ?.displayName
-            : undefined;
-        return formatTaskUpdate(task, {
-          ...(moverName ? { moverName } : {}),
-          stageId,
-          ...(priority !== undefined ? { priority } : {}),
-          ...(developerLevel ? { developerLevel: true } : {}),
-          ...(themeKey !== undefined ? { themeKey } : {}),
-          labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
-          note: !!note,
-          title: !!title,
-          description: !!description,
-          repo,
-          relations,
-        });
-      },
+      external: { access: 'write', run: runUpdateTask },
+      run: runUpdateTask,
     }),
     defineTool({
       name: 'create_task',
@@ -382,23 +480,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
         developer_level: developerLevelInput,
         developer_level_reason: developerLevelReasonInput,
       },
-      async run({ ctx, args, handler }) {
-        const developerLevel = developerLevelArg(args);
-        const { task } = await handler.createTask(ctx, {
-          title: args.title,
-          ...(developerLevel ? { developerLevel } : {}),
-          ...(args.relations?.length
-            ? { relations: args.relations.map((r) => ({ kind: r.kind, key: r.task_key })) }
-            : {}),
-          ...(args.parent_key ? { parentKey: args.parent_key } : {}),
-          ...(args.kind === 'theme' ? { kind: args.kind } : {}),
-          ...(args.theme_key ? { themeKey: args.theme_key } : {}),
-          ...(args.description ? { description: args.description } : {}),
-          ...(args.labels ? { labels: unique(args.labels) } : {}),
-          ...(args.visibility ? { visibility: args.visibility } : {}),
-        });
-        return formatTaskCreated(task);
-      },
+      external: { access: 'write', run: runCreateTask },
+      run: runCreateTask,
     }),
   ],
 };

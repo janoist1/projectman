@@ -207,7 +207,7 @@ describe('the tunnel', () => {
     });
     expect(stripped).toEqual([
       { hostname: 'board.example.com', path: '^/hooks', service: 'http_status:404' },
-      { hostname: 'board.example.com', path: '^/mcp', service: 'http_status:404' },
+      { hostname: 'board.example.com', path: '^/mcp/', service: 'http_status:404' },
       {
         hostname: 'board.example.com',
         service: 'http://127.0.0.1:4700',

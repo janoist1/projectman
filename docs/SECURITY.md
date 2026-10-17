@@ -1008,8 +1008,9 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   card that does not exist give the same answer; the live connection sends no event of an internal card.
   The engine service token is no board login: `/api/auth/me` with it answers 401.
 - **The engine door stays closed.** `/engine` keeps its own Access application (the engine service token
-  only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp` answer 404 at the
-  tunnel, as before. The main Access application has exactly one Bypass/Everyone policy and no other
+  only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp/` (the member door)
+  answer 404 at the tunnel, as before. The bare `/mcp` is the integrator's bearer endpoint (PM-760) and passes
+  like `/api`. The main Access application has exactly one Bypass/Everyone policy and no other
   rule; any other policy on it is removed by `edge` and refused by `publish`.
 - **The tunnel rule is not the only lock on `/engine`.** The tunnel's ingress rule and the Access
   application match the raw path, but the board's router decodes it: `/%65ngine/link` would skip the rule
@@ -1187,7 +1188,8 @@ macOS probe.
    CLI configuration and permission modes before trusting a workspace.
 2. Terminate HTTPS with Tailscale Serve. Preserve the public Host, overwrite
    `X-Forwarded-Proto`, and keep forwarding/identity headers so hook/MCP requests
-   through the proxy are rejected. Prefer denying `/hooks` and `/mcp` at the proxy.
+   through the proxy are rejected. Prefer denying `/hooks` and `/mcp/` at the proxy (the bare `/mcp` is the
+   integrator's bearer endpoint, below).
    Verify Secure cookies and the browser's exact origin against the deployed proxy.
 3. Apply tailnet ACLs and proxy connection/body/rate limits. Keep the app bound to
    loopback; do not expose the development server. Provision the first owner locally.
@@ -1221,7 +1223,7 @@ cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below hold
    (non-identity, that one token), on the whole-hostname application; the engine's token is
    never there. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
    name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
-3. The tunnel answers 404 for `/hooks` and `/mcp` and for everything but the one hostname. The
+3. The tunnel answers 404 for `/hooks` and `/mcp/` and for everything but the one hostname. The
    only service is `127.0.0.1:4800`; the development ports are not served.
 4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
    automatic Web Analytics beacon and every other script injection off; a response-header rule
@@ -1266,6 +1268,20 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   visitor past Access, not past the sign-in. Defences: leave the setting off (switching it off
   makes `edge` delete the policy, the token and its file), or issue a new secret with
   `npm run cloud -- edge --rotate-integrator-token`.
+- **The integrator's MCP endpoint, `POST /mcp` (PM-760), is a bearer door like `/api`.** A leaked `pmi_` key
+  gives what the key's mode gives in the projects of which its holder is an owner, and nothing else: no
+  session, no login, no approval of a human decision, no key management. Every HTTP request (a batch element
+  and a notification too) is authenticated afresh from the stored hash, so a revoke or an expiry takes effect
+  on the next request, and a key revoked in the middle of a request makes the answer 401. A wrong key is 401
+  `integrator_key_invalid`, never an MCP error text. The login cookie is not read as a credential; the
+  `Authorization` and `Cookie` headers are removed before the SDK sees the request, and no log line holds a
+  header or a body. The key works only over HTTPS or a local connection. Shared tool definitions are denied
+  by default until they carry an explicit external binding; the member's session, decision, file and merge
+  tools are not offered, and `tools/list` follows the key's mode while a direct call is checked against the
+  same table. An unknown project and one the holder does not own get the same refusal, so the answer does
+  not tell which project keys exist. On the public board `/mcp` has no Access audience (like `/api`), so the
+  key is the only lock there: keep the expiry short, revoke at once on a suspicion, and read the `mcp_<tool>`
+  rows of the super audit. The member door `/mcp/<token>` is unchanged and stays closed at the tunnel.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
   every change and rerun `check.sh`. On the public board there is no second lock by design: the

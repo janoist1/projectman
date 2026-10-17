@@ -12,8 +12,34 @@ import {
 } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
+import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
 import { formatMemberStart, formatProjectState } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
+
+/** Serves the member tool and the bearer endpoint alike (PM-760); `C` is the caller's context type. */
+async function runGetProjectState<C>({
+  ctx,
+  args,
+  handler,
+}: {
+  ctx: C;
+  args: { task_key?: string | undefined; message_id?: string | undefined };
+  handler: {
+    getProjectState(
+      ctx: C,
+      args: { taskKey?: string; messageId?: string },
+    ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
+  };
+}) {
+  if (args.task_key && args.message_id)
+    throw new TeamToolError('invalid', 'Give either task_key or message_id, not both.');
+  return formatProjectState(
+    await handler.getProjectState(
+      ctx,
+      args.message_id ? { messageId: args.message_id } : args.task_key ? { taskKey: args.task_key } : {},
+    ),
+  );
+}
 
 export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
   module: 'services/operator',
@@ -79,6 +105,16 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       description:
         'Only the Operator in its owner general conversation or the selected PM in its internal general session; never guests or customer conversations. Needs no owner request. Reads current task state, structured session activity, delivery receipts, check outcomes and available engine metrics. limit applies independently to each list, newest first. No transcripts, screens, raw errors, commands, environment or SQL. One reading suggests possible causes; it does not prove a cause. Recheck before concluding.',
       input: { task_key: TaskKey, limit: z.number().int().min(1).max(20).default(10) },
+      external: {
+        access: 'read',
+        description:
+          'Reads current task state, structured session activity, delivery receipts, check outcomes and available engine metrics of one card of the project. limit applies independently to each list, newest first. No transcripts, screens, raw errors, commands, environment or SQL. One reading suggests possible causes; it does not prove a cause.',
+        async run({ ctx, args, handler }) {
+          return JSON.stringify(
+            await handler.getOperatorDiagnostics(ctx, { taskKey: args.task_key, limit: args.limit }),
+          );
+        },
+      },
       async run({ ctx, args, handler }) {
         return JSON.stringify(
           await handler.getOperatorDiagnostics(ctx, { taskKey: args.task_key, limit: args.limit }),
@@ -157,20 +193,13 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
             'A team message of this project (the id send_message answered with): what became of it for each recipient. Not together with task_key.',
           ),
       },
-      async run({ ctx, args, handler }) {
-        if (args.task_key && args.message_id)
-          throw new TeamToolError('invalid', 'Give either task_key or message_id, not both.');
-        return formatProjectState(
-          await handler.getProjectState(
-            ctx,
-            args.message_id
-              ? { messageId: args.message_id }
-              : args.task_key
-                ? { taskKey: args.task_key }
-                : {},
-          ),
-        );
+      external: {
+        access: 'read',
+        description:
+          'The source of facts about the running system: the running version and release, why a card is waiting, what became of a start or a message, or the project overview (stages, live and idle sessions, waiting starts, pauses and open owner inbox items).',
+        run: runGetProjectState,
       },
+      run: runGetProjectState,
     }),
 
     defineTool({

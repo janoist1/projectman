@@ -588,6 +588,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       // O(1) in-memory lookup: runs on every MCP request.
       resolveContext: (token) => domain.sessions.resolveToken(token),
       logger: log,
+      external: domain.externalMcp(),
     });
 
     const webDistDir =

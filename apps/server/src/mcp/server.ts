@@ -23,7 +23,7 @@ export interface TeamServerDeps {
 /** Error codes seen by the model: the TeamToolError codes plus our own. */
 export type ToolErrorCode = TeamToolError['code'] | 'timeout' | 'internal';
 
-class ToolTimeoutError extends Error {
+export class ToolTimeoutError extends Error {
   constructor(ms: number) {
     super(`team tool timed out after ${ms} ms`);
     this.name = 'ToolTimeoutError';
@@ -32,7 +32,7 @@ class ToolTimeoutError extends Error {
 
 // Only used for elicitation, which the team server never does; shared so that the
 // per-request servers do not each build their own validator.
-const jsonSchemaValidator = new AjvJsonSchemaValidator();
+export const jsonSchemaValidator = new AjvJsonSchemaValidator();
 
 /**
  * Builds an MCP server bound to one calling session. The endpoint is stateless: a fresh
@@ -111,7 +111,7 @@ async function runTool(
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new ToolTimeoutError(ms)), ms);

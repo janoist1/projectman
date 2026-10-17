@@ -68,6 +68,28 @@ tests use the SDK's own client, which behaves the same way here):
 - It routes even `127.0.0.1` through `HTTP(S)_PROXY` unless `NO_PROXY` names the host, so
   the runner should put `127.0.0.1,localhost` into `NO_PROXY` of every session.
 
+## The integrator's endpoint (`POST /mcp`, PM-760)
+
+A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no session and no engine. Code:
+`super-operator/` (`route.ts`, `server.ts`, `handler.ts`, `registry.ts`, `tools.ts`) and the shared helpers in `http.ts`.
+
+- Stateless: the SDK `WebStandardStreamableHTTPServerTransport` per request over the low-level `Server`; no session id,
+  `GET`/`DELETE` are `405` with `Allow: POST`.
+- Every HTTP request is authenticated afresh (also a batch element and a notification). A missing, wrong, expired or
+  revoked key is `401` `integrator_key_invalid` (not the member door's `404`, no OAuth fallback, never a `200` with an error
+  text). The `Authorization` and `Cookie` headers never reach the SDK request info; nothing logs a header or a body.
+- `ExternalToolContext = {principal, projectKey, actor, requestId}` has **no** `sessionId`; `ToolContext` is unchanged and
+  the member paths never see a fake one. Every project tool takes a required `project_key` (and a card key where it
+  fits); `list_projects {}` lists the projects the holder owns now.
+- A shared tool definition is **denied by default**. To serve it, add an `external` binding in `kit.ts` (`modes`, read
+  or write access, how the project and card are named) and a method on `ExternalToolsHandler`; to refuse it, give the
+  reason in `EXTERNAL_DENIED` (`super-operator/registry.ts`). A test fails for a tool that is neither. Tools only the
+  integrator has (`list_projects`, the super tools) are in `super-operator/tools.ts`.
+- `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a direct call of a tool the mode does not allow gets
+  a domain denial (`integrator_not_allowed`, `integrator_read_only`), the domain `errorCode` is kept in the structured
+  result, and super tools answer with structured JSON.
+- The tunnel and proxy pass `/mcp` and refuse `/mcp/` and `/hooks`; see [DEPLOY.md](../../../../docs/DEPLOY.md).
+
 ## Tools
 
 | Tool                        | Input                                                                                                                                                                                                     | Handler call                                                                                                          |

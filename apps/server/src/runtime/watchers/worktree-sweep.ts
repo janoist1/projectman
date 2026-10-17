@@ -5,6 +5,7 @@ import {
   isOpenTask,
   isTheme,
   LOCAL_ENGINE_ID,
+  taskSeq,
 } from '@projectman/shared';
 import type { ProjectConfig, Task, WorktreeKeptAlert } from '@projectman/shared';
 import type { EngineDirectory, WorktreeManager } from '../../contracts';
@@ -20,6 +21,9 @@ import { MergeCardLock } from '../../kernel';
 export const CLOSED_WORKTREE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
 
 const MB = 1024 ** 2;
+
+/** Closed cards read per page by a sweep. */
+const SWEEP_PAGE_SIZE = 100;
 
 export interface WorktreeSweepReport {
   removed: string[];
@@ -87,6 +91,8 @@ export class WorktreeSweep {
   async run(): Promise<WorktreeSweepReport> {
     const report: WorktreeSweepReport = { removed: [], kept: [], freedBytes: null };
     const before = await this.disk.free();
+    // Fixed at the start of the round: a card is due when it closed at or before this instant.
+    const closedBefore = new Date(this.ctx.now().getTime() - this.keepMs).toISOString();
     for (const summary of this.projects.summaries()) {
       const config = this.projects.cachedConfig(summary.key);
       if (!config) continue;
@@ -123,16 +129,30 @@ export class WorktreeSweep {
             this.ctx.logger.warn({ err, repo: repo.name }, 'could not sweep merge-fix checkouts');
           }
         }
-      for (const task of this.ctx.repos.tasks.list(summary.key)) {
-        if (!this.due(task)) continue;
-        try {
-          await this.sweepTask(config, task, report);
-        } catch (err) {
-          this.ctx.logger.warn(
-            { err, taskKey: task.key },
-            'could not clean up the worktree of a closed card',
-          );
+      // The closed cards past the keep time, a page at a time by number (PM-770): the project's whole card
+      // list is never read, and a page is released before the next. The cursor is the last number of the
+      // page; a card reopened meanwhile is simply not on a later page, and `sweepTask` looks again.
+      let afterSeq = 0;
+      for (;;) {
+        const page = this.ctx.repos.tasks.readScheduling(summary.key, {
+          kind: 'closed-worktrees',
+          closedBefore,
+          afterSeq,
+          limit: SWEEP_PAGE_SIZE,
+        });
+        for (const task of page) {
+          if (!this.due(task)) continue;
+          try {
+            await this.sweepTask(config, task, report);
+          } catch (err) {
+            this.ctx.logger.warn(
+              { err, taskKey: task.key },
+              'could not clean up the worktree of a closed card',
+            );
+          }
         }
+        if (page.length < SWEEP_PAGE_SIZE) break;
+        afterSeq = taskSeq(page[page.length - 1]!.key);
       }
     }
     const after = report.removed.length > 0 ? await this.disk.free() : null;

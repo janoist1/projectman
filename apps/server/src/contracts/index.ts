@@ -17,6 +17,7 @@ export * from './release-work';
 export * from './engine';
 export * from './machine';
 export * from './email-login';
+export * from './task-scheduling';
 
 export * from './claude-rules';
 export * from './sandbox';

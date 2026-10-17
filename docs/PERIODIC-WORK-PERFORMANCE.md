@@ -77,3 +77,45 @@ PM-769's deterministic requirement is that pending hydration equals only the pen
 and the engine count hydrates none, independently of delivered history. The remaining
 historical card/link/timeline work is measured for PM-770 and PM-771. Their final report must
 compare against the original baseline as well as each intermediate slice.
+
+## Startup recovery sample (PM-770)
+
+A restarted server reads cards and messages once, before the periodic timers matter. The
+harness measures this separately from the 30/60 second paths and never merges the two: add
+`PROJECTMAN_PERIODIC_STARTUP=1` after `env`. It builds the same two scales and the same
+active/quiet scenarios on a file database, then stops the domain, closes the database and
+times a full `createDomainHarness` start over the same file (the startup recovery of the
+assembly: AutoAdvance sweep, merge reconciliation, deferred starts, worktree sweep), one
+warmup and ten rounds, with CPU, wall and the SQL/row/decode counters of the periodic paths.
+The report stores the process memory at the end of the sample, not a peak. The report is
+`periodic-work-{original|optimized}-startup-<sha12>.json`; the name says `optimized` for every
+tree that differs from the original source, so the `source` field tells the slices apart.
+The normal test runs the same sample at a small scale and asserts only that the sample runs.
+
+`PROJECTMAN_PERIODIC_PATHS=thirty,sixty` runs only the named periodic paths; the report mode and
+name record the subset (`paths-thirty`). It exists because the original and PM-769 trees lose
+the Vitest worker (`ERR_IPC_CHANNEL_CLOSED`, RSS above 1.6 GB, also with a 6 GB heap) at the
+100,000/20,000 scale: they read the whole history, which is what PM-770 removes.
+
+Results on the same machine, median of ten, same harness, active scenario
+(10,000 / 100,000 delivered messages, 2,000 / 20,000 closed cards):
+
+| Startup sample                 | original (`cc534b5589aa`) | PM-769 (`9cf0428d0877`) | PM-770 (HEAD) |
+| ------------------------------ | ------------------------- | ----------------------- | ------------- |
+| CPU ms, 10k/2k                 | 343                       | 344                     | 75            |
+| CPU ms, 100k/20k               | 3,277                     | 3,405                   | 459           |
+| SQL calls, 100k/20k            | 241,086                   | 241,089                 | 40,677        |
+| Message rows, 100k/20k         | 8,500                     | 3                       | 3             |
+| Card (and link) rows, 100k/20k | 60,100                    | 60,100                  | 20,080        |
+
+The 20,000 card rows that remain are the closed-card inventory the worktree sweep pages
+through (100 per page, released after each page) to find expired worktrees; it is the only
+read that grows with the closed history, a one-off at startup. The quiet scenario reads exactly
+those 20,000 rows; the active scenario adds 80 rows for its open cards.
+
+The 30 second path (`thirty`, 10,000/100,000 messages): the original and PM-769 trees read
+4,040 cards and 4,040 links with 20,421 SQL calls per round (about 205 ms CPU at 10k/2k; the
+100k/20k run was lost, see above). PM-770 reads 33 SQL calls, 0 cards, 0 links and 0 messages
+at both scales and both scenarios (about 0.3–1 ms CPU), because the harness has no free
+developer: free developers are checked before any card is read. Starts with a free developer
+are covered by the read-counting tests in `focus-pull.test.ts` and `task-scheduling-reads.test.ts`.

@@ -38,7 +38,6 @@ import {
   operatorOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationMessageId,
-  mergeReadiness,
   permissionDelegationOf,
   pullSourceStage,
   routeFor,
@@ -1442,19 +1441,7 @@ export function createDomain(opts: DomainOptions) {
   // Configuration changes: runtime state follows the roster.
   events.on('config_changed', (change) => {
     background.run(
-      async () => {
-        for (const task of tasks.list(change.projectKey)) {
-          if (!task.merge && !mergeReadiness(change.next, task).ready) continue;
-          try {
-            await merges.reconcile(change.projectKey, task.key);
-          } catch (err) {
-            opts.logger.warn(
-              { err, projectKey: change.projectKey, taskKey: task.key },
-              'could not reconcile a merge request after configuration changed',
-            );
-          }
-        }
-      },
+      () => merges.reconcileProject(change.projectKey, 'configuration'),
       (err) =>
         opts.logger.warn({ err, projectKey: change.projectKey }, 'merge configuration reconciliation failed'),
     );
@@ -1591,12 +1578,31 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_resolved', (item) => (item.kind === 'decision' ? fixLimit.decided(item) : undefined));
   // A card that lacks only a human's approval for its next stage asks for it, or moves when nothing is
   // missing (PM-445): looked at when its labels change or a session of it ends.
+  // One run per card at a time (PM-770): an event that arrives while it runs does not start a second run
+  // beside it, it asks for one more round that looks at the card afresh, so the last change is never missed.
+  const advancing = new Map<string, { again: boolean }>();
   const advanceCard = (task: Task | null): void => {
     if (!task) return;
+    const id = `${task.projectKey}\u0000${task.key}`;
+    const running = advancing.get(id);
+    if (running) {
+      running.again = true;
+      return;
+    }
+    const round = { again: false };
+    advancing.set(id, round);
     background.run(
       async () => {
-        await merges.reconcile(task.projectKey, task.key);
-        await autoAdvance.check(tasks.get(task.projectKey, task.key));
+        try {
+          do {
+            round.again = false;
+            await merges.reconcile(task.projectKey, task.key);
+            const fresh = tasks.find(task.projectKey, task.key);
+            if (fresh) await autoAdvance.check(fresh);
+          } while (round.again);
+        } finally {
+          advancing.delete(id);
+        }
       },
       (err) => opts.logger.warn({ err, taskKey: task.key }, 'automatic stage advance failed'),
     );

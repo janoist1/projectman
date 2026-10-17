@@ -8,6 +8,7 @@ export { approvalRequestedError, gateBlockedError } from './moves';
 export type { MergeGate, MoveResult, StageChange } from './moves';
 export { BoardService } from './board';
 export { ProjectFocusService } from './project-focus';
+export { prerequisiteCards, startContext } from './scheduling-context';
 export { InvolvementService } from './involvements';
 export { CardMeasure } from './card-measure';
 export type { TaskPauseReader, BoardPlanUsage, BoardPauses } from './ports';

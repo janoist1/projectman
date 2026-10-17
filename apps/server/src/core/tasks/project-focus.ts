@@ -10,6 +10,7 @@ import type {
   ProjectFocus,
   ProjectFocusItem,
   ProjectFocusView,
+  Task,
   TimelineEvent,
 } from '@projectman/shared';
 import { isoNow } from '../base';
@@ -29,14 +30,14 @@ import type { TimelineService } from '../timeline';
 export class ProjectFocusService {
   private readonly ctx: DomainContext;
   private readonly projects: Pick<ProjectService, 'config'>;
-  private readonly tasks: Pick<TaskService, 'list' | 'find'>;
+  private readonly tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
   private readonly timeline: Pick<TimelineService, 'append'>;
   private readonly listeners: Array<(projectKey: string) => void> = [];
 
   constructor(deps: {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'config'>;
-    tasks: Pick<TaskService, 'list' | 'find'>;
+    tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
     timeline: Pick<TimelineService, 'append'>;
   }) {
     this.ctx = deps.ctx;
@@ -58,7 +59,21 @@ export class ProjectFocusService {
 
   /** Key -> place of every open card and theme the focus covers (`projectFocusPlaces`). */
   places(projectKey: string): Map<string, FocusPlace> {
-    return projectFocusPlaces(this.get(projectKey).items, this.tasks.list(projectKey));
+    return this.covered(projectKey).places;
+  }
+
+  /**
+   * The places and the stored cards that decide them (PM-770): the focus items and what open items cover,
+   * read for exactly those keys, not the project's whole list. An empty focus reads no card.
+   */
+  covered(projectKey: string): { places: Map<string, FocusPlace>; cards: Task[] } {
+    const items = this.get(projectKey).items;
+    if (items.length === 0) return { places: new Map(), cards: [] };
+    const cards = this.tasks.readSchedulingTasks(projectKey, {
+      kind: 'focus',
+      keys: items.map((item) => item.key),
+    });
+    return { places: projectFocusPlaces(items, cards), cards };
   }
 
   /** Puts a theme or card into the focus at `position` (1-based; absent or past the end: last). */

@@ -11,6 +11,7 @@ import type { MergeBlockReason, MergeFailure, ProjectConfig, Task } from '@proje
 import { mergedState } from '../../db';
 import type { MergeRecord, MergeTrainRecord } from '../../db';
 import { isoNow } from '../../core/base';
+import { prerequisiteCards } from '../../core/tasks';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import type { MergeDeps, MergeRun } from './deps';
@@ -159,7 +160,7 @@ export class MergeTrains {
       ready.repo.defaultBranch !== row.base ||
       this.hooks.mergerOf(config, task) !== row.merger ||
       row.startedBy !== row.merger ||
-      (!allowWaiting && openPrerequisites(task, tasks.list(row.projectKey)).length > 0) ||
+      (!allowWaiting && openPrerequisites(task, prerequisiteCards(tasks, row.projectKey, task)).length > 0) ||
       (train &&
         (sessions.cardEngineId(row.projectKey, task) !== train.engineId ||
           !sameCheck(ready.repo.reviewTest, train.reviewTest)))
@@ -294,10 +295,11 @@ export class MergeTrains {
     const rows = this.deps.ctx.repos.taskMerges
       .list('queued')
       .filter((r) => r.projectKey === projectKey && r.repo === repo);
-    const tasks = this.deps.tasks.list(projectKey);
     const first = rows.findIndex((row) => {
       const task = this.deps.tasks.find(projectKey, row.taskKey);
-      return !task || openPrerequisites(task, tasks).length === 0;
+      return (
+        !task || openPrerequisites(task, prerequisiteCards(this.deps.tasks, projectKey, task)).length === 0
+      );
     });
     return first < 0 ? [] : rows.slice(first);
   }

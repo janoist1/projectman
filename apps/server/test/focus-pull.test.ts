@@ -284,6 +284,37 @@ describe('the order of deferred starts and the focus pull', () => {
       expect(h.runner.started).toHaveLength(0);
     });
 
+    it('reads no card while no developer is free, and only the open ones once one is (PM-770)', async () => {
+      await harness(oneDeveloper);
+      const busy = await busyDeveloper();
+      const closed: string[] = [];
+      for (let n = 0; n < 12; n++) {
+        const card = await h.domain.tasks.create('AR', { title: `Closed ${n}` }, OWNER_ACTOR);
+        h.repos.tasks.update(card.id, { status: 'cancelled', closedAt: new Date().toISOString() });
+        closed.push(card.key);
+      }
+      const urgent = await create('Urgent card');
+      await priority(urgent);
+      const reads: { kind: string; keys: string[] }[] = [];
+      const read = h.repos.tasks.readScheduling.bind(h.repos.tasks);
+      vi.spyOn(h.repos.tasks, 'readScheduling').mockImplementation((projectKey, query) => {
+        const rows = read(projectKey, query);
+        reads.push({ kind: query.kind, keys: rows.map((row) => row.key) });
+        return rows;
+      });
+      const pullReads = () => reads.filter((r) => ['pull', 'focus', 'open'].includes(r.kind));
+
+      // The only developer is busy: the round stops before it reads a card.
+      await settle();
+      expect(pullReads()).toEqual([]);
+      expect(task(urgent).stageId).toBe('backlog');
+
+      await cancel(busy);
+      await waitFor(urgent, 'dev-1');
+      expect(pullReads().length).toBeGreaterThan(0);
+      expect(reads.flatMap((r) => r.keys).filter((key) => closed.includes(key))).toEqual([]);
+    });
+
     it('hires no temp worker when every developer is busy', async () => {
       await harness((c) => {
         roomy(c);

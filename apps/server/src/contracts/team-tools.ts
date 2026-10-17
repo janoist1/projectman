@@ -1,6 +1,8 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
   AddRelationRef,
+  BuiltInRoleId,
+  RoleConfigurationRead,
   Attachment,
   DeveloperLevelRequest,
   FeedbackMarkDetail,
@@ -749,6 +751,7 @@ export interface ProjectDocToolsHandler {
 
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
+  getRoleConfiguration(ctx: ToolContext, args: { role: BuiltInRoleId }): Promise<RoleConfigurationRead>;
   requestStructuralReview(
     ctx: ToolContext,
     args: { signalId: string; note: string },

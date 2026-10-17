@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { FeedbackConfig } from '../domain/feedback';
 import { normalizeFeedbackOrigin } from '../domain/feedback-origin';
 import { Pipeline } from '../domain/pipeline';
+import { BuiltInRoleId, RoleBundle } from '../domain/role';
 import { RepoDocs } from './project-docs';
 import { OperatorWatch } from './operator-watch';
 import {
@@ -96,6 +97,32 @@ export const PatchConfigRequest = z
   })
   .strict();
 export type PatchConfigRequest = z.infer<typeof PatchConfigRequest>;
+
+/** Operator edits replace or explicitly reset only the named built-in roles. */
+export const OperatorRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
+export type OperatorRoleOverridesPatch = z.infer<typeof OperatorRoleOverridesPatch>;
+
+export const OperatorConfigPatch = PatchConfigRequest.omit({ baseVersion: true, message: true }).extend({
+  roleOverrides: OperatorRoleOverridesPatch.optional(),
+});
+export type OperatorConfigPatch = z.infer<typeof OperatorConfigPatch>;
+
+/** Expand against the same configuration version that the normal PATCH will check under its lock. */
+export function prepareOperatorConfigPatch(
+  config: ProjectConfig,
+  baseVersion: string,
+  patch: OperatorConfigPatch,
+): PatchConfigRequest {
+  const { roleOverrides: changes, ...rest } = patch;
+  if (!changes || Object.keys(changes).length === 0) return { ...rest, baseVersion };
+  const roleOverrides = { ...config.team.roleOverrides };
+  for (const role of BuiltInRoleId.options) {
+    const bundle = changes[role];
+    if (bundle === null) delete roleOverrides[role];
+    else if (bundle !== undefined) roleOverrides[role] = bundle;
+  }
+  return { ...rest, roleOverrides, baseVersion };
+}
 
 /** Schema failures share the same issue list shape as invariant failures. */
 export function configSchemaIssues(issues: readonly { code: string; path: readonly PropertyKey[] }[]) {

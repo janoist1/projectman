@@ -21,7 +21,7 @@ import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } fr
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
 import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
-import { PatchConfigRequest } from '../config/edit';
+import { OperatorConfigPatch } from '../config/edit';
 import { ERROR_CODES } from './error-codes';
 import { TaskWait } from '../config/task-wait';
 import { TimelineEvent } from '../domain/event';
@@ -48,7 +48,7 @@ import { MAX_MESSAGE_ATTACHMENTS, MessageAttachmentId } from '../domain/message-
 import { LabelDefinition, LabelId } from '../domain/label';
 import { ProjectPauseView } from '../domain/pause';
 import { BoardColumn, GateCondition, Stage, StageId } from '../domain/pipeline';
-import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
+import { BuiltInRoleId, CustomRoleDefinition, RoleBundle, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
 import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
@@ -583,10 +583,18 @@ export const OperatorPlan = z.strictObject({
   reversible: z.boolean(),
 });
 export type OperatorPlan = z.infer<typeof OperatorPlan>;
+export const RoleConfigurationRead = z.strictObject({
+  version: z.string(),
+  role: BuiltInRoleId,
+  override: RoleBundle.nullable(),
+  effective: RoleBundle,
+});
+export type RoleConfigurationRead = z.infer<typeof RoleConfigurationRead>;
+
 export const OperatorOperation = z.discriminatedUnion('op', [
   z.strictObject({
     op: z.literal('config_patch'),
-    patch: PatchConfigRequest.omit({ baseVersion: true, message: true }),
+    patch: OperatorConfigPatch,
   }),
   z.strictObject({ op: z.literal('member_update'), handle: MemberHandle, changes: OperatorMemberChanges }),
   z.strictObject({ op: z.literal('member_hire'), request: HireMemberRequest }),

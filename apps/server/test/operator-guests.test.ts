@@ -96,6 +96,17 @@ async function finish(session: Session | undefined): Promise<void> {
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;
 
 describe('the Operator talks with every person in a conversation of their own (PM-475)', () => {
+  it('refuses role configuration reads in guest conversations without writing a step', async () => {
+    await setup();
+    await say('cleo');
+    const ctx = toolOf(conversationWith('cleo'));
+    const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
+    expect(await refusal(h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' }))).toContain(
+      'operator_owner_only',
+    );
+    expect(OPERATOR_GUEST_TOOLS.has('get_role_configuration')).toBe(false);
+    expect(h.repos.operatorRequests.steps(request.id)).toEqual([]);
+  });
   it('wakes the client’s own conversation, which opens a request of theirs', async () => {
     await setup();
     await say('cleo', 'What is going on?');

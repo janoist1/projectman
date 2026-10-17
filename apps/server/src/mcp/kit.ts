@@ -13,6 +13,7 @@ import type { TeamToolsHandler, ToolContext } from '../contracts';
  * `run` is called.
  */
 export const TEAM_TOOL_NAMES = [
+  'get_role_configuration',
   'get_operator_preference',
   'get_operator_knowledge',
   'propose_operator_knowledge',

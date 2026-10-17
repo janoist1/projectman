@@ -16,7 +16,12 @@ import {
   stagesToJoin,
 } from './duties';
 import { labelHolders } from './labels';
-import { applyConfigPatch, PatchConfigRequest } from './edit';
+import {
+  applyConfigPatch,
+  OperatorConfigPatch,
+  PatchConfigRequest,
+  prepareOperatorConfigPatch,
+} from './edit';
 import { approvalPolicyChanged } from './owner-only';
 import { validateProjectConfig } from './invariants';
 
@@ -63,6 +68,92 @@ function config() {
     },
   });
 }
+
+describe('targeted Operator role patches', () => {
+  function existing() {
+    const c = config();
+    c.team.roleOverrides = {
+      developer: { duties: ['implementation'], instructions: 'Keep this.', summary: 'Writer' },
+      lead_developer: { duties: ['code_review'], instructions: 'Review.' },
+      business_analyst: { duties: ['requirements_analysis'], instructions: 'Analyze.' },
+      architect: { duties: ['technical_direction'], instructions: 'Plan.' },
+    };
+    return c;
+  }
+
+  it('replaces one complete bundle, preserves omitted roles and never mutates inputs', () => {
+    const c = existing();
+    const patch = OperatorConfigPatch.parse({
+      project: { name: 'New name' },
+      roleOverrides: { developer: { duties: ['docs'], instructions: 'Replacement.' } },
+    });
+    const before = structuredClone({ c, patch });
+    const prepared = prepareOperatorConfigPatch(c, 'v2', patch);
+    expect(prepared).toEqual({
+      baseVersion: 'v2',
+      project: { name: 'New name' },
+      roleOverrides: { ...c.team.roleOverrides, developer: patch.roleOverrides!.developer },
+    });
+    expect(prepared.roleOverrides).not.toBe(c.team.roleOverrides);
+    expect(prepared.roleOverrides?.developer).not.toHaveProperty('summary');
+    expect(PatchConfigRequest.parse(prepared)).toEqual(prepared);
+    expect({ c, patch }).toEqual(before);
+  });
+
+  it.each([{}, { roleOverrides: {} }])('omits an absent or empty role patch: %j', (patch) => {
+    const c = existing();
+    const prepared = prepareOperatorConfigPatch(c, 'v1', patch);
+    expect(prepared).toEqual({ baseVersion: 'v1' });
+    expect(applyConfigPatch(c, prepared).team.roleOverrides).toEqual(c.team.roleOverrides);
+  });
+
+  it('adds a role and explicitly removes one, including an already absent or last override', () => {
+    const c = existing();
+    const added = { duties: [], instructions: 'New role.' };
+    const prepared = prepareOperatorConfigPatch(c, 'v1', {
+      roleOverrides: { developer: null, qa: added, designer: null },
+    });
+    const { developer: _removed, ...others } = c.team.roleOverrides!;
+    expect(prepared.roleOverrides).toEqual({ ...others, qa: added });
+    c.team.roleOverrides = { developer: c.team.roleOverrides!.developer! };
+    expect(prepareOperatorConfigPatch(c, 'v1', { roleOverrides: { developer: null } })).toEqual({
+      baseVersion: 'v1',
+      roleOverrides: {},
+    });
+    delete c.team.roleOverrides;
+    expect(prepareOperatorConfigPatch(c, 'v1', { roleOverrides: { developer: null } })).toEqual({
+      baseVersion: 'v1',
+      roleOverrides: {},
+    });
+  });
+
+  it('validates targeted bundles and keeps the ordinary PATCH full-map replacement', () => {
+    expect(OperatorConfigPatch.parse({ roleOverrides: { developer: { duties: [] } } })).toEqual({
+      roleOverrides: { developer: { duties: [], instructions: '' } },
+    });
+    for (const patch of [
+      { roleOverrides: null },
+      { roleOverrides: { custom_writer: null } },
+      { roleOverrides: { developer: { instructions: 'Missing duties.' } } },
+      { roleOverrides: { developer: { duties: ['implementation', 'implementation'] } } },
+      { roleOverrides: { developer: { duties: ['unknown'] } } },
+      ...['summary', 'notTheirJob', 'whenToAsk'].map((field) => ({
+        roleOverrides: { developer: { duties: [], [field]: 'x'.repeat(281) } },
+      })),
+      { baseVersion: 'v1' },
+      { message: 'Not an operator field.' },
+      { unknown: true },
+    ])
+      expect(OperatorConfigPatch.safeParse(patch).success).toBe(false);
+    const replacement = { developer: { duties: [], instructions: 'Only this remains.' } };
+    expect(
+      applyConfigPatch(existing(), { baseVersion: 'v1', roleOverrides: replacement }).team.roleOverrides,
+    ).toEqual(replacement);
+    expect(
+      PatchConfigRequest.safeParse({ baseVersion: 'v1', roleOverrides: { developer: null } }).success,
+    ).toBe(false);
+  });
+});
 
 describe('duty bundles', () => {
   it('has a fixed catalogue, English fragments, integration metadata and derived eligibility', () => {

@@ -6,7 +6,7 @@ import type {
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
-import { DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
+import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 
 /**
@@ -262,6 +262,15 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async submitBoundaryRequest(ctx, args) {
       await enter('submitBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');
+    },
+    async getRoleConfiguration(ctx, args) {
+      await enter('getRoleConfiguration', ctx, args);
+      return {
+        version: 'v1',
+        role: args.role,
+        override: null,
+        effective: { duties: BUILT_IN_ROLE_DUTIES[args.role], instructions: '' },
+      };
     },
     async operate(ctx, args) {
       await enter('operate', ctx, args);

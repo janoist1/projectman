@@ -5,7 +5,7 @@ import type { ApiDomain } from './ports';
 import type { PauseRequester } from '../runtime/sessions';
 import { forbidden } from '../kernel';
 import type { ProjectAccess } from '../core/members';
-import { authenticatedUser, currentUser, requireAccess } from './context';
+import { authenticatedUser, instanceUser, requireAccess } from './context';
 import { parseBody } from '../http';
 
 /**
@@ -16,10 +16,12 @@ import { parseBody } from '../http';
 export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): void {
   type ProjectParams = { Params: { key: string } };
   const requester = (request: FastifyRequest, access?: ProjectAccess): PauseRequester => ({
-    userId: (access ? authenticatedUser(request) : currentUser(request)).id,
+    userId: authenticatedUser(request).id,
     source: 'app',
     ...(request.via ? { via: request.via } : {}),
-    ...(access?.superActor ? { credential: access.superActor.credential } : {}),
+    ...(request.principal?.mode === 'super'
+      ? { credential: { id: request.principal.keyId, prefix: request.principal.prefix } }
+      : {}),
   });
 
   app.get<ProjectParams>(routes.projectPause(':key'), async (request): Promise<ProjectPauseView> => {
@@ -51,7 +53,7 @@ export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): vo
 
   /** The viewer's internal projects and whether they may manage the instance's pause. */
   async function instanceViewer(request: FastifyRequest) {
-    const user = currentUser(request);
+    const user = await instanceUser(domain, request, request.method === 'GET' ? 'read' : 'write');
     const accesses = await Promise.all(
       domain.projects.summaries().map(async (project) => ({
         key: project.key,

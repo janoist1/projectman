@@ -1,3 +1,5 @@
+import { withoutIntegratorExecution } from './integrator-execution';
+
 /**
  * Work the domain does in the background, so that what caused it does not wait (a stage
  * hand-over after a move, a message wake-up, a plan usage probe). Stopping refuses new work
@@ -12,7 +14,7 @@ export class BackgroundTasks {
     if (this.stopped) return false;
     let started: Promise<void>;
     try {
-      started = work(); // at once: the work may queue for a lock in the order it was caused
+      started = withoutIntegratorExecution(work); // Autonomous work keeps its own system authority.
     } catch (err) {
       started = Promise.reject(err);
     }

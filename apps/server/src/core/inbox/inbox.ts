@@ -3,6 +3,7 @@ export function createInboxService(deps: ConstructorParameters<typeof InboxServi
 }
 
 import { isAbsolute, resolve, sep } from 'node:path';
+import { assertIntegratorAccess, assertOwnApproval } from '../../kernel';
 import {
   approvalRefusal,
   canSeeInboxItem,
@@ -298,6 +299,7 @@ export class InboxService {
 
   /** Close a release approval item as part of the transaction that decided its release. */
   resolveRelease(id: string, by: string, optionId: string, note: string | null): void {
+    assertOwnApproval();
     const at = isoNow(this.ctx);
     const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId, by, at, note }, at);
     if (item) this.publish(item);
@@ -496,6 +498,7 @@ export class InboxService {
 
   /** Close a hand-on item as part of the transaction that actually moved its card. */
   resolveHandOn(id: string, by: string): void {
+    assertOwnApproval();
     const at = isoNow(this.ctx);
     const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'move', by, at, note: null }, at);
     if (item) this.publish(item);
@@ -680,6 +683,8 @@ export class InboxService {
     by: Resolver,
   ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
+    assertIntegratorAccess(await this.projects.config(projectKey), 'write', by.superActor);
+    if (!['question', 'alert'].includes(item.kind)) assertOwnApproval(by);
     if (req.attachmentIds !== undefined && item.kind !== 'question')
       throw invalid('invalid_request', 'only questions accept attachments', { field: 'attachmentIds' });
     if (by.via && !['question', 'alert'].includes(item.kind))
@@ -894,6 +899,7 @@ export class InboxService {
     handle: string,
     req: { decision: DelegatedPermissionDecision; reason: string },
   ): Promise<InboxItem> {
+    assertOwnApproval();
     const reason = req.reason.trim();
     if (!reason) throw invalid('invalid_request', 'a decision about a delegated request needs a reason');
     const config = await this.projects.config(projectKey);

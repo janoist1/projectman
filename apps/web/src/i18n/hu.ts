@@ -1029,7 +1029,9 @@ export const hu = {
       invalid_credentials: 'Hibás e-mail cím vagy jelszó.',
       integrator_key_invalid:
         'Az integrálói kulcsot visszavonták, vagy lejárt. A tulajdonos a Beállításokban adhat újat.',
-      integrator_not_allowed: 'Az integrálói kulcsot csak a tulajdonos kezelheti, a saját bejelentkezésével.',
+      integrator_not_allowed: 'Ezzel az integrálói kulccsal ez a művelet nem érhető el.',
+      integrator_read_only: 'Ezzel az integrálói kulccsal csak olvasni lehet.',
+      merge_queue_conflict: 'Az összefésülési sor megváltozott. Frissítsd, majd próbáld újra.',
       integrator_https_required: 'Az integrálói kulcs csak HTTPS-en vagy ezen a gépen használható.',
       invalid_event_cursor: 'A változáskövetési kurzor érvénytelen, vagy másik projekté.',
       event_cursor_expired:

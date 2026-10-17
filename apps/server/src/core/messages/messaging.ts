@@ -57,6 +57,7 @@ import { answerText } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
+import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';
 
@@ -260,12 +261,24 @@ export class Messaging {
     complete: (prepared: PreparedSend) => T | Promise<T>,
   ): Promise<T> {
     const config = await this.projects.config(projectKey);
+    assertIntegratorAccess(config, 'write', opts.actor);
     const text = input.text.trim();
     const attachmentIds = input.attachmentIds ?? [];
     // Empty text is a message of files alone (PM-516).
     if (!text && attachmentIds.length === 0)
       throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
     const recipients = unique(input.to).filter((handle) => handle !== from);
+    assertSuperMutation(
+      config,
+      {
+        kind: 'runtime_start',
+        providers: recipients.flatMap((handle) => {
+          const member = memberOf(config, handle);
+          return member?.kind === 'ai' ? [member.provider ?? DEFAULT_AGENT_PROVIDER] : [];
+        }),
+      },
+      opts.actor,
+    );
     if (recipients.length === 0)
       throw invalid('invalid_request', 'the message names no recipient but its sender', { field: 'to' });
     const unknown = recipients.filter((handle) => !memberOf(config, handle));
@@ -519,6 +532,16 @@ export class Messaging {
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
     const config = await this.projects.config(projectKey);
     this.assertMayWriteToOperator(config, from, [session.member], actor);
+    assertIntegratorAccess(config, 'write', actor);
+    const recipient = memberOf(config, session.member);
+    assertSuperMutation(
+      config,
+      {
+        kind: 'runtime_start',
+        providers: recipient?.kind === 'ai' ? [recipient.provider ?? DEFAULT_AGENT_PROVIDER] : [],
+      },
+      actor,
+    );
     // A person writes into their own conversation with the Operator, not into another person's (PM-475).
     if (
       isOperator(memberOf(config, session.member)) &&

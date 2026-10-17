@@ -11,7 +11,7 @@ import type {
   SuperActor,
 } from '@projectman/shared';
 import type { IntegratorPrincipal } from '../../contracts';
-import { forbidden, invalid, notFound } from '../../kernel';
+import { assertIntegratorAccess, forbidden, invalid, notFound } from '../../kernel';
 
 /** A logged-in user's membership in one project. */
 export interface ProjectAccess {
@@ -52,8 +52,9 @@ export function requireHuman(
   minimum: HumanAccess,
   refusal: AccessRefusal = {},
 ): HumanMemberConfig {
+  const owner = assertIntegratorAccess(config as ProjectConfig, 'write', actor);
   return requireMemberAccess(
-    actor.kind === 'human' ? memberOf(config, actor.handle) : undefined,
+    owner ?? (actor.kind === 'human' ? memberOf(config, actor.handle) : undefined),
     minimum,
     refusal,
   );

@@ -5,7 +5,7 @@ import { summarizeTemplate } from '@projectman/templates';
 import type { AuthService } from '../auth';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
-import { authorOf, currentUser, requireAccess } from './context';
+import { authenticatedUser, authorOf, currentUser, requireAccess } from './context';
 import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
@@ -21,8 +21,11 @@ export function registerProjectRoutes(
 
   /** Projects the user is a member of. */
   app.get(routes.projects(), async (request): Promise<ProjectSummary[]> => {
-    const handles = await domain.handlesFor(currentUser(request).email);
-    return domain.projects.summaries().filter((p) => handles[p.key] !== undefined);
+    const handles = await domain.handlesFor(authenticatedUser(request).email);
+    const projects = domain.projects.summaries().filter((p) => handles[p.key] !== undefined);
+    if (request.principal && request.principal.mode !== 'legacy')
+      for (const project of projects) await requireAccess(domain, request, project.key);
+    return projects;
   });
 
   app.post(routes.projects(), async (request, reply) => {

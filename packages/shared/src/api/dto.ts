@@ -13,6 +13,20 @@ export const PrioritizeMergeRequest = z.object({
   reason: z.string().trim().min(1).max(PRIORITIZE_MERGE_REASON_MAX),
 });
 export type PrioritizeMergeRequest = z.infer<typeof PrioritizeMergeRequest>;
+
+/** A complete permutation of the repository's queued cards, guarded by its revision (PM-759). */
+export const OrderMergeQueueRequest = z.strictObject({
+  repo: z.string().trim().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  taskKeys: z.array(TaskKey),
+  reason: z.string().trim().min(1).max(PRIORITIZE_MERGE_REASON_MAX),
+});
+export type OrderMergeQueueRequest = z.infer<typeof OrderMergeQueueRequest>;
+export const MergeQueueOrder = z.object({
+  revision: z.number().int().nonnegative(),
+  taskKeys: z.array(TaskKey),
+});
+export type MergeQueueOrder = z.infer<typeof MergeQueueOrder>;
 import { BoardPlacement } from '../domain/board-order';
 import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { DutyId } from '../domain/duty';

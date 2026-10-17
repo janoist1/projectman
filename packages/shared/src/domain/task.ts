@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isOperatorActor } from '../config/operator-member';
+import { isOperatorActor, isSuperOperatorActor } from '../config/operator-member';
 import { isProjectManagerActor } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 import { TaskDeveloperLevel } from './developer-level';
@@ -28,10 +28,13 @@ export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;
 
 /** People, the team's project manager (PM-433) and its Operator (PM-447) may set or clear a card's priority; no other AI member. */
 export function priorityRefusal(
-  actor: Pick<Actor, 'kind' | 'handle'>,
+  actor: Actor,
   config: Pick<ProjectConfig, 'team'>,
 ): 'priority_humans_only' | null {
-  return actor.kind === 'human' || isProjectManagerActor(config, actor) || isOperatorActor(config, actor)
+  return actor.kind === 'human' ||
+    isProjectManagerActor(config, actor) ||
+    isOperatorActor(config, actor) ||
+    isSuperOperatorActor(config, actor)
     ? null
     : 'priority_humans_only';
 }

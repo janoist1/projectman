@@ -192,6 +192,12 @@ modules:
       - apps/server/src/context/
 
   # Server: service
+  - id: services/super-operator
+    area: service
+    name: Super Operátor
+    summary: A hitelesített tokenes végrehajtás és közös hozzáférés összeállítása.
+    paths:
+      - apps/server/src/services/super-operator/
   - id: services/merges
     area: service
     name: Összefésülések

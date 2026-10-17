@@ -17,6 +17,58 @@ const role = {
   instructions: 'Check reference records.',
 };
 const base = '/api/projects/AC';
+
+describe('integrator credential policy in the fake (PM-759)', () => {
+  it('uses shared read and reserved publication rules', () => {
+    const backend = new MockBackend();
+    backend.integratorMode = 'read';
+    expect(backend.handle('GET', `${base}/members`, undefined).status).toBe(200);
+    const refused = backend.handle('POST', `${base}/tasks`, { title: 'Read cannot write' });
+    expect(refused.status).toBe(403);
+    expect(errorCode(refused)).toBe('integrator_read_only');
+    backend.integratorMode = 'super';
+    const publication = backend.handle('POST', `${base}/tasks`, {
+      title: 'No publication grant',
+      visibility: 'shared',
+    });
+    expect(publication.status).toBe(403);
+    expect(errorCode(publication)).toBe('owner_approval_required');
+  });
+
+  it('uses one revision for queue permutations and stale updates', () => {
+    const backend = new MockBackend();
+    const repo = backend.config.project.repos[0]!.name;
+    const cards = backend.tasks.slice(0, 2);
+    for (const task of cards)
+      task.merge = {
+        id: `merge_${task.key}`,
+        repo,
+        base: 'main',
+        merger: backend.viewerHandle,
+        requestedAt: '2026-10-17T12:00:00.000Z',
+        toStageId: 'done',
+        state: 'queued',
+        landed: 'nowhere',
+      };
+    const before = backend.handle(
+      'GET',
+      `${base}/merge-queue/order`,
+      undefined,
+      new URLSearchParams({ repo }),
+    );
+    const order = before.body as { revision: number; taskKeys: string[] };
+    const body = {
+      repo,
+      expectedRevision: order.revision,
+      taskKeys: [...order.taskKeys].reverse(),
+      reason: 'Queue order',
+    };
+    const ordered = backend.handle('PUT', `${base}/merge-queue/order`, body);
+    expect(ordered.status).toBe(200);
+    expect(ordered.body).toEqual({ revision: order.revision + 1, taskKeys: body.taskKeys });
+    expect(backend.handle('PUT', `${base}/merge-queue/order`, body).status).toBe(409);
+  });
+});
 function errorCode(response: { body?: unknown }) {
   return (response.body as { error: { code: string } }).error.code;
 }

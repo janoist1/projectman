@@ -2,9 +2,15 @@ import type { FastifyRequest } from 'fastify';
 import type { Actor, HumanAccess, IntegratorRefusal } from '@projectman/shared';
 import type { AuthUser } from '../auth';
 import type { ApiDomain } from './ports';
-import { bindSuperPrincipal } from '../core/members';
 import type { ProjectAccess } from '../core/members';
-import { DomainError, attributedActor, forbidden, notFound, ownerLoginRequired } from '../kernel';
+import {
+  DomainError,
+  attributedActor,
+  forbidden,
+  notFound,
+  ownerLoginRequired,
+  integratorExecution,
+} from '../kernel';
 import { hasAccess } from '@projectman/shared';
 import type { Author } from '../core/projects';
 
@@ -56,10 +62,13 @@ export async function requireAccess(
   // never writes, and a super key is bound to the project's Operator or refused.
   if (principal.mode === 'read') {
     if (request.method !== 'GET' && request.method !== 'HEAD')
-      throw forbidden('insufficient_access', 'a read-only credential cannot change anything');
-    return { ...access, via: 'integrator' };
+      throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
   }
-  return bindSuperPrincipal(await domain.projects.config(projectKey), access, principal);
+  return domain.superOperator.access(
+    { principal, email: user.email, requestId: request.id },
+    access,
+    request.method === 'GET' || request.method === 'HEAD' ? 'read' : 'write',
+  );
 }
 
 /**
@@ -67,8 +76,12 @@ export async function requireAccess(
  * which is the owner's actor but not a person. The configuration commit has its own check
  * (`integratorConfigRefusal`); this one is for the actions outside it.
  */
-export function requireOwnLogin(by: { via?: 'integrator' | null }, category: IntegratorRefusal): void {
-  if (by.via) throw ownerLoginRequired(category);
+export function requireOwnLogin(
+  by: { via?: 'integrator' | null; superActor?: unknown },
+  category: IntegratorRefusal,
+): void {
+  if (by.via && !(by.superActor && integratorExecution()?.principal.mode === 'super'))
+    throw ownerLoginRequired(category);
 }
 
 /**
@@ -76,9 +89,35 @@ export function requireOwnLogin(by: { via?: 'integrator' | null }, category: Int
  * pause): the machine display and its command lines are for them alone.
  */
 export async function requireInstanceOwner(domain: ApiDomain, request: FastifyRequest): Promise<AuthUser> {
-  const user = currentUser(request);
+  const user = await instanceUser(
+    domain,
+    request,
+    request.method === 'GET' || request.method === 'HEAD' ? 'read' : 'write',
+  );
   if (!(await domain.instanceOwner(user.email)))
     throw forbidden('insufficient_access', 'only an owner of every project may see the machine');
+  return user;
+}
+
+/** Instance operations rebind a non-legacy credential in every project, never through the legacy user path. */
+export async function instanceUser(
+  domain: ApiDomain,
+  request: FastifyRequest,
+  operation: 'read' | 'write',
+): Promise<AuthUser> {
+  if (!request.principal || request.principal.mode === 'legacy') return currentUser(request);
+  const user = authenticatedUser(request);
+  if (request.principal.mode === 'read' && operation === 'write')
+    throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
+  for (const project of domain.projects.summaries()) {
+    const access = await domain.accessFor(project.key, user.email);
+    if (!access) throw forbidden('insufficient_access', 'the credential owner must own every project');
+    await domain.superOperator.access(
+      { principal: request.principal, email: user.email, requestId: request.id },
+      access,
+      operation,
+    );
+  }
   return user;
 }
 

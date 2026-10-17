@@ -1,4 +1,5 @@
 import { ALERT_SEEN_OPTION, dutyMembers, releaseApprovalOf, releaseApprovers } from '@projectman/shared';
+import { assertOwnApproval } from '../../kernel';
 import type {
   EngineId,
   ErrorCode,
@@ -436,6 +437,7 @@ export class ReleaseService {
    * that still waits for the decision can be decided.
    */
   decide(item: InboxItem, by: Resolver, optionId: string, note: string | null): void {
+    assertOwnApproval(by);
     const { ctx, tasks, inbox } = this.deps;
     const payload = releaseApprovalOf(item);
     const release = payload ? ctx.repos.releases.get(payload.releaseId) : null;

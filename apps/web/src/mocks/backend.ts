@@ -1,5 +1,10 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
+  superAccessVerdict,
+  superActorOf,
+  ownerReservedEffect,
+  integratorConfigRefusal,
+  canonical,
   canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
   OperatorApprovalWaiverRequest,
@@ -68,6 +73,7 @@ import {
   StartTaskRequest,
   StartMergeRequest,
   PrioritizeMergeRequest,
+  OrderMergeQueueRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
@@ -444,6 +450,9 @@ export class MockBackend {
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;
   viewerHandle: string = fixtures.OWNER;
+  /** Tests can exercise the same credential policy as REST without an HTTP bearer secret. */
+  integratorMode: 'legacy' | 'super' | 'read' | null = null;
+  private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
   refuseReleaseApproval = false;
   user = { ...fixtures.mockUser };
@@ -2050,7 +2059,34 @@ export class MockBackend {
   }
 
   private handleProject(method: string, rest: string, body: unknown, query: URLSearchParams): MockResponse {
+    if (this.integratorMode) {
+      const verdict = superAccessVerdict(this.config, {
+        mode: this.integratorMode,
+        operation: method === 'GET' || method === 'HEAD' ? 'read' : 'write',
+        ownerMembership: this.viewerAccess() === 'owner',
+      });
+      if (!verdict.allowed) return error(403, verdict.code, 'Credential access refused');
+    }
     let m: RegExpExecArray | null;
+    if (rest === '/merge-queue/order') {
+      if (method === 'GET') return ok(clone(this.mergeQueueOrder(query.get('repo') ?? '')));
+      const parsed = OrderMergeQueueRequest.safeParse(body);
+      if (!parsed.success) return error(400, 'invalid_request', 'Invalid queue order');
+      if (this.viewerAccess() !== 'owner') return error(403, 'insufficient_access', 'Owner access required');
+      const current = this.mergeQueueOrder(parsed.data.repo);
+      const wanted = new Set(parsed.data.taskKeys);
+      if (
+        current.revision !== parsed.data.expectedRevision ||
+        wanted.size !== parsed.data.taskKeys.length ||
+        current.taskKeys.length !== wanted.size ||
+        current.taskKeys.some((key) => !wanted.has(key))
+      )
+        return error(409, 'merge_queue_conflict', 'The merge queue changed');
+      const changed = current.taskKeys.some((key, index) => parsed.data.taskKeys[index] !== key);
+      const ordered = { revision: current.revision + Number(changed), taskKeys: [...parsed.data.taskKeys] };
+      this.mergeOrders.set(parsed.data.repo, ordered);
+      return ok(clone(ordered));
+    }
     const restricted =
       rest.startsWith('/invites') ||
       (rest === '/roles' && method !== 'GET') ||
@@ -2544,6 +2580,15 @@ export class MockBackend {
 
   /** The server's checks on every configuration change: access, owner-only changes, invariants. */
   private configChangeFailure(next: ProjectConfig): MockResponse | null {
+    if (this.integratorMode === 'super') {
+      const effect = ownerReservedEffect(this.config, { kind: 'config_change', next });
+      if (effect)
+        return error(403, 'owner_approval_required', 'A specific owner authorization is required', {
+          effect,
+        });
+    }
+    if (this.integratorMode === 'legacy' && integratorConfigRefusal(this.config, next))
+      return error(403, 'owner_login_required', 'The legacy credential cannot change this setting');
     if (operatorWaiverChanged(this.config, next))
       return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const viewer = memberOf(this.config, this.viewerHandle);
@@ -3188,6 +3233,11 @@ export class MockBackend {
   }
 
   private viewerActor(): Actor {
+    if (this.integratorMode === 'super') {
+      const actor = superActorOf(this.config, { id: 'mock_integrator', prefix: 'pmi_mock' });
+      if (actor) return actor;
+    }
+    if (this.integratorMode) return { kind: 'human', handle: this.viewerHandle, via: 'integrator' };
     return { kind: 'human', handle: this.viewerHandle };
   }
 
@@ -3389,6 +3439,17 @@ export class MockBackend {
    * a move that needs an approval requests it with the rest applied.
    */
   private changeTask(task: Task, input: UpdateTaskRequest): MockResponse {
+    if (
+      this.integratorMode === 'super' &&
+      input.visibility !== undefined &&
+      ownerReservedEffect(this.config, {
+        kind: 'task_visibility',
+        taskKey: task.key,
+        before: task.visibility,
+        after: input.visibility,
+      })
+    )
+      return error(403, 'owner_approval_required', 'Publication requires a specific owner authorization');
     const actor = this.viewerActor();
     const patch: Partial<Task> = {};
     const fields: string[] = [];
@@ -3881,9 +3942,12 @@ export class MockBackend {
 
   /** Writes a card's merge state and its merged result, and announces the card. */
   private writeMerge(task: Task, merge: TaskMergeState | undefined, merged?: TaskMerged): void {
+    const repo = merge?.repo ?? task.merge?.repo;
+    if (repo) this.mergeQueueOrder(repo);
     if (merge) task.merge = merge;
     else delete task.merge;
     if (merged) task.merged = merged;
+    if (repo) this.mergeQueueOrder(repo);
     task.updatedAt = nowIso();
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
   }
@@ -4081,10 +4145,29 @@ export class MockBackend {
     return ok({ task: clone(task) });
   }
 
-  /**
-   * The prioritize route: the card's merger or an owner puts its queued merge first. The fake has no queue
-   * order of its own; it keeps the timeline entry the server writes, listing the queued merges of the repository.
-   */
+  private mergeQueueOrder(repo: string): { revision: number; taskKeys: string[] } {
+    const keys = this.tasks
+      .filter((task) => task.merge?.repo === repo && task.merge.state === 'queued')
+      .map((task) => task.key);
+    const previous = this.mergeOrders.get(repo);
+    if (!previous) {
+      const initial = { revision: 0, taskKeys: keys };
+      this.mergeOrders.set(repo, initial);
+      return initial;
+    }
+    const taskKeys = [
+      ...previous.taskKeys.filter((key) => keys.includes(key)),
+      ...keys.filter((key) => !previous.taskKeys.includes(key)),
+    ];
+    if (canonical(previous.taskKeys) !== canonical(taskKeys)) {
+      const updated = { revision: previous.revision + 1, taskKeys };
+      this.mergeOrders.set(repo, updated);
+      return updated;
+    }
+    return previous;
+  }
+
+  /** The old prioritize operation and the complete permutation use the same order and revision. */
   private prioritizeMerge(taskKey: string, body?: unknown): MockResponse {
     const parsed = PrioritizeMergeRequest.safeParse(body ?? {});
     if (!parsed.success) return error(400, 'invalid_request', 'Invalid prioritize request');
@@ -4101,13 +4184,13 @@ export class MockBackend {
       return error(409, 'merge_not_prioritizable', 'Only a queued merge can be moved forward', {
         reason: !merge ? 'no_merge' : merge.state === 'running' ? 'running' : 'not_queued',
       });
-    const ahead = this.tasks
-      .filter(
-        (other) =>
-          other.key !== task.key && other.merge?.state === 'queued' && other.merge.repo === merge.repo,
-      )
-      .map((other) => other.key);
+    const order = this.mergeQueueOrder(merge.repo);
+    const ahead = order.taskKeys.slice(0, order.taskKeys.indexOf(task.key));
     if (ahead.length === 0) return ok({ task: clone(task), moved: false });
+    this.mergeOrders.set(merge.repo, {
+      revision: order.revision + 1,
+      taskKeys: [task.key, ...order.taskKeys.filter((key) => key !== task.key)],
+    });
     this.addTimeline(taskKey, this.viewerHandle, 'task_merge_prioritized', {
       mergeId: merge.id,
       repo: merge.repo,
@@ -4818,6 +4901,18 @@ export class MockBackend {
   private createTask(body: unknown): MockResponse {
     const input = parseBody(CreateTaskRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid task');
+    if (this.integratorMode && input.importedAt !== undefined)
+      return error(403, 'owner_approval_required', 'Historical human attribution requires an own login');
+    if (
+      this.integratorMode === 'super' &&
+      ownerReservedEffect(this.config, {
+        kind: 'task_visibility',
+        taskKey: null,
+        before: null,
+        after: input.visibility ?? 'internal',
+      })
+    )
+      return error(403, 'owner_approval_required', 'Publication requires a specific owner authorization');
     const actor = this.viewerActor();
     if (input.importedAt !== undefined && this.findMember(this.viewerHandle)?.role !== 'owner')
       return error(403, 'owner_only', 'Only an owner may import tasks');
@@ -6071,6 +6166,15 @@ export class MockBackend {
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
+    const pending = this.inbox.find((item) => item.id === itemId);
+    if (this.integratorMode && pending && !['question', 'alert'].includes(pending.kind)) {
+      const verdict = superAccessVerdict(this.config, {
+        mode: this.integratorMode,
+        operation: 'approval',
+        ownerMembership: this.viewerAccess() === 'owner',
+      });
+      if (!verdict.allowed) return error(403, verdict.code, 'A human decision is required');
+    }
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
     if (!input) return error(400, 'invalid_request', 'Invalid inbox resolution');

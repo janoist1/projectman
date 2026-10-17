@@ -1,4 +1,5 @@
 import type { Readable, Writable } from 'node:stream';
+import { assertSuperMutation } from '../../../kernel';
 import {
   attachmentPreviewOf,
   canDeleteAttachment,
@@ -236,6 +237,11 @@ export class AttachmentService implements AttachmentOperations {
   }
 
   async delete(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<void> {
+    assertSuperMutation(
+      await this.projects.config(projectKey),
+      { kind: 'remove', resource: 'attachment', id },
+      actor,
+    );
     const { viewer, task } = await this.authorize(projectKey, taskKey, actor);
     await this.deletions.run(id, async () => {
       const record = this.find(projectKey, taskKey, id, ['ready', 'deleting']);

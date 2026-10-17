@@ -24,6 +24,8 @@ export const ERROR_CODES = [
   'event_cursor_expired',
   'integrator_not_allowed',
   'owner_approval_required',
+  'integrator_read_only',
+  'merge_queue_conflict',
   'owner_login_required',
   // Requests, login and access
   'bad_request',

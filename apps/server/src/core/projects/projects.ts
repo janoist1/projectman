@@ -50,6 +50,12 @@ import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired
 import { createSuperAuditService } from '../timeline';
 import type { SuperAuditService, TimelineService } from '../timeline';
 import { humanActor, KeyedMutex } from '../../kernel';
+import {
+  assertIntegratorAccess,
+  assertOwnApproval,
+  authorizeSuperMutation,
+  integratorExecution,
+} from '../../kernel';
 
 /** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */
 function assertOperatorFixed(previous: ProjectConfig | null, next: ProjectConfig): void {
@@ -211,6 +217,7 @@ export class ProjectService {
   }
 
   async setOperatorApprovalWaiver(key: string, input: OperatorApprovalWaiverRequest, meta: ConfigEditMeta) {
+    assertOwnApproval(meta.actor);
     return this.locks.run(`config:${key}`, async () => {
       const current = await this.load(key);
       const person = memberOf(current.config, meta.actor.handle);
@@ -558,6 +565,7 @@ export class ProjectService {
     next: ProjectConfig,
     meta: Pick<ConfigChangeMeta, 'actor' | 'author' | 'invitationBinding'>,
   ): Promise<void> {
+    const executingOwner = assertIntegratorAccess(previous, 'write', meta.actor);
     if (operatorWaiverChanged(previous, next) && !this.waiverEdits.has(meta as ConfigChangeMeta))
       throw forbidden(
         'owner_approval_required',
@@ -571,12 +579,14 @@ export class ProjectService {
       const bound = meta.author.superActor;
       if (
         !bound ||
-        bound.handle !== meta.actor.handle ||
-        bound.credential.id !== meta.actor.credential.id ||
-        bound.credential.prefix !== meta.actor.credential.prefix ||
+        canonical(bound) !== canonical(meta.actor) ||
+        meta.author.via !== 'integrator' ||
+        meta.author.superRequestId !== integratorExecution()?.requestId ||
         !isSuperOperatorActor(previous, meta.actor) ||
         owner?.kind !== 'human' ||
-        owner.access !== 'owner'
+        owner.access !== 'owner' ||
+        owner.handle !== executingOwner?.handle ||
+        owner.email?.trim().toLowerCase() !== meta.author.email.trim().toLowerCase()
       )
         throw forbidden('insufficient_access', 'the super-mode step is not backed by a current owner');
       ProjectService.assertChangeAllowed(previous, next, owner.access, meta.invitationBinding);
@@ -646,15 +656,14 @@ export class ProjectService {
       ProjectService.assertChangeAllowed(previous, next, 'admin');
     }
     assertOperatorFixed(previous, next);
-    if (meta.actor.via === 'integrator') {
+    if (meta.actor.via === 'integrator' && !hasSuperOrigin(meta.actor)) {
       const refusal = integratorConfigRefusal(previous, next);
       if (refusal) throw ownerLoginRequired(refusal);
     }
     const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
     const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));
-    if (!removed.length) return;
     // A theme has the first stage's id because the field is required, but it is in no stage (PM-192).
-    const tasks = this.ctx.repos.tasks.list(key).filter((task) => !isTheme(task));
+    const tasks = removed.length ? this.ctx.repos.tasks.list(key).filter((task) => !isTheme(task)) : [];
     for (const stage of removed) {
       const count = tasks.filter((task) => task.stageId === stage.id).length;
       if (count) {
@@ -664,6 +673,12 @@ export class ProjectService {
         });
       }
     }
+    await authorizeSuperMutation({
+      projectKey: key,
+      previous,
+      actor: meta.actor,
+      command: { kind: 'config_change', next },
+    });
   }
 
   private async commitLocked(
@@ -780,7 +795,10 @@ export class ProjectService {
     let settled = 0;
     for (const { key } of this.summaries())
       settled += await this.locks.run(`config:${key}`, () =>
-        this.superAudit.settleOpen(key, (auditId) => this.configStore.hasSuperAuditCommit(key, auditId)),
+        this.superAudit.settleOpen(key, async (auditId, operation) => {
+          if (operation !== 'config_commit') throw new Error('the operation outcome is unknown');
+          return this.configStore.hasSuperAuditCommit(key, auditId);
+        }),
       );
     return settled;
   }

@@ -31,6 +31,7 @@ function tokenId(token: string): string {
 
 /** Users, argon2 passwords and login sessions (stored as SHA-256 of the cookie token). */
 export class AuthService {
+  private readonly principals = new WeakSet<IntegratorPrincipal>();
   private readonly repos: Repositories;
   private readonly now: () => Date;
   readonly sessionTtlMs: number;
@@ -144,13 +145,22 @@ export class AuthService {
     const key = this.repos.integratorKeys.resolveKey(tokenId(secret), at);
     if (!key || !this.isHostOwner(key.userId) || !this.hasPassword(key.userId)) return null;
     this.repos.integratorKeys.touch(key.id, at, channel);
-    return { kind: 'integrator', userId: key.userId, keyId: key.id, prefix: key.prefix, mode: key.mode };
+    const principal = Object.freeze({
+      kind: 'integrator' as const,
+      userId: key.userId,
+      keyId: key.id,
+      prefix: key.prefix,
+      mode: key.mode,
+    });
+    this.principals.add(principal);
+    return principal;
   }
 
   /** Rechecks the exact credential and its current owner without recording another use. */
   assertActive(principal: IntegratorPrincipal): void {
     const key = this.repos.integratorKeys.activeById(principal.keyId, this.now().toISOString());
     if (
+      !this.principals.has(principal) ||
       !key ||
       principal.kind !== 'integrator' ||
       key.userId !== principal.userId ||

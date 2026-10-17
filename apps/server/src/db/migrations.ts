@@ -1544,4 +1544,17 @@ migrations.push({
     CREATE INDEX project_change_events_project ON project_change_events(project_key, seq);
     ${changeTriggersSql()}`,
 });
+migrations.push({
+  version: 80,
+  name: 'repository merge queue revisions and order',
+  sql: `CREATE TABLE merge_queue_revisions (
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (project_key, repo)
+    );
+    INSERT INTO merge_queue_revisions (project_key, repo)
+      SELECT DISTINCT project_key, repo FROM task_merges;
+    ALTER TABLE task_merges ADD COLUMN queue_rank INTEGER;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -193,7 +193,7 @@ export function registerAuth(
       return reply.code(403).send(apiError('invalid_origin', 'same-origin request required'));
     }
     const bearer = request.headers.authorization;
-    const path = request.url.split('?')[0];
+    const path = request.url.split('?')[0]!;
     if ((request.url.startsWith('/api/') || path === '/mcp') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
       if (!(isLocalRequest(request) || requestProtocol(request) === 'https'))
         return reply
@@ -205,8 +205,15 @@ export function registerAuth(
         return reply
           .code(401)
           .send(apiError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired'));
-      // PM-759/760 bind the execution policy. Until then explicit modes must never inherit the human path.
-      if (principal.mode !== 'legacy')
+      // External bearer MCP obtains its own operation policy in PM-760.
+      if (
+        principal.mode !== 'legacy' &&
+        (path === '/mcp' ||
+          path.startsWith('/api/auth/') ||
+          path === routes.me() ||
+          path === routes.logout() ||
+          path === '/api/setup')
+      )
         return reply
           .code(403)
           .send(apiError('integrator_not_allowed', 'Integrator execution policy is not available'));

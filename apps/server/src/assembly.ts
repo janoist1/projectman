@@ -20,6 +20,7 @@ import {
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createStructureService } from './services/structure';
+import { createSuperOperator } from './services/super-operator';
 import { createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -182,6 +183,7 @@ import { SYSTEM_SENDER } from '@projectman/shared';
 import { ProviderKeys } from './runtime/usage';
 
 export interface DomainOptions {
+  integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
   nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
   /**
    * The project and repository that are this instance itself (PM-491): its releases are proposed,
@@ -1876,6 +1878,11 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
+    superOperator: createSuperOperator({
+      projects,
+      audit: superAudit,
+      credentials: opts.integratorCredentials,
+    }),
     operatorKnowledge: opts.operatorKnowledge,
     operatorPreferences,
     sharedOperatorKnowledge,

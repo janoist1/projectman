@@ -42,6 +42,7 @@ describe('merge trains migration', () => {
         ...before,
         train_id: null,
         diagnostic_json: null,
+        queue_rank: null,
       });
       const repos = createRepositories(db);
       const row = repos.taskMerges.get('merge_old00001')!;
@@ -54,6 +55,7 @@ describe('merge trains migration', () => {
         ...before,
         train_id: null,
         diagnostic_json: null,
+        queue_rank: null,
       });
 
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);

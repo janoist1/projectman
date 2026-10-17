@@ -1,3 +1,4 @@
+import { assertIntegratorAccess, integratorExecution, forbidden, assertSuperMutation } from '../../kernel';
 import {
   DEFAULT_PAUSE_FORCE_AFTER_MS,
   isWorkPaused,
@@ -214,6 +215,7 @@ export class PauseService {
    * point. A target that is paused already stays as it is (the first request's reason and deadline).
    */
   async pause(target: PauseTarget, by: PauseRequester, opts: PauseOptions = {}): Promise<void> {
+    await this.assertCredential(target, by);
     await this.pauseCore(target, by, opts, null);
   }
 
@@ -270,6 +272,7 @@ export class PauseService {
     const actors = await this.actors(projectKeys, by);
     // Only the rows and the timeline are written under the admission lock: no start slips in between.
     const caught = await this.admission.exclusive(async () => {
+      await this.assertCredential(target, by);
       by.check?.();
       if (pauses.findOpen(target.scope, keyOf(target))) {
         if (owned)
@@ -446,6 +449,7 @@ export class PauseService {
 
   /** Cuts the sessions still stopping with one Esc, and writes the deadline as now. */
   async force(target: PauseTarget, _by: PauseRequester): Promise<void> {
+    await this.assertCredential(target, _by);
     const { pauses } = this.ctx.repos;
     const pause = pauses.findOpen(target.scope, keyOf(target));
     if (!pause) return;
@@ -517,6 +521,7 @@ export class PauseService {
    * is tried again. Resuming what is not paused changes nothing.
    */
   async resume(target: PauseTarget, by: PauseRequester): Promise<void> {
+    await this.assertCredential(target, by);
     await this.resumeCore(target, by, null);
   }
 
@@ -529,6 +534,16 @@ export class PauseService {
     const projectKeys = this.coveredProjects(target);
     const actors = await this.actors(projectKeys, by);
     const closed = await this.admission.exclusive(async () => {
+      await this.assertCredential(target, by);
+      for (const projectKey of projectKeys) {
+        const config = await this.projects.config(projectKey);
+        const providers = pauses.openSessionsOfProject(projectKey).flatMap((held) => {
+          const session = this.ctx.repos.sessions.get(held.sessionId);
+          const member = session ? config.team.members.find((m) => m.handle === session.member) : undefined;
+          return member?.kind === 'ai' ? [member.provider ?? ('claude' as const)] : [];
+        });
+        assertSuperMutation(config, { kind: 'runtime_start', providers });
+      }
       by.check?.();
       const pause = pauses.findOpen(target.scope, keyOf(target));
       if (owned) {
@@ -745,6 +760,26 @@ export class PauseService {
       }
     }
     return actors;
+  }
+
+  private async assertCredential(target: PauseTarget, by: PauseRequester): Promise<void> {
+    const context = integratorExecution();
+    if (
+      context?.principal.mode === 'super' &&
+      (by.userId !== context.principal.userId ||
+        by.via !== 'integrator' ||
+        by.credential?.id !== context.principal.keyId ||
+        by.credential.prefix !== context.principal.prefix)
+    )
+      throw forbidden(
+        'insufficient_access',
+        'the pause requester does not match the authenticated credential',
+      );
+    if (by.credential && !integratorExecution())
+      throw forbidden('insufficient_access', 'a credential needs authenticated execution');
+    const keys =
+      target.scope === 'project' ? [target.projectKey] : this.projects.summaries().map((p) => p.key);
+    for (const key of keys) assertIntegratorAccess(await this.projects.config(key), 'write');
   }
 }
 

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { assertSuperMutation } from '../../../kernel';
 import type { Readable } from 'node:stream';
 import {
   MAX_MESSAGE_ATTACHMENTS,
@@ -217,6 +218,11 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
   }
 
   async delete(projectKey: string, id: string, actor: Actor): Promise<void> {
+    assertSuperMutation(
+      await this.projects.config(projectKey),
+      { kind: 'remove', resource: 'message_attachment', id },
+      actor,
+    );
     const viewer = await this.authorize(projectKey, actor);
     await this.deletions.run(id, async () => {
       const record = this.find(projectKey, id, viewer, ['ready', 'deleting']);

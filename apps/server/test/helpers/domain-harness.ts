@@ -187,7 +187,9 @@ export async function createDomainHarness(
       )
     : undefined;
   const runningVersion = { value: opts.appVersion ?? 'dev' };
+  const auth = new AuthService({ repos, now: opts.now });
   const domain: Domain = createDomain({
+    integratorCredentials: auth,
     ...(opts.engines
       ? { engines: opts.engines }
       : opts.merger !== undefined
@@ -245,7 +247,7 @@ export async function createDomainHarness(
     attachmentStorage,
     feedbackDir: join(dir, 'feedback'),
     messageAttachmentStorage,
-    accounts: new AuthService({ repos, now: opts.now }),
+    accounts: auth,
     worktreesRootDir: join(dir, 'worktrees'),
     ...(opts.memberWorkspaces
       ? {
@@ -295,6 +297,7 @@ export async function createDomainHarness(
   }
 
   return {
+    auth,
     dir,
     workspace,
     repos,

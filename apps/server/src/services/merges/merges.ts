@@ -7,8 +7,16 @@ import {
   isCodeReviewStage,
   isOpenTask,
   isOperatorActor,
+  isSuperOperatorActor,
 } from '@projectman/shared';
-import type { Actor, ProjectConfig, RepoConfig, Task } from '@projectman/shared';
+import type {
+  Actor,
+  ProjectConfig,
+  RepoConfig,
+  Task,
+  OrderMergeQueueRequest,
+  MergeQueueOrder,
+} from '@projectman/shared';
 import { Effect, Exit, Scope } from 'effect';
 import { mergedState } from '../../db';
 import type { MergeRecord } from '../../db';
@@ -18,6 +26,7 @@ import { conflict, DomainError, forbidden } from '../../kernel';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import { runFork, runPromise } from '../../kernel';
 import { MergeCardLock } from '../../kernel';
+import { assertIntegratorAccess, withoutIntegratorExecution } from '../../kernel';
 import type { MergeDeps } from './deps';
 import type { MergeSlotPeer } from './ports';
 import { makeMergeQueue } from './queue';
@@ -226,6 +235,7 @@ export class Merges {
     actor: Actor,
     options: { fixConflict?: boolean; resolution?: string } = {},
   ): Promise<Task> {
+    assertIntegratorAccess(await this.deps.projects.config(projectKey), 'write', actor);
     return this.cards.run(projectKey, taskKey, async () => {
       if (options.fixConflict || options.resolution !== undefined)
         return this.steps.fix(projectKey, taskKey, actor, options);
@@ -315,6 +325,7 @@ export class Merges {
     actor: Actor,
     reason: string,
   ): Promise<{ task: Task; moved: boolean }> {
+    assertIntegratorAccess(await this.deps.projects.config(projectKey), 'write', actor);
     return this.cards.run(projectKey, taskKey, async () => {
       const { ctx, tasks, projects } = this.deps;
       const config = await projects.config(projectKey);
@@ -325,7 +336,8 @@ export class Merges {
         row &&
         row.merger !== handle &&
         !(actor.kind === 'human' && ownerHandles(config).includes(handle)) &&
-        !isOperatorActor(config, actor)
+        !isOperatorActor(config, actor) &&
+        !isSuperOperatorActor(config, actor)
       )
         throw forbidden(
           'merge_not_merger',
@@ -335,15 +347,23 @@ export class Merges {
         throw conflict('merge_not_prioritizable', 'only a queued merge can be moved forward', {
           reason: !row ? 'no_merge' : row.state === 'running' ? 'running' : 'not_queued',
         });
-      const queue = ctx.repos.taskMerges.waitingOf(projectKey, row.repo);
-      const index = queue.findIndex((item) => item.id === row.id);
-      const ahead = queue
-        .slice(0, Math.max(index, 0))
-        .filter((item) => item.state === 'queued')
-        .map((item) => item.taskKey);
+      const queue = ctx.repos.taskMerges.queueOrder(projectKey, row.repo);
+      if (queue.taskKeys.includes(this.holder(projectKey, row.repo) ?? ''))
+        throw conflict('merge_queue_conflict', 'a merge is starting');
+      const index = queue.taskKeys.indexOf(taskKey);
+      const ahead = queue.taskKeys.slice(0, Math.max(index, 0));
       if (ahead.length === 0) return { task, moved: false };
       ctx.unitOfWork(() => {
-        this.steps.save(row, { prioritizedAt: isoNow(ctx) });
+        if (
+          !ctx.repos.taskMerges.orderQueue(
+            projectKey,
+            row.repo,
+            queue.revision,
+            [taskKey, ...queue.taskKeys.filter((key) => key !== taskKey)],
+            { taskKey, at: isoNow(ctx) },
+          )
+        )
+          throw conflict('merge_queue_conflict', 'the merge queue changed');
         this.deps.timeline.append({
           projectKey,
           taskKey,
@@ -355,6 +375,65 @@ export class Merges {
       this.pump();
       return { task: tasks.get(projectKey, taskKey), moved: true };
     });
+  }
+
+  async queueOrder(projectKey: string, repo: string): Promise<MergeQueueOrder> {
+    const config = await this.deps.projects.config(projectKey);
+    if (!config.project.repos.some((entry) => entry.name === repo))
+      throw conflict('merge_queue_conflict', 'the repository does not exist');
+    return this.deps.ctx.repos.taskMerges.queueOrder(projectKey, repo);
+  }
+
+  /** A repository-wide compare-and-swap; no await separates the snapshot, permutation check and writes. */
+  async orderQueue(
+    projectKey: string,
+    actor: Actor,
+    input: OrderMergeQueueRequest,
+  ): Promise<MergeQueueOrder> {
+    const config = await this.deps.projects.config(projectKey);
+    assertIntegratorAccess(config, 'write', actor);
+    if (
+      !(actor.kind === 'human' && ownerHandles(config).includes(actor.handle ?? '')) &&
+      !isOperatorActor(config, actor) &&
+      !isSuperOperatorActor(config, actor)
+    )
+      throw forbidden('insufficient_access', 'only an owner or the Operator may order the merge queue');
+    if (!config.project.repos.some((repo) => repo.name === input.repo))
+      throw conflict('merge_queue_conflict', 'the repository does not exist');
+    const result = this.deps.ctx.unitOfWork(() => {
+      const current = this.deps.ctx.repos.taskMerges.queueOrder(projectKey, input.repo);
+      // A slot may have been acquired just before its durable state changes to running.
+      const running = this.holder(projectKey, input.repo);
+      if (running && current.taskKeys.includes(running))
+        throw conflict('merge_queue_conflict', 'a merge is starting');
+      const ordered = this.deps.ctx.repos.taskMerges.orderQueue(
+        projectKey,
+        input.repo,
+        input.expectedRevision,
+        input.taskKeys,
+      );
+      if (!ordered) throw conflict('merge_queue_conflict', 'the merge queue changed');
+      if (ordered.revision !== current.revision)
+        for (const taskKey of ordered.taskKeys) {
+          const row = this.deps.ctx.repos.taskMerges.open(projectKey, taskKey)!;
+          this.deps.timeline.append({
+            projectKey,
+            taskKey,
+            actor,
+            type: 'task_merge_prioritized',
+            data: {
+              mergeId: row.id,
+              repo: input.repo,
+              reason: input.reason,
+              ahead: current.taskKeys.slice(0, current.taskKeys.indexOf(taskKey)),
+            },
+          });
+          this.deps.tasks.publish(this.deps.tasks.get(projectKey, taskKey));
+        }
+      return ordered;
+    });
+    this.pump();
+    return result;
   }
 
   async checkGate(config: ProjectConfig, task: Task, targetId: string): Promise<void> {
@@ -526,7 +605,7 @@ export class Merges {
   }
 
   pump(): void {
-    runFork(this.queue.pump);
+    withoutIntegratorExecution(() => runFork(this.queue.pump));
   }
 
   cancel(projectKey: string, taskKey: string, effects?: (() => Promise<void>)[]): void {

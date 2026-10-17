@@ -1,4 +1,10 @@
-import type { SuperActor } from '@projectman/shared';
+import type {
+  Actor,
+  HumanMemberConfig,
+  ProjectConfig,
+  SuperActor,
+  SuperMutationInput,
+} from '@projectman/shared';
 
 /**
  * The authenticated integrator key behind a request (PM-757). It is made only by the key check of the
@@ -26,4 +32,44 @@ export interface SuperExecutionContext {
   readonly actor: SuperActor;
   readonly requestId: string;
   readonly handoffId?: string | null;
+}
+
+/** Server-owned credential scope. No field is accepted from an operation's JSON arguments. */
+export interface IntegratorExecutionContext {
+  readonly principal: IntegratorPrincipal;
+  readonly email: string;
+  readonly requestId: string;
+  readonly projectKey?: string | null;
+}
+
+export interface AuthenticatedIntegratorExecutionContext {
+  readonly principal: IntegratorPrincipal;
+  readonly projectKey: string | null;
+  readonly actor: Actor;
+  readonly requestId: string;
+  readonly handoffId?: string | null;
+}
+
+export interface IntegratorCredentialAuthority {
+  assertActive(principal: IntegratorPrincipal): void;
+  user(id: string): { email: string } | null;
+}
+
+export interface SuperMutationAuthorizer {
+  assertAllowed(input: SuperMutationInput): Promise<void>;
+}
+export type { SuperMutationCommand, OwnerReservedEffect } from '@projectman/shared';
+
+/** Internal live capability; the authenticated DTO alone never grants authority. */
+export interface IntegratorExecutionScope {
+  readonly context: AuthenticatedIntegratorExecutionContext;
+  active: boolean;
+  actorFor(config: ProjectConfig | null): Actor;
+  assertAccess(
+    config: ProjectConfig,
+    operation: 'read' | 'write' | 'approval' | 'key_management',
+    actor?: Actor,
+  ): HumanMemberConfig | undefined;
+  assertMutation(input: SuperMutationInput): void;
+  authorizeMutation(input: SuperMutationInput): Promise<void>;
 }

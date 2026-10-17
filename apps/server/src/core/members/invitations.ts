@@ -1,3 +1,4 @@
+import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import { maskEmail, memberOf, roleBundle } from '@projectman/shared';
 import type { UserRecord } from '../../db';
 import { createHash, randomBytes } from 'node:crypto';
@@ -60,6 +61,7 @@ export class InvitationService {
   ): Promise<CreatedInvitation> {
     return this.lock.run('invitations', async () => {
       const config = await this.projects.config(projectKey);
+      assertIntegratorAccess(config, 'write');
       const inviter = requireMemberAccess(findHumanByEmail(config, user.email), 'admin', {
         message: 'owner or admin required',
       });
@@ -128,6 +130,12 @@ export class InvitationService {
 
   revoke(projectKey: string, id: string): Promise<void> {
     return this.lock.run('invitations', async () => {
+      assertIntegratorAccess(await this.projects.config(projectKey), 'write');
+      assertSuperMutation(await this.projects.config(projectKey), {
+        kind: 'remove',
+        resource: 'invitation',
+        id,
+      });
       const invite = this.ctx.repos.invitations.get(id);
       if (!invite || invite.projectKey !== projectKey) throw notFound('invitation', id);
       if (invite.acceptedAt) throw conflict('invite_used', 'the invitation has already been accepted');

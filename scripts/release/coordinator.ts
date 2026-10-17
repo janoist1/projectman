@@ -751,6 +751,21 @@ export class HybridCoordinator {
     return 'unknown';
   }
 
+  /**
+   * The engine processes this attempt knows of, other than the one launchd runs now (the one recorded before the switch,
+   * and the one that last wrote the status file), have exited. A job that is out of launchd says nothing about its
+   * process, so a stopped job alone never proves it: another engine on the same home must not start next to it.
+   */
+  private async enginesGone(state: EngineState): Promise<boolean> {
+    const pids = new Set<number>([this.j.previous.enginePid]);
+    if (state.status) pids.add(state.status.pid);
+    if (state.loaded && state.pid !== null) pids.delete(state.pid);
+    return this.waitFor(async () => {
+      for (const pid of pids) if (await this.p.engine.pidAlive(pid)) return false;
+      return true;
+    }, LIMITS.processExitMs);
+  }
+
   private async engineStop(): Promise<RoundResult | null> {
     await this.holdHeavyAgain();
     const state = await this.p.engine.state();
@@ -769,6 +784,8 @@ export class HybridCoordinator {
       case 'old_stopped':
       case 'new_stopped':
       case 'new_running':
+        // An interrupted stop: the job is gone, but its process must be proven gone too.
+        if (!(await this.enginesGone(state))) throw new Divert('recovery', 'engine_switch_failed');
         break;
       case 'unknown':
         throw new Divert('recovery', 'engine_switch_failed');
@@ -791,6 +808,7 @@ export class HybridCoordinator {
         throw new Divert('recovery', 'engine_switch_failed');
       case 'old_stopped':
       case 'new_stopped': {
+        if (!(await this.enginesGone(state))) throw new Divert('recovery', 'engine_switch_failed');
         const verified = await this.verified('engine_start_failed', true);
         try {
           await this.p.engine.start(verified.engineRoot);
@@ -950,6 +968,8 @@ export class HybridCoordinator {
   private async rollbackEngine(): Promise<RoundResult | null> {
     await this.holdHeavyAgain();
     const { previous } = this.j;
+    // The fence: nothing is switched back unless this attempt's pause still holds the cloud.
+    await this.ownView();
     // The gate: going back is only automatic when the previous program can run on the data as it is now.
     const probe = await this.p.machine.probe(previous.image);
     if (probe.schemaVersion === null || probe.schemaVersion > previous.schemaVersion)
@@ -971,6 +991,8 @@ export class HybridCoordinator {
         }
         if (!stopped) throw new Divert('recovery', 'rollback_failed');
       }
+      // No other engine process of this attempt may run when the previous one is loaded again.
+      if (!(await this.enginesGone(state))) throw new Divert('recovery', 'rollback_failed');
       try {
         await this.p.engine.restorePrevious({
           plistPath: previous.plistPath,
@@ -987,9 +1009,13 @@ export class HybridCoordinator {
 
   private async rollbackCloud(): Promise<RoundResult | null> {
     await this.holdHeavyAgain();
+    await this.ownView();
     const previous = this.j.previous.image;
     let probe = await this.waitUnlocked(previous, 'rollback_failed');
     if (!(sameImage(probe.current, previous) && probe.healthy)) {
+      // Only this attempt's own image is switched back from: a third image is a state nobody here made.
+      if (!sameImage(probe.current, previous) && !(await this.isOwnImage(probe.current)))
+        throw new Divert('recovery', 'rollback_failed');
       try {
         await this.p.machine.start(previous);
       } catch (error) {
@@ -1001,6 +1027,18 @@ export class HybridCoordinator {
     }
     this.save({ phase: 'report_failed' });
     return null;
+  }
+
+  /** The image the cloud runs is the one this attempt prepared; a preparation that does not verify cannot tell. */
+  private async isOwnImage(current: ReleaseImageRef | null): Promise<boolean> {
+    if (current === null) return false;
+    try {
+      const verified = await this.verified('rollback_failed', false);
+      return sameImage(current, imageRef(verified.artifact));
+    } catch (error) {
+      if (error instanceof Divert) return false;
+      throw error;
+    }
   }
 
   /** The previous pair, proven on both targets and in the registry the cloud will check. */

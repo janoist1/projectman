@@ -408,6 +408,7 @@ export class HybridWorld {
           status: { pid: sim.pid, bootId: sim.bootId, connected: sim.connected },
         };
       },
+      pidAlive: async (pid) => sim.alive && pid === sim.pid,
       rootCommit: async (root) => this.commitOfRoot(root),
       snapshotPlist: async (attemptId) => ({
         path: path.join(this.dir, `plist-${attemptId}.plist`),

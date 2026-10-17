@@ -88,6 +88,12 @@ describe('the engine port (PM-751)', () => {
     });
   });
 
+  it('tells whether any pid is alive, loaded job or not', async () => {
+    alive.add(4001);
+    expect(await port().pidAlive(4001)).toBe(true);
+    expect(await port().pidAlive(4002)).toBe(false);
+  });
+
   it('ignores a plist that belongs to another engine home', async () => {
     fs.writeFileSync(
       launchd.plist(SERVICE_LABEL),

@@ -38,6 +38,8 @@ export const LIMITS = {
   sendRetryMs: 5_000,
   /** The heavy-run lock of a re-entered round, in a phase that needs it. */
   heavyReentryMs: 30_000,
+  /** A process of a stopped engine job is waited for this long to exit; it is never killed. */
+  processExitMs: 120_000,
 } as const;
 
 // ---- the cloud's control socket -----------------------------------------------------------------
@@ -124,6 +126,8 @@ export interface EngineState {
 
 export interface EngineControl {
   state(): Promise<EngineState>;
+  /** A process with this pid exists. */
+  pidAlive(pid: number): Promise<boolean>;
   /** HEAD of a checkout, when it is clean; null otherwise. */
   rootCommit(root: string): Promise<string | null>;
   /** Copies the installed plist aside for the rollback; returns where it is and its hash. */

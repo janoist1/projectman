@@ -475,6 +475,96 @@ describe('the hybrid release coordinator (PM-751)', () => {
       expect(world.calls).toMatchObject({ importImage: 0, start: [], stop: 0 });
       expect(world.deployment(release.id)).toMatchObject({ phase: 'recovery_required', maintenance: true });
     });
+
+    describe('an interrupted engine stop (the job is gone, the recorded process may not be)', () => {
+      /** The job is booted out when the stop phase first looks at the engine: a stop that a crash cut short. */
+      const afterBootout = (exitsAfterPolls: number | null) => {
+        const engine = world.engine();
+        const sim = world.engineSim;
+        let cut = false;
+        let polls = 0;
+        return {
+          ...engine,
+          state: async () => {
+            if (!cut && world.cloud.current.commit === NEW) {
+              cut = true;
+              sim.loaded = false;
+              sim.connected = false;
+            }
+            return engine.state();
+          },
+          pidAlive: async (pid: number) => {
+            polls += 1;
+            if (exitsAfterPolls !== null && polls > exitsAfterPolls) sim.alive = false;
+            return engine.pidAlive(pid);
+          },
+        };
+      };
+
+      it('does not start a second engine while the recorded process is alive', async () => {
+        const release = await ready();
+        const result = await world.coordinator({ engine: afterBootout(null) }).round();
+        expect(result).toEqual({
+          status: 'recovery_required',
+          releaseId: release.id,
+          code: 'engine_switch_failed',
+        });
+        expect(world.calls).toMatchObject({ stop: 0, engineStart: [], restore: 0 });
+        expect(world.cloud.current).toEqual(imageOf(NEW));
+        expect(world.deployment(release.id)).toMatchObject({ phase: 'recovery_required', maintenance: true });
+      });
+
+      it('carries on once the recorded process has exited by itself', async () => {
+        const release = await ready();
+        const result = await world.coordinator({ engine: afterBootout(2) }).round();
+        expect(result).toEqual({ status: 'live', releaseId: release.id, publishPending: false });
+        expectLive(release);
+        expect(world.calls.engineStart).toHaveLength(1);
+      });
+    });
+
+    it('does not go back when the fence is no longer this attempt’s', async () => {
+      const release = await ready();
+      world.failOn('engine.start');
+      const control = world.control();
+      const result = await world
+        .coordinator({
+          control: {
+            ...control,
+            deployGet: async (id) => {
+              const view = await control.deployGet(id);
+              // The pause is another one's from the moment the new engine failed to start.
+              if (world.calls.engineStart.length > 0 && view.deployment?.pauseId)
+                return { ...view, deployment: { ...view.deployment, pauseId: 'someone-else' } };
+              return view;
+            },
+          },
+        })
+        .round();
+      expect(result).toEqual({
+        status: 'recovery_required',
+        releaseId: release.id,
+        code: 'release_pause_conflict',
+      });
+      expect(world.calls).toMatchObject({ stop: 1, restore: 0 });
+      expect(world.cloud.current).toEqual(imageOf(NEW));
+      expect(world.calls.start).toEqual([NEW]);
+    });
+
+    it('does not start the previous image over a third image', async () => {
+      const release = await ready();
+      const third = imageOf('c'.repeat(40));
+      world.cloud.healthyAfterStart = (commit) => {
+        // Something else put its own image in place of the new one while it was starting.
+        if (commit === NEW) world.cloud.current = third;
+        return false;
+      };
+      const result = await world.coordinator().round();
+      expect(result).toMatchObject({ status: 'recovery_required', releaseId: release.id });
+      expect(world.calls.start).toEqual([NEW]);
+      expect(world.cloud.current).toEqual(third);
+      expect(world.deployment(release.id)).toMatchObject({ phase: 'recovery_required', maintenance: true });
+    });
   });
 
   describe('a stop at any point is carried on', () => {

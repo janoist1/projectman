@@ -288,6 +288,9 @@ export function enginePort(world: HybridWorld, options: EngineOptions): EngineCo
           : null,
       };
     },
+    async pidAlive(pid) {
+      return world.isPidAlive(pid);
+    },
     async rootCommit(root) {
       const git = (args: string[]) =>
         world.context.deps.run('git', ['-C', root, ...args], { env: GIT_ENV, timeoutMs: GIT_TIMEOUT_MS });

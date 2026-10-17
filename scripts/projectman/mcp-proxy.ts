@@ -117,8 +117,20 @@ export async function runMcpProxy(
     const task = forward(text).finally(() => pending.delete(task));
     pending.add(task);
   };
+  // A signal must end the proxy even while standard input is open and silent, so the wait for the next
+  // chunk is raced against the abort instead of left to `for await`.
+  const stop = abortSignalPromise(io.signal);
+  const input = io.stdin[Symbol.asyncIterator]();
   try {
-    for await (const chunk of io.stdin) {
+    for (;;) {
+      const next = await Promise.race([input.next(), stop.promise]);
+      if (next === ABORTED) {
+        // Do not wait for the reader to settle: a pending read on a silent pipe never does.
+        void Promise.resolve(input.return?.()).catch(() => undefined);
+        return status;
+      }
+      if (next.done) break;
+      const chunk = next.value;
       buffer += typeof chunk === 'string' ? chunk : decoder.write(Buffer.from(chunk));
       if (buffer.length > MAX_LINE_CHARS) {
         log('mcp-proxy: a line on standard input is too long');
@@ -130,14 +142,27 @@ export async function runMcpProxy(
         buffer = buffer.slice(newline + 1);
         newline = buffer.indexOf('\n');
       }
-      if (io.signal.aborted) break;
     }
     buffer += decoder.end();
     dispatch(buffer);
   } finally {
+    stop.dispose();
     await Promise.allSettled([...pending]);
   }
   return status;
+}
+
+const ABORTED = Symbol('aborted');
+
+/** Resolves with `ABORTED` when the signal aborts; `dispose` removes the listener. */
+function abortSignalPromise(signal: AbortSignal): { promise: Promise<typeof ABORTED>; dispose(): void } {
+  let listener: (() => void) | undefined;
+  const promise = new Promise<typeof ABORTED>((resolve) => {
+    if (signal.aborted) return resolve(ABORTED);
+    listener = () => resolve(ABORTED);
+    signal.addEventListener('abort', listener, { once: true });
+  });
+  return { promise, dispose: () => listener && signal.removeEventListener('abort', listener) };
 }
 
 function errorCodeOf(body: string): string | null {

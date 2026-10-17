@@ -207,6 +207,43 @@ describe('projectman mcp-proxy (PM-765)', () => {
     expect(run.output()).not.toContain(CANARY_KEY);
   });
 
+  it('ends on the signal while standard input is open and silent (SIGTERM, Ctrl-C)', async () => {
+    let closed = false;
+    const stdin: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<string>>(() => undefined),
+        return: async () => {
+          closed = true;
+          return { done: true, value: undefined };
+        },
+      }),
+    };
+    const t = createTestIo(fx.home, () => jsonResponse(result(1)), { stdin });
+    const finished = main(['mcp-proxy'], t.io);
+    setTimeout(() => t.controller.abort(), 10);
+    expect(await finished).toBe(CLIENT_EXIT.ok);
+    expect(closed).toBe(true);
+    expect(t.requests).toEqual([]);
+  });
+
+  it('answers a request that was already read before the signal, then ends on the signal', async () => {
+    let t: ReturnType<typeof createTestIo> | undefined;
+    const stdin = (async function* () {
+      yield lines(initialize);
+      await new Promise<void>(() => undefined);
+    })();
+    t = createTestIo(
+      fx.home,
+      () => {
+        setTimeout(() => t?.controller.abort(), 0);
+        return jsonResponse(result(1));
+      },
+      { stdin },
+    );
+    expect(await main(['mcp-proxy'], t.io)).toBe(CLIENT_EXIT.ok);
+    expect(t.requests).toHaveLength(1);
+  });
+
   it('stops after the signal and leaves unanswered requests alone', async () => {
     let t: ReturnType<typeof createTestIo> | undefined;
     t = createTestIo(

@@ -1,5 +1,6 @@
 import {
   MemberHandle,
+  BuiltInRoleId,
   CombineQuestionsRequest,
   OperatorOperation,
   OperatorPreferenceData,
@@ -15,6 +16,17 @@ import { defineTool, type TeamToolGroup } from '../kit';
 export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
   module: 'services/operator',
   tools: [
+    defineTool({
+      name: 'get_role_configuration',
+      title: 'Read one built-in role configuration',
+      readOnly: true,
+      description:
+        'Only the Operator in its owner general conversation, never guests. Needs no open request. Returns the configuration version, the stored override (null when absent), and the effective full role bundle. Read before editing a role; preserve its existing instructions and other bundle fields.',
+      input: { role: BuiltInRoleId },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(await handler.getRoleConfiguration(ctx, args));
+      },
+    }),
     defineTool({
       name: 'request_structural_review',
       title: 'Request an occasional architecture review',
@@ -164,7 +176,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Operate the project',
       readOnly: false,
       description:
-        'Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).',
+        'Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).',
       input: {
         title: z.string().trim().min(1).max(120),
         operation: OperatorOperation,

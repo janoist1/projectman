@@ -1321,6 +1321,12 @@ describe('system prompt', () => {
       expect(operator).toContain('You work only when a person writes to you');
       expect(operator).toContain("The owner's conversation is where you change the project.");
       expect(operator).toContain('These preferences never authorize any project change or any other tool.');
+      expect(operator).toContain('read get_role_configuration for that role');
+      expect(operator).toContain('preserve its other bundle fields');
+      expect(operator).toContain('Use an explicit null for one role to reset it to built-in defaults');
+      expect(roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt)).not.toContain(
+        'get_role_configuration',
+      );
       expect(operator).toContain('The PM receives coordination signals and screens AI questions');
       expect(operator).not.toContain('send_message (kind info) with signal_ids');
       expect(operator).not.toContain('You change nothing until an owner says yes.');

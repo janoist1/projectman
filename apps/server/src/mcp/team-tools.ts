@@ -69,6 +69,13 @@ export class TeamToolsService implements TeamToolsHandler {
   async getOperatorPreference(ctx: ToolContext) {
     return this.tools.operator.getOperatorPreference(ctx);
   }
+  async getRoleConfiguration(
+    ctx: ToolContext,
+    args: Parameters<OperatorToolsHandler['getRoleConfiguration']>[1],
+  ) {
+    return this.tools.operator.getRoleConfiguration(ctx, args);
+  }
+
   async getOperatorKnowledge(ctx: ToolContext) {
     return this.tools.operator.getOperatorKnowledge(ctx);
   }

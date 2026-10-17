@@ -62,6 +62,7 @@ describe('team tool registration', () => {
     ).toEqual({
       'services/github': ['link_pull_request'],
       'services/operator': [
+        'get_role_configuration',
         'request_structural_review',
         'triage_loop',
         'get_operator_diagnostics',

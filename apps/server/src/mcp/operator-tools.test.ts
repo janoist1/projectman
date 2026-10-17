@@ -7,6 +7,31 @@ import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
+  it('reads a required built-in role through a strict read-only tool', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'get_role_configuration')!;
+    const handler = createFakeTeamToolsHandler();
+    expect(tool.annotations.readOnlyHint).toBe(true);
+    const args = tool.inputSchema.parse({ role: 'developer' });
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      version: 'v1',
+      role: 'developer',
+      override: null,
+      effective: { duties: ['implementation'], instructions: '' },
+    });
+    expect(handler.calls).toEqual([{ method: 'getRoleConfiguration', ctx: devContext, args }]);
+    for (const input of [{}, { role: null }, { role: 'custom_writer' }, { role: 'developer', project: 'BR' }])
+      expect(tool.inputSchema.safeParse(input).success).toBe(false);
+    const operation = TEAM_TOOLS.find((t) => t.name === 'operate')!;
+    expect(
+      operation.inputSchema.parse({
+        title: 'Reset',
+        operation: {
+          op: 'config_patch',
+          patch: { roleOverrides: { developer: null } },
+        },
+      }),
+    ).toMatchObject({ operation: { patch: { roleOverrides: { developer: null } } } });
+  });
   it('triage_loop is strict, validates evidence and forwards only assessment fields', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'triage_loop')!;
     const handler = createFakeTeamToolsHandler();

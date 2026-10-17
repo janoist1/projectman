@@ -1,6 +1,8 @@
-import { isOperator, memberOf } from '@projectman/shared';
+import { isOperator, memberOf, roleBundle } from '@projectman/shared';
 import type {
   OperatorOperation,
+  BuiltInRoleId,
+  RoleConfigurationRead,
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
   OperatorPreferenceData,
@@ -84,6 +86,36 @@ export class OperatorTools implements OperatorToolsHandler {
       return this.structuralReviews.request(ctx, args.signalId, args.note, (member, text) =>
         this.startMember(ctx, { member, text }),
       );
+    });
+  }
+
+  async getRoleConfiguration(
+    ctx: ToolContext,
+    args: { role: BuiltInRoleId },
+  ): Promise<RoleConfigurationRead> {
+    return this.calls.guard(async () => {
+      const config = await this.calls.caller(ctx, 'get_role_configuration');
+      if (!isOperator(memberOf(config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may read role configuration.');
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (
+        !session ||
+        session.projectKey !== ctx.projectKey ||
+        session.member !== ctx.member ||
+        session.workItem.type !== 'general' ||
+        session.workItem.with
+      )
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: role configuration requires your own owner general conversation.',
+        );
+      const loaded = await this.projects.load(ctx.projectKey);
+      return {
+        version: loaded.version,
+        role: args.role,
+        override: loaded.config.team.roleOverrides?.[args.role] ?? null,
+        effective: roleBundle(loaded.config, args.role),
+      };
     });
   }
 

@@ -1,6 +1,7 @@
 import type { OperatorPauses, OperatorSessions } from './ports';
 import {
   applyConfigPatch,
+  prepareOperatorConfigPatch,
   canWaiveOperatorApproval,
   hasOperatorWaiverField,
   operatorWaiverChanged,
@@ -502,7 +503,7 @@ export class OperatorActions implements OperatorConfigAuthorization {
     }
     switch (operation.op) {
       case 'config_patch': {
-        const patch = { ...operation.patch, baseVersion: loaded.version };
+        const patch = prepareOperatorConfigPatch(loaded.config, loaded.version, operation.patch);
         const unknown = unknownPatchRepo(next, patch);
         if (unknown) throw invalid('unknown_repo', `unknown repository: ${unknown}`);
         next = applyConfigPatch(next, patch);
@@ -587,14 +588,16 @@ export class OperatorActions implements OperatorConfigAuthorization {
     };
     const by = { actor: aiActor(source), author };
     switch (operation.op) {
-      case 'config_patch':
+      case 'config_patch': {
+        const loaded = await projects.load(projectKey);
         return (
           await projects.patch(
             projectKey,
-            { ...operation.patch, baseVersion: (await projects.load(projectKey)).version },
+            prepareOperatorConfigPatch(loaded.config, loaded.version, operation.patch),
             by,
           )
         ).version;
+      }
       case 'config_revert':
         return (await projects.revert(projectKey, operation.version, by)).version;
       case 'member_update':

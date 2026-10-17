@@ -8,10 +8,28 @@ import {
   operatorApprovalOf,
   OperatorSignal,
   OperatorChannel,
+  RoleConfigurationRead,
   SendTeamMessageRequest,
 } from './dto';
 
 describe('Operator operation contracts', () => {
+  it('accepts targeted role resets and validates the full role read response', () => {
+    expect(
+      OperatorOperation.parse({ op: 'config_patch', patch: { roleOverrides: { developer: null } } }),
+    ).toEqual({ op: 'config_patch', patch: { roleOverrides: { developer: null } } });
+    expect(OperatorOperation.safeParse({ op: 'config_patch', patch: { roleOverrides: null } }).success).toBe(
+      false,
+    );
+    const response = {
+      version: 'v1',
+      role: 'developer',
+      override: null,
+      effective: { duties: ['implementation'], instructions: 'First line.\nSecond line.' },
+    };
+    expect(RoleConfigurationRead.parse(response)).toEqual(response);
+    for (const extra of [{ role: 'custom_writer' }, { effective: null }, { unknown: true }])
+      expect(RoleConfigurationRead.safeParse({ ...response, ...extra }).success).toBe(false);
+  });
   it('accepts bounded typed messages and refuses commands, credentials and unsupported operations', () => {
     const message = { op: 'message_send', to: ['guest'], text: 'Exact text' };
     expect(OperatorOperation.parse(message)).toEqual(message);

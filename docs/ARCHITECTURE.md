@@ -3531,6 +3531,18 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
   remain approval operations.
 
+- **Targeted role configuration (PM-746).** `get_role_configuration` reads one built-in role in the Operator's
+  owner general conversation without an open request. It returns the version, stored override (or `null`) and
+  effective full bundle from one configuration load, without truncating instructions or writing a request or step.
+  Operator `config_patch.roleOverrides` replaces only named roles; `null` resets one role and an empty map is a
+  no-op. `prepareOperatorConfigPatch` in shared expands these edits against the current configuration/version
+  for preview and execution; the ordinary REST PATCH and web settings still replace the full map. Stored
+  operations, agreement recommendations and waiver attribution retain the original targeted patch. Replay
+  preserves unrelated edits, compares the actual approval rows again under the configuration lock, and rejects
+  a race with `config_conflict`. Legacy pending map-deletion previews whose rows differ become stale and allow
+  dismissal only. No migration or machine-dependent operation is added: configuration and locks stay on the
+  server; the existing team-tools relay carries the read and patch for remote engines.
+
 - **System signals** (PM-476, migration 50, `services/operator/signals.ts`). Provider/engine outages,
   cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
   create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.

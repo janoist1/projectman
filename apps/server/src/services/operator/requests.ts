@@ -37,6 +37,7 @@ export function operatorQuoteOf(text: string): string {
 
 /** The team tools (MCP names) the Operator may call without an open request: they only read. */
 export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
+  'get_role_configuration',
   'get_operator_preference',
   'get_operator_knowledge',
   'get_task',

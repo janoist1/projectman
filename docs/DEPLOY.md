@@ -601,7 +601,10 @@ must carry the hash of this configuration's target.
    use; an incompatible schema is `database_incompatible` and a recovery state, never an automatic restore.
 5. **the engine.** The engine's service is stopped (`bootout`, then proof that the process is gone: it is
    **never killed**), its plist is saved first, the engine service is installed for the prepared checkout and
-   started, and the cloud must see the engine online with the new version.
+   started, and the cloud must see the engine online with the new version. A job that is out of launchd proves
+   nothing about its process: after an interrupted stop, the recorded pid and the pid of the status file must be
+   gone too (waited for up to 2 minutes), or the attempt stops in `recovery_required` rather than start a second
+   engine on the same home. The same holds before the previous engine is loaded again.
 6. **live.** The coordinator reports the deployment live, resumes the work, and publishes the tag and the GitHub
    release (`vYYYY.M.D[.N]`, annotated, pushed, `--verify-tag`). A publish that fails is retried by the next
    rounds; the release stays live meanwhile.

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { EngineId } from '@projectman/shared';
+import { canonicalJson, EngineId } from '@projectman/shared';
 import { loadEngineConfig } from '../../apps/server/src/engine-link/engine-config';
 import type { SandboxedEnd, SandboxedRun } from '../../apps/server/src/full-test';
 import { parseConfig } from '../cloud/config';
@@ -186,18 +186,6 @@ export const hybridReleaseConfigSchema = z.strictObject({
 });
 export type HybridReleaseConfig = z.output<typeof hybridReleaseConfigSchema>;
 
-/** JSON with sorted keys: the same value always has the same text (the server's `canonicalJson` rule). */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, item]) => item !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
-
 /** What the target hash stands for: where the two targets are, and nothing that could be a secret. */
 export interface HybridTargetDescription {
   accountId: string;
@@ -369,11 +357,21 @@ export function loadHybridReleaseConfig(file: string, homeDir: string): LoadedHy
 export function ensureStateDir(loaded: Pick<LoadedHybridConfig, 'config' | 'secretsRoot'>): string {
   const { stateDir } = loaded.config;
   noSymlinks(stateDir);
-  const stat = fs.lstatSync(stateDir, { throwIfNoEntry: false });
-  if (!stat) {
+  if (!fs.lstatSync(stateDir, { throwIfNoEntry: false })) {
     fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
     fs.chmodSync(stateDir, 0o700);
   }
+  return checkedStateDir(stateDir);
+}
+
+/** The state directory for a command that only reads: it is never created, and one that is there must be ours. */
+export function existingStateDir(loaded: Pick<LoadedHybridConfig, 'config'>): string {
+  const { stateDir } = loaded.config;
+  noSymlinks(stateDir);
+  return fs.lstatSync(stateDir, { throwIfNoEntry: false }) ? checkedStateDir(stateDir) : stateDir;
+}
+
+function checkedStateDir(stateDir: string): string {
   const problem = secretsDirProblem(stateDir);
   if (problem) throw refused(problem);
   if (!fs.lstatSync(stateDir).isDirectory()) throw refused('stateDir must be a directory');

@@ -970,9 +970,11 @@ export class HybridCoordinator {
     const { previous } = this.j;
     // The fence: nothing is switched back unless this attempt's pause still holds the cloud.
     await this.ownView();
-    // The gate: going back is only automatic when the previous program can run on the data as it is now.
+    // The gate: going back is only automatic when the previous program can run on the data as it is now. A release that
+    // ended before anything was switched (the drain, the switch request) never ran the new program: nothing to read.
     const probe = await this.p.machine.probe(previous.image);
-    if (probe.schemaVersion === null || probe.schemaVersion > previous.schemaVersion)
+    const switched = this.j.failure?.code !== 'drain_timeout' && this.j.failure?.code !== 'switch_refused';
+    if (switched && (probe.schemaVersion === null || probe.schemaVersion > previous.schemaVersion))
       throw new Divert('recovery', 'database_incompatible');
     if (!probe.imagePresent || !probe.imageVerified) throw new Divert('recovery', 'rollback_failed');
     if ((await this.p.engine.rootCommit(previous.engineRoot)) !== previous.engineCommit)

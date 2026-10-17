@@ -46,7 +46,9 @@ describe('the release commands (PM-751)', () => {
   const lastLine = () => printed().trim().split('\n').at(-1)!;
   const lastError = () => {
     const file = path.join(world!.stateDir, 'last-error.json');
-    return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as { code: string; message: string }) : null;
+    return fs.existsSync(file)
+      ? (JSON.parse(fs.readFileSync(file, 'utf8')) as { code: string; message: string })
+      : null;
   };
 
   describe('usage', () => {
@@ -213,6 +215,22 @@ describe('the release commands (PM-751)', () => {
       });
       expect(line).not.toContain(world.stateDir);
       expect(printed().trim().split('\n')).toHaveLength(1);
+    });
+
+    it('only reads: a state directory that is not there is not created', async () => {
+      world = await HybridWorld.create();
+      const absent = path.join(world.dir, 'absent-state');
+      const base = deps();
+      const exit = await runRelease(['status', ...config()], {
+        ...base,
+        load: (file) => {
+          const loaded = base.load!(file);
+          return { ...loaded, config: { ...loaded.config, stateDir: absent } };
+        },
+      });
+      expect(exit).toBe(0);
+      expect(JSON.parse(lastLine())).toMatchObject({ releaseId: null, phase: null, lastError: null });
+      expect(fs.existsSync(absent)).toBe(false);
     });
 
     it('shows the installed job, the last error, and no more', async () => {

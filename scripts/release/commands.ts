@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { CloudError } from '../cloud/errors';
-import { ensureStateDir, loadHybridReleaseConfig } from './config';
+import { ensureStateDir, existingStateDir, loadHybridReleaseConfig } from './config';
 import type { LoadedHybridConfig } from './config';
 import { HybridCoordinator } from './coordinator';
 import { acquireLocalLock, JournalStore } from './journal';
@@ -206,7 +206,7 @@ export async function runRelease(argv: string[], deps: ReleaseDeps): Promise<num
         await uninstallWatcher(deps.watcher, loaded);
         return 0;
       case 'status':
-        deps.watcher.out(`${JSON.stringify(await readStatus(deps.watcher, ensureStateDir(loaded)))}\n`);
+        deps.watcher.out(`${JSON.stringify(await readStatus(deps.watcher, existingStateDir(loaded)))}\n`);
         return 0;
     }
   } catch (error) {

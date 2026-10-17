@@ -244,6 +244,27 @@ describe('the hybrid release coordinator (PM-751)', () => {
       expect(world.calls).toMatchObject({ importImage: 0, start: [], stop: 0 });
     });
 
+    it('gives the pause back without reading the schema, since nothing was switched', async () => {
+      const release = await ready();
+      world.holdWork();
+      const control = world.control();
+      const result = await world
+        .coordinator({
+          control: {
+            ...control,
+            deployGet: async (id) => {
+              const view = await control.deployGet(id);
+              // The database cannot be read once the pause stands (the baseline was read before).
+              if (view.deployment?.pauseId) world.cloud.schema = null;
+              return view;
+            },
+          },
+        })
+        .round();
+      expect(result).toEqual({ status: 'rolled_back', releaseId: release.id, code: 'drain_timeout' });
+      expect(world.calls).toMatchObject({ importImage: 0, start: [], stop: 0, restore: 0 });
+    });
+
     it('gives the pause back when the heavy-run queue is never free', async () => {
       const release = await ready();
       world.heavyFree = false;
@@ -732,6 +753,21 @@ describe('the hybrid release coordinator (PM-751)', () => {
       expect(await world.coordinator().round()).toEqual({ status: 'idle' });
       expect(archived()).toHaveLength(1);
       expect(world.release(release.id).state).toBe('published');
+    });
+
+    it('finishes an archive that was written when the journal was not removed yet', async () => {
+      await ready();
+      await world.coordinator().round();
+      const dir = path.join(world.stateDir, JOURNAL_ARCHIVE_DIR);
+      const [name] = fs.readdirSync(dir);
+      // The journal comes back next to its archive, as after a stop between the two steps.
+      fs.writeFileSync(path.join(world.stateDir, JOURNAL_FILE), fs.readFileSync(path.join(dir, name!)), {
+        mode: 0o600,
+      });
+      expect(journalPhase()).toBe('complete');
+      await world.coordinator().round();
+      expect(world.journal.read().kind).toBe('none');
+      expect(archived()).toEqual([name]);
     });
   });
 });

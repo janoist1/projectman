@@ -244,10 +244,32 @@ export class JournalStore implements JournalPort {
     writeAtomic(this.file, `${JSON.stringify(hybridReleaseJournalSchema.parse(journal), null, 2)}\n`, true);
   }
 
+  /** True when the archive file is a valid copy of this very attempt; anything else standing there is refused. */
+  private archivedAlready(target: string, journal: HybridReleaseJournal): boolean {
+    const text = readPrivateText(target);
+    if (text === null) return false;
+    let raw: unknown = null;
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      // Not JSON: refused below.
+    }
+    const parsed = hybridReleaseJournalSchema.safeParse(raw);
+    if (
+      parsed.success &&
+      parsed.data.attemptId === journal.attemptId &&
+      parsed.data.releaseId === journal.releaseId
+    )
+      return true;
+    throw refused('a different journal archive stands where this attempt would be archived');
+  }
+
   archive(journal: HybridReleaseJournal): void {
     if (!fs.existsSync(this.archiveDir)) fs.mkdirSync(this.archiveDir, { mode: 0o700 });
     const target = path.join(this.archiveDir, `${journal.releaseId}-${journal.attemptId}.json`);
-    writeAtomic(target, `${JSON.stringify(hybridReleaseJournalSchema.parse(journal), null, 2)}\n`, false);
+    if (!this.archivedAlready(target, journal))
+      writeAtomic(target, `${JSON.stringify(hybridReleaseJournalSchema.parse(journal), null, 2)}\n`, false);
+    // A round that stopped after the archive was written but before the journal was removed finishes here.
     fs.rmSync(this.file, { force: true });
     fsyncDirectory(path.dirname(this.file));
   }

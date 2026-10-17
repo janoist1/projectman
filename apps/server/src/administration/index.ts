@@ -18,6 +18,7 @@ export {
   DiagnosticLogsSchema,
   LogsLimit,
   OperationId,
+  SOCKET_PATH_MAX,
   SocketParams,
   SocketValues,
   SupervisorConfig,

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   AdministrationSetupError,
+  SOCKET_PATH_MAX,
   SupervisorConfig,
   ensurePrivateDir,
   expectedServiceKind,
@@ -115,11 +116,16 @@ export function prepareFiles(input: PrepareInput): PreparedFile[] {
       );
   }
 
+  const socketPath = path.join(socketDir, SOCKET_NAME);
+  if (socketPath.length > SOCKET_PATH_MAX)
+    throw new PrepareError(
+      `the socket path is longer than ${SOCKET_PATH_MAX} characters; use a shorter directory`,
+    );
   const config = SupervisorConfig.safeParse({
     version: 1,
     target: parseTarget(input.target),
     stateDir,
-    socketPath: path.join(socketDir, SOCKET_NAME),
+    socketPath,
     service: kind === 'launchd' ? { kind, label: input.service } : { kind, unit: input.service },
   });
   if (!config.success)

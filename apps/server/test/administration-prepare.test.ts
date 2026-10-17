@@ -2,7 +2,8 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { TestContext } from 'vitest';
 import {
   ADMINISTRATION_FOLDER,
   PrepareError,
@@ -12,33 +13,54 @@ import {
 } from '../../../scripts/administration/prepare';
 import { sensitivePaths } from '../src/contracts';
 import type { PrepareInput } from '../../../scripts/administration/prepare';
-import { loadSupervisorConfig, startSupervisor, createSocketClient } from '../src/administration';
+import {
+  SOCKET_PATH_MAX,
+  loadSupervisorConfig,
+  startSupervisor,
+  createSocketClient,
+} from '../src/administration';
 import { unixSocketsWork } from '../src/administration/test-helpers';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '');
 const socketsWork = await unixSocketsWork();
 
-// `dir` plays the app home: the state and socket directories belong below `<dir>/administration`.
-let dir: string;
-// Short names: the socket path must fit a Unix socket address (103 characters).
-const stateOf = () => path.join(dir, 'administration', 's');
-const runOf = () => path.join(dir, 'administration', 'r');
-beforeEach(async () => {
-  dir = await mkdtemp(path.join(os.tmpdir(), 'ap-'));
-  await mkdir(stateOf(), { recursive: true, mode: 0o700 });
-  await mkdir(runOf(), { recursive: true, mode: 0o700 });
-});
-afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
-});
+// `prepareFiles` only reads the templates, so the app home and its directories are fixed, short and need not
+// exist: the socket path must fit a Unix socket address (103 characters) whatever the machine's temp path is.
+const APP = '/srv/ph';
+const stateOf = () => path.join(APP, ADMINISTRATION_FOLDER, 's');
+const runOf = () => path.join(APP, ADMINISTRATION_FOLDER, 'r');
+
+interface ShortInstall {
+  root: string;
+  state: string;
+  run: string;
+  out: string;
+}
+
+/**
+ * A real app home for the tests that touch the disk. The socket path must fit a Unix socket address whatever
+ * the machine's temp folder is, so it is made in /tmp first and in the temp folder when /tmp is not writable;
+ * a temp folder that is still too long skips the test instead of failing it.
+ */
+async function shortInstall(ctx: TestContext): Promise<ShortInstall> {
+  const root = await mkdtemp(path.join('/tmp', 'ap-')).catch(() => mkdtemp(path.join(os.tmpdir(), 'ap-')));
+  ctx.onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const state = path.join(root, ADMINISTRATION_FOLDER, 's');
+  const run = path.join(root, ADMINISTRATION_FOLDER, 'r');
+  if (path.join(run, 'supervisor.sock').length > SOCKET_PATH_MAX)
+    ctx.skip('the temp folder is too long for a Unix socket');
+  await mkdir(state, { recursive: true, mode: 0o700 });
+  await mkdir(run, { recursive: true, mode: 0o700 });
+  return { root, state, run, out: path.join(root, 'out') };
+}
 
 const input = (overrides: Partial<PrepareInput> = {}): PrepareInput => ({
   target: 'hub',
   service: 'projectman.service',
-  appHome: dir,
+  appHome: APP,
   stateDir: stateOf(),
   socketDir: runOf(),
-  outDir: path.join(dir, 'out'),
+  outDir: path.join(APP, 'out'),
   root: repoRoot,
   nodePath: '/usr/local/bin/node',
   platform: 'linux',
@@ -60,7 +82,7 @@ describe('prepare', () => {
     });
     const unit = files[1]!.content;
     expect(unit).toContain('User=projectman');
-    expect(unit).toContain(`supervisor.ts ${path.join(dir, 'out', 'supervisor.json')}`);
+    expect(unit).toContain(`supervisor.ts ${path.join(APP, 'out', 'supervisor.json')}`);
     expect(unit).toContain(`ReadWritePaths=${stateOf()} ${runOf()}`);
     expect(unit).not.toContain('{{');
     // The comments explain what the unit never uses; the directives themselves name no docker, sudo or secret.
@@ -91,7 +113,7 @@ describe('prepare', () => {
     });
     const plist = files[1]!.content;
     expect(plist).toContain('<string>com.projectman.administration</string>');
-    expect(plist).toContain(path.join(dir, 'out', 'supervisor.json'));
+    expect(plist).toContain(path.join(APP, 'out', 'supervisor.json'));
     expect(plist).not.toContain('{{');
     // launchd gives the job one variable only.
     expect(plist.match(/<key>[A-Z_]+<\/key>/g)).toEqual(['<key>PATH</key>']);
@@ -114,17 +136,32 @@ describe('prepare', () => {
     expect(() => prepareFiles(input({ stateDir: outside }))).toThrow(/session sandbox denies/);
     expect(() => prepareFiles(input({ socketDir: outside }))).toThrow(/session sandbox denies/);
     // A sibling that merely starts with the same letters, the app home itself and the folder itself are outside too.
-    expect(() => prepareFiles(input({ stateDir: `${dir}/administration-other/state` }))).toThrow(
+    expect(() => prepareFiles(input({ stateDir: `${APP}/administration-other/state` }))).toThrow(
       PrepareError,
     );
-    expect(() => prepareFiles(input({ socketDir: dir }))).toThrow(PrepareError);
-    expect(() => prepareFiles(input({ socketDir: path.join(dir, 'administration') }))).toThrow(PrepareError);
+    expect(() => prepareFiles(input({ socketDir: APP }))).toThrow(PrepareError);
+    expect(() => prepareFiles(input({ socketDir: path.join(APP, ADMINISTRATION_FOLDER) }))).toThrow(
+      PrepareError,
+    );
     expect(() => prepareFiles(input({ appHome: '/Users/other/.projectman' }))).toThrow(PrepareError);
   });
 
+  it('says so when the socket path would be too long for a Unix socket', () => {
+    const long = path.join(APP, ADMINISTRATION_FOLDER, 'r'.repeat(90));
+    expect(() => prepareFiles(input({ socketDir: long }))).toThrow(/socket path is longer than 103/);
+    // The longest accepted path is exactly 103 characters.
+    const fits = path.join(
+      APP,
+      ADMINISTRATION_FOLDER,
+      'r'.repeat(103 - `${APP}/administration//supervisor.sock`.length),
+    );
+    expect(`${fits}/supervisor.sock`).toHaveLength(103);
+    expect(() => prepareFiles(input({ socketDir: fits }))).not.toThrow();
+  });
+
   it('puts the directories where the sandbox sensitive paths already deny them', () => {
-    const denied = sensitivePaths({ userHome: '/home/someone', appHome: dir });
-    const adminRoot = path.join(dir, ADMINISTRATION_FOLDER);
+    const denied = sensitivePaths({ userHome: '/home/someone', appHome: APP });
+    const adminRoot = path.join(APP, ADMINISTRATION_FOLDER);
     expect(denied).toContain(adminRoot);
     for (const place of [stateOf(), runOf()]) expect(place.startsWith(`${adminRoot}/`)).toBe(true);
   });
@@ -133,24 +170,29 @@ describe('prepare', () => {
     expect(() => render('x {{UNKNOWN}}', {}, (value) => value)).toThrow(PrepareError);
   });
 
-  it('writes private files into a private folder and the result loads as a supervisor configuration', async () => {
-    const out = path.join(dir, 'out');
-    await writePrepared(out, prepareFiles(input({ outDir: out })));
+  it('writes private files into a private folder and the result loads as a supervisor configuration', async (ctx) => {
+    const { root, state, run, out } = await shortInstall(ctx);
+    await writePrepared(
+      out,
+      prepareFiles(input({ appHome: root, stateDir: state, socketDir: run, outDir: out })),
+    );
     expect((await lstat(out)).mode & 0o777).toBe(0o700);
     for (const name of await readdir(out))
       expect((await lstat(path.join(out, name))).mode & 0o777).toBe(0o600);
     const config = await loadSupervisorConfig(path.join(out, 'supervisor.json'));
     expect(config.target).toEqual({ kind: 'hub' });
-    // Nothing else was created or started: the state and socket directories are still empty.
-    expect(await readdir(stateOf())).toEqual([]);
-    expect(await readdir(runOf())).toEqual([]);
+    // Only the two prepared files exist: no state or socket directory was created and nothing was started.
+    expect((await readdir(out)).sort()).toEqual(['projectman-administration.service', 'supervisor.json']);
   });
 });
 
 describe.skipIf(!socketsWork)('the supervisor process', () => {
-  it('starts from its configuration file alone, answers on its socket and refuses another target', async () => {
-    const out = path.join(dir, 'out');
-    await writePrepared(out, prepareFiles(input({ outDir: out })));
+  it('starts from its configuration file alone, answers on its socket and refuses another target', async (ctx) => {
+    const { root, state, run, out } = await shortInstall(ctx);
+    await writePrepared(
+      out,
+      prepareFiles(input({ appHome: root, stateDir: state, socketDir: run, outDir: out })),
+    );
     const calls: Array<{ file: string; args: readonly string[] }> = [];
     const running = await startSupervisor({
       configFile: path.join(out, 'supervisor.json'),
@@ -181,6 +223,6 @@ describe.skipIf(!socketsWork)('the supervisor process', () => {
     } finally {
       await running.close();
     }
-    expect(await readFile(path.join(stateOf(), 'journal.log'), 'utf8')).toContain('supervisor_started');
+    expect(await readFile(path.join(state, 'journal.log'), 'utf8')).toContain('supervisor_started');
   });
 });

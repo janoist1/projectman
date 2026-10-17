@@ -183,12 +183,15 @@ export type SocketResponse = z.infer<typeof SocketResponse>;
 export const SOCKET_REQUEST_MAX_BYTES = ADMINISTRATION_LIMITS.requestBytes;
 export const SOCKET_RESPONSE_MAX_BYTES = ADMINISTRATION_LIMITS.responseBytes;
 
+/** The longest path a Unix socket address holds on the supported systems. */
+export const SOCKET_PATH_MAX = 103;
+
 /** The service of one installation, in the supervisor's own protected file. */
 export const SupervisorConfig = z.strictObject({
   version: z.literal(1),
   target: AdministrationTargetSchema,
   stateDir: z.string().min(1).max(1024),
-  socketPath: z.string().min(1).max(103),
+  socketPath: z.string().min(1).max(SOCKET_PATH_MAX),
   service: z.discriminatedUnion('kind', [
     z.strictObject({
       kind: z.literal('launchd'),

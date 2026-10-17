@@ -2104,6 +2104,17 @@ workers follow the machine's size.
   engine of a project (the default engine) is the machine the owner sees. `PROJECTMAN_MACHINE_FIXTURE`
   is ignored and no full-test or screenshot executor is built locally. The
   local worktree manager is still created because `DomainOptions.worktrees` is required, and is unused.
+  Since PM-774, the native PTY and terminal packages (`runner/{session,terminal}.ts`), sandbox runtime
+  (`full-test/{index,workspace-dependencies}.ts`), SES SDK (`services/email-login/ses-mailer.ts`) and
+  image decoder (`core/attachments/{attachments/thumbnail,message-attachments/image}.ts`,
+  `services/feedback/screenshots.ts`) load only on first use. Synchronous PTY and terminal APIs use
+  `createRequire`; asynchronous operations memoize dynamic imports. The image decoder disables its
+  operation cache when loaded. Cloud startup loads none of these packages, even with e-mail login
+  configured; the SDK client is created on the first send. The entry point loads the full-test factories
+  dynamically in single mode; the queue directory helper lives in `full-test/heavy-lock-dir.ts` and
+  remains available through the existing facade. `test/architecture/lazy-packages.test.ts` guards
+  against static value imports. The engine and single mode load each package where its work runs;
+  the existing RPC boundary and host requirements do not change.
   The idempotency store of a link keeps 10,000 results; the `usage` events replayed after a cloud restart
   can be counted twice, because the cloud's memory of handled events does not survive its restart.
   **Does this work on a remote engine?** This entry is the cloud's side of the remote engine: nothing
@@ -2438,7 +2449,7 @@ assumption or remote-engine RPC.
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
   **Module:** `worktree`
-- **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core}.ts`,
+- **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
   `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
   `/tmp/projectman-<uid>/heavy` uses local atomic directory operations, PID liveness and

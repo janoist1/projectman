@@ -1,6 +1,6 @@
 import { finished } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
-import sharp from 'sharp';
+import type Sharp from 'sharp';
 import type { AttachmentWriter } from '../../../contracts';
 
 /** The longest side of a thumbnail, in pixels. */
@@ -17,8 +17,14 @@ export interface ThumbnailStorage<Ref extends { id: string }> {
   createThumbnail(ref: Ref): Promise<AttachmentWriter>;
 }
 
-// Thumbnails are made once and kept on disk: libvips' operation cache would only hold memory.
-sharp.cache(false);
+let sharpPromise: Promise<typeof Sharp> | undefined;
+function loadSharp(): Promise<typeof Sharp> {
+  return (sharpPromise ??= import('sharp').then(({ default: sharp }) => {
+    // Thumbnails are kept on disk: libvips' operation cache would only hold memory.
+    sharp.cache(false);
+    return sharp;
+  }));
+}
 
 /**
  * Makes the thumbnail of an image attachment: a WebP of at most 640 px a side, from the first frame,
@@ -73,6 +79,7 @@ export class ThumbnailMaker<Ref extends { id: string }> {
   private async render(ref: Ref, size: number): Promise<boolean> {
     let source: Readable | undefined;
     try {
+      const sharp = await loadSharp();
       source = await this.storage.openRead(ref, size);
       const decoder = sharp({ limitInputPixels: MAX_INPUT_PIXELS, sequentialRead: true })
         .rotate()

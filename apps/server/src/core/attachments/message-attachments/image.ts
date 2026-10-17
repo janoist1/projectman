@@ -1,10 +1,17 @@
-import sharp from 'sharp';
+import type Sharp from 'sharp';
 import { MESSAGE_IMAGE_MAX_BYTES, MESSAGE_IMAGE_MAX_SIDE } from '../../../contracts';
 import { MAX_INPUT_PIXELS, TIMEOUT_SECONDS } from '../attachments/thumbnail';
 
 const FIRST_QUALITY = 85;
 const SECOND_QUALITY = 60;
 const MAX_CONCURRENT = 2;
+let sharpPromise: Promise<typeof Sharp> | undefined;
+function loadSharp(): Promise<typeof Sharp> {
+  return (sharpPromise ??= import('sharp').then(({ default: sharp }) => {
+    sharp.cache(false);
+    return sharp;
+  }));
+}
 
 /**
  * Renders a stored image as the WebP an AI member sees: the first frame, rotated by its EXIF
@@ -24,6 +31,7 @@ export class MessageImageRenderer {
     if (this.active >= MAX_CONCURRENT) await new Promise<void>((resolve) => this.waiting.push(resolve));
     this.active += 1;
     try {
+      const sharp = await loadSharp();
       for (const quality of [FIRST_QUALITY, SECOND_QUALITY]) {
         const webp = await sharp(image, { limitInputPixels: MAX_INPUT_PIXELS })
           .rotate()

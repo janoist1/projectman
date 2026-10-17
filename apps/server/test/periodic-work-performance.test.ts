@@ -25,6 +25,8 @@ const HANDLES = ['dev-1', 'dev-2', 'cr', 'pm', 'operator', ...EXTRA_HANDLES];
 const RUN_BENCHMARK = process.env.PROJECTMAN_PERIODIC_BENCHMARK === '1';
 const PENDING_ONLY = process.env.PROJECTMAN_PERIODIC_PENDING_ONLY === '1';
 const RUN_STARTUP = process.env.PROJECTMAN_PERIODIC_STARTUP === '1';
+// PM-770: a comma-separated subset of the paths (`thirty,sixty`), a separately named report like the pending one.
+const ONLY_PATHS = process.env.PROJECTMAN_PERIODIC_PATHS?.split(',').filter(Boolean);
 
 function random(seed = 733) {
   let state = seed;
@@ -426,7 +428,7 @@ describe('periodic work performance protocol (PM-733)', () => {
           warmup: 2,
           repeats: 5,
           rounds: 10,
-          mode: PENDING_ONLY ? 'pending' : 'full',
+          mode: PENDING_ONLY ? 'pending' : ONLY_PATHS ? `paths-${ONLY_PATHS.join('-')}` : 'full',
         };
         console.log('PM733 environment', JSON.stringify(environment));
         const results: unknown[] = [];
@@ -451,7 +453,10 @@ describe('periodic work performance protocol (PM-733)', () => {
                 }),
               );
               const runs = paths(h);
-              for (const [path, run] of Object.entries(PENDING_ONLY ? { pending: runs.pending } : runs)) {
+              const selected = Object.entries(PENDING_ONLY ? { pending: runs.pending } : runs).filter(
+                ([path]) => !ONLY_PATHS || ONLY_PATHS.includes(path),
+              );
+              for (const [path, run] of selected) {
                 const samples = await measure(run, meter);
                 results.push({ active, historyMessages, historyTasks, path, samples, ...h.fixtureTimings });
                 writeFileSync(reportPath, JSON.stringify({ environment, results, complete: false }, null, 2));

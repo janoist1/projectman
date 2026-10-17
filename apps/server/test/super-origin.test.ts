@@ -697,6 +697,15 @@ describe('super-mode origin and audit (PM-757)', () => {
       const stored = h.repos.messages.list('AR').find((m) => m.id === sent.id)!;
       expect(stored).toMatchObject({ from: 'operator', actor: SUPER });
       expect(stored.actor?.handle).toBe(stored.from);
+      // A super origin cannot ride on a message from someone else (the owner whose token it is).
+      await expect(
+        h.domain.messaging.send(
+          'AR',
+          'owner',
+          { to: ['dev-1'], text: 'Fictional mismatch' },
+          { actor: actorOf(bound) },
+        ),
+      ).rejects.toThrow(/super-mode message/);
     });
 
     it('delivers the answer to an agent`s question from the Operator when the resolver is a super step', async () => {

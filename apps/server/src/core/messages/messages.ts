@@ -102,6 +102,9 @@ export class MessageService {
   }
 
   record(input: RecordMessageInput): TeamMessage {
+    // A super-mode origin names the Operator: a message from anyone else cannot carry it (PM-757).
+    if (hasSuperOrigin(input.actor) && input.actor.handle !== input.from)
+      throw new Error('a super-mode message must be sent from its actor');
     const at = isoNow(this.ctx);
     const message: TeamMessage = {
       id: input.id ?? newId('msg'),

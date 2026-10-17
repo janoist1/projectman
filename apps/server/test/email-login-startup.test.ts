@@ -37,7 +37,8 @@ vi.mock('../src/app', async (importOriginal) => ({
   })),
 }));
 
-vi.mock('../src/logging', () => ({
+vi.mock('../src/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/logging')>()),
   createServerLogStream: vi.fn(),
   serverLogFile: vi.fn(),
 }));

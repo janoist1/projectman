@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { routes, superActorOf } from '@projectman/shared';
+import { prepareOperatorConfigPatch, roleBundle, routes, superActorOf } from '@projectman/shared';
 import type { Actor } from '@projectman/shared';
 import type { IntegratorExecutionContext } from '../src/contracts';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
@@ -36,6 +36,33 @@ describe('credential REST and domain access (PM-759)', () => {
         projectKey: 'AR',
       } satisfies IntegratorExecutionContext,
     };
+  }
+
+  async function queuedTasks(count: number, runningLast = false) {
+    const { domain, repos } = h.app.projectman;
+    vi.spyOn(domain.merges, 'pump').mockImplementation(() => {});
+    const tasks = await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        domain.tasks.create('AR', { title: `Queued ${i}` }, { kind: 'human', handle: 'owner' }),
+      ),
+    );
+    for (const [index, task] of tasks.entries())
+      repos.taskMerges.save({
+        id: `merge_${index}`,
+        taskKey: task.key,
+        projectKey: 'AR',
+        repo: 'web',
+        base: 'main',
+        fromStageId: 'merge',
+        toStageId: 'done',
+        merger: 'owner',
+        requestedAt: '2026-10-17T12:00:00.000Z',
+        state: runningLast && index === count - 1 ? 'running' : 'queued',
+        landed: 'nowhere',
+        createdAt: '2026-10-17T12:00:00.000Z',
+        updatedAt: '2026-10-17T12:00:00.000Z',
+      });
+    return tasks;
   }
 
   it.each(['own', 'legacy', 'super', 'read'] as const)('%s reads every administrative area', async (mode) => {
@@ -152,6 +179,70 @@ describe('credential REST and domain access (PM-759)', () => {
         ).toMatchObject({ kind: 'ai', handle: 'operator', operatorMode: 'super' });
         const sent = h.app.projectman.repos.messages.list('AR').find((m) => m.body === 'Administrative note');
         expect(sent).toMatchObject({ from: 'operator', actor: { kind: 'ai', operatorMode: 'super' } });
+      }
+    },
+  );
+
+  it.each(['own', 'legacy', 'super', 'read'] as const)(
+    '%s applies targeted Operator role and watch configuration through the existing PATCH',
+    async (mode) => {
+      const { domain } = h.app.projectman;
+      const initial = await domain.projects.load('AR');
+      const architect = { ...roleBundle(initial.config, 'architect'), instructions: 'Keep this role' };
+      const seed = await h.app.inject({
+        method: 'PATCH',
+        url: routes.config('AR'),
+        headers: { cookie },
+        payload: { baseVersion: initial.version, roleOverrides: { architect } },
+      });
+      expect(seed.statusCode, seed.body).toBe(200);
+      const before = await domain.projects.load('AR');
+      const developer = { ...roleBundle(before.config, 'developer'), instructions: 'Updated role' };
+      const { headers } = await credential(mode);
+      const response = await h.app.inject({
+        method: 'PATCH',
+        url: routes.config('AR'),
+        headers,
+        payload: prepareOperatorConfigPatch(before.config, before.version, {
+          operatorWatch: 'drive',
+          roleOverrides: { developer },
+        }),
+      });
+      const allowed = mode === 'own' || mode === 'super';
+      expect(response.statusCode, response.body).toBe(allowed ? 200 : 403);
+      const after = await domain.projects.load('AR');
+      expect(after.config.team.roleOverrides?.architect).toEqual(architect);
+      if (allowed) {
+        expect(after.config.team.roleOverrides?.developer).toEqual(developer);
+        expect(after.config.team.operatorWatch).toBe('drive');
+      } else {
+        expect(after).toEqual(before);
+        if (mode === 'read') expect(response.json().error.code).toBe('integrator_read_only');
+      }
+    },
+  );
+
+  it.each(['own', 'legacy', 'super', 'read'] as const)(
+    '%s orders the repository merge queue',
+    async (mode) => {
+      const { repos } = h.app.projectman;
+      await queuedTasks(2);
+      const before = repos.taskMerges.queueOrder('AR', 'web');
+      const { headers } = await credential(mode);
+      const taskKeys = [...before.taskKeys].reverse();
+      const response = await h.app.inject({
+        method: 'PUT',
+        url: routes.mergeQueueOrder('AR'),
+        headers,
+        payload: { repo: 'web', expectedRevision: before.revision, taskKeys, reason: 'Credential order' },
+      });
+      expect(response.statusCode, response.body).toBe(mode === 'read' ? 403 : 200);
+      if (mode === 'read') {
+        expect(response.json().error.code).toBe('integrator_read_only');
+        expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual(before);
+      } else {
+        expect(response.json()).toEqual({ revision: before.revision + 1, taskKeys });
+        expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual(response.json());
       }
     },
   );
@@ -315,28 +406,7 @@ describe('credential REST and domain access (PM-759)', () => {
   it('uses one revision for permutations and prioritize and never edits a running merge or approval labels', async () => {
     const { domain, repos } = h.app.projectman;
     const { headers } = await credential('super');
-    vi.spyOn(domain.merges, 'pump').mockImplementation(() => {});
-    const tasks = await Promise.all(
-      [1, 2, 3].map((i) =>
-        domain.tasks.create('AR', { title: `Queued ${i}` }, { kind: 'human', handle: 'owner' }),
-      ),
-    );
-    for (const [index, task] of tasks.entries())
-      repos.taskMerges.save({
-        id: `merge_${index}`,
-        taskKey: task.key,
-        projectKey: 'AR',
-        repo: 'web',
-        base: 'main',
-        fromStageId: 'merge',
-        toStageId: 'done',
-        merger: 'owner',
-        requestedAt: '2026-10-17T12:00:00.000Z',
-        state: index === 2 ? 'running' : 'queued',
-        landed: 'nowhere',
-        createdAt: '2026-10-17T12:00:00.000Z',
-        updatedAt: '2026-10-17T12:00:00.000Z',
-      });
+    const tasks = await queuedTasks(3, true);
     const queue = repos.taskMerges.queueOrder('AR', 'web');
     const payload = {
       repo: 'web',
@@ -362,6 +432,134 @@ describe('credential REST and domain access (PM-759)', () => {
       revision: before.revision + 1,
       taskKeys: queue.taskKeys,
     });
+  });
+
+  it('records only moved queue cards and the cards they actually overtake', async () => {
+    const { domain, repos } = h.app.projectman;
+    const tasks = await queuedTasks(5);
+    const before = repos.taskMerges.queueOrder('AR', 'web');
+    const [first, second, third, fourth, fifth] = before.taskKeys as [string, string, string, string, string];
+    await domain.merges.orderQueue(
+      'AR',
+      { kind: 'human', handle: 'owner' },
+      {
+        repo: 'web',
+        expectedRevision: before.revision,
+        taskKeys: [first, fourth, third, second, fifth],
+        reason: 'Move the dependency earlier',
+      },
+    );
+    for (const task of tasks) {
+      const events = repos.timeline
+        .list('AR', { taskKey: task.key })
+        .filter((event) => event.type === 'task_merge_prioritized');
+      if (task.key === second || task.key === fourth) {
+        expect(events).toHaveLength(1);
+        expect(events[0]!.data).toMatchObject({
+          reason: 'Move the dependency earlier',
+          ahead: task.key === fourth ? [second, third] : [],
+        });
+      } else expect(events).toHaveLength(0);
+    }
+  });
+
+  it('retries prioritize and complete reorder while the slot holder is still durably queued', async () => {
+    const { domain, repos } = h.app.projectman;
+    const tasks = await queuedTasks(2);
+    const before = repos.taskMerges.queueOrder('AR', 'web');
+    vi.spyOn(domain.merges, 'holder').mockReturnValue(tasks[0]!.key);
+    await expect(
+      domain.merges.prioritize('AR', tasks[1]!.key, { kind: 'human', handle: 'owner' }, 'Move earlier'),
+    ).rejects.toMatchObject({ code: 'merge_queue_conflict' });
+    await expect(
+      domain.merges.orderQueue(
+        'AR',
+        { kind: 'human', handle: 'owner' },
+        {
+          repo: 'web',
+          expectedRevision: before.revision,
+          taskKeys: [...before.taskKeys].reverse(),
+          reason: 'Move earlier',
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'merge_queue_conflict' });
+    expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual(before);
+    for (const task of tasks)
+      expect(
+        repos.timeline
+          .list('AR', { taskKey: task.key })
+          .filter((event) => event.type === 'task_merge_prioritized'),
+      ).toHaveLength(0);
+  });
+
+  it('preserves human hand-on decisions while allowing an administrative move to cancel a stale request', async () => {
+    const { domain, repos } = h.app.projectman;
+    const { context, headers } = await credential('super');
+    for (const target of ['development', 'code_review']) {
+      const task = await domain.tasks.create(
+        'AR',
+        { title: `Human hand-on ${target}` },
+        { kind: 'human', handle: 'owner' },
+      );
+      const item = domain.inbox.create({
+        projectKey: 'AR',
+        taskKey: task.key,
+        kind: 'hand_on',
+        source: 'dev-1',
+        sessionId: null,
+        assignees: ['owner'],
+        title: 'Human hand-on',
+        payload: {
+          handOn: {
+            taskKey: task.key,
+            fromStageId: 'backlog',
+            toStageId: 'development',
+            requestedBy: 'dev-1',
+          },
+        },
+        options: [{ id: 'move', label: 'Move', style: 'primary' }],
+      });
+      const request = {
+        projectKey: 'AR',
+        taskKey: task.key,
+        fromStageId: 'backlog',
+        toStageId: 'development',
+        mover: 'owner',
+        requestedBy: 'dev-1',
+        requestedAt: item.createdAt,
+        inboxItemId: item.id,
+      };
+      repos.taskHandOns.save(request);
+      expect(() =>
+        domain.superOperator.run(context!, () => domain.inbox.resolveHandOn(item.id, 'owner')),
+      ).toThrow(expect.objectContaining({ code: 'owner_approval_required' }));
+      const response = await h.app.inject({
+        method: 'PATCH',
+        url: routes.task('AR', task.key),
+        headers,
+        payload: { stageId: target },
+      });
+      if (target === 'development') {
+        expect(response.statusCode, response.body).toBe(403);
+        expect(response.json().error.code).toBe('owner_approval_required');
+        expect(domain.tasks.get('AR', task.key).stageId).toBe('backlog');
+        expect(repos.taskHandOns.get('AR', task.key)).toEqual(request);
+        expect(repos.inbox.get(item.id)?.state).toBe('open');
+        const own = await h.app.inject({
+          method: 'PATCH',
+          url: routes.task('AR', task.key),
+          headers: { cookie },
+          payload: { stageId: target },
+        });
+        expect(own.statusCode, own.body).toBe(200);
+        expect(repos.inbox.get(item.id)).toMatchObject({ state: 'resolved', resolution: { by: 'owner' } });
+      } else {
+        expect(response.statusCode, response.body).toBe(200);
+        expect(domain.tasks.get('AR', task.key).stageId).toBe(target);
+        expect(repos.inbox.get(item.id)).toMatchObject({ state: 'cancelled', resolution: null });
+        expect(repos.taskHandOns.get('AR', task.key)).toBeNull();
+      }
+    }
   });
 
   it('refuses reserved effects without configuration, task or invitation side effects', async () => {

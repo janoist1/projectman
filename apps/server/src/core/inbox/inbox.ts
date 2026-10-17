@@ -498,6 +498,7 @@ export class InboxService {
 
   /** Close a hand-on item as part of the transaction that actually moved its card. */
   resolveHandOn(id: string, by: string): void {
+    // Resolving a human mover's pending request records their decision, even during an administrative move.
     assertOwnApproval();
     const at = isoNow(this.ctx);
     const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'move', by, at, note: null }, at);

@@ -75,6 +75,20 @@ export const TaskMergeState = z.object({
 });
 export type TaskMergeState = z.infer<typeof TaskMergeState>;
 
+/** Only an exact permutation of the current repository queue at the expected revision is valid. */
+export function mergeQueueOrderRefusal(
+  current: { revision: number; taskKeys: readonly string[] },
+  request: { expectedRevision: number; taskKeys: readonly string[] },
+): 'merge_queue_conflict' | null {
+  const wanted = new Set(request.taskKeys);
+  return current.revision !== request.expectedRevision ||
+    wanted.size !== request.taskKeys.length ||
+    current.taskKeys.length !== request.taskKeys.length ||
+    current.taskKeys.some((key) => !wanted.has(key))
+    ? 'merge_queue_conflict'
+    : null;
+}
+
 /** The one member allowed to edit a card's dedicated conflict-resolution checkout. */
 export function isMergeFixer(merge: TaskMergeState | null | undefined, member: string): boolean {
   return merge?.state === 'fixing' && merge.merger === member && merge.fix?.by === member;

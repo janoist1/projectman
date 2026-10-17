@@ -318,6 +318,8 @@ export class Merges {
    * the Operator may decide it; the running merge is not interrupted. The merge gets `prioritized_at` (the queue
    * orders by it first, the latest decision first), which is cleared when the merge starts running. Without a
    * queued merge nothing can move; when it is first already, nothing changes (`moved` false, no event).
+   * While a slot holder is still durably queued, retry with `merge_queue_conflict`; the same revision
+   * and transaction guard this path and a complete queue reorder.
    */
   async prioritize(
     projectKey: string,
@@ -414,7 +416,8 @@ export class Merges {
       );
       if (!ordered) throw conflict('merge_queue_conflict', 'the merge queue changed');
       if (ordered.revision !== current.revision)
-        for (const taskKey of ordered.taskKeys) {
+        for (const [index, taskKey] of ordered.taskKeys.entries()) {
+          if (current.taskKeys[index] === taskKey) continue;
           const row = this.deps.ctx.repos.taskMerges.open(projectKey, taskKey)!;
           this.deps.timeline.append({
             projectKey,
@@ -425,7 +428,9 @@ export class Merges {
               mergeId: row.id,
               repo: input.repo,
               reason: input.reason,
-              ahead: current.taskKeys.slice(0, current.taskKeys.indexOf(taskKey)),
+              ahead: current.taskKeys
+                .slice(0, current.taskKeys.indexOf(taskKey))
+                .filter((key) => ordered.taskKeys.indexOf(key) > index),
             },
           });
           this.deps.tasks.publish(this.deps.tasks.get(projectKey, taskKey));

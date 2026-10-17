@@ -74,6 +74,7 @@ import {
   StartMergeRequest,
   PrioritizeMergeRequest,
   OrderMergeQueueRequest,
+  mergeQueueOrderRefusal,
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
@@ -2074,13 +2075,7 @@ export class MockBackend {
       if (!parsed.success) return error(400, 'invalid_request', 'Invalid queue order');
       if (this.viewerAccess() !== 'owner') return error(403, 'insufficient_access', 'Owner access required');
       const current = this.mergeQueueOrder(parsed.data.repo);
-      const wanted = new Set(parsed.data.taskKeys);
-      if (
-        current.revision !== parsed.data.expectedRevision ||
-        wanted.size !== parsed.data.taskKeys.length ||
-        current.taskKeys.length !== wanted.size ||
-        current.taskKeys.some((key) => !wanted.has(key))
-      )
+      if (mergeQueueOrderRefusal(current, parsed.data))
         return error(409, 'merge_queue_conflict', 'The merge queue changed');
       const changed = current.taskKeys.some((key, index) => parsed.data.taskKeys[index] !== key);
       const ordered = { revision: current.revision + Number(changed), taskKeys: [...parsed.data.taskKeys] };

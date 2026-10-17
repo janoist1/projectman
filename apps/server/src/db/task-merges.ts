@@ -1,4 +1,5 @@
 import type { TaskMerged, TaskMergeState } from '@projectman/shared';
+import { mergeQueueOrderRefusal } from '@projectman/shared';
 import { z } from 'zod';
 import type { Db } from './database';
 import { MergeTrainId } from './merge-trains';
@@ -156,14 +157,7 @@ export function createTaskMergeRepository(db: Db) {
     ) {
       return db.transaction(() => {
         const current = queueOrder(projectKey, repo);
-        const wanted = new Set(taskKeys);
-        if (
-          current.revision !== expectedRevision ||
-          wanted.size !== taskKeys.length ||
-          current.taskKeys.length !== taskKeys.length ||
-          current.taskKeys.some((key) => !wanted.has(key))
-        )
-          return null;
+        if (mergeQueueOrderRefusal(current, { expectedRevision, taskKeys })) return null;
         if (current.taskKeys.every((key, index) => key === taskKeys[index])) return current;
         const update = db.prepare(
           "UPDATE task_merges SET queue_rank = ? WHERE project_key = ? AND repo = ? AND task_key = ? AND state = 'queued'",

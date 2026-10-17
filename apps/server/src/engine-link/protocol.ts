@@ -9,6 +9,7 @@ import {
   SessionState,
   TokenUsage,
 } from '@projectman/shared';
+import { ADMINISTRATION_CAPABILITIES } from '../contracts';
 import type { EnginePaths, PermissionRefusedInfo, RunnerEvent, RunningSessionInfo } from '../contracts';
 import type { PullRequestInfo, SessionCleanup } from '../contracts';
 
@@ -170,6 +171,11 @@ export const Hello = z.strictObject({
   pid: int.min(1),
   uid: int.nullable(),
   bootId: text.regex(/^[a-f0-9]{16}$/),
+  /** What this machine's administration supervisor can do (PM-763); absent: the engine has none (or is older). */
+  administration: z
+    .array(z.enum(ADMINISTRATION_CAPABILITIES))
+    .max(ADMINISTRATION_CAPABILITIES.length)
+    .optional(),
 });
 export type Hello = z.infer<typeof Hello>;
 export const EngineErrorCode = z.enum([

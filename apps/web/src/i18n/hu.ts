@@ -971,6 +971,12 @@ export const hu = {
       release_protocol_unavailable: 'Ezen a példányon a kiadás a hybrid protokollon át megy.',
       release_artifact_changed: 'A kiadás csomagja eltér a korábban rögzítettől.',
       release_engine_mismatch: 'Az engine nem a kiadás szerinti verziót futtatja.',
+      administration_unavailable: 'A gép felügyelője nem érhető el, vagy ez a gép nem kínálja ezt a műveletet.',
+      administration_target_mismatch: 'A művelet célja nem az a gép, amelyet ez a felügyelő kezel.',
+      administration_operation_conflict:
+        'A művelet azonosítója másik parancsé, vagy már fut egy másik felügyeleti művelet.',
+      administration_boot_mismatch: 'A gép közben újraindult, a művelet elavult állapotra hivatkozott.',
+      administration_failed: 'A felügyeleti művelet a gépen nem sikerült.',
       feedback_not_configured: 'A projektben nincs beállítva visszajelző felület.',
       feedback_surface_not_found: 'Ilyen felület nincs a projektben.',
       feedback_mark_not_found: 'Ilyen jelölés nincs.',

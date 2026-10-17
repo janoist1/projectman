@@ -24,6 +24,7 @@
     "control": "node --import tsx scripts/control/cli.ts",
     "migrate": "node --import tsx scripts/migrate/cli.ts",
     "engine": "node --import tsx scripts/engine/cli.ts",
+    "administration": "node --import tsx scripts/administration/cli.ts",
     "live": "node --import tsx scripts/live/cli.ts",
     "cloud": "node --import tsx scripts/cloud/cli.ts",
     "release": "node --import tsx scripts/release/cli.ts",

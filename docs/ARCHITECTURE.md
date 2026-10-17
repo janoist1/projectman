@@ -1360,6 +1360,36 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Administration adapter and supervisor (PM-763, Super mode 7/10)** — `apps/server/src/administration/**`
+  (module `administration`, engine layer, sealed), `apps/server/src/contracts/administration.ts`,
+  `apps/server/src/engine-link/{methods,protocol,engine-handlers}.ts` and `engine-link/remote/administration.ts`,
+  `scripts/administration/*` (`npm run administration -- prepare`), `deploy/mac/com.projectman.administration.plist`
+  and `deploy/projectman-administration.service`. A separate supervisor process per machine (the hub host, each
+  supported engine machine) restarts exactly one configured launchd label or systemd unit, reads that service's
+  boot id (systemd `InvocationID`; launchd a hash of pid and process start time) and keeps a durable operation
+  record and a sanitized diagnostics journal. The hub and the engine reach it only through the port
+  `AdministrationPort` (`status`, `logs`, `submit`, `inspect`) over one Unix socket, one JSON line each way.
+  `full_test`, `image_build` and `deploy` are forwarded to injected executors only; their business orchestration
+  is PM-764, and a command without an executor is not advertised as a capability. **Machine assumptions:** a
+  Unix-domain socket in a 0700 directory owned by the service user (the container of a cloud hub gets this one
+  socket bind-mounted, no docker.sock, host network or shell); launchd (`/bin/launchctl`) or systemd
+  (`/usr/bin/systemctl`) called by absolute path with a minimal environment; the supervisor runs as the same OS
+  user as the service it restarts, and the OS (for example a polkit rule for that one unit) grants it the restart
+  right; `/bin/ps` for the launchd process start time. Node cannot read Unix-socket peer credentials, so access
+  rests on the file-system rights, which are checked (owner, mode, no symbolic link) before every connection.
+  **Remote engine:** yes. Each engine machine runs its own supervisor; the cloud hub reaches it through the
+  engine link with the new server-to-engine RPCs `admin.status|logs|submit|inspect`, which an engine answers for its
+  own target only (the `Hello.administration` capability is negotiated; an older engine gives 503
+  `administration_unavailable`). The socket never leaves the machine, nothing crosses the boundary but the strict
+  zod-checked commands and the bounded diagnostics (at most 200 lines of 1000 characters, no transcript,
+  environment, argv, secret or raw exception), and no bearer or Access header is sent. A restart is never repeated
+  blindly: the operation id is stored before the restart, a duplicate submit gets the same answer, and success needs a
+  changed boot id plus the engine registry's feedback. An active release deployment fence refuses a restart with
+  409 `release_pause_conflict`. The installer only prepares files; installing and starting the supervisors is a
+  separate owner-approved rollout, and it accepts a state and socket directory only below
+  `<app home>/administration`, the folder the session sandbox denies (members run as the same OS user). See
+  docs/SECURITY.md "Administration adapter".
+
 - **Private Operator knowledge (PM-687)** — `apps/server/src/config/operator-knowledge-store.ts`,
   injected by `app.ts` through `assembly.ts` as `OperatorKnowledgeStore`. Stores the approved
   agreement (summary, involvement and extra-critical steps), up to 20 approved learned principles

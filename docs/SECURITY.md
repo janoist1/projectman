@@ -1061,6 +1061,56 @@ holds the AWS and cloud credentials only in `~/.config/projectman/cloud/`, which
 - **One round at a time.** `watch.lock` refuses a second watcher, and an unreadable lock or journal is treated
   as active, never as free.
 
+## Administration adapter (PM-763, part of Super mode)
+
+The hub and the engines can ask a small supervisor on their own machine to restart the service and read its
+bounded diagnostics. The supervisor is a separate process; the hub container gets no `docker.sock`, host
+network, SSM or shell, only one Unix socket.
+
+- **A closed set of commands.** The wire carries one JSON line each way (request at most 16 KiB, answer at most
+  256 KiB, 30 s timeout), parsed with strict zod schemas: `restart` (target and the expected boot id),
+  `full_test`, `image_build` and `deploy`. There is no raw command, argv, path or environment in any request. An
+  unknown key, an oversized line or a malformed one is refused. A target other than the supervisor's own gives
+  `administration_target_mismatch`; an engine answers for its own target only.
+- **The socket is protected by the file system.** Node cannot read Unix-socket peer credentials, so the 0700
+  directory and the 0600 socket are checked before every use (owner is the current user, mode, no symbolic link,
+  `O_NOFOLLOW`, a stale socket is replaced only when nothing answers on it). No bearer, cookie or Access header
+  travels on it.
+- **Same user, OS-granted right.** The supervisor runs as the same OS user as the service it restarts (the
+  checks above compare against that user; for a hub container its uid maps to the host user). The right to
+  restart exactly the one configured launchd label or systemd unit is granted by the operating system (for
+  example a polkit rule), never by a shell, `sudo` or `docker.sock`. The configuration (`supervisor.json`,
+  0600, version 1) names the target, the state directory, the socket and that one service; it is protected
+  like the other app-home files.
+- **Absolute binaries, minimal environment.** The supervisor calls `/bin/launchctl`, `/bin/ps` and
+  `/usr/bin/systemctl` with `execFile` and `PATH`, `LANG`, `LC_ALL` only. A service-manager mismatch (a launchd
+  label on Linux) leaves the controller out and the capability unadvertised.
+- **A restart is not repeated blindly.** The operation id is stored (0600, atomic) before the restart; a
+  duplicate submit gets the stored answer, one operation runs at a time, a changed id for the same command is
+  `administration_operation_conflict`, and success needs the boot id to change plus the engine registry's
+  feedback. A lost answer is read back with `inspect`. An active release deployment fence refuses a restart with
+  409 `release_pause_conflict`.
+- **Secret-free diagnostics.** `logs` returns at most 200 lines of at most 1000 characters from the sanitized
+  journal (fixed codes and fields, ids and hashes). No transcript, environment, argv, secret or raw exception
+  is stored or returned; a token canary is tested absent from argv, output, wire, journal, state files and
+  environment.
+- **Out of reach of members.** `PROJECTMAN_ADMIN_SOCKET` is stripped from every session environment, and the
+  `administration` folder of the app home is in the sandbox's sensitive paths. Member sessions run as the same
+  OS user as the supervisor, so the sandbox is what keeps them from the 0600 socket: the state and the socket
+  directory must therefore lie below `<app home>/administration`. `npm run administration -- prepare` takes
+  `--app-home` and refuses any other place, on the hub host and on an engine machine alike.
+- **A live socket is never taken over.** A starting supervisor removes a leftover socket file only after a
+  connection attempt finds nobody answering; a second supervisor on the same socket stops with `in_use`.
+- **Known limits, left for PM-764.** (1) A restart is confirmed by the supervisor's boot id plus the registry
+  reporting the engine online; right after a restart the old link may still count as online, so a stronger check
+  would compare the engine's hello boot id with the one before the restart. (2) The operation id is chosen by the
+  caller and `inspect` asks the hub first, then each engine; PM-764 should record the target next to the
+  operation id. (3) An engine reads the supervisor's capability at its hello only: a supervisor started after the
+  engine is advertised after the next reconnect.
+- **Nothing is installed by the code.** `npm run administration -- prepare` only writes the configuration and
+  the service file into a private folder; it calls no `launchctl` or `systemctl`. Installing the files, creating
+  the directories and starting the supervisors is a separate rollout that the owner approves.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |

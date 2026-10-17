@@ -290,6 +290,12 @@ modules:
     summary: Gépmérések és a folyamatok elemzése.
     paths:
       - apps/server/src/machine/
+  - id: administration
+    area: engine
+    name: Védett felügyelő
+    summary: A hub és a motor saját gépének védett, típusos felügyelete külön felügyelő folyamaton keresztül.
+    paths:
+      - apps/server/src/administration/
   - id: engine-link
     area: engine
     name: Motorkapocs

@@ -68,6 +68,12 @@ describe('child environment', () => {
     expect(Object.keys(session).filter((name) => name.startsWith('AWS_'))).toEqual([]);
   });
 
+  it('keeps the administration supervisor socket out of every session (PM-763)', () => {
+    const source = { PATH: '/usr/bin', PROJECTMAN_ADMIN_SOCKET: '/var/lib/projectman-admin/supervisor.sock' };
+    expect(buildChildEnv(source)).toEqual({ PATH: '/usr/bin' });
+    expect(Object.keys(buildSessionEnv(source, 'ses_1')).filter((name) => name.includes('ADMIN'))).toEqual([]);
+  });
+
   it('removes the Gemini and NanoGPT variables and the Antigravity markers, whatever the server has (PM-324)', () => {
     const names = [
       'GEMINI_API_KEY',

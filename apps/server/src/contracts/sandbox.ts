@@ -76,6 +76,8 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     'spool',
     // The release watcher's journal, lock and database backups (PM-493): the backups hold all data.
     'release',
+    // The administration supervisor's state, journal and socket on a machine that has the app home (PM-763).
+    'administration',
     HYBRID_ARCHIVE_DIR,
     HYBRID_STAGING_DIR,
     CONTROL_SOCKET_NAME,

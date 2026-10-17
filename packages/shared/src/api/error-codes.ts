@@ -277,6 +277,15 @@ export const ERROR_CODES = [
   'release_protocol_unavailable',
   'release_artifact_changed',
   'release_engine_mismatch',
+  // The protected administration adapter of the hub and of an engine (PM-763): no supervisor, or an engine
+  // that does not offer it (503); the target or the command is not the one the supervisor serves (409); the
+  // operation id is held by another command or another operation is running (409); the expected boot is
+  // stale (409); the operation failed on the machine.
+  'administration_unavailable',
+  'administration_target_mismatch',
+  'administration_operation_conflict',
+  'administration_boot_mismatch',
+  'administration_failed',
   // Feedback marks (PM-506): the project has no surface set up (409); the surface or the mark is unknown
   // (404); the member may not mark (403, the reason in `details.reason`); only a processor decides (403); the
   // page is not on an allowed address (403); the launch code or the tool session is not valid (401); too

@@ -57,6 +57,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { InvitationAccounts } from './core/members';
 import type { EngineCounters } from './runtime/sessions';
 import type {
+  AdministrationPort,
   AttachmentStorage,
   BoundaryOperationAdapter,
   ConfigStore,
@@ -152,6 +153,8 @@ import { MachineMonitor } from './runtime/watchers';
 import { createMachineProbe } from './machine';
 import { LocalEngineDirectory } from './runtime/sessions';
 import { createLocalEngine } from './engine-host';
+import { createAdministrationService } from './administration';
+import type { EngineAdministration } from './administration';
 import { conflict } from './kernel';
 import { SessionCloser } from './runtime/sessions';
 import { SessionOrchestrator } from './runtime/sessions';
@@ -359,6 +362,17 @@ export interface DomainOptions {
    * only a process that carries it can be an orphan of this instance. Absent: none is recognised.
    */
   instanceTag?: string;
+  /**
+   * The protected administration adapter (PM-763): the hub's own supervisor over its Unix socket (null: the
+   * hub has none), the engines' supervisors over their links, and which engine runs a full test or builds an
+   * image. Absent: the domain has no administration (`domain.administration` is null).
+   */
+  administration?: {
+    hub: AdministrationPort | null;
+    engines: EngineAdministration;
+    isEngineOnline(id: EngineId): boolean;
+    builderEngine(): EngineId | null;
+  };
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -940,6 +954,16 @@ export function createDomain(opts: DomainOptions) {
       fullTests.pump();
     },
   });
+  // The release deployment fence (PM-752) keeps a restart out of a deployment that holds the instance.
+  const administration = opts.administration
+    ? createAdministrationService({
+        ...opts.administration,
+        fence: () => {
+          const held = ctx.repos.releaseDeployments.active();
+          return held ? { releaseId: held.releaseId } : null;
+        },
+      })
+    : null;
   const releaseRoadmapNotices = new ReleaseRoadmapNotices({ ctx, projects, messaging });
   events.on('release_proposed', (event) => releaseRoadmapNotices.proposed(event));
   // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
@@ -1910,6 +1934,7 @@ export function createDomain(opts: DomainOptions) {
     decisionCandidates,
     releases,
     releaseDeployments,
+    administration,
     loopWatch,
     questionScreening,
     seniorWaits,

@@ -64,6 +64,8 @@ import { createRunnerModule } from './runner';
 import { createMachineProbe } from './machine';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
+import { createSocketClient } from './administration';
+import { unavailable } from './kernel';
 import { createCloudRemote, createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
 import type { EngineLinks } from './engine-link';
 import { EngineRegistry } from './runtime/sessions';
@@ -187,6 +189,11 @@ export interface BuildAppOptions {
    * `PROJECTMAN_RELEASE_TARGET_HASH`, PM-752). Absent: the single-target release only.
    */
   releaseHybrid?: HybridReleaseTarget;
+  /**
+   * The Unix socket of the hub's own administration supervisor (`PROJECTMAN_ADMIN_SOCKET`, PM-763). Absent:
+   * the hub has no supervisor; the engines' supervisors are still reachable over their links.
+   */
+  administrationSocket?: string;
   /**
    * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off (PM-670).
    */
@@ -466,6 +473,23 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? { releaseHybrid: { binding: options.releaseHybrid, engines: releaseEngineStatuses } }
         : {}),
       engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
+      ...(options.administrationSocket || remote
+        ? {
+            administration: {
+              hub: options.administrationSocket
+                ? createSocketClient({ socketPath: options.administrationSocket })
+                : null,
+              engines: remote?.administration ?? {
+                port: () => {
+                  throw unavailable('administration_unavailable', 'there are no engines');
+                },
+                ids: () => [],
+              },
+              isEngineOnline: (id) => engineRegistry?.isOnline(id) ?? false,
+              builderEngine: () => engineRegistry?.defaultId() ?? null,
+            },
+          }
+        : {}),
       boundaryAdapter: modules.boundaryAdapter,
       nanogptKeyCheck: modules.nanogptKeyCheck,
       fullTestExecutor: remote

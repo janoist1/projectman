@@ -16,6 +16,8 @@ export class FakeLaunchd {
   readonly stateDir = path.join(this.homeDir, '.config', 'projectman', 'cloud', 'release-state');
   readonly configFile = path.join(this.homeDir, '.config', 'projectman', 'cloud', 'release.json');
   loaded = new Set<string>();
+  /** The pid `launchctl print` names for a loaded job. */
+  pids = new Map<string, number>();
   /** Every launchctl call as `verb label`. */
   calls: string[] = [];
   /** The state `launchctl print` shows for a loaded job. */
@@ -63,11 +65,17 @@ export class FakeLaunchd {
         if (command !== 'launchctl') return { status: 127, stdout: '', stderr: 'not found' };
         const verb = args[0]!;
         const label =
-          verb === 'bootstrap' ? path.basename(args[2]!, '.plist') : args[1]!.slice(args[1]!.lastIndexOf('/') + 1);
+          verb === 'bootstrap'
+            ? path.basename(args[2]!, '.plist')
+            : args[1]!.slice(args[1]!.lastIndexOf('/') + 1);
         this.calls.push(`${verb} ${label}`);
         if (verb === 'print')
           return this.loaded.has(label)
-            ? { status: 0, stdout: `state = ${this.jobState}\n`, stderr: '' }
+            ? {
+                status: 0,
+                stdout: `state = ${this.jobState}\n${this.pids.has(label) ? `\tpid = ${this.pids.get(label)}\n` : ''}`,
+                stderr: '',
+              }
             : { status: 113, stdout: '', stderr: 'not found' };
         if (verb === 'bootout') {
           if (this.bootoutStatus === 0) this.loaded.delete(label);

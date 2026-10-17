@@ -1026,6 +1026,34 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   board's login. The login's own limits apply (the code and address limits above); a WAF rule or Turnstile
   in front of the login is not part of this change.
 
+## The hybrid release watcher (PM-751, part of PM-735)
+
+`npm run release` moves one owner-approved release to the cloud and the Mac engine. It is an administration
+tool: it reaches the cloud board's control socket only through `npm run cloud -- release-control` (PM-749) and
+holds the AWS and cloud credentials only in `~/.config/projectman/cloud/`, which the member sandboxes deny.
+
+- **One approval, nothing wider.** The owner's approval of the release covers the whole chain and the program
+  rollback. It does not cover restoring data, which is a separate human decision; the coordinator has no code
+  path that restores data, kills a process, or leaves `recovery_required` by itself.
+- **No operation the board keeps for people.** The relay carries the deployment operations of PM-752 only
+  (`release_next`, `release_get`, `engine_status`, `release_deploy_get|begin|change`). Approving, proposing or
+  rejecting a release stays with the person in the board. The cloud checks the controller id, the target hash
+  and the pause ownership, so a second or foreign watcher cannot take over an attempt.
+- **A wrong machine is refused first.** Before every round the AWS account and the EC2 instance are checked
+  against the configuration, and the cloud's hybrid target must carry the hash of that configuration.
+- **A request that may have been applied is not repeated blindly.** A lost answer (`uncertain`) is read back
+  with `release_deploy_get` and decided from the state; the `requestId` makes a repeat idempotent and the
+  revision makes a stale one refused.
+- **Secret-free output.** The journal, the status line, `last-error.json`, the release alerts and the card hold
+  fixed codes and fixed texts, ids, hashes and phases. A raw error, a path, the stderr or stdout of a command or
+  an answer of the cloud is never copied there (tested with a secret in the stderr). Files in the state
+  directory are 0600, written atomically, and the directory is under the protected tree.
+- **The watcher's own environment.** The LaunchAgent starts with `HOME`, `PATH`, `LANG` and `TZ` only; no
+  provider, GitHub or AWS variable is passed. It is installed only from a stable checkout, never a member
+  workspace, and replaces nothing while a round or a journal is active.
+- **One round at a time.** `watch.lock` refuses a second watcher, and an unreadable lock or journal is treated
+  as active, never as free.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |

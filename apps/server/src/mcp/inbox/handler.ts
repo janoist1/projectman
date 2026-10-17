@@ -207,7 +207,13 @@ export class InboxTools implements InboxToolsHandler {
               }
             : {}),
           ...(unscreened ? { unscreened } : {}),
-          ...(args.responsePurpose ? { responsePurpose: args.responsePurpose } : {}),
+          // A question that appears to ask for an approval is always an owner decision (PM-762): the asking
+          // member cannot make it relayable.
+          ...(approvalLabel
+            ? { responsePurpose: 'owner_decision' as const }
+            : args.responsePurpose
+              ? { responsePurpose: args.responsePurpose }
+              : {}),
           options: choices.map((choice) => choice.label),
           ...(approvalLabel ? { approvalLabel } : {}),
           ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),

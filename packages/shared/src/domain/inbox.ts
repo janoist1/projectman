@@ -736,6 +736,8 @@ export function questionGroupCompatible(a: InboxItem, b: InboxItem): boolean {
       recommended: p?.recommended ?? null,
       attachments: (p?.attachments ?? []).map((file) => file.id).sort(),
       approval: p?.approvalLabel ?? null,
+      // An information question and an owner decision never share a group (PM-762): one answer closes all.
+      purpose: p?.responsePurpose ?? 'owner_decision',
     });
   };
   return signature(a) === signature(b);
@@ -834,6 +836,28 @@ export function isRelayableQuestion(
     !payload.approvalLabel &&
     !payload.screening?.todo &&
     payload.screening?.outcome !== 'todo'
+  );
+}
+
+/** The payload keys of the approvals the server builds; an item that carries one is never a plain question. */
+export const APPROVAL_PAYLOAD_KEYS = [
+  'gate',
+  'release',
+  'permission',
+  'boundary',
+  'approval',
+  'operatorApproval',
+  'operatorKnowledge',
+] as const;
+
+/** The whole-item form of `isRelayableQuestion`: also looks at the approval payload keys and the todo options. */
+export function isRelayableQuestionItem(item: Pick<InboxItem, 'kind' | 'payload' | 'options'>): boolean {
+  if (item.kind !== 'question') return false;
+  const payload = questionPayloadOf(item);
+  if (!payload || !isRelayableQuestion(payload)) return false;
+  if (APPROVAL_PAYLOAD_KEYS.some((key) => key in item.payload)) return false;
+  return !item.options.some(
+    (option) => option.id === TODO_DONE_OPTION.id || option.id === TODO_CANNOT_OPTION.id,
   );
 }
 

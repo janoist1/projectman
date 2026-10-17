@@ -5,6 +5,7 @@ export function createInboxService(deps: ConstructorParameters<typeof InboxServi
 import { isAbsolute, resolve, sep } from 'node:path';
 import { assertIntegratorAccess, assertOwnApproval } from '../../kernel';
 import {
+  APPROVAL_PAYLOAD_KEYS,
   approvalRefusal,
   canSeeInboxItem,
   DELEGATED_INPUT_LIMIT,
@@ -13,7 +14,7 @@ import {
   gateRequestOf,
   handOnRequestOf,
   isPendingQuestion,
-  isRelayableQuestion,
+  isRelayableQuestionItem,
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
@@ -371,15 +372,7 @@ export class InboxService {
                 !payload?.screening ||
                 payload.approvalLabel ||
                 payload.screening.todo ||
-                [
-                  'gate',
-                  'release',
-                  'permission',
-                  'boundary',
-                  'approval',
-                  'operatorApproval',
-                  'operatorKnowledge',
-                ].some((key) => key in item.payload) ||
+                APPROVAL_PAYLOAD_KEYS.some((key) => key in item.payload) ||
                 this.ctx.repos.inbox.groupOf(item.id) ||
                 memberOf(config, item.source)?.kind !== 'ai' ||
                 item.source === by ||
@@ -719,36 +712,17 @@ export class InboxService {
     // A super-mode step on any other question only relays an answer to a plain information question.
     let relayed = false;
     if (by.superActor && item.kind === 'question') {
-      const payload = questionPayloadOf(item);
       const refuse = () =>
         forbidden(
           'super_relay_refused',
           'The integrator may relay an answer only to a question that asks for information',
         );
-      if (
-        !payload ||
-        !isRelayableQuestion(payload) ||
-        item.options.some(
-          (option) => option.id === TODO_DONE_OPTION.id || option.id === TODO_CANNOT_OPTION.id,
-        )
-      )
-        throw refuse();
+      if (!isRelayableQuestionItem(item)) throw refuse();
       // An answer to a question group closes every pending member, so each one must be relayable as well.
       const relayGroup = this.ctx.repos.inbox.groupOf(id);
-      if (relayGroup) {
-        for (const memberId of relayGroup.itemIds) {
-          const member = this.ctx.repos.inbox.get(memberId);
-          if (!member || !isPendingQuestion(member)) continue;
-          const memberPayload = questionPayloadOf(member);
-          if (
-            !memberPayload ||
-            !isRelayableQuestion(memberPayload) ||
-            member.options.some(
-              (option) => option.id === TODO_DONE_OPTION.id || option.id === TODO_CANNOT_OPTION.id,
-            )
-          )
-            throw refuse();
-        }
+      for (const memberId of relayGroup?.itemIds ?? []) {
+        const member = this.ctx.repos.inbox.get(memberId);
+        if (member && isPendingQuestion(member) && !isRelayableQuestionItem(member)) throw refuse();
       }
       relayed = true;
     }

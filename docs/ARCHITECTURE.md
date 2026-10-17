@@ -2004,7 +2004,7 @@ workers follow the machine's size.
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
 
-- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
+- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
   PM-719's trial reset (admin `scripts/cloud/trial-reset.ts`, EC2 `deploy/aws/host.sh`) refuses
   active unit/container/backup writers, bucket versioning including Suspended, Object Lock,
@@ -2071,6 +2071,15 @@ workers follow the machine's size.
   file/hash/reference checks and an earlier DB point when necessary. The fake-tool SQLite fixture
   proves coverage/error paths, while real S3/Docker acceptance belongs to PM-675. Storage secrets
   and backup execution stay on the cloud, never in engine payloads.
+  PM-773 adds the memory tools `deploy/cloud/{memory-probe,memory-profile,heap-summary}.mjs` (the
+  Dockerfile copies them beside the other scripts; `docs/HYBRID.md`, "Memory profile"). They are run
+  by hand, on a disposable copy of a home (marker `<home>/.memory-profile-copy`), on the loopback
+  with no network: the profile starts the server as a child process in a cleared environment, sends
+  it SIGUSR2 for heap snapshots, reads `/proc/<pid>/status` (Linux; `ps` on macOS), and loads it with
+  the web app's read requests over `127.0.0.1`. No tunnel, Litestream, restic or engine starts, no new
+  RPC and nothing crosses the server/engine boundary, so a remote engine is not affected. Heap
+  snapshots hold real data and stay on the machine that ran the tool; only `report.md` and the
+  summaries (types, constructor names, numbers) may leave it.
   **Module:** `deploy`
 
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,

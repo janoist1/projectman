@@ -83,9 +83,22 @@ const HOST_SESSION_PREFIXES = [
   'PROJECTMAN_',
 ];
 
+/**
+ * Cloudflare Access service-token variables (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and the names a
+ * header-environment convention could give them: the integrator's second credential (PM-765). Matched without
+ * regard to case, with `-` read as `_`, so `CF-Access-Client-Secret` and `cf_access_client_secret` go too.
+ */
+const ACCESS_ENV_PREFIXES = ['CF_ACCESS_', 'CLOUDFLARE_ACCESS_'];
+
+function isAccessCredentialName(name: string): boolean {
+  const normal = name.toUpperCase().replace(/-/g, '_');
+  return ACCESS_ENV_PREFIXES.some((prefix) => normal.startsWith(prefix));
+}
+
 function isRemoved(name: string): boolean {
   if ((BILLING_ENV_VARS as readonly string[]).includes(name)) return true;
   if (HOST_SESSION_VARS.has(name)) return true;
+  if (isAccessCredentialName(name)) return true;
   return HOST_SESSION_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 

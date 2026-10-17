@@ -49,6 +49,7 @@ export * from './config/super-mutation';
 export * from './config/super-command';
 export * from './config/canonical';
 export * from './config/invariants';
+export * from './api/client-config';
 export * from './api/dto';
 export * from './api/routes';
 export * from './api/super-handoff';

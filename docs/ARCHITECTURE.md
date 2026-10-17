@@ -2415,6 +2415,21 @@ workers follow the machine's size.
   "Integrator access"); the key still works only over HTTPS, which the container sees as
   `x-forwarded-proto: https` from the tunnel's loopback connection. The service token is a second
   secret with the same rules: never in a message, task, commit, prompt or engine payload.
+  **Integrator client (PM-765):** `scripts/projectman/**` (the `projectman` bin: REST, `events follow` and the
+  stdio `mcp-proxy`), `packages/shared/src/api/client-config.ts` (`ClientConfig`, exit codes, the channel
+  header), `runner/env.ts` (`ACCESS_ENV_PREFIXES`). It runs on the integrator's own machine, not on the
+  server's or an engine's, and reads `~/.config/projectman/client.json` (paths and an origin only) with the key
+  file and the optional Access service-token file it names. Machine assumptions: a home directory with
+  `~/.config/projectman` (mode 700, files of the user with mode 600, no links; checked before any request), Node
+  with the `tsx` loader, an HTTPS origin or a loopback one, a standard input/output pair for the proxy, and for
+  `events follow --cursor-file` a writable local file (the cursor is not a secret). The client has no `--token`
+  and no secret environment variable; it follows no redirect, redacts every error and debug line, and sends the
+  non-secret `X-Projectman-Client: cli` label on REST and event requests (the server decides the channel by the
+  path, so `/mcp` stays the `mcp` channel). Rights, expiry, audit and idempotency (the operations' request id)
+  stay on the server. The runner strips the environment names of the Access service token
+  (`CF_ACCESS_*`, `CLOUDFLARE_ACCESS_*`) next to `PROJECTMAN_INTEGRATOR_KEY`, and the live supervisor's
+  allowlist keeps them out of the server. **Remote engine:** not affected; nothing of the client runs on or
+  crosses to an engine, and neither the key nor the Access token is ever sent there.
   **Module:** `auth`
 
 - **Codex project layer check** — `runner/ambient-config.ts` (`inspectProjectCodex`,

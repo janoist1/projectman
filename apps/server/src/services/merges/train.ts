@@ -353,8 +353,11 @@ export class MergeTrains {
     for (const row of this.rows(train)) this.steps.save(row, patch);
   }
 
-  /** Retire the red attempt and requeue every member atomically; no card is blamed yet. */
-  private async bisect(train: MergeTrainRecord): Promise<void> {
+  /** Retire the failed attempt and requeue members with a smaller group limit, without blaming a card. */
+  private async requeue(
+    train: MergeTrainRecord,
+    maxCards = Math.ceil(train.members.length / 2),
+  ): Promise<void> {
     const { ctx } = this.deps;
     await this.lock(this.rows(train), async () => {
       ctx.unitOfWork(() => {
@@ -367,7 +370,7 @@ export class MergeTrains {
             state: 'queued',
             step: 'queued',
             trainId: undefined,
-            diagnostic: { parentTrainId: train.id, maxCards: Math.ceil(train.members.length / 2) },
+            diagnostic: { parentTrainId: train.id, maxCards },
             prioritizedAt: member.prioritizedAt,
             mergeCommit: undefined,
             check: undefined,
@@ -554,7 +557,7 @@ export class MergeTrains {
         }
         if (recoverOnly) return;
         if (!(await this.checkpoint(run))) return;
-        if (train.check?.status === 'failed') return await this.bisect(train);
+        if (train.check?.status === 'failed') return await this.requeue(train);
         if (base.relation === 'local_ahead' || base.relation === 'diverged')
           return await this.terminal(
             run,
@@ -586,12 +589,7 @@ export class MergeTrains {
             message: `Merge ${member.taskKey} into train ${train.id}`,
           });
           if (!(await this.checkpoint(run))) return;
-          if (!built.ok)
-            return await this.terminal(
-              run,
-              'merge_error',
-              'The merge train contains conflicting sources; retry individually',
-            );
+          if (!built.ok) return await this.requeue(train, 1);
           tip = built.mergeCommit;
         }
         const built = await merger.build(ref, {
@@ -695,7 +693,7 @@ export class MergeTrains {
           },
           'merge train check completed',
         );
-        if (result.outcome === 'failed') return await this.bisect(train);
+        if (result.outcome === 'failed') return await this.requeue(train);
         if (result.outcome !== 'passed')
           return await this.terminal(
             run,

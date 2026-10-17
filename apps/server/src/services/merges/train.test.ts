@@ -203,6 +203,127 @@ describe('merge train execution', () => {
     for (const [, input] of merger.prepare.mock.calls) expect(input.commit).not.toBe(sha(2));
   });
 
+  it.each([2, 3])('retries all %i conflicting train sources individually on current main', async (count) => {
+    await setup(count);
+    const priority = '2026-10-14T18:00:00.000Z';
+    h.repos.taskMerges.save({ ...row('AR-1')!, prioritizedAt: priority });
+    const before = Array.from({ length: count }, (_, i) => row(`AR-${i + 1}`)!);
+    const build = merger.build.getMockImplementation()!;
+    merger.build.mockImplementation(async (ref, input) => {
+      if (input.commit === sha(2) && input.onto !== merger.base.local) {
+        peerBusy = true;
+        return { ok: false, conflict: ['shared.ts'] };
+      }
+      return build(ref, input);
+    });
+    pump();
+    await vi.waitFor(() => expect(row('AR-1')?.diagnostic).toBeDefined());
+    await settled();
+    const parentTrainId = row('AR-1')!.diagnostic!.parentTrainId;
+    expect(h.repos.mergeTrains.get(parentTrainId)).toMatchObject({ state: 'failed', landed: 'nowhere' });
+    expect(h.repos.mergeTrains.listRunning()).toEqual([]);
+    for (const previous of before) {
+      const queued = row(previous.taskKey)!;
+      expect(queued).toMatchObject({
+        id: previous.id,
+        state: 'queued',
+        step: 'queued',
+        commit: previous.commit,
+        branch: previous.branch,
+        createdAt: previous.createdAt,
+        diagnostic: { parentTrainId, maxCards: 1 },
+      });
+      expect(queued.prioritizedAt).toBe(previous.prioritizedAt);
+      expect(queued.trainId).toBeUndefined();
+      expect(queued.mergeCommit).toBeUndefined();
+      expect(queued.check).toBeUndefined();
+      expect(queued.block).toBeUndefined();
+      expect(queued.failure).toBeUndefined();
+    }
+    expect(executor.run).not.toHaveBeenCalled();
+    expect(merger.push).not.toHaveBeenCalled();
+    expect(merger.advance).not.toHaveBeenCalled();
+    expect(merger.releaseCheck).toHaveBeenCalledExactlyOnceWith(
+      { projectKey: 'AR', repo: 'web' },
+      { mergeId: parentTrainId },
+    );
+    await h.domain.merges.stop();
+    await h.domain.merges.init();
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', `AR-${count}`).merged).toBeDefined());
+    await settled();
+    expect(executor.run).toHaveBeenCalledTimes(count);
+    for (const [spec] of vi.mocked(executor.run).mock.calls)
+      expect(spec).toMatchObject({ command: reviewTest.command, requireHeavyLock: true });
+    expect(merger.push).toHaveBeenCalledTimes(count);
+    expect(merger.advance).toHaveBeenCalledTimes(count);
+    const runIds = new Set<string>();
+    let onto = sha(0);
+    for (const previous of before) {
+      const merged = h.repos.taskMerges.latestMerged('AR', previous.taskKey)!;
+      expect(merged.id).toBe(previous.id);
+      expect(merged.trainId).toBeUndefined();
+      expect(merged.diagnostic).toBeUndefined();
+      expect(merged.check).toMatchObject({ status: 'passed', command: reviewTest.command });
+      expect(merged.check?.reused).not.toBe(true);
+      runIds.add(merged.check!.runId!);
+      expect(merger.parents.get(merged.mergeCommit!)).toEqual([onto, previous.commit]);
+      onto = merged.mergeCommit!;
+      expect(
+        h.domain.timeline
+          .list('AR', { taskKey: previous.taskKey })
+          .filter((e) => e.type === 'task_merge_blocked'),
+      ).toHaveLength(0);
+    }
+    expect(runIds.size).toBe(count);
+  });
+
+  it('reports a persistent source conflict through the individual conflict path', async () => {
+    await setup();
+    const build = merger.build.getMockImplementation()!;
+    merger.build.mockImplementation(async (ref, input) =>
+      input.commit === sha(2) ? { ok: false, conflict: ['shared.ts'] } : build(ref, input),
+    );
+    pump();
+    await vi.waitFor(() => expect(row('AR-2')?.failure?.reason).toBe('conflict'));
+    await settled();
+    const first = h.domain.tasks.get('AR', 'AR-1').merged!;
+    expect(first).toBeDefined();
+    expect(row('AR-2')).toMatchObject({
+      state: 'failed',
+      failure: { reason: 'conflict', base: first.mergeCommit, files: ['shared.ts'] },
+      diagnostic: { maxCards: 1 },
+    });
+    expect(row('AR-2')?.trainId).toBeUndefined();
+    expect(row('AR-2')?.block).toBeUndefined();
+    expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeUndefined();
+    expect(merger.build.mock.calls.filter(([, input]) => input.commit === sha(2))).toHaveLength(2);
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    expect(merger.push).toHaveBeenCalledTimes(1);
+    expect(h.repos.mergeTrains.listRunning()).toEqual([]);
+  });
+
+  it('keeps the code review gate on individual retries after a train source conflict', async () => {
+    await setup();
+    const build = merger.build.getMockImplementation()!;
+    merger.build.mockImplementation(async (ref, input) =>
+      input.commit === sha(2) && input.onto !== merger.base.local
+        ? { ok: false, conflict: ['shared.ts'] }
+        : build(ref, input),
+    );
+    vi.mocked(executor.run).mockImplementationOnce(async () => {
+      h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-2').id, { labels: [] });
+      return passed;
+    });
+    pump();
+    await vi.waitFor(() => expect(row('AR-2')?.block?.reason).toBe('gate_changed'));
+    await settled();
+    expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
+    expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeUndefined();
+    expect(merger.push).toHaveBeenCalledTimes(1);
+    expect(merger.advance).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     'timeout',
     'engine_offline',

@@ -119,3 +119,68 @@ The 30 second path (`thirty`, 10,000/100,000 messages): the original and PM-769 
 at both scales and both scenarios (about 0.3–1 ms CPU), because the harness has no free
 developer: free developers are checked before any card is read. Starts with a free developer
 are covered by the read-counting tests in `focus-pull.test.ts` and `task-scheduling-reads.test.ts`.
+
+## Operator history reads (PM-771)
+
+The 60 second path (`sixty`: `loopWatch.sweep` and `operatorSignals.sweep`) walked the closed history of
+every project: all cards and links through the board cases and the task waits, and the project's whole
+timeline for the 7-day structural evidence. PM-771 reads the open cards, the cards a prerequisite link
+or a window event names, and the window events through an index (`docs/ARCHITECTURE.md`, "Operator history
+reads"). The generator (seed 733) gained **current 7-day evidence at both scales**: per project one
+family of three subtasks that close inside the window, their parent, and a few more structural events
+(`currentEvidence` in the harness; 8 cards and 24 events, the same at every scale). The old closed
+subtask families (a parent and four children, with a stage-change event each) were already in the
+generator. Because the harness changed (SHA-256 `4f9a494a7d44…`), the original and PM-770 trees were
+measured again with this harness; earlier tables in this file used the previous one and are not
+comparable with the numbers below.
+
+Environment: Apple M1 Pro, macOS (Darwin 23.6.0), arm64, Node v23.11.0, process CPU
+(`process.cpuUsage`, user+system) in the Vitest worker, 2 warmups and 5 repeats of 10 rounds each,
+queued with `npm run heavy` on a loaded machine (load average 8–10 at the start). Source: `000e87494446`
+(harness commit; the production tree under test is named in each row; the original and PM-770 trees were
+checked out over `apps/server/src` with `git restore --source`, and `productionMatchesOriginal` is true
+for the first). Command: `npm run heavy -- env PROJECTMAN_PERIODIC_BENCHMARK=1
+PROJECTMAN_PERIODIC_PATHS=thirty,sixty npm run test -w @projectman/server --
+test/periodic-work-performance.test.ts`. The medians below are of the five repeats' medians; SQL and row
+counts are exact and identical in every round.
+
+`sixty`, active scenario, 10,000 / 100,000 delivered messages and 2,000 / 20,000 closed cards:
+
+| `sixty`                   | original (`cc534b5589aa`) 10k/2k | PM-770 (`65e50b64`) 10k/2k | PM-770 100k/20k | PM-771 10k/2k | PM-771 100k/20k |
+| ------------------------- | -------------------------------- | -------------------------- | --------------- | ------------- | --------------- |
+| CPU ms (median)           | 129                              | 143                        | 1,676           | 2.4           | 2.0             |
+| Wall ms (median / p95)    | 116 / 131                        | 130 / 136                  | 1,376 / 1,424   | 2.3 / 3.2     | 1.9 / 3.3       |
+| SQL calls per round       | 4,912                            | 4,912                      | 48,112          | 116           | 116             |
+| Card rows (links) decoded | 16,224 (16,160)                  | 16,224 (16,160)            | 160,224         | 168 (120)     | 168 (120)       |
+| Timeline rows             | 4,968                            | 4,968                      | 48,168          | 132           | 132             |
+| Message rows              | 0                                | 0                          | 0               | 0             | 0               |
+
+The quiet scenario (no open cards) reads 94 SQL calls, 48 cards, no links and 72 timeline rows at both
+PM-771 scales (about 1.1 ms CPU); PM-770 reads 160,064 cards and 48,108 timeline rows there at 100k/20k
+(1,738 ms CPU, 1,370 ms wall). The 168 and 48 cards are the open cards and the eight current-window cards,
+read a few times by the board cases, the task waits, the roster and the structural report; none of them is
+historical. `thirty` is unchanged by PM-771 (33 SQL calls, no card, link or message row, 0.2–1 ms CPU at
+both scales); the original tree reads 20,501 SQL calls and 4,056 cards per round there (about 205 ms CPU,
+256 ms wall at 10k/2k).
+
+What the original tree did at 100,000 / 20,000: the Vitest worker was lost in the active `thirty` case
+(`Unhandled Rejection: Error: Channel closed`, `ERR_IPC_CHANNEL_CLOSED`, process RSS 1.2–1.5 GB at the
+fourth repeat, wall median about 4.1 s per round before it) and the run ended without the other 100k/20k
+cases and without the quiet scenario. The partial JSON (`complete: false`) holds the two 10k/2k active cases
+only, so there is no original number at 100k/20k and no claim about it. The PM-770 tree completed every
+case. Startup is a separate sample (`PROJECTMAN_PERIODIC_STARTUP=1`) and is not part of the figures above;
+PM-771 does not touch it: the final tree reads the same 40,677 SQL calls and 20,080 cards at 100k/20k
+(about 0.5 s CPU, once per start) as PM-770, and the same 4,317 SQL calls and 2,080 cards at 10k/2k
+(about 79 ms CPU), the closed-card inventory the worktree sweep pages through.
+
+The deterministic condition (no machine load involved) is a test, not a timing:
+`test/structural-history-reads.test.ts` runs a report and a sweep over 10 and 100 closed families and
+asserts that the cards read, the project lists, the children reads and the card histories are equal and
+that no project list is read; `test/timeline-state-history.test.ts` asserts the query plans of the two
+new timeline reads (the partial indexes, no scan of the project's timeline).
+
+What this is not: the figures are process CPU of a synthetic in-process fixture on one development
+machine, not an EC2 CPU-credit measurement, and nothing here is a claim about a t4g.micro instance. A
+comparable real report (PM-772, PM-773, PM-775) must say separately what it sampled (container CPU, the
+process observed, the state-sampling interval), the container and healthcheck settings and which
+interval fell outside the periodic paths; no real data, snapshot or secret belongs in this repository.

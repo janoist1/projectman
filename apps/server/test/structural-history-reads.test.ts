@@ -162,6 +162,44 @@ describe('milestones from the state at the closing event', () => {
   });
 });
 
+describe('the wait and the roster read only what they need', () => {
+  it('reads the named prerequisite targets and the open cards, never the project list', async () => {
+    await setup();
+    const dependent = await card('Dependent');
+    const open = await card('Open prerequisite');
+    const closed = await card('Closed prerequisite');
+    await h.domain.tasks.update(
+      'AR',
+      dependent.key,
+      {
+        relations: {
+          add: [
+            { kind: 'prerequisite' as const, key: open.key },
+            { kind: 'prerequisite' as const, key: closed.key },
+          ],
+        },
+      },
+      OWNER_ACTOR,
+    );
+    h.repos.tasks.update(closed.id, { status: 'done', stageId: 'done' });
+    for (let i = 0; i < 5; i++) await card(`Unrelated ${i}`);
+    const read = vi.spyOn(h.repos.tasks, 'readScheduling');
+    const list = vi.spyOn(h.repos.tasks, 'list');
+    const stored = h.repos.tasks.list('AR').find((entry) => entry.key === dependent.key)!;
+    list.mockClear();
+    const waits = h.domain.taskWaits.of(config(), [stored]);
+    expect(waits.get(dependent.key)).toMatchObject({
+      reason: 'prerequisite',
+      prerequisites: [open.key],
+    });
+    expect(list).not.toHaveBeenCalled();
+    const queries = read.mock.calls.map(([, query]) => query);
+    expect(queries).toContainEqual({ kind: 'keys', keys: [open.key, closed.key] });
+    expect(queries).toContainEqual({ kind: 'open' });
+    expect(queries.every((query) => query.kind === 'keys' || query.kind === 'open')).toBe(true);
+  });
+});
+
 describe('reads that do not grow with the unrelated history', () => {
   // The cards a periodic path hydrates, by history size: tenfold more closed families change nothing.
   async function hydrated(closedFamilies: number) {

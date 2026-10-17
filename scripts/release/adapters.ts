@@ -53,7 +53,7 @@ import type {
   PreparePort,
   PublishPort,
 } from './ports';
-import { RECEIPT_FILE } from './receipt';
+import { RECEIPT_FILE, releaseIdSchema } from './receipt';
 import { verifyPreparedRelease } from './verify';
 
 /**
@@ -208,7 +208,7 @@ export function machinePort(
   const onHost = <T>(body: (host: HostSession) => Promise<T>) => withHost(context, body);
   return {
     async verifyTarget() {
-      const identity = await new AwsCli(context.deps, context.config.aws).callAs(
+      const identity = await new AwsCli(context.deps, context.config.aws, { redactErrors: true }).callAs(
         ['sts', 'get-caller-identity'],
         callerSchema,
       );
@@ -431,6 +431,9 @@ export function publishPort(world: HybridWorld, options: PublishOptions): Publis
   const { context } = world;
   return {
     async publish({ release, commit }) {
+      // The release comes from the cloud: its id builds a path and a file name here, so it must have the id shape.
+      if (!releaseIdSchema.safeParse(release.id).success || !/^[0-9a-f]{40}$/.test(commit))
+        throw new CloudError('the release to publish has no valid id or commit');
       const remote = context.config.repository.url;
       if (!GITHUB_REMOTE_PATTERN.test(remote))
         throw new CloudError('the configured repository is not a GitHub remote');

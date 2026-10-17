@@ -909,6 +909,9 @@ export class HybridCoordinator {
       )
         return this.livePending();
       const view = await this.guarded(() => this.p.control.deployGet(this.j.releaseId));
+      // What the cloud sends about the release is only text for the notes: the id and the commit are the journal's.
+      if (view.release.id !== this.j.releaseId)
+        throw new RoundStopped('control_answer_invalid', 'the cloud answered with another release');
       let made: { tag: string; url: string };
       try {
         made = await this.p.publisher.publish({ release: view.release, commit: this.j.commit });

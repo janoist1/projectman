@@ -93,7 +93,7 @@ function requireMac(deps: Pick<WatcherDeps, 'platform'>): void {
 }
 
 /** The checkout and the node that a plist may name: real, absolute, and not a member's workspace. */
-function assertStable(deps: WatcherDeps, root: string): void {
+function assertStable(deps: WatcherDeps, root: string, loaded: LoadedHybridConfig): void {
   if (!path.isAbsolute(root) || path.normalize(root) !== root || root.length < 2)
     throw refused('the admin checkout must be a normalized absolute path');
   let real: string;
@@ -105,6 +105,10 @@ function assertStable(deps: WatcherDeps, root: string): void {
   if (real !== root) throw refused('the admin checkout path must not go through a symbolic link');
   if (isWithin(path.join(deps.homeDir, '.projectman', 'workspaces'), root))
     throw refused('the watcher must run from the stable admin checkout, not from a member workspace');
+  // The engine's release checkouts and the watcher's own state are written by the rounds themselves.
+  for (const own of [loaded.config.engineReleasesDir, loaded.config.stateDir])
+    if (isWithin(own, root))
+      throw refused('the watcher must run from the stable admin checkout, not from a directory it writes');
   for (const file of [watcherCli(root), watcherLauncher(root)])
     if (!fs.existsSync(file)) throw refused('the admin checkout has no hybrid release watcher');
   try {
@@ -148,7 +152,7 @@ export async function installWatcher(
   input: { root: string; loaded: LoadedHybridConfig },
 ): Promise<'installed' | 'unchanged'> {
   requireMac(deps);
-  assertStable(deps, input.root);
+  assertStable(deps, input.root, input.loaded);
   const stateDir = ensureStateDir(input.loaded);
   const text = buildWatcherPlist({
     root: input.root,

@@ -44,7 +44,9 @@ describe('the hybrid release watcher plist (PM-751)', () => {
       '--config',
       '/Users/me/.config/projectman/cloud/release.json',
     ]);
-    expect(text).toMatch(new RegExp(`<key>StartInterval</key>\\s*<integer>${START_INTERVAL_SECONDS}</integer>`));
+    expect(text).toMatch(
+      new RegExp(`<key>StartInterval</key>\\s*<integer>${START_INTERVAL_SECONDS}</integer>`),
+    );
     expect(START_INTERVAL_SECONDS).toBe(60);
     expect(text).toMatch(/<key>RunAtLoad<\/key>\s*<true\/>/);
     // A second round never starts while one runs, and a failed round is not restarted at once.
@@ -88,7 +90,8 @@ describe('the hybrid release watcher plist (PM-751)', () => {
 });
 
 describe('install (PM-751)', () => {
-  const install = () => installWatcher(launchd.deps(), { root: launchd.root, loaded: launchd.loadedConfig() });
+  const install = () =>
+    installWatcher(launchd.deps(), { root: launchd.root, loaded: launchd.loadedConfig() });
   const stateFile = (name: string) => path.join(launchd.stateDir, name);
 
   it('writes the plist (0644), loads the job and names the stable checkout and this node', async () => {
@@ -100,7 +103,9 @@ describe('install (PM-751)', () => {
     expect(args[1]).toBe(process.execPath);
     expect(installedWatcherConfig(fs.readFileSync(file, 'utf8'))).toBe(launchd.configFile);
     expect(await watcherState(launchd.deps())).toEqual({ installed: true, loaded: true, running: false });
-    expect(launchd.calls.filter((call) => call.startsWith('bootstrap'))).toEqual([`bootstrap ${WATCHER_LABEL}`]);
+    expect(launchd.calls.filter((call) => call.startsWith('bootstrap'))).toEqual([
+      `bootstrap ${WATCHER_LABEL}`,
+    ]);
     // The lock the install took is gone: a round may start.
     expect(fs.existsSync(stateFile('watch.lock'))).toBe(false);
   });
@@ -134,7 +139,10 @@ describe('install (PM-751)', () => {
     launchd.bootoutStatus = 5;
     const other = launchd.configFile.replace('release.json', 'other.json');
     await expect(
-      installWatcher(launchd.deps(), { root: launchd.root, loaded: { ...launchd.loadedConfig(), configFile: other } }),
+      installWatcher(launchd.deps(), {
+        root: launchd.root,
+        loaded: { ...launchd.loadedConfig(), configFile: other },
+      }),
     ).rejects.toMatchObject({ exitCode: 2 });
     expect(fs.readFileSync(launchd.plist(WATCHER_LABEL), 'utf8')).toBe(before);
   });
@@ -143,9 +151,13 @@ describe('install (PM-751)', () => {
     const workspace = path.join(launchd.homeDir, '.projectman', 'workspaces', 'PM', 'dev', 'repo');
     fs.mkdirSync(path.join(workspace, 'scripts', 'release', 'bin'), { recursive: true });
     fs.writeFileSync(path.join(workspace, 'scripts', 'release', 'cli.ts'), '');
-    fs.writeFileSync(path.join(workspace, 'scripts', 'release', 'bin', 'projectman-hybrid-release-watcher'), '', {
-      mode: 0o755,
-    });
+    fs.writeFileSync(
+      path.join(workspace, 'scripts', 'release', 'bin', 'projectman-hybrid-release-watcher'),
+      '',
+      {
+        mode: 0o755,
+      },
+    );
     await expect(
       installWatcher(launchd.deps(), { root: workspace, loaded: launchd.loadedConfig() }),
     ).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('member workspace') });
@@ -153,12 +165,36 @@ describe('install (PM-751)', () => {
     expect(launchd.calls).toEqual([]);
   });
 
+  it.each(['stateDir', 'engineReleasesDir'] as const)(
+    'refuses a checkout inside the configured %s and writes nothing',
+    async (key) => {
+      const loaded = launchd.loadedConfig();
+      const own = loaded.config[key];
+      const checkout = path.join(own, 'admin');
+      fs.mkdirSync(path.join(checkout, 'scripts', 'release', 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(checkout, 'scripts', 'release', 'cli.ts'), '');
+      fs.writeFileSync(
+        path.join(checkout, 'scripts', 'release', 'bin', 'projectman-hybrid-release-watcher'),
+        '',
+        { mode: 0o755 },
+      );
+      await expect(installWatcher(launchd.deps(), { root: checkout, loaded })).rejects.toMatchObject({
+        exitCode: 2,
+        message: expect.stringContaining('a directory it writes'),
+      });
+      expect(fs.existsSync(launchd.plist(WATCHER_LABEL))).toBe(false);
+      expect(launchd.calls).toEqual([]);
+    },
+  );
+
   it.each([
     ['a relative path', 'projectman-admin'],
     ['a path that is not normalized', '/tmp/../tmp/x'],
     ['a missing checkout', '/nonexistent/checkout'],
   ])('refuses %s', async (_name, root) => {
-    await expect(installWatcher(launchd.deps(), { root, loaded: launchd.loadedConfig() })).rejects.toMatchObject({
+    await expect(
+      installWatcher(launchd.deps(), { root, loaded: launchd.loadedConfig() }),
+    ).rejects.toMatchObject({
       exitCode: 2,
     });
     expect(fs.existsSync(launchd.plist(WATCHER_LABEL))).toBe(false);
@@ -183,7 +219,10 @@ describe('install (PM-751)', () => {
     launchd.calls.length = 0;
     const other = launchd.configFile.replace('release.json', 'other.json');
     await expect(
-      installWatcher(launchd.deps(), { root: launchd.root, loaded: { ...launchd.loadedConfig(), configFile: other } }),
+      installWatcher(launchd.deps(), {
+        root: launchd.root,
+        loaded: { ...launchd.loadedConfig(), configFile: other },
+      }),
     ).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('in progress') });
     expect(fs.readFileSync(launchd.plist(WATCHER_LABEL), 'utf8')).toBe(before);
     expect(launchd.calls).toEqual([]);
@@ -193,7 +232,10 @@ describe('install (PM-751)', () => {
     fs.mkdirSync(launchd.stateDir, { mode: 0o700 });
     const lock = acquireLocalLock(launchd.stateDir);
     try {
-      await expect(install()).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('another') });
+      await expect(install()).rejects.toMatchObject({
+        exitCode: 2,
+        message: expect.stringContaining('another'),
+      });
       expect(launchd.calls).toEqual([]);
     } finally {
       lock.release();
@@ -207,7 +249,8 @@ describe('install (PM-751)', () => {
 });
 
 describe('uninstall and the state (PM-751)', () => {
-  const install = () => installWatcher(launchd.deps(), { root: launchd.root, loaded: launchd.loadedConfig() });
+  const install = () =>
+    installWatcher(launchd.deps(), { root: launchd.root, loaded: launchd.loadedConfig() });
   const uninstall = () => uninstallWatcher(launchd.deps(), launchd.loadedConfig());
 
   it('unloads and removes the job and keeps the state directory', async () => {
@@ -228,7 +271,10 @@ describe('uninstall and the state (PM-751)', () => {
     await install();
     fs.writeFileSync(path.join(launchd.stateDir, JOURNAL_FILE), 'not json', { mode: 0o600 });
     launchd.calls.length = 0;
-    await expect(uninstall()).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining('in progress') });
+    await expect(uninstall()).rejects.toMatchObject({
+      exitCode: 2,
+      message: expect.stringContaining('in progress'),
+    });
     expect(fs.existsSync(launchd.plist(WATCHER_LABEL))).toBe(true);
     expect(launchd.calls).toEqual([]);
   });

@@ -169,6 +169,37 @@ describe('the release commands (PM-751)', () => {
       expect(errors.join('')).not.toContain('injected failure');
     });
 
+    it('keeps the detail of a cloud or host error out of last-error and status, and in the log', async () => {
+      world = await HybridWorld.create();
+      await world.approve();
+      const detail = 'ssh failed: stderr AKIAEXAMPLE /Users/me/secret';
+      const base = deps();
+      const exit = await runRelease(['watch', ...config()], {
+        ...base,
+        ports: (input) => {
+          const ports = world!.ports(input);
+          return {
+            ...ports,
+            machine: {
+              ...ports.machine,
+              verifyTarget: async () => {
+                throw new CloudError(detail, 1);
+              },
+            },
+          };
+        },
+      });
+      expect(exit).toBe(1);
+      expect(lastError()).toMatchObject({ code: 'cloud_error' });
+      expect(JSON.stringify(lastError())).not.toMatch(/AKIA|secret|\/Users/);
+      launchd.output.length = 0;
+      expect(await run('status', ...config())).toBe(0);
+      expect(lastLine()).not.toMatch(/AKIA|secret|\/Users/);
+      expect(JSON.parse(lastLine())).toMatchObject({ lastError: { code: 'cloud_error' } });
+      // The detail is for the watcher log (stderr of the job), where it is sanitized.
+      expect(errors.join('')).toContain('ssh failed');
+    });
+
     it('exits 2 and changes nothing while another watcher holds the lock', async () => {
       world = await HybridWorld.create();
       const release = await world.approve();
@@ -287,15 +318,34 @@ describe('the failure classes (PM-751)', () => {
       exit: 1,
       code: 'drain_wait',
       message: 'waiting',
+      fixed: 'waiting',
     });
     expect(classify(new ControlError('uncertain', 'bad_answer', 'unexpected'))).toMatchObject({
       exit: 1,
-      code: 'bad_answer',
+      code: 'control_uncertain',
     });
     expect(classify(new Error('secret detail /Users/me'))).toEqual({
       exit: 1,
       code: 'internal_error',
       message: 'the release command failed unexpectedly',
+      fixed: 'the release command failed unexpectedly',
     });
+  });
+
+  it('keeps the detail of a host, cloud or control error out of the fixed text', () => {
+    const detail = 'stderr: AKIAEXAMPLE /Users/me/secret token=abc';
+    const errors = [
+      new CloudError(detail, 1),
+      new CloudError(detail, 2),
+      new ControlError('refused', 'cloud_code', detail),
+      new ControlError('uncertain', 'cloud_code', detail),
+      new ControlError('unavailable', 'cloud_code', detail),
+      new Error(detail),
+    ];
+    for (const error of errors) {
+      const failure = classify(error);
+      expect(JSON.stringify([failure.code, failure.fixed])).not.toMatch(/AKIA|secret|token|\/Users/);
+      expect(failure.code).toMatch(/^[a-z][a-z0-9_]{0,63}$/);
+    }
   });
 });

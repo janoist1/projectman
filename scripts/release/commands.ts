@@ -77,20 +77,40 @@ function parse(argv: string[]): { command: ReleaseCommand; configFile: string } 
 interface Failure {
   exit: 1 | 2 | 64;
   code: string;
+  /** What the terminal and the watcher log show: sanitized, and it may carry the detail of a host or cloud error. */
   message: string;
+  /** What `last-error.json` and `status` show: a code and a text fixed in this file, never the detail of an error. */
+  fixed: string;
 }
 
-/** What an escaped error becomes: a code and a short text; a raw error never reaches the terminal or `status`. */
+/** What an escaped error becomes: a code and a short text; a raw error never reaches `status`. */
 export function classify(error: unknown): Failure {
-  if (error instanceof CloudError)
+  if (error instanceof CloudError) {
+    const refused = error.exitCode === 2;
     return {
       exit: error.exitCode,
-      code: error.exitCode === 2 ? 'refused' : 'cloud_error',
+      code: refused ? 'refused' : 'cloud_error',
       message: error.message,
+      fixed: refused
+        ? 'a precondition of the release was refused; the watcher log has the reason'
+        : 'a cloud or host operation failed; the watcher log has the reason',
     };
-  if (error instanceof RoundStopped) return { exit: 1, code: error.code, message: error.message };
-  if (error instanceof ControlError) return { exit: 1, code: error.code, message: error.message };
-  return { exit: 1, code: 'internal_error', message: 'the release command failed unexpectedly' };
+  }
+  // The messages of a RoundStopped are written in the coordinator, never taken from an answer.
+  if (error instanceof RoundStopped)
+    return { exit: 1, code: error.code, message: error.message, fixed: error.message };
+  if (error instanceof ControlError)
+    return {
+      exit: 1,
+      code: `control_${error.kind}`,
+      message: error.message,
+      fixed:
+        error.kind === 'refused'
+          ? 'the cloud refused a request'
+          : 'the cloud control socket did not answer usefully',
+    };
+  const message = 'the release command failed unexpectedly';
+  return { exit: 1, code: 'internal_error', message, fixed: message };
 }
 
 function exitOf(result: RoundResult): 0 | 1 | 2 {
@@ -168,7 +188,7 @@ async function watch(deps: ReleaseDeps, loaded: LoadedHybridConfig): Promise<num
         return exitOf(result);
       } catch (error) {
         const failure = classify(error);
-        writeLastError(stateDir, { code: failure.code, message: failure.message }, deps.watcher.now());
+        writeLastError(stateDir, { code: failure.code, message: failure.fixed }, deps.watcher.now());
         throw error;
       }
     });

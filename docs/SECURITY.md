@@ -1035,10 +1035,14 @@ holds the AWS and cloud credentials only in `~/.config/projectman/cloud/`, which
 - **One approval, nothing wider.** The owner's approval of the release covers the whole chain and the program
   rollback. It does not cover restoring data, which is a separate human decision; the coordinator has no code
   path that restores data, kills a process, or leaves `recovery_required` by itself.
-- **No operation the board keeps for people.** The relay carries the deployment operations of PM-752 only
-  (`release_next`, `release_get`, `engine_status`, `release_deploy_get|begin|change`). Approving, proposing or
-  rejecting a release stays with the person in the board. The cloud checks the controller id, the target hash
-  and the pause ownership, so a second or foreign watcher cannot take over an attempt.
+- **No operation the board keeps for people.** The PM-749 relay carries every control request the board's
+  control socket knows, so the limit is the watcher's: it sends only the deployment operations of PM-752
+  (`release_next`, `release_get`, `engine_status`, `release_deploy_get|begin|change`) and never approves,
+  proposes or rejects a release, which stays with the person in the board. The cloud checks the controller id,
+  the target hash and the pause ownership, so a second or foreign watcher cannot take over an attempt. The
+  watcher does not trust the answer either: the release id it publishes with must be the one in its journal
+  and have the id shape, and the publisher refuses any other id or commit before it builds a path or runs a
+  command.
 - **A wrong machine is refused first.** Before every round the AWS account and the EC2 instance are checked
   against the configuration, and the cloud's hybrid target must carry the hash of that configuration.
 - **A request that may have been applied is not repeated blindly.** A lost answer (`uncertain`) is read back
@@ -1046,7 +1050,10 @@ holds the AWS and cloud credentials only in `~/.config/projectman/cloud/`, which
   revision makes a stale one refused.
 - **Secret-free output.** The journal, the status line, `last-error.json`, the release alerts and the card hold
   fixed codes and fixed texts, ids, hashes and phases. A raw error, a path, the stderr or stdout of a command or
-  an answer of the cloud is never copied there (tested with a secret in the stderr). Files in the state
+  an answer of the cloud is never copied there (tested with a secret in the stderr, and with a cloud or host
+  error that escapes a round: `last-error.json` and `status` get a code and a text fixed in the watcher, the
+  detail goes only to the sanitized line of `watcher.log`, the 0700 log of the job). The AWS calls of the
+  machine port redact their errors too. Files in the state
   directory are 0600, written atomically, and the directory is under the protected tree.
 - **The watcher's own environment.** The LaunchAgent starts with `HOME`, `PATH`, `LANG` and `TZ` only; no
   provider, GitHub or AWS variable is passed. It is installed only from a stable checkout, never a member

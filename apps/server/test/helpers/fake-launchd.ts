@@ -46,7 +46,7 @@ export class FakeLaunchd {
   /** A configuration as the loader returns it, for the commands that only need its paths. */
   loadedConfig(): LoadedHybridConfig {
     return {
-      config: { stateDir: this.stateDir },
+      config: { stateDir: this.stateDir, engineReleasesDir: path.join(this.dir, 'engine-releases') },
       configFile: this.configFile,
       configSha256: 'e'.repeat(64),
       cloud: {} as CloudConfig,

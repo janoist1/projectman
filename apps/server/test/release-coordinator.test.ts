@@ -689,6 +689,28 @@ describe('the hybrid release coordinator (PM-751)', () => {
       expect(world.published).toHaveLength(1);
     });
 
+    it('never hands the publisher a release id the cloud made up', async () => {
+      const release = await ready();
+      const control = world.control();
+      const coordinator = world.coordinator({
+        control: {
+          ...control,
+          deployGet: async (id) => {
+            const view = await control.deployGet(id);
+            return view.deployment?.phase === 'live'
+              ? { ...view, release: { ...view.release, id: '../../outside' } }
+              : view;
+          },
+        },
+      });
+      await expect(coordinator.round()).rejects.toMatchObject({
+        name: 'RoundStopped',
+        code: 'control_answer_invalid',
+      });
+      expect(world.calls.publish).toBe(0);
+      expect(world.release(release.id).state).toBe('live');
+    });
+
     it('does not make a second tag after a lost acknowledgement of the published report', async () => {
       const release = await ready();
       const control = world.control();

@@ -365,6 +365,25 @@ describe('the publish port (PM-751)', () => {
     expect(fs.readdirSync(launchd.stateDir).filter((name) => name.startsWith('notes-'))).toEqual([]);
   });
 
+  it.each(['../escape', 'rel_../x', 'REL_1', 'rel_', 'rel_1/../../x', ''])(
+    'refuses the release id %j before it runs anything or builds a path',
+    async (id) => {
+      await expect(
+        publisher().publish({ release: { ...release, id } as unknown as Release, commit: COMMIT }),
+      ).rejects.toThrow(/no valid id or commit/);
+      expect(calls).toEqual([]);
+      expect(fs.readdirSync(launchd.stateDir).filter((name) => name.startsWith('notes-'))).toEqual([]);
+    },
+  );
+
+  it.each(['abc', `${COMMIT}0`, COMMIT.toUpperCase(), '../x'])(
+    'refuses the commit %j before it runs anything',
+    async (commit) => {
+      await expect(publisher().publish({ release, commit })).rejects.toThrow(/no valid id or commit/);
+      expect(calls).toEqual([]);
+    },
+  );
+
   it('refuses a remote that is not a GitHub one', async () => {
     const deps = realDeps();
     const bad = publishPort(

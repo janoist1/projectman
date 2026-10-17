@@ -1,10 +1,16 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { EngineId } from '@projectman/shared';
+import { loadEngineConfig } from '../../apps/server/src/engine-link/engine-config';
 import type { SandboxedEnd, SandboxedRun } from '../../apps/server/src/full-test';
+import { parseConfig } from '../cloud/config';
+import type { CloudConfig } from '../cloud/config';
 import type { CloudContext } from '../cloud/context';
 import { badUsage, refused } from '../cloud/errors';
 import { noSymlinks, sourceShaSchema } from '../cloud/images';
+import { secretFileProblem, secretsDir, secretsDirProblem } from '../cloud/secrets';
 import { releaseIdSchema } from './receipt';
 
 /** What the caller names: nothing is implicit, so there is no default branch, tag or output location. */
@@ -130,4 +136,246 @@ export function validatePrepareInput(
   if (overlap(outputDir, engineReleasesDir))
     throw refused('outputDir and engineReleasesDir must not contain each other');
   return { input, paths: { outputDir, engineReleasesDir, repoRoot, engineHome } };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The hybrid coordinator's configuration (PM-751). One strict file under the protected
+// `~/.config/projectman/cloud/` tree, next to the cloud configuration it refers to. It holds no secret, no
+// credential and no URL with credentials: only identifiers, absolute paths and one HTTPS origin.
+// ---------------------------------------------------------------------------------------------
+
+const hybridPath = z
+  .string()
+  .min(2)
+  .refine(
+    (value) =>
+      path.isAbsolute(value) &&
+      path.normalize(value) === value &&
+      !value.endsWith(path.sep) &&
+      !forbiddenPathCharacters.test(value),
+    'a normalized absolute path without a comma, NUL or newline',
+  );
+
+function isHttpsOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      url.origin === value &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+export const hybridReleaseConfigSchema = z.strictObject({
+  version: z.literal(1),
+  controllerId: z.uuid(),
+  cloudConfig: hybridPath,
+  stateDir: hybridPath,
+  expectedAccountId: z.string().regex(/^\d{12}$/),
+  expectedInstanceId: z.string().regex(/^i-[0-9a-f]{8}([0-9a-f]{9})?$/),
+  cloudOrigin: z.string().refine(isHttpsOrigin, 'an https origin without path or credentials'),
+  engineId: EngineId.refine((id) => id !== 'local', 'a remote engine is needed'),
+  engineHome: hybridPath,
+  engineReleasesDir: hybridPath,
+});
+export type HybridReleaseConfig = z.output<typeof hybridReleaseConfigSchema>;
+
+/** JSON with sorted keys: the same value always has the same text (the server's `canonicalJson` rule). */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** What the target hash stands for: where the two targets are, and nothing that could be a secret. */
+export interface HybridTargetDescription {
+  accountId: string;
+  instanceId: string;
+  region: string;
+  cloudOrigin: string;
+  projectKey: string;
+  repo: string;
+  engineId: string;
+}
+
+/**
+ * The target hash (`PROJECTMAN_RELEASE_TARGET_HASH` of the cloud server, `hybrid.targetHash` of the cloud
+ * configuration): the SHA-256 of the canonical JSON of the credential-free target description. The cloud
+ * server compares what the coordinator sends with its own copy, so a coordinator for another account,
+ * instance, origin, project or engine can never claim this server's release.
+ */
+export function hybridTargetHash(target: HybridTargetDescription): string {
+  return createHash('sha256')
+    .update(
+      canonicalJson({
+        version: 1,
+        accountId: target.accountId,
+        instanceId: target.instanceId,
+        region: target.region,
+        cloudOrigin: target.cloudOrigin,
+        projectKey: target.projectKey,
+        repo: target.repo,
+        engineId: target.engineId,
+      }),
+    )
+    .digest('hex');
+}
+
+export interface LoadedHybridConfig {
+  config: HybridReleaseConfig;
+  configFile: string;
+  /** SHA-256 of the config bytes, a zero byte and the cloud configuration bytes; no credential file is read. */
+  configSha256: string;
+  cloud: CloudConfig;
+  targetHash: string;
+  /** `<home>/.config/projectman/cloud`: the protected tree the configuration and the state live in. */
+  secretsRoot: string;
+}
+
+function strictlyWithin(root: string, target: string): boolean {
+  return target !== root && isWithin(root, target);
+}
+
+/** The bytes of a private regular file (0600, ours, no symlink in the path) inside the protected tree. */
+function readPrivateFile(label: string, file: string, root: string): Buffer {
+  if (!path.isAbsolute(file) || path.normalize(file) !== file)
+    throw refused(`${label} must be a normalized absolute path`);
+  if (!strictlyWithin(root, file)) throw refused(`${label} must be inside ${root}`);
+  noSymlinks(file);
+  const problem = secretFileProblem(file);
+  if (problem) throw refused(problem);
+  let fd: number;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  } catch {
+    throw refused(`${label} cannot be read`);
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw refused(`${label} must be a regular file`);
+    return fs.readFileSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Reads and cross-checks the coordinator's configuration. Everything that can be proven offline is proven
+ * here (the account and the instance id are checked against AWS by the cloud adapter). A bad or missing file
+ * is a refusal (exit status 2): nothing arms the automatic watcher on it.
+ */
+export function loadHybridReleaseConfig(file: string, homeDir: string): LoadedHybridConfig {
+  const secretsRoot = secretsDir(homeDir);
+  const rootProblem = secretsDirProblem(secretsRoot);
+  if (rootProblem) throw refused(rootProblem);
+  const configBytes = readPrivateFile('the release configuration', file, secretsRoot);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(configBytes.toString('utf8'));
+  } catch {
+    throw refused('the release configuration is not valid JSON');
+  }
+  const parsed = hybridReleaseConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    const lines = parsed.error.issues.map(
+      (issue) => `  ${issue.path.join('.') || '(file)'}: ${issue.message}`,
+    );
+    throw refused(`the release configuration is not valid:\n${lines.join('\n')}`);
+  }
+  const config = parsed.data;
+  const cloudBytes = readPrivateFile('the cloud configuration', config.cloudConfig, secretsRoot);
+  let cloudRaw: unknown;
+  try {
+    cloudRaw = JSON.parse(cloudBytes.toString('utf8'));
+  } catch {
+    throw refused('the cloud configuration is not valid JSON');
+  }
+  const cloud = parseConfig(cloudRaw, homeDir, path.dirname(config.cloudConfig));
+
+  if (!strictlyWithin(secretsRoot, config.stateDir)) throw refused(`stateDir must be inside ${secretsRoot}`);
+  if (isWithin(config.stateDir, config.cloudConfig) || isWithin(config.stateDir, file))
+    throw refused('stateDir must not contain the configuration files');
+  const directories = [
+    ['stateDir', config.stateDir],
+    ['engineHome', config.engineHome],
+    ['engineReleasesDir', config.engineReleasesDir],
+  ] as const;
+  for (const [index, [labelA, a]] of directories.entries())
+    for (const [labelB, b] of directories.slice(index + 1))
+      if (overlap(a, b)) throw refused(`${labelA} and ${labelB} must not contain each other`);
+
+  if (!cloud.releaseTarget) throw refused('the cloud configuration has no releaseTarget');
+  if (!cloud.hybrid) throw refused('the cloud configuration has no hybrid binding');
+  if (cloud.aws.compute !== 'ec2' || cloud.aws.ec2?.architecture !== 'arm64')
+    throw refused('the hybrid release needs the EC2 ARM cloud machine');
+  if (cloud.hybrid.engineId !== config.engineId)
+    throw refused('hybrid.engineId of the cloud configuration differs from engineId');
+  if (`https://${cloud.cloudflare.hostname}` !== config.cloudOrigin)
+    throw refused('cloudOrigin differs from the cloud configuration hostname');
+  const targetHash = hybridTargetHash({
+    accountId: config.expectedAccountId,
+    instanceId: config.expectedInstanceId,
+    region: cloud.aws.region,
+    cloudOrigin: config.cloudOrigin,
+    projectKey: cloud.releaseTarget.projectKey,
+    repo: cloud.releaseTarget.repo,
+    engineId: config.engineId,
+  });
+  if (cloud.hybrid.targetHash !== targetHash)
+    throw refused(
+      'hybrid.targetHash of the cloud configuration differs from the target of this configuration',
+    );
+
+  let engine: ReturnType<typeof loadEngineConfig>;
+  try {
+    engine = loadEngineConfig(config.engineHome);
+  } catch {
+    throw refused('the engine home has no valid engine configuration');
+  }
+  let engineOrigin: string;
+  try {
+    engineOrigin = new URL(engine.cloudUrl).origin;
+  } catch {
+    throw refused('the engine configuration has no valid cloud address');
+  }
+  if (engine.engineId !== config.engineId) throw refused('the engine home belongs to another engine id');
+  if (engineOrigin !== config.cloudOrigin) throw refused('the engine home points at another cloud origin');
+
+  return {
+    config,
+    configFile: file,
+    configSha256: createHash('sha256')
+      .update(configBytes)
+      .update(Buffer.from([0]))
+      .update(cloudBytes)
+      .digest('hex'),
+    cloud,
+    targetHash,
+    secretsRoot,
+  };
+}
+
+/** The state directory: created (0700) when it is new, otherwise only accepted when it is ours and private. */
+export function ensureStateDir(loaded: Pick<LoadedHybridConfig, 'config' | 'secretsRoot'>): string {
+  const { stateDir } = loaded.config;
+  noSymlinks(stateDir);
+  const stat = fs.lstatSync(stateDir, { throwIfNoEntry: false });
+  if (!stat) {
+    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(stateDir, 0o700);
+  }
+  const problem = secretsDirProblem(stateDir);
+  if (problem) throw refused(problem);
+  if (!fs.lstatSync(stateDir).isDirectory()) throw refused('stateDir must be a directory');
+  return stateDir;
 }

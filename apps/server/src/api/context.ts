@@ -86,6 +86,11 @@ export function actorOf(access: ProjectAccess): Actor {
   return attributedActor(access);
 }
 
+/** The handle a request's message is sent from: the Operator in the super mode (PM-757), so it agrees with the actor. */
+export function senderOf(access: ProjectAccess): string {
+  return access.superActor?.handle ?? access.handle;
+}
+
 /**
  * The commit author of a request. A request made with a non-legacy key (PM-757) needs the access bound by
  * `requireAccess`, which carries the super actor; one without it is refused rather than recorded as the owner.

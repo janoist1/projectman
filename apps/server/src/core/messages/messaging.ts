@@ -767,7 +767,7 @@ export class Messaging {
     let closed: InboxItem | null = null;
     const result = await this.sendReporting(
       item.projectKey,
-      resolution.by,
+      resolverSender(resolution),
       {
         to: [asker.handle],
         text:
@@ -849,7 +849,7 @@ export class Messaging {
       prepared.push(
         await this.prepareSend(
           item.projectKey,
-          resolution.by,
+          resolverSender(resolution),
           {
             to: [item.source],
             taskKey: item.taskKey,
@@ -1351,6 +1351,11 @@ function resolverActor(resolution: {
 }): Actor {
   if (hasSuperOrigin(resolution.actor)) return resolution.actor;
   return { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) };
+}
+
+/** The sender handle of that answer: the Operator in the super mode, so the message and its actor agree. */
+function resolverSender(resolution: { by: string; actor?: Actor | undefined }): string {
+  return hasSuperOrigin(resolution.actor) ? resolution.actor.handle : resolution.by;
 }
 
 /** How much of a question and of its answer the notice to the card's other workers carries. */

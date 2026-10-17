@@ -1924,6 +1924,10 @@ export function createDomain(opts: DomainOptions) {
     /** Startup: import projects from the repository, clean up state that did not survive a restart, watch PRs. */
     async start(): Promise<void> {
       await projects.syncFromStore();
+      // Super-mode configuration commits whose result a crash lost (PM-757): settled from their commit trailers.
+      await projects.settleSuperAudit().catch((error: unknown) => {
+        opts.logger.warn({ err: error }, 'settling the super-mode audit failed');
+      });
       await sharedOperatorKnowledge.recover();
       await operatorActions.recover();
       await sessions.reconcileAfterRestart();

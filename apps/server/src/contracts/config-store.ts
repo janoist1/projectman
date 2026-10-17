@@ -28,6 +28,11 @@ export interface ConfigStore {
     },
   ): Promise<{ version: string }>;
   history(projectKey: string, limit?: number, offset?: number): Promise<ConfigVersionEntry[]>;
+  /**
+   * Whether a commit of the project carries the super-mode audit entry `auditId` as its trailer (PM-757), found
+   * in the whole history, not in its latest page.
+   */
+  hasSuperAuditCommit(projectKey: string, auditId: string): Promise<boolean>;
   /** The configuration as of `version` (migrated and validated), without changing anything. */
   loadVersion(projectKey: string, version: string): Promise<ProjectConfig>;
   /** Restores the project's files as of `version` in a new commit. */

@@ -471,7 +471,8 @@ export class ProjectService {
         .loadVersion(key, version)
         .catch(fromConfigError)
         .catch(asConfigEditError);
-      if (isOperatorActor(current.config, meta.actor))
+      // The Operator's commits, and the super mode's (PM-757, audited), restore the version as a plain commit.
+      if (isOperatorActor(current.config, meta.actor) || hasSuperOrigin(meta.actor))
         return this.commitLocked(key, current, target, { ...meta, message: `Revert to ${version}` }).catch(
           asConfigEditError,
         );
@@ -670,7 +671,9 @@ export class ProjectService {
     next: ProjectConfig,
     meta: ConfigChangeMeta,
   ): Promise<LoadedProject> {
-    await this.assertCommitAllowed(key, current.config, next, meta);
+    // A super-mode step is checked inside its audited step (a refusal is audited); every other one first.
+    const superStep = hasSuperOrigin(meta.actor);
+    if (!superStep) await this.assertCommitAllowed(key, current.config, next, meta);
     if (meta.author.operatorApprovalMode === 'click') {
       const version = await this.agreementVersion?.(key);
       if (version) meta.author.operatorAgreementVersion = version;
@@ -716,8 +719,13 @@ export class ProjectService {
       this.configStore
         .save(key, next, { author, message: meta.message, previous: current.config })
         .catch(fromConfigError);
-    const { version } = hasSuperOrigin(meta.actor)
-      ? await this.auditedSuperSave(key, meta, save)
+    const { version } = superStep
+      ? await this.auditedSuperSave(
+          key,
+          meta,
+          () => this.assertCommitAllowed(key, current.config, next, meta),
+          save,
+        )
       : await save(meta.author);
     if (stepId) this.finishOperatorExecution(key, stepId, version, meta.actor);
     const loaded: LoadedProject = { config: ProjectConfig.parse(next), version };
@@ -747,6 +755,7 @@ export class ProjectService {
   private async auditedSuperSave(
     key: string,
     meta: ConfigChangeMeta,
+    guard: () => Promise<void>,
     save: (author: Author) => Promise<{ version: string }>,
   ): Promise<{ version: string }> {
     const bound = meta.author.superActor;
@@ -756,12 +765,23 @@ export class ProjectService {
     return this.superAudit.runExternal(
       { projectKey: key, actor: bound, requestId },
       'config_commit',
-      (auditId) => save({ ...meta.author, superAuditId: auditId }),
-      {
-        committed: async (auditId) =>
-          (await this.configStore.history(key, 20)).some((entry) => entry.superAuditId === auditId),
+      async (auditId) => {
+        // The rules run inside the audited step: a refusal is an entry of the audit too.
+        await guard();
+        return save({ ...meta.author, superAuditId: auditId });
       },
+      { committed: (auditId) => this.configStore.hasSuperAuditCommit(key, auditId) },
     );
+  }
+
+  /** Settles the super-mode configuration commits a crash left without a result (at startup, nothing in flight). */
+  async settleSuperAudit(): Promise<number> {
+    let settled = 0;
+    for (const { key } of this.summaries())
+      settled += await this.superAudit.settleOpen(key, (auditId) =>
+        this.configStore.hasSuperAuditCommit(key, auditId),
+      );
+    return settled;
   }
 
   finishOperatorExecution(key: string, stepId: string, version: string, actor: Actor): void {

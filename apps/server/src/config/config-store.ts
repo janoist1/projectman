@@ -415,6 +415,26 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         });
     },
 
+    async hasSuperAuditCommit(projectKey, auditId) {
+      assertKey(projectKey);
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(auditId)) return false;
+      await ensureInit();
+      const line = `Projectman-Audit-Id: ${auditId}`;
+      const log = await git([
+        'log',
+        '--fixed-strings',
+        `--grep=${line}`,
+        '--format=%B%x1e',
+        '--',
+        projectPath(projectKey),
+      ]);
+      // The trailer is a whole line of the last paragraph, next to the super-mode marker, not text in a message.
+      return log.stdout.split('\x1e').some((record) => {
+        const ending = record.trim().split('\n\n').at(-1)?.split('\n') ?? [];
+        return ending.includes(line) && ending.includes('Projectman-Operator-Mode: super');
+      });
+    },
+
     async loadVersion(projectKey, version) {
       assertKey(projectKey);
       await ensureInit();

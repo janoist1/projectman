@@ -1,7 +1,8 @@
 import { realpath } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import { posix as posixPath } from 'node:path';
-import * as pty from '@lydell/node-pty';
+import type * as Pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
 import { COMPACTING_PROVIDERS } from '../contracts';
 import type {
@@ -73,6 +74,13 @@ export interface PtySpawnOptions {
 
 /** Starts a process in a pseudo-terminal (node-pty's `spawn` by default). */
 export type SpawnPty = (file: string, args: string[], options: PtySpawnOptions) => PtyProcess;
+
+const require = createRequire(import.meta.url);
+let pty: typeof Pty | undefined;
+const defaultSpawnPty: SpawnPty = (file, args, options) => {
+  pty ??= require('@lydell/node-pty') as typeof Pty;
+  return pty.spawn(file, args, options);
+};
 
 export interface SessionDeps {
   processScopes?: ProcessScopeDriver;
@@ -270,7 +278,7 @@ export class AgentSession {
   async spawn(file: string, args: string[], env: Record<string, string>): Promise<void> {
     if (this.deps.processScopes) this.scope = await this.deps.processScopes.open(this.id);
     const cmd = this.scope?.launch({ file, args, env }) ?? { file, args, env };
-    const spawnPty: SpawnPty = this.deps.spawnPty ?? pty.spawn;
+    const spawnPty: SpawnPty = this.deps.spawnPty ?? defaultSpawnPty;
     try {
       this.attach(
         spawnPty(cmd.file, cmd.args, {

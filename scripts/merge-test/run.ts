@@ -7,7 +7,17 @@ import type { MergeTestFile } from './impact';
 import { mergeTestScope } from './scope';
 import type { MergeTestScope } from './scope';
 
+const CLOUD_TEST_FILTERS = [
+  'apps/server/test/cloud-',
+  'apps/server/test/deploy-',
+  'apps/server/test/release-',
+  'apps/server/test/architecture/',
+  'apps/server/test/merge-test-',
+];
+
 export function scopeLine(scope: MergeTestScope): string {
+  if (scope.kind === 'cloud')
+    return `merge-test scope: cloud; workspaces: apps/server; test filters: ${CLOUD_TEST_FILTERS.join(', ')}; fallback: none`;
   if (scope.kind === 'modules')
     return `merge-test scope: modules (${scope.modules.join(', ')}); tests: ${scope.tests.length}; workspaces: ${scope.workspaces.join(', ')}; fallback: none; selected tests: ${scope.tests.join(', ')}`;
   if (scope.kind === 'workspaces' && scope.fallback)
@@ -21,6 +31,11 @@ export function scopeLine(scope: MergeTestScope): string {
 export function mergeTestCommands(scope: MergeTestScope): string[][] {
   if (scope.kind === 'none') return [];
   if (scope.kind === 'all') return [['run', 'typecheck'], ['test']];
+  if (scope.kind === 'cloud')
+    return [
+      ['run', 'typecheck', '-w', 'apps/server'],
+      ['test', '-w', 'apps/server', '--', ...CLOUD_TEST_FILTERS.map((path) => resolve(path))],
+    ];
   if (scope.kind === 'modules')
     return [
       ['run', 'typecheck', '-w', 'apps/server'],

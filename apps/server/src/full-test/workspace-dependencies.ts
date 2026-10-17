@@ -3,7 +3,6 @@ import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { z } from 'zod';
 import type {
   WorkspaceDependenciesResult,
@@ -38,6 +37,7 @@ import {
 } from './sandbox';
 
 export const WORKSPACE_DEPENDENCY_RETRY_MS = 600_000;
+let sandboxRuntime: Promise<typeof import('@anthropic-ai/sandbox-runtime')> | undefined;
 const MEMOIZED = new Set<WorkspaceDependencyFailure>([
   'invalid_inputs',
   'install_failed',
@@ -130,6 +130,7 @@ export function createWorkspaceDependencyInstaller(
       if (!madeRunDir) {
         if (!options.execute) {
           try {
+            const { SandboxManager } = await (sandboxRuntime ??= import('@anthropic-ai/sandbox-runtime'));
             if (process.platform !== 'darwin' || !SandboxManager.isSupportedPlatform())
               throw new Error('unsupported platform');
             const check = await SandboxManager.checkDependenciesAsync();

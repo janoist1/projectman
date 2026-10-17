@@ -1,8 +1,16 @@
-import xtermHeadless from '@xterm/headless';
-import xtermSerialize from '@xterm/addon-serialize';
+import { createRequire } from 'node:module';
+import type { Terminal } from '@xterm/headless';
+import type { SerializeAddon } from '@xterm/addon-serialize';
 
-type Terminal = InstanceType<typeof xtermHeadless.Terminal>;
-type SerializeAddon = InstanceType<typeof xtermSerialize.SerializeAddon>;
+const require = createRequire(import.meta.url);
+let headless: typeof import('@xterm/headless') | undefined;
+let serialize: typeof import('@xterm/addon-serialize') | undefined;
+
+function terminalPackages() {
+  headless ??= require('@xterm/headless') as typeof import('@xterm/headless');
+  serialize ??= require('@xterm/addon-serialize') as typeof import('@xterm/addon-serialize');
+  return { Terminal: headless.Terminal, SerializeAddon: serialize.SerializeAddon };
+}
 
 /** Lines of scrollback kept per session. */
 export const SCROLLBACK = 5000;
@@ -20,8 +28,9 @@ export class HeadlessScreen {
   private mouseEncoding: number | undefined;
 
   constructor(cols: number, rows: number) {
-    this.term = new xtermHeadless.Terminal({ cols, rows, scrollback: SCROLLBACK, allowProposedApi: true });
-    this.serializer = new xtermSerialize.SerializeAddon();
+    const { Terminal, SerializeAddon } = terminalPackages();
+    this.term = new Terminal({ cols, rows, scrollback: SCROLLBACK, allowProposedApi: true });
+    this.serializer = new SerializeAddon();
     this.term.loadAddon(this.serializer);
     this.trackMouseEncoding();
   }

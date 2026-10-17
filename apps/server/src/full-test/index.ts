@@ -2,7 +2,6 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
@@ -18,13 +17,8 @@ export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } fro
 export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
 
 export { failedFiles, failureReport, outputTail, stripAnsi } from './output';
-export {
-  acquireHeavyLock,
-  defaultHeavyLockDir,
-  HeavyLockError,
-  readHeavyQueue,
-  readHeavyRunSessions,
-} from './heavy-lock';
+export { acquireHeavyLock, HeavyLockError, readHeavyQueue, readHeavyRunSessions } from './heavy-lock';
+export { defaultHeavyLockDir } from './heavy-lock-dir';
 export type { HeavyLock, HeavyLockEntry, HeavyLockOptions } from './heavy-lock';
 export { runSandboxed, srtCli } from './run-sandboxed';
 export type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
@@ -42,6 +36,7 @@ export {
 
 /** The probes (a sandbox start each) must be quick. */
 const PROBE_TIMEOUT_MS = 60_000;
+let sandboxRuntime: Promise<typeof import('@anthropic-ai/sandbox-runtime')> | undefined;
 
 export interface FullTestExecutorOptions {
   logger: FastifyBaseLogger;
@@ -106,6 +101,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       if (process.platform !== 'darwin')
         return { ok: false, reason: `the sandbox needs macOS (this is ${process.platform})` };
       try {
+        const { SandboxManager } = await (sandboxRuntime ??= import('@anthropic-ai/sandbox-runtime'));
         if (!SandboxManager.isSupportedPlatform())
           return { ok: false, reason: 'the sandbox runtime does not support this platform' };
         const check = await SandboxManager.checkDependenciesAsync();

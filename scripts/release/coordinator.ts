@@ -9,6 +9,7 @@ import type {
 import { CloudError, refused } from '../cloud/errors';
 import type { HybridReleaseJournal, JournalFailureCode, LocalPhase } from './journal';
 import { FAILURES, PUBLISH_FAILED_MESSAGE } from './messages';
+import { releaseIdSchema } from './receipt';
 import { ControlError, LIMITS, RoundStopped } from './ports';
 import type { CoordinatorPorts, DeployView, EngineState, HeldHeavyLock, RoundResult } from './ports';
 import type { VerifiedPrepared } from './verify';
@@ -115,6 +116,14 @@ export class HybridCoordinator {
     await this.p.machine.verifyTarget();
     const release = await this.guarded(() => this.p.control.releaseNext());
     if (!release) return { state: 'idle', releaseId: null, commit: null, phase: null, problems: [] };
+    if (!releaseIdSchema.safeParse(release.id).success || !COMMIT_SHA.test(release.commit))
+      return {
+        state: 'blocked',
+        releaseId: null,
+        commit: null,
+        phase: null,
+        problems: ['release_invalid'],
+      };
     const base = { releaseId: release.id, commit: release.commit, phase: null };
     if (release.state !== 'approved')
       return { ...base, state: 'blocked', problems: ['release_not_startable'] };
@@ -149,7 +158,9 @@ export class HybridCoordinator {
     // that knew its rollback point is gone, and nothing is guessed in its place.
     if (release.state !== 'approved')
       throw refused(`release ${release.id} is ${release.state} but this watcher has no journal for it`);
-    if (!COMMIT_SHA.test(release.commit)) throw refused(`release ${release.id} has no valid commit`);
+    // The id and the commit come from the cloud: they must have their shape before they name anything here.
+    if (!releaseIdSchema.safeParse(release.id).success || !COMMIT_SHA.test(release.commit))
+      throw refused('the cloud named a release without a valid id or commit');
     await this.start(release);
     return this.drive();
   }

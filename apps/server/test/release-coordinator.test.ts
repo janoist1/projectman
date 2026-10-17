@@ -76,6 +76,23 @@ describe('the hybrid release coordinator (PM-751)', () => {
       expect(world.journal.read().kind).toBe('none');
     });
 
+    it('refuses to start, and to plan, a release whose id or commit has not their shape', async () => {
+      const release = await ready();
+      const control = world.control();
+      const bad = {
+        ...control,
+        releaseNext: async () => ({ ...(await control.releaseNext())!, id: '../../outside' }),
+      };
+      await expect(world.coordinator({ control: bad }).round()).rejects.toMatchObject({ exitCode: 2 });
+      expect(world.journal.read().kind).toBe('none');
+      expect(world.release(release.id).state).toBe('approved');
+      expect(await world.coordinator({ control: bad }).plan()).toMatchObject({
+        state: 'blocked',
+        releaseId: null,
+        problems: ['release_invalid'],
+      });
+    });
+
     it('takes an approved release live on both targets and publishes it', async () => {
       const release = await ready();
       const result = await world.coordinator().round();

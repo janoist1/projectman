@@ -35,7 +35,7 @@ import { conflict, forbidden, invalid, notFound, themeRefused } from '../../kern
 import type { MemberService } from '../../core/members';
 import type { Author, ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import { approvalRequestedError, gateBlockedError } from '../../core/tasks';
+import { approvalRequestedError, gateBlockedError, prerequisiteCards } from '../../core/tasks';
 import type { StageChange, TaskService } from '../../core/tasks';
 import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../kernel';
 import type { Admission } from './admission';
@@ -199,6 +199,15 @@ export class TaskStarts {
     return result;
   }
 
+  /** The shared rule (`canAutomaticallyStartTask`), on this card's own open subtasks read from fresh state (PM-770). */
+  private canStartAutomatically(task: Task): boolean {
+    const subtasks = this.tasks.readSchedulingTasks(task.projectKey, {
+      kind: 'children',
+      parentKeys: [task.key],
+    });
+    return canAutomaticallyStartTask(task, subtasks);
+  }
+
   /**
    * `start` for a caller that already holds the admission lock (`Admission.exclusive`, which an
    * automatic start's `run` is under): the lock is not reentrant, so `start` cannot be called
@@ -208,7 +217,7 @@ export class TaskStarts {
     const config = await this.projects.config(projectKey);
     let task = this.tasks.get(projectKey, taskKey);
     const skipped = { task, session: null, hired: null };
-    if (opts.automatic && !canAutomaticallyStartTask(task, this.tasks.list(projectKey))) return skipped;
+    if (opts.automatic && !this.canStartAutomatically(task)) return skipped;
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
     if (
@@ -228,7 +237,7 @@ export class TaskStarts {
     }
     // Before the developer is chosen: nobody is picked, hired or assigned for a card that waits.
     if (!(opts.despitePrerequisites && startsAsPerson(config, opts.actor)))
-      assertPrerequisitesClosed(task, this.tasks.list(projectKey));
+      assertPrerequisitesClosed(task, prerequisiteCards(this.tasks, projectKey, task));
     // PM-248: the gate of the stage the card is in holds the Start too; a label only a person
     // sets there is no approval this Start can ask for, so it is refused before anyone is started.
     if (needsMove) refuseOwnStageApproval(task, evaluateStart(task, config, workStage.id));
@@ -269,7 +278,7 @@ export class TaskStarts {
     const wanted = () => {
       const current = this.tasks.get(projectKey, taskKey);
       return (
-        (!opts.automatic || canAutomaticallyStartTask(current, this.tasks.list(projectKey))) &&
+        (!opts.automatic || this.canStartAutomatically(current)) &&
         (!opts.stillWanted || opts.stillWanted(current))
       );
     };

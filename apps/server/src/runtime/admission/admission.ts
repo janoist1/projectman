@@ -37,6 +37,7 @@ import { highestUsagePercent } from '../usage';
 import type { PlanUsageCache } from '../usage';
 import type { ProjectService } from '../../core/projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
+import { prerequisiteCards } from '../../core/tasks';
 import type { TaskService } from '../../core/tasks';
 import { KeyedMutex } from '../../kernel';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
@@ -483,7 +484,9 @@ export class Admission {
       // A start that waits for prerequisites is retried when the open ones change (one closed, a
       // relation removed): with the same ones open, a retry could only be refused again.
       if (reason === 'prerequisite_open' && task) {
-        const open = openPrerequisites(task, this.tasks.list(task.projectKey)).map((card) => card.key);
+        const open = openPrerequisites(task, prerequisiteCards(this.tasks, task.projectKey, task)).map(
+          (card) => card.key,
+        );
         const waiting = entry.waiting.prerequisites ?? [];
         if (open.length > 0 && open.length === waiting.length && open.every((key) => waiting.includes(key)))
           continue;

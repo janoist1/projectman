@@ -11,7 +11,13 @@ import { buildEngineApp, ENGINE_DEFAULT_PORT } from './engine-app';
 import { defaultSessionTmpRoot } from './engine-host';
 import { parseFeedbackPublicUrl } from './http';
 import { createFixtureProbe, parseMachineFixture } from './machine';
-import { createServerLogStream, serverLogFile } from './logging';
+import {
+  createServerLogStream,
+  MemoryLogSettingError,
+  parseMemoryLogSeconds,
+  serverLogFile,
+  startMemoryLog,
+} from './logging';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './runtime/usage';
 import { createAppTagReader, resolveAppVersion, EngineConfigError } from './engine-link';
@@ -75,6 +81,10 @@ import {
  *   visitor meets the application's own login (PM-672, docs/AWS.md "Public board"). It starts only in cloud
  *   mode, with an owner set up and the e-mail login on: `public_board_requires_cloud`,
  *   `public_board_requires_setup`, `public_board_requires_email_login` otherwise.
+ *   PROJECTMAN_MEMORY_LOG_SECONDS (0): a whole number of seconds from 60 to 86400 turns on a `memory` log
+ *   line (RSS, heap, external memory, the heap limit; PM-775, docs/HYBRID.md "Settings") at that interval;
+ *   0 is off; any other value stops the start. The heap limit itself is set by the cloud entrypoint
+ *   (PROJECTMAN_HEAP_LIMIT_MB), not here.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -112,6 +122,8 @@ interface ServerConfig {
   app: BuildAppOptions;
   /** The machine display shows fixed data (PROJECTMAN_MACHINE_FIXTURE), not the machine. */
   machineFixture: boolean;
+  /** PROJECTMAN_MEMORY_LOG_SECONDS (PM-775): the memory log's interval; 0 is off. */
+  memoryLogSeconds: number;
 }
 
 /** `PROJECTMAN_RELEASE_TARGET`: `<project key>/<repository>`; anything else stops the start. */
@@ -173,6 +185,7 @@ async function configFromEnv(
   // because the host guard (http/feedback-host-guard) is built from it.
   const feedbackPublicUrl = env.PROJECTMAN_FEEDBACK_PUBLIC_URL?.trim() || undefined;
   if (feedbackPublicUrl) parseFeedbackPublicUrl(feedbackPublicUrl);
+  const memoryLogSeconds = parseMemoryLogSeconds(env.PROJECTMAN_MEMORY_LOG_SECONDS);
   // Cloning node_modules into task worktrees (PM-332): on unless turned off; anything else stops the start.
   const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
   if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
@@ -202,6 +215,7 @@ async function configFromEnv(
     port,
     host,
     machineFixture: machineFixture !== undefined,
+    memoryLogSeconds,
     app: {
       engineMode,
       publicBoard,
@@ -377,9 +391,13 @@ async function main(): Promise<void> {
   if (config.machineFixture)
     app.log.warn('the machine display shows fixed data (PROJECTMAN_MACHINE_FIXTURE), not the real machine');
 
+  let stopMemoryLog = () => {};
   const shutdown = createShutdown({
     pause: () => app.projectman.pauseForShutdown(),
-    close: () => app.close(),
+    close: () => {
+      stopMemoryLog();
+      return app.close();
+    },
     exit: (code) => process.exit(code),
     log: {
       info: (obj, msg) => app.log.info(obj, msg),
@@ -391,13 +409,22 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   await app.listen({ port: config.port, host: config.host });
+  if (config.memoryLogSeconds > 0)
+    stopMemoryLog = startMemoryLog({
+      intervalS: config.memoryLogSeconds,
+      log: (fields) => app.log.info(fields, 'memory'),
+    });
   app.log.info({ home: config.app.home, webApp: config.app.webDistDir !== null }, 'projectman server ready');
 }
 
 main().catch((err: unknown) => {
   // A problem the person starting the engine can fix: the message, not a stack.
   if (err instanceof EngineConfigError) console.error(`projectman engine: ${err.message}`);
-  else if (err instanceof EmailLoginNotConfiguredError || err instanceof PublicBoardNotReadyError)
+  else if (
+    err instanceof EmailLoginNotConfiguredError ||
+    err instanceof PublicBoardNotReadyError ||
+    err instanceof MemoryLogSettingError
+  )
     console.error(`projectman: ${err.message}`);
   else console.error(err);
   process.exit(1);

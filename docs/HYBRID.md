@@ -94,7 +94,37 @@ Plain settings (in `fly.toml` `[env]`, or the host's environment):
 | `RESTIC_REPOSITORY`                                             | The restic repository, for example `s3:https://<endpoint>/<bucket>/projectman`                           |
 | `RESTIC_REGION`                                                 | The restic bucket's region (optional; `auto` for R2)                                                     |
 | `BACKUP_INTERVAL_SECONDS`, `BACKUP_FIRST_DELAY_SECONDS`         | The restic backup every 6 hours (21600), the first one 5 minutes after the start (300)                   |
+| `PROJECTMAN_HEAP_LIMIT_MB`                                      | The server's V8 old-space limit (below); the image sets 256; empty keeps node's default                  |
+| `PROJECTMAN_MEMORY_LOG_SECONDS`                                 | A `memory` log line every n seconds (below); the image sets 600; 0 is off                                |
 | `LOG_LEVEL`, other `PROJECTMAN_*`                               | Passed to the server (`PROJECTMAN_SHUTDOWN_PAUSE_MS` for example); `HOST`, `PORT` and the mode are fixed |
+
+**Memory settings (PM-775, part of PM-772).**
+
+- `PROJECTMAN_HEAP_LIMIT_MB` is read by the entrypoint, not by the server: a whole number from 128 to
+  4096 becomes `node --max-old-space-size=<n>`; empty or unset leaves node's default, which is
+  computed from the machine's memory (about 450 MB on the 904 MB machine, so garbage is collected only
+  near that line). Any other value stops the container before anything starts (exit 64).
+- `PROJECTMAN_MEMORY_LOG_SECONDS` is read by the server (cloud and single mode): 0 (the default) is
+  off, otherwise 60 to 86400 seconds; any other value stops the start with a `projectman:` message.
+  Each line is `memory` with `rssMb`, `heapUsedMb`, `heapTotalMb`, `externalMb`, `arrayBuffersMb`,
+  `heapLimitMb` and `uptimeS`, in whole megabytes, in `<home>/logs/server.log` and on the terminal.
+- **Sizing rule.** `ceiling = ceil32(2 × the largest live heap under load)`, rounded up to 32 MB, from a
+  [memory profile](#memory-profile). If `ceiling + the fixed cost (the report's RSS outside the heap) +
+about 200 MB for the other processes` is at most about 800 MB on the 904 MB machine, the image
+  carries that ceiling. If it is more, do not squeeze: propose the next machine size, size the ceiling
+  for it, and let the owner decide.
+- **The image's value (256).** The PM-773 baseline measured a live heap of about 65 MB with no growth
+  (63.9 MB at the start, 64.9 MB after an hour), without request load. The rule gives 160 MB; 256 MB
+  leaves four times the idle live heap until a loaded measurement exists. The fixed cost was 640 to
+  660 MB, so 160 + 650 + 200 is about 1010 MB: it does not fit the 904 MB machine (the cloud's own
+  reading was RSS 342 MB plus 417 MB of swap), and the card proposes the 2 GB t4g.small instead. The
+  heap limit does not shrink that native part: a lower limit ended within 12 MB of node's default.
+- `MALLOC_ARENA_MAX=2` is not set: the baseline run with it ended 14 MB above the run with the lower
+  heap limit (722.9 against 708.6 MB), short of the 20 MB gain that would justify it. If it is ever
+  added, it also goes into the entrypoint's `load_env server_env` list, because `env -i` drops it.
+- **Health check.** The image's `HEALTHCHECK` is a `curl` of `/api/setup` every 30 seconds
+  (`-fsS --max-time 5`); curl is in the image, while the former `node -e fetch(...)` started a node
+  process (about 35 MB and CPU time) on every check.
 
 Secrets (the host's secret store, never a file in the repository, never a message or a task):
 

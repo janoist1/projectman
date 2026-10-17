@@ -173,8 +173,8 @@ function instrument() {
   const prototype = Object.getPrototypeOf(probe.prepare('SELECT 1')) as Database.Statement;
   probe.close();
   const descriptors = new Map<string, PropertyDescriptor>();
-  // Wrap the shared native prototype once. Per-statement closures can retain native statements
-  // through the addon's lifetime management and distort a long, query-heavy measurement.
+  // Wrap the shared native prototype once, with a constant number of wrappers. Retain neither
+  // statement instances nor per-call history during a long, query-heavy measurement.
   for (const method of ['all', 'get', 'run'] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, method)!;
     descriptors.set(method, descriptor);
@@ -384,7 +384,7 @@ describe('periodic work performance protocol (PM-733)', () => {
         const results: unknown[] = [];
         const reportPath = join(
           process.env.PROJECTMAN_SESSION_DIR ?? os.tmpdir(),
-          `periodic-work-${environment.source.slice(0, 12)}.json`,
+          `periodic-work-${environment.productionMatchesOriginal ? 'original' : 'optimized'}-${environment.source.slice(0, 12)}.json`,
         );
         for (const active of [true, false]) {
           for (const [historyMessages, historyTasks] of [

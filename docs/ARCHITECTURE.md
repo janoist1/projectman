@@ -2631,7 +2631,9 @@ assumption or remote-engine RPC.
   **Module:** `runner`
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `runtime/watchers` (`WorktreeSweep`),
-  `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
+  `index.ts` (PM-243; PM-311, PM-312; PM-770). The sweep picks its candidates from the server database
+  (paged `closed-worktrees` reads, no whole card list); the worktree itself is still found, checked and removed
+  on the card's engine. Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
   operations. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
@@ -3104,7 +3106,10 @@ this documentation change.
 that have been closed for 3 days (`CLOSED_WORKTREE_KEEP_MS`) and have no running session, and removes the worktree
 of each that is clean (`WorktreeManager.remove`, which keeps the branch; `ensureForTask` makes the worktree again if
 the card restarts). A worktree with uncommitted changes is never removed: the owners get one `worktree_kept` alert
-per closing of the card. What was removed and about how much space it freed goes to the server log only.
+per closing of the card. What was removed and about how much space it freed goes to the server log only. The sweep reads
+the closed cards past the keep time in pages of 100 by number (`closed-worktrees`, PM-770), with the closing time of
+a round fixed at its start, instead of the project's whole card list; a card reopened between two pages is not on a
+later page, and the removal looks at the card again right before it.
 
 `DiskGuard` (every minute, `DomainOptions.diskCheckMs`) measures the free space of `PROJECTMAN_HOME` with `statfs`.
 Below `team.limits.minFreeDiskGb` (default 10, 0 turns it off) the owners get one `disk_low` alert, withdrawn when
@@ -3297,12 +3302,32 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   work start is dropped on retry when its card gains an open subtask. Explicit manual starts remain available.
   A new round starts at once on a focus change (`ProjectFocusService.onChange`), on a priority set to `urgent` (the
   internal `task_priority_changed` event) and on a card entering the queue stage, besides the freeing of a developer.
+- **Targeted reads (PM-770).** The retry, the pull and the startup recovery do not read a project's whole card list.
+  `TaskSchedulingReader.readSchedulingTasks(projectKey, query)` (`contracts/task-scheduling.ts`, implemented by
+  `TaskService` over `TaskRepository.readScheduling` in `db/tasks.ts`) returns stored rows with their own links, in
+  ascending number, without the board view and the derived fields. The queries are `keys` (exact cards), `focus` (the
+  cards a project focus covers: the focused roots, the open cards of a focused theme, and their subtasks), `pull` (the
+  open cards of the queue stage that are urgent or focused), `children` (the open subtasks of cards), `open` (every
+  open card) and `closed-worktrees` (closed cards past a closing time, paged by number). The pure rules stay in
+  `packages/shared` (`pullCandidates`, `startableCards`, `openPrerequisites`, `startClass`, `canAutomaticallyStartTask`,
+  `startBlock`, `stageAdvance`, `mergeReadiness`, `cardMerger`) and run over these rows; SQL only narrows the set they
+  see, it copies none of them. `startContext` (`core/tasks/scheduling-context.ts`) adds the open subtasks and
+  prerequisite targets the rules look at to the candidates, and `prerequisiteCards` reads just the cards a card's
+  `prerequisite` links name. `FocusPull` looks for a free developer first: with none, no card is read. Migration 78
+  adds the partial indexes `tasks_scheduling_pull`, `tasks_scheduling_open` and `tasks_scheduling_closed`. The
+  startup recovery (`AutoAdvance.sweep`, `Merges.reconcileProject`) reads the open cards, and for merges also the
+  cards of the open merge records, a closed card too, so a record is still reconciled; `Merges.reconcileCard` decides
+  on the stored row first and reads the board view, the reviewer's timeline and the source head only for a card with
+  a record or a ready gate. The assembly runs one stage-advance per card at a time; an event that comes meanwhile asks
+  for one more round that reads the card afresh.
 - **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of
   `canSeeProjectEvent`), not `focus_changed` (it is not in `CLIENT_TASK_TIMELINE`), and `visibleTimelineEvent` takes
   `pulled` off a stage change.
 
 **Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
 new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
+The targeted reads of PM-770 are server database reads too; only the sweep's candidates changed, and the worktree
+entry above says so.
 
 ### Coordination belongs to the PM (PM-707)
 

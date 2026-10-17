@@ -108,29 +108,33 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
  * A card as it is read: with the theme it shows. A subtask shows its parent's (read here, so a parent
  * changing theme writes nothing to its subtasks); any other card shows its own.
  */
-const TASK_SELECT = `SELECT t.*, CASE WHEN t.parent_key IS NOT NULL THEN p.theme_key ELSE t.theme_key END
-    AS effective_theme FROM tasks t LEFT JOIN tasks p ON p.key = t.parent_key`;
+const taskSelect = (index = '') =>
+  `SELECT t.*, CASE WHEN t.parent_key IS NOT NULL THEN p.theme_key ELSE t.theme_key END
+    AS effective_theme FROM tasks t${index ? ` INDEXED BY ${index}` : ''} LEFT JOIN tasks p ON p.key = t.parent_key`;
+const TASK_SELECT = taskSelect();
 
 /**
  * The scheduling reads (PM-770), each filtered in SQL. Sets travel as one bound JSON array. The partial
  * indexes `tasks_scheduling_*` serve the pull, open and closed reads (their literals match the index
- * conditions); the key, parent and theme reads start from the existing indexes. A test pins the plans.
+ * conditions). The key reads are driven by the unique key index (`+t.project_key` keeps the planner from
+ * walking the project's index range instead), the parent and theme reads are pinned to `tasks_parent` and
+ * `tasks_theme` (without table statistics the planner would walk a project index). A test pins the plans.
  * The closing time is compared as a time (an old row may carry an offset), not as text; text that is no
  * time is left out, and the GLOB keeps SQLite from reading a bare number as a Julian day.
  */
 export const SCHEDULING_SQL = {
   linksOfIds: 'SELECT * FROM task_links WHERE task_id IN (SELECT value FROM json_each(?)) ORDER BY id',
-  keys: `${TASK_SELECT} WHERE t.project_key = ? AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
-  themeCards: `${TASK_SELECT} WHERE t.project_key = ? AND t.kind = 'task' AND t.parent_key IS NULL
+  keys: `${TASK_SELECT} WHERE +t.project_key = ? AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
+  themeCards: `${taskSelect('tasks_theme')} WHERE t.project_key = ? AND t.kind = 'task' AND t.parent_key IS NULL
       AND t.status NOT IN ('done', 'cancelled') AND t.theme_key IN (SELECT value FROM json_each(?))
     ORDER BY t.seq`,
-  children: `${TASK_SELECT} WHERE t.project_key = ? AND t.parent_key IN (SELECT value FROM json_each(?))
+  children: `${taskSelect('tasks_parent')} WHERE t.project_key = ? AND t.parent_key IN (SELECT value FROM json_each(?))
       AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,
-  childrenAll: `${TASK_SELECT} WHERE t.project_key = ? AND t.parent_key IN (SELECT value FROM json_each(?))
+  childrenAll: `${taskSelect('tasks_parent')} WHERE t.project_key = ? AND t.parent_key IN (SELECT value FROM json_each(?))
     ORDER BY t.seq`,
   pullUrgent: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
       AND t.assignee IS NULL AND t.priority = 1 ORDER BY t.seq`,
-  pullFocused: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
+  pullFocused: `${TASK_SELECT} WHERE +t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
       AND t.assignee IS NULL AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
   open: `${TASK_SELECT} WHERE t.project_key = ? AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,
   closed: `${TASK_SELECT} WHERE t.project_key = ? AND t.kind = 'task' AND t.status IN ('done', 'cancelled')

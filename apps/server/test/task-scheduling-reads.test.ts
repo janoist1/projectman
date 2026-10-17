@@ -238,19 +238,22 @@ describe('query plans', () => {
 
   it('serves the pull, open and closed reads from their partial indexes and never scans the table', () => {
     expect(plan(SCHEDULING_SQL.pullUrgent, 'PM', 'ready')).toContain('tasks_scheduling_pull');
-    expect(plan(SCHEDULING_SQL.pullFocused, 'PM', 'ready', '[]')).not.toMatch(/SCAN t\b/);
     expect(plan(SCHEDULING_SQL.open, 'PM')).toContain('tasks_scheduling_open');
     expect(plan(SCHEDULING_SQL.closed, 'PM', 0, at, 10)).toContain('tasks_scheduling_closed');
   });
 
-  it('starts the key, parent and theme reads from an index', () => {
-    for (const sql of [
-      SCHEDULING_SQL.keys,
-      SCHEDULING_SQL.children,
-      SCHEDULING_SQL.childrenAll,
-      SCHEDULING_SQL.themeCards,
-    ])
-      expect(plan(sql, 'PM', '[]')).not.toMatch(/SCAN t\b/);
+  it('drives the key, parent and theme reads by the bound set, not by a walk of the project', () => {
+    // The first line of a plan is the table the read starts from: the key index, or the index probed per value.
+    const first = (sql: string, ...params: unknown[]) => plan(sql, ...params).split('\n')[0];
+    expect(first(SCHEDULING_SQL.keys, 'PM', '[]')).toContain('sqlite_autoindex_tasks_2 (key=?)');
+    expect(first(SCHEDULING_SQL.pullFocused, 'PM', 'ready', '[]')).toContain(
+      'sqlite_autoindex_tasks_2 (key=?)',
+    );
+    for (const sql of [SCHEDULING_SQL.children, SCHEDULING_SQL.childrenAll])
+      expect(first(sql, 'PM', '[]')).toContain('tasks_parent (project_key=? AND parent_key=?)');
+    expect(first(SCHEDULING_SQL.themeCards, 'PM', '[]')).toContain(
+      'tasks_theme (project_key=? AND theme_key=?)',
+    );
     expect(plan(SCHEDULING_SQL.linksOfIds, '[]')).not.toMatch(/SCAN task_links/);
   });
 });

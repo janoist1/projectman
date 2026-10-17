@@ -1,12 +1,30 @@
 import { createHash } from 'node:crypto';
 import { countFixRounds, isTheme, PatternFacts, stageOf } from '@projectman/shared';
-import type { ProjectConfig, Task, TimelineEvent } from '@projectman/shared';
+import type { OperatorSignalKind, ProjectConfig, Task, TimelineEvent } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 
 export const STRUCTURAL_WINDOW_MS = 7 * 24 * 60 * 60_000;
 export const structuralKind = (kind: string) => kind === 'structural_pattern' || kind === 'milestone_closed';
 export const patternSubject = (fingerprint: string) =>
   createHash('sha256').update(fingerprint).digest('hex').slice(0, 24);
+
+export type StructuralSignalRef = {
+  projectKey: string;
+  kind: OperatorSignalKind;
+  taskKey: string | null;
+  subject: string | null;
+  raisedAt: string;
+};
+export type StructuralFacts =
+  { evidence: PatternFacts; milestoneKey: null } | { evidence: null; milestoneKey: string } | null;
+export type StructuralReport = {
+  patterns: PatternFacts[];
+  milestones: { taskKey: string; eventId: string }[];
+};
+export interface StructuralEvaluation {
+  report(): StructuralReport;
+  facts(signal: StructuralSignalRef): StructuralFacts;
+}
 
 /** Reject absolute paths and escapes; equivalent repository-relative spellings share one fingerprint. */
 export function normalizedEvidencePath(value: unknown): string | null {
@@ -35,38 +53,128 @@ export class StructuralPatterns {
    * Reads the window's events, and of the cards only those the events name (PM-771): never the project's
    * whole card history. A card that is gone is no card, as before.
    */
-  report(config: ProjectConfig, until = this.ctx.now().toISOString()) {
-    const since = new Date(Date.parse(until) - STRUCTURAL_WINDOW_MS).toISOString();
-    const events = this.ctx.repos.timeline.structuralEvidence(config.project.key, since, until);
-    const keys = [...new Set(events.flatMap((event) => (event.taskKey ? [event.taskKey] : [])))];
-    const cards =
-      keys.length === 0
-        ? []
-        : this.ctx.repos.tasks.readScheduling(config.project.key, { kind: 'keys', keys });
-    const byKey = new Map(cards.map((card) => [card.key, card]));
-    return {
-      patterns: this.patterns(config, events, cards, since, until),
-      milestones: [
-        ...this.parentMilestones(config, events, byKey, since),
-        ...events.flatMap((event) => {
-          const task = event.taskKey ? byKey.get(event.taskKey) : undefined;
-          if (!task) return [];
-          const themeClosed =
-            isTheme(task) &&
-            event.type === 'task_updated' &&
-            event.data.action === 'closed' &&
-            ['active', 'waiting', 'blocked'].includes(String(event.data.previousStatus));
-          const stageClosed =
-            event.type === 'task_stage_changed' &&
-            event.data.from !== event.data.to &&
-            stageOf(config, String(event.data.from))?.kind !== 'done' &&
-            stageOf(config, String(event.data.to))?.kind === 'done';
-          return themeClosed || (stageClosed && isTheme(task))
-            ? [{ taskKey: task.key, eventId: event.id }]
-            : [];
-        }),
-      ],
+  report(config: ProjectConfig, until?: string): StructuralReport {
+    return this.evaluate(config, until).report();
+  }
+
+  /** One synchronous phase only: never retain an evaluation across awaits or evidence/config writes. */
+  evaluate(config: ProjectConfig, until = this.ctx.now().toISOString()): StructuralEvaluation {
+    const projectKey = config.project.key;
+    const windows = new Map<string, ReturnType<typeof load>>();
+    const requests = new Map<string, Map<unknown, TimelineEvent>>();
+    const merges = new Map<string, ReturnType<DomainContext['repos']['taskMerges']['get']>>();
+    const conflictRepo = (event: TimelineEvent): unknown => {
+      let byMerge = requests.get(event.taskKey!);
+      if (!byMerge) {
+        byMerge = new Map();
+        for (const request of this.ctx.repos.timeline.listOfTypes(
+          projectKey,
+          event.taskKey!,
+          ['task_merge_requested'],
+          1000,
+        )) {
+          // Preserve listOfTypes' first match, including requests outside the evidence window.
+          if (!byMerge.has(request.data.mergeId)) byMerge.set(request.data.mergeId, request);
+        }
+        requests.set(event.taskKey!, byMerge);
+      }
+      const mergeId = event.data.mergeId;
+      if (typeof mergeId === 'string' && !merges.has(mergeId))
+        merges.set(mergeId, this.ctx.repos.taskMerges.get(mergeId));
+      const merge = typeof mergeId === 'string' ? merges.get(mergeId) : null;
+      return byMerge.get(mergeId)?.data.repo ?? (merge?.projectKey === projectKey ? merge.repo : undefined);
     };
+    const load = (end: string) => {
+      const since = new Date(Date.parse(end) - STRUCTURAL_WINDOW_MS).toISOString();
+      const events = this.ctx.repos.timeline.structuralEvidence(projectKey, since, end);
+      const keys = [...new Set(events.flatMap((event) => (event.taskKey ? [event.taskKey] : [])))];
+      const cards =
+        keys.length === 0 ? [] : this.ctx.repos.tasks.readScheduling(projectKey, { kind: 'keys', keys });
+      let patterns: PatternFacts[] | undefined;
+      let subjects: Map<string, PatternFacts> | undefined;
+      let milestones: StructuralReport['milestones'] | undefined;
+      let milestoneKeys: Set<string> | undefined;
+      return {
+        patterns: () => (patterns ??= this.patterns(config, events, cards, since, end, conflictRepo)),
+        subjects() {
+          if (!subjects) {
+            subjects = new Map();
+            for (const facts of this.patterns()) {
+              const subject = patternSubject(facts.fingerprint);
+              if (!subjects.has(subject)) subjects.set(subject, facts);
+            }
+          }
+          return subjects;
+        },
+        milestones: () =>
+          (milestones ??= this.milestones(
+            config,
+            events,
+            new Map(cards.map((card) => [card.key, card])),
+            since,
+          )),
+        milestoneKeys() {
+          return (milestoneKeys ??= new Set(
+            this.milestones().map((entry) => JSON.stringify([entry.taskKey, entry.eventId])),
+          ));
+        },
+      };
+    };
+    const window = (end: string) => {
+      let value = windows.get(end);
+      if (!value) windows.set(end, (value = load(end)));
+      return value;
+    };
+    return {
+      report: () => ({ patterns: window(until).patterns(), milestones: window(until).milestones() }),
+      facts: (signal) => {
+        if (
+          signal.projectKey !== projectKey ||
+          !structuralKind(signal.kind) ||
+          Date.parse(until) - Date.parse(signal.raisedAt) >= STRUCTURAL_WINDOW_MS
+        )
+          return null;
+        if (signal.kind === 'structural_pattern') {
+          if (!signal.subject || !window(until).subjects().has(signal.subject)) return null;
+          const evidence = window(signal.raisedAt).subjects().get(signal.subject);
+          return evidence ? { evidence, milestoneKey: null } : null;
+        }
+        return signal.taskKey &&
+          window(until)
+            .milestoneKeys()
+            .has(JSON.stringify([signal.taskKey, signal.subject]))
+          ? { evidence: null, milestoneKey: signal.taskKey }
+          : null;
+      },
+    };
+  }
+
+  private milestones(
+    config: ProjectConfig,
+    events: TimelineEvent[],
+    byKey: ReadonlyMap<string, Task>,
+    since: string,
+  ) {
+    return [
+      ...this.parentMilestones(config, events, byKey, since),
+      ...events.flatMap((event) => {
+        const task = event.taskKey ? byKey.get(event.taskKey) : undefined;
+        if (!task) return [];
+        const themeClosed =
+          isTheme(task) &&
+          event.type === 'task_updated' &&
+          event.data.action === 'closed' &&
+          ['active', 'waiting', 'blocked'].includes(String(event.data.previousStatus));
+        const stageClosed =
+          event.type === 'task_stage_changed' &&
+          event.data.from !== event.data.to &&
+          stageOf(config, String(event.data.from))?.kind !== 'done' &&
+          stageOf(config, String(event.data.to))?.kind === 'done';
+        return themeClosed || (stageClosed && isTheme(task))
+          ? [{ taskKey: task.key, eventId: event.id }]
+          : [];
+      }),
+    ];
   }
 
   /**
@@ -148,6 +256,7 @@ export class StructuralPatterns {
     cards: Task[],
     since: string,
     until: string,
+    conflictRepo: (event: TimelineEvent) => unknown,
   ) {
     const groups = new Map<string, { kind: PatternFacts['kind']; events: TimelineEvent[] }>();
     const add = (kind: PatternFacts['kind'], scope: string, file: string, event: TimelineEvent) => {
@@ -163,12 +272,7 @@ export class StructuralPatterns {
       let files: unknown;
       let kind: PatternFacts['kind'];
       if (event.type === 'task_merge_failed' && event.data.reason === 'conflict') {
-        const merge =
-          typeof event.data.mergeId === 'string' ? this.ctx.repos.taskMerges.get(event.data.mergeId) : null;
-        const requested = this.ctx.repos.timeline
-          .listOfTypes(config.project.key, event.taskKey, ['task_merge_requested'], 1000)
-          .find((entry) => entry.data.mergeId === event.data.mergeId);
-        repo = requested?.data.repo ?? (merge?.projectKey === config.project.key ? merge.repo : undefined);
+        repo = conflictRepo(event);
         files = event.data.files;
         kind = 'conflict_file';
       } else if (event.type === 'task_full_test' && event.data.outcome === 'failed') {

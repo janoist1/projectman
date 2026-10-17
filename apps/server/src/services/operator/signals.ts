@@ -66,6 +66,7 @@ import {
   patternSubject,
   structuralKind,
 } from './structural-patterns';
+import type { StructuralEvaluation, StructuralFacts } from './structural-patterns';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import { answerEvidenceOf } from '../../core/messages';
@@ -515,25 +516,18 @@ export class OperatorSignals {
   }
 
   /** Server-produced evidence, reconstructed from the original timeline window and checked against now. */
-  structuralFacts(signal: OperatorSignalRecord) {
+  structuralFacts(signal: OperatorSignalRecord): StructuralFacts {
     const config = this.deps.projects.cachedConfig(signal.projectKey);
-    if (!config || this.deps.ctx.now().getTime() - Date.parse(signal.raisedAt) >= STRUCTURAL_WINDOW_MS)
-      return null;
-    const detector = new StructuralPatterns(this.deps.ctx);
-    const fresh = detector.report(config);
-    if (signal.kind === 'structural_pattern') {
-      if (!fresh.patterns.some((facts) => patternSubject(facts.fingerprint) === signal.subject)) return null;
-      const evidence = detector
-        .report(config, signal.raisedAt)
-        .patterns.find((facts) => patternSubject(facts.fingerprint) === signal.subject);
-      return evidence ? { evidence, milestoneKey: null } : null;
-    }
-    if (
-      signal.kind === 'milestone_closed' &&
-      fresh.milestones.some((entry) => entry.taskKey === signal.taskKey && entry.eventId === signal.subject)
-    )
-      return { evidence: null, milestoneKey: signal.taskKey };
-    return null;
+    return config ? new StructuralPatterns(this.deps.ctx).evaluate(config).facts(signal) : null;
+  }
+
+  /** Created anew in each synchronous phase, including each actual deferred-start validity check. */
+  private lazyStructuralEvaluation(config: ProjectConfig | undefined) {
+    let evaluation: StructuralEvaluation | undefined;
+    return () => {
+      if (config) evaluation ??= new StructuralPatterns(this.deps.ctx).evaluate(config);
+      return evaluation;
+    };
   }
 
   /** Reconcile current card and session facts before attempting any queued wake-up. */
@@ -542,7 +536,8 @@ export class OperatorSignals {
       const config = await this.deps.projects.config(key);
       const cards = this.openCards(key);
       const active = new Set<string>();
-      const report = new StructuralPatterns(this.deps.ctx).report(config);
+      const structural = this.lazyStructuralEvaluation(config);
+      const report = structural()!.report();
       const previous = this.deps.ctx.repos.operatorSignals.list(key);
       for (const facts of report.patterns) {
         const subject = patternSubject(facts.fingerprint);
@@ -630,7 +625,7 @@ export class OperatorSignals {
         )
           this.resolve(key, signal.caseKey);
       }
-      await this.deliver(key);
+      await this.deliverPending(key, structural);
     }
   }
 
@@ -660,7 +655,14 @@ export class OperatorSignals {
   }
 
   async deliver(projectKey: string): Promise<void> {
-    if (this.waking.has(projectKey) || !this.wakeable(projectKey).length) return;
+    return this.deliverPending(projectKey);
+  }
+
+  private async deliverPending(
+    projectKey: string,
+    structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
+  ): Promise<void> {
+    if (this.waking.has(projectKey) || !this.wakeable(projectKey, structural).length) return;
     this.waking.add(projectKey);
     try {
       await this.deps.admission.attempt(this.start(projectKey));
@@ -673,7 +675,10 @@ export class OperatorSignals {
     }
   }
 
-  private pending(projectKey: string): OperatorSignalRecord[] {
+  private pending(
+    projectKey: string,
+    structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
+  ): OperatorSignalRecord[] {
     const { ctx, projects } = this.deps;
     const now = ctx.now().getTime();
     let board: Map<string, SignalInput> | undefined;
@@ -691,10 +696,15 @@ export class OperatorSignals {
         Date.parse(s.followUpAt) <= now &&
         (s.state === 'pending' || s.state === 'open');
       if (!again && !rebound && (s.state !== 'pending' || s.deliveredAt)) return false;
-      const valid = this.caseHolds(config, s, () => {
-        board ??= config ? this.boardCases(config, this.openCards(projectKey)) : new Map();
-        return board;
-      });
+      const valid = this.caseHolds(
+        config,
+        s,
+        () => {
+          board ??= config ? this.boardCases(config, this.openCards(projectKey)) : new Map();
+          return board;
+        },
+        structural,
+      );
       if (!valid) {
         this.resolve(projectKey, s.caseKey);
         return false;
@@ -714,8 +724,9 @@ export class OperatorSignals {
     s: OperatorSignalRecord,
     board: () => Map<string, SignalInput> = () =>
       config ? this.boardCases(config, this.openCards(s.projectKey)) : new Map(),
+    structural = this.lazyStructuralEvaluation(config),
   ): boolean {
-    if (structuralKind(s.kind)) return this.structuralFacts(s) !== null;
+    if (structuralKind(s.kind)) return (structural()?.facts(s) ?? null) !== null;
     const { ctx, taskWaits } = this.deps;
     if (s.kind === 'loop_suspected') {
       const facts = LoopTriageFacts.parse(JSON.parse(s.subject!));
@@ -1041,7 +1052,10 @@ export class OperatorSignals {
    * `OPERATOR_SIGNAL_WAKE_INTERVAL_MS` after its last delivery, the fast line (`answer_stalled`) only
    * `OPERATOR_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds.
    */
-  private wakeable(projectKey: string): OperatorSignalRecord[] {
+  private wakeable(
+    projectKey: string,
+    structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
+  ): OperatorSignalRecord[] {
     const now = this.deps.ctx.now().getTime();
     const delivered = (fast: boolean) =>
       this.deps.ctx.repos.operatorSignals
@@ -1059,7 +1073,7 @@ export class OperatorSignals {
         now - last >= (fast ? OPERATOR_ANSWER_STALL_WAKE_MS : OPERATOR_SIGNAL_WAKE_INTERVAL_MS)
       );
     };
-    const signals = this.pending(projectKey);
+    const signals = this.pending(projectKey, structural);
     if (!signals.length) return signals;
     const dueFast = due(true);
     const dueGeneral = due(false);
@@ -1107,7 +1121,8 @@ export class OperatorSignals {
         if (!member) return;
         if (isWorkPaused(ctx.repos.pauses.open(), projectKey))
           throw conflict('team_paused', 'the team is paused');
-        const signals = this.wakeable(projectKey);
+        const structural = this.lazyStructuralEvaluation(config);
+        const signals = this.wakeable(projectKey, structural);
         if (!signals.length) return;
         const level = operatorWatchOf(config);
         const now = isoNow(ctx);
@@ -1127,7 +1142,7 @@ export class OperatorSignals {
               return JSON.stringify({
                 ...OperatorSignal.parse(s),
                 facts: structuralKind(s.kind)
-                  ? this.structuralFacts(s)
+                  ? structural()!.facts(s)
                   : s.kind === 'loop_suspected'
                     ? LoopTriageFacts.parse(JSON.parse(s.subject!))
                     : s.kind === 'ready_waiting'

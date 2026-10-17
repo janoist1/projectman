@@ -28,8 +28,9 @@ export function createProjectChangeEventRepository(db: Db) {
   );
   return {
     generation(): string {
-      const row = db.prepare("SELECT value FROM instance_meta WHERE key = 'event_generation'").get() as
-        { value: string } | undefined;
+      const row = db
+        .prepare("SELECT value FROM instance_meta WHERE key = 'project_change_generation'")
+        .get() as { value: string } | undefined;
       if (!row) throw new Error('The database has no event generation');
       return row.value;
     },
@@ -51,6 +52,20 @@ export function createProjectChangeEventRepository(db: Db) {
         entityId: row.entity_id,
         at: row.at,
       }));
+    },
+    /** Every project key (an entry of the instance, such as the default engine, belongs to all of them). */
+    projectKeys(): string[] {
+      return (db.prepare('SELECT key FROM projects ORDER BY key').all() as { key: string }[]).map(
+        (row) => row.key,
+      );
+    },
+    /** The projects that have a session on the engine (the stored `sessions.engine_id`). */
+    projectKeysOnEngine(engineId: string): string[] {
+      return (
+        db
+          .prepare('SELECT DISTINCT project_key FROM sessions WHERE engine_id = ? ORDER BY project_key')
+          .all(engineId) as { project_key: string }[]
+      ).map((row) => row.project_key);
     },
     /** The sequence number of the newest entry of any project, 0 when the journal is empty. */
     latestSeq(): number {

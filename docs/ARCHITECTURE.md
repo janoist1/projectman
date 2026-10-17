@@ -904,30 +904,59 @@ at)`, index `(project_key, seq)` (migration 80). `seq` never goes back, also not
   facades publish to the websocket after their write and outside a unit of work, so a row written from
   the bus would not be atomic; a trigger covers every write path (a facade, a sweep, the recovery of an
   interrupted configuration commit, which ends in the `projects` record update). A rollback, also of a
-  nested unit of work, takes the row with it. A migration that rebuilds one of these tables drops its
-  triggers and must create them again (`test/project-change-journal.test.ts` fails otherwise); a new state
-  table needs a migration that calls `changeTriggerSql`. `engine` is not a table: the engine registry's
-  status changes are written with `ChangeJournal.record` for the projects that have a member on the engine
-  (`assembly.ts`).
+  nested unit of work, takes the row with it. A trigger writes only the metadata (project, kind, entity id,
+  time), never a rule and never content.
+- **Coverage matrix.** `CHANGE_TRIGGER_TABLES` lists the tables the card's read model is made of, with the
+  statements that announce, the project and the entity: the card and its side tables (links, attachments,
+  covers, fix limits, hand-ons and hand-overs, review pins, loops, waits, deferred starts, full-test runs,
+  focus items) name the card key in kind `task` (a link names the card's project through the card, a
+  card removed by a cascade is announced by its own row); `timeline_events`, `team_messages`,
+  `message_attachments`, the inbox and its question groups, `task_handoffs`, the operator requests and
+  their steps (the step names its request and the request's project), the super-operation audit, boundary
+  requests, merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
+  instance is written for every project. `UNJOURNALED_TABLES` names every other table with the reason
+  (credentials, login, usage, machine-local bookkeeping, Operator bookkeeping, the journal itself).
+  `test/project-change-journal.test.ts` fails when a table is in neither list, in both, or a name is
+  stale, so a new table makes someone decide. A migration that rebuilds a covered table drops its
+  triggers and must create them again (the same test); a new state table needs a migration that calls
+  `changeTriggerSql`.
+- **Configuration.** The configuration is git's; the `projects` record carries its version
+  (`config_version`). The `configuration` entry (entity `null`) is written when a project is created and
+  when the record gets a **new** version, whichever path writes it (a commit, a revert, the sync from the
+  store, the recovery of an interrupted operator execution or audit). A path that finds the record already
+  at the version, or changes only its name or time, writes nothing, so a recovery that runs again does not
+  repeat the signal. A git commit followed by a crash before the record update is finished by the existing
+  reconciliation (`syncFromStore`, `recoverOperatorExecution`, `settleSuperAudit`), which writes the entry
+  in the transaction of the record.
+- **Engines.** `engine` entries name the engine registry's changes (`EngineRegistry`,
+  `runtime/sessions/engine-registry.ts`): the registry's write (create, revoke, set the default, the first
+  sight of an engine and a changed hello) and the entries of the projects it concerns are one
+  `repos.transaction`. An engine concerns the projects with a session stored on it and, while it is the
+  default (before or after the write), every project, because new sessions go to the default. The online
+  flag is memory and a heartbeat of the last-seen time is not a change; neither is journaled (the journal
+  is never trimmed, so a heartbeat every minute would grow it for ever). The registry wakes the readers
+  after the commit (`useJournalWake`).
 - **The wake only notifies.** `ChangeJournal` (`core/base/change-journal.ts`): waiting readers are woken by
   the domain event bus (any event with a `projectKey` but the noisy ones: member state, plan usage,
-  chat), by `record`, and by a one second safety read; a reader always reads the database. A reader reads,
-  subscribes, and reads again, so a commit in between is not missed.
+  chat), by `record` and `notify`, and by a one second safety read of the database while a wait is open; a
+  reader always reads the database. A reader reads, subscribes, and reads again, so a commit in between is
+  not missed. `record(projectKey, kind, entityId | null)` is for a change no trigger covers; a path a
+  trigger covers does not log a second time.
 - **Reading.** `GET /api/projects/:key/events?after=<cursor>&limit=100&waitMs=25000` answers
   `{events, nextCursor}`; `limit` 1..500, `waitMs` 0..25000, no `after`: from the start of the journal. The
   cursor is base64url JSON `{version:1, generation, projectKey, seq}` with `seq` as a decimal **string**
   (no number precision loss); a malformed cursor or one of another project is `400 invalid_event_cursor`,
   one of another generation (or past the end of this journal) is `409 event_cursor_expired`. The same cursor
-  works after a restart: the generation is stored (`instance_meta.event_generation`, made once with the
-  database).
+  works after a restart: the generation is a UUID stored in `instance_meta` under
+  `project_change_generation`, made once with the database (migration 80) and never changed by a restart.
 - **Access during the wait.** Internal members only (clients are refused). The credential and the
   membership are checked again on every wake and before the answer: a key revoked or expired during the
   wait gets `401 integrator_key_invalid` at once (revocation wakes the waiter, expiry has a timer), a
   member who lost access gets the refusal instead of entries. A stopping server ends the waits with
   `server_stopping`.
 - **Restoring a snapshot.** A database restored from an older copy must get a new generation
-  (`UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'event_generation'`); the restore
-  steps in `docs/AWS.md` and `docs/HYBRID.md` say so. Without it a cursor from the lost journal could
+  (the `UPDATE instance_meta … WHERE key = 'project_change_generation'` in `docs/AWS.md` and
+  `docs/HYBRID.md`; replacing it is mandatory); the restore steps there say so. Without it a cursor from the lost journal could
   continue into a different history (a cursor past the end of the restored journal is refused anyway).
 
 ## Permission settings of an AI member (PM-164, part of PM-162)
@@ -1435,14 +1464,17 @@ workers follow the machine's size.
 
 - **Project change journal (PM-761)** — `apps/server/src/db/change-triggers.ts`,
   `apps/server/src/db/project-change-events.ts`, `apps/server/src/core/base/change-journal.ts`,
-  `apps/server/src/api/project-events.ts`, the engine mapping in `apps/server/src/assembly.ts`.
-  The journal is a table in the hub's `db.sqlite` that the hub's own transactions write, and the
-  long-polling read is a hub HTTP route. **Machine assumption:** one hub database and one hub process
-  (the in-memory wake and the safety poll live in it); `event_generation` is bound to that database
-  file. **Remote engine:** nothing runs on the engine and no journal data crosses to it: the engine's
-  state changes reach the hub through the engine link, and the hub's `engines.onChange` writes the
-  `engine` entries for the affected project keys; the readers talk to the hub only. A restored
-  database needs a new generation (see "Project change journal").
+  `apps/server/src/api/project-events.ts`, the engine fan-out in
+  `apps/server/src/runtime/sessions/engine-registry.ts`. The journal is a table in the hub's
+  `db.sqlite` that the hub's own transactions write, and the long-polling read is a hub HTTP route.
+  **Machine assumption:** one hub database and one hub process (the in-memory wake and the safety poll
+  live in it); `project_change_generation` is bound to that database file. **Remote engine:** nothing
+  runs on the engine and no journal data crosses to it: the engine's state reaches the hub through the
+  engine link and the cloud registry, which is in the hub's database, so the registry's write and its
+  `engine` entries are one hub transaction (the cloud composition, the engine link and the registry
+  keep their inventory entries); the readers talk to the hub only. In hybrid and cloud placement the
+  journal lives on the hub with the database that backup and restore carry, so a restored database
+  needs a new generation (see "Project change journal", `docs/AWS.md`, `docs/HYBRID.md`).
 
 - **Private Operator knowledge (PM-687)** — `apps/server/src/config/operator-knowledge-store.ts`,
   injected by `app.ts` through `assembly.ts` as `OperatorKnowledgeStore`. Stores the approved

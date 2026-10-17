@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDomainContext, createEventBus } from '../src/core/base';
 import { createRepositories, migrate } from '../src/db';
-import { CHANGE_TRIGGER_TABLES, changeTriggerName } from '../src/db/change-triggers';
+import { CHANGE_TRIGGER_TABLES, UNJOURNALED_TABLES, changeTriggerName } from '../src/db/change-triggers';
 import type { Repositories } from '../src/db';
 import { capturingLogger } from './helpers/fakes';
 
@@ -50,14 +50,14 @@ describe('project change journal (database)', () => {
 
   it('keeps a stable generation and numbers the entries in commit order', () => {
     const generation = repos.projectChanges.generation();
-    expect(generation).toMatch(/^[0-9a-f]{32}$/);
+    expect(generation).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(createRepositories(db).projectChanges.generation()).toBe(generation);
     addProject('AR');
     addTask('AR', 1);
     addTask('AR', 2);
     const rows = journal('AR');
     expect(rows.map((row) => [row.kind, row.entityId])).toEqual([
-      ['configuration', 'AR'],
+      ['configuration', null],
       ['task', 'AR-1'],
       ['task', 'AR-2'],
     ]);
@@ -80,15 +80,68 @@ describe('project change journal (database)', () => {
     expect(journal('BR')).toHaveLength(before);
   });
 
-  it('announces a configuration version that the recovery writes into the project record', () => {
+  it('announces a new configuration version, and stays quiet when the record is already at it', () => {
     addProject('AR');
     const before = journal('AR').length;
     repos.projects.update('AR', { name: 'Renamed', configVersion: 'v2', updatedAt: AT });
+    repos.projects.update('AR', { name: 'Renamed again', configVersion: 'v2', updatedAt: AT });
     expect(
       journal('AR')
         .slice(before)
         .map((row) => [row.kind, row.entityId]),
-    ).toEqual([['configuration', 'AR']]);
+    ).toEqual([['configuration', null]]);
+  });
+
+  it('names a change of a table that belongs to the card in the card entry', () => {
+    addProject('AR');
+    addTask('AR', 1);
+    const before = journal('AR').length;
+    db.prepare(
+      `INSERT INTO task_covers (project_key, task_key, mode, attachment_id, set_at, set_by_kind) VALUES ('AR', 'AR-1', 'hidden', NULL, ?, 'human')`,
+    ).run(AT);
+    expect(
+      journal('AR')
+        .slice(before)
+        .map((row) => [row.kind, row.entityId]),
+    ).toEqual([['task', 'AR-1']]);
+  });
+
+  it('names a step of an operation in the project and the request that it belongs to', () => {
+    addProject('AR');
+    addProject('BR');
+    const before = journal('AR').length;
+    db.prepare(
+      `INSERT INTO operator_requests (id, project_key, session_id, source, from_handle, quote, opened_at) VALUES ('req-1', 'AR', 's1', 'message', 'owner', 'q', ?)`,
+    ).run(AT);
+    db.prepare(
+      `INSERT INTO operator_steps (id, request_id, at, action, status) VALUES ('step-1', 'req-1', ?, 'move', 'done')`,
+    ).run(AT);
+    expect(
+      journal('AR')
+        .slice(before)
+        .map((row) => [row.kind, row.entityId]),
+    ).toEqual([
+      ['operation', 'req-1'],
+      ['operation', 'req-1'],
+    ]);
+    expect(journal('BR').filter((row) => row.kind === 'operation')).toEqual([]);
+  });
+
+  it('accounts for every table: it has a trigger or a reason for none', () => {
+    const tables = (
+      db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'`,
+        )
+        .all() as { name: string }[]
+    ).map((row) => row.name);
+    const journaled = CHANGE_TRIGGER_TABLES.map((entry) => entry.table);
+    const excluded = Object.keys(UNJOURNALED_TABLES);
+    expect(journaled.filter((name) => excluded.includes(name))).toEqual([]);
+    const known = new Set([...journaled, ...excluded]);
+    expect(tables.filter((name) => !known.has(name))).toEqual([]);
+    const existing = new Set(tables);
+    expect([...known].filter((name) => name !== 'sqlite_sequence' && !existing.has(name))).toEqual([]);
   });
 
   it('names a pause of the whole instance in every project', () => {

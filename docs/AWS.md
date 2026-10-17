@@ -1050,7 +1050,7 @@ stopped before the update; that is the last moment the old build's database was 
 
    ```sh
    sudo sqlite3 /var/lib/projectman/data/db.sqlite \
-     "UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'event_generation'"
+     "UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'project_change_generation'"
    ```
 
 4. `npm run cloud -- start`.

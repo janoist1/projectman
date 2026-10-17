@@ -1523,13 +1523,17 @@ migrations.push({
   name: 'durable project change journal',
   // PM-761: change signals scripts and the integrator can read again with a cursor. The journal starts
   // empty (no history is made up); triggers on the state tables write it in the changing transaction
-  // (db/change-triggers.ts). `event_generation` is made once with the database; a restore from a
+  // (db/change-triggers.ts). `project_change_generation` is made once with the database; a restore from a
   // snapshot must replace it (docs/ARCHITECTURE.md "Project change journal").
   sql: `CREATE TABLE instance_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
-    INSERT INTO instance_meta (key, value) VALUES ('event_generation', lower(hex(randomblob(16))));
+    INSERT INTO instance_meta (key, value)
+      SELECT 'project_change_generation',
+        lower(substr(h, 1, 8) || '-' || substr(h, 9, 4) || '-4' || substr(h, 14, 3) || '-' ||
+          substr('89ab', 1 + abs(random()) % 4, 1) || substr(h, 18, 3) || '-' || substr(h, 21, 12))
+      FROM (SELECT hex(randomblob(16)) AS h);
     CREATE TABLE project_change_events (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
       project_key TEXT NOT NULL,

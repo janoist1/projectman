@@ -1414,17 +1414,6 @@ export function createDomain(opts: DomainOptions) {
   // A start that waits for an engine (`engine_offline`) goes on when the engine connects (PM-311).
   const unsubscribeEngines = engines.onChange((id, online) => {
     if (opts.standby) return;
-    // The journal names an engine's change in every project that works on it (PM-761); the engine itself is no project's row.
-    background.run(
-      async () => {
-        for (const summary of projects.summaries()) {
-          const config = await projects.config(summary.key);
-          if (config.team.members.some((member) => engines.engineFor(summary.key, member.handle) === id))
-            ctx.journal.record(summary.key, 'engine', id);
-        }
-      },
-      (err) => opts.logger.warn({ err, engineId: id }, 'engine change journal failed'),
-    );
     background.run(
       () => outages.engineChanged(id, online),
       (err) => opts.logger.warn({ err }, 'outage engine check failed'),

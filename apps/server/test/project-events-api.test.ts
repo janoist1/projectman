@@ -149,6 +149,39 @@ describe('project change events API (PM-761)', () => {
     }
   });
 
+  it('announces a configuration version once: the recovery that finds it already there stays quiet', async () => {
+    const { repos, domain } = h.app.projectman;
+    const configuration = () =>
+      domain.changes.read('AR', undefined, 500).events.filter((event) => event.kind === 'configuration');
+    // The record is behind git, as after a crash between the commit and the record.
+    repos.projects.update('AR', { name: 'Stale', configVersion: 'stale', updatedAt: AT });
+    const before = configuration().length;
+    await domain.projects.syncFromStore();
+    expect(configuration()).toHaveLength(before + 1);
+    await domain.projects.syncFromStore();
+    expect(configuration()).toHaveLength(before + 1);
+    expect(configuration().at(-1)!.entityId).toBeNull();
+  });
+
+  it('writes the journal for a change that no facade announces on the bus', async () => {
+    const { repos, domain } = h.app.projectman;
+    const before = domain.changes.read('AR', undefined, 500).events.length;
+    // A repository write with no facade and no bus event in front of it.
+    repos.timeline.insert({
+      id: 'tl-direct',
+      projectKey: 'AR',
+      taskKey: null,
+      sessionId: null,
+      actor: { kind: 'system', handle: null },
+      type: 'config_changed',
+      data: { version: 'v9', message: 'direct' },
+      createdAt: AT,
+    });
+    const after = domain.changes.read('AR', undefined, 500).events;
+    expect(after).toHaveLength(before + 1);
+    expect(after.at(-1)!.kind).toBe('timeline');
+  });
+
   it('keeps client members out and lets internal members read', async () => {
     const client = await addHumanAndLogin(h.app, { handle: 'cli', access: 'client' });
     const developer = await addHumanAndLogin(h.app, { handle: 'dev1', access: 'developer' });

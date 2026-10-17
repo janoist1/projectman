@@ -150,11 +150,12 @@ describe.skipIf(!socketsWork)('socket file', () => {
     await ensurePrivateDir(dir);
     const file = path.join(dir, 'sock');
     const server = await listen(file);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    // A closed server unlinks its socket; make a leftover by listening again and leaving the file behind.
-    const again = await listen(file);
-    await removeStaleSocket(file);
-    again.close();
+    // Something answers on it: a second supervisor must not take the socket over.
+    expect(await reason(removeStaleSocket(file))).toBe('in_use');
+    expect((await lstat(file)).isSocket()).toBe(true);
+    // A probe that finds nobody listening makes the same file a stale leftover.
+    await removeStaleSocket(file, undefined, async () => 'stale');
+    server.close();
     await expect(lstat(file)).rejects.toThrow();
     await removeStaleSocket(file);
 

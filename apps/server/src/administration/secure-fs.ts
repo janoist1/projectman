@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
+import net from 'node:net';
 import { lstat, mkdir, open, rename, rm } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
@@ -20,6 +21,7 @@ export type SetupFailure =
   | 'too_open'
   | 'too_large'
   | 'missing'
+  | 'in_use'
   | 'unsupported';
 
 export class AdministrationSetupError extends Error {
@@ -94,6 +96,21 @@ export async function writeFileAtomic(dir: string, name: string, content: string
     await rm(temporary, { force: true });
     throw err;
   }
+  await syncDirectory(dir);
+}
+
+/** Flushes the directory entry, so a renamed file (the durable operation record) survives a power cut. */
+async function syncDirectory(dir: string): Promise<void> {
+  const handle = await open(dir, constants.O_RDONLY | constants.O_DIRECTORY);
+  try {
+    await handle.sync();
+  } catch (err) {
+    // A file system that cannot flush a directory has nothing more to give; any other failure is real.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'EINVAL' && code !== 'ENOTSUP') throw err;
+  } finally {
+    await handle.close();
+  }
 }
 
 /**
@@ -139,10 +156,32 @@ export async function assertSocketFile(socketPath: string, uid: number | null = 
     throw new AdministrationSetupError('too_open', 'the socket is open to group or others (must be 0600)');
 }
 
-/** Removes a stale socket file left by a previous run; refuses anything that is not a socket of this user. */
+/** `live`: something answers (or may answer) on the socket; `stale`: nothing listens, the file is a leftover. */
+export type SocketProbe = (socketPath: string) => Promise<'live' | 'stale'>;
+
+/** Connects once and hangs up. Only a refused or missing socket is stale; a timeout or any other error is live. */
+export const probeSocket: SocketProbe = (socketPath) =>
+  new Promise((resolve) => {
+    const socket = net.createConnection(socketPath);
+    const finish = (result: 'live' | 'stale') => {
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(1000, () => finish('live'));
+    socket.once('connect', () => finish('live'));
+    socket.once('error', (err: NodeJS.ErrnoException) =>
+      finish(err.code === 'ECONNREFUSED' || err.code === 'ENOENT' ? 'stale' : 'live'),
+    );
+  });
+
+/**
+ * Removes a stale socket file left by a previous run; refuses anything that is not a socket of this user, and a
+ * socket something still answers on (a second supervisor must not take over the first one's socket).
+ */
 export async function removeStaleSocket(
   socketPath: string,
   uid: number | null = currentUid(),
+  probe: SocketProbe = probeSocket,
 ): Promise<void> {
   const stats = await lstatOrNull(socketPath);
   if (!stats) return;
@@ -150,5 +189,7 @@ export async function removeStaleSocket(
     throw new AdministrationSetupError('symlink', 'the socket path is a symbolic link');
   if (!stats.isSocket()) throw new AdministrationSetupError('not_socket', 'the socket path is not a socket');
   checkOwner(stats, 'the socket', uid);
+  if ((await probe(socketPath)) === 'live')
+    throw new AdministrationSetupError('in_use', 'another process answers on the administration socket');
   await rm(socketPath);
 }

@@ -1095,7 +1095,18 @@ network, SSM or shell, only one Unix socket.
   is stored or returned; a token canary is tested absent from argv, output, wire, journal, state files and
   environment.
 - **Out of reach of members.** `PROJECTMAN_ADMIN_SOCKET` is stripped from every session environment, and the
-  `administration` folder of the app home is in the sandbox's sensitive paths.
+  `administration` folder of the app home is in the sandbox's sensitive paths. Member sessions run as the same
+  OS user as the supervisor, so the sandbox is what keeps them from the 0600 socket: the state and the socket
+  directory must therefore lie below `<app home>/administration`. `npm run administration -- prepare` takes
+  `--app-home` and refuses any other place, on the hub host and on an engine machine alike.
+- **A live socket is never taken over.** A starting supervisor removes a leftover socket file only after a
+  connection attempt finds nobody answering; a second supervisor on the same socket stops with `in_use`.
+- **Known limits, left for PM-764.** (1) A restart is confirmed by the supervisor's boot id plus the registry
+  reporting the engine online; right after a restart the old link may still count as online, so a stronger check
+  would compare the engine's hello boot id with the one before the restart. (2) The operation id is chosen by the
+  caller and `inspect` asks the hub first, then each engine; PM-764 should record the target next to the
+  operation id. (3) An engine reads the supervisor's capability at its hello only: a supervisor started after the
+  engine is advertised after the next reconnect.
 - **Nothing is installed by the code.** `npm run administration -- prepare` only writes the configuration and
   the service file into a private folder; it calls no `launchctl` or `systemctl`. Installing the files, creating
   the directories and starting the supervisors is a separate rollout that the owner approves.

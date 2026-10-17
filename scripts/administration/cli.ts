@@ -1,7 +1,10 @@
 // The administration adapter's installer preparation (PM-763; docs/SECURITY.md "Administration adapter").
 //
 //   npm run administration -- prepare --target hub|engine:<engine id> --service <launchd label | systemd unit> \
-//       --state-dir <dir> --socket-dir <dir> --out <dir> [--user <name> [--group <name>]]
+//       --app-home <dir> --state-dir <dir> --socket-dir <dir> --out <dir> [--user <name> [--group <name>]]
+//
+// The state and socket directories must lie below `<app home>/administration`, the folder the member sessions'
+// sandbox denies (contracts/sandbox.ts); any other place would leave the socket reachable from a session.
 //
 // It writes the supervisor's protected configuration (`supervisor.json`, 0600) and the service file for this
 // machine's service manager (launchd on macOS, systemd on Linux) into `--out`. It installs, loads, starts or
@@ -13,7 +16,7 @@ import { AdministrationSetupError } from '../../apps/server/src/administration';
 import { PrepareError, prepareFiles, writePrepared } from './prepare';
 
 const root = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '');
-const FLAGS = ['target', 'service', 'state-dir', 'socket-dir', 'out', 'user', 'group'] as const;
+const FLAGS = ['target', 'service', 'app-home', 'state-dir', 'socket-dir', 'out', 'user', 'group'] as const;
 
 function parseFlags(args: string[]): Partial<Record<(typeof FLAGS)[number], string>> | null {
   const out: Partial<Record<(typeof FLAGS)[number], string>> = {};
@@ -28,10 +31,19 @@ function parseFlags(args: string[]): Partial<Record<(typeof FLAGS)[number], stri
 
 const [command, ...rest] = process.argv.slice(2);
 const flags = command === 'prepare' ? parseFlags(rest) : null;
-if (!flags || !flags.target || !flags.service || !flags['state-dir'] || !flags['socket-dir'] || !flags.out) {
+if (
+  !flags ||
+  !flags.target ||
+  !flags.service ||
+  !flags['app-home'] ||
+  !flags['state-dir'] ||
+  !flags['socket-dir'] ||
+  !flags.out
+) {
   console.error(
     'usage: npm run administration -- prepare --target hub|engine:<engine id> --service <label|unit> ' +
-      '--state-dir <dir> --socket-dir <dir> --out <dir> [--user <name> [--group <name>]]',
+      '--app-home <dir> --state-dir <dir> --socket-dir <dir> --out <dir> [--user <name> [--group <name>]]\n' +
+      'the state and socket directories must lie below <app home>/administration',
   );
   process.exit(2);
 }
@@ -41,6 +53,7 @@ try {
   const files = prepareFiles({
     target: flags.target,
     service: flags.service,
+    appHome: path.resolve(flags['app-home']),
     stateDir: path.resolve(flags['state-dir']),
     socketDir: path.resolve(flags['socket-dir']),
     outDir,

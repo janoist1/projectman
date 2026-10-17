@@ -21,12 +21,16 @@ export const SUPERVISOR_UNIT = 'projectman-administration.service';
 export const PLIST_TEMPLATE = path.join('deploy', 'mac', `${SUPERVISOR_LABEL}.plist`);
 export const UNIT_TEMPLATE = path.join('deploy', SUPERVISOR_UNIT);
 export const CONFIG_NAME = 'supervisor.json';
+/** The app-home folder `contracts/sandbox.ts` `sensitivePaths` denies to member sessions. */
+export const ADMINISTRATION_FOLDER = 'administration';
 
 export interface PrepareInput {
   /** `hub`, or `engine:<engine id>`. */
   target: string;
   /** The launchd label (macOS) or the systemd unit (Linux) of the one service the supervisor may restart. */
   service: string;
+  /** The app home of the machine's projectman; the state and socket directories must lie below its `administration` folder. */
+  appHome: string;
   stateDir: string;
   socketDir: string;
   /** Where the prepared files go; created private when missing. */
@@ -98,6 +102,18 @@ export function prepareFiles(input: PrepareInput): PreparedFile[] {
   const nodePath = checkPath('the node binary', input.nodePath);
   checkPath('the output directory', input.outDir);
   if (stateDir === socketDir) throw new PrepareError('the state and the socket directories must differ');
+  // Member sessions run as the same OS user, and their sandbox denies `<app home>/administration` only
+  // (contracts/sandbox.ts); a directory anywhere else would leave the 0600 socket reachable from a session.
+  const protectedRoot = path.join(checkPath('the app home', input.appHome), ADMINISTRATION_FOLDER);
+  for (const [label, dir] of [
+    ['the state directory', stateDir],
+    ['the socket directory', socketDir],
+  ] as const) {
+    if (!dir.startsWith(`${protectedRoot}/`))
+      throw new PrepareError(
+        `${label} must be below ${protectedRoot}, the folder the session sandbox denies`,
+      );
+  }
 
   const config = SupervisorConfig.safeParse({
     version: 1,

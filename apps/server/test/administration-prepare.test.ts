@@ -3,7 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PrepareError, prepareFiles, render, writePrepared } from '../../../scripts/administration/prepare';
+import {
+  ADMINISTRATION_FOLDER,
+  PrepareError,
+  prepareFiles,
+  render,
+  writePrepared,
+} from '../../../scripts/administration/prepare';
+import { sensitivePaths } from '../src/contracts';
 import type { PrepareInput } from '../../../scripts/administration/prepare';
 import { loadSupervisorConfig, startSupervisor, createSocketClient } from '../src/administration';
 import { unixSocketsWork } from '../src/administration/test-helpers';
@@ -11,11 +18,15 @@ import { unixSocketsWork } from '../src/administration/test-helpers';
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '');
 const socketsWork = await unixSocketsWork();
 
+// `dir` plays the app home: the state and socket directories belong below `<dir>/administration`.
 let dir: string;
+// Short names: the socket path must fit a Unix socket address (103 characters).
+const stateOf = () => path.join(dir, 'administration', 's');
+const runOf = () => path.join(dir, 'administration', 'r');
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(os.tmpdir(), 'adm-prep-'));
-  await mkdir(path.join(dir, 'state'), { mode: 0o700 });
-  await mkdir(path.join(dir, 'run'), { mode: 0o700 });
+  dir = await mkdtemp(path.join(os.tmpdir(), 'ap-'));
+  await mkdir(stateOf(), { recursive: true, mode: 0o700 });
+  await mkdir(runOf(), { recursive: true, mode: 0o700 });
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
@@ -24,8 +35,9 @@ afterEach(async () => {
 const input = (overrides: Partial<PrepareInput> = {}): PrepareInput => ({
   target: 'hub',
   service: 'projectman.service',
-  stateDir: path.join(dir, 'state'),
-  socketDir: path.join(dir, 'run'),
+  appHome: dir,
+  stateDir: stateOf(),
+  socketDir: runOf(),
   outDir: path.join(dir, 'out'),
   root: repoRoot,
   nodePath: '/usr/local/bin/node',
@@ -42,14 +54,14 @@ describe('prepare', () => {
     expect(config).toEqual({
       version: 1,
       target: { kind: 'hub' },
-      stateDir: path.join(dir, 'state'),
-      socketPath: path.join(dir, 'run', 'supervisor.sock'),
+      stateDir: stateOf(),
+      socketPath: path.join(runOf(), 'supervisor.sock'),
       service: { kind: 'systemd', unit: 'projectman.service' },
     });
     const unit = files[1]!.content;
     expect(unit).toContain('User=projectman');
     expect(unit).toContain(`supervisor.ts ${path.join(dir, 'out', 'supervisor.json')}`);
-    expect(unit).toContain(`ReadWritePaths=${path.join(dir, 'state')} ${path.join(dir, 'run')}`);
+    expect(unit).toContain(`ReadWritePaths=${stateOf()} ${runOf()}`);
     expect(unit).not.toContain('{{');
     // The comments explain what the unit never uses; the directives themselves name no docker, sudo or secret.
     const directives = unit
@@ -91,10 +103,30 @@ describe('prepare', () => {
     expect(() => prepareFiles(input({ stateDir: '/var/lib/a b' }))).toThrow(PrepareError);
     expect(() => prepareFiles(input({ stateDir: '/var/lib/../etc' }))).toThrow(PrepareError);
     expect(() => prepareFiles(input({ stateDir: 'relative' }))).toThrow(PrepareError);
-    expect(() => prepareFiles(input({ socketDir: path.join(dir, 'state') }))).toThrow(PrepareError);
+    expect(() => prepareFiles(input({ socketDir: stateOf() }))).toThrow(PrepareError);
     expect(() => prepareFiles(input({ user: 'root; id' }))).toThrow(PrepareError);
     expect(() => prepareFiles(input({ user: undefined }))).toThrow(PrepareError);
     expect(() => prepareFiles(input({ platform: 'win32' }))).toThrow(PrepareError);
+  });
+
+  it('refuses a state or socket directory outside the folder the session sandbox denies', () => {
+    const outside = '/var/lib/projectman-admin';
+    expect(() => prepareFiles(input({ stateDir: outside }))).toThrow(/session sandbox denies/);
+    expect(() => prepareFiles(input({ socketDir: outside }))).toThrow(/session sandbox denies/);
+    // A sibling that merely starts with the same letters, the app home itself and the folder itself are outside too.
+    expect(() => prepareFiles(input({ stateDir: `${dir}/administration-other/state` }))).toThrow(
+      PrepareError,
+    );
+    expect(() => prepareFiles(input({ socketDir: dir }))).toThrow(PrepareError);
+    expect(() => prepareFiles(input({ socketDir: path.join(dir, 'administration') }))).toThrow(PrepareError);
+    expect(() => prepareFiles(input({ appHome: '/Users/other/.projectman' }))).toThrow(PrepareError);
+  });
+
+  it('puts the directories where the sandbox sensitive paths already deny them', () => {
+    const denied = sensitivePaths({ userHome: '/home/someone', appHome: dir });
+    const adminRoot = path.join(dir, ADMINISTRATION_FOLDER);
+    expect(denied).toContain(adminRoot);
+    for (const place of [stateOf(), runOf()]) expect(place.startsWith(`${adminRoot}/`)).toBe(true);
   });
 
   it('refuses a template with a placeholder it does not know', () => {
@@ -110,8 +142,8 @@ describe('prepare', () => {
     const config = await loadSupervisorConfig(path.join(out, 'supervisor.json'));
     expect(config.target).toEqual({ kind: 'hub' });
     // Nothing else was created or started: the state and socket directories are still empty.
-    expect(await readdir(path.join(dir, 'state'))).toEqual([]);
-    expect(await readdir(path.join(dir, 'run'))).toEqual([]);
+    expect(await readdir(stateOf())).toEqual([]);
+    expect(await readdir(runOf())).toEqual([]);
   });
 });
 
@@ -149,6 +181,6 @@ describe.skipIf(!socketsWork)('the supervisor process', () => {
     } finally {
       await running.close();
     }
-    expect(await readFile(path.join(dir, 'state', 'journal.log'), 'utf8')).toContain('supervisor_started');
+    expect(await readFile(path.join(stateOf(), 'journal.log'), 'utf8')).toContain('supervisor_started');
   });
 });

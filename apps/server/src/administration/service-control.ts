@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { AdministrationSetupError } from './secure-fs';
 import type { SupervisorConfig } from './schemas';
 
 /**
@@ -65,7 +66,9 @@ export const runCommand: RunCommand = (file, args, { timeoutMs }) =>
 const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 32);
 
 function launchdController(label: string, uid: number | null, run: RunCommand): ServiceController {
-  const domain = uid === null ? 'gui/501' : `gui/${uid}`;
+  // No guessed user: launchd's per-user domain needs the real uid, and a platform without one has no launchd.
+  if (uid === null) throw new AdministrationSetupError('unsupported', 'launchd needs the numeric user id');
+  const domain = `gui/${uid}`;
   const target = `${domain}/${label}`;
   return {
     kind: 'launchd',

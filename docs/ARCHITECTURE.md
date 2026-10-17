@@ -1386,7 +1386,9 @@ workers follow the machine's size.
   blindly: the operation id is stored before the restart, a duplicate submit gets the same answer, and success needs a
   changed boot id plus the engine registry's feedback. An active release deployment fence refuses a restart with
   409 `release_pause_conflict`. The installer only prepares files; installing and starting the supervisors is a
-  separate owner-approved rollout. See docs/SECURITY.md "Administration adapter".
+  separate owner-approved rollout, and it accepts a state and socket directory only below
+  `<app home>/administration`, the folder the session sandbox denies (members run as the same OS user). See
+  docs/SECURITY.md "Administration adapter".
 
 - **Private Operator knowledge (PM-687)** — `apps/server/src/config/operator-knowledge-store.ts`,
   injected by `app.ts` through `assembly.ts` as `OperatorKnowledgeStore`. Stores the approved

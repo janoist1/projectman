@@ -39,6 +39,15 @@ describe('launchd controller', () => {
     expect(calls[1]).toEqual({ file: PS, args: ['-o', 'lstart=', '-p', '4321'] });
   });
 
+  it('refuses to guess a user domain when the numeric user id is unknown', () => {
+    expect(() =>
+      createServiceController(config, 'darwin', {
+        run: fakeRun(() => ({ exitCode: 0, stdout: '' })).run,
+        uid: null,
+      }),
+    ).toThrow(/numeric user id/);
+  });
+
   it('is not running when launchd does not know the service or it has no pid', async () => {
     const missing = createServiceController(config, 'darwin', {
       run: fakeRun(() => ({ exitCode: 113, stdout: '' })).run,

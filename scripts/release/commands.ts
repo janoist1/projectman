@@ -47,6 +47,8 @@ export interface ReleaseDeps {
   /** The admin checkout this code runs from. */
   root: string;
   err(text: string): void;
+  /** Reads and checks the configuration (the tests give a prepared one). */
+  load?(file: string): LoadedHybridConfig;
   /** The real ports of one round; the tests give the fake world's. */
   ports(input: PortsInput): CoordinatorPorts;
   /** Runs `handler` on SIGINT or SIGTERM; returns how to stop listening. */
@@ -189,7 +191,9 @@ export async function runRelease(argv: string[], deps: ReleaseDeps): Promise<num
   }
   try {
     // A bad or missing configuration ends here, before anything is armed or touched.
-    const loaded = loadHybridReleaseConfig(parsed.configFile, deps.watcher.homeDir);
+    const loaded = deps.load
+      ? deps.load(parsed.configFile)
+      : loadHybridReleaseConfig(parsed.configFile, deps.watcher.homeDir);
     switch (parsed.command) {
       case 'plan':
         return await plan(deps, loaded);

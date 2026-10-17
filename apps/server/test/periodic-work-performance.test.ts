@@ -7,7 +7,7 @@ import { performance } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
 import { LOCAL_ENGINE_ID, MessageKind, TaskDeveloperLevel } from '@projectman/shared';
 import type { ProjectConfig, Task, TeamMessage } from '@projectman/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { migrate, migrations } from '../src/db';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -170,7 +170,7 @@ const emptyCounts = (): Counts => ({
 function instrument() {
   let counts: Counts | null = null;
   const prepare = Database.prototype.prepare;
-  vi.spyOn(Database.prototype, 'prepare').mockImplementation(function (this: Database.Database, sql: string) {
+  Database.prototype.prepare = function (this: Database.Database, sql: string) {
     const statement = prepare.call(this, sql);
     for (const method of ['all', 'get', 'run'] as const) {
       const call = statement[method];
@@ -192,17 +192,17 @@ function instrument() {
       });
     }
     return statement;
-  });
-  const messageParse = MessageKind.safeParse.bind(MessageKind);
-  vi.spyOn(MessageKind, 'safeParse').mockImplementation((...args) => {
+  } as typeof prepare;
+  const messageParse = MessageKind.safeParse;
+  MessageKind.safeParse = (...args) => {
     if (counts) counts.decodedMessages++;
-    return messageParse(...args);
-  });
-  const taskParse = TaskDeveloperLevel.safeParse.bind(TaskDeveloperLevel);
-  vi.spyOn(TaskDeveloperLevel, 'safeParse').mockImplementation((...args) => {
+    return messageParse.apply(MessageKind, args);
+  };
+  const taskParse = TaskDeveloperLevel.safeParse;
+  TaskDeveloperLevel.safeParse = (...args) => {
     if (counts) counts.decodedTasks++;
-    return taskParse(...args);
-  });
+    return taskParse.apply(TaskDeveloperLevel, args);
+  };
   return {
     start() {
       counts = emptyCounts();
@@ -211,6 +211,11 @@ function instrument() {
       const result = counts!;
       counts = null;
       return result;
+    },
+    restore() {
+      Database.prototype.prepare = prepare;
+      MessageKind.safeParse = messageParse;
+      TaskDeveloperLevel.safeParse = taskParse;
     },
   };
 }
@@ -363,6 +368,10 @@ describe('periodic work performance protocol (PM-733)', () => {
         };
         console.log('PM733 environment', JSON.stringify(environment));
         const results: unknown[] = [];
+        const reportPath = join(
+          process.env.PROJECTMAN_SESSION_DIR ?? os.tmpdir(),
+          `periodic-work-${environment.source.slice(0, 12)}.json`,
+        );
         for (const active of [true, false]) {
           for (const [historyMessages, historyTasks] of [
             [10_000, 2_000],
@@ -382,6 +391,7 @@ describe('periodic work performance protocol (PM-733)', () => {
               for (const [path, run] of Object.entries(paths(h))) {
                 const samples = await measure(run, meter);
                 results.push({ active, historyMessages, historyTasks, path, samples, ...h.fixtureTimings });
+                writeFileSync(reportPath, JSON.stringify({ environment, results, complete: false }, null, 2));
                 console.log(
                   'PM733 samples',
                   JSON.stringify({
@@ -406,16 +416,15 @@ describe('periodic work performance protocol (PM-733)', () => {
           result: migrationMeasurement(history),
         }));
         console.log('PM733 migration', JSON.stringify(migrationResults));
-        const reportPath = join(
-          process.env.PROJECTMAN_SESSION_DIR ?? os.tmpdir(),
-          `periodic-work-${environment.source.slice(0, 12)}.json`,
+        writeFileSync(
+          reportPath,
+          JSON.stringify({ environment, results, migrationResults, complete: true }, null, 2),
         );
-        writeFileSync(reportPath, JSON.stringify({ environment, results, migrationResults }, null, 2));
         console.log('PM733 report', reportPath);
       } finally {
-        vi.restoreAllMocks();
+        meter.restore();
       }
     },
-    600_000,
+    3_600_000,
   );
 });

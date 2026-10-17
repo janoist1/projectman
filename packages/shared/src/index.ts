@@ -44,6 +44,7 @@ export * from './domain/project-focus';
 export * from './domain/project-change';
 export * from './chat/chat';
 export * from './config/schema';
+export * from './config/super-mutation';
 export * from './config/canonical';
 export * from './config/invariants';
 export * from './api/dto';

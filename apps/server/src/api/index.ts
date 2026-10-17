@@ -26,6 +26,7 @@ import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
 import { registerMergeRoutes } from './merges';
+import { forbidden } from '../kernel';
 
 export type { ApiDomain } from './ports';
 
@@ -43,6 +44,40 @@ export interface ApiServices {
 /** Every route of the shared route table except auth (src/auth) and the websocket (src/ws). */
 export function registerApiRoutes(app: FastifyInstance, services: ApiServices): void {
   const { domain } = services;
+  app.addHook('onRoute', (route) => {
+    if (!route.url.startsWith('/api/')) return;
+    const handler = route.handler;
+    // A closed operation identifier from the registered route, never the caller's raw URL.
+    const targetName = route.url
+      .replace('/api/', '')
+      .replace(/:[A-Za-z]+/g, '')
+      .replace(/[^a-z0-9]+/g, '_');
+    route.handler = function (request, reply) {
+      if (!request.principal || request.principal.mode === 'legacy')
+        return handler.call(this, request, reply);
+      services.auth.assertActive(request.principal);
+      if (request.principal.mode === 'read' && request.method !== 'GET' && request.method !== 'HEAD')
+        throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
+      const context = { principal: request.principal, email: request.user!.email, requestId: request.id };
+      const params = request.params as { key?: string; taskKey?: string };
+      const run = async () => handler.call(this, request, reply);
+      if (params.key)
+        return domain.superOperator.execute(
+          context,
+          {
+            projectKey: params.key,
+            taskKey: params.taskKey,
+            operation: `rest_${request.method.toLowerCase()}_${targetName}`.slice(0, 64),
+          },
+          run,
+        );
+      return domain.superOperator.executeInstance(
+        context,
+        `rest_${request.method.toLowerCase()}_${targetName}`.slice(0, 64),
+        run,
+      );
+    };
+  });
   registerEngineRoutes(app, services);
   registerProviderRoutes(app, domain);
   registerProjectRoutes(app, services);

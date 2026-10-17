@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { integratorConfigRefusal } from './integrator';
+import { integratorConfigRefusal, superAccessVerdict } from './integrator';
 import type { IntegratorRefusal } from './integrator';
 import { ProjectConfig } from './schema';
+import { ownerReservedEffect } from './super-mutation';
+import type { SuperMutationCommand } from './super-mutation';
 
-function config() {
+function config(): ProjectConfig {
   return ProjectConfig.parse({
     schemaVersion: 1,
     project: {
@@ -68,6 +70,180 @@ function config() {
     },
   });
 }
+
+describe('credential operation access (PM-759)', () => {
+  const operations = ['read', 'write', 'approval', 'key_management'] as const;
+  for (const mode of ['legacy', 'super', 'read'] as const) {
+    it.each(operations)(`${mode} checks %s independently of transport`, (operation) => {
+      const project = config();
+      project.team.members.push({
+        ...project.team.members.find((m) => m.kind === 'ai')!,
+        handle: 'operator',
+        role: 'ai_operator',
+      } as ProjectConfig['team']['members'][number]);
+      const code =
+        mode === 'read' && operation !== 'read'
+          ? 'integrator_read_only'
+          : operation === 'approval'
+            ? 'owner_approval_required'
+            : operation === 'key_management'
+              ? 'integrator_not_allowed'
+              : null;
+      expect(superAccessVerdict(project, { mode, operation, ownerMembership: true })).toEqual(
+        code ? { allowed: false, code } : { allowed: true },
+      );
+      if (operation === 'read' || (operation === 'write' && mode !== 'read'))
+        expect(superAccessVerdict(project, { mode, operation, ownerMembership: false })).toEqual({
+          allowed: false,
+          code: 'insufficient_access',
+        });
+    });
+  }
+  it('requires the project Operator only for super execution', () => {
+    expect(
+      superAccessVerdict(config(), { mode: 'super', operation: 'write', ownerMembership: true }),
+    ).toEqual({ allowed: false, code: 'integrator_not_allowed' });
+    expect(superAccessVerdict(config(), { mode: 'read', operation: 'read', ownerMembership: true })).toEqual({
+      allowed: true,
+    });
+  });
+});
+
+describe('reserved mutation effects (PM-759)', () => {
+  it.each([
+    ['member removal', (c: ProjectConfig): unknown => c.team.members.pop(), 'deletion'],
+    ['repository removal', (c: ProjectConfig) => c.project.repos.pop(), 'deletion'],
+    ['role removal', (c: ProjectConfig) => c.team.roles.pop(), 'deletion'],
+    ['label removal', (c: ProjectConfig) => c.pipeline.labels.pop(), 'deletion'],
+    ['stage removal', (c: ProjectConfig) => c.pipeline.stages.pop(), 'deletion'],
+    ['column removal', (c: ProjectConfig) => c.pipeline.columns.pop(), 'deletion'],
+    ['gate removal', (c: ProjectConfig) => c.pipeline.stages[2]!.gate!.conditions.pop(), 'deletion'],
+    [
+      'workspace relocation',
+      (c: ProjectConfig): unknown => (c.project.workspacePath = '/other'),
+      'direction',
+    ],
+    [
+      'repository relocation',
+      (c: ProjectConfig): unknown => (c.project.repos[0]!.path = '/other'),
+      'direction',
+    ],
+    [
+      'default branch',
+      (c: ProjectConfig): unknown => (c.project.repos[0]!.defaultBranch = 'other'),
+      'direction',
+    ],
+    [
+      'GitHub destination',
+      (c: ProjectConfig): unknown => (c.project.repos[0]!.github = 'other/repo'),
+      'direction',
+    ],
+    [
+      'new paid member',
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.kind === 'ai')!;
+        if (m.kind === 'ai') m.provider = 'nanogpt';
+      },
+      'cost',
+    ],
+    [
+      'new feedback origin',
+      (c: ProjectConfig) =>
+        (c.project.feedback = {
+          surfaces: [{ id: 'web', name: 'Web', origin: 'https://example.test' }],
+          blockedMarkers: [],
+        }),
+      'publication',
+    ],
+  ] as const)('classifies %s before committing', (_name, change, effect) => {
+    const before = config();
+    const next = structuredClone(before);
+    change(next);
+    expect(ownerReservedEffect(before, { kind: 'config_change', next })).toBe(effect);
+  });
+  it('allows changes of the complete approval circle and ordinary subscription settings', () => {
+    const before = config();
+    const next = structuredClone(before);
+    next.pipeline.labels[0]!.setBy = { members: ['ann'], humansOnly: true };
+    next.team.members[1] = {
+      ...next.team.members[1]!,
+      access: 'admin',
+    } as ProjectConfig['team']['members'][number];
+    next.team.roles[0]!.duties = ['implementation'];
+    const member = next.team.members.find((m) => m.kind === 'ai')!;
+    if (member.kind === 'ai') {
+      member.model = 'subscription-model';
+      member.capacity = 2;
+    }
+    expect(ownerReservedEffect(before, { kind: 'config_change', next })).toBeNull();
+    next.pipeline.stages[2]!.gate!.conditions.reverse();
+    expect(ownerReservedEffect(before, { kind: 'config_change', next })).toBeNull();
+  });
+  it('protects paid capacity, scheduling, resume, AI enablement and cap increases', () => {
+    const before = config();
+    const paid = before.team.members.find((m) => m.kind === 'ai')!;
+    if (paid.kind !== 'ai') throw new Error('fixture needs an AI member');
+    paid.provider = 'nanogpt';
+    paid.onLeave = true;
+    before.team.limits.aiEnabled = false;
+    const changes = [
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === paid.handle)!;
+        if (m.kind === 'ai') m.schedule = { cron: '0 * * * *', prompt: 'Run a paid job' };
+      },
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === paid.handle)!;
+        if (m.kind === 'ai') m.onLeave = false;
+      },
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === paid.handle)!;
+        if (m.kind === 'ai') m.capacity++;
+      },
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === paid.handle)!;
+        if (m.kind === 'ai') m.model = 'other';
+      },
+      (c: ProjectConfig) => {
+        c.team.limits.aiEnabled = true;
+      },
+      (c: ProjectConfig) => {
+        delete c.team.limits.maxConcurrentAi;
+      },
+    ];
+    for (const change of changes) {
+      const next = structuredClone(before);
+      change(next);
+      expect(ownerReservedEffect(before, { kind: 'config_change', next })).toBe('cost');
+    }
+    expect(ownerReservedEffect(before, { kind: 'runtime_start', providers: ['nanogpt'] })).toBe('cost');
+    expect(ownerReservedEffect(before, { kind: 'runtime_start', providers: ['codex'] })).toBeNull();
+  });
+  it('uses deterministic precedence and refuses unknown or incomplete projections', () => {
+    const next = structuredClone(config());
+    next.team.members.pop();
+    next.project.workspacePath = '/other';
+    expect(ownerReservedEffect(config(), { kind: 'config_change', next })).toBe('deletion');
+    expect(() => ownerReservedEffect(null, { kind: 'config_change', next })).toThrow();
+    expect(() =>
+      ownerReservedEffect(null, { kind: 'routine', operation: 'sudo' } as unknown as SuperMutationCommand),
+    ).toThrow();
+    expect(() => ownerReservedEffect(null, { kind: 'unknown' } as unknown as SuperMutationCommand)).toThrow();
+    expect(
+      ownerReservedEffect(null, { kind: 'task_visibility', taskKey: null, before: null, after: 'shared' }),
+    ).toBe('publication');
+    expect(
+      ownerReservedEffect(null, {
+        kind: 'task_visibility',
+        taskKey: 'AC-1',
+        before: 'shared',
+        after: 'shared',
+      }),
+    ).toBeNull();
+    expect(
+      ownerReservedEffect(null, { kind: 'focus_change', before: ['AC-1', 'AC-2'], after: ['AC-2', 'AC-1'] }),
+    ).toBe('direction');
+  });
+});
 
 function refusal(edit: (next: ProjectConfig) => void, base: () => ProjectConfig = config) {
   const previous = base();

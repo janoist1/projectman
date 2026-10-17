@@ -1,4 +1,5 @@
 import { wakesFor } from '../../core/messages';
+import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
@@ -675,6 +676,8 @@ export class SessionOrchestrator {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
+      assertIntegratorAccess(config, 'write');
+      assertSuperMutation(config, { kind: 'runtime_start', providers: [member.provider ?? 'claude'] });
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
       if (existing && this.cleanupFailures.hasSession(existing.id))
         throw conflict('workspace_busy', 'session process cleanup is unresolved', {
@@ -780,6 +783,7 @@ export class SessionOrchestrator {
     return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, found.member);
+      assertIntegratorAccess(config, 'write', actor);
       const refusal = sessionApproverChangeRefusal(member, req.approver);
       if (refusal) throw forbidden(refusal, 'the Operator approver is fixed to human');
       if (req.approver) {
@@ -979,6 +983,7 @@ export class SessionOrchestrator {
 
   /** Stops a session; `stop` is why (PM-288), recorded on the session and its `session_ended` event. */
   async stop(projectKey: string, sessionId: string, stop?: SessionStop): Promise<Session> {
+    assertIntegratorAccess(await this.deps.projects.config(projectKey), 'write', stop?.by);
     const session = this.get(projectKey, sessionId);
     this.dropPause(session);
     // The runner's exit event may end the session before this call does: it takes the reason from here.

@@ -43,3 +43,12 @@ export {
   MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
   type AttemptLimiter,
 } from './attempt-limiter';
+export {
+  runIntegratorExecution,
+  integratorExecution,
+  assertIntegratorAccess,
+  assertOwnApproval,
+  assertSuperMutation,
+  authorizeSuperMutation,
+  withoutIntegratorExecution,
+} from './integrator-execution';

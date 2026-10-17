@@ -3,6 +3,7 @@ import type { Actor, LabelChangeReason, LabelClearTrigger, ProjectConfig, Task }
 import { isoNow } from '../base';
 import { forbidden, invalid } from '../../kernel';
 import { SYSTEM_ACTOR } from '../../kernel';
+import { assertIntegratorAccess, withoutIntegratorExecution } from '../../kernel';
 import { runEffects } from './store';
 import type { Effect, TaskStore } from './store';
 
@@ -35,6 +36,7 @@ export function planLabelsOrThrow(
   actor: Actor,
   comment: string | undefined,
 ): PlannedLabels {
+  assertIntegratorAccess(config, 'write', actor);
   const plan = planLabelChange(config, task, change, actor, comment);
   if (plan.ok) return plan;
   const refusal = plan.refusal;
@@ -167,6 +169,8 @@ export class TaskLabels {
   expire(config: ProjectConfig, task: Task, trigger: LabelClearTrigger, effects: Effect[]): Task {
     const expired = expiredLabels(config, task, trigger);
     if (expired.length === 0) return task;
-    return this.apply(config, task, { remove: expired }, SYSTEM_ACTOR, { reason: trigger }, effects);
+    return withoutIntegratorExecution(() =>
+      this.apply(config, task, { remove: expired }, SYSTEM_ACTOR, { reason: trigger }, effects),
+    );
   }
 }

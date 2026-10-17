@@ -169,7 +169,7 @@ describe('explicit integrator access key API', () => {
   });
 
   it.each(['super', 'read'] as const)(
-    'blocks %s execution before policy integration, regardless of cookie or CLI header',
+    'keeps own-login endpoints closed to %s credentials, regardless of cookie or CLI header',
     async (mode) => {
       const created = await create(mode);
       for (const method of ['GET', 'POST'] as const) {

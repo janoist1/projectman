@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { assertSuperMutation } from '../../kernel';
 import { EngineProvider } from '@projectman/shared';
 import type { CreateEngineResponse, EngineId, EngineStatusView, EngineView } from '@projectman/shared';
 import { z } from 'zod';
@@ -162,6 +163,7 @@ export class EngineRegistry {
   }
 
   create(name: string, userId: string): CreateEngineResponse {
+    assertSuperMutation(null, { kind: 'routine', operation: 'engine_create' });
     const { id, key, hash, prefix } = newMachineKey();
     const row = this.journaled([id], () =>
       this.repos.engines.create({ id, name, userId, hash, prefix, at: this.now().toISOString() }),
@@ -174,6 +176,7 @@ export class EngineRegistry {
     return this.repos.engines.resolve(machineKeyHash(key))?.id ?? null;
   }
   revoke(id: string, userId: string): EngineView {
+    assertSuperMutation(null, { kind: 'remove', resource: 'engine', id });
     this.active(id);
     this.journaled([id], () => this.repos.engines.revoke(id, userId, this.now().toISOString()));
     // A revoked engine stops counting as available now, and what waits for it is told.
@@ -183,6 +186,7 @@ export class EngineRegistry {
     return this.view(this.repos.engines.get(id)!);
   }
   setDefault(id: string): EngineView[] {
+    assertSuperMutation(null, { kind: 'routine', operation: 'engine_default' });
     this.active(id);
     const previous = this.status().find((engine) => engine.isDefault)?.id;
     this.journaled(previous && previous !== id ? [previous, id] : [id], () =>

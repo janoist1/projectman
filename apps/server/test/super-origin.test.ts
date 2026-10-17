@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isSuperOperatorActor, operatorOf, routes, SuperAuditPage, superActorOf } from '@projectman/shared';
 import type { Actor, SuperActor } from '@projectman/shared';
@@ -49,17 +50,58 @@ describe('super-mode origin and audit (PM-757)', () => {
   const auditRows = (prefix?: string) =>
     h.repos.superAudit.list('AR', { limit: 100, ...(prefix ? { prefix } : {}) }).entries;
 
+  // These origin/audit fixtures simulate the authenticated execution PM-759 now requires at domain entry.
+  const authenticated = <T>(run: () => T, requestId = 'req-fixture'): T => {
+    let user = h.repos.users.list()[0];
+    if (!user) {
+      user = {
+        id: 'user-1',
+        name: OWNER.name,
+        email: OWNER.email,
+        passwordHash: 'unused-test-hash',
+        createdAt: new Date().toISOString(),
+      };
+      h.repos.users.insert(user);
+    }
+    const secret = 'pmi_origin_fixture';
+    if (!h.repos.integratorKeys.activeById(CREDENTIAL.id, new Date().toISOString()))
+      h.repos.integratorKeys.create({
+        id: CREDENTIAL.id,
+        userId: user.id,
+        prefix: CREDENTIAL.prefix,
+        hash: createHash('sha256').update(secret).digest('hex'),
+        mode: 'super',
+        at: new Date().toISOString(),
+        expiresAt: null,
+      });
+    return h.domain.superOperator.run(
+      {
+        principal: h.auth.resolveIntegratorCredential(secret, 'rest')!,
+        email: OWNER.email,
+        requestId,
+        projectKey: 'AR',
+      },
+      run,
+    );
+  };
+  const patch = (...args: Parameters<typeof h.domain.projects.patch>) =>
+    args[2].actor.operatorMode === 'super'
+      ? authenticated(() => h.domain.projects.patch(...args), args[2].author.superRequestId)
+      : h.domain.projects.patch(...args);
+
   it('stores the super origin next to the old actor columns and leaves old rows alone', async () => {
     h = await createDomainHarness();
     const plain = await h.domain.messaging.send('AR', 'owner', {
       to: ['operator'],
       text: 'Fictional old note',
     });
-    const sent = await h.domain.messaging.send(
-      'AR',
-      'operator',
-      { to: ['owner'], text: 'Fictional super note' },
-      { actor: SUPER },
+    const sent = await authenticated(() =>
+      h.domain.messaging.send(
+        'AR',
+        'operator',
+        { to: ['owner'], text: 'Fictional super note' },
+        { actor: SUPER },
+      ),
     );
     expect(sent.actor).toEqual(SUPER);
     expect(plain.actor).toBeUndefined();
@@ -99,11 +141,13 @@ describe('super-mode origin and audit (PM-757)', () => {
 
   it('reads an unreadable or disagreeing meta column as the old actor', async () => {
     h = await createDomainHarness();
-    const message = await h.domain.messaging.send(
-      'AR',
-      'operator',
-      { to: ['owner'], text: 'Fictional super note' },
-      { actor: SUPER },
+    const message = await authenticated(() =>
+      h.domain.messaging.send(
+        'AR',
+        'operator',
+        { to: ['owner'], text: 'Fictional super note' },
+        { actor: SUPER },
+      ),
     );
     h.repos.db.prepare('UPDATE team_messages SET actor_meta = ? WHERE id = ?').run('{not json', message.id);
     expect(h.repos.messages.list('AR').find((m) => m.id === message.id)?.actor).toBeUndefined();
@@ -134,11 +178,13 @@ describe('super-mode origin and audit (PM-757)', () => {
       });
     const viaSuper = create();
     const plain = create();
-    const resolved = await h.domain.inbox.resolve(
-      'AR',
-      viaSuper.id,
-      { optionId: 'seen' },
-      { handle: 'owner', access: 'owner', via: 'integrator', superActor: SUPER },
+    const resolved = await authenticated(() =>
+      h.domain.inbox.resolve(
+        'AR',
+        viaSuper.id,
+        { optionId: 'seen' },
+        { handle: 'owner', access: 'owner', via: 'integrator', superActor: SUPER },
+      ),
     );
     expect(resolved.resolution).toMatchObject({ by: 'owner', via: 'integrator', actor: SUPER });
     expect(h.domain.inbox.get('AR', viaSuper.id).resolution?.actor).toEqual(SUPER);
@@ -156,7 +202,7 @@ describe('super-mode origin and audit (PM-757)', () => {
   it('commits a configuration change in the super mode with trailers, history and an audit', async () => {
     h = await createDomainHarness();
     const loaded = await h.domain.projects.load('AR');
-    const patched = await h.domain.projects.patch(
+    const patched = await patch(
       'AR',
       { baseVersion: loaded.version, project: { name: 'Fictional renamed project' } },
       { actor: SUPER, author: superAuthor() },
@@ -183,7 +229,7 @@ describe('super-mode origin and audit (PM-757)', () => {
   it('writes the credential, never a secret, into the commit trailers', async () => {
     h = await createDomainHarness();
     const loaded = await h.domain.projects.load('AR');
-    await h.domain.projects.patch(
+    await patch(
       'AR',
       { baseVersion: loaded.version, project: { name: 'Fictional trailers project' } },
       { actor: SUPER, author: superAuthor() },
@@ -202,22 +248,28 @@ describe('super-mode origin and audit (PM-757)', () => {
     const patch = { baseVersion: loaded.version, project: { name: 'Fictional refused project' } };
     // The actor alone, with a plain author, grants nothing; it has no credential to attribute, so no entry.
     await expect(
-      h.domain.projects.patch('AR', patch, { actor: SUPER, author: { ...OWNER, via: 'integrator' } }),
+      authenticated(() =>
+        h.domain.projects.patch('AR', patch, { actor: SUPER, author: { ...OWNER, via: 'integrator' } }),
+      ),
     ).rejects.toMatchObject({ status: 403 });
     expect(auditRows()).toEqual([]);
     // The token's owner is not an owner (a made-up handle).
     await expect(
-      h.domain.projects.patch('AR', patch, {
-        actor: SUPER,
-        author: { ...superAuthor('req-nobody'), authorizedBy: 'nobody' },
-      }),
+      authenticated(() =>
+        h.domain.projects.patch('AR', patch, {
+          actor: SUPER,
+          author: { ...superAuthor('req-nobody'), authorizedBy: 'nobody' },
+        }),
+      ),
     ).rejects.toMatchObject({ status: 403 });
     // A different credential in the author than in the actor.
     await expect(
-      h.domain.projects.patch('AR', patch, {
-        actor: SUPER,
-        author: { ...superAuthor('req-other'), superActor: { ...SUPER, credential: OTHER_CREDENTIAL } },
-      }),
+      authenticated(() =>
+        h.domain.projects.patch('AR', patch, {
+          actor: SUPER,
+          author: { ...superAuthor('req-other'), superActor: { ...SUPER, credential: OTHER_CREDENTIAL } },
+        }),
+      ),
     ).rejects.toMatchObject({ status: 403 });
     expect((await h.configStore.history('AR', 1))[0]?.actor).toBeUndefined();
     // Both refusals are audited with their code only, under the credential the author carries.
@@ -235,34 +287,37 @@ describe('super-mode origin and audit (PM-757)', () => {
     ]);
   });
 
-  it('audits a refusal by the configuration rules of a bound super step', async () => {
+  it('allows a bound super step to change the fix-round policy', async () => {
     h = await createDomainHarness();
     const loaded = await h.domain.projects.load('AR');
-    // The fix-round limit is an owner setting: a step through the integrator (the super mode is one) refuses it.
     await expect(
-      h.domain.projects.patch(
+      patch(
         'AR',
         { baseVersion: loaded.version, limits: { maxFixRounds: 9 } },
         { actor: SUPER, author: superAuthor('req-rule') },
       ),
-    ).rejects.toMatchObject({ status: 403, code: 'owner_login_required' });
+    ).resolves.toHaveProperty('version');
     const rows = auditRows().filter((r) => r.requestId === 'req-rule');
     expect(rows.map((r) => [r.outcome, r.errorCode]).sort()).toEqual([
-      ['refused', 'owner_login_required'],
       ['started', null],
+      ['succeeded', null],
     ]);
-    expect((await h.configStore.history('AR', 1))[0]?.actor).toBeUndefined();
+    expect((await h.configStore.history('AR', 1))[0]?.actor).toEqual(SUPER);
   });
 
   it('audits an unbounded revert of a version made in the super mode', async () => {
     h = await createDomainHarness();
     const first = await h.domain.projects.load('AR');
-    await h.domain.projects.patch(
+    await patch(
       'AR',
       { baseVersion: first.version, project: { name: 'Fictional before revert' } },
       { actor: SUPER, author: superAuthor('req-edit') },
     );
-    await h.domain.projects.revert('AR', first.version, { actor: SUPER, author: superAuthor('req-revert') });
+    await authenticated(
+      () =>
+        h.domain.projects.revert('AR', first.version, { actor: SUPER, author: superAuthor('req-revert') }),
+      'req-revert',
+    );
     const rows = auditRows().filter((r) => r.requestId === 'req-revert');
     expect(rows.map((r) => r.outcome).sort()).toEqual(['started', 'succeeded']);
     const head = (await h.configStore.history('AR', 1))[0]!;
@@ -284,7 +339,7 @@ describe('super-mode origin and audit (PM-757)', () => {
     });
     const loaded = await h.domain.projects.load('AR');
     await expect(
-      h.domain.projects.patch(
+      patch(
         'AR',
         { baseVersion: loaded.version, project: { name: 'Fictional lost response' } },
         { actor: SUPER, author: superAuthor('req-lost') },
@@ -314,7 +369,7 @@ describe('super-mode origin and audit (PM-757)', () => {
     });
     let loaded = await h.domain.projects.load('AR');
     await expect(
-      h.domain.projects.patch(
+      patch(
         'AR',
         { baseVersion: loaded.version, project: { name: 'Fictional never landed' } },
         { actor: SUPER, author: superAuthor('req-before') },
@@ -323,7 +378,7 @@ describe('super-mode origin and audit (PM-757)', () => {
     mode = 'blind';
     loaded = await h.domain.projects.load('AR');
     await expect(
-      h.domain.projects.patch(
+      patch(
         'AR',
         { baseVersion: loaded.version, project: { name: 'Fictional blind outcome' } },
         { actor: SUPER, author: superAuthor('req-blind') },
@@ -347,7 +402,7 @@ describe('super-mode origin and audit (PM-757)', () => {
   it('settles a started entry a crash left, from the commit trailer', async () => {
     h = await createDomainHarness();
     const loaded = await h.domain.projects.load('AR');
-    await h.domain.projects.patch(
+    await patch(
       'AR',
       { baseVersion: loaded.version, project: { name: 'Fictional crash survivor' } },
       { actor: SUPER, author: superAuthor('req-ok') },
@@ -561,8 +616,8 @@ describe('super-mode origin and audit (PM-757)', () => {
     const scope = { scope: 'project', projectKey: 'AR' } as const;
     const typed = (type: string) => h.repos.timeline.list('AR').filter((e) => e.type === type);
     const by = { userId: 'usr_owner', source: 'app', via: 'integrator', credential: CREDENTIAL } as const;
-    await h.domain.pauses.pause(scope, by);
-    await h.domain.pauses.resume(scope, by);
+    await authenticated(() => h.domain.pauses.pause(scope, by));
+    await authenticated(() => h.domain.pauses.resume(scope, by));
     expect(typed('team_paused').at(-1)?.actor).toEqual(SUPER);
     expect(typed('team_resumed').at(-1)?.actor).toEqual(SUPER);
 
@@ -574,7 +629,7 @@ describe('super-mode origin and audit (PM-757)', () => {
   it('stops a session as the super actor and records it on the stop event', async () => {
     h = await createDomainHarness();
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
-    await h.domain.sessions.stop('AR', session.id, { kind: 'manual', by: SUPER });
+    await authenticated(() => h.domain.sessions.stop('AR', session.id, { kind: 'manual', by: SUPER }));
     const ended = h.repos.timeline.list('AR').find((e) => e.type === 'session_ended');
     expect(ended).toBeDefined();
     expect(JSON.stringify(ended?.data)).toContain('operatorMode');
@@ -584,11 +639,13 @@ describe('super-mode origin and audit (PM-757)', () => {
   it('starts a card as the super actor and keeps the origin on the start events', async () => {
     h = await createDomainHarness();
     const task = await h.domain.tasks.create('AR', { title: 'Fictional super start' }, OWNER_ACTOR);
-    await h.domain.taskStarts.start('AR', task.key, {
-      assignee: 'dev-1',
-      actor: SUPER,
-      author: superAuthor('req-start'),
-    });
+    await authenticated(() =>
+      h.domain.taskStarts.start('AR', task.key, {
+        assignee: 'dev-1',
+        actor: SUPER,
+        author: superAuthor('req-start'),
+      }),
+    );
     const withOrigin = h.repos.timeline.list('AR').filter((e) => e.actor.operatorMode === 'super');
     expect(withOrigin.length).toBeGreaterThan(0);
     expect(withOrigin.every((e) => e.actor.credential?.prefix === CREDENTIAL.prefix)).toBe(true);
@@ -687,11 +744,13 @@ describe('super-mode origin and audit (PM-757)', () => {
       expect(senderOf(bound)).toBe('operator');
       expect(senderOf(bare)).toBe('owner');
 
-      const sent = await h.domain.messaging.send(
-        'AR',
-        senderOf(bound),
-        { to: ['dev-1'], text: 'Fictional super message' },
-        { actor: actorOf(bound) },
+      const sent = await authenticated(() =>
+        h.domain.messaging.send(
+          'AR',
+          senderOf(bound),
+          { to: ['dev-1'], text: 'Fictional super message' },
+          { actor: actorOf(bound) },
+        ),
       );
       expect(sent).toMatchObject({ from: 'operator', via: 'integrator', actor: SUPER });
       const stored = h.repos.messages.list('AR').find((m) => m.id === sent.id)!;
@@ -699,11 +758,13 @@ describe('super-mode origin and audit (PM-757)', () => {
       expect(stored.actor?.handle).toBe(stored.from);
       // A super origin cannot ride on a message from someone else (the owner whose token it is).
       await expect(
-        h.domain.messaging.send(
-          'AR',
-          'owner',
-          { to: ['dev-1'], text: 'Fictional mismatch' },
-          { actor: actorOf(bound) },
+        authenticated(() =>
+          h.domain.messaging.send(
+            'AR',
+            'owner',
+            { to: ['dev-1'], text: 'Fictional mismatch' },
+            { actor: actorOf(bound) },
+          ),
         ),
       ).rejects.toThrow(/super-mode message/);
     });
@@ -720,11 +781,13 @@ describe('super-mode origin and audit (PM-757)', () => {
         payload: { question: 'Which fictional option?' },
         options: [{ id: 'answer', label: 'answer', style: 'primary' }],
       });
-      await h.domain.inbox.resolve(
-        'AR',
-        question.id,
-        { optionId: 'answer', note: 'The first fictional option.' },
-        { handle: 'owner', access: 'owner', via: 'integrator', superActor: SUPER },
+      await authenticated(() =>
+        h.domain.inbox.resolve(
+          'AR',
+          question.id,
+          { optionId: 'answer', note: 'The first fictional option.' },
+          { handle: 'owner', access: 'owner', via: 'integrator', superActor: SUPER },
+        ),
       );
       await flush();
       const answers = h.repos.messages

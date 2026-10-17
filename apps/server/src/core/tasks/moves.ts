@@ -1,3 +1,4 @@
+import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import {
   actorMoveRefusal,
   boardColumnOf,
@@ -257,6 +258,7 @@ export class TaskMoves {
    * without a repository or a branch.
    */
   async prepareMove(config: ProjectConfig, task: Task, stageId: string): Promise<PreparedMove> {
+    assertIntegratorAccess(config, 'write');
     const target = stageOf(config, stageId);
     if (!target || task.stageId === target.id || task.status === 'cancelled' || isTheme(task))
       return { handover: null, mergeChecked: false };
@@ -354,6 +356,7 @@ export class TaskMoves {
     effects: Effect[],
     opts: MoveOptions = {},
   ): MoveResult {
+    assertIntegratorAccess(config, 'write', actor);
     // Async preparation may finish after a human has moved or closed the card. Check inside the
     // write transaction so an obsolete automatic target cannot move it back or request a hand-on.
     if (
@@ -367,6 +370,14 @@ export class TaskMoves {
     if (isTheme(task)) throw themeRefused(task.key, 'move between stages');
     if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
     const target = requireStage(config, stageId);
+    if (target.kind === 'work' && task.stageId !== target.id) {
+      const assignee = config.team.members.find((member) => member.handle === task.assignee);
+      assertSuperMutation(
+        config,
+        { kind: 'runtime_start', providers: assignee?.kind === 'ai' ? [assignee.provider ?? 'claude'] : [] },
+        actor,
+      );
+    }
     if (task.stageId === target.id) return { task, moved: false, pendingApproval: [] };
     // A decision may have closed while this system move was preparing. Its human handler owns
     // the approval labels and move; do not open a replacement request during that async work.

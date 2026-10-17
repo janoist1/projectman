@@ -70,6 +70,7 @@ export const routes = {
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
   taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,
+  mergeQueueOrder: (key: string) => `/api/projects/${key}/merge-queue/order`,
   /** POST: puts the card's queued merge at the front of its repository's queue (`PrioritizeMergeRequest`, PM-576). */
   taskMergePrioritize: (key: string, taskKey: string) =>
     `/api/projects/${key}/tasks/${taskKey}/merge/prioritize`,

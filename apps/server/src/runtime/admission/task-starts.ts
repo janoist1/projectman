@@ -1,4 +1,10 @@
 import {
+  assertIntegratorAccess,
+  assertSuperMutation,
+  assertOwnApproval,
+  integratorExecution,
+} from '../../kernel';
+import {
   aiLabelSetters,
   canAutomaticallyStartTask,
   coordinationActorRefusal,
@@ -9,6 +15,7 @@ import {
   isSenior,
   isTheme,
   isOperatorActor,
+  isSuperOperatorActor,
   memberOf,
   pickDeveloper,
   projectRefines,
@@ -155,7 +162,7 @@ function refuseOwnStageApproval(task: Task, evaluation: GateEvaluation): void {
 }
 
 function startsAsPerson(config: ProjectConfig, actor: Actor): boolean {
-  return actor.kind === 'human' || isOperatorActor(config, actor);
+  return actor.kind === 'human' || isOperatorActor(config, actor) || isSuperOperatorActor(config, actor);
 }
 
 /**
@@ -215,7 +222,9 @@ export class TaskStarts {
    */
   async startLocked(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
     const config = await this.projects.config(projectKey);
+    assertIntegratorAccess(config, 'write', opts.actor);
     let task = this.tasks.get(projectKey, taskKey);
+    if (task.fixLimit && integratorExecution()) assertOwnApproval();
     const skipped = { task, session: null, hired: null };
     if (opts.automatic && !this.canStartAutomatically(task)) return skipped;
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
@@ -258,6 +267,11 @@ export class TaskStarts {
     if (chosen.kind === 'senior_busy')
       return this.waitForSenior(config, task, workStage, opts, needsMove, chosen.seniors);
     let member: MemberConfig | null = chosen.member;
+    assertSuperMutation(
+      config,
+      { kind: 'runtime_start', providers: member?.kind === 'ai' ? [member.provider ?? 'claude'] : [] },
+      opts.actor,
+    );
     opts.onChosen?.(member);
     const workItem = { type: 'task', taskKey } as const;
     const alreadyRunning =

@@ -2225,7 +2225,7 @@ workers follow the machine's size.
 
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
   `db/integrator-keys.ts`, `db/integrator-key-audit.ts`, `runtime/sessions` (`session policy`),
-  `runner/env.ts` (PM-251, PM-758).
+  `runner/env.ts`, `services/super-operator`, `kernel/integrator-execution.ts` (PM-251, PM-758, PM-759).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
   Authentication accepts it only on a local connection or HTTPS, using the existing loopback
   proxy protocol rules in `kernel` (`clientAddress`, `requestProtocol`).
@@ -2236,7 +2236,18 @@ workers follow the machine's size.
   that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`
   alongside the last-use timestamp on first use, channel change or after five minutes.
   The exact external `/mcp` path takes precedence over the self-reported CLI header, which
-  grants no authority. Until the execution policy is composed, explicit modes receive 403.
+  grants no authority. REST binds explicit modes through the Super Operator facade. The auth service
+  registers immutable resolved principals in a private WeakSet; a copied principal or actor JSON grants
+  no authority. The hub's request-local scope expires with its callback, and domain mutations recheck
+  the active key and current project-owner membership after waiting for locks. Read credentials cannot
+  write. Super credentials administer existing services but cannot decide human approvals, manage keys,
+  or bypass fixed Operator invariants. The shared structured mutation projection reserves deletion,
+  new publication, consumption-billed runtime and project-direction effects; until PM-762 supplies an
+  exact owner grant, these fail closed. The repository merge queue's revision and complete permutation
+  use one hub SQLite transaction (`merge_queue_revisions` and `task_merges.queue_rank`, migration 82,
+  after PM-771's migration 80 and PM-761's migration 81); the running merge remains behind the existing
+  BranchMerger facade.
+  External bearer MCP remains closed until PM-760 composes its operation policy.
   The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
   Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
   `PROJECTMAN_INTEGRATOR_KEY` before launching members.

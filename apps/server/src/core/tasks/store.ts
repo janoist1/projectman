@@ -28,6 +28,7 @@ import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../base';
 import { requireHuman } from '../members';
 import { invalid, notFound } from '../../kernel';
+import { assertIntegratorAccess, assertOwnApproval } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
 
@@ -281,8 +282,11 @@ export class TaskStore {
   ): Promise<TimelineEvent> {
     const task = this.get(projectKey, taskKey);
     const config = await this.projects.config(projectKey);
-    if (imported.importedAuthor !== undefined || imported.importedAt !== undefined)
+    assertIntegratorAccess(config, 'write', actor);
+    if (imported.importedAuthor !== undefined || imported.importedAt !== undefined) {
+      assertOwnApproval(actor);
       requireHuman(config, actor, 'owner', { message: 'imported comments require owner access' });
+    }
     const effects: Effect[] = [];
     const event = this.recordNote(config, task, text, actor, sessionId, effects, imported);
     await runEffects(effects);
@@ -300,6 +304,7 @@ export class TaskStore {
     imported: Pick<CreateTaskCommentRequest, 'importedAuthor' | 'importedAt'> = {},
   ): TimelineEvent {
     const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
+    if (isImported) assertOwnApproval(actor);
     const mentions = commentMentions(
       text,
       config.team.members.map((member) => member.handle),

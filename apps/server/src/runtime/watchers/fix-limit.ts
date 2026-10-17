@@ -42,6 +42,7 @@ import type { SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from '../../kernel';
+import { assertOwnApproval } from '../../kernel';
 
 type FixLimitEvent = TimelineEventData['task_fix_limit'];
 type Phase = NonNullable<TaskFixLimitRecord['holdPhase']>;
@@ -209,6 +210,7 @@ export class FixLimitWatch {
     decision: FixLimitDecision,
     reason: string,
   ): Promise<{ phase: FixLimitPhase }> {
+    assertOwnApproval();
     return this.cards.run(taskKey, async () => {
       const config = await this.projects.config(projectKey);
       const task = this.tasks.get(projectKey, taskKey);

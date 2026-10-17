@@ -15,7 +15,14 @@ import type {
 } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
-import { DomainError, conflict, forbidden, notFound } from '../../kernel';
+import {
+  DomainError,
+  conflict,
+  forbidden,
+  notFound,
+  assertIntegratorAccess,
+  assertSuperMutation,
+} from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TaskService } from './service';
 import type { TimelineService } from '../timeline';
@@ -79,6 +86,7 @@ export class ProjectFocusService {
   /** Puts a theme or card into the focus at `position` (1-based; absent or past the end: last). */
   async add(projectKey: string, key: string, actor: Actor, position?: number): Promise<ProjectFocus> {
     await this.check(projectKey, actor);
+    const config = await this.projects.config(projectKey);
     return this.write(projectKey, () => {
       const task = this.tasks.find(projectKey, key);
       if (!task) throw notFound('task', key);
@@ -92,6 +100,11 @@ export class ProjectFocusService {
       const place = Math.min(Math.max(position ?? items.length + 1, 1), items.length + 1);
       const item: ProjectFocusItem = { key, addedAt: isoNow(this.ctx), addedBy: actor };
       const next = [...items.slice(0, place - 1), item, ...items.slice(place - 1)];
+      assertSuperMutation(
+        config,
+        { kind: 'focus_change', before: items.map((i) => i.key), after: next.map((i) => i.key) },
+        actor,
+      );
       this.ctx.repos.projectFocus.replace(projectKey, next);
       this.timeline.append({
         projectKey,
@@ -107,8 +120,10 @@ export class ProjectFocusService {
   /** Moves an item to `position` (1-based, clamped to the length of the list). */
   async move(projectKey: string, key: string, position: number, actor: Actor): Promise<ProjectFocus> {
     await this.check(projectKey, actor);
+    const config = await this.projects.config(projectKey);
     return this.write(projectKey, () => {
       const items = this.ctx.repos.projectFocus.list(projectKey);
+      const before = items.map((i) => i.key);
       const from = items.findIndex((item) => item.key === key);
       if (from < 0) throw unknownItem(key);
       const place = Math.min(Math.max(position, 1), items.length);
@@ -116,6 +131,7 @@ export class ProjectFocusService {
       if (place === from + 1) return null;
       const [item] = items.splice(from, 1);
       items.splice(place - 1, 0, item!);
+      assertSuperMutation(config, { kind: 'focus_change', before, after: items.map((i) => i.key) }, actor);
       this.ctx.repos.projectFocus.replace(projectKey, items);
       this.timeline.append({
         projectKey,
@@ -137,11 +153,17 @@ export class ProjectFocusService {
   /** Takes an item out of the focus. */
   async remove(projectKey: string, key: string, actor: Actor): Promise<ProjectFocus> {
     await this.check(projectKey, actor);
+    const config = await this.projects.config(projectKey);
     return this.write(projectKey, () => {
       const items = this.ctx.repos.projectFocus.list(projectKey);
       const from = items.findIndex((item) => item.key === key);
       if (from < 0) throw unknownItem(key);
       const next = items.filter((item) => item.key !== key);
+      assertSuperMutation(
+        config,
+        { kind: 'focus_change', before: items.map((i) => i.key), after: next.map((i) => i.key) },
+        actor,
+      );
       this.ctx.repos.projectFocus.replace(projectKey, next);
       this.timeline.append({
         projectKey,
@@ -172,7 +194,9 @@ export class ProjectFocusService {
 
   /** Whether the actor may set the focus: the shared rule decides. */
   private async check(projectKey: string, actor: Actor): Promise<void> {
-    const refusal = projectFocusRefusal(await this.projects.config(projectKey), actor);
+    const config = await this.projects.config(projectKey);
+    if (assertIntegratorAccess(config, 'write', actor)) return;
+    const refusal = projectFocusRefusal(config, actor);
     if (refusal) {
       throw forbidden(
         refusal,

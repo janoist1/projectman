@@ -55,6 +55,13 @@ const SERVER_SRC = 'apps/server/src/';
 
 const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
   {
+    id: 'services/super-operator',
+    layer: 'service',
+    target: 'services/super-operator',
+    pass: 'none',
+    sealed: true,
+  },
+  {
     id: 'services/structure',
     layer: 'service',
     target: 'services/structure',

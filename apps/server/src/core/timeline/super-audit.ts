@@ -12,7 +12,7 @@ export interface SuperAuditOptions {
 }
 
 /** How a lost response is settled: whether the effect with this audit entry's id landed. */
-export type CommittedCheck = (auditId: string) => Promise<boolean>;
+export type CommittedCheck = (auditId: string, operation?: string) => Promise<boolean>;
 
 /**
  * The audit of the Operator's super mode (PM-757): one entry per step made with a super credential. It
@@ -97,7 +97,7 @@ export class SuperAuditService {
   async settleOpen(projectKey: string, committed: CommittedCheck): Promise<number> {
     let settled = 0;
     for (const entry of this.ctx.repos.superAudit.unsettled(projectKey)) {
-      const landed = await committed(entry.id).then(
+      const landed = await committed(entry.id, entry.operation).then(
         (found) => found,
         () => null,
       );

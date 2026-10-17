@@ -466,6 +466,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         .filter((engine) => !engine.revokedAt)
         .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt }));
     const domain = createDomain({
+      integratorCredentials: auth,
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),
       ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),

@@ -61,6 +61,12 @@ import type { ProjectService } from '../projects';
 import { PullRequestRecords } from './pull-request-records';
 import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../../kernel';
+import {
+  assertIntegratorAccess,
+  assertSuperMutation,
+  authorizeSuperMutation,
+  assertOwnApproval,
+} from '../../kernel';
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';
 import { planDeveloperLevel } from './developer-level';
@@ -265,8 +271,17 @@ export class TaskService implements TaskSchedulingReader {
     opts: { sessionId?: string | null } = {},
   ): Promise<Task> {
     const config = await this.projects.config(projectKey);
-    if (req.importedAt !== undefined)
+    assertIntegratorAccess(config, 'write', actor);
+    await authorizeSuperMutation({
+      projectKey,
+      previous: config,
+      actor,
+      command: { kind: 'task_visibility', taskKey: null, before: null, after: req.visibility ?? 'internal' },
+    });
+    if (req.importedAt !== undefined) {
+      assertOwnApproval(actor);
       requireHuman(config, actor, 'owner', { code: 'owner_only', message: 'only an owner may import tasks' });
+    }
     const first = config.pipeline.stages[0]!;
     const kind: TaskKind = req.kind ?? 'task';
     if (kind === 'theme' && (req.stageId !== undefined || req.repo))
@@ -398,7 +413,17 @@ export class TaskService implements TaskSchedulingReader {
       change.assignee !== undefined
         ? await this.requireLifecycleAccess(projectKey, actor)
         : await this.projects.config(projectKey);
+    assertIntegratorAccess(config, 'write', actor);
     const effects: Effect[] = [];
+    if (change.visibility !== undefined) {
+      const current = this.get(projectKey, taskKey);
+      await authorizeSuperMutation({
+        projectKey,
+        previous: config,
+        actor,
+        command: { kind: 'task_visibility', taskKey, before: current.visibility, after: change.visibility },
+      });
+    }
     // A move into a review or test stage hands the branch over (PM-183), and one that needs a merge checks
     // it (PM-484): read before the write, as the card will be once the labels of this change are on it.
     let prepared: PreparedMove = { handover: null, mergeChecked: false };
@@ -451,6 +476,7 @@ export class TaskService implements TaskSchedulingReader {
     actor: Actor,
   ): Promise<BoardMoveResult> {
     const config = await this.projects.config(projectKey);
+    assertIntegratorAccess(config, 'write', actor);
     const target = dropStageOfColumn(config.pipeline.stages, req.columnId);
     if (!target) throw invalid('unknown_column', `the board has no column ${req.columnId}`);
     const seen = this.get(projectKey, taskKey);
@@ -543,6 +569,25 @@ export class TaskService implements TaskSchedulingReader {
     effects: Effect[],
     prepared: PreparedMove,
   ): { task: Task; pendingApproval?: InboxItem[]; handoffStart?: HandoffStart | undefined } {
+    assertIntegratorAccess(config, 'write', actor);
+    if (change.visibility !== undefined)
+      assertSuperMutation(
+        config,
+        { kind: 'task_visibility', taskKey: task.key, before: task.visibility, after: change.visibility },
+        actor,
+      );
+    if (
+      change.assignee !== undefined &&
+      change.assignee !== task.assignee &&
+      config.pipeline.stages.find((stage) => stage.id === (change.stageId ?? task.stageId))?.kind === 'work'
+    ) {
+      const assignee = config.team.members.find((member) => member.handle === change.assignee);
+      assertSuperMutation(
+        config,
+        { kind: 'runtime_start', providers: assignee?.kind === 'ai' ? [assignee.provider ?? 'claude'] : [] },
+        actor,
+      );
+    }
     // A theme does not move, have an assignee or a repository (PM-192).
     if (isTheme(task)) {
       if (change.stageId !== undefined && change.stageId !== task.stageId)

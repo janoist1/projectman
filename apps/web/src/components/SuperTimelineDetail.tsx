@@ -13,9 +13,11 @@ import { SuperStateChip } from './SuperStateChip';
 export function SuperTimelineDetail({
   event,
   events,
+  fallback,
 }: {
   event: TimelineEvent;
   events: readonly TimelineEvent[];
+  fallback: string;
 }) {
   const project = useContext(ProjectContext);
   const allowed = project?.isOwner === true;
@@ -39,6 +41,7 @@ export function SuperTimelineDetail({
     : undefined;
   return (
     <span>
+      {!handoff && !op ? <span>{fallback} </span> : null}
       {handoff ? (
         <span>
           {t('superMode.handedOff', {

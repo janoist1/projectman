@@ -10,6 +10,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('integrator key settings', () => {
+  it('shows an inactive empty state and compact past rows when all keys have expired', async () => {
+    const project = mockProject();
+    project.context.me.hostOwner = true;
+    const at = '2026-01-01T00:00:00.000Z';
+    project.backend.integratorKeys = [
+      {
+        id: 'old',
+        mode: 'super',
+        prefix: 'pmi_old',
+        state: 'expired',
+        createdAt: at,
+        expiresAt: at,
+        lastUsedAt: null,
+        lastUsedChannel: null,
+        revokedAt: null,
+      },
+    ];
+    project.render(<IntegratorSection />);
+    expect(await screen.findByText(t('integratorKey.noValid'))).toBeTruthy();
+    fireEvent.click(screen.getByText(t('integratorKey.past', { n: 1 })));
+    expect(document.querySelector('li[data-past="true"] dl')).toBeNull();
+    expect(document.querySelectorAll('ul:empty')).toHaveLength(0);
+    fireEvent.click(screen.getByText(t('integratorKey.audit')));
+    await waitFor(() =>
+      expect(project.requests.some((request) => request.path.includes('/integrator-keys/audit'))).toBe(true),
+    );
+  });
   it('keeps the one-time secret selectable after clipboard failure and clears it on Escape', async () => {
     const project = mockProject();
     project.context.me.hostOwner = true;

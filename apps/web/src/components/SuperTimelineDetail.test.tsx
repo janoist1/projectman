@@ -75,10 +75,12 @@ it('links a successful operation back to its recorded handoff and preserves the 
   };
   project.render(
     <>
-      <SuperTimelineDetail event={start} events={[start, end]} />
-      <SuperTimelineDetail event={end} events={[start, end]} />
+      <SuperTimelineDetail event={start} events={[start, end]} fallback="Handoff changed" />
+      <SuperTimelineDetail event={end} events={[start, end]} fallback="Operation changed" />
     </>,
   );
+  expect(screen.getByText('Handoff changed')).toBeTruthy();
+  expect(screen.getByText('Operation changed')).toBeTruthy();
   expect(await screen.findByText(/Queue maintenance/)).toBeTruthy();
   expect(screen.getByText(t('superMode.states.pending'))).toBeTruthy();
   await waitFor(() =>
@@ -90,4 +92,28 @@ it('links a successful operation back to its recorded handoff and preserves the 
     screen.getByText(t('superMode.executed', { operation: t('superMode.commands.merge_order') })),
   ).toBeTruthy();
   expect(project.requests.every((request) => request.method === 'GET')).toBe(true);
+});
+
+it('preserves the timeline description for non-owners and on a failed detail read', async () => {
+  const project = mockProject();
+  project.context.isOwner = false;
+  const event: TimelineEvent = {
+    id: 'old',
+    projectKey: 'AC',
+    taskKey: 'AC-21',
+    sessionId: null,
+    actor: { kind: 'ai', handle: 'operator' },
+    type: 'super_handoff_changed',
+    data: { handoffId: 'missing', state: 'pending' },
+    createdAt: new Date().toISOString(),
+  };
+  const fallback = t('timeline.events.super_handoff_changed', { state: t('superMode.states.pending') });
+  const rendered = project.render(<SuperTimelineDetail event={event} events={[event]} fallback={fallback} />);
+  expect(screen.getByText(fallback)).toBeTruthy();
+  expect(project.requests).toHaveLength(0);
+  rendered.unmount();
+  project.context.isOwner = true;
+  project.render(<SuperTimelineDetail event={event} events={[event]} fallback={fallback} />);
+  expect(await screen.findByRole('alert')).toBeTruthy();
+  expect(screen.getByText(fallback)).toBeTruthy();
 });

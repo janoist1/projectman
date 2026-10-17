@@ -32,6 +32,9 @@ it('filters and paginates the audit by prefix without fetching involvements', as
   });
   project.render(<InvolvementsPage />, '/p/AC/sessions?by=super&prefix=pmi_filter');
   expect(await screen.findByRole('button', { name: t('superMode.more') })).toBeTruthy();
+  expect(screen.queryByText(/member\.update/)).toBeNull();
+  expect(screen.getAllByText(new RegExp(t('superMode.operations.member.update'))).length).toBe(50);
+  expect(screen.getByRole('heading', { name: t('superMode.operationsTitle') })).toBeTruthy();
   expect(screen.queryByText(/hidden.operation/)).toBeNull();
   expect(document.querySelector('a[href="/p/AC/sessions?by=super#handoff-handoff"]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: t('superMode.more') }));
@@ -109,6 +112,14 @@ it('does not read owner-only audit as a non-owner', () => {
   project.render(<InvolvementsPage />, '/p/AC/sessions?by=super');
   expect(screen.getByText(t('integratorKey.ownerOnly'))).toBeTruthy();
   expect(project.requests.some((request) => request.path.includes('/operator-super'))).toBe(false);
+  expect(screen.getByRole('heading', { name: t('superMode.activity') })).toBeTruthy();
+});
+
+it('uses project-wide empty copy without a credential filter', async () => {
+  const project = mockProject();
+  project.render(<InvolvementsPage />, '/p/AC/sessions?by=super');
+  expect(await screen.findByText(t('superMode.emptyAll'))).toBeTruthy();
+  expect(screen.queryByText(t('superMode.empty'))).toBeNull();
 });
 
 it('loads an audit-linked handoff even after it leaves the bounded list', async () => {

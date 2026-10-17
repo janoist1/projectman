@@ -174,7 +174,7 @@ export function Timeline({
                   )}
                 >
                   {event.type === 'super_handoff_changed' || event.type === 'super_operation_changed' ? (
-                    <SuperTimelineDetail event={event} events={events} />
+                    <SuperTimelineDetail event={event} events={events} fallback={text} />
                   ) : comment ? (
                     <CommentText text={text} ctx={ctx} />
                   ) : involvement && ref?.text ? (

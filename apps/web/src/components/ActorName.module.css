@@ -8,6 +8,7 @@
   cursor: pointer;
   font: inherit;
   min-height: 36px;
+  margin-block: -8px;
 }
 .muted {
   color: var(--c-ink-3);

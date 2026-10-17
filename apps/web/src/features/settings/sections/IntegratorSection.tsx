@@ -102,25 +102,30 @@ export function IntegratorSection() {
           <Chip tone="outline">{t(`integratorKey.modes.${info.mode}`)}</Chip>
           <code>{info.prefix}…</code>
         </div>
-        <dl className={styles.facts}>
-          <div>
-            <dt>{t('integratorKey.created')}</dt>
-            <dd>{formatStamp(info.createdAt)}</dd>
-          </div>
-          <div>
-            <dt>{t('integratorKey.used')}</dt>
-            <dd>
-              {info.lastUsedAt ? formatStamp(info.lastUsedAt) : '—'}
-              {info.lastUsedChannel ? (
-                <span className={styles.muted}> · {t(`integratorKey.channels.${info.lastUsedChannel}`)}</span>
-              ) : null}
-            </dd>
-          </div>
-          <div>
-            <dt>{t('integratorKey.expires')}</dt>
-            <dd>{info.expiresAt ? formatStamp(info.expiresAt) : t('integratorKey.never')}</dd>
-          </div>
-        </dl>
+        {info.state === 'active' ? (
+          <dl className={styles.facts}>
+            <div>
+              <dt>{t('integratorKey.created')}</dt>
+              <dd>{formatStamp(info.createdAt)}</dd>
+            </div>
+            <div>
+              <dt>{t('integratorKey.used')}</dt>
+              <dd>
+                {info.lastUsedAt ? formatStamp(info.lastUsedAt) : '—'}
+                {info.lastUsedChannel ? (
+                  <span className={styles.muted}>
+                    {' '}
+                    · {t(`integratorKey.channels.${info.lastUsedChannel}`)}
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('integratorKey.expires')}</dt>
+              <dd>{info.expiresAt ? formatStamp(info.expiresAt) : t('integratorKey.never')}</dd>
+            </div>
+          </dl>
+        ) : null}
         {info.state !== 'active' ? (
           <p className={styles.muted}>
             {t(`integratorKey.states.${info.state}`)}:{' '}
@@ -211,13 +216,13 @@ export function IntegratorSection() {
         ) : null}
         {query.data ? (
           <>
-            {!keys.length ? (
+            {!active.length ? (
               <div className={styles.empty}>
-                <strong>{t('integratorKey.none')}</strong>
+                <strong>{t(keys.length ? 'integratorKey.noValid' : 'integratorKey.none')}</strong>
                 <p>{t('integratorKey.emptyHint')}</p>
               </div>
             ) : null}
-            <ul className={styles.keys}>{active.map(row)}</ul>
+            {active.length ? <ul className={styles.keys}>{active.map(row)}</ul> : null}
             <Button
               variant="primary"
               onClick={() => {
@@ -254,10 +259,7 @@ export function IntegratorSection() {
           </Button>
         </Fold>
         {ownLogin ? (
-          <>
-            <Button variant="secondary" aria-expanded={auditOpen} onClick={() => setAuditOpen(!auditOpen)}>
-              {t('integratorKey.audit')}
-            </Button>
+          <Fold summary={t('integratorKey.audit')} open={auditOpen} onToggle={setAuditOpen}>
             {auditOpen ? (
               <div>
                 {audit.isPending ? <LoadingState /> : null}
@@ -285,7 +287,7 @@ export function IntegratorSection() {
                 ) : null}
               </div>
             ) : null}
-          </>
+          </Fold>
         ) : null}
       </div>
       <Dialog
@@ -359,7 +361,9 @@ export function IntegratorSection() {
             </SelectField>
             {replacing ? (
               <p className={styles.warning} role="status">
-                {t('integratorKey.replaceBody', { prefix: replacing.prefix })}
+                {t(mode === 'read' ? 'integratorKey.replaceReadBody' : 'integratorKey.replaceBody', {
+                  prefix: replacing.prefix,
+                })}
               </p>
             ) : null}
           </>
@@ -400,7 +404,11 @@ export function IntegratorSection() {
             {t(copied ? 'integratorKey.copied' : 'integratorKey.copy')}
           </Button>
         </div>
-        {copied ? <p role="status">{t('integratorKey.copied')}</p> : null}
+        {copied ? (
+          <p role="status" className={styles.srOnly}>
+            {t('integratorKey.copied')}
+          </p>
+        ) : null}
       </Dialog>
     </SettingsSection>
   );

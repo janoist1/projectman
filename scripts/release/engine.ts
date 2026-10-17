@@ -103,6 +103,15 @@ function fingerprints(root: string) {
   };
 }
 
+/** What the candidate's marker records, read from the tree as it stands now (the coordinator's last look, PM-751). */
+export function candidateFingerprints(root: string): {
+  lockfileSha256: string;
+  installedTreeSha256: string;
+  serverBundleSha256: string;
+} {
+  return { lockfileSha256: hashRegularFile(path.join(root, 'package-lock.json')), ...fingerprints(root) };
+}
+
 function outputTail(end: SandboxedEnd): string {
   const tail = end.output.trim().split('\n').slice(-5).join(' | ').slice(0, 500);
   return tail ? `: ${tail}` : '';

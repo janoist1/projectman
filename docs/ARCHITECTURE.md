@@ -1715,8 +1715,34 @@ workers follow the machine's size.
   `node` path (`scripts/live/node-path.ts`: the `PATH` entry that is the running binary, not the versioned
   Homebrew `Cellar` path, which a `brew upgrade node` removes). `live status` checks both files exist. Machine
   assumption: macOS's background-item naming and an unsigned launcher; Homebrew's `bin` link. A remote engine
-  has no such plist.
+  has no such plist. PM-751's hybrid release watcher is a separate agent beside it (next entry); this one
+  still refuses a hybrid installation.
   **Module:** `scripts`
+
+- **Hybrid release coordinator (PM-751, part of PM-735)** — `scripts/release/*.ts`,
+  `scripts/release/bin/projectman-hybrid-release-watcher`, `npm run release`, `docs/DEPLOY.md` ("The hybrid release watcher"), `apps/server/test/release-*.test.ts`,
+  `apps/server/test/helpers/{hybrid-world,fake-launchd}.ts`. **What runs where:** the administration Mac runs
+  one `HybridCoordinator` round at a time (a `com.projectman.hybrid-release-watcher` LaunchAgent, `StartInterval`
+  60, `watch.lock`). It drives the cloud's PM-752 deployment protocol (`release_deploy_*`) through
+  `npm run cloud`'s `release-control` relay (one request line, one response line over the verified SSH/SSM
+  session; `scripts/cloud/*`, `deploy/aws/host.sh`), the cloud machine through the cloud scripts (image import,
+  start, the `release-probe` check) and the Mac engine through `scripts/engine/service.ts` (the
+  `com.projectman.engine` plist, `launchctl` `bootout`/`bootstrap`). **Machine assumptions:** macOS `launchctl`
+  and `~/Library/LaunchAgents`; the stable admin checkout and `node` path named in the plist (a member
+  workspace is refused; the plist environment is `HOME`/`PATH`/`LANG`/`TZ` only); the protected
+  `~/.config/projectman/cloud/` tree (0700/0600, no symbolic links) for the configuration, the AWS profile
+  and the state directory (journal, lock, saved engine plist, last error: all 0600, atomic writes); the
+  engine's pid is checked with `kill(pid, 0)` and the process is never killed; `git` and `gh` on the Mac for
+  the tag and the GitHub release (the old decision 35 logic, from the candidate checkout, no token in the
+  plist); the machine's heavy-run queue lock, which the coordinator holds from the drain to the end of the
+  attempt so no other heavy run starts while the service is switched. **Remote engine:** the coordinator is the
+  administrator's tool and stays on the Mac. With the engine itself on another machine it would need the
+  engine-side half of `EngineControl` (stop with proof, service start, the plist snapshot and restore) behind
+  an engine-owned boundary; today that half is `scripts/release/adapters.ts` `enginePort` and works for the
+  Mac engine only. What crosses the Mac/cloud boundary is fixed metadata only (release id, commit, hashes,
+  phase, a fixed failure code); no raw error, path or secret is carried into the journal, the status, a
+  release alert or the card. The coordinator never kills a process, never leaves `recovery_required` by
+  itself and never restores data. **Module:** `scripts`
 
 - **Feedback widget public entrance (PM-506)** — the hostname without Access for the marking widget on
   customer pages (PM-513). Code: `PROJECTMAN_FEEDBACK_PUBLIC_URL` checked at start in
@@ -2300,6 +2326,10 @@ assumption or remote-engine RPC.
   Idle closure asks that engine through `EngineHost.heavyRunSessions` / `host.heavy_run_sessions`
   (PM-569). PID and heartbeat checks run on the engine; only its own running session ids cross
   to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
+  The hybrid release coordinator (PM-751) takes the same machine's queue lock through the `HeavyLockPort`
+  (`scripts/release/adapters.ts` `heavyPort`, `npm run heavy`'s lock) for the drain-to-end window of one
+  attempt, so a card's full test never runs while the Mac engine is switched. The lock folder is the
+  administration Mac's, not an engine's.
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `index.ts` (`loggerOptions`)
   (PM-444), exposed through `logging/index.ts` to `index.ts` and

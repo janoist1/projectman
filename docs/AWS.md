@@ -631,6 +631,11 @@ command, `docker exec -i -u 10001:10001 projectman-cloud node /app/apps/server/d
   `release_report` (`release_protocol_unavailable`). The first hybrid release cannot be driven by a build without
   this protocol.
 
+The hybrid release coordinator (PM-751, `npm run release`, [DEPLOY.md](DEPLOY.md) "The hybrid release watcher")
+is the caller of this channel: it uses `release_next`, `release_get`, `engine_status` and the PM-752
+`release_deploy_*` operations through this relay, never the single-target `release_claim` and `release_report`.
+Its configuration names the same `hybrid` target (`engineId`, `targetHash`) that `deploy` sends.
+
 Does this work on a remote engine? The control socket and the release records are the cloud server's; the
 engines are not involved. What crosses the Mac/machine boundary is one request line and one response line over
 the existing host session, nothing more. An engine's version reaches the server through the engine registry, and

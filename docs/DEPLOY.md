@@ -560,12 +560,99 @@ gui/$(id -u) ~/Library/LaunchAgents/com.projectman.live.plist`; `npm run control
 `switch-live.sh` and `config-dry-run.ts` of the integrator's folder are retired by this: the watcher does
 the switch, the backup, the rollback and the configuration check.
 
+## The hybrid release watcher (PM-751, part of PM-735)
+
+In hybrid mode (the board on the EC2 machine, the engine on the Mac) the release is not the watcher above but
+`npm run release`, the **hybrid release coordinator**. One release that the owner approved in the app is built and
+checked once, then moved to the cloud and to the Mac engine so that both run the same commit, or it ends in a
+program rollback that is verified, or in a recovery state that waits for a person. There is no command chain to
+run by hand. The owner's approval covers the whole chain and the program rollback; **restoring data is a separate
+decision** and the coordinator never does it. It runs only on the administration Mac, from a stable checkout
+that is not a member workspace; the cloud and AWS credentials stay in `~/.config/projectman/cloud/`, which no
+member session can read.
+
+```
+npm run release -- plan      --config <abs-file>   # read-only: what the next round would do
+npm run release -- watch     --config <abs-file>   # one round in the foreground
+npm run release -- install   --config <abs-file>   # the LaunchAgent: one round a minute
+npm run release -- status    --config <abs-file>   # one JSON line, no secrets
+npm run release -- uninstall --config <abs-file>   # removes the job, keeps the state
+```
+
+The configuration (version 1, mode 0600, under the protected cloud folder) names the controller id (a UUID that
+the cloud keeps as the owner of the deployment), the cloud configuration file, the state directory, the expected
+AWS account and EC2 instance, the board's https origin, the engine's id (a remote one, never `local`), the engine
+home and the folder of the prepared engine releases. A configuration that does not load arms nothing (exit 2).
+The AWS account and the instance are checked before every round, and the cloud's own `hybrid` target (PM-752)
+must carry the hash of this configuration's target.
+
+### What a round does
+
+1. **claim and prepare.** The next approved release is claimed through the cloud's deployment protocol
+   (`release_deploy_begin`, the one place that holds the attempt). The commit is built into one verified image
+   and engine package (the preparation check of PM-750); nothing is changed yet, and a failure here ends the
+   attempt with the live system untouched.
+2. **quiesce and drain.** The cloud pauses the work and the maintenance fence closes; the coordinator takes the
+   heavy-run queue lock and waits (up to the drain limit) until the cloud reports no running work. A timeout goes
+   back to the previous version.
+3. **import and cloud start.** The image reaches the machine over the verified SSH session and the cloud starts
+   it; `deploy` stops on the machine's own checks.
+4. **verify the cloud.** The cloud must report the new commit and its database schema must be one the engine can
+   use; an incompatible schema is `database_incompatible` and a recovery state, never an automatic restore.
+5. **the engine.** The engine's service is stopped (`bootout`, then proof that the process is gone: it is
+   **never killed**), its plist is saved first, the engine service is installed for the prepared checkout and
+   started, and the cloud must see the engine online with the new version. A job that is out of launchd proves
+   nothing about its process: after an interrupted stop, the recorded pid and the pid of the status file must be
+   gone too (waited for up to 2 minutes), or the attempt stops in `recovery_required` rather than start a second
+   engine on the same home. The same holds before the previous engine is loaded again.
+6. **live.** The coordinator reports the deployment live, resumes the work, and publishes the tag and the GitHub
+   release (`vYYYY.M.D[.N]`, annotated, pushed, `--verify-tag`). A publish that fails is retried by the next
+   rounds; the release stays live meanwhile.
+7. **rollback.** From the pause on, a refusal, a failed verification or a timeout puts the engine back (the saved
+   plist, byte for byte, with its hash checked) and then the cloud (its previous image), verifies both, resumes
+   and reports the release failed. If a step cannot be proved, the state is `recovery_required`.
+
+Every step is written in the journal (`<stateDir>/journal.json`, 0600) before it starts, and a round that was
+stopped (a reboot, a kill) continues from it; every part of the rollback can be repeated. Only one round runs at
+a time (`watch.lock`); a second one exits 2 and changes nothing. A corrupt or unreadable journal counts as an
+unfinished release: `install` and `uninstall` refuse, and the watcher touches nothing.
+
+### Exit codes and status
+
+`0` success, or no work (also a live release whose publish is still pending); `1` an operational failure or a
+verified rollback; `2` a safety, precondition or recovery refusal (also a bad configuration or another watcher);
+`64` a wrong command line. `status` prints `{installed, loaded, running, releaseId, phase, lastError}`;
+`lastError` is `{code, message}` with a fixed text from the coordinator's vocabulary, never a raw error, a path or
+an answer of the cloud. The same file (`last-error.json`) is cleared by the next successful round.
+
+### The LaunchAgent
+
+`install` writes `~/Library/LaunchAgents/com.projectman.hybrid-release-watcher.plist` for the stable checkout it
+runs from (it refuses a member workspace), with this node and `tsx`, the configuration argument and
+`StartInterval` 60. The job's environment is `HOME`, `PATH`, `LANG` and `TZ` only: no provider key and no AWS
+variable (the AWS profile comes from the cloud configuration). A job that is loaded and the same is `unchanged`; a
+different one is booted out first, and nothing is replaced while a round or a journal is active. It is **not** run
+by any card: the owner installs it, after the first hybrid release has been rehearsed.
+
+### When it stops
+
+- **`recovery_required`**: the coordinator proved nothing more it may do. Read `npm run release -- status`, the
+  release in the app (its deployment shows the phase) and the cloud with `npm run cloud -- release-control`
+  (`release_deploy_get`). Decide, as a person, whether the data must be restored (a separate decision with its
+  own approval). The coordinator never leaves `recovery_required` by itself and never deletes the journal: while
+  it stays, new releases are refused (`release_recovery_required`).
+- **A pause that was left open** after an interrupted round belongs to the deployment (`release <id>`); the
+  coordinator resumes it when it finishes the attempt. Do not resume it by hand while the journal is active.
+- **An engine that does not stop**: the coordinator waits 60 seconds and stops with a fixed code. It does not kill
+  the process; find out why it does not exit.
+
 ## Cloud deployment of the hybrid mode (PM-317)
 
 The EC2 cutover from the owner's Mac, including stopping both live LaunchAgents,
 separate public approval and the data-preserving rollback, is in
-[CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The live watcher continues to support
-single mode only; cloud and engine updates are separate owner-approved operations.
+[CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The live watcher above continues to support
+single mode only; a hybrid installation is updated by the hybrid release watcher (PM-751, the
+section above).
 
 The cloud side of a hybrid installation (`PROJECTMAN_MODE=cloud`, no AI session of its own, the
 engine on your Mac does the work) is a container: `deploy/cloud/Dockerfile`, with the Cloudflare

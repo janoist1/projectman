@@ -615,6 +615,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     // The remote parts that need the domain, and what the engine's settings view counts.
     remote?.bind(domain, app);
     engineRegistry?.useCounters((id) => domain.engineCounters(id));
+    // The registry writes its own journal entries in its transactions; the long polls wait on this wake.
+    engineRegistry?.useJournalWake((projectKey) => domain.changes.notify(projectKey));
     engineLinks?.register(app);
     remote?.transfers.register(app);
     registerApiRoutes(app, {

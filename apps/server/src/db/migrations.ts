@@ -1,3 +1,4 @@
+import { changeTriggersSql } from './change-triggers';
 import { PENDING_MESSAGE_RECIPIENTS } from './message-pending';
 
 /**
@@ -1516,5 +1517,31 @@ migrations.push({
       ON timeline_events(project_key, created_at)
       WHERE type IN ('task_merge_requested', 'task_merge_failed', 'task_full_test',
         'task_stage_changed', 'task_labels_changed', 'task_updated');`,
+});
+migrations.push({
+  version: 81,
+  name: 'durable project change journal',
+  // PM-761: change signals scripts and the integrator can read again with a cursor. The journal starts
+  // empty (no history is made up); triggers on the state tables write it in the changing transaction
+  // (db/change-triggers.ts). `project_change_generation` is made once with the database; a restore from a
+  // snapshot must replace it (docs/ARCHITECTURE.md "Project change journal").
+  sql: `CREATE TABLE instance_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    INSERT INTO instance_meta (key, value)
+      SELECT 'project_change_generation',
+        lower(substr(h, 1, 8) || '-' || substr(h, 9, 4) || '-4' || substr(h, 14, 3) || '-' ||
+          substr('89ab', 1 + abs(random()) % 4, 1) || substr(h, 18, 3) || '-' || substr(h, 21, 12))
+      FROM (SELECT hex(randomblob(16)) AS h);
+    CREATE TABLE project_change_events (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_key TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      entity_id TEXT,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX project_change_events_project ON project_change_events(project_key, seq);
+    ${changeTriggersSql()}`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

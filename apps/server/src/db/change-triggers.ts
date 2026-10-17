@@ -1,0 +1,190 @@
+import type { ProjectChangeKind } from '@projectman/shared';
+
+type Row = 'NEW' | 'OLD';
+type Statement = 'INSERT' | 'UPDATE' | 'DELETE';
+
+/**
+ * A table whose rows are durable state a project change names (PM-761). An SQLite trigger writes
+ * the journal entry in the transaction of the very statement, so no write path (a facade, a sweep, a
+ * recovery) can change the state without it, and a rollback takes the entry back. Only the entity
+ * is named (project key, kind, entity id, time), never the content, and no rule: what a row means is
+ * decided in the domain, not in SQL.
+ *
+ * Used by migration 81 only: its text is frozen there, so a table added later needs a migration of its
+ * own that calls `changeTriggerSql`. A migration that rebuilds one of these tables drops its
+ * triggers; `project-change-journal.test.ts` fails until the rebuild creates them again, and also when
+ * a table is in neither this list nor `UNJOURNALED_TABLES`.
+ */
+export interface ChangeTriggerTable {
+  table: string;
+  kind: ProjectChangeKind;
+  /** Which statements announce. */
+  on: ReadonlyArray<Statement>;
+  /** The project key column (or expression) of the row. */
+  project: (row: Row) => string;
+  /** The entity the entry names (an expression; `'NULL'` for none). */
+  entity: (row: Row) => string;
+  /** Where `project` and `entity` are read when they are not columns of the row itself. */
+  from?: (row: Row) => string;
+  /** A condition under which the statement announces (an UPDATE that changes nothing a reader sees stays quiet). */
+  when?: Partial<Record<Statement, string>>;
+}
+
+const ownProject = (row: Row) => `${row}.project_key`;
+const column = (name: string) => (row: Row) => `${row}.${name}`;
+const ALL = ['INSERT', 'UPDATE', 'DELETE'] as const;
+const WRITES = ['INSERT', 'UPDATE'] as const;
+
+const ofProject = (
+  table: string,
+  kind: ProjectChangeKind,
+  entity: string,
+  on: ReadonlyArray<Statement> = ALL,
+): ChangeTriggerTable => ({
+  table,
+  kind,
+  on,
+  project: ownProject,
+  entity: column(entity),
+});
+
+/**
+ * The coverage matrix of the card's read model. Kind `task`: the card and every durable table its
+ * view or the board reads; the entity is the card key. A card deleted by a cascade is announced by the
+ * card row itself.
+ */
+export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
+  ofProject('tasks', 'task', 'key'),
+  {
+    // A link belongs to the card; once the card is gone (a cascade) there is no project to name.
+    table: 'task_links',
+    kind: 'task',
+    on: ALL,
+    project: () => 'project_key',
+    entity: () => 'key',
+    from: (row) => `tasks WHERE id = ${row}.task_id`,
+  },
+  ofProject('attachments', 'task', 'task_key'),
+  ofProject('project_focus_items', 'task', 'task_key'),
+  ofProject('task_covers', 'task', 'task_key'),
+  ofProject('task_fix_limits', 'task', 'task_key'),
+  ofProject('task_hand_ons', 'task', 'task_key'),
+  ofProject('task_handovers', 'task', 'task_key'),
+  ofProject('task_review_pins', 'task', 'task_key'),
+  ofProject('task_loops', 'task', 'task_key'),
+  ofProject('senior_waits', 'task', 'task_key'),
+  ofProject('deferred_starts', 'task', 'task_key'),
+  ofProject('full_test_runs', 'task', 'task_key'),
+  ofProject('timeline_events', 'timeline', 'id', ['INSERT']),
+  ofProject('team_messages', 'message', 'id', WRITES),
+  ofProject('message_attachments', 'message', 'message_id', WRITES),
+  ofProject('inbox_items', 'inbox', 'id', WRITES),
+  ofProject('question_groups', 'inbox', 'primary_item_id'),
+  {
+    // The configuration is git's; the project record carries its version. Only a new version (or a new
+    // project) is a change, so a recovery that finds the record already at the version stays quiet.
+    table: 'projects',
+    kind: 'configuration',
+    on: WRITES,
+    project: column('key'),
+    entity: () => 'NULL',
+    when: { UPDATE: 'OLD.config_version IS NOT NEW.config_version' },
+  },
+  {
+    // The pause of the whole instance belongs to every project.
+    table: 'pauses',
+    kind: 'pause',
+    on: WRITES,
+    project: () => 'key',
+    entity: column('id'),
+    from: (row) => `projects WHERE ${row}.project_key IS NULL OR key = ${row}.project_key`,
+  },
+  ofProject('session_pauses', 'pause', 'pause_id', WRITES),
+  ofProject('task_handoffs', 'handoff', 'id', WRITES),
+  ofProject('operator_requests', 'operation', 'id', WRITES),
+  {
+    // A step belongs to its request, which names the project.
+    table: 'operator_steps',
+    kind: 'operation',
+    on: WRITES,
+    project: () => 'project_key',
+    entity: column('request_id'),
+    from: (row) => `operator_requests WHERE id = ${row}.request_id`,
+  },
+  ofProject('super_operation_audit', 'operation', 'id', ['INSERT']),
+  ofProject('boundary_requests', 'operation', 'id', WRITES),
+  ofProject('task_merges', 'operation', 'id', WRITES),
+  ofProject('merge_trains', 'operation', 'id', WRITES),
+  ofProject('releases', 'operation', 'id', WRITES),
+  ofProject('doc_writes', 'operation', 'id', WRITES),
+];
+
+/**
+ * Tables with no trigger, and why. Every table is in this list or in `CHANGE_TRIGGER_TABLES`
+ * (`project-change-journal.test.ts`), so a new table makes someone decide.
+ */
+export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
+  auth_sessions: 'login sessions, not project state',
+  boundary_grants: 'decided through its request row, which is journaled',
+  counters: 'number allocator; the card row announces itself',
+  decision_candidate_state: 'Operator bookkeeping that no project reader reads',
+  decision_offers: 'Operator bookkeeping that no project reader reads',
+  egress_allowances: 'runner permission bookkeeping of a session, not a reader view',
+  egress_operations: 'runner permission bookkeeping of a session, not a reader view',
+  email_login_codes: 'credentials, not project state',
+  email_login_events: 'credentials audit, not project state',
+  engines: 'written with the project fan-out by the engine registry, in its own transaction',
+  feedback_events: 'the feedback tool has its own read model',
+  feedback_launch_codes: 'the feedback tool has its own read model',
+  feedback_marker_colors: 'the feedback tool has its own read model',
+  feedback_marks: 'the feedback tool has its own read model',
+  feedback_reads: 'the feedback tool has its own read model',
+  feedback_sessions: 'the feedback tool has its own read model',
+  instance_meta: 'the journal generation itself',
+  integrator_key_audit: 'key audit, not project state',
+  integrator_keys: 'credentials, not project state',
+  invitations: 'member administration; the configuration version changes when one is accepted',
+  member_state: 'activity pattern; no durability is promised',
+  member_workspaces: 'machine-local workspace bookkeeping of the runner',
+  operator_execution_intents: 'recovery intent; its outcome is the configuration and operation rows',
+  operator_signals: 'announced by the inbox item it raises',
+  project_change_events: 'the journal itself',
+  question_group_items: 'written with its group, which is journaled',
+  release_deployment_requests: 'deploy controller bookkeeping; the release row is journaled',
+  release_deployments: 'deploy controller bookkeeping; the release row is journaled',
+  schedule_runs: 'scheduler bookkeeping',
+  session_cleanups: 'machine-local cleanup bookkeeping of the runner',
+  sessions: 'terminal and activity pattern; no durability is promised',
+  sqlite_sequence: 'SQLite internal',
+  task_workspace_bindings: 'machine-local workspace bookkeeping of the runner',
+  team_message_pending: 'delivery queue; the message row records the delivery',
+  token_usage: 'usage statistics, not a reader view',
+  users: 'accounts, not project state',
+};
+
+export function changeTriggerName(table: string, statement: string): string {
+  return `${table}_change_${statement.toLowerCase()}`;
+}
+
+/** The triggers of one table. */
+export function changeTriggerSql(entry: ChangeTriggerTable): string {
+  return entry.on
+    .map((statement) => {
+      const row: Row = statement === 'DELETE' ? 'OLD' : 'NEW';
+      const when = entry.when?.[statement];
+      return `CREATE TRIGGER ${changeTriggerName(entry.table, statement)} AFTER ${statement} ON ${entry.table}${
+        when ? `\n      WHEN ${when}` : ''
+      }
+      BEGIN
+        INSERT INTO project_change_events (project_key, kind, entity_id, at)
+        SELECT ${entry.project(row)}, '${entry.kind}', ${entry.entity(row)}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')${
+          entry.from ? ` FROM ${entry.from(row)}` : ''
+        };
+      END;`;
+    })
+    .join('\n');
+}
+
+export function changeTriggersSql(): string {
+  return CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n');
+}

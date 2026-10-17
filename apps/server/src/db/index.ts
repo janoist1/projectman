@@ -43,6 +43,8 @@ import { createOperatorSignalRepository } from './operator-signals';
 export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
+import { createProjectChangeEventRepository } from './project-change-events';
+export type { ProjectChangeRow } from './project-change-events';
 import { createReleaseDeploymentRepository } from './release-deployments';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
@@ -121,6 +123,7 @@ export function createRepositories(db: Db) {
     taskFixLimits: createTaskFixLimitRepository(db),
     taskHandoffs: createTaskHandoffRepository(db),
     projectFocus: createProjectFocusRepository(db),
+    projectChanges: createProjectChangeEventRepository(db),
     operatorRequests: createOperatorRequestRepository(db),
     operatorSignals: createOperatorSignalRepository(db),
     seniorWaits: createSeniorWaitRepository(db),

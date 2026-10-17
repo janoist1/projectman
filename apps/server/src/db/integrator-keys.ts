@@ -122,6 +122,12 @@ export function createIntegratorKeyRepository(db: Db) {
           .get(id, at) as KeyRow | undefined,
       );
     },
+    /** When the key expires: null for none, undefined for an unknown key. */
+    expiresAt(id: string): string | null | undefined {
+      const row = db.prepare('SELECT expires_at FROM integrator_keys WHERE id = ?').get(id) as
+        { expires_at: string | null } | undefined;
+      return row ? row.expires_at : undefined;
+    },
     /** Authentication alone records use; validity rechecks never touch telemetry. */
     touch(id: string, at: string, channel: IntegratorChannel): void {
       db.prepare(

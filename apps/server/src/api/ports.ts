@@ -1,7 +1,7 @@
 import type { AuthDomain } from '../auth';
 import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
-import type { TemplateRegistry } from '../core/base';
+import type { ChangeJournal, TemplateRegistry } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
 import type {
   BoardService,
@@ -36,6 +36,7 @@ export interface ApiDomain extends AuthDomain {
   readonly attachments: AttachmentService;
   readonly board: BoardService;
   readonly boundary: BoundaryService;
+  readonly changes: ChangeJournal;
   readonly cardMeasure: CardMeasure;
   readonly feedback: FeedbackService;
   readonly feedbackWidget: FeedbackWidgetService;

@@ -377,12 +377,20 @@ export interface DomainOptions {
 
 export type Domain = ReturnType<typeof createDomain>;
 
+/** Events that carry no durable change (activity and chat flow): they do not wake the change journal's readers. */
+const QUIET_EVENTS: ReadonlySet<string> = new Set(['member_state', 'plan_usage', 'chat_appended']);
+
 /** Builds every domain service and wires their reactions to the domain events. */
 export function createDomain(opts: DomainOptions) {
   const now = opts.now ?? (() => new Date());
   const bus = opts.bus ?? createEventBus(opts.logger);
   const ctx: DomainContext = createDomainContext({ repos: opts.repos, bus, logger: opts.logger, now });
   const { events } = ctx;
+  // The journal itself is written by triggers inside the changing transactions (db/change-triggers.ts); an
+  // event that goes out after a commit only wakes the readers waiting on the project, which read the database.
+  const unsubscribeJournalWake = bus.subscribe((event) => {
+    if ('projectKey' in event && !QUIET_EVENTS.has(event.type)) ctx.journal.notify(event.projectKey);
+  });
   const templates = opts.templates ?? defaultTemplateRegistry;
   const background = new BackgroundTasks();
   const providerKeys = opts.appHome
@@ -1881,6 +1889,7 @@ export function createDomain(opts: DomainOptions) {
       now: () => now().getTime(),
     }),
     ctx,
+    changes: ctx.journal,
     projectManagerChannels: new ProjectManagerChannels({
       ctx,
       projects,
@@ -2141,6 +2150,8 @@ export function createDomain(opts: DomainOptions) {
       // No sweep ticks from here on; running rounds end with the background work (PM-613).
       const sweepsStopped = sweeps?.stop();
       sweeps = undefined;
+      ctx.journal.stop();
+      unsubscribeJournalWake();
       unsubscribeOutageKeys?.();
       unsubscribeEngines();
       unsubscribeSignalActivity();

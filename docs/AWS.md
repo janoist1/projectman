@@ -1043,6 +1043,16 @@ stopped before the update; that is the last moment the old build's database was 
    sudo install -o 10001 -g 10001 -m 600 /var/lib/projectman/restore/db.sqlite db.sqlite
    ```
 
+   Give the restored database a new event generation, so that no reader continues a cursor it got from
+   the journal that was lost (the database in place keeps its old one, and its cursors would otherwise
+   point into a different history; they are then refused with `event_cursor_expired` and the reader
+   starts again from the beginning of the journal):
+
+   ```sh
+   sudo sqlite3 /var/lib/projectman/data/db.sqlite \
+     "UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'project_change_generation'"
+   ```
+
 4. `npm run cloud -- start`.
 
 What the board wrote after that moment (cards, messages) is lost; the files restic holds are not

@@ -635,6 +635,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const controlRelease: ControlRelease = {
       appVersion: () => domain.releases.appVersion(),
       next: () => domain.releases.next(),
+      get: (releaseId) => domain.releases.getForControl(releaseId),
       claim: (releaseId, previousCommit) => domain.releases.claim(releaseId, previousCommit),
       report: (releaseId, report) => domain.releases.report(releaseId, report),
     };
@@ -647,6 +648,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           path: join(home, CONTROL_SOCKET_NAME),
           pause: controlPause,
           release: controlRelease,
+          // The admin channel reads the engines' facts from the cloud registry; single mode has none (PM-749).
+          engines: () =>
+            (engineRegistry?.list() ?? [])
+              .filter((engine) => !engine.revokedAt)
+              .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt })),
           log: log.child({ module: 'control' }),
         });
       }

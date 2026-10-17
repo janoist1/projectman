@@ -51,6 +51,8 @@ export const HOST_SUBCOMMANDS = [
   'send-data',
   'guard-check',
   'public-check',
+  /** The board's control socket through the fixed client in the container (PM-749); never read-only, never repeated. */
+  'release-control',
 ] as const;
 export type HostSubcommand = (typeof HOST_SUBCOMMANDS)[number];
 

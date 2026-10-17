@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { ProjectConfig, RepoConfig } from '@projectman/shared';
 import { refused } from './errors';
 import { CLOUDFLARE_TOKEN_FILE_NAME, CONFIG_FILE_NAME, secretsDir } from './secrets';
 
@@ -140,9 +141,20 @@ const sesSchema = z.strictObject({
   from: z.email().max(254),
 });
 
+/**
+ * The project and repository that are the board itself (PM-749): the release target the cloud server
+ * (`PROJECTMAN_RELEASE_TARGET=<projectKey>/<repo>`) accepts releases for. The same identifier schemas as the
+ * project configuration; a value that does not match them never reaches cloud.env.
+ */
+const releaseTargetSchema = z.strictObject({
+  projectKey: ProjectConfig.shape.project.shape.key,
+  repo: RepoConfig.shape.name,
+});
+
 const configSchema = z
   .strictObject({
     version: z.literal(1),
+    releaseTarget: releaseTargetSchema.optional(),
     aws: awsSchema,
     repository: repositorySchema.prefault({}),
     cloudflare: cloudflareSchema,
@@ -193,6 +205,8 @@ export type ParsedCloudConfig = z.output<typeof configSchema>;
 /** The configuration with every default filled in. */
 export interface CloudConfig {
   deployment?: { imageBundle: string };
+  /** Absent: the board does not release (PM-749). */
+  releaseTarget?: { projectKey: string; repo: string };
   version: 1;
   aws: {
     compute: 'lightsail' | 'ec2';
@@ -270,6 +284,7 @@ export function parseConfig(raw: unknown, homeDir: string, configDir = process.c
     access: parsed.access,
     route53: { ...parsed.route53, profile: parsed.route53.profile ?? parsed.aws.profile },
     ...(parsed.ses ? { ses: { ...parsed.ses, profile: parsed.ses.profile ?? parsed.aws.profile } } : {}),
+    ...(parsed.releaseTarget ? { releaseTarget: parsed.releaseTarget } : {}),
     ...(parsed.deployment
       ? {
           deployment: {

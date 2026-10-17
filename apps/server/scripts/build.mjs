@@ -8,6 +8,8 @@ const external = Object.keys(pkg.dependencies ?? {}).filter((name) => !name.star
 
 const entries = {
   'dist/index.js': 'src/index.ts',
+  // The relay of the cloud's admin channel (PM-749): the container image carries all of apps/server/dist.
+  'dist/control/cli.js': 'src/control/cli.ts',
 };
 for (const [outfile, entry] of Object.entries(entries)) {
   await build({

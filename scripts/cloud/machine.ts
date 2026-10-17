@@ -195,7 +195,24 @@ function cloudEnvText(context: CloudContext): string {
     if (equals > 0 && /SECRET|PASSWORD|TOKEN/.test(line.slice(0, equals)))
       context.report.protect(line.slice(equals + 1));
   }
-  return text;
+  return withReleaseTarget(text, context.config.releaseTarget);
+}
+
+export const RELEASE_TARGET_ENV = 'PROJECTMAN_RELEASE_TARGET';
+
+/**
+ * The cloud.env the machine gets (PM-749): the configured release target (`releaseTarget` of the
+ * configuration, already validated) replaces any `PROJECTMAN_RELEASE_TARGET` line of the file. Without one the
+ * text is left as it is, so a board that does not release behaves as before. The local file is not changed.
+ */
+export function withReleaseTarget(
+  text: string,
+  target: { projectKey: string; repo: string } | undefined,
+): string {
+  if (!target) return text;
+  const kept = text.split('\n').filter((line) => !line.startsWith(`${RELEASE_TARGET_ENV}=`));
+  const body = kept.join('\n').replace(/\n*$/, '\n');
+  return `${body}${RELEASE_TARGET_ENV}=${target.projectKey}/${target.repo}\n`;
 }
 
 function formatBytes(bytes: number): string {

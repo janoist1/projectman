@@ -382,6 +382,7 @@ and names the field's path. `deploy/aws/config.example.json` has every field you
 | `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                  |
 | `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                   |
 | `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                         |
+| `releaseTarget`                          | none                                         | `{projectKey, repo}` the board releases; `deploy` sends it as `PROJECTMAN_RELEASE_TARGET`           |
 | `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                    |
 | `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                         |
 | `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account      |
@@ -588,6 +589,43 @@ The folder must not exist (its parent must), must not be inside a git work tree,
 mode 700. The board must be stopped first (`npm run cloud -- stop`): a copy of a live database is no
 copy. A failed download removes the folder. The command prints what in the copy the way back would
 refuse.
+
+### Release control (PM-749, part of PM-735)
+
+`npm run cloud -- release-control [--config <file>]` is how the release watcher on your Mac reaches the cloud
+board's local control socket (`/data/control.sock` in the container) over the same verified SSH session (Lightsail
+or EC2/SSM) that `deploy` uses. No port is published and no live home is mounted: the machine runs one fixed
+command, `docker exec -i -u 10001:10001 projectman-cloud node /app/apps/server/dist/control/cli.js
+/data/control.sock`, and nothing from the request becomes a command, a path, a container or a user.
+
+- **Input.** Exactly one `ControlRequest` JSON line on the standard input: UTF-8, at most 16 KiB, ending in a
+  newline, then end of input. Anything else (two lines, text after the newline, broken JSON, an unknown or
+  malformed operation) is refused locally before any connection, with status 2. There is no approval,
+  proposal or rejection operation: those stay with the person in the board.
+- **Output.** The standard output is the one `ControlResponse` line (at most 64 KiB), re-serialised from the
+  parsed value. Diagnostics and the firewall/session report go to the standard error and hold no secret. A
+  domain refusal such as `{"ok":false,"error":{"code":"release_state_conflict",…}}` is an answer: it is passed
+  on unchanged and the exit status is 0.
+- **Exit status.** `0` the machine answered (the answer may say `ok:false`); `1` the transport failed (SSH/SSM,
+  the relay, no or half an answer, a timeout); `2` refused before or by the machine (invalid input, no
+  `releaseTarget` for a `release_*` operation, the board is not running); `64` a wrong flag or argument.
+- **No retry.** A request is sent once. When the answer of a `release_claim` or `release_report` is lost (status
+  1), do not send it again blindly: read the release with `{"op":"release_get","releaseId":"…"}` (it returns
+  every state, terminal ones too) and decide from the state. A claim is only approved → deploying, and a report
+  cannot skip a state, so a repeated request is refused rather than applied twice.
+- **Operations.** `release_next`, `release_get`, `release_claim`, `release_report` and `status` as on the local
+  socket; `engine_status` answers `{"ok":true,"pause":…,"engines":[{id,online,version,lastSeenAt}]}` from the
+  cloud engine registry (`[]` in single mode), which is how the watcher sees which engine runs which version.
+- **Release target.** The optional `releaseTarget: {"projectKey": "PM", "repo": "projectman"}` of `config.json`
+  becomes `PROJECTMAN_RELEASE_TARGET=PM/projectman` in the `cloud.env` that `deploy` sends (your local file is
+  not changed). `release_get`, `release_claim` and `release_report` all refuse a release whose project or
+  repository is not exactly that target (`release_not_configured`). Without the field nothing changes: the board
+  does not release, and `release-control` refuses release operations locally.
+
+Does this work on a remote engine? The control socket and the release records are the cloud server's; the
+engines are not involved. What crosses the Mac/machine boundary is one request line and one response line over
+the existing host session, nothing more. An engine's version reaches the server through the engine registry, and
+`engine_status` only reports it.
 
 ### What was not tried
 

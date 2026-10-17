@@ -2666,10 +2666,19 @@ assumption or remote-engine RPC.
   reports on this same local socket, so it must run on the server's host; the instance's repository is on
   the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
   (see "Release of the instance"); no new boundary.
+  **Cloud admin channel (PM-749):** on the cloud machine the same socket is reached through
+  `npm run cloud -- release-control` (`scripts/cloud/release-control.ts`): one request line on the Mac's standard
+  input, the verified SSH/SSM host session, `host.sh release-control`, then the fixed `docker exec -i -u 10001:10001
+projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (`control/cli.ts`, built by
+  `apps/server/scripts/build.mjs`), and one response line back. Assumes the Docker container name, the data uid/gid and the
+  `/data/control.sock` path of the cloud image; the control socket is never published or mounted. A remote
+  engine needs nothing of it: the socket is the cloud server's, and `engine_status` only reports the engine
+  registry. The request is sent once; a lost answer is reconciled with `release_get`.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.pause/force_pause/release/stop` (PM-313), keep the administrative socket local, propagate pause/stop to engines
   with acknowledgements and reconnect handling, and require the existing human deployment
   decision before activation; local process exit is not proof that remote work stopped.
-  **Cloud container (PM-317):** the container has no control socket client and no pause script;
+  **Cloud container (PM-317):** the container has no pause script (since PM-749 only the packaged relay
+  `control/cli.js` of the admin channel above reaches its socket, and only through `docker exec`);
   the platform stops it with SIGTERM, which the entrypoint forwards to the server (its own
   shutdown pause and stop) before Litestream ships the last writes and the process ends. A
   deployment is replacing the container; the restored or rehearsed copy is a `standby` home
@@ -3612,7 +3621,11 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   answers on is replaced; one somebody answers on is left alone and logged. The members' sessions may not touch it
   (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
   (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)). Since PM-491 it also takes `release_next`,
-  `release_claim` and `release_report`, the release watcher's operations (see "Release of the instance").
+  `release_claim` and `release_report`, the release watcher's operations (see "Release of the instance"), and
+  since PM-749 `release_get` (one release in any state) and `engine_status` (the engine registry's id, online,
+  version and last seen; `[]` in single mode). `sendControlRequest(socketPath, request, options)`
+  (`control/client.ts`) is the shared one-request client (30 s, 64 KiB answers, never retried), and the packaged
+  `control/cli.js` is the cloud container's relay of the admin channel.
 
 ## Release of the instance (PM-491, part of PM-387)
 
@@ -3647,7 +3660,11 @@ screens (PM-492) come in their own cards.
   `release_claim` (approved → deploying) records `previousCommit`, where a rollback goes. `release_report` takes
   `live` (only while the server runs the release's commit), `failed` (cancels the card, alert `release_failed`
   to the approvers), `published` (tag and URL; the card is closed) or `publish_failed` (alert once). An
-  operation out of order is `release_state_conflict`. The watcher's operations act on the target project only.
+  operation out of order is `release_state_conflict`. The watcher's operations act on the target project only
+  (PM-749: `release_get`, `release_claim` and `release_report` all check that the release's project and
+  repository equal the target exactly, else `release_not_configured`; an unknown id is the usual not-found).
+  `release_get` returns terminal states too, so a lost claim or report answer can be reconciled. On the cloud
+  machine the target comes from the optional `releaseTarget` of the cloud configuration (`cloud.env`).
 
 Does this work on a remote engine? The records, the approval and the socket are the server's. Only
 `BranchMerger.isAncestor` / `prepare` cross the server/engine boundary, as they do for the merge (PM-452); the

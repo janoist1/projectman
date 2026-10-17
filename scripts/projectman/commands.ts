@@ -1,0 +1,533 @@
+import {
+  ChangeTaskLabelsRequest,
+  CreateTaskRequest,
+  InboxItem,
+  InboxState,
+  InboxView,
+  InstancePauseView,
+  LabelId,
+  MemberHandle,
+  MergeQueueOrder,
+  PauseRequest,
+  ProjectPauseView,
+  RelayOwnerAnswerRequest,
+  routes,
+  StartTaskRequest,
+  SuperOperateResponse,
+  SuperOperationDetail,
+  Task,
+  TaskDetail,
+  TaskKey,
+} from '@projectman/shared';
+import { z } from 'zod';
+import { ApiError } from './http';
+import { type CommandContext, UsageError } from './context';
+import { ClientFileError, readInputFile, readStream } from './files';
+import { followEvents } from './events';
+
+export interface CommandSpec {
+  name: string;
+  usage: string;
+  summary: string;
+  options: Record<string, { type: 'string' | 'boolean'; multiple?: boolean }>;
+  /** Number of positional arguments, or `rest` for one or more. */
+  positionals: number | 'rest';
+  /** Changes something: gets a request id and is never repeated by itself. */
+  write: boolean;
+  run(ctx: CommandContext): Promise<number>;
+}
+
+const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
+
+function text(ctx: CommandContext, name: string): string | undefined {
+  const value = ctx.values[name];
+  if (Array.isArray(value)) throw new UsageError(`--${name} can be given only once`);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function required(ctx: CommandContext, name: string): string {
+  const value = text(ctx, name);
+  if (value === undefined || value === '') throw new UsageError(`--${name} is required`);
+  return value;
+}
+
+function projectOf(ctx: CommandContext): string {
+  const key = required(ctx, 'project');
+  if (!PROJECT_KEY.test(key)) throw new UsageError('--project must be a project key such as PM');
+  return key;
+}
+
+function taskKeyOf(value: string | undefined): string {
+  const parsed = TaskKey.safeParse(value);
+  if (!parsed.success) throw new UsageError('a task key such as PM-12 is required');
+  return parsed.data;
+}
+
+/** The project of a task key (`PM-12` is in `PM`); `--project` may repeat it, and must then agree. */
+function projectOfTask(ctx: CommandContext, taskKey: string): string {
+  const fromKey = taskKey.slice(0, taskKey.lastIndexOf('-'));
+  const given = text(ctx, 'project');
+  if (given !== undefined && given !== fromKey)
+    throw new UsageError(`${taskKey} is not a card of project ${given}`);
+  return fromKey;
+}
+
+/** The text of `--file`: `-` reads standard input, any other value a regular file that is not a credential file. */
+async function contentOf(ctx: CommandContext, name = 'file'): Promise<string> {
+  const file = required(ctx, name);
+  try {
+    if (file === '-') return await readStream(ctx.io.stdin, ctx.io.signal);
+    return readInputFile(file, [...ctx.credentials.credentialFiles, ...ctx.credentials.protectedDirectories]);
+  } catch (error) {
+    if (error instanceof ClientFileError) throw new UsageError(error.message);
+    throw error;
+  }
+}
+
+function jsonOf(source: string, what: string): unknown {
+  try {
+    return JSON.parse(source);
+  } catch {
+    throw new UsageError(`${what} is not valid JSON`);
+  }
+}
+
+function requestIdOf(ctx: CommandContext): string {
+  const given = text(ctx, 'request-id');
+  if (given === undefined) return ctx.io.newRequestId();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(given))
+    throw new UsageError('--request-id must be a UUID');
+  return given.toLowerCase();
+}
+
+/**
+ * Shows the typed answer. A write that the server accepted stays a success when its answer has another shape
+ * than this client knows: it is shown raw, with a note on the error stream.
+ */
+async function show<S extends z.ZodType>(
+  ctx: CommandContext,
+  schema: S,
+  json: unknown,
+  human: (data: z.infer<S>) => string,
+  write: boolean,
+): Promise<number> {
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) {
+    if (!write)
+      throw new ApiError('protocol', 'unexpected_response', 'the server answered in an unexpected shape');
+    ctx.note('the change was accepted, but the answer has a shape this client does not know');
+    await ctx.print(`${JSON.stringify(json)}\n`);
+    return 0;
+  }
+  await ctx.print(ctx.json ? `${JSON.stringify(parsed.data)}\n` : `${human(parsed.data)}\n`);
+  return 0;
+}
+
+const query = (params: Record<string, string | undefined>): string => {
+  const search = new URLSearchParams();
+  for (const [name, value] of Object.entries(params)) if (value !== undefined) search.set(name, value);
+  const encoded = search.toString();
+  return encoded === '' ? '' : `?${encoded}`;
+};
+
+const COMMON = {
+  json: { type: 'boolean' },
+  config: { type: 'string' },
+  verbose: { type: 'boolean' },
+  help: { type: 'boolean' },
+} as const;
+const WRITE = { ...COMMON, 'request-id': { type: 'string' } } as const;
+
+function labelLine(detail: z.infer<typeof TaskDetail>): string {
+  return `${detail.task.key} ${detail.task.stageId} [${detail.task.labels.join(', ')}]`;
+}
+
+function labelsCommand(action: 'add' | 'remove'): CommandSpec {
+  return {
+    name: `labels ${action}`,
+    usage: `labels ${action} TASK LABEL [--note TEXT]`,
+    summary: `${action === 'add' ? 'Adds' : 'Removes'} a label of a card (the project's label rules apply)`,
+    options: { ...WRITE, note: { type: 'string' }, project: { type: 'string' } },
+    positionals: 2,
+    write: true,
+    async run(ctx) {
+      const taskKey = taskKeyOf(ctx.positionals[0]);
+      const label = LabelId.safeParse(ctx.positionals[1]);
+      if (!label.success) throw new UsageError('a label id is required');
+      const note = text(ctx, 'note');
+      const body = ChangeTaskLabelsRequest.safeParse({
+        [action]: [label.data],
+        ...(note === undefined ? {} : { comment: note }),
+      });
+      if (!body.success) throw new UsageError('the label change is not valid (is --note empty?)');
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.taskLabels(projectOfTask(ctx, taskKey), taskKey),
+        body: body.data,
+        write: true,
+        requestId: requestIdOf(ctx),
+      });
+      return show(ctx, TaskDetail, response.json, labelLine, true);
+    },
+  };
+}
+
+function pauseCommand(action: 'pause' | 'resume'): CommandSpec {
+  return {
+    name: action,
+    usage: `${action} (--project KEY | --instance)${action === 'pause' ? ' [--reason TEXT]' : ''}`,
+    summary: `${action === 'pause' ? 'Pauses' : 'Resumes'} a project or the instance`,
+    options: {
+      ...WRITE,
+      project: { type: 'string' },
+      instance: { type: 'boolean' },
+      reason: { type: 'string' },
+    },
+    positionals: 0,
+    write: true,
+    async run(ctx) {
+      const instance = ctx.values.instance === true;
+      if (instance === (text(ctx, 'project') !== undefined))
+        throw new UsageError('give --project KEY or --instance, not both');
+      const reason = text(ctx, 'reason');
+      if (action === 'resume' && reason !== undefined) throw new UsageError('resume takes no --reason');
+      const body = PauseRequest.safeParse(reason === undefined ? {} : { reason });
+      if (!body.success) throw new UsageError('--reason must be 1 to 200 characters');
+      const target = instance
+        ? action === 'pause'
+          ? routes.instancePause()
+          : routes.instancePauseResume()
+        : action === 'pause'
+          ? routes.projectPause(projectOf(ctx))
+          : routes.projectPauseResume(projectOf(ctx));
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: target,
+        body: body.data,
+        write: true,
+        requestId: requestIdOf(ctx),
+      });
+      return show(
+        ctx,
+        instance ? InstancePauseView : ProjectPauseView,
+        response.json,
+        (view) => `${action}: ${JSON.stringify(view)}`,
+        true,
+      );
+    },
+  };
+}
+
+const operationLine = (response: z.infer<typeof SuperOperateResponse>): string =>
+  `operation ${response.operation.id} ${response.operation.state} (request ${response.operation.requestId})`;
+
+export const COMMANDS: CommandSpec[] = [
+  {
+    name: 'tasks create',
+    usage: 'tasks create --project KEY --file FILE',
+    summary: 'Creates a card from a JSON file (CreateTaskRequest); FILE - reads standard input',
+    options: { ...WRITE, project: { type: 'string' }, file: { type: 'string' } },
+    positionals: 0,
+    write: true,
+    async run(ctx) {
+      const project = projectOf(ctx);
+      const body = CreateTaskRequest.safeParse(jsonOf(await contentOf(ctx), 'the file'));
+      if (!body.success)
+        throw new UsageError(
+          `the file is not a card: ${body.error.issues.map((issue) => issue.path.join('.') || '(root)').join(', ')}`,
+        );
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.tasks(project),
+        body: body.data,
+        write: true,
+        requestId: requestIdOf(ctx),
+      });
+      return show(ctx, Task, response.json, (task) => `${task.key} ${task.title}`, true);
+    },
+  },
+  {
+    name: 'tasks start',
+    usage: 'tasks start TASK [--assignee HANDLE]',
+    summary: 'Starts a card (the usual rules of starting apply)',
+    options: { ...WRITE, project: { type: 'string' }, assignee: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      const taskKey = taskKeyOf(ctx.positionals[0]);
+      const assignee = text(ctx, 'assignee');
+      if (assignee !== undefined && !MemberHandle.safeParse(assignee).success)
+        throw new UsageError('--assignee is not a member handle');
+      const body = StartTaskRequest.parse(assignee === undefined ? {} : { assignee });
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.startTask(projectOfTask(ctx, taskKey), taskKey),
+        body,
+        write: true,
+        requestId: requestIdOf(ctx),
+      });
+      return show(ctx, TaskDetail, response.json, labelLine, true);
+    },
+  },
+  {
+    name: 'messages send',
+    usage: 'messages send --project KEY --to HANDLE [--to HANDLE…] [--task TASK] --file FILE',
+    summary: 'Sends the text of FILE (- for standard input) to team members as the Operator',
+    options: {
+      ...WRITE,
+      project: { type: 'string' },
+      to: { type: 'string', multiple: true },
+      task: { type: 'string' },
+      file: { type: 'string' },
+    },
+    positionals: 0,
+    write: true,
+    async run(ctx) {
+      const project = projectOf(ctx);
+      const to = ctx.values.to;
+      const handles = Array.isArray(to) ? to : [];
+      if (handles.length === 0) throw new UsageError('--to is required');
+      for (const handle of handles)
+        if (!MemberHandle.safeParse(handle).success) throw new UsageError(`${handle} is not a member handle`);
+      const task = text(ctx, 'task');
+      const message = (await contentOf(ctx)).trim();
+      if (message === '') throw new UsageError('the message is empty');
+      const requestId = requestIdOf(ctx);
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.superOperations(project),
+        body: {
+          requestId,
+          ...(task === undefined ? {} : { taskKey: taskKeyOf(task) }),
+          command: {
+            kind: 'operate',
+            operation: {
+              op: 'message_send',
+              to: handles,
+              text: message,
+              ...(task === undefined ? {} : { taskKey: taskKeyOf(task) }),
+            },
+          },
+        },
+        write: true,
+        requestId,
+      });
+      return show(ctx, SuperOperateResponse, response.json, operationLine, true);
+    },
+  },
+  labelsCommand('add'),
+  labelsCommand('remove'),
+  {
+    name: 'inbox list',
+    usage: 'inbox list --project KEY [--state STATE|all]',
+    summary: 'Lists the inbox items of a project (open ones by default)',
+    options: { ...COMMON, project: { type: 'string' }, state: { type: 'string' } },
+    positionals: 0,
+    write: false,
+    async run(ctx) {
+      const project = projectOf(ctx);
+      const state = text(ctx, 'state');
+      if (state !== undefined && state !== 'all' && !InboxState.safeParse(state).success)
+        throw new UsageError('--state is not an inbox state');
+      const response = await ctx.api.send({
+        method: 'GET',
+        path: `${routes.inbox(project)}${query({ state })}`,
+        write: false,
+      });
+      return show(
+        ctx,
+        InboxView,
+        response.json,
+        (view) =>
+          view.items
+            .map((item) => `${item.id} ${item.kind} ${item.state} ${item.title ?? ''}`.trimEnd())
+            .join('\n'),
+        false,
+      );
+    },
+  },
+  {
+    name: 'inbox answer',
+    usage: 'inbox answer ITEM --project KEY --file FILE',
+    summary: "Relays the owner's words to a plain information question (not an owner decision)",
+    options: { ...WRITE, project: { type: 'string' }, file: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      const project = projectOf(ctx);
+      const item = ctx.positionals[0]!;
+      if (!/^[A-Za-z0-9_-]{1,100}$/.test(item)) throw new UsageError('ITEM is not an inbox item id');
+      const body = RelayOwnerAnswerRequest.safeParse({ answer: await contentOf(ctx) });
+      if (!body.success) throw new UsageError('the answer must be 1 to 20000 characters');
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.relayOwnerAnswer(project, item),
+        body: body.data,
+        write: true,
+        requestId: requestIdOf(ctx),
+      });
+      return show(
+        ctx,
+        z.object({ item: InboxItem }),
+        response.json,
+        (view) => `answered ${view.item.id} ${view.item.state}`,
+        true,
+      );
+    },
+  },
+  {
+    name: 'merges list',
+    usage: 'merges list --project KEY --repo REPO',
+    summary: "Shows a repository's merge queue order and its revision",
+    options: { ...COMMON, project: { type: 'string' }, repo: { type: 'string' } },
+    positionals: 0,
+    write: false,
+    async run(ctx) {
+      const project = projectOf(ctx);
+      const repo = required(ctx, 'repo');
+      const response = await ctx.api.send({
+        method: 'GET',
+        path: `${routes.mergeQueueOrder(project)}${query({ repo })}`,
+        write: false,
+      });
+      return show(
+        ctx,
+        MergeQueueOrder,
+        response.json,
+        (order) => `revision ${order.revision}: ${order.taskKeys.join(' ')}`,
+        false,
+      );
+    },
+  },
+  {
+    name: 'merges enqueue',
+    usage: 'merges enqueue TASK',
+    summary: 'Starts (queues) the merge of an approved card',
+    options: { ...WRITE, project: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      const taskKey = taskKeyOf(ctx.positionals[0]);
+      const requestId = requestIdOf(ctx);
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.superOperations(projectOfTask(ctx, taskKey)),
+        body: { requestId, taskKey, command: { kind: 'merge', taskKey, request: {} } },
+        write: true,
+        requestId,
+      });
+      return show(ctx, SuperOperateResponse, response.json, operationLine, true);
+    },
+  },
+  {
+    name: 'merges prioritize',
+    usage: 'merges prioritize TASK --reason TEXT',
+    summary: "Puts a card's queued merge at the front of its repository's queue",
+    options: { ...WRITE, project: { type: 'string' }, reason: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      const taskKey = taskKeyOf(ctx.positionals[0]);
+      const reason = required(ctx, 'reason');
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.taskMergePrioritize(projectOfTask(ctx, taskKey), taskKey),
+        body: { reason },
+        write: true,
+        requestId: requestIdOf(ctx),
+      });
+      return rawShow(ctx, response.json, `prioritized ${taskKey}`);
+    },
+  },
+  {
+    name: 'merges reorder',
+    usage: 'merges reorder --project KEY --repo REPO --expected-revision N --reason TEXT TASK…',
+    summary: "Sets the complete order of a repository's merge queue",
+    options: {
+      ...WRITE,
+      project: { type: 'string' },
+      repo: { type: 'string' },
+      'expected-revision': { type: 'string' },
+      reason: { type: 'string' },
+    },
+    positionals: 'rest',
+    write: true,
+    async run(ctx) {
+      const project = projectOf(ctx);
+      const revision = required(ctx, 'expected-revision');
+      if (!/^\d{1,15}$/.test(revision)) throw new UsageError('--expected-revision must be a whole number');
+      const requestId = requestIdOf(ctx);
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.superOperations(project),
+        body: {
+          requestId,
+          command: {
+            kind: 'merge_order',
+            repo: required(ctx, 'repo'),
+            expectedRevision: Number(revision),
+            taskKeys: ctx.positionals.map((value) => taskKeyOf(value)),
+            reason: required(ctx, 'reason'),
+          },
+        },
+        write: true,
+        requestId,
+      });
+      return show(ctx, SuperOperateResponse, response.json, operationLine, true);
+    },
+  },
+  pauseCommand('pause'),
+  pauseCommand('resume'),
+  {
+    name: 'events follow',
+    usage: 'events follow --project KEY [--cursor CURSOR] [--cursor-file FILE]',
+    summary: "Follows the project's change journal until interrupted; one line per event",
+    options: {
+      ...COMMON,
+      project: { type: 'string' },
+      cursor: { type: 'string' },
+      'cursor-file': { type: 'string' },
+    },
+    positionals: 0,
+    write: false,
+    async run(ctx) {
+      return followEvents(ctx, {
+        project: projectOf(ctx),
+        cursor: text(ctx, 'cursor'),
+        cursorFile: text(ctx, 'cursor-file'),
+      });
+    },
+  },
+  {
+    name: 'operations get',
+    usage: 'operations get ID --project KEY',
+    summary: 'Reads a super operation and its recorded result',
+    options: { ...COMMON, project: { type: 'string' } },
+    positionals: 1,
+    write: false,
+    async run(ctx) {
+      const project = projectOf(ctx);
+      const id = ctx.positionals[0]!;
+      if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new UsageError('ID is not an operation id');
+      const response = await ctx.api.send({
+        method: 'GET',
+        path: routes.superOperation(project, id),
+        write: false,
+      });
+      return show(
+        ctx,
+        SuperOperationDetail,
+        response.json,
+        (detail) =>
+          `operation ${detail.operation.id} ${detail.operation.state}${detail.operation.errorCode ? ` (${detail.operation.errorCode})` : ''}`,
+        false,
+      );
+    },
+  },
+];
+
+/** An answer of a shape this client does not model: JSON mode passes it on as it is. */
+async function rawShow(ctx: CommandContext, json: unknown, humanLine: string): Promise<number> {
+  await ctx.print(ctx.json ? `${JSON.stringify(json)}\n` : `${humanLine}\n`);
+  return 0;
+}

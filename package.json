@@ -6,10 +6,14 @@
     "packages/*",
     "apps/*"
   ],
+  "bin": {
+    "projectman": "scripts/projectman/bin.mjs"
+  },
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
+    "projectman": "node scripts/projectman/bin.mjs",
     "demo": "node scripts/demo.mjs",
     "shots": "node --import tsx scripts/heavy/cli.ts node scripts/shots.mjs",
     "heavy": "node --import tsx scripts/heavy/cli.ts",

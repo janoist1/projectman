@@ -795,3 +795,103 @@ A reverse proxy does the same: `location = /mcp` goes to the service with `Host`
 `X-Forwarded-Proto: https` set; `location ^~ /mcp/` and `location ^~ /hooks` answer `404`. The check
 script (`deploy/cloudflare/check.sh`) still expects `/mcp/x` and `/hooks/x` to be `404`; a
 `POST /mcp` without a key must be `401` with `integrator_key_invalid`.
+
+## The `projectman` command and the MCP proxy (PM-765)
+
+`projectman` is a thin client of the REST API and the change journal above, and `projectman mcp-proxy` is a
+stdio shim for MCP clients that cannot send an HTTP header. Both use the same key, the same rights and the
+same audit as the endpoints; the command never decides anything the server does not. It runs on the
+integrator's machine only (`npm run projectman -- <command>` in a checkout, or `projectman` once the
+package is linked with `npm link`).
+
+The client has one configuration file, `~/.config/projectman/client.json` (`--config FILE` names another).
+It holds paths and an origin, never a secret:
+
+```json
+{
+  "version": 1,
+  "baseUrl": "https://projectman.example.com",
+  "keyFile": "~/.config/projectman/integrator-key",
+  "accessHeadersFile": "~/.config/projectman/cloud/integrator-access-token.json"
+}
+```
+
+- `baseUrl` is an origin: HTTPS, or HTTP to this machine (`localhost`, `127.x`, `[::1]`). No user name,
+  path, query or fragment. A redirect is never followed, so the key never goes to another origin.
+- `keyFile` is the file of "Integrator access" above. `accessHeadersFile` (cloud only) is the
+  integrator's service-token file made by `npm run cloud -- edge` (`CF-Access-Client-Id`,
+  `CF-Access-Client-Secret`). A relative path is relative to the configuration file's directory.
+- The configuration, the key file and the Access file must be regular files of your user with mode 600,
+  in a directory of your user with mode 700, and none may be a symbolic link; otherwise the command
+  stops with status 3 before it sends anything.
+- There is no `--token` and no environment variable for a secret. The key and the Access values appear
+  in no argument, no environment, no output and no log: error text and `--verbose` lines (method, path,
+  status only) are redacted.
+- A file given with `--file` (`-` is standard input) must be a regular file, at most 1 MiB, and never a
+  credential or configuration file or anything in their directories.
+
+Commands (`--json` prints the typed answer; every command takes `--config`, `--verbose`, `--help`):
+
+```sh
+projectman tasks create --project PM --file card.json        # CreateTaskRequest as JSON
+projectman tasks start PM-12
+projectman messages send --project PM --to dev --task PM-12 --file message.txt
+projectman labels add PM-12 waiting-answer --note "Waiting for the reply"
+projectman inbox list --project PM [--state open|all|…]
+projectman inbox answer ITEM --project PM --file answer.txt   # relays the owner's words; no decision
+projectman merges list --project PM --repo web
+projectman merges enqueue PM-12
+projectman merges prioritize PM-12 --reason "release blocker"
+projectman merges reorder --project PM --repo web --expected-revision 7 --reason "…" PM-3 PM-12
+projectman pause --project PM [--reason TEXT]    # or: --instance
+projectman resume --project PM                   # or: --instance
+projectman events follow --project PM [--cursor-file FILE]
+projectman operations get OPERATION --project PM
+```
+
+Exit status: `0` done, `1` the operation failed (any server refusal other than a bad key, and a network
+failure), `2` wrong arguments, `3` a bad key or Access token, or a credential file that is not private.
+A `read` key reads and follows; a change is refused by the server with 403 `integrator_read_only`, as over REST.
+
+Changes and retries. Every change carries a fresh request id (`--request-id UUID` supplies one) in the
+`x-request-id` header. Only the operations (`messages send`, `merges enqueue`, `merges reorder`) are
+idempotent on that id: repeating one with the same `--request-id` runs it once and answers with the same
+operation. Every other change is not repeated by the server's id. When a change's outcome is unknown (the
+connection broke after the request left), the command prints the request id, exits with `1` and never
+repeats the change itself; read the state first (`operations get`, `inbox list`, the card) and then decide.
+`inbox answer` calls the relay endpoint only; a question that needs the owner's decision stays with the
+owner's own login.
+
+`events follow` long-polls `GET /api/projects/:key/events` and prints one line per event (`--json`: one
+JSON object). `--cursor-file` holds the cursor of the last event written to standard output (it is not a
+secret). It is replaced atomically after each written event, so a consumer that goes away loses nothing:
+the next run starts behind the last event that was written, and an event that was not written comes again.
+An expired or foreign cursor is the server's `event_cursor_expired` / `invalid_event_cursor`; delete the
+file to start from the current state. Ctrl-C ends the command with `0` and keeps the file. A network failure
+and a gateway answer without a server error code (502, 503, 504, for example while the server restarts) are
+retried with a pause of 1 s growing to 30 s; any other refusal ends the command. For a change, a gateway 502 or
+504 counts as an unknown outcome (above), and a 503 as not served.
+
+The REST and events requests carry the non-secret header `X-Projectman-Client: cli`, so the key's list
+shows the use as the CLI channel. The header is a label, not a credential: it grants nothing, and the server
+decides the channel by the path (`/mcp` is always the MCP channel).
+
+MCP proxy. An MCP client that starts a local command takes this configuration; it has no secret in it, because
+the proxy reads `client.json` and the files it names:
+
+```json
+{
+  "mcpServers": {
+    "projectman": { "command": "projectman", "args": ["mcp-proxy"] }
+  }
+}
+```
+
+The proxy turns each JSON line on its standard input into one `POST {baseUrl}/mcp` with the key and the Access
+headers, and writes the protocol messages of the answer to its standard output, one per line (an event-stream
+answer is split into its messages; a notification gets an empty answer and writes nothing). It is a transport
+only: it does not read, filter or change a message, chooses no project, and logs no message body; standard
+output carries protocol lines and nothing else, standard error redacted status lines. A request it cannot
+serve gets a JSON-RPC error (`-32000`) so the client does not wait, and the proxy ends with `3` after a refused
+key or `1` after another failure. For a client that can send its own headers, the direct configuration above
+is the same thing without the proxy.

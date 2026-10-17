@@ -15,6 +15,7 @@
     "../../scripts/full-test",
     "../../scripts/live",
     "../../scripts/cloud",
-    "../../scripts/release"
+    "../../scripts/release",
+    "../../scripts/projectman"
   ]
 }

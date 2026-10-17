@@ -69,6 +69,8 @@ describe('the server plist', () => {
       NANOGPT_API_KEY: 'x',
       PROJECTMAN_VERSION: 'v-fake',
       PROJECTMAN_INTEGRATOR_KEY: 'x',
+      CF_ACCESS_CLIENT_ID: 'x',
+      CF_ACCESS_CLIENT_SECRET: 'x',
       SSH_AUTH_SOCK: '/tmp/agent',
       HOST: '',
     };
@@ -92,6 +94,8 @@ describe('the server plist', () => {
       'NANOGPT_API_KEY',
       'PROJECTMAN_VERSION',
       'PROJECTMAN_INTEGRATOR_KEY',
+      'CF_ACCESS_CLIENT_ID',
+      'CF_ACCESS_CLIENT_SECRET',
       'SSH_AUTH_SOCK',
     ])
       expect(text, name).not.toContain(name);

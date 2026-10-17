@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loopDecisionOf } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, TimelineEvent } from '@projectman/shared';
 import { aiActor } from '../src/kernel';
-import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  restartDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 
@@ -481,7 +487,7 @@ describe('loop watch', () => {
       await expect(
         h.domain.teamTools.triageLoop({ ...pmContext(), member: 'dev-1' }, args),
       ).rejects.toMatchObject({ code: 'forbidden' });
-      const current = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+      const current = await waitForSession(h.domain, { member: 'pm' });
       h.repos.sessions.insert({ ...current, id: 'ses_guest', workItem: { type: 'general', with: 'owner' } });
       await expect(
         h.domain.teamTools.triageLoop({ ...pmContext(), sessionId: 'ses_guest' }, args),

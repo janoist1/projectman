@@ -4,7 +4,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { OPERATOR_REQUEST_TTL_MS } from '../src/services/operator';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -41,6 +41,8 @@ async function setup(): Promise<void> {
 /** The owner writes to the Operator with their own login. */
 async function ask(text: string) {
   const result = await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text });
+  const ready = await waitForSession(h.domain, { member: 'operator' });
+  session = () => ready;
   // Message delivery starts the session in the background; event-loop turns do not await it.
   await vi.waitFor(() => {
     expect(h.domain.sessions.list('AR', { member: 'operator' })).toHaveLength(1);
@@ -48,7 +50,7 @@ async function ask(text: string) {
   });
   return result;
 }
-const session = () => h.domain.sessions.list('AR', { member: 'operator' })[0]!;
+let session: () => Awaited<ReturnType<typeof waitForSession>>;
 const tool = (): ToolContext => ({
   projectKey: 'AR',
   member: 'operator',

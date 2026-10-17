@@ -1,3 +1,4 @@
+import { waitForSession } from './helpers/domain-harness';
 import { afterEach, expect, it } from 'vitest';
 import { OperatorKnowledgeDocument, routes } from '@projectman/shared';
 import type { HumanAccess, OperatorKnowledgeChange } from '@projectman/shared';
@@ -34,7 +35,7 @@ it.each(['agreement', 'principle'] as const)(
       { to: ['operator'], text: 'Propose shared knowledge' },
       { awaitWake: true },
     );
-    const session = domain.sessions.list('AR', { member: 'operator' })[0]!;
+    const session = await waitForSession(domain, { member: 'operator' });
     const change: OperatorKnowledgeChange =
       kind === 'agreement'
         ? {

@@ -1,3 +1,4 @@
+import { waitForSession } from './helpers/domain-harness';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isOperator, routes } from '@projectman/shared';
@@ -83,7 +84,7 @@ it(
     const option = (argv: string[], name: string) => argv[argv.indexOf(name) + 1];
 
     const developerArgs = await start('dev-1');
-    const worktree = domain.sessions.list('AR', { member: 'dev-1' })[0]!.cwd;
+    const worktree = (await waitForSession(domain, { member: 'dev-1' })).cwd;
     expect(worktree).not.toBe(workspace);
     expect(option(developerArgs, '--permission-mode')).toBe('auto');
     const developer = settingsOf(developerArgs);
@@ -167,7 +168,7 @@ it(
     expect(reader.permissions.allow).toContain('Bash(gh pr view:*)');
 
     // A Codex reviewer: its read-only sandbox and its questions, as before.
-    const review = domain.sessions.list('AR', { member: 'cr' })[0]!;
+    const review = await waitForSession(domain, { member: 'cr' });
     await domain.sessions.stop('AR', review.id);
     await waitFor(() => !app.projectman.runnerModule.runner.isRunning(review.id), {
       what: 'the review session to stop',

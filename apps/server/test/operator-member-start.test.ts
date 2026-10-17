@@ -3,7 +3,7 @@ import { memberOf } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { formatMemberStart } from '../src/mcp/format';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -41,7 +41,7 @@ async function setup(adjust?: (config: ProjectConfig) => void) {
     projectKey: 'AR',
     member: 'pm',
     taskKey: null,
-    sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+    sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
   };
 }
 const start = () => h.domain.teamTools.startMember(ctx, { member: 'devops', text: 'Check the engine.' });
@@ -51,7 +51,7 @@ describe('Operator member starts without a card (PM-546)', () => {
   it('starts a general conversation with the task and logs one unapproved start step', async () => {
     await setup();
     const result = await start();
-    const session = h.domain.sessions.list('AR', { member: 'devops' })[0]!;
+    const session = await waitForSession(h.domain, { member: 'devops' });
     expect(session.workItem).toEqual({ type: 'general' });
     expect(result.recipient).toEqual({
       handle: 'devops',
@@ -168,7 +168,7 @@ describe('Operator member starts without a card (PM-546)', () => {
       { awaitWake: true },
     );
     await flush();
-    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const session = await waitForSession(h.domain, { member: 'pm' });
     ctx.sessionId = 'ses_pm_guest';
     h.repos.sessions.insert({ ...session, id: ctx.sessionId, workItem: { type: 'general', with: 'guest' } });
     const before = h.repos.messages.list('AR');

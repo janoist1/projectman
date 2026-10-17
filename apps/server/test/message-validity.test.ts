@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { TEAM_TOOLS } from '../src/mcp';
@@ -194,7 +194,7 @@ describe('versioned message wake-up', () => {
     commit = 'new-commit';
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     await flush();
-    const reviewer = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
+    const reviewer = await waitForSession(h.domain, { member: 'cr', taskKey: 'AR-1' });
     await h.domain.teamTools.updateTask(
       { projectKey: 'AR', taskKey: 'AR-1', member: 'cr', sessionId: reviewer.id },
       { taskKey: 'AR-1', addLabels: ['code-review-ok'] },
@@ -264,7 +264,7 @@ describe('versioned message wake-up', () => {
     }));
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     await flush();
-    const reviewer = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
+    const reviewer = await waitForSession(h.domain, { member: 'cr', taskKey: 'AR-1' });
     h.runner.setState(reviewer.id, 'waiting_permission');
     const sender = { projectKey: 'AR', taskKey: 'AR-1', member: 'dev-1', sessionId: started.session!.id };
     for (const next of ['A', 'B', 'C']) {
@@ -329,7 +329,7 @@ describe('versioned message wake-up', () => {
     });
     await h.domain.messaging.send('AR', 'owner', { to: ['cr'], text: 'Please check now.', taskKey: 'AR-1' });
     await flush();
-    const reviewer = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
+    const reviewer = await waitForSession(h.domain, { member: 'cr', taskKey: 'AR-1' });
     expect(h.runner.started.find((spec) => spec.sessionId === reviewer.id)?.initialMessage).toContain(
       'Finished; no action needed.',
     );

@@ -14,7 +14,13 @@ import type { ToolContext } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
 import { OperatorRequests } from '../src/services/operator';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  restartDomainHarness,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, settle } from './helpers/fakes';
 
@@ -78,7 +84,7 @@ async function setup(persistent = false) {
     { awaitWake: true },
   );
   await flush();
-  const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
+  const session = await waitForSession(h.domain, { member: 'operator' });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
 }
 function propose(change = agreement, operations: OperatorOperation[] = [], revision = 0) {

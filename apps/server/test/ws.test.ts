@@ -1,3 +1,4 @@
+import { waitForSession } from './helpers/domain-harness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { ServerEvent, TaskDetail } from '@projectman/shared';
@@ -199,7 +200,7 @@ describe('websocket', () => {
     });
     expect(sent.statusCode).toBe(202);
     await new Promise((r) => setTimeout(r, 50));
-    const session = h.app.projectman.domain.sessions.list('AR', { member: 'operator' })[0]!;
+    const session = await waitForSession(h.app.projectman.domain, { member: 'operator' });
     const adminCookie = await addHumanAndLogin(h.app, { handle: 'ada', name: 'Ada', access: 'admin' });
 
     const admin = await connect({ cookie: adminCookie });

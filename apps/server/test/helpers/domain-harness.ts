@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProjectConfig } from '@projectman/shared';
+import { vi } from 'vitest';
 import { AuthService } from '../../src/auth';
 import { createConfigStore, createOperatorKnowledgeStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
@@ -43,6 +44,19 @@ function errorReplacer(_key: string, value: unknown): unknown {
   return value instanceof Error ? { message: value.message, stack: value.stack } : value;
 }
 export const OWNER_ACTOR = humanActor('owner');
+
+/** Waits for an asynchronously started session without assuming event-loop turns finish the start. */
+export async function waitForSession(
+  domain: Pick<Domain, 'sessions'>,
+  filters: Parameters<Domain['sessions']['list']>[1] = {},
+  projectKey = 'AR',
+) {
+  return vi.waitFor(() => {
+    const session = domain.sessions.list(projectKey, filters)[0];
+    if (!session) throw new Error(`Waiting for session in ${projectKey}: ${JSON.stringify(filters)}`);
+    return session;
+  });
+}
 
 /**
  * A domain over an in-memory database, a temp customization repository and fakes for the

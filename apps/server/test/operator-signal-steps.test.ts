@@ -13,7 +13,7 @@ import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
 import type { MergeRecord } from '../src/db';
 import { migrations } from '../src/db/migrations';
 import { OperatorRequests } from '../src/services/operator';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -94,29 +94,29 @@ async function mergeCard(kind: 'merge_waiting' | 'merge_blocked') {
   return { card, signal: open(kind)[0]! };
 }
 
-const operator = (): ToolContext => ({
+const operator = async (): Promise<ToolContext> => ({
   projectKey: 'AR',
   member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+  sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
 });
 const roundSteps = () =>
   h.repos.operatorRequests
     .latest('AR', 10)
     .filter((r) => r.source === 'signal')
     .flatMap((r) => h.repos.operatorRequests.steps(r.id));
-const startIdle = (card: Task, signal: { id: string }, ctx = operator()) =>
-  h.domain.teamTools.startTask(ctx, { taskKey: card.key, signalId: signal.id });
+const startIdle = async (card: Task, signal: { id: string }, ctx?: ToolContext) =>
+  h.domain.teamTools.startTask(ctx ?? (await operator()), { taskKey: card.key, signalId: signal.id });
 /** The started developer finishes a turn and sits idle on the card, so the idle case stands again after a while. */
 async function developerIdles(minutes: number) {
-  const session = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+  const session = await waitForSession(h.domain, { member: 'dev-1' });
   h.runner.setState(session.id, 'working');
   h.runner.setState(session.id, 'idle');
   await flush();
   later(minutes);
 }
-const startMerger = (card: Task, signal: { id: string }, member = 'dev-1') =>
-  h.domain.teamTools.startMember(operator(), {
+const startMerger = async (card: Task, signal: { id: string }, member = 'dev-1') =>
+  h.domain.teamTools.startMember(await operator(), {
     member,
     text: 'The merge waits for you.',
     taskKey: card.key,
@@ -164,11 +164,11 @@ describe('level unblock', () => {
     await setup('unblock');
     const { card, signal } = await idleCard();
     await startIdle(card, signal);
-    const { sessionId } = operator();
+    const { sessionId } = await operator();
     expect(new OperatorRequests({ ctx: h.domain.ctx }).openFor(sessionId)).toBeNull();
     // The round authorizes nothing by itself: a write without a signal is still refused.
     await expect(
-      h.domain.teamTools.startMember(operator(), { member: 'dev-2', text: 'Work' }),
+      h.domain.teamTools.startMember(await operator(), { member: 'dev-2', text: 'Work' }),
     ).rejects.toMatchObject({
       message: expect.stringContaining('operator_no_request'),
     });
@@ -181,9 +181,14 @@ describe('level unblock', () => {
     for (const call of [
       () => startIdle(other, signal),
       () => startMerger(card, signal, 'dev-1'),
-      () =>
-        h.domain.teamTools.startMember(operator(), { member: 'dev-1', text: 'Work', signalId: signal.id }),
-      () => h.domain.teamTools.startTask(operator(), { taskKey: card.key, signalId: 'ops_unknown' }),
+      async () =>
+        h.domain.teamTools.startMember(await operator(), {
+          member: 'dev-1',
+          text: 'Work',
+          signalId: signal.id,
+        }),
+      async () =>
+        h.domain.teamTools.startTask(await operator(), { taskKey: card.key, signalId: 'ops_unknown' }),
     ])
       await expect(call()).rejects.toThrow(/operator_no_request|invalid_request/);
     expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toEqual([]);
@@ -194,10 +199,14 @@ describe('level unblock', () => {
     await setup('unblock');
     const { card, signal } = await idleCard();
     await expect(
-      h.domain.teamTools.startTask(operator(), { taskKey: card.key, assignee: 'dev-2', signalId: signal.id }),
+      h.domain.teamTools.startTask(await operator(), {
+        taskKey: card.key,
+        assignee: 'dev-2',
+        signalId: signal.id,
+      }),
     ).rejects.toThrow('invalid_request');
     await expect(
-      h.domain.teamTools.startTask(operator(), {
+      h.domain.teamTools.startTask(await operator(), {
         taskKey: card.key,
         despitePrerequisites: true,
         signalId: signal.id,
@@ -209,7 +218,7 @@ describe('level unblock', () => {
     await setup('unblock');
     const { card } = await idleCard();
     await expect(
-      h.domain.teamTools.operate(operator(), {
+      h.domain.teamTools.operate(await operator(), {
         title: 'Settings',
         operation: { op: 'member_update', handle: 'dev-1', changes: { capacity: 2 } },
       }),
@@ -349,9 +358,13 @@ describe('level drive', () => {
     await flush();
     const signal = open('ready_waiting')[0]!;
     await expect(
-      h.domain.teamTools.startMember(operator(), { member: 'dev-1', text: 'Take it.', signalId: signal.id }),
+      h.domain.teamTools.startMember(await operator(), {
+        member: 'dev-1',
+        text: 'Take it.',
+        signalId: signal.id,
+      }),
     ).rejects.toThrow('operator_no_request');
-    const result = await h.domain.teamTools.startMember(operator(), {
+    const result = await h.domain.teamTools.startMember(await operator(), {
       member: 'pm-2',
       text: 'Cards stand ready.',
       signalId: signal.id,
@@ -395,9 +408,13 @@ describe('level drive', () => {
     await flush();
     const signal = open('unreleased')[0]!;
     await expect(
-      h.domain.teamTools.startMember(operator(), { member: 'dev-1', text: 'Release.', signalId: signal.id }),
+      h.domain.teamTools.startMember(await operator(), {
+        member: 'dev-1',
+        text: 'Release.',
+        signalId: signal.id,
+      }),
     ).rejects.toThrow('operator_no_request');
-    const result = await h.domain.teamTools.startMember(operator(), {
+    const result = await h.domain.teamTools.startMember(await operator(), {
       member: 'ops',
       text: 'Merged work is not live.',
       signalId: signal.id,
@@ -420,8 +437,8 @@ describe('start_member on a card', () => {
       { awaitWake: true },
     );
     await flush();
-    const ask = (member: string) =>
-      h.domain.teamTools.startMember(operator(), { member, text: 'Look.', taskKey: card.key });
+    const ask = async (member: string) =>
+      h.domain.teamTools.startMember(await operator(), { member, text: 'Look.', taskKey: card.key });
     await expect(ask('dev-2')).rejects.toMatchObject({
       code: 'invalid',
       message: expect.stringContaining('not_card_role'),
@@ -486,7 +503,7 @@ describe('follow-up', () => {
     const { card, signal } = await idleCard();
     await startIdle(card, signal);
     await developerIdles(OPERATOR_IDLE_MINUTES + OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    const operatorSession = operator().sessionId;
+    const operatorSession = (await operator()).sessionId;
     h.runner.setState(operatorSession, 'working');
     h.runner.setState(operatorSession, 'idle');
     await flush();

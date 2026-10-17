@@ -2,7 +2,13 @@ import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  restartDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 
@@ -50,14 +56,14 @@ describe('combined owner questions', () => {
     now = new Date(now.getTime() + 1);
     return result.inboxItemId;
   }
-  const pm = (): ToolContext => ({
+  const pm = async (): Promise<ToolContext> => ({
     projectKey: 'AR',
     member: 'pm',
     taskKey: null,
-    sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+    sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
   });
   async function combine(ids: string[]) {
-    return h.domain.teamTools.combineQuestions(pm(), {
+    return h.domain.teamTools.combineQuestions(await pm(), {
       itemIds: ids,
       question: 'May both cards proceed?',
       note: 'Both need the same owner decision.',
@@ -212,7 +218,7 @@ describe('combined owner questions', () => {
   it('refuses a developer, the Operator and a guest PM conversation', async () => {
     const first = await ask('AR-1', 'First?');
     const second = await ask('AR-2', 'Second?');
-    const manager = pm();
+    const manager = await pm();
     const session = h.repos.sessions.get(manager.sessionId)!;
     h.repos.sessions.insert({
       ...session,
@@ -310,11 +316,15 @@ describe('combined owner questions', () => {
       { outcome: 'todo' as const, todo: { what: 'Check', where: 'Here', expected: 'Done' } },
     ])
       await expect(
-        h.domain.teamTools.screenQuestion(pm(), { itemId: first, note: 'Reason', ...args }),
+        h.domain.teamTools.screenQuestion(await pm(), { itemId: first, note: 'Reason', ...args }),
       ).rejects.toThrow('question_group_incompatible');
     expect(h.repos.inbox.get(first)).toEqual(before);
     expect(h.repos.messages.list('AR', {})).toHaveLength(0);
-    await h.domain.teamTools.screenQuestion(pm(), { itemId: first, outcome: 'moot', note: 'First is moot' });
+    await h.domain.teamTools.screenQuestion(await pm(), {
+      itemId: first,
+      outcome: 'moot',
+      note: 'First is moot',
+    });
     expect(questionPayloadOf(row(first))?.group?.sources?.find((s) => s.itemId === first)?.state).toBe(
       'withdrawn',
     );
@@ -324,7 +334,7 @@ describe('combined owner questions', () => {
   it('allows moot for an opened group linked member while preserving the other answer', async () => {
     const [first, second] = await pair();
     await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
-    await h.domain.teamTools.screenQuestion(pm(), {
+    await h.domain.teamTools.screenQuestion(await pm(), {
       itemId: second,
       outcome: 'moot',
       note: 'No longer needed',
@@ -332,7 +342,11 @@ describe('combined owner questions', () => {
     expect(row(second)).toMatchObject({ state: 'cancelled', resolution: { rule: 'operator_moot' } });
     expect(row(first).state).toBe('open');
     await expect(
-      h.domain.teamTools.screenQuestion(pm(), { itemId: second, outcome: 'moot', note: 'Already closed' }),
+      h.domain.teamTools.screenQuestion(await pm(), {
+        itemId: second,
+        outcome: 'moot',
+        note: 'Already closed',
+      }),
     ).rejects.toThrow('question_not_screening');
     await resolve(first);
     const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');

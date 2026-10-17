@@ -5,7 +5,7 @@ import { TeamToolError } from '../src/contracts';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
 import { formatTaskDetail } from '../src/mcp/format';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { flush, pullRequest } from './helpers/fakes';
@@ -45,7 +45,7 @@ describe('team tools', () => {
     expect(result.deliveredTo).toEqual(['cr']);
     await flush();
 
-    const crSession = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
+    const crSession = await waitForSession(h.domain, { member: 'cr', taskKey: 'AR-1' });
     expect(crSession).toBeDefined();
     // The recipient's new session takes the whole message in its first input, behind its brief.
     expect(h.runner.started.find((spec) => spec.sessionId === crSession.id)?.initialMessage).toContain(

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CardBusyDetails, memberOf } from '@projectman/shared';
 import type { AiMemberConfig } from '@projectman/shared';
 import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -122,7 +122,7 @@ describe('same-role card workers before sending', () => {
     await h.domain.messaging.send('AR', 'owner', { to: ['pm'], text: 'Arrange checkout review.' });
     await flush();
     await run('cr');
-    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const session = await waitForSession(h.domain, { member: 'pm' });
     const ctx = { projectKey: 'AR', member: 'pm', taskKey: null, sessionId: session.id };
     const args = { member: 'cr-2', taskKey: 'AR-1', text: 'Review checkout.' };
     const before = h.repos.messages.list('AR');

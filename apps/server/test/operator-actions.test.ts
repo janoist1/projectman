@@ -12,7 +12,13 @@ import {
 import { humanActor } from '../src/kernel';
 import type { AiMemberConfig, OperatorOperation, OperatorPlan, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  restartDomainHarness,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -59,7 +65,7 @@ async function setup(persistent = false, adjust?: (config: ProjectConfig) => voi
     { awaitWake: true },
   );
   await flush();
-  const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
+  const session = await waitForSession(h.domain, { member: 'operator' });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
 }
 const plan: OperatorPlan = {
@@ -440,7 +446,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       await setup(false, undefined, () => now);
       await h.domain.messaging.sendReporting('AR', 'owner', { to: ['dev-1'], text: 'Start' });
       await flush();
-      const target = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+      const target = await waitForSession(h.domain, { member: 'dev-1' });
       const result = await operate(op === 'message_send' ? message() : { op, sessionId: target.id });
       now = new Date(now.getTime() + 24 * 60 * 60_000);
       await expect(resolve(result.inbox_item_id!)).rejects.toMatchObject({ code: 'operator_approval_stale' });
@@ -913,7 +919,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     await setup();
     await h.domain.messaging.sendReporting('AR', 'owner', { to: ['dev-1'], text: 'Hello' });
     await flush();
-    const target = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    const target = await waitForSession(h.domain, { member: 'dev-1' });
     const result = await operate({ op: 'session_stop', sessionId: target.id });
     await h.domain.sessions.stop('AR', target.id);
     await flush();
@@ -930,7 +936,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     await setup();
     await h.domain.messaging.sendReporting('AR', 'owner', { to: ['dev-1'], text: 'Hello' });
     await flush();
-    const target = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    const target = await waitForSession(h.domain, { member: 'dev-1' });
     const result = await operate({ op: 'session_stop', sessionId: target.id });
     expect(h.domain.sessions.isRunning(target.id)).toBe(true);
     await resolve(result.inbox_item_id!);
@@ -1009,7 +1015,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       );
       await flush();
     }
-    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const session = await waitForSession(h.domain, { member: 'pm' });
     return h.domain.teamTools.startTask(
       { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null },
       args,

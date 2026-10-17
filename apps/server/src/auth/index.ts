@@ -1,6 +1,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { CreateIntegratorKeyRequest, LoginRequest, routes, SetupRequest } from '@projectman/shared';
-import type { Me, SetupStatus } from '@projectman/shared';
+import {
+  CreateIntegratorAccessKeyRequest,
+  CreateIntegratorKeyRequest,
+  IntegratorKeyAuditQuery,
+  LoginRequest,
+  routes,
+  SetupRequest,
+} from '@projectman/shared';
+import type { IntegratorChannel, Me, SetupStatus } from '@projectman/shared';
 import type { IntegratorPrincipal } from '../contracts';
 import { apiError, parseBody } from '../http';
 import { DomainError, forbidden } from '../kernel';
@@ -48,6 +55,13 @@ declare module 'fastify' {
 }
 
 export const SESSION_COOKIE = 'pm_session';
+
+/** The CLI header is self-reported telemetry, never authority or evidence of a human caller. */
+export function integratorChannel(request: Pick<FastifyRequest, 'url' | 'headers'>): IntegratorChannel {
+  const path = request.url.split('?')[0] ?? '';
+  if (path === '/mcp') return 'mcp';
+  return path.startsWith('/api/') && request.headers['x-projectman-client'] === 'cli' ? 'cli' : 'rest';
+}
 
 /** /api routes reachable without a login. /hooks and /mcp authenticate with their own tokens. */
 const PUBLIC_ROUTES = new Set([
@@ -179,20 +193,26 @@ export function registerAuth(
       return reply.code(403).send(apiError('invalid_origin', 'same-origin request required'));
     }
     const bearer = request.headers.authorization;
-    if (request.url.startsWith('/api/') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
+    const path = request.url.split('?')[0];
+    if ((request.url.startsWith('/api/') || path === '/mcp') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
       if (!(isLocalRequest(request) || requestProtocol(request) === 'https'))
         return reply
           .code(401)
           .send(apiError('integrator_https_required', 'Integrator key requires HTTPS or a local connection'));
       const secret = bearer.match(/^Bearer (pmi_[A-Za-z0-9_-]+)$/i)?.[1];
-      const resolved = secret ? auth.resolveIntegratorPrincipal(secret) : null;
-      if (!resolved)
+      const principal = secret ? auth.resolveIntegratorCredential(secret, integratorChannel(request)) : null;
+      if (!principal)
         return reply
           .code(401)
           .send(apiError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired'));
-      request.user = resolved.user;
+      // PM-759/760 bind the execution policy. Until then explicit modes must never inherit the human path.
+      if (principal.mode !== 'legacy')
+        return reply
+          .code(403)
+          .send(apiError('integrator_not_allowed', 'Integrator execution policy is not available'));
+      request.user = auth.user(principal.userId);
       request.via = 'integrator';
-      request.principal = resolved.principal;
+      request.principal = principal;
     }
     const raw = request.via ? null : request.cookies[SESSION_COOKIE];
     if (raw) {
@@ -305,5 +325,27 @@ export function registerAuth(
     if (!key) throw new DomainError('not_found', 'No active integrator key', { status: 404 });
     app.log.info({ prefix: key.prefix, userId }, 'Integrator key revoked');
     return { key };
+  });
+
+  app.get(routes.integratorKeys(), async (request) => ({
+    keys: auth.integratorAccessKeys(keyOwner(request)),
+  }));
+  app.post(routes.integratorKeys(), async (request, reply) => {
+    const userId = keyOwner(request);
+    const body = parseBody(CreateIntegratorAccessKeyRequest, request.body);
+    const created = auth.createIntegratorAccessKey(userId, body);
+    app.log.info({ prefix: created.key.prefix, mode: created.key.mode, userId }, 'Integrator key created');
+    return reply.code(201).send(created);
+  });
+  app.delete<{ Params: { id: string } }>(routes.integratorAccessKey(':id'), async (request) => {
+    const userId = keyOwner(request);
+    const key = auth.revokeIntegratorAccessKey(userId, request.params.id);
+    if (!key) throw new DomainError('not_found', 'Integrator key not found', { status: 404 });
+    app.log.info({ prefix: key.prefix, mode: key.mode, userId }, 'Integrator key revoked');
+    return { key };
+  });
+  app.get(routes.integratorKeyAudit(), async (request) => {
+    const userId = keyOwner(request);
+    return auth.integratorKeyAudit(userId, parseBody(IntegratorKeyAuditQuery, request.query));
   });
 }

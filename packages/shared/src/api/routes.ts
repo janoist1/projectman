@@ -26,6 +26,9 @@ export const routes = {
   /** The engine fetches an attachment from here (PM-314): `GET`; the token comes with the request. */
   engineDownload: (token: string) => `/engine/files/downloads/${token}`,
   integratorKey: () => '/api/auth/integrator-key',
+  integratorKeys: () => '/api/auth/integrator-keys',
+  integratorAccessKey: (id: string) => `/api/auth/integrator-keys/${id}`,
+  integratorKeyAudit: () => '/api/auth/integrator-keys/audit',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   /** GET the project's focus (`ProjectFocusView`, PM-427); internal members only. */
   projectFocus: (key: string) => `/api/projects/${key}/focus`,

@@ -8,6 +8,7 @@ export type {
 import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
+import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
 import { createSuperAuditRepository } from './super-audit';
 import { createBoundaryRepository } from './boundary';
 import { createFeedbackRepository } from './feedback';
@@ -95,6 +96,7 @@ export function createRepositories(db: Db) {
     engines: createEngineRepository(db),
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
+    integratorKeyAudit: createIntegratorKeyAuditRepository(db),
     superAudit: createSuperAuditRepository(db),
     invitations: createInvitationRepository(db),
     emailLogin: createEmailLoginRepository(db),

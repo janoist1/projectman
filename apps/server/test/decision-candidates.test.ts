@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
@@ -96,8 +96,20 @@ const config = () => h.domain.projects.config('AR');
 const candidates = async (limit?: number) => h.domain.decisionCandidates.list('AR', await config(), limit);
 
 async function ask(text: string, from = 'owner', to = 'operator') {
-  await h.domain.messaging.sendReporting('AR', from, { to: [to], text });
-  await flush();
+  const result = await h.domain.messaging.sendReporting('AR', from, { to: [to], text });
+  // Delivery starts the session in the background; wait for this message, not event-loop turns.
+  await vi.waitFor(() => {
+    const conversation = sessions().filter(
+      (s) => s.workItem.type === 'general' && s.workItem.with === (from === 'owner' ? undefined : from),
+    );
+    expect(conversation).toHaveLength(1);
+    expect(h.repos.messages.pending('AR', to).map((message) => message.id)).not.toContain(result.message.id);
+    if (from === 'owner') {
+      expect(
+        h.repos.operatorRequests.openOfSession(conversation[0]!.id).map((request) => request.messageId),
+      ).toEqual([result.message.id]);
+    }
+  });
 }
 const sessions = (): Session[] => h.domain.sessions.list('AR', { member: 'operator' });
 const ownerSession = (): Session =>
@@ -109,8 +121,10 @@ const toolOf = (session: Session): ToolContext => ({
   taskKey: null,
 });
 async function endTurn(): Promise<void> {
+  // The fake runner does not report working when it receives another message.
+  h.runner.setState(ownerSession().id, 'working');
   h.runner.setState(ownerSession().id, 'idle');
-  await flush();
+  await vi.waitFor(() => expect(h.repos.operatorRequests.openOfSession(ownerSession().id)).toHaveLength(0));
 }
 const requestOf = (session: Session) => h.repos.operatorRequests.openOfSession(session.id)[0]!;
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;

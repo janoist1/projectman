@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { createRepositories, migrate, migrations } from '../src/db';
+import { createRepositories, LATEST_SCHEMA_VERSION, migrate, migrations, schemaVersion } from '../src/db';
 import type { MergeRecord } from '../src/db';
 
 const at = '2026-10-17T12:00:00.000Z';
@@ -24,17 +24,18 @@ function row(taskKey: string, extra: Partial<MergeRecord> = {}): MergeRecord {
 }
 
 describe('repository merge queue compare-and-swap', () => {
-  it('preserves old queue order and starts the migrated revision at zero', () => {
+  it.each([79, 80])('preserves old queue order and starts revision at zero from schema %i', (version) => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((m) => m.version < 80)) db.exec(migration.sql);
-      db.pragma('user_version = 79');
+      for (const migration of migrations.filter((m) => m.version <= version)) db.exec(migration.sql);
+      db.pragma(`user_version = ${version}`);
       db.prepare(
         `INSERT INTO task_merges (id, project_key, task_key, repo, base, from_stage_id, to_stage_id,
         merger, requested_at, state, landed, created_at, updated_at) VALUES ('old', 'AR', 'AR-1', 'web',
         'main', 'review', 'done', 'owner', ?, 'queued', 'nowhere', ?, ?)`,
       ).run(at, at, at);
-      migrate(db);
+      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       const repos = createRepositories(db);
       expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual({ revision: 0, taskKeys: ['AR-1'] });
       expect(repos.taskMerges.get('old')).not.toHaveProperty('queueRank');

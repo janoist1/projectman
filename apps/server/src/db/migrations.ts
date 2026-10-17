@@ -1545,7 +1545,7 @@ migrations.push({
     ${changeTriggersSql()}`,
 });
 migrations.push({
-  version: 80,
+  version: 81,
   name: 'repository merge queue revisions and order',
   sql: `CREATE TABLE merge_queue_revisions (
       project_key TEXT NOT NULL,

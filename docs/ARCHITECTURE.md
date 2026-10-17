@@ -295,6 +295,16 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   dialog. All facts and checks stay on the server; no remote-engine boundary changes.
   AI messages wait in storage while the recipient works or waits for permission. At idle they
   reach it in one input, prefixed with the current card state, within the first-input size limit.
+  PM-769 materializes only pending `(message_id, handle)` pairs in `team_message_pending`, indexed
+  by project, recipient and the source message's sequence. Migration 77 backfills them; message
+  insertion, receipt updates and legacy delivery markers replace each message's pairs in the same
+  SQLite transaction, including within an outer unit of work. Receipts remain authoritative;
+  missing/empty/JSON-null receipts fall back to the legacy aggregate delivery marker, malformed
+  JSON receipts to an empty array. Pending reads hydrate only indexed matches; engine waiting
+  counts use SQL COUNT without message hydration. Routing and action/info wake rules stay in
+  `core/messages`. SQLite and this index stay on the server, within the existing “Cloud composition”
+  and “Provider and engine outage watch” boundaries; no engine operation or payload changes.
+  The shared synthetic measurement protocol is [PERIODIC-WORK-PERFORMANCE.md](PERIODIC-WORK-PERFORMANCE.md).
   The transcript and web chat split the batch into existing system-note and team-message items.
   A permission wait names its current deciders in the brief, get_task and the send result. A
   delegated notice is tied to its inbox item and no longer wakes its recipient after resolution

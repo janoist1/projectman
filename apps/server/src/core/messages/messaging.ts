@@ -1128,7 +1128,7 @@ export class Messaging {
       if (!config) continue;
       for (const member of config.team.members) {
         if (member.kind !== 'ai' || this.engines.engineFor(summary.key, member.handle) !== engineId) continue;
-        count += this.ctx.repos.messages.pending(summary.key, member.handle).length;
+        count += this.ctx.repos.messages.pendingCount(summary.key, member.handle);
       }
     }
     return count;

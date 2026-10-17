@@ -1,3 +1,5 @@
+import { PENDING_MESSAGE_RECIPIENTS } from './message-pending';
+
 /**
  * Versioned schema migrations. The applied version is stored in `PRAGMA user_version`;
  * each migration runs once, inside a transaction. Never edit a released migration: add a
@@ -1448,5 +1450,19 @@ migrations.push({
     CREATE INDEX super_operation_audit_settles ON super_operation_audit(settles_id);
     CREATE INDEX super_operation_audit_project ON super_operation_audit(project_key, seq);
     CREATE INDEX super_operation_audit_prefix ON super_operation_audit(project_key, prefix, seq);`,
+});
+migrations.push({
+  version: 77,
+  name: 'pending message recipients',
+  sql: `CREATE TABLE team_message_pending (
+      message_id TEXT NOT NULL REFERENCES team_messages(id) ON DELETE CASCADE,
+      project_key TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      PRIMARY KEY (message_id, handle)
+    );
+    CREATE INDEX team_message_pending_recipient ON team_message_pending(project_key, handle, seq);
+    INSERT INTO team_message_pending (message_id, project_key, handle, seq)
+      ${PENDING_MESSAGE_RECIPIENTS};`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

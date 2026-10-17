@@ -1,4 +1,4 @@
-import type { Task } from '@projectman/shared';
+import type { Task, TimelineEvent } from '@projectman/shared';
 
 /**
  * What a periodic or startup scheduler may ask of the task store (PM-770). Every query is bounded by what
@@ -28,4 +28,17 @@ export type TaskSchedulingQuery =
  */
 export interface TaskSchedulingReader {
   readSchedulingTasks(projectKey: string, query: TaskSchedulingQuery): Task[];
+}
+
+/**
+ * What a card's state was before a moment, from the timeline alone (PM-771): the starting state of the
+ * reconstruction of a state at an event, which then replays the events of the window on top of it.
+ *
+ * For each of the given cards of the project, the one event with the greatest `seq` among those created
+ * strictly before `before` (a UTC ISO time) that sets the card's state: a `task_stage_changed`, or a
+ * `task_updated` whose `action` is `cancelled` or `reopened`. The events are returned in ascending `seq`.
+ * A card without such an event has no result: its state before `before` stays unknown. No keys: `[]`.
+ */
+export interface TaskStateHistoryReader {
+  latestTaskStatesBefore(projectKey: string, taskKeys: readonly string[], before: string): TimelineEvent[];
 }

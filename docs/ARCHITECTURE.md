@@ -3329,6 +3329,21 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   on the stored row first and reads the board view, the reviewer's timeline and the source head only for a card with
   a record or a ready gate. The assembly runs one stage-advance per card at a time; an event that comes meanwhile asks
   for one more round that reads the card afresh.
+- **Operator history reads (PM-771).** The Operator's 60 second sweep (`OperatorSignals.sweep`) and the structural
+  report (`StructuralPatterns.report`) no longer walk a project's closed history. The board cases (`boardCases`, one
+  map per sweep, no cache kept between sweeps), the pending list and the step targets work from the `open` read;
+  `TaskWaits.of` and `MemberService.rosterFor` read the open cards and only the cards the `prerequisite` links name
+  (`keys`), which is the same answer because a closed prerequisite is not an open one. The 7-day evidence comes from
+  `TimelineRepository.structuralEvidence`, now through the partial index `timeline_structural_window` (project,
+  creation time) instead of a walk of the project's timeline, and the structural report reads only the cards those
+  events name (`keys`). A collecting card's completion is reconstructed at the closing event: the internal
+  `TaskStateHistoryReader.latestTaskStatesBefore(projectKey, taskKeys, before)` (`contracts/task-scheduling.ts`,
+  provided by the timeline repository) returns for each sibling its last state event (stage change, cancel, reopen)
+  created strictly before the window start, found through the partial index `timeline_task_state_before` (project,
+  card, creation time, seq) with one probe per card; the window's own events are then replayed in seq order. A sibling
+  without any state evidence stays unknown and does not count as closed. Migration 80 adds both indexes and rewrites
+  no event. The query plans are asserted in `test/timeline-state-history.test.ts`; the tenfold-history read counts in
+  `test/structural-history-reads.test.ts`.
 - **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of
   `canSeeProjectEvent`), not `focus_changed` (it is not in `CLIENT_TASK_TIMELINE`), and `visibleTimelineEvent` takes
   `pulled` off a stage change.
@@ -3336,7 +3351,10 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 **Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
 new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
 The targeted reads of PM-770 are server database reads too; only the sweep's candidates changed, and the worktree
-entry above says so.
+entry above says so. The Operator history reads of PM-771 are server-side SQLite reads over the server's own timeline
+and card tables (no engine operation, RPC or payload is added, and no local path, process or socket is involved), so
+the inventory stays unchanged: on a remote engine the Operator and its signals still run on the server, within the
+existing "Cloud composition" and "Provider and engine outage watch" boundaries.
 
 ### Coordination belongs to the PM (PM-707)
 

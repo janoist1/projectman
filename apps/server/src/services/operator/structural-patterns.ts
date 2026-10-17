@@ -31,16 +31,25 @@ export class StructuralPatterns {
     this.ctx = ctx;
   }
 
+  /**
+   * Reads the window's events, and of the cards only those the events name (PM-771): never the project's
+   * whole card history. A card that is gone is no card, as before.
+   */
   report(config: ProjectConfig, until = this.ctx.now().toISOString()) {
     const since = new Date(Date.parse(until) - STRUCTURAL_WINDOW_MS).toISOString();
     const events = this.ctx.repos.timeline.structuralEvidence(config.project.key, since, until);
-    const cards = this.ctx.repos.tasks.list(config.project.key);
+    const keys = [...new Set(events.flatMap((event) => (event.taskKey ? [event.taskKey] : [])))];
+    const cards =
+      keys.length === 0
+        ? []
+        : this.ctx.repos.tasks.readScheduling(config.project.key, { kind: 'keys', keys });
+    const byKey = new Map(cards.map((card) => [card.key, card]));
     return {
       patterns: this.patterns(config, events, cards, since, until),
       milestones: [
-        ...this.parentMilestones(config, events, cards, since),
+        ...this.parentMilestones(config, events, byKey, since),
         ...events.flatMap((event) => {
-          const task = cards.find((card) => card.key === event.taskKey);
+          const task = event.taskKey ? byKey.get(event.taskKey) : undefined;
           if (!task) return [];
           const themeClosed =
             isTheme(task) &&
@@ -60,9 +69,52 @@ export class StructuralPatterns {
     };
   }
 
-  /** Reconstruct each sibling's status at the closing event; today's completed siblings are not proof. */
-  private parentMilestones(config: ProjectConfig, events: TimelineEvent[], cards: Task[], since: string) {
-    const children = cards.filter((card) => card.parentKey);
+  /**
+   * Reconstruct each sibling's status at the closing event; today's completed siblings are not proof. The
+   * starting state of a sibling is its last state event before the window (`latestTaskStatesBefore`; none:
+   * unknown), on which the window's events are replayed in order. Only the parents of the cards that
+   * closed in the window are looked at, with all their subtasks, closed ones too.
+   */
+  private parentMilestones(
+    config: ProjectConfig,
+    events: TimelineEvent[],
+    named: ReadonlyMap<string, Task>,
+    since: string,
+  ) {
+    const projectKey = config.project.key;
+    const closedChild = (event: TimelineEvent) => {
+      const child = event.taskKey ? named.get(event.taskKey) : undefined;
+      return child?.parentKey &&
+        event.type === 'task_stage_changed' &&
+        event.data.from !== event.data.to &&
+        stageOf(config, String(event.data.from))?.kind !== 'done' &&
+        stageOf(config, String(event.data.to))?.kind === 'done'
+        ? child
+        : undefined;
+    };
+    const parentKeys = new Set<string>();
+    for (const event of events) {
+      const child = closedChild(event);
+      if (child) parentKeys.add(child.parentKey!);
+    }
+    if (parentKeys.size === 0) return [];
+    const parents = new Map(
+      this.ctx.repos.tasks
+        .readScheduling(projectKey, { kind: 'keys', keys: [...parentKeys] })
+        .filter((card) => !isTheme(card))
+        .map((card) => [card.key, card]),
+    );
+    if (parents.size === 0) return [];
+    const siblings = new Map<string, string[]>();
+    for (const child of this.ctx.repos.tasks.readScheduling(projectKey, {
+      kind: 'children',
+      parentKeys: [...parents.keys()],
+      includeClosed: true,
+    })) {
+      const list = siblings.get(child.parentKey!) ?? [];
+      list.push(child.key);
+      siblings.set(child.parentKey!, list);
+    }
     const status = new Map<string, string>();
     const update = (event: TimelineEvent) => {
       if (!event.taskKey) return;
@@ -73,31 +125,19 @@ export class StructuralPatterns {
         else if (event.data.action === 'reopened') status.set(event.taskKey, 'open');
       }
     };
-    for (const child of children) {
-      const history = this.ctx.repos.timeline.listOfTypes(
-        config.project.key,
-        child.key,
-        ['task_stage_changed', 'task_updated'],
-        1000,
-      );
-      for (const event of history) if (event.createdAt < since) update(event);
-    }
+    const tracked = new Set([...siblings.values()].flat());
+    for (const event of this.ctx.repos.timeline.latestTaskStatesBefore(projectKey, [...tracked], since))
+      update(event);
     const milestones: { taskKey: string; eventId: string }[] = [];
     for (const event of events) {
-      update(event);
-      const child = children.find((card) => card.key === event.taskKey);
+      if (event.taskKey && tracked.has(event.taskKey)) update(event);
+      const child = closedChild(event);
+      const parentKey = child?.parentKey;
+      if (!child || !parentKey || !parents.has(parentKey)) continue;
       if (
-        !child?.parentKey ||
-        event.type !== 'task_stage_changed' ||
-        event.data.from === event.data.to ||
-        stageOf(config, String(event.data.from))?.kind === 'done' ||
-        status.get(child.key) !== 'done'
+        siblings.get(parentKey)!.every((key) => ['done', 'cancelled'].includes(status.get(key) ?? 'unknown'))
       )
-        continue;
-      if (!cards.some((card) => card.key === child.parentKey && !isTheme(card))) continue;
-      const siblings = children.filter((card) => card.parentKey === child.parentKey);
-      if (siblings.every((card) => ['done', 'cancelled'].includes(status.get(card.key) ?? 'unknown')))
-        milestones.push({ taskKey: child.parentKey, eventId: event.id });
+        milestones.push({ taskKey: parentKey, eventId: event.id });
     }
     return milestones;
   }
@@ -140,8 +180,15 @@ export class StructuralPatterns {
       for (const file of new Set(files.map(normalizedEvidencePath).filter((file) => file !== null)))
         add(kind, repo, file, event);
     }
+    const eventsOf = new Map<string, TimelineEvent[]>();
+    for (const event of events) {
+      if (!event.taskKey) continue;
+      const list = eventsOf.get(event.taskKey) ?? [];
+      list.push(event);
+      eventsOf.set(event.taskKey, list);
+    }
     for (const card of cards) {
-      const own = events.filter((event) => event.taskKey === card.key);
+      const own = eventsOf.get(card.key) ?? [];
       if (countFixRounds(own, config, null).rounds < 3) continue;
       for (const event of own)
         if (countFixRounds([event], config, null).rounds > 0)

@@ -368,6 +368,74 @@ Delete the Access applications, the tunnel and its DNS record; revoke the servic
 the app and the volume; then delete the two buckets (or keep the restic one if you may want the
 data). Revoke the machine key in Settings → Engines first, if the cloud is still reachable.
 
+## Memory profile
+
+Three scripts in `deploy/cloud/` (PM-773, part of PM-772) measure what the cloud server keeps in memory
+and what is garbage. They have no dependencies, change nothing in the server and touch no engine: they
+run on the loopback of a **disposable copy** of a home, with no network. The image carries them in
+`/app/deploy/cloud/`; an older image can get them as a read-only volume.
+
+- `memory-probe.mjs` — a `node --import` preload. Every `PM_MEMORY_PROBE_MS` (5000) it appends one JSON
+  line to `PM_MEMORY_PROBE_FILE` (never stdout): `t`, `uptimeS`, `rss`, `heapUsed`, `heapTotal`,
+  `external`, `arrayBuffers`, `heapSizeLimit` (bytes) and `cpuUserMs`, `cpuSystemMs` (the process's
+  totals from `process.cpuUsage()`, also good for the CPU measurement of PM-733). Its timer is unref'd.
+- `memory-profile.mjs` — starts the server as a child (`node --import <probe> --heapsnapshot-signal=SIGUSR2
+[--max-old-space-size=<n>] --diagnostic-dir=<out> <server>`) in a cleared environment: `PATH`, `HOME`,
+  `TMPDIR`, `PROJECTMAN_HOME=<home>`, `PROJECTMAN_MODE=cloud`, `HOST=127.0.0.1`, `PORT`,
+  `NODE_ENV=production`, the two probe variables and the `--env NAME=value` pairs. No tunnel, Litestream,
+  restic or engine starts. Phases: `ready` (`GET /api/setup` answers 200, at most 120 s; this gives
+  `startupMs`), `start` (60 s later, a heap snapshot), `load` (only with `--login-file`; the sample with
+  the highest RSS while it runs), `load-end` (snapshot), then rest until `--duration-min`, with an
+  `idle-<minutes>` sample every 10 minutes, and `end` (snapshot); then SIGTERM, and SIGKILL after 60 s.
+  RSS, peak and swap come from `/proc/<pid>/status` (`VmRSS`, `VmHWM`, `VmSwap`) on Linux, where the
+  peak is reset after each snapshot; on macOS from `ps` (peak and swap are `null`).
+- `heap-summary.mjs <snapshot>` — prints `{ liveBytes, nodeCount, byType }` (the top 40 type and
+  constructor-name groups by self size). It reads the snapshot as a stream and never prints string
+  content. `liveHeapMb` of the report comes from it.
+
+The load (`--login-file`, JSON `{ "email": "...", "password": "..." }`) logs in once (the cookie lives
+in memory only), then `--rounds` times asks, for every project, the reads the web app makes
+(`/api/me`, `/api/projects`, and per project the board, tasks, inbox, team threads and involvements) and
+the 10 cards with the longest description in full, `--concurrency` requests at a time.
+
+Options: `--home <dir> --out <dir> [--server <path>] [--port 4790] [--duration-min 60]
+[--heap-limit-mb <n>] [--env NAME=value]... [--login-file <path>] [--rounds 20] [--concurrency 4]`
+(`--server` defaults to `/app/apps/server/dist/index.js`). For short test runs there are also
+`--start-delay-s` (60), `--idle-every-min` (10), `--ready-timeout-s` (120) and `--probe-ms` (5000).
+
+**It refuses (exit 64, nothing started)** a home without the `<home>/.memory-profile-copy` marker
+(create the marker by hand in the copy, never in a live home), an `--out` that exists and is not empty,
+and a bad parameter. Never point it at a live home: the server migrates and writes the copy.
+
+In the image (no network, the copy and the output mounted):
+
+```sh
+docker run --rm --network none -v <copy>:/data -v <out>:/out [-v <login.json>:/in/login.json:ro] \
+  [-v <repo>/deploy/cloud:/tool:ro] --entrypoint node <image> /tool/memory-profile.mjs \
+  --home /data --out /out [--login-file /in/login.json] [--duration-min 60] [--heap-limit-mb <n>] \
+  [--env MALLOC_ARENA_MAX=2]
+```
+
+(Without `-v …:/tool:ro` use `/app/deploy/cloud/memory-profile.mjs`. The default heap limit of a
+machine is `node -p "v8.getHeapStatistics().heap_size_limit"` on it.)
+
+Output under `--out`: `report.json` (shape: `sourceVersion`, `node`, `platform`, `arch`,
+`heapSizeLimitMb`, `nodeArgs`, `env` (names only), `startupMs`, `phases[]`, `endpoints[]` with the route
+templates), `report.md` (the same for reading, with the top live-heap groups), `probe.jsonl`, `server.log`,
+`<phase>.heapsnapshot` and `<phase>.summary.json`.
+
+**The heap snapshots hold real data** (cards, messages, session secrets). They stay on the machine that
+ran the profile: not in the repository, not on a card, not in a message. Only `report.md` and the
+`*.summary.json` files (types, constructor names and numbers; no keys, titles, addresses or cookies)
+may go on a card. The `--out` folder and its files are owner-only; delete the folder and the copy when
+done.
+
+How to read it: `rss - liveHeapMb` at a snapshot phase is the garbage and the allocator's free
+memory. A snapshot allocates a lot and the process may keep it, so the RSS of the phases after the first
+snapshot can include that; `ready` and `start` are read before any snapshot, and the probe lines show
+the heap during the load. Compare variants of one run (no limit, `--heap-limit-mb`, `--env MALLOC_ARENA_MAX=2`)
+with each other, not with the live container.
+
 ## What is not covered, and what was not verified
 
 - The cloud runs one machine. High availability, a read replica and several regions are not

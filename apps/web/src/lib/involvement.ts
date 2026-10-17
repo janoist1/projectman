@@ -11,6 +11,7 @@ export interface InvolvementDescription {
   reason: string;
   ref?: { text: string; eventId?: string; messageId?: string; inboxItemId?: string; runId?: string };
   by?: string;
+  byActor?: Actor;
   tone?: 'accent' | 'needs' | 'blocked' | 'neutral';
 }
 const byLabel = (actor: Actor | undefined, ctx: TimelineContext) =>
@@ -47,6 +48,7 @@ export function describeStart(event: TimelineEvent, ctx: TimelineContext): Invol
     tone: cause.kind === 'provider_resume' || cause.kind === 'pause_resume' ? 'neutral' : 'accent',
     reason: t(`involvement.reasons.${cause.kind}`),
     by: byLabel(cause.by, ctx),
+    ...(cause.by ? { byActor: cause.by } : {}),
     ...(text || cause.eventId || cause.messageId || cause.inboxItemId || cause.runId
       ? {
           ref: {
@@ -86,6 +88,7 @@ export function describeStop(event: TimelineEvent, ctx: TimelineContext): Involv
               code: String(event.data.exitCode ?? ''),
             }),
     by: byLabel(stop.by, ctx),
+    ...(stop.by ? { byActor: stop.by } : {}),
   };
 }
 

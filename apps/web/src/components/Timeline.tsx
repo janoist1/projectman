@@ -12,6 +12,8 @@ import { describeStart, describeStop } from '../lib/involvement';
 import { describeEvent } from '../lib/timeline';
 import type { TimelineContext } from '../lib/timeline';
 import { Avatar } from './Avatar';
+import { ActorName } from './ActorName';
+import { SuperTimelineDetail } from './SuperTimelineDetail';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import styles from './Timeline.module.css';
@@ -135,14 +137,31 @@ export function Timeline({
                     <Icon name="layers" size={15} strokeWidth={2} />
                   </span>
                 ) : (
-                  <Avatar member={member} handle={handle} isMe={isMe} via={event.actor.via} size="md" />
+                  <Avatar
+                    actor={event.actor}
+                    member={member}
+                    handle={handle}
+                    isMe={isMe}
+                    via={event.actor.via}
+                    size="md"
+                  />
                 )}
                 <span className={styles.line} />
               </span>
               <div className={styles.body}>
                 <span className={styles.meta}>
-                  <span className={styles.actor}>{author}</span>
-                  {event.actor.via ? <span> · {t('involvement.behalf')}</span> : null}
+                  <span className={styles.actor}>
+                    {imported ? (
+                      author
+                    ) : (
+                      <ActorName
+                        actor={event.actor}
+                        members={ctx.members}
+                        myHandle={ctx.myHandle}
+                        projectKey={event.projectKey}
+                      />
+                    )}
+                  </span>
                   <span aria-hidden="true"> · </span>
                   <time dateTime={at}>{formatStamp(at)}</time>
                   {imported ? <span> · {t('task.comments.imported')}</span> : null}
@@ -154,7 +173,9 @@ export function Timeline({
                     emphasis === 'needs' && styles.needs,
                   )}
                 >
-                  {comment ? (
+                  {event.type === 'super_handoff_changed' || event.type === 'super_operation_changed' ? (
+                    <SuperTimelineDetail event={event} events={events} />
+                  ) : comment ? (
                     <CommentText text={text} ctx={ctx} />
                   ) : involvement && ref?.text ? (
                     <>
@@ -185,7 +206,22 @@ export function Timeline({
                       ) : (
                         ref.text
                       )}
-                      {involvement.by ? ` · ${involvement.by}` : ''}
+                      {involvement.byActor?.operatorMode === 'super' ? (
+                        <>
+                          {' '}
+                          ·{' '}
+                          <ActorName
+                            actor={involvement.byActor}
+                            members={ctx.members}
+                            myHandle={ctx.myHandle}
+                            projectKey={event.projectKey}
+                          />
+                        </>
+                      ) : involvement.by ? (
+                        ` · ${involvement.by}`
+                      ) : (
+                        ''
+                      )}
                     </>
                   ) : (
                     (renderText?.(event) ?? text)

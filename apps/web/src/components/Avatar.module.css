@@ -90,3 +90,15 @@
   padding: 0 6px;
   border-radius: 999px;
 }
+.superBadge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--c-ink);
+  color: var(--c-surface);
+  display: grid;
+  place-items: center;
+}

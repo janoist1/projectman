@@ -16,6 +16,11 @@ import {
   StopOrphansRequest,
   StopSessionRequest,
   CreateIntegratorKeyRequest,
+  CreateIntegratorAccessKeyRequest,
+  IntegratorKeyAuditQuery,
+  SuperAuditQuery,
+  ListSuperHandoffsQuery,
+  SUPER_OPEN_STATES,
   InvolvementQuery,
   canManageInstancePause,
   canManageProviderKeys,
@@ -465,6 +470,11 @@ export class MockBackend {
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
   integratorKey: import('@projectman/shared').IntegratorKeyInfo | null = null;
+  integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
+  integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
+  superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
+  superHandoffs: import('@projectman/shared').SuperHandoff[] = [];
+  superOperations: import('@projectman/shared').SuperOperation[] = [];
   private viewerAccess(): import('@projectman/shared').HumanAccess {
     const member = memberOf(this.config, this.viewerHandle);
     return member?.kind === 'human' ? member.access : 'viewer';
@@ -1748,6 +1758,81 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/auth/integrator-keys' || path.startsWith('/api/auth/integrator-keys/')) {
+      if (this.integratorMode) {
+        const verdict = superAccessVerdict(this.config, {
+          mode: this.integratorMode,
+          operation: 'key_management',
+          ownerMembership: this.viewerAccess() === 'owner',
+        });
+        if (!verdict.allowed) return error(403, verdict.code, 'Credential management refused');
+      }
+      if (!this.me().hostOwner) return error(403, 'owner_only', 'Own host-owner login required');
+      this.integratorKeys = this.integratorKeys.map((key) =>
+        key.state === 'active' && key.expiresAt && key.expiresAt <= nowIso()
+          ? { ...key, state: 'expired' }
+          : key,
+      );
+      if (path.endsWith('/audit')) {
+        const input = IntegratorKeyAuditQuery.safeParse(Object.fromEntries(query));
+        if (!input.success) return error(400, 'invalid_request', 'Invalid audit query');
+        const entries = this.integratorKeyAudits
+          .filter((entry) => input.data.before === undefined || entry.seq < input.data.before)
+          .sort((a, b) => b.seq - a.seq);
+        const page = entries.slice(0, input.data.limit);
+        return ok({
+          entries: clone(page),
+          nextBefore: entries.length > page.length ? page.at(-1)!.seq : null,
+        });
+      }
+      if (method === 'POST' && path === '/api/auth/integrator-keys') {
+        const input = CreateIntegratorAccessKeyRequest.safeParse(body);
+        if (!input.success) return error(400, 'invalid_request', 'Invalid key request');
+        const at = nowIso();
+        this.integratorKeys = this.integratorKeys.map((key) =>
+          key.mode === input.data.mode && key.state === 'active'
+            ? { ...key, state: 'revoked', revokedAt: at }
+            : key,
+        );
+        const key: import('@projectman/shared').IntegratorAccessKeyInfo = {
+          id: `mock_key_${this.integratorKeys.length + 1}`,
+          mode: input.data.mode,
+          prefix: `pmi_mock_${this.integratorKeys.length + 1}`,
+          state: 'active',
+          createdAt: at,
+          expiresAt: new Date(Date.parse(at) + input.data.expiresInDays * 86_400_000).toISOString(),
+          lastUsedAt: null,
+          lastUsedChannel: null,
+          revokedAt: null,
+        };
+        this.integratorKeys.push(key);
+        this.integratorKeyAudits.push({
+          seq: this.integratorKeyAudits.length + 1,
+          keyId: key.id,
+          action: 'created',
+          prefix: key.prefix,
+          mode: key.mode,
+          at,
+        });
+        return { status: 201, body: { key: clone(key), secret: 'pmi_mock_key_for_ui_tests_only' } };
+      }
+      if (method === 'DELETE') {
+        const key = this.integratorKeys.find((entry) => entry.id === path.split('/').at(-1));
+        if (!key) return error(404, 'not_found', 'Key not found');
+        key.state = 'revoked';
+        key.revokedAt = nowIso();
+        this.integratorKeyAudits.push({
+          seq: this.integratorKeyAudits.length + 1,
+          keyId: key.id,
+          action: 'revoked',
+          prefix: key.prefix,
+          mode: key.mode,
+          at: key.revokedAt,
+        });
+        return ok({ key: clone(key) });
+      }
+      return ok({ keys: clone(this.integratorKeys) });
+    }
     if (path === '/api/auth/integrator-key') {
       if (!this.me().hostOwner) return error(403, 'owner_only', 'Only the host owner may manage the key');
       if (method === 'POST') {
@@ -2069,6 +2154,49 @@ export class MockBackend {
       if (!verdict.allowed) return error(403, verdict.code, 'Credential access refused');
     }
     let m: RegExpExecArray | null;
+    if (rest === '/operator-super/audit') {
+      if (this.viewerAccess() !== 'owner' || this.integratorMode)
+        return error(403, 'owner_only', 'Own owner login required');
+      const input = SuperAuditQuery.safeParse(Object.fromEntries(query));
+      if (!input.success) return error(400, 'invalid_request', 'Invalid audit query');
+      const all = this.superAudits.filter(
+        (entry) => !input.data.prefix || entry.prefix === input.data.prefix,
+      );
+      const start = input.data.before ? all.findIndex((entry) => entry.id === input.data.before) + 1 : 0;
+      const entries = all.slice(start, start + input.data.limit);
+      return ok({
+        entries: clone(entries),
+        nextBefore: start + entries.length < all.length ? entries.at(-1)!.id : null,
+      });
+    }
+    if (rest === '/operator-super/handoffs') {
+      if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');
+      const input = ListSuperHandoffsQuery.safeParse(Object.fromEntries(query));
+      if (!input.success) return error(400, 'invalid_request', 'Invalid handoff query');
+      return ok({
+        handoffs: clone(
+          this.superHandoffs
+            .filter((entry) =>
+              input.data.state ? entry.state === input.data.state : SUPER_OPEN_STATES.includes(entry.state),
+            )
+            .slice(0, input.data.limit),
+        ),
+      });
+    }
+    if ((m = /^\/operator-super\/handoffs\/([^/]+)$/.exec(rest))) {
+      if (this.viewerAccess() !== 'owner') return error(403, 'insufficient_access', 'Owner access required');
+      const handoff = this.superHandoffs.find(
+        (entry) => entry.id === decodeURIComponent(m![1]!) && entry.projectKey === this.config.project.key,
+      );
+      return handoff ? ok({ handoff: clone(handoff) }) : error(404, 'not_found', 'Handoff not found');
+    }
+    if ((m = /^\/operator-super\/operations\/([^/]+)$/.exec(rest))) {
+      if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');
+      const operation = this.superOperations.find((entry) => entry.id === m![1]);
+      return operation
+        ? ok({ operation: clone(operation), result: null })
+        : error(404, 'not_found', 'Operation not found');
+    }
     if (rest === '/merge-queue/order') {
       if (method === 'GET') return ok(clone(this.mergeQueueOrder(query.get('repo') ?? '')));
       const parsed = OrderMergeQueueRequest.safeParse(body);

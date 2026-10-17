@@ -1,4 +1,4 @@
-import { TEAM_MESSAGE_PREFIX_RE, splitTeamMessageBatch } from '@projectman/shared';
+import { parseInjectedTeamMessage, splitTeamMessageBatch } from '@projectman/shared';
 import type { ChatItem } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -28,17 +28,18 @@ function asTeamMessage(
   item: Extract<ChatItem, { kind: 'user_text' }>,
   sessionMember: string | null,
 ): TeamMessageItem | null {
-  const match = TEAM_MESSAGE_PREFIX_RE.exec(item.text);
+  const match = parseInjectedTeamMessage(item.text);
   if (!match) return null;
   return {
     id: item.id,
     ts: item.ts,
     kind: 'team_message',
     direction: 'in',
-    from: match[1] ?? '',
-    ...(match.groups?.via ? { via: 'integrator' as const } : {}),
+    from: match.from,
+    ...(match.via ? { via: match.via } : {}),
+    ...(match.actor ? { actor: match.actor } : {}),
     to: sessionMember ? [sessionMember] : [],
-    text: item.text.slice(match[0].length),
+    text: match.body,
   };
 }
 
@@ -64,6 +65,7 @@ export function groupChatItems(items: readonly ChatItem[], sessionMember: string
         direction: 'in',
         from: message.from,
         ...(message.via ? { via: message.via } : {}),
+        ...(message.actor ? { actor: message.actor } : {}),
         to: sessionMember ? [sessionMember] : [],
         text: message.body,
       })),

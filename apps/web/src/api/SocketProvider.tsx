@@ -40,6 +40,7 @@ export function SocketProvider({
     const offReconnect = client.onReconnect(() => {
       void queryClient.invalidateQueries({ queryKey: ['project'] });
       void queryClient.invalidateQueries({ queryKey: ['engines'] });
+      void queryClient.invalidateQueries({ queryKey: ['integrator-keys'] });
     });
     client.start();
     return () => {

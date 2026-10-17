@@ -558,6 +558,7 @@ export class Messaging {
           body,
           session.workItem.type === 'task' ? session.workItem.taskKey : null,
           actor.via,
+          actor,
         )
       : body;
     const running = this.sessions.isRunning(session.id);

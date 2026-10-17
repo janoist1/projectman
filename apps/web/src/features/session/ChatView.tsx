@@ -1,5 +1,8 @@
 import clsx from 'clsx';
 import { useState } from 'react';
+import { useContext } from 'react';
+import { ProjectContext } from '../../app/contexts';
+import { ActorName } from '../../components/ActorName';
 import type { ReactNode } from 'react';
 import type { ChatItem, InboxItem, ResolveInboxRequest } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
@@ -20,7 +23,7 @@ import {
   resolverName,
   shortCommand,
 } from '../../lib/inbox';
-import { actorLabel, nameOf, namesOf, toneFor } from '../../lib/members';
+import { actorLabel, recordActor, nameOf, namesOf, toneFor } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { InboxCard } from '../inbox/InboxCard';
@@ -59,6 +62,23 @@ export interface ChatViewProps {
 }
 
 const LONG_TEXT = 700;
+
+function ChatActor({
+  actor,
+  members,
+  myHandle,
+}: {
+  actor: import('@projectman/shared').Actor;
+  members: MemberIndex;
+  myHandle: string | null;
+}) {
+  const project = useContext(ProjectContext);
+  return project ? (
+    <ActorName actor={actor} members={members} myHandle={myHandle} projectKey={project.key} />
+  ) : (
+    <>{actorLabel(actor, members, myHandle)}</>
+  );
+}
 
 function CollapsibleText({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -259,6 +279,7 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
           >
             <div className={styles.teamHead}>
               <Avatar
+                actor={item.actor}
                 member={sender}
                 handle={item.from}
                 isMe={item.from === myHandle && !item.via}
@@ -266,13 +287,19 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
                 size="sm"
               />
               <span className={styles.teamSender}>
-                {actorLabel(
-                  { kind: 'human', handle: item.from, ...(item.via ? { via: item.via } : {}) },
-                  members,
-                  myHandle,
+                {item.actor ? (
+                  <ChatActor actor={recordActor(item)} members={members} myHandle={myHandle} />
+                ) : (
+                  actorLabel(
+                    { kind: 'human', handle: item.from, ...(item.via ? { via: item.via } : {}) },
+                    members,
+                    myHandle,
+                  )
                 )}
               </span>
-              {item.via ? <span className={styles.meta}>· {t('involvement.behalf')}</span> : null}
+              {item.via && !item.actor ? (
+                <span className={styles.meta}>· {t('involvement.behalf')}</span>
+              ) : null}
               <span className={styles.meta}>
                 {item.via ? '· ' : ''}
                 {t('session.chat.teamMessageIn')} · {formatStamp(block.ts)}

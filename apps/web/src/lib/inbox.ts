@@ -27,7 +27,7 @@ import { formatStamp, formatTime, formatTokens } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
-import { nameOf, namesOf } from './members';
+import { actorLabel, nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
@@ -723,6 +723,7 @@ export function decisionToast(item: InboxItem, optionId: string, myHandle: strin
  */
 export function resolverName(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
   const resolution = item.resolution;
+  if (resolution?.actor) return actorLabel(resolution.actor, members, myHandle);
   if (resolution?.via) return t('involvement.integratorFull');
   const closed = QuestionCloseRule.safeParse(resolution?.rule);
   if (closed.success) {

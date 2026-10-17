@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useRevertConfig } from '../../../api/queries';
 import { useProject, useProjectIndexes } from '../../../app/contexts';
 import { Avatar } from '../../../components/Avatar';
+import { ActorName } from '../../../components/ActorName';
 import { Button } from '../../../components/Button';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
@@ -12,7 +13,7 @@ import { formatStamp } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
 import type { MemberIndex } from '../../../lib/members';
-import { nameOf } from '../../../lib/members';
+import { actorLabel, nameOf } from '../../../lib/members';
 import shared from '../settings.module.css';
 import styles from './HistorySection.module.css';
 import { SettingsSection } from './SettingsSection';
@@ -23,6 +24,7 @@ export function historyAuthorOf(
   members: MemberIndex,
   myHandle: string | null,
 ): string {
+  if (entry.actor) return actorLabel(entry.actor, members, myHandle);
   if (entry.operator) return nameOf(entry.operator, members, myHandle);
   return entry.via ? t('involvement.integratorFull') : entry.author;
 }
@@ -57,10 +59,21 @@ export function HistorySection({
                 <span className={styles.versionMessage}>{entry.message}</span>
                 <span className={clsx(shared.muted, styles.byLine)}>
                   {operatorMember ? <Avatar member={operatorMember} size="xs" /> : null}
-                  {t('settings.history.by', {
-                    author: historyAuthorOf(entry, members, myHandle),
-                    time: formatStamp(entry.at),
-                  })}
+                  {entry.actor ? (
+                    <ActorName
+                      actor={entry.actor}
+                      members={members}
+                      myHandle={myHandle}
+                      projectKey={key}
+                      history
+                    />
+                  ) : (
+                    t('settings.history.by', {
+                      author: historyAuthorOf(entry, members, myHandle),
+                      time: formatStamp(entry.at),
+                    })
+                  )}
+                  {entry.actor ? <time dateTime={entry.at}>{formatStamp(entry.at)}</time> : null}
                   {entry.approvedBy ? (
                     <Chip tone="ok">
                       {t('settings.history.approvedBy', {

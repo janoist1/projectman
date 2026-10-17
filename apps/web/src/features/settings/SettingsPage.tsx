@@ -11,6 +11,7 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { formatAgo } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useMediaQuery } from '../../lib/hooks';
+import { actorLabel } from '../../lib/members';
 import { ConfigProblems } from './ConfigProblems';
 import { DutiesMatrix } from './DutiesMatrix';
 import { issueTarget } from './issueTarget';
@@ -85,10 +86,13 @@ function summary(
       return history[0]
         ? t('settings.summary.history', {
             time: formatAgo(history[0].at),
-            author: history[0].operator
-              ? (config.team.members.find((member) => member.handle === history[0]!.operator)?.displayName ??
-                history[0].operator)
-              : history[0].author,
+            author:
+              history[0].actor?.operatorMode === 'super'
+                ? actorLabel(history[0].actor, new Map(), null)
+                : history[0].operator
+                  ? (config.team.members.find((member) => member.handle === history[0]!.operator)
+                      ?.displayName ?? history[0].operator)
+                  : history[0].author,
           })
         : t('settings.summary.historyEmpty');
   }

@@ -1,4 +1,12 @@
 import {
+  IntegratorAccessKeysResponse,
+  IntegratorAccessKeyResponse,
+  CreatedIntegratorAccessKey,
+  IntegratorKeyAuditPage,
+  SuperAuditPage,
+  ListSuperHandoffsResponse,
+  SuperOperationDetail,
+  SuperHandoffDetail,
   OperatorKnowledgeDocument,
   OperatorPreferenceDocument,
   OperatorApprovalWaiverResponse,
@@ -109,6 +117,32 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  superHandoff: (key: string, id: string) =>
+    apiRequest(routes.superHandoff(key, encodeURIComponent(id)), { schema: SuperHandoffDetail }),
+  superOperation: (key: string, id: string) =>
+    apiRequest(routes.superOperation(key, id), { schema: SuperOperationDetail }),
+  integratorKeys: () => apiRequest(routes.integratorKeys(), { schema: IntegratorAccessKeysResponse }),
+  createIntegratorAccessKey: (mode: 'super' | 'read', expiresInDays: 1 | 7 | 30) =>
+    apiRequest(routes.integratorKeys(), {
+      method: 'POST',
+      body: { mode, expiresInDays },
+      schema: CreatedIntegratorAccessKey,
+    }),
+  revokeIntegratorAccessKey: (id: string) =>
+    apiRequest(routes.integratorAccessKey(id), { method: 'DELETE', schema: IntegratorAccessKeyResponse }),
+  integratorKeyAudit: (before?: number) =>
+    apiRequest(`${routes.integratorKeyAudit()}?limit=50${before === undefined ? '' : `&before=${before}`}`, {
+      schema: IntegratorKeyAuditPage,
+    }),
+  superAudit: (key: string, prefix: string, before: string) =>
+    apiRequest(
+      `${routes.operatorSuperAudit(key)}?limit=50${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ''}${before ? `&before=${encodeURIComponent(before)}` : ''}`,
+      { schema: SuperAuditPage },
+    ),
+  superHandoffs: (key: string, pending = false) =>
+    apiRequest(`${routes.superHandoffs(key)}?limit=50${pending ? '&state=pending' : ''}`, {
+      schema: ListSuperHandoffsResponse,
+    }),
   involvements: (key: string, query = '') =>
     apiRequest(routes.involvements(key) + query, { schema: InvolvementsResponse }),
   integratorKey: () => apiRequest(routes.integratorKey(), { schema: IntegratorKeyResponse }),

@@ -4,10 +4,11 @@ import { Link } from 'react-router';
 import type { MessageReceipt, TeamMessage } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { Avatar } from '../../components/Avatar';
+import { ActorName } from '../../components/ActorName';
 import { Icon } from '../../components/Icon';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
-import { nameOf, namesOf } from '../../lib/members';
+import { actorLabel, recordActor, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import styles from './MessageList.module.css';
 import { attachmentPreview } from './conversations';
@@ -52,7 +53,11 @@ export function MessageList({
         const day = dayKey(message.createdAt);
         const heading = groupByDay && day !== lastDay ? formatDayHeading(message.createdAt) : null;
         lastDay = day;
-        const from = message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
+        const actor = recordActor(message);
+        const from =
+          message.via && !message.actor
+            ? t('involvement.integratorFull')
+            : actorLabel(actor, members, myHandle);
         const to = joinNames(namesOf(message.to, members, myHandle));
         const toMe = myHandle !== null && message.to.includes(myHandle);
         return (
@@ -65,6 +70,7 @@ export function MessageList({
             <li className={clsx(styles.item, toMe && styles.toMe)}>
               <div className={styles.head}>
                 <Avatar
+                  actor={actor}
                   member={members.get(message.from)}
                   handle={message.from}
                   isMe={message.from === myHandle && !message.via}
@@ -85,7 +91,21 @@ export function MessageList({
                     />
                   ))}
                 </span>
-                <span className={styles.names}>{t('messages.fromTo', { from, to })}</span>
+                <span className={styles.names}>
+                  {message.actor?.operatorMode === 'super' ? (
+                    <>
+                      <ActorName
+                        actor={actor}
+                        members={members}
+                        myHandle={myHandle}
+                        projectKey={projectKey}
+                      />{' '}
+                      → {to}
+                    </>
+                  ) : (
+                    t('messages.fromTo', { from, to })
+                  )}
+                </span>
                 <time className={styles.time} dateTime={message.createdAt}>
                   {formatStamp(message.createdAt)}
                 </time>

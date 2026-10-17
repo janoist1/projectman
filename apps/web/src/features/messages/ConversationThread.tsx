@@ -5,6 +5,7 @@ import type { InboxItem, ResolveInboxRequest, RoleView, TeamMessage } from '@pro
 import { useBoard, useConversation, useInbox, useReadTeamMessages, useResolveInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
+import { ActorName } from '../../components/ActorName';
 import { Button, ButtonLink } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { ErrorBanner } from '../../components/ErrorBanner';
@@ -16,7 +17,7 @@ import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { inboxHeading, optionLabel } from '../../lib/inbox';
-import { nameOf, namesOf, roleLabel } from '../../lib/members';
+import { recordActor, nameOf, namesOf, roleLabel } from '../../lib/members';
 import { useIsMobile } from '../../lib/hooks';
 import { InboxCard } from '../inbox/InboxCard';
 import { Composer } from '../session/Composer';
@@ -481,7 +482,7 @@ function MessageBubble({
   onReply: (message: TeamMessage) => void;
   onReplyAll: (message: TeamMessage) => void;
 }) {
-  const mine = message.from === myHandle;
+  const mine = message.from === myHandle && !message.via;
   const unread = !mine && isUnreadBy(message, myHandle);
   // Who else got it: a group message is in every recipient's thread, marked with the others.
   const also = message.to.filter((handle) => handle !== myHandle && handle !== peer);
@@ -499,14 +500,25 @@ function MessageBubble({
       {mine ? null : (
         <span className={styles.avatarSlot}>
           {entry.firstOfRun ? (
-            <Avatar member={members.get(peer)} handle={peer} via={message.via} size="md" />
+            <Avatar
+              actor={recordActor(message)}
+              member={members.get(message.from)}
+              handle={message.from}
+              via={message.via}
+              size="md"
+            />
           ) : null}
         </span>
       )}
       <div className={styles.col}>
         {message.via || (!mine && entry.firstOfRun) ? (
           <span className={styles.sender}>
-            {message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle)}
+            <ActorName
+              actor={recordActor(message)}
+              members={members}
+              myHandle={myHandle}
+              projectKey={projectKey}
+            />
           </span>
         ) : null}
         {entry.showTask && message.taskKey ? (

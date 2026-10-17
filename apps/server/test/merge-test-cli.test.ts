@@ -110,6 +110,48 @@ describe('merge test runner', () => {
     ]);
     expect(log.mock.calls[0]?.[0]).toContain('fallback: test, helper or fixture changed');
   });
+  it('runs only the filtered cloud checks for a cloud-only first-parent diff', () => {
+    const log = output();
+    mockTrees(['scripts/cloud/a.ts', 'deploy/aws/b.tf', 'docs/CLOUD.md']);
+    expect(runMergeTest([])).toBe(0);
+    expect(spawn.mock.calls.filter(([command]) => command === 'npm').map(([, args]) => args)).toEqual([
+      ['run', 'typecheck', '-w', 'apps/server'],
+      [
+        'test',
+        '-w',
+        'apps/server',
+        '--',
+        resolve('apps/server/test/cloud-'),
+        resolve('apps/server/test/deploy-'),
+        resolve('apps/server/test/release-'),
+        resolve('apps/server/test/architecture'),
+        resolve('apps/server/test/merge-test-'),
+      ],
+    ]);
+    expect(spawn.mock.calls.some(([, args]) => args?.[0] === 'ls-tree')).toBe(false);
+    expect(log.mock.calls).toHaveLength(2);
+    expect(log.mock.calls[0]?.[0]).toContain('merge-test scope: cloud');
+    expect(log.mock.calls[0]).toEqual(log.mock.calls.at(-1));
+  });
+  it('stops the cloud branch on its first failed check with its exit code', () => {
+    const log = output();
+    mockTrees(['scripts/cloud/a.ts']);
+    const original = spawn.getMockImplementation()!;
+    spawn.mockImplementation((...args) => (args[0] === 'npm' ? ended('', 5) : original(...args)));
+    expect(runMergeTest([])).toBe(5);
+    expect(spawn.mock.calls.filter(([command]) => command === 'npm')).toHaveLength(1);
+    expect(log.mock.calls[0]).toEqual(log.mock.calls.at(-1));
+  });
+  it('keeps the full run for a cloud diff that also changes shared code', () => {
+    const log = output();
+    mockTrees(['scripts/cloud/a.ts', 'packages/shared/src/a.ts']);
+    expect(runMergeTest([])).toBe(0);
+    expect(spawn.mock.calls.filter(([command]) => command === 'npm').map(([, args]) => args)).toEqual([
+      ['run', 'typecheck'],
+      ['test'],
+    ]);
+    expect(log.mock.calls[0]?.[0]).toContain('merge-test scope: all');
+  });
   it('stops the module branch on its first failed check', () => {
     output();
     mockTrees(['apps/server/src/logging/index.ts']);

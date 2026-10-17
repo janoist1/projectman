@@ -25,6 +25,17 @@ export const ATTACHMENT_TOOL_GROUP: TeamToolGroup = {
         offset: z.number().int().min(0).default(0).describe('How many to skip (for the next page).'),
         limit: z.number().int().min(1).max(200).default(50),
       },
+      external: {
+        access: 'read',
+        async run({ ctx, args, handler }) {
+          const page = await handler.listAttachments(ctx, {
+            taskKey: args.task_key,
+            offset: args.offset,
+            limit: args.limit,
+          });
+          return formatAttachmentPage(args.task_key, page);
+        },
+      },
       async run({ ctx, args, handler }) {
         const page = await handler.listAttachments(ctx, {
           taskKey: args.task_key,

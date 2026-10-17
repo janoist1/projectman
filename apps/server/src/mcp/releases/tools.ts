@@ -67,6 +67,16 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
           .optional()
           .describe('A merge commit of a merged card; default: the head of the default branch.'),
       },
+      external: {
+        access: 'read',
+        description:
+          'It only reads. The preview of a release proposal: it runs the same checks (a release already in progress, the merged cards between the last release and the commit) and answers either the commit and the cards a release would have, or the refusal a proposal would get now, with the same code and message. It records nothing. `commit` is a merge commit of a merged card; default: the head of the default branch.',
+        async run({ ctx, args, handler }) {
+          return formatReleaseCheck(
+            await handler.checkRelease(ctx, args.commit ? { commit: args.commit } : {}),
+          );
+        },
+      },
       async run({ ctx, args, handler }) {
         return formatReleaseCheck(
           await handler.checkRelease(ctx, args.commit ? { commit: args.commit } : {}),

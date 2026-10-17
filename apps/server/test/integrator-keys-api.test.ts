@@ -240,7 +240,8 @@ describe('explicit integrator access key API', () => {
         url,
         headers: { authorization: `Bearer ${created.secret}`, 'x-projectman-client': header },
       });
-      expect(response.statusCode, url).toBe(403);
+      // The auth hook no longer refuses `/mcp` by mode (PM-760); the harness's fake MCP module serves no route.
+      expect(response.statusCode, url).toBe(url.startsWith('/mcp') ? 404 : 403);
       expect(h.app.projectman.auth.integratorAccessKeys(userId)[0]!.lastUsedChannel).toBe(channel);
     }
   });

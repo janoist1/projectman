@@ -17,6 +17,7 @@ import {
   AdmissionTools,
   WatcherTools,
   SessionTools,
+  ExternalTools,
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createStructureService } from './services/structure';
@@ -77,6 +78,7 @@ import type {
   FullTestExecutor,
   MessageAttachmentStorage,
   ScreenshotExecutor,
+  ExternalMcpBackend,
   GithubService,
   MachineProbe,
   MemberMemoryStore,
@@ -2266,6 +2268,33 @@ export function createDomain(opts: DomainOptions) {
         }),
       );
       return canManageInstancePause(accesses);
+    },
+
+    /**
+     * The tools of the integrator's bearer MCP endpoint (PM-760), or undefined when the instance has no integrator
+     * credentials. They share the services of the member tools; only the caller differs: a key, not a session.
+     */
+    externalMcp(): ExternalMcpBackend | undefined {
+      if (!opts.integratorCredentials) return undefined;
+      return new ExternalTools({
+        credentials: opts.integratorCredentials,
+        superOperator,
+        accessFor: (projectKey, email) => this.accessFor(projectKey, email),
+        projects,
+        tasks,
+        timeline,
+        taskWaits,
+        projectFocus,
+        cardQuestions,
+        attachments,
+        messaging,
+        members,
+        projectState,
+        releases,
+        superHandoffs,
+        superAdministration,
+        inbox,
+      }).backend();
     },
 
     /** The user's membership in a project, or null (unknown project or not a member). */

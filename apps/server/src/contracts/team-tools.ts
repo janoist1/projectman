@@ -51,6 +51,19 @@ import type {
   SuperCommand,
   SuperHandoff,
 } from '@projectman/shared';
+import type {
+  Actor,
+  AdministrationTarget,
+  InboxItem,
+  ListSuperHandoffsQuery,
+  SuperDiagnosticsRequest,
+  SuperDiagnosticsResponse,
+  SuperOperateRequest,
+  SuperOperation,
+  SuperOperationDetail,
+} from '@projectman/shared';
+import type { AdministrationStatus, DiagnosticLogEntry } from './administration';
+import type { IntegratorPrincipal } from './integrator-principal';
 import type { CardQuestion, CardWorker } from './context';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
 
@@ -713,10 +726,12 @@ export interface McpModuleOptions {
   /** Maps the token in /mcp/:token to the calling session; null = reject. */
   resolveContext(token: string): ToolContext | null;
   logger: FastifyBaseLogger;
+  /** The bearer endpoint `POST /mcp` of the integrator (PM-760); absent: that route is not served. */
+  external?: ExternalMcpBackend;
 }
 
 export interface McpModule {
-  /** Registers the MCP endpoint at /mcp/:token (localhost only). */
+  /** Registers the MCP endpoints: /mcp/:token (localhost only) and, with `external`, the bearer POST /mcp. */
   registerRoutes(app: FastifyInstance): void;
 }
 
@@ -866,4 +881,112 @@ export interface OperatorToolsHandler {
     loopId: string;
     inboxItemId: string | null;
   }>;
+}
+
+/**
+ * The caller of the bearer MCP (PM-760): an integrator key, one project, no provider session. It is a
+ * separate type on purpose: `ToolContext.sessionId` is never filled with an empty or invented id, and the
+ * member tools that need a session cannot be given this one.
+ */
+export interface ExternalToolContext {
+  principal: IntegratorPrincipal;
+  projectKey: string;
+  /** The actor every change is recorded as: the Operator-bound super actor, or the owner via the key. */
+  actor: Actor;
+  requestId: string;
+}
+
+/** What send_message answers for the integrator: the same delivery report, without the session-bound parts. */
+export interface ExternalSentMessage {
+  messageId: string;
+  deliveredTo: string[];
+  recipients: SentMessageRecipient[];
+}
+
+/**
+ * The domain calls of the tools the bearer MCP serves. Each method is bound to the project of the context
+ * and re-reads the credential's rights; none reads a session, a member's private file or a working directory.
+ */
+export interface ExternalToolsHandler {
+  /** The projects whose owner the key's holder currently is; the only call without a project. */
+  listProjects(
+    principal: IntegratorPrincipal,
+    requestId: string,
+  ): Promise<{ projects: { key: string; name: string }[] }>;
+  listTasks(ctx: ExternalToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
+  getTask(ctx: ExternalToolContext, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail>;
+  createTask(
+    ctx: ExternalToolContext,
+    args: Parameters<TaskToolsHandler['createTask']>[1],
+  ): Promise<{ task: Task }>;
+  updateTask(
+    ctx: ExternalToolContext,
+    args: Parameters<TaskToolsHandler['updateTask']>[1],
+  ): Promise<{ task: Task }>;
+  sendMessage(
+    ctx: ExternalToolContext,
+    args: { to: string[]; text: string; taskKey?: string; kind: MessageKind; despiteWorkers?: boolean },
+  ): Promise<ExternalSentMessage>;
+  listMembers(ctx: ExternalToolContext): Promise<MemberView[]>;
+  getProjectState(
+    ctx: ExternalToolContext,
+    args: { taskKey?: string; messageId?: string },
+  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
+  getOperatorDiagnostics(
+    ctx: ExternalToolContext,
+    args: { taskKey: string; limit?: number },
+  ): Promise<OperatorDiagnostics>;
+  listAttachments(
+    ctx: ExternalToolContext,
+    args: { taskKey: string; offset?: number; limit?: number },
+  ): Promise<AttachmentPage>;
+  checkRelease(ctx: ExternalToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
+  listSuperHandoffs(
+    ctx: ExternalToolContext,
+    query: ListSuperHandoffsQuery,
+  ): Promise<{ handoffs: SuperHandoff[] }>;
+  executeSuperHandoff(
+    ctx: ExternalToolContext,
+    args: { handoffId: string; requestId: string },
+  ): Promise<{ operation: SuperOperation }>;
+  superOperate(
+    ctx: ExternalToolContext,
+    request: SuperOperateRequest,
+  ): Promise<{ operation: SuperOperation }>;
+  getSuperOperation(ctx: ExternalToolContext, operationId: string): Promise<SuperOperationDetail>;
+  querySuperDiagnostics(
+    ctx: ExternalToolContext,
+    request: SuperDiagnosticsRequest,
+  ): Promise<SuperDiagnosticsResponse>;
+  getAdministrationStatus(
+    ctx: ExternalToolContext,
+    target: AdministrationTarget,
+  ): Promise<{ status: AdministrationStatus }>;
+  getAdministrationLogs(
+    ctx: ExternalToolContext,
+    args: { target: AdministrationTarget; limit: number },
+  ): Promise<{ entries: DiagnosticLogEntry[] }>;
+  relayOwnerAnswer(
+    ctx: ExternalToolContext,
+    args: { itemId: string; answer: string },
+  ): Promise<{ item: InboxItem }>;
+}
+
+/** The credential modes of an integrator key (PM-757), as the external tool policy sees them. */
+export type ExternalCredentialMode = IntegratorPrincipal['mode'];
+
+/** What the bearer MCP endpoint needs from the composition: the handler and the execution scope around it. */
+export interface ExternalMcpBackend {
+  handler: ExternalToolsHandler;
+  /** Runs one project-bound tool call inside the key's execution scope and audit (`SuperOperator.execute`). */
+  execute<T>(
+    context: { principal: IntegratorPrincipal; requestId: string },
+    target: { projectKey: string; taskKey?: string; operation: string },
+    run: () => Promise<T>,
+  ): Promise<T>;
+  /** Resolves the call's context: re-checks the key, the holder's ownership and the mode, and binds the actor. */
+  bind(
+    input: { principal: IntegratorPrincipal; projectKey: string; requestId: string },
+    operation: 'read' | 'write',
+  ): Promise<ExternalToolContext>;
 }

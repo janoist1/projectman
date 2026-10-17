@@ -32,6 +32,7 @@ export { createSuperDiagnostics } from './diagnostics';
 export type { SuperDiagnostics } from './diagnostics';
 export { createSuperAdministration } from './facade';
 export type { SuperAdministration } from './facade';
+export { relayOwnerAnswer } from './relay';
 export { createSuperRights } from './rights';
 export type { SuperRights } from './rights';
 
@@ -218,6 +219,59 @@ export function createSuperOperator(deps: {
                 },
               },
             );
+        }
+        return work();
+      });
+    },
+    /**
+     * A call that spans the projects whose owner the key's holder is right now (PM-760: `list_projects`). The
+     * projects are read again inside the scope, a project the mode cannot use is left out, and a super key's
+     * call is audited in each project it names.
+     */
+    async executeOwned<T>(
+      context: IntegratorExecutionContext,
+      operation: string,
+      run: (projects: { key: string; name: string }[]) => Promise<T>,
+    ): Promise<T> {
+      const configs = await Promise.all(deps.projects.summaries().map((p) => deps.projects.config(p.key)));
+      return runIntegratorExecution(scopeFor({ ...context, projectKey: null }), async () => {
+        const email = deps.credentials?.user(context.principal.userId)?.email.trim().toLowerCase();
+        const owned = configs.filter(
+          (config) =>
+            email !== undefined &&
+            config.team.members.some(
+              (member) =>
+                member.kind === 'human' &&
+                member.access === 'owner' &&
+                member.email?.trim().toLowerCase() === email,
+            ) &&
+            superAccessVerdict(config, {
+              mode: context.principal.mode,
+              operation: 'read',
+              ownerMembership: true,
+            }).allowed,
+        );
+        let work = () => run(owned.map((config) => ({ key: config.project.key, name: config.project.name })));
+        if (context.principal.mode === 'super') {
+          for (const config of owned) {
+            const actor = superActorOf(config, {
+              id: context.principal.keyId,
+              prefix: context.principal.prefix,
+            });
+            if (!actor) continue;
+            const next = work;
+            work = () =>
+              deps.audit.runExternal(
+                { projectKey: config.project.key, actor, requestId: context.requestId },
+                operation,
+                next,
+                {
+                  committed: async () => {
+                    throw new Error('the operation outcome is unknown');
+                  },
+                },
+              );
+          }
         }
         return work();
       });

@@ -135,7 +135,8 @@ rm -f login.json headers.txt cookies.txt
 If HTTPS login fails origin validation or lacks Secure, upgrade Tailscale and recheck.
 An additional loopback proxy must preserve Host, overwrite `X-Forwarded-Proto: https`,
 retain forwarding/identity headers, and support websocket upgrades. Do not weaken the
-origin check. Deny `/hooks` and `/mcp` at that proxy where possible.
+origin check. Deny `/hooks` and `/mcp/` (with the slash: the member door `/mcp/<token>`) at that
+proxy where possible; the bare `/mcp` is the integrator's bearer endpoint (see "Integrator access").
 
 ## Client address behind a public entrance (PM-211)
 
@@ -167,7 +168,7 @@ Behind `tailscale serve` there is no such header: leave the variable unset.
 > is no longer the public entrance. The cloud board's Cloudflare side is made by
 > `npm run cloud -- edge`, `publish` and `check` ([AWS.md](AWS.md), "Cloudflare" and
 > "Verification"). The security conditions below stay binding there: the Access application before the
-> hostname, the exact e-mail list, no `/hooks` or `/mcp` through the tunnel, no edge caching or
+> hostname, the exact e-mail list, no `/hooks` or `/mcp/` through the tunnel, no edge caching or
 > rewriting, no framing. The steps below describe the old Mac setup and remain as the reasoning for it.
 
 The owner's live instance (the Mac, `127.0.0.1:4800`) is reached publicly at
@@ -241,7 +242,8 @@ again when you need it.
 Copy [config.example.yml](../deploy/cloudflare/config.example.yml) to
 `~/.cloudflared/config.yml` and fill in the tunnel UUID, the credentials file's absolute path,
 the team name and the AUD tag. It has one hostname rule (`chopper.istvan.io` to
-`http://127.0.0.1:4800`), in front of it `404` rules for `^/hooks` and `^/mcp`, and a final
+`http://127.0.0.1:4800`), in front of it `404` rules for `^/hooks` and `^/mcp/` (the slash keeps the
+integrator's bare `/mcp` open, PM-760), and a final
 catch-all `404`. Its `originRequest.access` block makes `cloudflared` verify the Access token
 before it passes a request on. Do not add `httpHostHeader` or any other Host rewrite (the server
 computes the expected origin from the Host header, and with a loopback Host a remote request
@@ -730,3 +732,66 @@ set temporary workers, or create or accept invitations; listing and revoking inv
 allowed. Such a request fails with 403 `owner_login_required` and `details.category`
 (`approval_rules`, `owner_settings`, `members`, `invitations`), and nothing is written. Every key operation remains attributed to
 the integrator (`via: integrator`), even after revocation.
+
+## The integrator's MCP endpoint (PM-760)
+
+An MCP client (an AI tool working for the owner) can use the same keys over MCP at
+`POST /mcp`, with no login, no session and no running engine:
+
+- Every HTTP request carries `Authorization: Bearer <key>` and is checked afresh: expiry, revoke and the
+  owner's membership take effect on the next request. A missing, wrong, expired or revoked key is an
+  HTTP `401` with `integrator_key_invalid` (never a `404` and never a `200` with an error text); a
+  connection that is neither HTTPS nor local is `integrator_https_required`. `GET` and `DELETE` are
+  `405` with `Allow: POST`. There is no OAuth flow and no `Mcp-Session-Id`; the login cookie is not a
+  credential here.
+- Every project tool takes a required `project_key` (and a card key where it works on a card), and
+  works only in projects where the key's holder is an owner right now. `list_projects` lists them.
+- `tools/list` follows the key's mode. A `super` key gets the shared project tools and the super tools
+  (hand-offs, `super_operate`, diagnostics, administration status and logs, `relay_owner_answer`); a
+  `read` key gets the read tools only; a `legacy` key gets the shared project tools and no super tool. A
+  tool called directly that the mode does not allow is refused (`integrator_not_allowed`,
+  `integrator_read_only`), and the member's session, decision and file tools are never offered.
+  `super` and `read` keys use the same scope as over REST, and a `super` key's calls are audited as
+  `mcp_<tool>`.
+- The member MCP, `/mcp/<token>`, is unchanged: for the agents on the same machine only.
+
+Client configuration (no secret in it; the key is read from the file above when the client starts):
+
+```json
+{
+  "mcpServers": {
+    "projectman": {
+      "type": "http",
+      "url": "https://projectman.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${PROJECTMAN_INTEGRATOR_KEY}",
+        "CF-Access-Client-Id": "${PROJECTMAN_ACCESS_CLIENT_ID}",
+        "CF-Access-Client-Secret": "${PROJECTMAN_ACCESS_CLIENT_SECRET}"
+      }
+    }
+  }
+}
+```
+
+Export the three variables from the files in `~/.config/projectman/` (mode 600) in the shell that starts
+the client. Locally the URL is `http://localhost:4800/mcp` and the two `CF-Access-*` headers are left out.
+
+Behind a proxy or the Cloudflare tunnel the entrance must pass `/mcp` and refuse `/mcp/` and `/hooks`:
+
+```yaml
+ingress:
+  - hostname: projectman.example.com
+    path: ^/hooks
+    service: http_status:404
+  - hostname: projectman.example.com
+    path: ^/mcp/ # the member door; the slash keeps the bare /mcp open
+    service: http_status:404
+  - hostname: projectman.example.com
+    service: http://127.0.0.1:4800
+  - service: http_status:404
+```
+
+A reverse proxy does the same: `location = /mcp` goes to the service with `Host` kept and
+`X-Forwarded-Proto: https` set; `location ^~ /mcp/` and `location ^~ /hooks` answer `404`. The check
+script (`deploy/cloudflare/check.sh`) still expects `/mcp/x` and `/hooks/x` to be `404`; a
+`POST /mcp` without a key must be `401` with `integrator_key_invalid`.

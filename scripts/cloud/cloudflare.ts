@@ -345,7 +345,8 @@ const ORIGIN = 'http://127.0.0.1:4700';
  * The tunnel's ingress. Private: the whole main hostname demands the Access audience of the main and the engine
  * application (`audTags` = both). Public (PM-672): only `/engine` demands the engine application's audience
  * (`audTags` = the engine one alone); the rest of the hostname reaches the board's own login with no audience
- * requirement. Both: the internal `/hooks` and `/mcp` answer 404, nothing overrides the Host header.
+ * requirement. Both: the internal `/hooks` and the member door `/mcp/<token>` answer 404, nothing overrides the
+ * Host header. The bare `/mcp` is the integrator's bearer endpoint (PM-760): it takes the same way in as `/api`.
  */
 export function ingressRules(config: CloudConfig, teamName: string, audTags: string[]): Json[] {
   const { hostname, feedbackHostname } = config.cloudflare;
@@ -358,7 +359,8 @@ export function ingressRules(config: CloudConfig, teamName: string, audTags: str
         ]
       : []),
     { hostname, path: '^/hooks', service: 'http_status:404' },
-    { hostname, path: '^/mcp', service: 'http_status:404' },
+    // `/mcp/<token>` is the member door; the bare `/mcp` is the integrator's bearer endpoint (PM-760) and goes on.
+    { hostname, path: '^/mcp/', service: 'http_status:404' },
     ...(isPublicBoard(config)
       ? [
           { hostname, path: '^/engine(/|$)', service: ORIGIN, originRequest: access },

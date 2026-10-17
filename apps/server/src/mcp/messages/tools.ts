@@ -76,6 +76,22 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
               'read, nothing is sent.',
           ),
       },
+      external: {
+        access: 'write',
+        // The integrator has no session folder to attach from and is not the PM that presents signals.
+        omit: ['attachments', 'signal_id', 'signal_actionable', 'signal_ids', 'actionable_signal_ids'],
+        async run({ ctx, args, handler }) {
+          const to = unique(args.to);
+          const result = await handler.sendMessage(ctx, {
+            to,
+            kind: args.kind,
+            text: args.text,
+            ...(args.despite_workers !== undefined ? { despiteWorkers: args.despite_workers } : {}),
+            ...(args.task_key ? { taskKey: args.task_key } : {}),
+          });
+          return formatSentMessage({ ...result, requested: to, taskKey: args.task_key ?? null });
+        },
+      },
       async run({ ctx, args, handler }) {
         // A message to oneself would be typed back into the caller's own session.
         const to = unique(args.to).filter((handle) => handle !== ctx.member);

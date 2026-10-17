@@ -79,8 +79,12 @@ const PUBLIC_ROUTES = new Set([
 const MAX_FAILED_LOGINS = 10;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
-/** The prefixes whose routes the edge sets apart by the raw path: the API (origin check) and the engine's doors. */
-const LITERAL_PREFIXES = ['/api/', '/engine/'];
+/**
+ * The prefixes whose routes the edge sets apart by the raw path: the API (origin check), the engine's doors and the
+ * internal doors of the agents (`/hooks/`, the member MCP `/mcp/<token>`), which the tunnel answers 404 by the raw
+ * path; the bare `/mcp` of the integrator (PM-760) is no prefix of them.
+ */
+const LITERAL_PREFIXES = ['/api/', '/engine/', '/hooks/', '/mcp/'];
 
 /** True when the matched route sits under one of the literal prefixes but the request did not spell it that way. */
 function spelledDifferently(request: FastifyRequest): boolean {
@@ -205,11 +209,10 @@ export function registerAuth(
         return reply
           .code(401)
           .send(apiError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired'));
-      // External bearer MCP obtains its own operation policy in PM-760.
+      // The bearer MCP endpoint (`/mcp`) filters its tools by the key's mode itself (PM-760).
       if (
         principal.mode !== 'legacy' &&
-        (path === '/mcp' ||
-          path.startsWith('/api/auth/') ||
+        (path.startsWith('/api/auth/') ||
           path === routes.me() ||
           path === routes.logout() ||
           path === '/api/setup')

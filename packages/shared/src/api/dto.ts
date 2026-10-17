@@ -24,7 +24,7 @@ import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
 import { OperatorConfigPatch } from '../config/edit';
 import { ERROR_CODES } from './error-codes';
 import { TaskWait } from '../config/task-wait';
-import { TimelineEvent } from '../domain/event';
+import { Actor, TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem, InboxOption } from '../domain/inbox';
 import { WorkOutage } from '../domain/outage';
@@ -1192,6 +1192,10 @@ export const ConfigVersionEntry = z.object({
   request: z.string().optional(),
   approvedBy: MemberHandle.optional(),
   via: z.literal('integrator').optional(),
+  /** The full origin of a change made in the Operator's super mode (PM-757), read back from the commit trailers. */
+  actor: Actor.optional(),
+  /** The audit entry that began this super-mode commit (PM-757): how a lost response is settled from the commit. */
+  superAuditId: z.string().optional(),
   version: z.string(),
   message: z.string(),
   author: z.string(),

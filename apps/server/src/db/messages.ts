@@ -1,7 +1,15 @@
 import type { Actor, TeamMessage } from '@projectman/shared';
-import { CardVersion, MessageAttachmentRef, MessageKind, MessageSubject } from '@projectman/shared';
+import {
+  actorWithOriginMeta,
+  CardVersion,
+  hasSuperOrigin,
+  MessageAttachmentRef,
+  MessageKind,
+  MessageSubject,
+} from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
+import { originMetaJson } from './actor-meta';
 import { parseJson, toJson } from './json';
 
 interface MessageRow {
@@ -20,6 +28,8 @@ interface MessageRow {
   operator_request: string | null;
   operator_signal: string | null;
   via: 'integrator' | null;
+  /** The super mode's origin (PM-757); NULL on every older message. */
+  actor_meta: string | null;
   origin: string | null;
   kind: string | null;
   version: string | null;
@@ -37,6 +47,19 @@ const attachmentsOf = (json: string | null): MessageAttachmentRef[] | undefined 
   if (!json) return undefined;
   const parsed = MessageAttachmentRef.array().safeParse(parseJson(json, null));
   return parsed.success && parsed.data.length > 0 ? parsed.data : undefined;
+};
+
+/**
+ * The full origin of a message sent in the super mode (PM-757), from the stored meta and the old columns
+ * (`from_handle`, `via`); undefined for every other message, and for a row whose meta disagrees with them.
+ */
+const superActorOf = (r: MessageRow): Actor | undefined => {
+  if (!r.actor_meta) return undefined;
+  const actor = actorWithOriginMeta(
+    { kind: 'ai', handle: r.from_handle, ...(r.via ? { via: r.via } : {}) },
+    parseJson(r.actor_meta, null),
+  );
+  return hasSuperOrigin(actor) ? actor : undefined;
 };
 
 const toMessage = (r: MessageRow): TeamMessage => ({
@@ -58,6 +81,7 @@ const toMessage = (r: MessageRow): TeamMessage => ({
   ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
   ...(attachmentsOf(r.attachments) ? { attachments: attachmentsOf(r.attachments) } : {}),
   ...(r.via ? { via: r.via } : {}),
+  ...(superActorOf(r) ? { actor: superActorOf(r)! } : {}),
   ...(r.origin
     ? { origin: parseJson<NonNullable<TeamMessage['origin']>>(r.origin, { kind: 'note', eventId: '' }) }
     : {}),
@@ -82,8 +106,8 @@ export function createMessageRepository(db: Db) {
        AND instr(body, ?) > 0 LIMIT 1`,
     ),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     setAttachments: db.prepare('UPDATE team_messages SET attachments = ? WHERE id = ?'),
     countUnread: db.prepare(
@@ -166,6 +190,7 @@ export function createMessageRepository(db: Db) {
         m.operatorRequest ?? null,
         m.operatorSignal ?? null,
         m.attachments?.length ? toJson(m.attachments) : null,
+        m.actor ? originMetaJson(m.actor) : null,
       );
     },
     /**

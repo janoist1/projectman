@@ -20,7 +20,10 @@ export function registerRoleRoutes(app: FastifyInstance, domain: ApiDomain): voi
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     const body = parseBody(CustomRoleRequest, request.body);
-    const role = await domain.roles.create(key, body, { actor: actorOf(access), author: authorOf(request) });
+    const role = await domain.roles.create(key, body, {
+      actor: actorOf(access),
+      author: authorOf(request, access),
+    });
     return reply.code(201).send(role);
   });
 
@@ -29,14 +32,17 @@ export function registerRoleRoutes(app: FastifyInstance, domain: ApiDomain): voi
     const { key, roleId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     const body = parseBody(CustomRoleRequest, request.body);
-    return domain.roles.update(key, roleId, body, { actor: actorOf(access), author: authorOf(request) });
+    return domain.roles.update(key, roleId, body, {
+      actor: actorOf(access),
+      author: authorOf(request, access),
+    });
   });
 
   /** Removes a custom role; refused (409 role_in_use) while anyone holds it. */
   app.delete<RoleParams>(routes.role(':key', ':roleId'), async (request, reply) => {
     const { key, roleId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
-    await domain.roles.remove(key, roleId, { actor: actorOf(access), author: authorOf(request) });
+    await domain.roles.remove(key, roleId, { actor: actorOf(access), author: authorOf(request, access) });
     return reply.code(204).send();
   });
 }

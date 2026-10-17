@@ -1,6 +1,8 @@
 import type { Statement } from 'better-sqlite3';
+import { actorWithOriginMeta } from '@projectman/shared';
 import type { InvolvementQuery, TimelineEvent } from '@projectman/shared';
 import type { Db } from './database';
+import { originMetaJson } from './actor-meta';
 import { parseJson, toJson } from './json';
 
 interface TimelineRow {
@@ -12,6 +14,8 @@ interface TimelineRow {
   actor_kind: string;
   actor_handle: string | null;
   actor_via: 'integrator' | null;
+  /** The super mode's origin (PM-757); NULL on every older row. */
+  actor_meta: string | null;
   type: string;
   data: string;
   created_at: string;
@@ -22,11 +26,14 @@ const toEvent = (r: TimelineRow): TimelineEvent => ({
   projectKey: r.project_key,
   taskKey: r.task_key,
   sessionId: r.session_id,
-  actor: {
-    kind: r.actor_kind as TimelineEvent['actor']['kind'],
-    handle: r.actor_handle,
-    ...(r.actor_via ? { via: r.actor_via } : {}),
-  },
+  actor: actorWithOriginMeta(
+    {
+      kind: r.actor_kind as TimelineEvent['actor']['kind'],
+      handle: r.actor_handle,
+      ...(r.actor_via ? { via: r.actor_via } : {}),
+    },
+    r.actor_meta ? parseJson(r.actor_meta, null) : null,
+  ),
   type: r.type as TimelineEvent['type'],
   data: parseJson<Record<string, unknown>>(r.data, {}),
   createdAt: r.created_at,
@@ -37,8 +44,8 @@ export function createTimelineRepository(db: Db) {
   const ofTypes = new Map<number, Statement>();
   const statements = {
     insert: db.prepare(
-      `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at, actor_via)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at, actor_via, actor_meta)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     forMember: db.prepare(
       `SELECT * FROM timeline_events WHERE project_key = ? AND
@@ -159,6 +166,7 @@ export function createTimelineRepository(db: Db) {
         toJson(e.data),
         e.createdAt,
         e.actor.via ?? null,
+        originMetaJson(e.actor),
       );
     },
     forMember(projectKey: string, handle: string, limit = 30): TimelineEvent[] {

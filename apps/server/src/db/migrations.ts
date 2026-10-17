@@ -1422,4 +1422,31 @@ migrations.push({
     );
     CREATE INDEX release_deployment_requests_release ON release_deployment_requests(release_id);`,
 });
+migrations.push({
+  version: 76,
+  name: 'super mode actor origin and operation audit',
+  // PM-757: the Operator's super mode keeps its origin (operatorMode, credential id and prefix) in a nullable
+  // JSON column next to the old actor columns, which stay as they are; every old row has NULL. The audit is
+  // append-only and holds only an operation's name and target, never a request or a raw error.
+  sql: `ALTER TABLE timeline_events ADD COLUMN actor_meta TEXT;
+    ALTER TABLE team_messages ADD COLUMN actor_meta TEXT;
+    CREATE TABLE super_operation_audit (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE,
+      project_key TEXT NOT NULL,
+      task_key TEXT,
+      key_id TEXT NOT NULL,
+      prefix TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      handoff_id TEXT,
+      operation TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK (outcome IN ('started','succeeded','refused','failed','unknown')),
+      error_code TEXT,
+      settles_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX super_operation_audit_settles ON super_operation_audit(settles_id);
+    CREATE INDEX super_operation_audit_project ON super_operation_audit(project_key, seq);
+    CREATE INDEX super_operation_audit_prefix ON super_operation_audit(project_key, prefix, seq);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

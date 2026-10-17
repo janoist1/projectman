@@ -4,7 +4,9 @@ import {
   TASK_CREATE_MIN_ACCESS,
   OperatorApprovalWaiverRequest,
   canReadOperatorKnowledge,
+  SuperAuditQuery,
 } from '@projectman/shared';
+import type { SuperAuditPage } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
 import { requireAccess, actorOf, authorOf } from './context';
@@ -22,8 +24,16 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
     const input = parseBody(OperatorApprovalWaiverRequest, request.body);
     return domain.projects.setOperatorApprovalWaiver(key, input, {
       actor: actorOf(access),
-      author: authorOf(request),
+      author: authorOf(request, access),
     });
+  });
+  /** The super mode's audit (PM-757): the owner's own login reads it by token prefix; never a key. */
+  app.get<ProjectParams>(routes.operatorSuperAudit(':key'), async (request): Promise<SuperAuditPage> => {
+    const key = request.params.key;
+    const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+    if (access.via)
+      throw forbidden('insufficient_access', 'the audit is for the owner using their own login');
+    return domain.superAudit.list(key, parseBody(SuperAuditQuery, request.query));
   });
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);

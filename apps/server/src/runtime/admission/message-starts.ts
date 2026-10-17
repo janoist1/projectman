@@ -1,4 +1,5 @@
 import {
+  hasSuperOrigin,
   isOpenTask,
   isOperator,
   memberOf,
@@ -318,11 +319,14 @@ export class MessageStarts {
                 : origin?.kind === 'answer'
                   ? 'answer'
                   : 'message',
-          by: {
-            kind: memberOf(config, first.from)?.kind ?? 'system',
-            handle: first.from,
-            ...(first.via ? { via: first.via } : {}),
-          },
+          by:
+            hasSuperOrigin(first.actor) && first.actor.handle === first.from
+              ? first.actor
+              : {
+                  kind: memberOf(config, first.from)?.kind ?? 'system',
+                  handle: first.from,
+                  ...(first.via ? { via: first.via } : {}),
+                },
           messageId: first.id,
           ...(origin?.kind === 'note' ? { eventId: origin.eventId } : {}),
           ...(origin?.kind === 'label'

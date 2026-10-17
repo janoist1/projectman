@@ -48,6 +48,7 @@ import type {
   ResolveInboxRequest,
   ScreenedQuestionsResponse,
   Session,
+  SuperActor,
   TimelineEventData,
   TaskStartWaiting,
   WorkItemRef,
@@ -67,7 +68,7 @@ import type { InboxPermissionPolicy, QuestionGroupAnswerer } from './ports';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
-import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from '../../kernel';
+import { SYSTEM_ACTOR, aiActor, attributedActor, excerpt, humanActor, newId, KeyedMutex } from '../../kernel';
 
 /** How many screened questions the screened-questions list returns (PM-558). */
 const SCREENED_QUESTIONS_LIMIT = 20;
@@ -147,6 +148,8 @@ function withScreening(
 
 export interface Resolver {
   via?: 'integrator';
+  /** The Operator's super origin of a step the owner's token made (PM-757); `handle` stays the owner. */
+  superActor?: SuperActor;
   handle: string;
   access: HumanAccess;
 }
@@ -774,6 +777,7 @@ export class InboxService {
       at,
       note,
       ...(by.via ? { via: by.via } : {}),
+      ...(by.superActor ? { actor: by.superActor } : {}),
     };
     const group = this.ctx.repos.inbox.groupOf(id);
     if (group) {
@@ -794,7 +798,7 @@ export class InboxService {
             projectKey,
             taskKey: row.taskKey,
             sessionId: row.sessionId,
-            actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
+            actor: attributedActor(by),
             type: 'question_answered',
             data: { inboxItemId: row.id, answer: answerText(resolved), groupPrimaryItemId: id },
           });
@@ -834,7 +838,7 @@ export class InboxService {
           projectKey,
           taskKey: resolved.taskKey,
           sessionId: resolved.sessionId,
-          actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
+          actor: attributedActor(by),
           type: 'permission_resolved',
           data: {
             inboxItemId: id,
@@ -847,7 +851,7 @@ export class InboxService {
           projectKey,
           taskKey: resolved.taskKey,
           sessionId: resolved.sessionId,
-          actor: humanActor(by.handle),
+          actor: by.superActor ? attributedActor(by) : humanActor(by.handle),
           type: 'question_answered',
           data: { inboxItemId: id, answer: answerText(resolved) },
         });

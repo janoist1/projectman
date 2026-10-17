@@ -8,6 +8,7 @@ export {
   requireAiMember,
   findHumanByEmail,
   projectAccessFor,
+  bindSuperPrincipal,
 } from './access';
 export type { ProjectAccess, AccessRefusal } from './access';
 export { defaultMemberHandle, defaultMemberName } from './naming';

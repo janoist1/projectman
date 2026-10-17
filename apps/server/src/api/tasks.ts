@@ -157,7 +157,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
       despitePrerequisites: body.despitePrerequisites,
       startSetters: true,
       actor: actorOf(access),
-      author: authorOf(request),
+      author: authorOf(request, access),
       sponsor: await domain.members.sponsorFor(access),
     });
     return detailFor(access, key, taskKey);

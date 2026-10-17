@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
+import type { IntegratorPrincipal } from '../contracts';
 import type { Repositories, UserRecord } from '../db';
 import { conflict } from '../kernel';
 import { newId } from '../kernel';
@@ -62,9 +63,28 @@ export class AuthService {
   }
 
   resolveIntegratorKey(secret: string): AuthUser | null {
-    const id = this.repos.integratorKeys.resolve(tokenId(secret), this.now().toISOString());
-    if (!id || !this.isHostOwner(id) || !this.hasPassword(id)) return null;
-    return this.repos.users.get(id);
+    return this.resolveIntegratorPrincipal(secret)?.user ?? null;
+  }
+
+  /**
+   * The user behind an integrator key with the principal that names the key (PM-757). Every key issued so
+   * far is `legacy`: the owner's actor through the integrator key. Only this check makes a principal.
+   */
+  resolveIntegratorPrincipal(secret: string): { user: AuthUser; principal: IntegratorPrincipal } | null {
+    const key = this.repos.integratorKeys.resolveKey(tokenId(secret), this.now().toISOString());
+    if (!key || !this.isHostOwner(key.userId) || !this.hasPassword(key.userId)) return null;
+    const user = this.repos.users.get(key.userId);
+    if (!user) return null;
+    return {
+      user,
+      principal: {
+        kind: 'integrator',
+        userId: key.userId,
+        keyId: key.id,
+        prefix: key.prefix,
+        mode: 'legacy',
+      },
+    };
   }
 
   /**

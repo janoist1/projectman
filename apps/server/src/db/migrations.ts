@@ -1465,4 +1465,20 @@ migrations.push({
     INSERT INTO team_message_pending (message_id, project_key, handle, seq)
       ${PENDING_MESSAGE_RECIPIENTS};`,
 });
+migrations.push({
+  version: 78,
+  name: 'task scheduling read indexes',
+  // PM-770: the narrow sets the scheduler reads by (`TaskSchedulingQuery`): the cards a free developer
+  // may pull, the open cards, and the closed cards whose worktree may be swept. Each stays small while
+  // the closed history grows. Additive: nothing is rewritten.
+  sql: `CREATE INDEX tasks_scheduling_pull
+      ON tasks(project_key, stage_id, priority, seq)
+      WHERE kind = 'task' AND status = 'active' AND assignee IS NULL;
+    CREATE INDEX tasks_scheduling_open
+      ON tasks(project_key, seq)
+      WHERE status NOT IN ('done', 'cancelled');
+    CREATE INDEX tasks_scheduling_closed
+      ON tasks(project_key, seq)
+      WHERE kind = 'task' AND status IN ('done', 'cancelled') AND closed_at IS NOT NULL;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -49,7 +49,7 @@ import type {
   TaskKind,
   TaskRelation,
 } from '@projectman/shared';
-import type { PullRequestInfo } from '../../contracts';
+import type { PullRequestInfo, TaskSchedulingQuery, TaskSchedulingReader } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { requireHuman } from '../members';
 import { isoNow } from '../base';
@@ -130,7 +130,7 @@ export interface TaskUpdate {
  * labels (TaskLabels) and stage moves (TaskMoves) are separate parts. Every action is
  * attributed to an Actor in the timeline.
  */
-export class TaskService {
+export class TaskService implements TaskSchedulingReader {
   registerMergeGate(gate: MergeGate): void {
     this.moves.registerMergeGate(gate);
   }
@@ -201,6 +201,14 @@ export class TaskService {
 
   list(projectKey: string): Task[] {
     return this.store.list(projectKey);
+  }
+
+  /**
+   * The stored cards a scheduling query selects (PM-770): no project-wide list and no board view, so
+   * none of the derived fields. A caller that needs them for a card reads it with `get`.
+   */
+  readSchedulingTasks(projectKey: string, query: TaskSchedulingQuery): Task[] {
+    return this.ctx.repos.tasks.readScheduling(projectKey, query);
   }
 
   get(projectKey: string, taskKey: string): Task {

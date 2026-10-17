@@ -820,9 +820,21 @@ export const SuperOperationQuestionPayload = z.strictObject({
 });
 export type SuperOperationQuestionPayload = z.infer<typeof SuperOperationQuestionPayload>;
 
-/** True when the answer to this question may be relayed by the integrator (an explicit information question only). */
-export function isRelayableQuestion(payload: Pick<QuestionPayload, 'responsePurpose' | 'superOperation'>) {
-  return payload.responsePurpose === 'information' && !payload.superOperation;
+/**
+ * True when the answer to this question may be relayed by the integrator: an explicit information question
+ * only. A question that asks for an approval label, or that the Operator made a todo of, is an owner's
+ * action whatever its declared purpose, and so is one bound to a super operation.
+ */
+export function isRelayableQuestion(
+  payload: Pick<QuestionPayload, 'responsePurpose' | 'superOperation' | 'approvalLabel' | 'screening'>,
+) {
+  return (
+    payload.responsePurpose === 'information' &&
+    !payload.superOperation &&
+    !payload.approvalLabel &&
+    !payload.screening?.todo &&
+    payload.screening?.outcome !== 'todo'
+  );
 }
 
 export const QuestionPayload = z.object({

@@ -720,11 +720,36 @@ export class InboxService {
     let relayed = false;
     if (by.superActor && item.kind === 'question') {
       const payload = questionPayloadOf(item);
-      if (!payload || !isRelayableQuestion(payload))
-        throw forbidden(
+      const refuse = () =>
+        forbidden(
           'super_relay_refused',
           'The integrator may relay an answer only to a question that asks for information',
         );
+      if (
+        !payload ||
+        !isRelayableQuestion(payload) ||
+        item.options.some(
+          (option) => option.id === TODO_DONE_OPTION.id || option.id === TODO_CANNOT_OPTION.id,
+        )
+      )
+        throw refuse();
+      // An answer to a question group closes every pending member, so each one must be relayable as well.
+      const relayGroup = this.ctx.repos.inbox.groupOf(id);
+      if (relayGroup) {
+        for (const memberId of relayGroup.itemIds) {
+          const member = this.ctx.repos.inbox.get(memberId);
+          if (!member || !isPendingQuestion(member)) continue;
+          const memberPayload = questionPayloadOf(member);
+          if (
+            !memberPayload ||
+            !isRelayableQuestion(memberPayload) ||
+            member.options.some(
+              (option) => option.id === TODO_DONE_OPTION.id || option.id === TODO_CANNOT_OPTION.id,
+            )
+          )
+            throw refuse();
+        }
+      }
       relayed = true;
     }
     const operator = operatorApprovalOf(item);

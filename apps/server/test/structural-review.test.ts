@@ -206,6 +206,69 @@ describe('structured pattern evidence', () => {
 });
 
 describe('owner-approved occasional review', () => {
+  it('rechecks changed evidence when the owner actually approves', async () => {
+    await setup();
+    const { ctx, signal, b } = await detected();
+    const proposal = await h.domain.teamTools.requestStructuralReview(ctx, {
+      signalId: signal.id,
+      note: 'Review.',
+    });
+    h.repos.db
+      .prepare("DELETE FROM timeline_events WHERE task_key = ? AND type = 'task_full_test'")
+      .run(b.key);
+    await expect(
+      h.domain.inbox.resolve(
+        'AR',
+        proposal.inbox_item_id!,
+        { optionId: 'approve' },
+        { handle: 'owner', access: 'owner' },
+      ),
+    ).rejects.toThrow('signal');
+    expect(h.domain.sessions.list('AR', { member: 'planner' })).toEqual([]);
+  });
+
+  it.each(['timeline', 'expiry', 'config'] as const)(
+    'rechecks %s at assertStart after the review request awaits',
+    async (change) => {
+      await setup();
+      const { ctx, signal, b } = await detected();
+      if (change === 'expiry') now = new Date(now.getTime() + 7 * 24 * 60 * 60_000 - 1);
+      const proposal = await h.domain.teamTools.requestStructuralReview(ctx, {
+        signalId: signal.id,
+        note: 'Review.',
+      });
+      await h.domain.inbox.resolve(
+        'AR',
+        proposal.inbox_item_id!,
+        { optionId: 'approve' },
+        { handle: 'owner', access: 'owner' },
+      );
+      await flush();
+      const original = OperatorTools.prototype.startMember;
+      vi.spyOn(OperatorTools.prototype, 'startMember').mockImplementationOnce(async function (
+        this: OperatorTools,
+        ctx,
+        args,
+      ) {
+        await Promise.resolve();
+        if (change === 'timeline')
+          h.repos.db
+            .prepare("DELETE FROM timeline_events WHERE task_key = ? AND type = 'task_full_test'")
+            .run(b.key);
+        else if (change === 'expiry') now = new Date(now.getTime() + 1);
+        else
+          (config().team.members.find((member) => member.handle === 'planner') as AiMemberConfig).onLeave =
+            true;
+        return original.call(this, ctx, args);
+      });
+      await expect(
+        h.domain.teamTools.requestStructuralReview(ctx, { signalId: signal.id, note: 'Review.' }),
+      ).rejects.toThrow('operator_signal_closed');
+      expect(h.domain.sessions.list('AR', { member: 'planner' })).toEqual([]);
+      expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+    },
+  );
+
   it('keeps an approved signal open after a failed start so the PM can retry', async () => {
     await setup();
     const { ctx, signal } = await detected();

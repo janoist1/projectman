@@ -7,11 +7,15 @@ import { performance } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
 import { LOCAL_ENGINE_ID, MessageKind, TaskDeveloperLevel } from '@projectman/shared';
 import type { ProjectConfig, Task, TeamMessage, TimelineEvent } from '@projectman/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { migrate, migrations } from '../src/db';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
+import { StructuralPatterns } from '../src/services/operator/structural-patterns';
+import { conflict } from '../src/kernel';
+import * as kernel from '../src/kernel';
+import { TIMELINE_SQL } from '../src/db/timeline';
 
 // PM-733: keep this generator and protocol unchanged across all three optimization slices.
 // Full measurements are opt-in, in the heavy queue, never part of the normal merge suite:
@@ -27,6 +31,8 @@ const PENDING_ONLY = process.env.PROJECTMAN_PERIODIC_PENDING_ONLY === '1';
 const RUN_STARTUP = process.env.PROJECTMAN_PERIODIC_STARTUP === '1';
 // PM-770: a comma-separated subset of the paths (`thirty,sixty`), a separately named report like the pending one.
 const ONLY_PATHS = process.env.PROJECTMAN_PERIODIC_PATHS?.split(',').filter(Boolean);
+const RUN_STRUCTURAL = process.env.PROJECTMAN_PERIODIC_STRUCTURAL === '1';
+const STRUCTURAL_BASELINE = '550d38a914265e3177c5c100484b7fea1130cbb2';
 
 function random(seed = 733) {
   let state = seed;
@@ -226,6 +232,11 @@ type Counts = {
   timelineRows: number;
   decodedMessages: number;
   decodedTasks: number;
+  reports: number;
+  windows: number;
+  patterns: number;
+  parents: number;
+  requestReads: number;
 };
 const emptyCounts = (): Counts => ({
   sql: 0,
@@ -235,6 +246,11 @@ const emptyCounts = (): Counts => ({
   timelineRows: 0,
   decodedMessages: 0,
   decodedTasks: 0,
+  reports: 0,
+  windows: 0,
+  patterns: 0,
+  parents: 0,
+  requestReads: 0,
 });
 
 function instrument() {
@@ -243,6 +259,25 @@ function instrument() {
   const prototype = Object.getPrototypeOf(probe.prepare('SELECT 1')) as Database.Statement;
   probe.close();
   const descriptors = new Map<string, PropertyDescriptor>();
+  const structuralDescriptors = new Map<string, PropertyDescriptor>();
+  // These methods exist on both the baseline and optimized detector. Count actual computation,
+  // rather than treating a cached evaluation.report() call as another window reconstruction.
+  for (const [method, counter] of [
+    ['report', 'reports'],
+    ['patterns', 'patterns'],
+    ['parentMilestones', 'parents'],
+  ] as const) {
+    const target = StructuralPatterns.prototype;
+    const descriptor = Object.getOwnPropertyDescriptor(target, method)!;
+    structuralDescriptors.set(method, descriptor);
+    Object.defineProperty(target, method, {
+      ...descriptor,
+      value: function (this: StructuralPatterns, ...args: unknown[]) {
+        if (counts) counts[counter]++;
+        return Reflect.apply(descriptor.value as (...args: unknown[]) => unknown, this, args);
+      },
+    });
+  }
   // Wrap the shared native prototype once, with a constant number of wrappers. Retain neither
   // statement instances nor per-call history during a long, query-heavy measurement.
   for (const method of ['all', 'get', 'run'] as const) {
@@ -255,6 +290,8 @@ function instrument() {
         const result: unknown = Reflect.apply(call, this, args);
         if (!counts) return result;
         counts.sql++;
+        if (this.source === TIMELINE_SQL.structuralEvidence) counts.windows++;
+        if (args.includes('task_merge_requested') && args.at(-1) === 1000) counts.requestReads++;
         const rows = method === 'all' ? (result as unknown[]) : method === 'get' && result ? [result] : [];
         for (const row of rows) {
           if (!row || typeof row !== 'object') continue;
@@ -288,6 +325,8 @@ function instrument() {
     },
     restore() {
       for (const [method, descriptor] of descriptors) Object.defineProperty(prototype, method, descriptor);
+      for (const [method, descriptor] of structuralDescriptors)
+        Object.defineProperty(StructuralPatterns.prototype, method, descriptor);
       MessageKind.safeParse = messageParse;
       TaskDeveloperLevel.safeParse = taskParse;
     },
@@ -336,6 +375,8 @@ async function measure(run: () => Promise<unknown>, meter: ReturnType<typeof ins
   for (let repeat = 0; repeat < 5; repeat++) {
     const wall: number[] = [];
     const cpu: number[] = [];
+    const cpuUser: number[] = [];
+    const cpuSystem: number[] = [];
     const rounds: Counts[] = [];
     for (let round = 0; round < 10; round++) {
       meter.start();
@@ -345,6 +386,8 @@ async function measure(run: () => Promise<unknown>, meter: ReturnType<typeof ins
       const used = process.cpuUsage(before);
       wall.push(performance.now() - started);
       cpu.push((used.user + used.system) / 1000);
+      cpuUser.push(used.user / 1000);
+      cpuSystem.push(used.system / 1000);
       rounds.push(meter.stop());
     }
     samples.push({
@@ -354,8 +397,11 @@ async function measure(run: () => Promise<unknown>, meter: ReturnType<typeof ins
       cpuTotalMs: cpu.reduce((a, b) => a + b, 0),
       wall,
       cpu,
+      cpuUser,
+      cpuSystem,
       rounds,
       memory: process.memoryUsage(),
+      load: os.loadavg(),
     });
     console.log(
       'PM733 repeat',
@@ -404,6 +450,193 @@ async function startupSample(
   }
 }
 
+type StructuralHold = 'budget' | 'admission' | 'engine';
+
+/** PM-783 adds cases without changing the PM-769/771 generator or its original scenarios. */
+async function structuralFixture(
+  historyMessages: number,
+  historyTasks: number,
+  groups: number,
+  hold: StructuralHold,
+) {
+  // Long cases must invoke only the explicitly measured rounds. The real 30/60-second tickers
+  // otherwise overlap the experiment; production timer intervals remain unchanged.
+  const sweeps = vi.spyOn(kernel, 'startSweeps').mockReturnValue({ stop: async () => {} });
+  let h: Awaited<ReturnType<typeof fixture>>;
+  try {
+    h = await fixture(historyMessages, historyTasks, true);
+    expect(sweeps).toHaveBeenCalledTimes(1);
+  } finally {
+    sweeps.mockRestore();
+  }
+  let clock = new Date(NOW);
+  const now = vi.spyOn(h.domain.ctx, 'now').mockImplementation(() => clock);
+  const attempt = vi.spyOn(h.domain.admission, 'attempt').mockResolvedValue({ kind: 'done' });
+  const seedStart = performance.now();
+  try {
+    for (const projectKey of PROJECTS)
+      await h.domain.projects.update(
+        projectKey,
+        { actor: { kind: 'human', handle: 'owner' }, author: OWNER },
+        (config) => {
+          const pm = config.team.members.find((member) => member.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = false;
+          return 'Enable synthetic coordinator';
+        },
+      );
+    const base = currentEvidence().tasks[0]!;
+    h.repos.transaction(() => {
+      for (const projectKey of PROJECTS)
+        for (let n = 0; n < groups; n++) {
+          // Half the subjects are raised together in each of two distinct original windows.
+          const at = new Date(Date.parse(NOW) - (n < Math.ceil(groups / 2) ? 60 : 20) * 60_000).toISOString();
+          const parentKey = `${projectKey}-${3_000_000 + n * 3}`;
+          for (let child = 0; child < 3; child++) {
+            const key = `${projectKey}-${3_000_000 + n * 3 + child}`;
+            h.repos.tasks.insert({
+              ...base,
+              projectKey,
+              id: `task_structural_${key}`,
+              key,
+              parentKey: child ? parentKey : null,
+              links: [{ kind: 'branch', ref: `fixture/${key}`, repo: 'web' }],
+              createdAt: OLD,
+              updatedAt: at,
+              closedAt: at,
+            });
+            if (!child) continue;
+            const insert = (
+              suffix: string,
+              type: TimelineEvent['type'],
+              data: Record<string, unknown>,
+              createdAt = at,
+            ) =>
+              h.repos.timeline.insert({
+                id: `evt_structural_perf_${key}_${suffix}`,
+                projectKey,
+                taskKey: key,
+                sessionId: null,
+                actor: { kind: 'system', handle: null },
+                type,
+                data,
+                createdAt,
+              });
+            insert('request', 'task_merge_requested', { mergeId: key, repo: 'web' }, OLD);
+            insert('test', 'task_full_test', {
+              outcome: 'failed',
+              repo: 'web',
+              failedFiles: [`src/test-${n}.test.ts`],
+            });
+            for (let retry = 0; retry < 2; retry++)
+              insert(`conflict-${retry}`, 'task_merge_failed', {
+                mergeId: key,
+                reason: 'conflict',
+                files: [`src/conflict-${n}.ts`],
+              });
+            insert('closed', 'task_stage_changed', { from: 'development', to: 'done' });
+          }
+        }
+    });
+    for (const minutes of [30, 15]) {
+      clock = new Date(Date.parse(NOW) - minutes * 60_000);
+      await h.domain.operatorSignals.sweep();
+    }
+    clock = new Date(NOW);
+    attempt.mockRestore();
+    const structural = () =>
+      PROJECTS.flatMap((key) => h.repos.operatorSignals.list(key)).filter(
+        (s) => s.kind === 'milestone_closed' || s.kind === 'structural_pattern',
+      );
+    const signals = structural();
+    const evidenceHash = createHash('sha256')
+      .update(
+        JSON.stringify(
+          signals.map((s) => [
+            s.kind,
+            s.taskKey,
+            s.subject,
+            s.raisedAt,
+            h.domain.operatorSignals.structuralFacts(s),
+          ]),
+        ),
+      )
+      .digest('hex');
+    const starts = PROJECTS.map((projectKey) =>
+      h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey })!,
+    );
+    const markerIds: string[] = [];
+    if (hold === 'budget')
+      for (const projectKey of PROJECTS) {
+        const marker = signals.find((signal) => signal.projectKey === projectKey)!;
+        markerIds.push(marker.id);
+        h.repos.operatorSignals.delivered([marker.id], NOW, 'pm');
+      }
+    // Deliberately refuse at the engine-start boundary, after facts have been constructed, without
+    // starting a runner. Actual admission keeps and retries the production deferred-start object.
+    const start = vi
+      .spyOn(h.domain.admission, 'start')
+      .mockRejectedValue(conflict('engine_offline', 'synthetic engine is offline'));
+    const held =
+      hold === 'admission'
+        ? vi.spyOn(h.domain.admission, 'attempt').mockImplementation(async (entry) => {
+            entry.stillValid(null);
+            return { kind: 'deferred', waiting: { reason: 'ai_limit_reached', since: clock.toISOString() } };
+          })
+        : undefined;
+    let tick = 0;
+    const runs = paths(h);
+    const advance = (run: () => Promise<unknown>) => async () => {
+      clock = new Date(Date.parse(NOW) + tick++ * 60_000);
+      await run();
+    };
+    const selected = {
+      sixty: advance(runs.sixty),
+      combined: advance(runs.combined),
+      stillValid: advance(async () => {
+        for (const entry of starts) entry.stillValid();
+      }),
+      factsPayload: advance(async () => {
+        for (const entry of starts)
+          try {
+            await entry.run();
+          } catch (error) {
+            if (!(error instanceof Error) || !error.message.includes('synthetic engine is offline'))
+              throw error;
+          }
+      }),
+    };
+    return {
+      h,
+      selected,
+      evidenceHash,
+      signalCount: signals.length,
+      fixtureTimings: { ...h.fixtureTimings, structuralSeedMs: performance.now() - seedStart },
+      beforePath(path: string) {
+        tick = 0;
+        // The payload path measures a possible delivery, independently of the preceding budget case.
+        if (path === 'factsPayload')
+          for (const id of markerIds)
+            h.repos.operatorSignals.save({
+              ...h.repos.operatorSignals.get(id)!,
+              deliveredAt: null,
+              deliveredTo: null,
+            });
+      },
+      async cleanup() {
+        held?.mockRestore();
+        start.mockRestore();
+        now.mockRestore();
+        await h.cleanup();
+      },
+    };
+  } catch (error) {
+    attempt.mockRestore();
+    now.mockRestore();
+    await h.cleanup();
+    throw error;
+  }
+}
+
 function migrationMeasurement(history: number) {
   const migration = migrations.find((m) => m.name === 'pending message recipients');
   if (!migration) return null; // The original-source baseline has no pending derivation yet.
@@ -446,6 +679,150 @@ function migrationMeasurement(history: number) {
     db.close();
   }
 }
+
+describe('structural signal performance protocol (PM-783)', () => {
+  it.each(['budget', 'admission', 'engine'] as const)(
+    'exercises all measured paths while signals wait for %s',
+    async (hold) => {
+      const fixture = await structuralFixture(20, 20, 2, hold);
+      try {
+        for (const [path, run] of Object.entries(fixture.selected)) {
+          fixture.beforePath(path);
+          await run();
+          await run();
+        }
+        expect(fixture.h.runner.started).toHaveLength(0);
+        expect(
+          PROJECTS.flatMap((key) => fixture.h.repos.operatorSignals.list(key)).filter(
+            (s) => s.kind === 'structural_pattern' && !s.resolvedAt,
+          ),
+        ).toHaveLength(8);
+      } finally {
+        await fixture.cleanup();
+      }
+    },
+  );
+
+  it('keeps structural reads independent of unrelated history and signal count per original window', async () => {
+    const measurements = [];
+    for (const [history, groups] of [
+      [20, 2],
+      [200, 2],
+      [20, 20],
+    ]) {
+      const fixture = await structuralFixture(history!, history!, groups!, 'budget');
+      const meter = instrument();
+      try {
+        meter.start();
+        await fixture.selected.stillValid();
+        const counts = meter.stop();
+        measurements.push({ counts, hash: fixture.evidenceHash, signalCount: fixture.signalCount });
+      } finally {
+        meter.restore();
+        await fixture.cleanup();
+      }
+    }
+    expect(measurements[1]).toEqual(measurements[0]);
+    expect(measurements[2]!.signalCount).toBeGreaterThan(measurements[0]!.signalCount * 5);
+    if ('evaluate' in StructuralPatterns.prototype) {
+      expect(measurements.map(({ counts }) => counts.windows)).toEqual([6, 6, 6]); // Two projects, current + two original windows.
+      expect(measurements.map(({ counts }) => counts.parents)).toEqual([2, 2, 2]);
+      expect(measurements.map(({ counts }) => counts.patterns)).toEqual([6, 6, 6]);
+      expect(measurements[2]!.counts.requestReads).toBe(80); // One per affected card across all windows.
+    }
+  });
+
+  // npm run heavy -- env PROJECTMAN_PERIODIC_STRUCTURAL=1 npm run test -w @projectman/server -- test/periodic-work-performance.test.ts
+  it.skipIf(!RUN_STRUCTURAL)(
+    'records identical structural workloads on the exact PM-783 baseline and final production sources',
+    async () => {
+      expect(process.env.PROJECTMAN_HEAVY_LOCK_HELD).toBe('1');
+      const productionDiff = execFileSync(
+        'git',
+        ['diff', STRUCTURAL_BASELINE, '--', ':(top)apps/server/src'],
+        { encoding: 'utf8' },
+      );
+      const environment = {
+        baselineSource: STRUCTURAL_BASELINE,
+        source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+        productionMatchesBaseline: productionDiff.length === 0,
+        productionDiffSha256: createHash('sha256').update(productionDiff).digest('hex'),
+        harnessSha256: createHash('sha256')
+          .update(readFileSync(new URL(import.meta.url)))
+          .digest('hex'),
+        seed: 733,
+        platform: os.platform(),
+        release: os.release(),
+        arch: os.arch(),
+        node: process.version,
+        cpu: os.cpus()[0]?.model,
+        load: os.loadavg(),
+        warmup: 2,
+        repeats: 5,
+        rounds: 10,
+        boundary:
+          'After startup and synthetic seed; automatic sweep tickers are disabled only in this fixture, and each invocation explicitly runs one simulated 60-second round. stillValid uses retained production starts; payload runs fresh config/facts through the engine-start refusal. Budget markers are cleared outside payload measurement. Original windows are exact, never rounded.',
+      };
+      const results: unknown[] = [];
+      const reportPath = join(
+        process.env.PROJECTMAN_SESSION_DIR ?? os.tmpdir(),
+        `periodic-work-structural-${environment.productionMatchesBaseline ? 'baseline' : 'optimized'}-${environment.source.slice(0, 12)}.json`,
+      );
+      console.log('PM783 environment', JSON.stringify(environment));
+      const meter = instrument();
+      try {
+        for (const hold of ['budget', 'admission', 'engine'] as const)
+          for (const groups of [2, 20])
+            for (const [historyMessages, historyTasks] of [
+              [10_000, 2_000],
+              [100_000, 20_000],
+            ]) {
+              const fixture = await structuralFixture(historyMessages!, historyTasks!, groups, hold);
+              try {
+                for (const [path, run] of Object.entries(fixture.selected)) {
+                  fixture.beforePath(path);
+                  const samples = await measure(run, meter);
+                  results.push({
+                    hold,
+                    groups,
+                    historyMessages,
+                    historyTasks,
+                    path,
+                    evidenceHash: fixture.evidenceHash,
+                    signalCount: fixture.signalCount,
+                    ...fixture.fixtureTimings,
+                    samples,
+                  });
+                  writeFileSync(
+                    reportPath,
+                    JSON.stringify({ environment, results, complete: false }, null, 2),
+                  );
+                  console.log(
+                    'PM783 samples',
+                    JSON.stringify({
+                      hold,
+                      groups,
+                      historyMessages,
+                      historyTasks,
+                      path,
+                      wallMedianMs: samples.map((sample) => sample.wallMedianMs),
+                      counts: samples[0]!.rounds[0],
+                    }),
+                  );
+                }
+              } finally {
+                await fixture.cleanup();
+              }
+            }
+        writeFileSync(reportPath, JSON.stringify({ environment, results, complete: true }, null, 2));
+        console.log('PM783 report', reportPath);
+      } finally {
+        meter.restore();
+      }
+    },
+    3_600_000,
+  );
+});
 
 describe('periodic work performance protocol (PM-733)', () => {
   it('keeps the active set identical as unrelated history grows', async () => {

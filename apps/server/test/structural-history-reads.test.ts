@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Task, TimelineEvent } from '@projectman/shared';
-import { StructuralPatterns } from '../src/services/operator/structural-patterns';
+import {
+  StructuralPatterns,
+  patternSubject,
+  STRUCTURAL_WINDOW_MS,
+} from '../src/services/operator/structural-patterns';
+import type { StructuralSignalRef } from '../src/services/operator/structural-patterns';
+import { conflict } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -17,8 +23,15 @@ afterEach(async () => {
   await h?.cleanup();
 });
 
-async function setup() {
-  h = await createDomainHarness({ persistent: true, now: () => NOW });
+async function setup(activePm = false) {
+  h = await createDomainHarness({
+    persistent: true,
+    now: () => NOW,
+    adjust: (config) => {
+      const pm = config.team.members.find((member) => member.handle === 'pm')!;
+      if (activePm && pm.kind === 'ai') pm.onLeave = false;
+    },
+  });
 }
 const config = () => h.domain.projects.cachedConfig('AR')!;
 const report = (until?: string) => new StructuralPatterns(h.domain.ctx).report(config(), until);
@@ -259,5 +272,298 @@ describe('reads that do not grow with the unrelated history', () => {
     expect(large.children).toBe(0);
     expect(large.histories).toBe(0);
     expect(large.cards).toBeGreaterThan(0);
+  });
+});
+
+describe('synchronous structural evaluations (PM-783)', () => {
+  async function mixed(count = 10) {
+    await setup(true);
+    const { parent, subtasks } = await family(2);
+    done(subtasks[0]!.key, days(30));
+    const closing = done(subtasks[1]!.key, days(1));
+    const files = Array.from({ length: count }, (_, n) => `src/case-${n}.test.ts`);
+    const failures = subtasks.map((task) =>
+      event(
+        task.key,
+        'task_full_test',
+        {
+          outcome: 'failed',
+          repo: 'web',
+          failedFiles: files,
+        },
+        days(1),
+      ),
+    );
+    const refs: StructuralSignalRef[] = [
+      {
+        projectKey: 'AR',
+        kind: 'milestone_closed',
+        taskKey: parent.key,
+        subject: closing.id,
+        raisedAt: days(0.5).toISOString(),
+      },
+      ...files.map((file) => ({
+        projectKey: 'AR',
+        kind: 'structural_pattern' as const,
+        taskKey: null,
+        subject: patternSubject(JSON.stringify(['failed_test_file', 'web', file])),
+        raisedAt: days(0.5).toISOString(),
+      })),
+    ];
+    return { refs, failures, subtasks };
+  }
+
+  it('shares exact windows and reconstructs milestones only for the current window', async () => {
+    const { refs, failures, subtasks } = await mixed();
+    const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
+    const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
+    const read = vi.spyOn(h.repos.tasks, 'readScheduling');
+    const evaluation = new StructuralPatterns(h.domain.ctx).evaluate(config());
+    expect(evidence).not.toHaveBeenCalled();
+    for (let repeat = 0; repeat < 3; repeat++)
+      for (const ref of refs) expect(evaluation.facts(ref)).not.toBeNull();
+    expect(evidence.mock.calls.map(([, , until]) => until)).toEqual([NOW.toISOString(), refs[0]!.raisedAt]);
+    expect(states).toHaveBeenCalledTimes(1);
+    expect(read.mock.calls.filter(([, query]) => query.kind === 'children')).toHaveLength(1);
+    // Fixed pre-optimization fixture: original time bounds, normalized fingerprint and event order.
+    expect(evaluation.facts(refs[1]!)).toEqual({
+      evidence: {
+        kind: 'failed_test_file',
+        fingerprint: '["failed_test_file","web","src/case-0.test.ts"]',
+        taskKeys: subtasks.map((task) => task.key).sort(),
+        eventIds: failures.map((entry) => entry.id),
+        windowStartedAt: new Date(Date.parse(refs[1]!.raisedAt) - STRUCTURAL_WINDOW_MS).toISOString(),
+        windowEndedAt: refs[1]!.raisedAt,
+      },
+      milestoneKey: null,
+    });
+    const another = { ...refs[1]!, raisedAt: new Date(Date.parse(refs[1]!.raisedAt) + 1).toISOString() };
+    expect(evaluation.facts(another)?.evidence?.windowEndedAt).toBe(another.raisedAt);
+    expect(evidence).toHaveBeenCalledTimes(3);
+    expect(states).toHaveBeenCalledTimes(1);
+    evaluation.report();
+    expect(evidence).toHaveBeenCalledTimes(3);
+    expect(states).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares the evaluation across all pending signals and starts a fresh one for each stillValid call', async () => {
+    const { refs, subtasks } = await mixed();
+    for (const ref of refs) {
+      const signal = h.domain.operatorSignals.raise({ ...ref, caseKey: `fixture:${ref.subject}` });
+      h.repos.db
+        .prepare('UPDATE operator_signals SET raised_at = ? WHERE id = ?')
+        .run(ref.raisedAt, signal.id);
+    }
+    const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
+    const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
+    const start = h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' })!;
+    expect(start).not.toBeNull();
+    expect(evidence).toHaveBeenCalledTimes(2);
+    expect(states).toHaveBeenCalledTimes(1);
+    expect(start.stillValid()).toBe(true);
+    expect(evidence).toHaveBeenCalledTimes(4);
+    // Changing a card invalidates its milestone and the patterns that need both cards.
+    h.repos.tasks.update(subtasks[1]!.id, { parentKey: null });
+    h.repos.db.prepare('DELETE FROM timeline_events WHERE task_key = ?').run(subtasks[1]!.key);
+    expect(start.stillValid()).toBe(false);
+    expect(evidence).toHaveBeenCalledTimes(5); // No historical pattern read without a current subject.
+    expect(
+      h.repos.operatorSignals
+        .list('AR')
+        .filter((signal) => ['structural_pattern', 'milestone_closed'].includes(signal.kind))
+        .every((signal) => signal.resolvedAt),
+    ).toBe(true);
+  });
+
+  it('does no structural reads for nonstructural, foreign, expired or ineligible pending signals', async () => {
+    const { refs } = await mixed();
+    const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
+    const evaluation = new StructuralPatterns(h.domain.ctx).evaluate(config());
+    expect(evaluation.facts({ ...refs[1]!, projectKey: 'OT' })).toBeNull();
+    expect(evaluation.facts({ ...refs[1]!, kind: 'outage' })).toBeNull();
+    expect(evaluation.facts({ ...refs[1]!, raisedAt: SINCE.toISOString() })).toBeNull();
+    expect(
+      h.domain.operatorSignals.structuralFacts({
+        ...h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'outage', caseKey: 'outage:pending' }),
+        projectKey: 'missing',
+      }),
+    ).toBeNull();
+    expect(h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' })).not.toBeNull();
+    const signal = h.domain.operatorSignals.raise({ ...refs[1]!, caseKey: 'fixture:resolved' });
+    h.domain.operatorSignals.resolve('AR', signal.caseKey);
+    h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' });
+    expect(evidence).not.toHaveBeenCalled();
+  });
+
+  it('rejects a current subject without an original pattern, without reading historical milestones', async () => {
+    const { refs } = await mixed();
+    const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
+    const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
+    const evaluation = new StructuralPatterns(h.domain.ctx).evaluate(config());
+    expect(evaluation.facts({ ...refs[1]!, raisedAt: days(2).toISOString() })).toBeNull();
+    expect(states).not.toHaveBeenCalled();
+    expect(evidence).toHaveBeenCalledTimes(2);
+    expect(evaluation.facts({ ...refs[1]!, subject: 'absent' })).toBeNull();
+    expect(evidence).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares the sweep report with pre-admission delivery and remains fresh after config awaits', async () => {
+    const { subtasks } = await mixed();
+    const attempt = vi.spyOn(h.domain.admission, 'attempt').mockResolvedValue({ kind: 'done' });
+    const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
+    const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
+    await h.domain.operatorSignals.sweep('AR');
+    expect(evidence).toHaveBeenCalledTimes(1); // report, pending and all original windows coincide.
+    expect(states).toHaveBeenCalledTimes(1);
+    const start = attempt.mock.calls.find(([entry]) => entry.key === 'operator-signals:AR')![0];
+    const load = h.domain.projects.config.bind(h.domain.projects);
+    vi.spyOn(h.domain.projects, 'config').mockImplementation(async (key) => {
+      const config = await load(key);
+      if (key === 'AR') {
+        h.repos.db.prepare('DELETE FROM timeline_events WHERE task_key = ?').run(subtasks[1]!.key);
+        h.repos.tasks.update(subtasks[1]!.id, { parentKey: null });
+      }
+      return config;
+    });
+    await start.run();
+    expect(h.runner.started).toHaveLength(0);
+    expect(
+      h.repos.operatorSignals
+        .list('AR')
+        .filter((signal) => ['structural_pattern', 'milestone_closed'].includes(signal.kind))
+        .every((signal) => signal.resolvedAt),
+    ).toBe(true);
+  });
+
+  it('shares post-config validation with the facts payload and spends no delivery budget on failure', async () => {
+    const { refs } = await mixed();
+    for (const ref of refs) {
+      const signal = h.domain.operatorSignals.raise({ ...ref, caseKey: `payload:${ref.subject}` });
+      h.repos.db
+        .prepare('UPDATE operator_signals SET raised_at = ? WHERE id = ?')
+        .run(ref.raisedAt, signal.id);
+    }
+    const start = h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' })!;
+    const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
+    const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
+    const admit = vi
+      .spyOn(h.domain.admission, 'start')
+      .mockRejectedValueOnce(conflict('engine_offline', 'Test engine offline'));
+    await expect(start.run()).rejects.toThrow('Test engine offline');
+    expect(evidence).toHaveBeenCalledTimes(4); // Independent pre-await and post-config phases.
+    expect(states).toHaveBeenCalledTimes(2);
+    const payload = admit.mock.calls[0]![0].messages!.join('\n');
+    expect(payload).toContain(`"windowEndedAt":"${refs[1]!.raisedAt}"`);
+    expect(payload).toContain(`"milestoneKey":"${refs[0]!.taskKey}"`);
+    expect(h.repos.operatorSignals.list('AR').every((signal) => !signal.deliveredAt)).toBe(true);
+    admit.mockRestore();
+    await h.domain.operatorSignals.deliver('AR');
+    expect(h.repos.operatorSignals.list('AR').every((signal) => signal.deliveredAt)).toBe(true);
+  });
+
+  it.each(['expiry', 'config'] as const)(
+    'rechecks %s when a retained start is actually used',
+    async (change) => {
+      const { refs } = await mixed();
+      const signal = h.domain.operatorSignals.raise({ ...refs[0]!, caseKey: 'fresh:milestone' });
+      const start = h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' })!;
+      expect(start.stillValid()).toBe(true);
+      await Promise.resolve();
+      if (change === 'expiry')
+        vi.spyOn(h.domain.ctx, 'now').mockReturnValue(new Date(NOW.getTime() + STRUCTURAL_WINDOW_MS));
+      else config().pipeline.stages.find((stage) => stage.id === 'done')!.kind = 'work';
+      expect(start.stillValid()).toBe(false);
+      expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
+    },
+  );
+});
+
+describe('conflict request history sharing (PM-783)', () => {
+  it('reads each task and missing merge once across current and original windows, retaining the first request', async () => {
+    await setup();
+    const cards = [await card(), await card()];
+    for (const task of cards) {
+      event(task.key, 'task_merge_requested', { mergeId: 'missing', repo: 'recorded' }, days(30));
+      event(task.key, 'task_merge_requested', { mergeId: 'missing', repo: 'later' }, days(20));
+      for (let repeat = 0; repeat < 8; repeat++)
+        event(
+          task.key,
+          'task_merge_failed',
+          {
+            mergeId: 'missing',
+            reason: 'conflict',
+            files: ['src/shared.ts'],
+          },
+          days(1),
+        );
+    }
+    const requests = vi.spyOn(h.repos.timeline, 'listOfTypes');
+    const merges = vi.spyOn(h.repos.taskMerges, 'get');
+    const evaluation = new StructuralPatterns(h.domain.ctx).evaluate(config());
+    const patterns = evaluation.report().patterns;
+    expect(patterns).toMatchObject([
+      { kind: 'conflict_file', fingerprint: '["conflict_file","recorded","src/shared.ts"]' },
+    ]);
+    const ref: StructuralSignalRef = {
+      projectKey: 'AR',
+      kind: 'structural_pattern',
+      taskKey: null,
+      subject: patternSubject(patterns[0]!.fingerprint),
+      raisedAt: days(0.5).toISOString(),
+    };
+    expect(evaluation.facts(ref)?.evidence?.fingerprint).toBe(patterns[0]!.fingerprint);
+    expect(requests.mock.calls).toEqual(
+      cards.map((task) => ['AR', task.key, ['task_merge_requested'], 1000]),
+    );
+    expect(merges.mock.calls).toEqual([['missing']]);
+  });
+
+  it('preserves the 1000-request limit, nullish repo fallback and project isolation', async () => {
+    await setup();
+    const cards = [await card(), await card()];
+    for (const task of cards) {
+      // This matching request is the 1001st oldest and must be excluded by the existing limit.
+      event(task.key, 'task_merge_requested', { mergeId: 'limited', repo: 'excluded' }, days(30));
+      for (let n = 0; n < 1000; n++)
+        event(task.key, 'task_merge_requested', { mergeId: `other-${n}`, repo: 'noise' }, days(30));
+      for (const mergeId of ['limited', 'foreign', 'empty', 'null', undefined]) {
+        if (mergeId === 'empty' || mergeId === 'null')
+          event(
+            task.key,
+            'task_merge_requested',
+            { mergeId, repo: mergeId === 'empty' ? '' : null },
+            days(20),
+          );
+        event(
+          task.key,
+          'task_merge_failed',
+          { mergeId, reason: 'conflict', files: [`${mergeId}.ts`] },
+          days(1),
+        );
+      }
+    }
+    // Persist actual merge rows; the card's current repository must never provide the fallback.
+    for (const id of ['limited', 'foreign', 'empty', 'null'])
+      h.repos.taskMerges.save({
+        id,
+        projectKey: id === 'foreign' ? 'OT' : 'AR',
+        taskKey: cards[0]!.key,
+        repo: 'fallback',
+        base: 'main',
+        branch: 'fixture',
+        commit: 'a'.repeat(40),
+        fromStageId: 'development',
+        toStageId: 'done',
+        merger: 'cr',
+        requestedAt: NOW.toISOString(),
+        createdAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
+        state: 'cancelled',
+        landed: 'nowhere',
+      });
+    expect(report().patterns.map((facts) => facts.fingerprint)).toEqual([
+      '["conflict_file","fallback","limited.ts"]',
+      '["conflict_file","fallback","null.ts"]',
+    ]);
   });
 });

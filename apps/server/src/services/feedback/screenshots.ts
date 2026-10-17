@@ -53,8 +53,8 @@ export async function prepareScreenshot(upload: FeedbackScreenshotUpload): Promi
     });
   if (sniffMediaType(original.subarray(0, 16)) !== upload.mediaType)
     throw invalidScreenshot('the screenshot content is not the declared image type');
+  const sharp = await loadSharp();
   try {
-    const sharp = await loadSharp();
     const image = sharp(original, { limitInputPixels: MAX_INPUT_PIXELS, failOn: 'error' });
     const meta = await image.metadata();
     if (meta.format !== SHARP_FORMATS[upload.mediaType] || !meta.width || !meta.height)

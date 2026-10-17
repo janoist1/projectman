@@ -1,9 +1,10 @@
 import { Data, Effect, FiberMap } from 'effect';
 import type { Scope } from 'effect';
 import { openPrerequisites } from '@projectman/shared';
+import { prerequisiteCards } from '../../core/tasks';
 import type { Task } from '@projectman/shared';
 import { OPEN_RELEASE_WORK_ADMISSION } from '../../contracts';
-import type { BranchMerger, ReleaseWorkAdmission } from '../../contracts';
+import type { BranchMerger, ReleaseWorkAdmission, TaskSchedulingReader } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { abortable, runFork } from '../../kernel';
 import type { MergeRun } from './deps';
@@ -12,9 +13,8 @@ import type { MergeSteps } from './steps';
 
 export type MergeQueueDeps = {
   ctx: Pick<DomainContext, 'repos' | 'logger'>;
-  tasks: {
+  tasks: TaskSchedulingReader & {
     find(projectKey: string, taskKey: string): Task | null | undefined;
-    list(projectKey: string): Task[];
   };
   steps: Pick<MergeSteps, 'run' | 'release'> & {
     engine(task: Task): { merger?: BranchMerger } | null | undefined;
@@ -98,7 +98,7 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
           !row.trainId &&
           row.landed !== 'remote' &&
           task &&
-          openPrerequisites(task, deps.tasks.list(row.projectKey)).length > 0
+          openPrerequisites(task, prerequisiteCards(deps.tasks, row.projectKey, task)).length > 0
         )
           continue;
         if (active.has(key) || deps.peer()?.busy(row.projectKey, row.repo)) continue;

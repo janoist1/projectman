@@ -32,7 +32,7 @@ function setup(
       repos: { taskMerges: { list: () => rows.filter((r) => !started.includes(r.id)) } },
       logger: { warn: (...args: unknown[]) => warnings.push(args) },
     } as unknown as MergeQueueDeps['ctx'],
-    tasks: { find: () => null, list: () => [] },
+    tasks: { find: () => null, readSchedulingTasks: () => [] },
     steps: {
       run: async (run) => {
         started.push(run.row.id);
@@ -218,7 +218,7 @@ describe('merge queue', () => {
             repos: { taskMerges: { list: () => t.rows.filter((r) => !t.started.includes(r.id)) } },
             logger: { warn: (...args: unknown[]) => t.warnings.push(args) },
           } as unknown as MergeQueueDeps['ctx'],
-          tasks: { find: () => null, list: () => [] },
+          tasks: { find: () => null, readSchedulingTasks: () => [] },
           steps: { run: failing, release: async (r) => void t.released.push(r.id), engine: () => null },
           peer: () => null,
           stopped: () => false,

@@ -13,6 +13,7 @@ import type { BranchMerger } from '../../contracts';
 import { mergedState } from '../../db';
 import type { MergeRecord } from '../../db';
 import { isoNow } from '../../core/base';
+import { prerequisiteCards } from '../../core/tasks';
 import { conflict } from '../../kernel';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
@@ -249,7 +250,10 @@ export class MergeSteps {
     if (!persisted || (persisted.state !== 'queued' && persisted.state !== 'running')) return false;
     if (running.pushing) return true;
     const task = this.deps.tasks.find(row.projectKey, row.taskKey);
-    if (task && openPrerequisites(task, this.deps.tasks.list(row.projectKey)).length > 0) {
+    if (
+      task &&
+      openPrerequisites(task, prerequisiteCards(this.deps.tasks, row.projectKey, task)).length > 0
+    ) {
       this.save(row, { state: 'queued', step: 'queued', mergeCommit: undefined, check: undefined });
       return false;
     }

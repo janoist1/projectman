@@ -52,18 +52,22 @@ export class AutoAdvance {
     await this.cards.run(task.key, () => this.advance(task.projectKey, task.key));
   }
 
-  /** Every open card of every project, once (at the start): the cards that got stuck before. */
+  /**
+   * Every open card of every project, once (at the start): the cards that got stuck before. The open cards
+   * are read as stored rows (PM-770): the rule needs no board view, and a closed card is never read.
+   */
   async sweep(): Promise<void> {
     for (const project of this.projects.summaries()) {
-      for (const task of this.tasks.list(project.key)) {
-        if (!isOpenTask(task)) continue;
+      for (const task of this.tasks.readSchedulingTasks(project.key, { kind: 'open' })) {
         await this.check(task);
       }
     }
   }
 
   private async advance(projectKey: string, taskKey: string): Promise<void> {
-    const task = this.tasks.find(projectKey, taskKey);
+    // The stored row decides first (labels, stage, assignee are all `stageAdvance` looks at); the board
+    // view of the card is built only when the move is made, by `moveToStage`.
+    const task = this.tasks.readSchedulingTasks(projectKey, { kind: 'keys', keys: [taskKey] })[0];
     if (!task || !isOpenTask(task) || task.status === 'blocked' || isTheme(task)) return;
     const config = await this.projects.config(projectKey);
     const advance = stageAdvance(task, config);

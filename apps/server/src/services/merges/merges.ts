@@ -25,6 +25,9 @@ import type { MergeQueueEffects } from './queue';
 import { MergeSteps } from './steps';
 import { MergeTrains } from './train';
 
+/** The states of a card's open merge record (`task_merges.open`). */
+const OPEN_MERGE_STATES = ['requested', 'queued', 'running', 'failed', 'blocked', 'fixing'] as const;
+
 /** Durable FIFO per project/repository; all git and sandbox work stays on the card's engine. */
 export class Merges {
   private stopped = false;
@@ -146,12 +149,19 @@ export class Merges {
   }
   private async reconcileCard(projectKey: string, taskKey: string): Promise<void> {
     const { ctx, tasks, projects } = this.deps;
+    // The stored row and the open merge record decide first (PM-770): `mergeReadiness` reads only labels,
+    // stage, repo and links. A card with neither a record nor readiness is left before the reviewer's
+    // timeline, the source head and the card's board view are read. A record on a closed or changed card
+    // is still reconciled below.
+    const stored = tasks.readSchedulingTasks(projectKey, { kind: 'keys', keys: [taskKey] })[0];
+    if (!stored) return;
+    const config = await projects.config(projectKey);
+    const existing = ctx.repos.taskMerges.open(projectKey, taskKey);
+    if (!existing && !(isOpenTask(stored) && mergeReadiness(config, stored).ready)) return;
     const task = tasks.find(projectKey, taskKey);
     if (!task) return;
-    const config = await projects.config(projectKey);
     const ready = isOpenTask(task) ? mergeReadiness(config, task) : { ready: false as const };
     const merger = cardMerger(config, task, this.reviewer(config, task));
-    const existing = ctx.repos.taskMerges.open(projectKey, taskKey);
     if (existing) {
       if (existing.state === 'queued' || existing.state === 'running') return;
       const cancel =
@@ -454,13 +464,19 @@ export class Merges {
         for (const project of this.deps.projects.summaries()) {
           try {
             await this.deps.projects.config(project.key);
-            for (const task of this.deps.tasks.list(project.key)) {
-              if (!isOpenTask(task)) continue;
+            // The open cards as stored rows, then the cards that hold an open merge record (a closed card
+            // too: its record is still reconciled). No closed history is read (PM-770).
+            const keys = new Set(
+              this.deps.tasks.readSchedulingTasks(project.key, { kind: 'open' }).map((task) => task.key),
+            );
+            for (const row of OPEN_MERGE_STATES.flatMap((state) => ctx.repos.taskMerges.list(state)))
+              if (row.projectKey === project.key) keys.add(row.taskKey);
+            for (const taskKey of keys) {
               try {
-                await this.reconcile(project.key, task.key);
+                await this.reconcile(project.key, taskKey);
               } catch (err) {
                 ctx.logger.warn(
-                  { err, projectKey: project.key, taskKey: task.key },
+                  { err, projectKey: project.key, taskKey },
                   'could not reconcile a merge request after startup',
                 );
               }

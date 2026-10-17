@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateRequestOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import type { TaskMoves } from '../moves';
+import { TaskService } from '../service';
+import { TaskStore } from '../store';
 import type { BranchMerger, FullTestExecutor, FullTestResult, MergeBaseState } from '../../../contracts';
 import { withVisibleCardLinks, clientCanSeeTimelineEvent } from '../../projects';
 import {
@@ -1398,6 +1400,49 @@ describe('member initiated merge', () => {
     expect(next.prepare).toHaveBeenCalled();
     expect(next.releaseCheck).toHaveBeenCalled();
     expect(h!.repos.taskMerges.get(saved.id)?.state).toBe('merged');
+  });
+
+  it('leaves a card that has no request and is not ready before it reads the reviewer or the source (PM-770)', async () => {
+    await setup();
+    const timeline = vi.spyOn(h!.repos.timeline, 'listOfTypes');
+    h!.repos.tasks.update(task().id, { labels: [] });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(timeline).not.toHaveBeenCalled();
+    expect(merger.prepare).not.toHaveBeenCalled();
+    expect(row()).toBeNull();
+
+    // The same card with its approval is looked at in full.
+    h!.repos.tasks.update(task().id, { labels: ['code-review-ok'] });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(timeline).toHaveBeenCalled();
+    expect(row()).toMatchObject({ state: 'requested' });
+  });
+
+  it('reconciles the open request of a closed card at startup, and reads no closed card history (PM-770)', async () => {
+    await setup({ persistent: true });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    const requested = row()!;
+    for (let n = 0; n < 40; n++) {
+      const closed = await h!.domain.tasks.create('AR', { title: `Closed ${n}`, repo: 'web' }, OWNER_ACTOR);
+      h!.repos.tasks.update(closed.id, { status: 'done', closedAt: new Date().toISOString() });
+    }
+    // The request's card closed while the server was down.
+    h!.repos.tasks.update(task().id, { status: 'done', closedAt: new Date().toISOString() });
+
+    const list = vi.spyOn(TaskService.prototype, 'list');
+    const view = vi.spyOn(TaskStore.prototype, 'view');
+    try {
+      const next = fakeMerger();
+      h = await restartDomainHarness(h!, { merger: next });
+      merger = next;
+      await vi.waitFor(() => expect(h!.repos.taskMerges.get(requested.id)?.state).toBe('cancelled'));
+      expect(list.mock.calls.filter(([projectKey]) => projectKey === 'AR')).toEqual([]);
+      // The card of the request and the few the start reads are viewed, not the forty closed cards.
+      expect(view.mock.calls.length).toBeLessThan(20);
+    } finally {
+      list.mockRestore();
+      view.mockRestore();
+    }
   });
 
   it('runs separate repositories concurrently', async () => {

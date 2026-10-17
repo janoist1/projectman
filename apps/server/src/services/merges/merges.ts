@@ -428,6 +428,28 @@ export class Merges {
     throw this.notMergedError(config, task, repo, reason);
   }
 
+  /**
+   * Reconciles the cards of a project whose merge request may need it: the open cards as stored rows, and
+   * the cards that hold an open merge record (a closed card too: its record is still reconciled). The
+   * closed history is not read (PM-770). One card failing does not stop the next.
+   */
+  async reconcileProject(projectKey: string, why: 'startup' | 'configuration'): Promise<void> {
+    const { ctx } = this.deps;
+    const keys = new Set(this.deps.tasks.readSchedulingTasks(projectKey, { kind: 'open' }).map((t) => t.key));
+    for (const row of OPEN_MERGE_STATES.flatMap((state) => ctx.repos.taskMerges.list(state)))
+      if (row.projectKey === projectKey) keys.add(row.taskKey);
+    for (const taskKey of keys) {
+      try {
+        await this.reconcile(projectKey, taskKey);
+      } catch (err) {
+        ctx.logger.warn(
+          { err, projectKey, taskKey },
+          `could not reconcile a merge request after ${why === 'startup' ? 'startup' : 'configuration changed'}`,
+        );
+      }
+    }
+  }
+
   async init(): Promise<void> {
     this.stopped = false;
     const { ctx } = this.deps;
@@ -464,23 +486,7 @@ export class Merges {
         for (const project of this.deps.projects.summaries()) {
           try {
             await this.deps.projects.config(project.key);
-            // The open cards as stored rows, then the cards that hold an open merge record (a closed card
-            // too: its record is still reconciled). No closed history is read (PM-770).
-            const keys = new Set(
-              this.deps.tasks.readSchedulingTasks(project.key, { kind: 'open' }).map((task) => task.key),
-            );
-            for (const row of OPEN_MERGE_STATES.flatMap((state) => ctx.repos.taskMerges.list(state)))
-              if (row.projectKey === project.key) keys.add(row.taskKey);
-            for (const taskKey of keys) {
-              try {
-                await this.reconcile(project.key, taskKey);
-              } catch (err) {
-                ctx.logger.warn(
-                  { err, projectKey: project.key, taskKey },
-                  'could not reconcile a merge request after startup',
-                );
-              }
-            }
+            await this.reconcileProject(project.key, 'startup');
           } catch (err) {
             ctx.logger.warn(
               { err, projectKey: project.key },

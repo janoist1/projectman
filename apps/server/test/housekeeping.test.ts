@@ -227,8 +227,9 @@ describe('worktrees of closed cards', () => {
     await setup();
     // 104 closed cards without a worktree fill the first page; the two with worktrees come after them.
     for (let n = 0; n < 104; n++) {
-      const key = (await h.domain.tasks.create('AR', { title: `Fictional filler ${n}`, repo: 'web' }, OWNER_ACTOR))
-        .key;
+      const key = (
+        await h.domain.tasks.create('AR', { title: `Fictional filler ${n}`, repo: 'web' }, OWNER_ACTOR)
+      ).key;
       h.repos.tasks.update(h.domain.tasks.get('AR', key).id, {
         status: 'done',
         closedAt: new Date(now.getTime() - 5 * DAY_MS).toISOString(),
@@ -243,7 +244,8 @@ describe('worktrees of closed cards', () => {
       if (query.kind !== 'closed-worktrees') return page;
       pages.push(page.length);
       // After the first page: one of the cards of the second page is reopened.
-      if (pages.length === 1) h.repos.tasks.update(h.domain.tasks.get('AR', kept.key).id, { status: 'active' });
+      if (pages.length === 1)
+        h.repos.tasks.update(h.domain.tasks.get('AR', kept.key).id, { status: 'active' });
       return page;
     };
 

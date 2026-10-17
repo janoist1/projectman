@@ -2220,8 +2220,9 @@ workers follow the machine's size.
   or bypass fixed Operator invariants. The shared structured mutation projection reserves deletion,
   new publication, consumption-billed runtime and project-direction effects; until PM-762 supplies an
   exact owner grant, these fail closed. The repository merge queue's revision and complete permutation
-  use one hub SQLite transaction (`merge_queue_revisions` and `task_merges.queue_rank`, migration 81,
-  after PM-771's migration 80); the running merge remains behind the existing BranchMerger facade.
+  use one hub SQLite transaction (`merge_queue_revisions` and `task_merges.queue_rank`, migration 82,
+  after PM-771's migration 80 and PM-761's migration 81); the running merge remains behind the existing
+  BranchMerger facade.
   External bearer MCP remains closed until PM-760 composes its operation policy.
   The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
   Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips

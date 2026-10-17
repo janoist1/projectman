@@ -146,6 +146,7 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   invitations: 'member administration; the configuration version changes when one is accepted',
   member_state: 'activity pattern; no durability is promised',
   member_workspaces: 'machine-local workspace bookkeeping of the runner',
+  merge_queue_revisions: 'CAS counter; task_merges announces queue changes in the same transaction',
   operator_execution_intents: 'recovery intent; its outcome is the configuration and operation rows',
   operator_signals: 'announced by the inbox item it raises',
   project_change_events: 'the journal itself',

@@ -24,7 +24,7 @@ function row(taskKey: string, extra: Partial<MergeRecord> = {}): MergeRecord {
 }
 
 describe('repository merge queue compare-and-swap', () => {
-  it.each([79, 80])('preserves old queue order and starts revision at zero from schema %i', (version) => {
+  it.each([79, 80, 81])('preserves old queue order and starts revision at zero from schema %i', (version) => {
     const db = new Database(':memory:');
     try {
       for (const migration of migrations.filter((m) => m.version <= version)) db.exec(migration.sql);
@@ -41,6 +41,37 @@ describe('repository merge queue compare-and-swap', () => {
       expect(repos.taskMerges.get('old')).not.toHaveProperty('queueRank');
       migrate(db);
       expect(repos.taskMerges.queueOrder('AR', 'web').revision).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('announces queue changes through merge records and rolls the journal back with the queue', () => {
+    const db = new Database(':memory:');
+    try {
+      migrate(db);
+      const { taskMerges: queue, projectChanges: journal } = createRepositories(db);
+      queue.save(row('AR-1'));
+      queue.save(row('AR-2'));
+      const before = queue.queueOrder('AR', 'web');
+      const cursor = journal.head('AR');
+      expect(() =>
+        db.transaction(() => {
+          queue.orderQueue('AR', 'web', before.revision, ['AR-2', 'AR-1']);
+          throw new Error('Roll back queue and journal');
+        })(),
+      ).toThrow('Roll back queue and journal');
+      expect(queue.queueOrder('AR', 'web')).toEqual(before);
+      expect(journal.list('AR', cursor, 100)).toEqual([]);
+      const ordered = queue.orderQueue('AR', 'web', before.revision, ['AR-2', 'AR-1'])!;
+      expect(journal.list('AR', cursor, 100).map(({ kind, entityId }) => ({ kind, entityId }))).toEqual([
+        { kind: 'operation', entityId: 'merge_AR-2' },
+        { kind: 'operation', entityId: 'merge_AR-1' },
+      ]);
+      const after = journal.head('AR');
+      queue.orderQueue('AR', 'web', ordered.revision, ordered.taskKeys);
+      expect(queue.orderQueue('AR', 'web', before.revision, before.taskKeys)).toBeNull();
+      expect(journal.list('AR', after, 100)).toEqual([]);
     } finally {
       db.close();
     }

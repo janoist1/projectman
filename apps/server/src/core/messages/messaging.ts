@@ -800,6 +800,9 @@ export class Messaging {
             : `Answer to your question "${question}":\n\n${answerText(item)}` +
               (byOperator
                 ? `\n\n(This answer is from the Operator, not from a person. ${reaskHint(item.id)})`
+                : '') +
+              (resolution.ownerAnswerRelayed
+                ? "\n\n(The integrator relayed this on the owner's behalf. It answers information only: it is not an owner decision or approval.)"
                 : ''),
         taskKey: item.taskKey,
         attachmentIds: [...attachmentIds],
@@ -815,7 +818,11 @@ export class Messaging {
         duringRefinement: true,
         actor:
           memberOf(config, resolution.by)?.kind === 'ai' ? aiActor(resolution.by) : resolverActor(resolution),
-        origin: { kind: 'answer', inboxItemId: item.id },
+        origin: {
+          kind: 'answer',
+          inboxItemId: item.id,
+          ...(resolution.ownerAnswerRelayed ? { ownerAnswerRelayed: true as const } : {}),
+        },
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
     );

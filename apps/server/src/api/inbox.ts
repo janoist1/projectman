@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   InboxKind,
   InboxState,
+  RelayOwnerAnswerRequest,
   ResolveInboxRequest,
   routes,
   visibleQuestionItem,
@@ -11,10 +12,11 @@ import {
 } from '@projectman/shared';
 import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
 import type { ApiDomain } from './ports';
+import { ANSWER_OPTION } from '../core/inbox';
 import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
-import { notFound } from '../kernel';
+import { forbidden, notFound } from '../kernel';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
@@ -65,6 +67,37 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
       await requireAccess(domain, request, key, { minimum: 'admin' });
       const { since } = parseBody(ScreenedQuery, request.query);
       return domain.inbox.screenedQuestions(key, since);
+    },
+  );
+
+  /**
+   * The integrator in super mode relays the owner's words to a plain information question (PM-762). It is
+   * not an owner decision: a question that is not an explicit information question is refused.
+   */
+  app.post<ItemParams>(
+    routes.relayOwnerAnswer(':key', ':itemId'),
+    async (request): Promise<{ item: InboxItem }> => {
+      const { key, itemId } = request.params;
+      const access = await requireAccess(domain, request, key);
+      const body = parseBody(RelayOwnerAnswerRequest, request.body);
+      if (!access.superActor)
+        throw forbidden('super_relay_refused', 'only the integrator in super mode relays an answer');
+      const item = domain.inbox.get(key, itemId);
+      if (!canSeeInboxItem(access, item)) throw notFound('inbox item', itemId);
+      if (item.kind !== 'question')
+        throw forbidden('super_relay_refused', 'only a question can be answered by a relay');
+      const resolved = await domain.inbox.resolve(
+        key,
+        itemId,
+        { optionId: ANSWER_OPTION.id, note: body.answer },
+        access,
+      );
+      return {
+        item: visibleQuestionItem(access, resolved, (taskKey) => {
+          const task = domain.tasks.find(key, taskKey);
+          return !!task && canSeeTask(access, task);
+        }),
+      };
     },
   );
 

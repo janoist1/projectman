@@ -6,6 +6,8 @@ import {
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
+  RequestSuperOperationRequest,
+  SuperCommand,
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
@@ -184,6 +186,34 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.operate(ctx, args));
+      },
+    }),
+
+    defineTool({
+      name: 'request_super_operation',
+      title: 'Hand a command to the super mode',
+      readOnly: false,
+      description:
+        'Only the Operator, in its own general conversation during an open owner message or answer. Hand ONE command to the owner’s super-mode integrator when the owner asked for something operate cannot do or must not do alone (a reserved effect such as cost, deletion, publication or direction). It stores a durable handoff and returns it; it executes nothing and approves nothing. The integrator, working with the owner’s own login, executes it later; an effect reserved for the owner then waits for the owner’s own yes. command is {kind: operate, operation} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request}. Give a fresh request_id (UUID) per handoff and reuse it only to repeat the same call; the same request_id with other content is refused (super_request_conflict). expected_config_version pins the project configuration the owner saw; if it changed, the integrator refuses the handoff as stale. reason is what the owner reads (1–2000 characters, project language).',
+      input: {
+        task_key: TaskKey.optional().describe('The card the command is about, when there is one.'),
+        reason: RequestSuperOperationRequest.shape.reason,
+        command: SuperCommand,
+        expected_config_version: RequestSuperOperationRequest.shape.expectedConfigVersion,
+        request_id: z
+          .uuid()
+          .describe('A fresh UUID for this handoff; repeat it only to retry the same call.'),
+      },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.requestSuperOperation(ctx, {
+            ...(args.task_key ? { taskKey: args.task_key } : {}),
+            reason: args.reason,
+            command: args.command,
+            ...(args.expected_config_version ? { expectedConfigVersion: args.expected_config_version } : {}),
+            requestId: args.request_id,
+          }),
+        );
       },
     }),
 

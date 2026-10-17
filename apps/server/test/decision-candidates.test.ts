@@ -47,6 +47,7 @@ function answered(
     by?: string;
     rule?: 'approval_given';
     via?: 'integrator';
+    relayed?: boolean;
     taskKey?: string | null;
     optionId?: string;
     note?: string | null;
@@ -78,6 +79,7 @@ function answered(
       note: extra.note === undefined ? null : extra.note,
       ...(extra.rule ? { rule: extra.rule } : {}),
       ...(extra.via ? { via: extra.via } : {}),
+      ...(extra.relayed ? { ownerAnswerRelayed: true } : {}),
     },
     createdAt: '2026-10-11T08:00:00.000Z',
   };
@@ -180,6 +182,14 @@ describe('the decision candidates (PM-496)', () => {
     const approval = answered('inb_approval', '2026-10-11T09:05:00.000Z');
     h.repos.db.prepare("UPDATE inbox_items SET kind = 'approval' WHERE id = ?").run(approval);
     expect((await candidates()).candidates.map((c) => c.item_id)).toEqual(['inb_owner']);
+  });
+
+  it('leaves out an answer the integrator relayed: it is no decision of the owner (PM-762)', async () => {
+    await setup();
+    answered('inb_relayed', '2026-10-11T09:00:00.000Z', { via: 'integrator', relayed: true });
+    answered('inb_decided', '2026-10-11T09:01:00.000Z', { via: 'integrator' });
+    expect(h.domain.decisionCandidates.unseen('AR', await config())).toBe(1);
+    expect((await candidates()).candidates.map((c) => c.item_id)).toEqual(['inb_decided']);
   });
 
   it('leaves out answers given before the project’s since, and a project with no row has no bound', async () => {

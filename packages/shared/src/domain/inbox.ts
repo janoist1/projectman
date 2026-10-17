@@ -186,6 +186,11 @@ export const InboxItem = z.object({
       via: z.literal('integrator').optional(),
       /** The full origin when the Operator's super mode resolved it (PM-757); older resolutions have none. */
       actor: Actor.optional(),
+      /**
+       * True when the integrator relayed the owner's answer to a simple information question (PM-762):
+       * the owner did not decide this with their own login, so it is no evidence of an owner decision.
+       */
+      ownerAnswerRelayed: z.literal(true).optional(),
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),
@@ -731,6 +736,8 @@ export function questionGroupCompatible(a: InboxItem, b: InboxItem): boolean {
       recommended: p?.recommended ?? null,
       attachments: (p?.attachments ?? []).map((file) => file.id).sort(),
       approval: p?.approvalLabel ?? null,
+      // An information question and an owner decision never share a group (PM-762): one answer closes all.
+      purpose: p?.responsePurpose ?? 'owner_decision',
     });
   };
   return signature(a) === signature(b);
@@ -802,6 +809,58 @@ export function visibleQuestionItem(
   };
 }
 
+/** What a question's answer is for (PM-762). */
+export const QuestionResponsePurpose = z.enum(['information', 'owner_decision']);
+export type QuestionResponsePurpose = z.infer<typeof QuestionResponsePurpose>;
+
+/** What the owner's question about a super operation carries, so the answer binds exactly one operation and version. */
+export const SuperOperationQuestionPayload = z.strictObject({
+  operationId: z.string(),
+  commandHash: z.string(),
+  expectedConfigVersion: z.string().nullable(),
+  expiresAt: z.iso.datetime(),
+});
+export type SuperOperationQuestionPayload = z.infer<typeof SuperOperationQuestionPayload>;
+
+/**
+ * True when the answer to this question may be relayed by the integrator: an explicit information question
+ * only. A question that asks for an approval label, or that the Operator made a todo of, is an owner's
+ * action whatever its declared purpose, and so is one bound to a super operation.
+ */
+export function isRelayableQuestion(
+  payload: Pick<QuestionPayload, 'responsePurpose' | 'superOperation' | 'approvalLabel' | 'screening'>,
+) {
+  return (
+    payload.responsePurpose === 'information' &&
+    !payload.superOperation &&
+    !payload.approvalLabel &&
+    !payload.screening?.todo &&
+    payload.screening?.outcome !== 'todo'
+  );
+}
+
+/** The payload keys of the approvals the server builds; an item that carries one is never a plain question. */
+export const APPROVAL_PAYLOAD_KEYS = [
+  'gate',
+  'release',
+  'permission',
+  'boundary',
+  'approval',
+  'operatorApproval',
+  'operatorKnowledge',
+] as const;
+
+/** The whole-item form of `isRelayableQuestion`: also looks at the approval payload keys and the todo options. */
+export function isRelayableQuestionItem(item: Pick<InboxItem, 'kind' | 'payload' | 'options'>): boolean {
+  if (item.kind !== 'question') return false;
+  const payload = questionPayloadOf(item);
+  if (!payload || !isRelayableQuestion(payload)) return false;
+  if (APPROVAL_PAYLOAD_KEYS.some((key) => key in item.payload)) return false;
+  return !item.options.some(
+    (option) => option.id === TODO_DONE_OPTION.id || option.id === TODO_CANNOT_OPTION.id,
+  );
+}
+
 export const QuestionPayload = z.object({
   group: QuestionGroup.optional(),
   question: z.string(),
@@ -828,6 +887,13 @@ export const QuestionPayload = z.object({
   unscreened: z.object({ reason: z.string().min(1).max(1000), previousItemId: z.string() }).optional(),
   /** Whether the answer reached the asking member (PM-556). */
   answerDelivery: AnswerDelivery.optional(),
+  /**
+   * What the answer is for (PM-762): `information` may be relayed by the super-mode integrator, an
+   * `owner_decision` only the owner's own login answers. A missing value counts as `owner_decision`.
+   */
+  responsePurpose: QuestionResponsePurpose.optional(),
+  /** Binds the question to one durable super operation (PM-762); such a question is always an owner decision. */
+  superOperation: SuperOperationQuestionPayload.optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 

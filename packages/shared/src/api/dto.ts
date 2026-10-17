@@ -129,6 +129,7 @@ export const OperatorAction = z.enum([
   'decision_offer',
   'knowledge_change',
   'structural_review',
+  'super_handoff',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([

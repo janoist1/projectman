@@ -18,6 +18,7 @@ import type {
   TaskRelation,
   MemberView,
   QuestionAttachment,
+  QuestionResponsePurpose,
   QuestionOptionInput,
   QuestionTodo,
   ScreeningOutcome,
@@ -47,6 +48,8 @@ import type {
   OperatorPreferenceDocument,
   ConfigChangeRow,
   ProjectDoc,
+  SuperCommand,
+  SuperHandoff,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
@@ -614,6 +617,8 @@ export interface InboxToolsHandler {
       /** The earlier question the Operator settled, and why a person must see this one (PM-558); only together. */
       reaskOf?: string;
       reaskReason?: string;
+      /** `information`: a simple fact the super-mode integrator may relay (PM-762); missing means an owner decision. */
+      responsePurpose?: QuestionResponsePurpose;
     },
   ): Promise<{
     inboxItemId: string;
@@ -790,6 +795,21 @@ export interface OperatorToolsHandler {
     inbox_item_id?: string;
     deduplicated?: true;
   }>;
+  /**
+   * request_super_operation (PM-762): the Operator hands one command to the super-mode integrator during an
+   * open owner request. The handoff is durable and grants no execution right or approval. A repeat with the
+   * same `requestId` and content returns the same handoff; other content is `super_request_conflict`.
+   */
+  requestSuperOperation(
+    ctx: ToolContext,
+    args: {
+      taskKey?: string;
+      reason: string;
+      command: SuperCommand;
+      expectedConfigVersion?: string;
+      requestId: string;
+    },
+  ): Promise<{ handoff: SuperHandoff }>;
   startTask(
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },

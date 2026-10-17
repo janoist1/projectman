@@ -113,6 +113,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   start_task: 'task_start',
   start_member: 'task_start',
   operate: 'config_change',
+  request_super_operation: 'super_handoff',
   propose_operator_knowledge: 'knowledge_change',
   write_project_docs: 'docs_write',
   mark_decision_candidates: 'decision_offer',

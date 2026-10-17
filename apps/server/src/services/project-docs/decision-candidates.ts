@@ -32,6 +32,8 @@ export class DecisionCandidates {
     return this.ctx.repos.inbox.listAnsweredQuestions(projectKey, after, includeOffered).filter((item) => {
       const resolution = item.resolution;
       if (!resolution || resolution.rule || !owners.includes(resolution.by)) return false;
+      // An answer the integrator relayed is no decision of the owner (PM-762).
+      if (resolution.ownerAnswerRelayed) return false;
       return !isOperator(memberOf(config, this.askerOf(item) ?? ''));
     });
   }

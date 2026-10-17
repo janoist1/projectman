@@ -10,6 +10,13 @@ export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
 import { createSuperAuditRepository } from './super-audit';
+import { createSuperHandoffRepository } from './super-handoffs';
+export type {
+  StoredSuperHandoff,
+  StoredSuperOperation,
+  SuperHandoffPatch,
+  SuperOperationPatch,
+} from './super-handoffs';
 import { createBoundaryRepository } from './boundary';
 import { createFeedbackRepository } from './feedback';
 export type {
@@ -100,6 +107,7 @@ export function createRepositories(db: Db) {
     integratorKeys: createIntegratorKeyRepository(db),
     integratorKeyAudit: createIntegratorKeyAuditRepository(db),
     superAudit: createSuperAuditRepository(db),
+    superHandoffs: createSuperHandoffRepository(db),
     invitations: createInvitationRepository(db),
     emailLogin: createEmailLoginRepository(db),
     authSessions: createAuthSessionRepository(db),

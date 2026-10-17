@@ -1,21 +1,25 @@
 import { z } from 'zod';
-import { EngineId, ERROR_CODES, TaskKey } from '@projectman/shared';
+import {
+  AdministrationBootId,
+  AdministrationCommandSchema,
+  AdministrationCommitSchema,
+  AdministrationOperationId,
+  AdministrationTargetSchema,
+  ERROR_CODES,
+} from '@projectman/shared';
 import {
   ADMINISTRATION_CAPABILITIES,
   ADMINISTRATION_LIMITS,
   ADMINISTRATION_SOCKET_METHODS,
-  FULL_TEST_PROFILES,
   IMAGE_PLATFORMS,
   MAX_DIAGNOSTIC_ENTRIES,
   MAX_DIAGNOSTIC_MESSAGE,
 } from '../contracts';
 import type {
-  AdministrationCommand,
   AdministrationJob,
   AdministrationResult,
   AdministrationStatus,
   AdministrationSubmit,
-  AdministrationTarget,
   DiagnosticLogEntry,
   ImageArtifact,
 } from '../contracts';
@@ -27,16 +31,14 @@ import type {
  * a container.
  */
 
-const COMMIT = /^[0-9a-f]{40}$/;
-const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
-const BOOT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const VERSION = /^[A-Za-z0-9._+-]{1,64}$/;
 
-export const OperationId = z.string().regex(SAFE_ID);
-export const AdministrationRequestId = z.string().regex(SAFE_ID);
-export const BootId = z.string().regex(BOOT_ID);
+// The scalar validators of the command live in packages/shared (PM-762): one source, no second copy.
+export const OperationId = AdministrationOperationId;
+export const AdministrationRequestId = AdministrationOperationId;
+export const BootId = AdministrationBootId;
 const Version = z.string().regex(VERSION);
-const Commit = z.string().regex(COMMIT);
+const Commit = AdministrationCommitSchema;
 const Capability = z.enum(ADMINISTRATION_CAPABILITIES);
 const Platform = z.enum(IMAGE_PLATFORMS);
 const ErrorCodeSchema = z.enum(ERROR_CODES);
@@ -46,35 +48,8 @@ const iso = z
   .max(40)
   .regex(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
 
-export const AdministrationTargetSchema: z.ZodType<AdministrationTarget> = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('hub') }),
-  z.strictObject({ kind: z.literal('engine'), id: EngineId }),
-]);
-
-export const AdministrationCommandSchema: z.ZodType<AdministrationCommand> = z.discriminatedUnion('kind', [
-  z.strictObject({
-    kind: z.literal('restart'),
-    target: AdministrationTargetSchema,
-    expectedBootId: BootId,
-  }),
-  z.strictObject({
-    kind: z.literal('full_test'),
-    taskKey: TaskKey,
-    commit: Commit,
-    profile: z.enum(FULL_TEST_PROFILES),
-  }),
-  z.strictObject({
-    kind: z.literal('image_build'),
-    taskKey: TaskKey,
-    commit: Commit,
-    platforms: z
-      .array(Platform)
-      .min(1)
-      .max(2)
-      .refine((platforms) => new Set(platforms).size === platforms.length, { message: 'Duplicate platform' }),
-  }),
-  z.strictObject({ kind: z.literal('deploy'), releaseId: OperationId }),
-]);
+// The command and target schemas are shared with the super-mode handoff (PM-762).
+export { AdministrationCommandSchema, AdministrationTargetSchema };
 
 export const AdministrationStatusSchema: z.ZodType<AdministrationStatus> = z.strictObject({
   target: AdministrationTargetSchema,

@@ -21,7 +21,11 @@ export type SuperRoutineMutation =
   | 'session_stop'
   | 'session_restart'
   | 'release_prepare'
-  | 'release_propose';
+  | 'release_propose'
+  | 'member_update';
+/** The protected administration adapter's commands (PM-763); only `deploy` is owner-reserved (publication). */
+export const SUPER_ADMINISTRATION_COMMANDS = ['restart', 'full_test', 'image_build', 'deploy'] as const;
+export type SuperAdministrationCommand = (typeof SUPER_ADMINISTRATION_COMMANDS)[number];
 export type SuperMutationCommand =
   | { kind: 'config_change'; next: ProjectConfig }
   | { kind: 'task_visibility'; taskKey: TaskKey | null; before: Visibility | null; after: Visibility }
@@ -46,6 +50,7 @@ export type SuperMutationCommand =
     }
   | { kind: 'focus_change'; before: TaskKey[]; after: TaskKey[] }
   | { kind: 'runtime_start'; providers: AgentProvider[] }
+  | { kind: 'administration'; command: SuperAdministrationCommand }
   | { kind: 'routine'; operation: SuperRoutineMutation };
 
 const routines = new Set<SuperRoutineMutation>([
@@ -65,6 +70,7 @@ const routines = new Set<SuperRoutineMutation>([
   'session_restart',
   'release_prepare',
   'release_propose',
+  'member_update',
 ]);
 
 /** Server-generated authorization projection, never an executable command or a client exemption. */
@@ -86,6 +92,9 @@ export function ownerReservedEffect(
     case 'routine':
       if (!routines.has(command.operation)) throw new Error('unknown super mutation');
       return null;
+    case 'administration':
+      if (!SUPER_ADMINISTRATION_COMMANDS.includes(command.command)) throw new Error('unknown super mutation');
+      return command.command === 'deploy' ? 'publication' : null;
     case 'config_change': {
       if (!previous) throw new Error('a configuration mutation needs its previous snapshot');
       const next = command.next;

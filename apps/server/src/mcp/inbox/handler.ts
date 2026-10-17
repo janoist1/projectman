@@ -17,6 +17,7 @@ import type {
   ProjectConfig,
   QuestionAttachment,
   QuestionOptionInput,
+  QuestionResponsePurpose,
   Task,
 } from '@projectman/shared';
 import type { InboxToolsHandler } from '../../contracts';
@@ -99,6 +100,7 @@ export class InboxTools implements InboxToolsHandler {
       /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
       reaskOf?: string;
       reaskReason?: string;
+      responsePurpose?: QuestionResponsePurpose;
     },
   ): Promise<{
     inboxItemId: string;
@@ -205,6 +207,13 @@ export class InboxTools implements InboxToolsHandler {
               }
             : {}),
           ...(unscreened ? { unscreened } : {}),
+          // A question that appears to ask for an approval is always an owner decision (PM-762): the asking
+          // member cannot make it relayable.
+          ...(approvalLabel
+            ? { responsePurpose: 'owner_decision' as const }
+            : args.responsePurpose
+              ? { responsePurpose: args.responsePurpose }
+              : {}),
           options: choices.map((choice) => choice.label),
           ...(approvalLabel ? { approvalLabel } : {}),
           ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),

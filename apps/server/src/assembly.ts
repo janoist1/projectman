@@ -20,7 +20,7 @@ import {
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createStructureService } from './services/structure';
-import { createSuperOperator } from './services/super-operator';
+import { createSuperHandoffService, createSuperOperator } from './services/super-operator';
 import { createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -1283,6 +1283,7 @@ export function createDomain(opts: DomainOptions) {
     },
   });
   const sessionEngine = (sessionId: string) => engines.get(sessions.engineOf(sessionId)) ?? undefined;
+  const superHandoffs = createSuperHandoffService({ ctx, projects, inbox, timeline, audit: superAudit });
   const toolCaller = new ToolCaller({
     ctx,
     projects,
@@ -1320,6 +1321,7 @@ export function createDomain(opts: DomainOptions) {
         taskStarts,
         operatorSignals,
         loopTriages,
+        superHandoffs,
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
       releases: new ReleaseTools({ calls: toolCaller, releases }),
@@ -1560,6 +1562,15 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_resolved', (item) =>
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
+  // The durable handoff of work to the super-mode integrator (PM-762): its grants are the only way a reserved
+  // effect passes the mutation checks, and the owner's own answer is the only way the waiting operation goes on.
+  const superOperator = createSuperOperator({
+    projects,
+    audit: superAudit,
+    credentials: opts.integratorCredentials,
+  });
+  superOperator.useMutationAuthorizer(superHandoffs.authorizer);
+  inbox.registerSuperOperationAnswer(superHandoffs.ownerAnswer);
   inbox.registerQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
   inbox.registerQuestionGroupAnswer((items, attachmentIds, close) =>
     messaging.answerGroup(items, attachmentIds, close),
@@ -1866,6 +1877,7 @@ export function createDomain(opts: DomainOptions) {
 
   let sweeps: RunningSweeps | undefined;
   let stopMessageSweep: (() => void) | undefined;
+  let superHandoffSweep: ReturnType<typeof setInterval> | undefined;
 
   /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
   const engineCounters = (id: EngineId): EngineCounters => ({
@@ -1878,11 +1890,8 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
-    superOperator: createSuperOperator({
-      projects,
-      audit: superAudit,
-      credentials: opts.integratorCredentials,
-    }),
+    superOperator,
+    superHandoffs,
     operatorKnowledge: opts.operatorKnowledge,
     operatorPreferences,
     sharedOperatorKnowledge,
@@ -1982,6 +1991,8 @@ export function createDomain(opts: DomainOptions) {
       members.reconcileAfterRestart();
       for (const project of projects.summaries()) refinement.reconcile(project.key);
       inbox.expireOpenPermissions();
+      // What was running for the integrator when the server stopped may have had its effect: marked unknown, never re-run.
+      superHandoffs.reconcile();
       await boundary.sweep();
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
@@ -1995,6 +2006,15 @@ export function createDomain(opts: DomainOptions) {
       }
       // Uploads no message took within a day are deleted (now, and hourly).
       stopMessageSweep = messageAttachments.startSweeping();
+      // The owner's questions about super operations that lapsed unanswered are settled every minute.
+      superHandoffSweep = setInterval(() => {
+        try {
+          superHandoffs.sweep();
+        } catch (err) {
+          opts.logger.warn({ err }, 'sweeping the super-mode handoffs failed');
+        }
+      }, 60_000);
+      superHandoffSweep.unref();
       githubSync.start();
       background.start();
       // Restore quota holds before schedulers or background probes can admit inference.
@@ -2164,6 +2184,7 @@ export function createDomain(opts: DomainOptions) {
       unsubscribeSignalActivity();
       usage.stop();
       stopMessageSweep?.();
+      if (superHandoffSweep) clearInterval(superHandoffSweep);
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();

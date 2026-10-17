@@ -18,6 +18,9 @@ import {
 } from '@projectman/shared';
 import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from '@projectman/shared';
 
+export { SuperHandoffService, createSuperHandoffService, superCommandHash } from './handoffs';
+export type { SuperCommandExecutor, SuperExecutorJob } from './handoffs';
+
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */
 export function createSuperOperator(deps: {
   projects: Pick<ProjectService, 'config' | 'cachedConfig' | 'summaries'>;

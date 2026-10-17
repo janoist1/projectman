@@ -183,6 +183,7 @@ describe('team MCP endpoint', () => {
         'reask_reason',
         'recommendation_reason',
         'recommended',
+        'response_purpose',
         'task_key',
         'to',
       ].sort(),

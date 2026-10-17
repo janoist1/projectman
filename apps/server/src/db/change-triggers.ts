@@ -53,7 +53,7 @@ const ofProject = (
  * view or the board reads; the entity is the card key. A card deleted by a cascade is announced by the
  * card row itself.
  */
-export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
+const V81_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('tasks', 'task', 'key'),
   {
     // A link belongs to the card; once the card is gone (a cascade) there is no project to name.
@@ -117,6 +117,21 @@ export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('merge_trains', 'operation', 'id', WRITES),
   ofProject('releases', 'operation', 'id', WRITES),
   ofProject('doc_writes', 'operation', 'id', WRITES),
+];
+
+/**
+ * Tables added after migration 81, each group with a migration of its own that calls `changeTriggerSql`
+ * on its group (a migration's text is frozen, so it names its own group, never the whole later list).
+ */
+/** Migration 83 (PM-762): the durable hand-over to the integrator and the operation it starts. */
+export const V83_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
+  ofProject('super_handoffs', 'handoff', 'id', WRITES),
+  ofProject('super_operations', 'operation', 'id', WRITES),
+];
+
+export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
+  ...V81_CHANGE_TRIGGER_TABLES,
+  ...V83_CHANGE_TRIGGER_TABLES,
 ];
 
 /**
@@ -186,6 +201,7 @@ export function changeTriggerSql(entry: ChangeTriggerTable): string {
     .join('\n');
 }
 
+/** The triggers migration 81 creates: its text is frozen, later tables get their own migration. */
 export function changeTriggersSql(): string {
-  return CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n');
+  return V81_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n');
 }

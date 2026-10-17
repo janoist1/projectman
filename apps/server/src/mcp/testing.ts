@@ -276,6 +276,24 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('operate', ctx, args);
       return { status: 'done', step_id: 'ops_fake', changes: [] };
     },
+    async requestSuperOperation(ctx, args) {
+      await enter('requestSuperOperation', ctx, args);
+      return {
+        handoff: {
+          id: 'sho_fake',
+          projectKey: ctx.projectKey,
+          taskKey: args.taskKey ?? null,
+          requestedBy: { kind: 'ai', handle: ctx.member },
+          reason: args.reason,
+          command: args.command,
+          expectedConfigVersion: args.expectedConfigVersion ?? null,
+          state: 'pending',
+          operationId: null,
+          createdAt: '2026-10-17T00:00:00.000Z',
+          updatedAt: '2026-10-17T00:00:00.000Z',
+        },
+      };
+    },
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);
       return { task_key: args.taskKey, session_id: null, hired: null, assignee: args.assignee ?? null };

@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest';
+import type { SuperCommand } from '../api/super-handoff';
+import { SuperCommand as SuperCommandSchema } from '../api/super-handoff';
+import { ProjectConfig } from './schema';
+import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
+import type { SuperCommandContext } from './super-command';
+
+function config() {
+  return ProjectConfig.parse({
+    schemaVersion: 1,
+    project: { key: 'AC', name: 'Acme', workspacePath: '/work/acme', repos: [{ name: 'web', path: 'web' }] },
+    team: {
+      members: [
+        {
+          kind: 'human',
+          handle: 'owner',
+          displayName: 'Owner',
+          access: 'owner',
+          email: 'owner@example.com',
+          roles: ['operator'],
+        },
+        { kind: 'ai', handle: 'dev-1', displayName: 'Developer', role: 'developer', sponsor: 'owner' },
+        {
+          kind: 'ai',
+          handle: 'dev-2',
+          displayName: 'Paid developer',
+          role: 'developer',
+          sponsor: 'owner',
+          provider: 'nanogpt',
+        },
+      ],
+      limits: {},
+    },
+    pipeline: {
+      columns: [{ id: 'all', name: 'All' }],
+      stages: [
+        { id: 'backlog', name: 'Backlog', kind: 'queue', columnId: 'all' },
+        { id: 'done', name: 'Done', kind: 'done', columnId: 'all' },
+      ],
+      labels: [],
+    },
+  });
+}
+
+const context = (): SuperCommandContext => ({ config: config(), configVersion: 'v1' });
+const effects = (command: SuperCommand) => superCommandEffects(command, context());
+const operate = (operation: unknown) => ({ kind: 'operate', operation }) as SuperCommand;
+
+describe('super command classification (PM-762)', () => {
+  it('has no owner-reserved effect for the routine commands', () => {
+    expect(effects(operate({ op: 'project_pause' }))).toEqual([]);
+    expect(effects(operate({ op: 'project_resume' }))).toEqual([]);
+    expect(effects(operate({ op: 'session_stop', sessionId: 'ses_1' }))).toEqual([]);
+    expect(
+      effects({ kind: 'member_update', handle: 'dev-1', request: { displayName: 'Fictional name' } }),
+    ).toEqual([]);
+    expect(
+      effects({
+        kind: 'administration',
+        request: { kind: 'full_test', taskKey: 'AC-1', commit: 'a'.repeat(40), profile: 'merge-test' },
+      }),
+    ).toEqual([]);
+  });
+
+  it('names deletion for a member retired', () => {
+    expect(effects(operate({ op: 'member_retire', handle: 'dev-1' }))).toEqual(['deletion']);
+  });
+
+  it('names cost for a paid runtime and publication for a deploy', () => {
+    expect(effects({ kind: 'member_update', handle: 'dev-2', request: { effort: 'high' } })).toEqual([
+      'cost',
+    ]);
+    // Only sending the paid member on leave costs nothing.
+    expect(effects({ kind: 'member_update', handle: 'dev-2', request: { onLeave: true } })).toEqual([]);
+    expect(effects({ kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_1' } })).toEqual([
+      'publication',
+    ]);
+  });
+
+  it('refuses what it cannot project, instead of treating it as harmless', () => {
+    expect(() => effects({ kind: 'member_update', handle: 'ghost', request: { displayName: 'X' } })).toThrow(
+      SuperCommandUnclassifiable,
+    );
+    // An access change is the owner`s own business, never a handoff.
+    expect(() => effects({ kind: 'member_update', handle: 'dev-1', request: { access: 'admin' } })).toThrow(
+      SuperCommandUnclassifiable,
+    );
+    expect(() =>
+      effects({ kind: 'member_update', handle: 'dev-1', request: { roles: ['operator'] } }),
+    ).toThrow(SuperCommandUnclassifiable);
+    expect(() => effects({ kind: 'nothing' } as unknown as SuperCommand)).toThrow(SuperCommandUnclassifiable);
+    expect(() => effects(operate({ op: 'nothing' }))).toThrow(SuperCommandUnclassifiable);
+    expect(() => effects(operate({ op: 'config_revert', version: 'unknown' }))).toThrow(
+      SuperCommandUnclassifiable,
+    );
+  });
+
+  it('projects every command kind onto a mutation', () => {
+    expect(
+      superCommandMutations({ kind: 'merge_order', taskKeys: ['AC-1'] } as SuperCommand, context()),
+    ).toEqual([{ kind: 'routine', operation: 'merge_order' }]);
+    expect(
+      superCommandMutations(
+        { kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_1' } },
+        context(),
+      ),
+    ).toEqual([{ kind: 'administration', command: 'deploy' }]);
+  });
+
+  it('keeps the command schema closed: an unknown kind or field is not a command', () => {
+    expect(
+      SuperCommandSchema.safeParse({ kind: 'operate', operation: { op: 'project_pause' } }).success,
+    ).toBe(true);
+    expect(SuperCommandSchema.safeParse({ kind: 'shell', command: 'ls' }).success).toBe(false);
+    expect(
+      SuperCommandSchema.safeParse({ kind: 'operate', operation: { op: 'project_pause' }, extra: 1 }).success,
+    ).toBe(false);
+    expect(
+      SuperCommandSchema.safeParse({
+        kind: 'administration',
+        request: { kind: 'deploy', releaseId: 'rel_1', path: '/x' },
+      }).success,
+    ).toBe(false);
+  });
+});

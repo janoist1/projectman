@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   CombineQuestionsRequest,
+  isRelayableQuestionItem,
   questionGroupCompatible,
   questionPayloadOf,
+  TODO_CANNOT_OPTION,
+  TODO_DONE_OPTION,
   visibleQuestionItem,
 } from './inbox';
 import type { InboxItem } from './inbox';
@@ -43,6 +46,30 @@ describe('question grouping rules', () => {
       { ...item, payload: { ...item.payload, recommended: 'no' } },
     ])
       expect(questionGroupCompatible(item, other)).toBe(false);
+  });
+  it('never groups an information question with an owner decision, a missing purpose counting as a decision', () => {
+    const information = { ...item, payload: { ...item.payload, responsePurpose: 'information' } };
+    const decision = { ...item, id: 'q2', payload: { ...item.payload, responsePurpose: 'owner_decision' } };
+    const unmarked = { ...item, id: 'q3' };
+    expect(questionGroupCompatible(information, decision)).toBe(false);
+    expect(questionGroupCompatible(information, unmarked)).toBe(false);
+    expect(questionGroupCompatible(decision, unmarked)).toBe(true);
+    expect(questionGroupCompatible(information, { ...information, id: 'q4' })).toBe(true);
+  });
+  it('relays only a plain information question', () => {
+    const plain = { ...item, payload: { ...item.payload, responsePurpose: 'information' } };
+    expect(isRelayableQuestionItem(plain)).toBe(true);
+    for (const other of [
+      item,
+      { ...plain, payload: { ...plain.payload, responsePurpose: 'owner_decision' } },
+      { ...plain, payload: { ...plain.payload, approvalLabel: 'qa-ok' } },
+      { ...plain, payload: { ...plain.payload, gate: {} } },
+      { ...plain, payload: { ...plain.payload, boundary: {} } },
+      { ...plain, payload: { ...plain.payload, screening: { until: item.createdAt, outcome: 'todo' } } },
+      { ...plain, options: [TODO_DONE_OPTION, TODO_CANNOT_OPTION] },
+      { ...plain, kind: 'decision' as const },
+    ])
+      expect(isRelayableQuestionItem(other)).toBe(false);
   });
   it('redacts hidden source keys, titles and text and gives guests no cross-card group data', () => {
     const grouped: InboxItem = {

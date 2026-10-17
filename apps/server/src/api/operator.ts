@@ -5,8 +5,14 @@ import {
   OperatorApprovalWaiverRequest,
   canReadOperatorKnowledge,
   SuperAuditQuery,
+  ExecuteSuperHandoffRequest,
+  ListSuperHandoffsQuery,
 } from '@projectman/shared';
-import type { SuperAuditPage } from '@projectman/shared';
+import type {
+  ExecuteSuperHandoffResponse,
+  ListSuperHandoffsResponse,
+  SuperAuditPage,
+} from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
 import { requireAccess, actorOf, authorOf } from './context';
@@ -35,6 +41,28 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
       throw forbidden('insufficient_access', 'the audit is for the owner using their own login');
     return domain.superAudit.list(key, parseBody(SuperAuditQuery, request.query));
   });
+  /** The durable handoffs to the super-mode integrator (PM-762): the owner and the integrator's token read them. */
+  app.get<ProjectParams>(
+    routes.superHandoffs(':key'),
+    async (request): Promise<ListSuperHandoffsResponse> => {
+      const key = request.params.key;
+      await requireAccess(domain, request, key, { minimum: 'owner' });
+      const query = parseBody(ListSuperHandoffsQuery, request.query);
+      return { handoffs: domain.superHandoffs.list(key, query) };
+    },
+  );
+  /** The integrator starts (or, after the owner's yes, resumes) the operation of a handoff. */
+  app.post<{ Params: { key: string; handoffId: string } }>(
+    routes.executeSuperHandoff(':key', ':handoffId'),
+    async (request, reply): Promise<ExecuteSuperHandoffResponse> => {
+      const { key, handoffId } = request.params;
+      const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+      const body = parseBody(ExecuteSuperHandoffRequest, request.body);
+      const operation = await domain.superHandoffs.execute(key, handoffId, body.requestId, access);
+      reply.code(202);
+      return { operation };
+    },
+  );
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
     if (

@@ -293,6 +293,10 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
 
   it('prepares review dependencies after checking out the snapshot commit and before launching', async () => {
     let ready!: () => void;
+    // Create the gate before checkout so finally can release even a late preparation.
+    const dependenciesReady = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
     const reviewHeads: string[] = [];
     await setup({
       wrapMemberWorkspaces: (inner) => ({
@@ -302,21 +306,22 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
             const ws = await inner.location(key);
             const head = await git(ws.path, 'rev-parse', 'HEAD');
             expect(await branchOf(ws.path)).toBe('');
-            await new Promise<void>((resolve) => {
-              ready = resolve;
-              reviewHeads.push(head);
-            });
+            reviewHeads.push(head);
+            await dependenciesReady;
           }
           return { status: 'ready', key: key.member, changed: true };
         },
       }),
     });
-    await startTask('AR-1', 'dev-1');
-    const commit = await commitFile(await workspaceOf('dev-1'), 'login.txt', 'review version');
-    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
-    await vi.waitFor(() => expect(reviewHeads).toEqual([commit]));
-    expect(h.runner.started).toHaveLength(1);
-    ready();
+    try {
+      await startTask('AR-1', 'dev-1');
+      const commit = await commitFile(await workspaceOf('dev-1'), 'login.txt', 'review version');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+      await vi.waitFor(() => expect(reviewHeads).toEqual([commit]), { timeout: 15_000 });
+      expect(h.runner.started).toHaveLength(1);
+    } finally {
+      ready();
+    }
     await startedCount(2);
     expect(h.runner.lastStarted()).toMatchObject({ member: 'cr' });
   });

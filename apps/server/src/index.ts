@@ -9,7 +9,6 @@ import type { BuildAppOptions, LoopbackHost } from './app';
 import type { RunMode } from './instance';
 import { buildEngineApp, ENGINE_DEFAULT_PORT } from './engine-app';
 import { defaultSessionTmpRoot } from './engine-host';
-import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { parseFeedbackPublicUrl } from './http';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { createServerLogStream, serverLogFile } from './logging';
@@ -193,6 +192,7 @@ async function configFromEnv(
   const publicBoard = parsePublicBoardEnv(env);
   // Keep the keys in the mailer options only, before even the version lookup can start a child process.
   scrubEmailLoginEnv(env);
+  const { defaultHeavyLockDir } = await import('./full-test');
   return {
     port,
     host,
@@ -278,6 +278,7 @@ async function engineMain(env: NodeJS.ProcessEnv): Promise<void> {
   const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
   if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
     throw new Error(`invalid PROJECTMAN_CLONE_DEPENDENCIES: ${cloneDependencies} (on or off)`);
+  const { defaultHeavyLockDir } = await import('./full-test');
   const engine = await buildEngineApp({
     home,
     port,
@@ -330,25 +331,30 @@ async function main(): Promise<void> {
   const mode = parseMode(process.env.PROJECTMAN_MODE);
   if (mode === 'engine') return engineMain(process.env);
   const config = await configFromEnv(process.env, mode);
+  const fullTest = mode === 'cloud' ? undefined : await import('./full-test');
   const app = await buildApp({
     ...config.app,
     // Always wire the live checker here; buildApp and domain harnesses never contact NanoGPT.
     modules:
       // The cloud runs none of the machine's work itself: its engine does the full test and the screenshots.
-      mode === 'cloud'
+      fullTest === undefined
         ? { ...config.app.modules, nanogptKeyCheck: createNanogptKeyCheck() }
         : {
             ...config.app.modules,
             nanogptKeyCheck: createNanogptKeyCheck(),
             createFullTestExecutor: ({ logger, worktreesRoot }) =>
-              createFullTestExecutor({
+              fullTest.createFullTestExecutor({
                 logger,
                 env: process.env,
                 heavyLockDir: config.app.heavyLockDir,
                 worktreesRoot,
               }),
             createScreenshotExecutor: ({ logger }) =>
-              createScreenshotExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
+              fullTest.createScreenshotExecutor({
+                logger,
+                env: process.env,
+                heavyLockDir: config.app.heavyLockDir,
+              }),
           },
   });
   warnRemovedManagedVmSettings(process.env, app.log);

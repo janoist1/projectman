@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { chmod, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
-import sharp from 'sharp';
+import type Sharp from 'sharp';
 import { FeedbackMarkId, MAX_FEEDBACK_SCREENSHOT_BYTES } from '@projectman/shared';
 import type { FeedbackScreenshotUpload } from '@projectman/shared';
 import type { StoredFeedbackScreenshot } from '../../db';
@@ -18,6 +18,13 @@ const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
 const EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as const;
 const SHARP_FORMATS = { 'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp' } as const;
+let sharpPromise: Promise<typeof Sharp> | undefined;
+function loadSharp(): Promise<typeof Sharp> {
+  return (sharpPromise ??= import('sharp').then(({ default: sharp }) => {
+    sharp.cache(false);
+    return sharp;
+  }));
+}
 
 const invalidScreenshot = (message: string) =>
   new DomainError('feedback_screenshot_invalid', message, { status: 422 });
@@ -47,6 +54,7 @@ export async function prepareScreenshot(upload: FeedbackScreenshotUpload): Promi
   if (sniffMediaType(original.subarray(0, 16)) !== upload.mediaType)
     throw invalidScreenshot('the screenshot content is not the declared image type');
   try {
+    const sharp = await loadSharp();
     const image = sharp(original, { limitInputPixels: MAX_INPUT_PIXELS, failOn: 'error' });
     const meta = await image.metadata();
     if (meta.format !== SHARP_FORMATS[upload.mediaType] || !meta.width || !meta.height)

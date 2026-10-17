@@ -30,7 +30,7 @@ import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from './sessions';
 import { waitForShutdownStops } from './shutdown-wait';
 import type { AppendTimelineInput, TimelineService } from '../../core/timeline';
-import { humanActor, newId, SYSTEM_ACTOR } from '../../kernel';
+import { conflict, humanActor, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** Catches up the scheduled runs a pause skipped; services/schedules supplies it, the assembly passes it. */
 export interface MissedRunCatchUp {
@@ -207,6 +207,55 @@ export class PauseService {
    * point. A target that is paused already stays as it is (the first request's reason and deadline).
    */
   async pause(target: PauseTarget, by: PauseRequester, opts: PauseOptions = {}): Promise<void> {
+    await this.pauseCore(target, by, opts, null);
+  }
+
+  /**
+   * The instance pause a hybrid release deployment owns (PM-752). It is refused when any instance pause is
+   * open (`release_pause_conflict`): a person's or the shutdown's pause is not the release's to resume.
+   * `atomic` runs in the same transaction as the pause row, so the deployment records the pause and the fence
+   * together or neither. Returns the pause id.
+   */
+  async acquireOwnedInstancePause(reason: string, atomic: (pauseId: string) => void): Promise<string> {
+    const id = await this.pauseCore(
+      { scope: 'instance' },
+      { userId: null, source: 'system' },
+      { reason },
+      atomic,
+    );
+    if (!id) throw new Error('the owned pause was not created');
+    return id;
+  }
+
+  /**
+   * Ends the pause the deployment owns. `atomic` runs in the same transaction as the close, so the deployment
+   * and the pause never disagree. A pause that is gone already is not an error: the deployment still moves on.
+   */
+  async resumeOwnedInstancePause(pauseId: string, atomic: () => void): Promise<void> {
+    await this.resumeCore({ scope: 'instance' }, { userId: null, source: 'system' }, { pauseId, atomic });
+  }
+
+  /**
+   * How many sessions have not stopped yet: the ones a pause still holds without a point and the ones that
+   * run with no pause row at all (the drain check of a release counts them).
+   */
+  unstoppedSessions(): number {
+    const { pauses, sessions } = this.ctx.repos;
+    let count = pauses
+      .openSessions()
+      .filter((row) => row.point === null && this.sessions.isRunning(row.sessionId)).length;
+    for (const project of this.projects.summaries())
+      for (const session of sessions.list(project.key))
+        if (this.sessions.isRunning(session.id) && !pauses.openSession(session.id)) count++;
+    return count;
+  }
+
+  private async pauseCore(
+    target: PauseTarget,
+    by: PauseRequester,
+    opts: PauseOptions,
+    owned: ((pauseId: string) => void) | null,
+  ): Promise<string | null> {
     const kind = opts.kind ?? 'manual';
     const forceAfterMs = opts.forceAfterMs ?? DEFAULT_PAUSE_FORCE_AFTER_MS;
     const { pauses } = this.ctx.repos;
@@ -215,7 +264,14 @@ export class PauseService {
     // Only the rows and the timeline are written under the admission lock: no start slips in between.
     const caught = await this.admission.exclusive(async () => {
       by.check?.();
-      if (pauses.findOpen(target.scope, keyOf(target))) return null;
+      if (pauses.findOpen(target.scope, keyOf(target))) {
+        if (owned)
+          throw conflict(
+            'release_pause_conflict',
+            'the instance is paused already: the release cannot own it',
+          );
+        return null;
+      }
       const at = isoNow(this.ctx);
       const record = {
         id: newId('pau'),
@@ -230,6 +286,7 @@ export class PauseService {
       };
       const rows = this.ctx.unitOfWork(() => {
         pauses.insert(record);
+        owned?.(record.id);
         const held: SessionPauseRecord[] = [];
         for (const projectKey of projectKeys)
           for (const session of this.ctx.repos.sessions.list(projectKey)) {
@@ -265,7 +322,7 @@ export class PauseService {
       });
       return { record, rows };
     });
-    if (!caught) return;
+    if (!caught) return null;
     this.ctx.logger.info(
       {
         pauseId: caught.record.id,
@@ -280,6 +337,7 @@ export class PauseService {
     this.handoffs.paused(projectKeys);
     this.publishChanged(projectKeys);
     for (const row of caught.rows) this.stopSession(row.sessionId, forceAfterMs);
+    return caught.record.id;
   }
 
   /** Asks the runner to stop the session at its next safe point; the outcome is recorded when it comes. */
@@ -452,14 +510,39 @@ export class PauseService {
    * is tried again. Resuming what is not paused changes nothing.
    */
   async resume(target: PauseTarget, by: PauseRequester): Promise<void> {
+    await this.resumeCore(target, by, null);
+  }
+
+  private async resumeCore(
+    target: PauseTarget,
+    by: PauseRequester,
+    owned: { pauseId: string; atomic: () => void } | null,
+  ): Promise<void> {
     const { pauses } = this.ctx.repos;
     const projectKeys = this.coveredProjects(target);
     const actors = await this.actors(projectKeys, by);
     const closed = await this.admission.exclusive(async () => {
       by.check?.();
       const pause = pauses.findOpen(target.scope, keyOf(target));
+      if (owned) {
+        if (!pause || pause.id !== owned.pauseId) {
+          // The owned pause is gone already: the deployment still has to record that it moved on.
+          if (pause)
+            throw conflict('release_pause_conflict', 'another pause is open: the release does not own it');
+          owned.atomic();
+          return null;
+        }
+      } else if (pause) {
+        // The fence is the deployment's: only its own resume ends it, never an admin's or the control command's.
+        const fence = this.ctx.repos.releaseDeployments.active();
+        if (fence?.maintenance && fence.pauseId === pause.id)
+          throw conflict('release_pause_conflict', 'the pause belongs to a release in progress', {
+            releaseId: fence.releaseId,
+          });
+      }
       if (!pause) return null;
       this.ctx.unitOfWork(() => {
+        owned?.atomic();
         pauses.close(pause.id, isoNow(this.ctx), by.userId);
         for (const projectKey of projectKeys)
           this.record(pause.kind, {

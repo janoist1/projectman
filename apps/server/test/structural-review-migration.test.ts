@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
-import { migrate, migrations } from '../src/db';
+import { LATEST_SCHEMA_VERSION, migrate, migrations } from '../src/db';
 
 it('preserves every signal field, ordering and partial uniqueness while extending only the kind constraint', () => {
   const db = new Database(':memory:');
@@ -58,7 +58,7 @@ it('preserves every signal field, ordering and partial uniqueness while extendin
     ).run(at);
     const before = db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all();
     migrate(db);
-    expect(db.pragma('user_version', { simple: true })).toBe(74);
+    expect(db.pragma('user_version', { simple: true })).toBe(LATEST_SCHEMA_VERSION);
     expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toEqual(before);
     migrate(db);
     expect(db.prepare('SELECT * FROM operator_signals ORDER BY rowid').all()).toEqual(before);

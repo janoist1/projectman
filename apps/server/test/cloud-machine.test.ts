@@ -128,6 +128,36 @@ describe('deploy', () => {
     expect(fs.readFileSync(world.envFile, 'utf8')).toBe(local);
   });
 
+  it('adds the hybrid engine and target hash to the cloud.env it sends, replacing stale lines (PM-752)', async () => {
+    const hash = 'c'.repeat(64);
+    world.writeConfig({
+      releaseTarget: { projectKey: 'PM', repo: 'projectman' },
+      hybrid: { engineId: 'eng_abcdefghijkl', targetHash: hash },
+    });
+    world.writeEnv(
+      'TUNNEL_TOKEN=tunnel-token-value-0123456789\nPROJECTMAN_RELEASE_ENGINE_ID=eng_stale\nPROJECTMAN_RELEASE_TARGET_HASH=stale\n',
+    );
+    const local = fs.readFileSync(world.envFile, 'utf8');
+    expect(await run('deploy')).toBe(0);
+    const sent = world.hostCalls.find((call) => call.subcommand === 'receive-env')!.input!;
+    expect(sent.match(/^PROJECTMAN_RELEASE_ENGINE_ID=.*$/gm)).toEqual([
+      'PROJECTMAN_RELEASE_ENGINE_ID=eng_abcdefghijkl',
+    ]);
+    expect(sent.match(/^PROJECTMAN_RELEASE_TARGET_HASH=.*$/gm)).toEqual([
+      `PROJECTMAN_RELEASE_TARGET_HASH=${hash}`,
+    ]);
+    expect(sent.endsWith('\n')).toBe(true);
+    expect(fs.readFileSync(world.envFile, 'utf8')).toBe(local);
+  });
+
+  it('sends no hybrid lines when no hybrid binding is configured (PM-752)', async () => {
+    world.writeConfig({ releaseTarget: { projectKey: 'PM', repo: 'projectman' } });
+    expect(await run('deploy')).toBe(0);
+    const sent = world.hostCalls.find((call) => call.subcommand === 'receive-env')!.input!;
+    expect(sent).not.toContain('PROJECTMAN_RELEASE_ENGINE_ID');
+    expect(sent).not.toContain('PROJECTMAN_RELEASE_TARGET_HASH');
+  });
+
   it('sends cloud.env as it is when no release target is configured (PM-749)', async () => {
     const local = fs.readFileSync(world.envFile, 'utf8');
     expect(await run('deploy')).toBe(0);

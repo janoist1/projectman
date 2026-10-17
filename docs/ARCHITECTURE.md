@@ -2666,6 +2666,12 @@ assumption or remote-engine RPC.
   reports on this same local socket, so it must run on the server's host; the instance's repository is on
   the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
   (see "Release of the instance"); no new boundary.
+  **Hybrid deployment (PM-752):** with `PROJECTMAN_RELEASE_ENGINE_ID` and `PROJECTMAN_RELEASE_TARGET_HASH` the
+  cloud server keeps the durable deployment attempt (`release_deployments`, `services/releases/deployments.ts`)
+  and the maintenance fence (`ReleaseWorkGate`), and the `release_deploy_*` ops read and change them over this
+  same socket. The server checks the second target (the engine's id, online state and version) from its own
+  engine registry, never from the caller's word; the switch of the engine's program itself crosses the
+  server/engine boundary in PM-751, not here. The pause the attempt owns is an ordinary instance pause row.
   **Cloud admin channel (PM-749):** on the cloud machine the same socket is reached through
   `npm run cloud -- release-control` (`scripts/cloud/release-control.ts`): one request line on the Mac's standard
   input, the verified SSH/SSM host session, `host.sh release-control`, then the fixed `docker exec -i -u 10001:10001
@@ -3625,7 +3631,10 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   since PM-749 `release_get` (one release in any state) and `engine_status` (the engine registry's id, online,
   version and last seen; `[]` in single mode). `sendControlRequest(socketPath, request, options)`
   (`control/client.ts`) is the shared one-request client (30 s, 64 KiB answers, never retried), and the packaged
-  `control/cli.js` is the cloud container's relay of the admin channel.
+  `control/cli.js` is the cloud container's relay of the admin channel. Since PM-752 it takes
+  `release_deploy_get`, `release_deploy_begin` and `release_deploy_change` too (hybrid release, see below); a
+  request or an answer stays within the relay's 16 KiB / 64 KiB limits. An ordinary `resume` (control socket or
+  admin) refuses to end the pause a deployment owns (`release_pause_conflict`).
 
 ## Release of the instance (PM-491, part of PM-387)
 
@@ -3665,11 +3674,49 @@ screens (PM-492) come in their own cards.
   repository equal the target exactly, else `release_not_configured`; an unknown id is the usual not-found).
   `release_get` returns terminal states too, so a lost claim or report answer can be reconciled. On the cloud
   machine the target comes from the optional `releaseTarget` of the cloud configuration (`cloud.env`).
+- **Hybrid release (PM-752, server side; the coordinator and the screens are PM-751).** A release goes to two
+  targets: the cloud server and one remote engine. `PROJECTMAN_RELEASE_ENGINE_ID` (`eng_…`, never `local`) and
+  `PROJECTMAN_RELEASE_TARGET_HASH` (SHA-256 of the credential-free target description, computed by the
+  coordinator) are read together in `index.ts` (a lone value stops the start) and written into `cloud.env` by the
+  optional `hybrid` of the cloud configuration (`scripts/cloud/machine.ts`, `withHybridTarget`). On such an
+  instance the legacy single-target `release_claim` / `release_report` are refused
+  (`release_protocol_unavailable`): a release is claimed by `release_deploy_begin` only.
+  - **Attempt.** `release_deployments` (migration 75, `db/release-deployments.ts`, contract `HybridDeployment` in
+    `packages/shared`) holds one document per release; its `phase`, `maintenance` and `revision` are repeated in
+    their own columns, and a unique partial index keeps one active deployment on the instance. `begin` claims the
+    approved release and stores the attempt with the previous image, the engine's version and the schema the
+    server observed itself; every change is a compare-and-swap on `revision` and is deduplicated by its request
+    id (`release_deployment_requests`: the same id with the same payload answers the stored view, another payload
+    is `release_deployment_conflict`).
+  - **Phases.** `preparing` → `prepared` (the artifact of the release commit is bound once;
+    `release_artifact_changed`) → `quiescing` (an owned instance pause and the maintenance bit, saved with the
+    pause row in one transaction) → `switching` (only when the drain check says ready, else `release_not_drained`)
+    → `live` → `published`. A failure before the pause (`preparing`, `prepared`) ends the attempt as `failed`
+    with no fence. From the pause on, a failure with a verified rollback is `failed` (the fence stays until the
+    owned `resume`); one without it, and the coordinator's `recovery` change (from `quiescing`, `switching` or a
+    still fenced `live`), is `recovery_required`: the fence stays, the release stays `deploying` (or `live`), the
+    approvers get the `release_failed` alert once, and no `live`, `failed` or `resume` report of the coordinator
+    moves it again (`release_recovery_required`). The release's own change and the deployment write commit in one
+    transaction, and a new proposal is refused while a deployment holds the instance.
+  - **Fence.** `ReleaseWorkGate` (`services/releases/work-gate.ts`) is the only admission: the merge queue, the
+    document-write queue, the full-test queue and the screenshot runs ask it for a permit before they start a
+    root piece of work, and are refused while the maintenance bit is set. The bit is read live from the
+    database, so it holds from the first query after a restart; a continuation of work that began earlier (a
+    child permit) is let through and counted. Sessions are held by the owned pause. The drain check counts the
+    permits, the running rows without a permit (uncertain: an earlier process's run) and the unstopped sessions.
+  - **Result gates.** `live`, a rollback (`failed` with `rolledBack`) and `resume` are accepted only when both
+    recorded targets show the expected program: the cloud's `appVersion` and the engine registry's online state
+    and version, plus the reported image (`release_target_mismatch`, `release_engine_mismatch`, `engine_offline`).
+  - **Bootstrap.** The first hybrid release cannot be driven by a build that lacks this protocol.
 
 Does this work on a remote engine? The records, the approval and the socket are the server's. Only
 `BranchMerger.isAncestor` / `prepare` cross the server/engine boundary, as they do for the merge (PM-452); the
 instance's repository is on the engine the project uses (`LOCAL_ENGINE_ID` for now). Deploying, restarting and
 publishing are the watcher's (PM-493) and act on the machine the server runs on; the control socket stays local.
+For the hybrid release (PM-752) the cloud server owns the attempt, the fence and the checks, and learns the
+engine's program only from its registry (id, online, version), which is the engine's own report. Switching the
+engine's program and moving the artifact are the coordinator's (PM-751) and cross the boundary through the
+protected admin channel; nothing in the server's part assumes that the engine shares its host.
 
 ## The machine and the sessions (PM-320, part of PM-300)
 

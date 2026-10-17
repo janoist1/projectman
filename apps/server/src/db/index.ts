@@ -41,6 +41,7 @@ import { createOperatorSignalRepository } from './operator-signals';
 export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
+import { createReleaseDeploymentRepository } from './release-deployments';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
 import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
@@ -72,6 +73,7 @@ export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } fro
 export type { OperatorRequestRecord, OperatorStepRecord } from './operator-requests';
 export type { PauseRecord, SessionPauseRecord, SessionPausePatch } from './pauses';
 export type { ReviewPinRecord } from './review-pins';
+export type { DeploymentRequestRecord } from './release-deployments';
 export type { TaskCoverRecord } from './task-covers';
 export type { TaskFixLimitRecord } from './fix-limits';
 export type { FullTestRunRecord } from './full-test-runs';
@@ -107,6 +109,7 @@ export function createRepositories(db: Db) {
     taskMerges: createTaskMergeRepository(db),
     mergeTrains: createMergeTrainRepository(db),
     releases: createReleaseRepository(db),
+    releaseDeployments: createReleaseDeploymentRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),

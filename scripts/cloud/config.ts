@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { ProjectConfig, RepoConfig } from '@projectman/shared';
+import { HybridReleaseTarget, ProjectConfig, RepoConfig } from '@projectman/shared';
 import { refused } from './errors';
 import { CLOUDFLARE_TOKEN_FILE_NAME, CONFIG_FILE_NAME, secretsDir } from './secrets';
 
@@ -155,6 +155,8 @@ const configSchema = z
   .strictObject({
     version: z.literal(1),
     releaseTarget: releaseTargetSchema.optional(),
+    /** The remote engine and the target hash a hybrid release goes to (PM-752); needs `releaseTarget`. */
+    hybrid: HybridReleaseTarget.optional(),
     aws: awsSchema,
     repository: repositorySchema.prefault({}),
     cloudflare: cloudflareSchema,
@@ -167,6 +169,7 @@ const configSchema = z
     const issue = (pathParts: (string | number)[], message: string) =>
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
+    if (config.hybrid && !config.releaseTarget) issue(['hybrid'], 'needs releaseTarget');
     if (aws.compute === 'ec2' && aws.ec2?.architecture === 'arm64' && !config.deployment)
       issue(['deployment', 'imageBundle'], 'required for arm64');
     if (config.ses) {
@@ -207,6 +210,8 @@ export interface CloudConfig {
   deployment?: { imageBundle: string };
   /** Absent: the board does not release (PM-749). */
   releaseTarget?: { projectKey: string; repo: string };
+  /** Absent: the board releases to the cloud server only (PM-752). */
+  hybrid?: { engineId: string; targetHash: string };
   version: 1;
   aws: {
     compute: 'lightsail' | 'ec2';
@@ -285,6 +290,7 @@ export function parseConfig(raw: unknown, homeDir: string, configDir = process.c
     route53: { ...parsed.route53, profile: parsed.route53.profile ?? parsed.aws.profile },
     ...(parsed.ses ? { ses: { ...parsed.ses, profile: parsed.ses.profile ?? parsed.aws.profile } } : {}),
     ...(parsed.releaseTarget ? { releaseTarget: parsed.releaseTarget } : {}),
+    ...(parsed.hybrid ? { hybrid: parsed.hybrid } : {}),
     ...(parsed.deployment
       ? {
           deployment: {

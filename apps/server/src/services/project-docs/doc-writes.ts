@@ -5,7 +5,7 @@ import type { DocWriteSlotPeer } from './ports';
 import { LOCAL_ENGINE_ID, projectDocsOf, SYSTEM_SENDER } from '@projectman/shared';
 import type { ErrorCode, OperatorStepStatus, ProjectDoc, RepoConfig } from '@projectman/shared';
 import { MergeError } from '../../contracts';
-import type { BranchMerger, EngineDirectory } from '../../contracts';
+import type { BranchMerger, EngineDirectory, ReleaseWorkAdmission } from '../../contracts';
 import type { DocWriteEdit, DocWritePatch, DocWriteRecord } from '../../db';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
@@ -62,6 +62,8 @@ type Deps = {
   merges: DocWriteSlotPeer;
   /** How long `request` waits for a write that runs at once (default `DOC_WRITE_WAIT_MS`). */
   waitMs?: number;
+  /** The release gate (PM-752); absent: never held. */
+  work?: ReleaseWorkAdmission;
 };
 
 /** An engine call that failed for a reason the caller reads: a refused path, an unknown commit, a git error. */
@@ -242,6 +244,7 @@ export class DocWrites {
           run: (row) => this.run(row),
           peer: this.deps.merges,
           stopped: () => this.stopped,
+          ...(this.deps.work ? { work: this.deps.work } : {}),
         }),
         this.scope,
       ),

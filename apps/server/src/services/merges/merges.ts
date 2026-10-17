@@ -75,6 +75,7 @@ export class Merges {
           },
           peer: () => this.peer,
           stopped: () => this.stopped,
+          ...(this.deps.work ? { work: this.deps.work } : {}),
         }),
         this.scope,
       ),

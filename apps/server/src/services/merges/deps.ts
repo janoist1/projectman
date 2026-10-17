@@ -1,5 +1,5 @@
 import type { Task } from '@projectman/shared';
-import type { EngineDirectory, GithubService } from '../../contracts';
+import type { EngineDirectory, GithubService, ReleaseWorkAdmission } from '../../contracts';
 import type { MergeRecord, MergeTrainRecord } from '../../db';
 import type { BackgroundTasks } from '../../kernel';
 import type { DomainContext } from '../../core/base';
@@ -25,6 +25,8 @@ export type MergeDeps = {
   background: BackgroundTasks;
   checkSandbox: MergeCheckSandbox;
   afterMerge: (task: Task) => Promise<void>;
+  /** The release gate (PM-752); absent: never held. */
+  work?: ReleaseWorkAdmission;
 };
 
 /** The merge a repository's slot runs. The queue creates it; `signal` is set when the run starts. */

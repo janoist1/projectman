@@ -16,7 +16,7 @@ import type {
   RepoConfig,
   Task,
 } from '@projectman/shared';
-import type { EngineDirectory, EngineHost, FullTestResult } from '../../contracts';
+import type { EngineDirectory, EngineHost, FullTestResult, ReleaseWorkAdmission } from '../../contracts';
 import type { FullTestRunRecord, ReviewPinRecord } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
@@ -85,6 +85,8 @@ export interface FullTestRunsDeps {
 
   /** Builds the sandbox without depending on the session policy module. */
   runSandbox: FullTestRunSandbox;
+  /** The release gate (PM-752); absent: never held. */
+  work?: ReleaseWorkAdmission;
 }
 
 /**
@@ -299,7 +301,8 @@ export class FullTestRuns {
     if (task) this.tasks.publish(task);
   }
 
-  private pump(): void {
+  /** Starts the queued runs, if none is draining (also after a release's maintenance fence went down). */
+  pump(): void {
     if (this.stopped || !this.available) return;
     runFork(this.core.pump);
   }
@@ -318,6 +321,7 @@ export class FullTestRuns {
             }
           },
           logger: this.ctx.logger,
+          ...(this.deps.work ? { work: this.deps.work } : {}),
         }),
         this.scope,
       ),

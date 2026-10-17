@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import { EngineId } from './engine';
 import { HumanAccess, MemberHandle } from './member';
-import { Release, ReleaseReport } from './release';
+import {
+  HybridDeployment,
+  Release,
+  ReleaseDeployBegin,
+  ReleaseDeployChange,
+  ReleaseDrainStatus,
+  ReleaseReport,
+} from './release';
 import { PausePoint, WorkItemRef } from './session';
 
 /** What a pause covers (PM-219): the whole instance, or one project. Not a single member. */
@@ -107,6 +114,10 @@ export const ControlRequest = z.discriminatedUnion('op', [
   z.object({ op: z.literal('release_get'), releaseId: z.string() }),
   /** The connected engines as the cloud registry knows them (PM-749); `[]` in single mode. */
   z.object({ op: z.literal('engine_status') }),
+  /** The hybrid release's durable deployment (PM-752): reads it (and the drain state) of one release. */
+  z.strictObject({ op: z.literal('release_deploy_get'), releaseId: z.string() }),
+  z.strictObject({ op: z.literal('release_deploy_begin'), ...ReleaseDeployBegin.shape }),
+  z.strictObject({ op: z.literal('release_deploy_change'), ...ReleaseDeployChange.shape }),
 ]);
 export type ControlRequest = z.infer<typeof ControlRequest>;
 
@@ -176,6 +187,10 @@ export const ControlResponse = z.discriminatedUnion('ok', [
     appVersion: z.string().nullable().optional(),
     /** `engine_status` only (PM-749). */
     engines: z.array(ReleaseEngineStatus).optional(),
+    /** The `release_deploy_*` ops (PM-752): the deployment, the drain state and the schema the database has. */
+    deployment: HybridDeployment.nullable().optional(),
+    drain: ReleaseDrainStatus.optional(),
+    databaseSchemaVersion: z.number().int().nonnegative().optional(),
   }),
   z.object({ ok: z.literal(false), error: z.object({ code: z.string(), message: z.string() }) }),
 ]);

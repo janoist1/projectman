@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { CONTROL_SOCKET_NAME } from '@projectman/shared';
+import type { HybridReleaseTarget, ReleaseEngineStatus } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
@@ -181,6 +182,11 @@ export interface BuildAppOptions {
    * its releases are proposed, approved and deployed. Absent: releases are off.
    */
   releaseTarget?: { projectKey: string; repo: string };
+  /**
+   * The remote engine and the target a hybrid release goes to (`PROJECTMAN_RELEASE_ENGINE_ID`,
+   * `PROJECTMAN_RELEASE_TARGET_HASH`, PM-752). Absent: the single-target release only.
+   */
+  releaseHybrid?: HybridReleaseTarget;
   /**
    * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off (PM-670).
    */
@@ -447,10 +453,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         emailLogin: options.emailCodeMailer !== undefined,
       });
 
+    // The admin channel and the hybrid release read the engines' facts from the cloud registry; single mode has none (PM-749).
+    const releaseEngineStatuses = (): ReleaseEngineStatus[] =>
+      (engineRegistry?.list() ?? [])
+        .filter((engine) => !engine.revokedAt)
+        .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt }));
     const domain = createDomain({
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),
       ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),
+      ...(options.releaseHybrid
+        ? { releaseHybrid: { binding: options.releaseHybrid, engines: releaseEngineStatuses } }
+        : {}),
       engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
       boundaryAdapter: modules.boundaryAdapter,
       nanogptKeyCheck: modules.nanogptKeyCheck,
@@ -633,6 +647,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     };
     // The release watcher (PM-493) reads the approved release and reports on the same socket.
     const controlRelease: ControlRelease = {
+      ...(options.releaseHybrid ? { deploy: domain.releaseDeployments } : {}),
       appVersion: () => domain.releases.appVersion(),
       next: () => domain.releases.next(),
       get: (releaseId) => domain.releases.getForControl(releaseId),
@@ -648,11 +663,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           path: join(home, CONTROL_SOCKET_NAME),
           pause: controlPause,
           release: controlRelease,
-          // The admin channel reads the engines' facts from the cloud registry; single mode has none (PM-749).
-          engines: () =>
-            (engineRegistry?.list() ?? [])
-              .filter((engine) => !engine.revokedAt)
-              .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt })),
+          engines: releaseEngineStatuses,
           log: log.child({ module: 'control' }),
         });
       }

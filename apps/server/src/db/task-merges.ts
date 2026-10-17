@@ -213,7 +213,12 @@ export function createTaskMergeRepository(db: Db) {
     },
     save(row: MergeRecord) {
       return db.transaction(() => {
-        const previous = read('SELECT * FROM task_merges WHERE id = ?', row.id)[0];
+        const previous = db
+          .prepare(
+            'SELECT state, queue_rank AS queueRank, prioritized_at AS prioritizedAt FROM task_merges WHERE id = ?',
+          )
+          .get(row.id) as
+          { state: MergeRecord['state']; queueRank: number | null; prioritizedAt: string | null } | undefined;
         if (row.state === 'queued' && previous?.state !== 'queued') {
           const rank = db
             .prepare(
@@ -223,7 +228,7 @@ export function createTaskMergeRepository(db: Db) {
           row = { ...row, queueRank: rank.rank === null ? undefined : rank.rank + 1 };
         } else if (row.state === 'queued' && previous?.state === 'queued') {
           // Only orderQueue changes an existing queue rank; a caller may hold a pre-reorder snapshot.
-          row = { ...row, queueRank: previous.queueRank };
+          row = { ...row, queueRank: previous.queueRank ?? undefined };
         }
         if (row.trainId !== undefined) MergeTrainId.parse(row.trainId);
         if (row.diagnostic !== undefined) diagnostic.parse(row.diagnostic);
@@ -242,8 +247,8 @@ export function createTaskMergeRepository(db: Db) {
         if (
           (previous?.state === 'queued' || row.state === 'queued') &&
           (previous?.state !== row.state ||
-            previous.prioritizedAt !== row.prioritizedAt ||
-            previous.queueRank !== row.queueRank)
+            (previous?.prioritizedAt ?? undefined) !== row.prioritizedAt ||
+            (previous?.queueRank ?? undefined) !== row.queueRank)
         )
           bump(row.projectKey, row.repo);
       })();

@@ -34,6 +34,9 @@
 #                             (the feedback guard, PM-510); refused while the board is not running
 #   public-check <hostname>   {"publicBoard":b,"emailLoginEnabled":b,"needsSetup":b,"apiStatus":401,"crossOriginStatus":403}:
 #                             what the running board says about itself as the public board (PM-672)
+#   release-control           one ControlRequest JSON line on stdin (at most 16 KiB), one ControlResponse JSON line
+#                             on stdout: the board's local control socket through the fixed client in the
+#                             container (PM-749); refused while the board is not running
 #
 # The container never gets a published port, the host network, extra privileges or the Docker socket: the
 # Cloudflare tunnel inside it connects outwards.
@@ -556,6 +559,26 @@ public_check() {
     "$board" "$email" "$needs" "$((10#$api))" "$((10#$cross))"
 }
 
+# The admin channel to the board's local control socket (PM-749): one request line (at most 16 KiB, read
+# from the standard input) goes to the control client the image carries, which runs inside the running
+# container as the board's own user and answers with one JSON line. The command, the user, the container and
+# the socket path are fixed here; nothing from the input becomes an argument, a path or a process, and no
+# port or mount is opened. The client refuses a malformed or oversized request (exit 2 -> refused here).
+release_control() {
+  [ "$#" -eq 0 ] || die "release-control takes no arguments"
+  [ ! -t 0 ] || die "release-control needs one request line on the standard input"
+  board_running || refuse "the board is not running; there is no control socket to reach"
+  local status=0
+  # One byte over the limit is enough for the client to see that the request is too long.
+  head -c $((16 * 1024 + 1)) | docker exec -i -u "$DATA_UID:$DATA_GID" "$CONTAINER" \
+    node /app/apps/server/dist/control/cli.js /data/control.sock || status=$?
+  case "$status" in
+    0) ;;
+    2) refuse "the control relay refused the request" ;;
+    *) die "the control relay failed (status $status)" ;;
+  esac
+}
+
 receive_data() {
   [ ! -t 0 ] || die "receive-data needs a tar stream on the standard input"
   board_running && refuse "the board is running; a seed goes in before the first start"
@@ -1011,7 +1034,8 @@ main() {
     send-data) send_data ;;
     guard-check) guard_check "$@" ;;
     public-check) public_check "$@" ;;
-    *) die "usage: host.sh bootstrap|receive-env|receive-image|build|start|stop|status|logs|rehearse|seed-check|seed-digest|trial-reset-inspect|trial-reset-archive|trial-reset-verify|receive-data|send-data|guard-check|public-check" ;;
+    release-control) release_control "$@" ;;
+    *) die "usage: host.sh bootstrap|receive-env|receive-image|build|start|stop|status|logs|rehearse|seed-check|seed-digest|trial-reset-inspect|trial-reset-archive|trial-reset-verify|receive-data|send-data|guard-check|public-check|release-control" ;;
   esac
 }
 

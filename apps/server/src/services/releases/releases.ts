@@ -108,6 +108,24 @@ export class ReleaseService {
     return this.requireTarget(this.deps.target?.projectKey ?? '').projectKey;
   }
 
+  /**
+   * A release the control socket may act on (PM-749): in any state, but only one of the instance's own
+   * target, project and repository alike; a release of another target is `release_not_configured`, an
+   * unknown id the usual not-found error. Terminal states are returned too: a lost claim or report answer
+   * is reconciled by reading the release again.
+   */
+  getForControl(id: string): Release {
+    const { target } = this.deps;
+    this.controlProject();
+    const release = this.get(id);
+    if (!target || release.projectKey !== target.projectKey || release.repo !== target.repo)
+      throw conflict(
+        'release_not_configured',
+        `this instance does not release ${release.projectKey}/${release.repo}`,
+      );
+    return release;
+  }
+
   private requireTarget(projectKey: string): ReleaseTarget {
     const { target } = this.deps;
     if (!target || target.projectKey !== projectKey)
@@ -439,9 +457,8 @@ export class ReleaseService {
 
   /** The watcher starts the deploy of an approved release; `previousCommit` is where a rollback goes. */
   claim(id: string, previousCommit: string | null): Release {
-    this.controlProject();
     const { ctx } = this.deps;
-    const release = this.get(id);
+    const release = this.getForControl(id);
     this.requireState(release, ['approved'], 'claim');
     const at = isoNow(ctx);
     const next: Release = { ...release, state: 'deploying', deployStartedAt: at, previousCommit };
@@ -457,7 +474,7 @@ export class ReleaseService {
     const projectKey = this.controlProject();
     const config = await this.deps.projects.config(projectKey);
     const { ctx, tasks } = this.deps;
-    const release = this.get(id);
+    const release = this.getForControl(id);
     const at = isoNow(ctx);
     switch (report.outcome) {
       case 'live': {

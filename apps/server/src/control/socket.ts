@@ -1,7 +1,14 @@
 import { chmodSync, existsSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
 import { ControlRequest } from '@projectman/shared';
-import type { ControlResponse, PauseRequest, PauseStatus, Release, ReleaseReport } from '@projectman/shared';
+import type {
+  ControlResponse,
+  PauseRequest,
+  PauseStatus,
+  Release,
+  ReleaseEngineStatus,
+  ReleaseReport,
+} from '@projectman/shared';
 
 /** The instance's pause, as the control socket drives it (the app composes this from the domain). */
 export interface ControlPause {
@@ -20,9 +27,14 @@ export interface ControlRelease {
   appVersion(): string;
   /** The release the watcher has something to do with, if any. */
   next(): Release | null;
+  /** One release of the instance's target in any state (PM-749); refused for another target's release. */
+  get(releaseId: string): Release;
   claim(releaseId: string, previousCommit: string | null): Release;
   report(releaseId: string, report: ReleaseReport): Promise<Release>;
 }
+
+/** The engines the cloud registry knows, as `engine_status` answers them (PM-749). */
+export type ControlEngines = () => ReleaseEngineStatus[];
 
 export interface ControlLog {
   info(obj: object, msg: string): void;
@@ -61,6 +73,7 @@ const failure = (code: string, message: string): ControlResponse => ({ ok: false
 async function respond(
   pause: ControlPause,
   release: ControlRelease | undefined,
+  engines: ControlEngines | undefined,
   line: string,
 ): Promise<ControlResponse> {
   let raw: unknown;
@@ -93,16 +106,21 @@ async function respond(
       return { ok: true, pause: await pause.force(), ...version };
     case 'status':
       return { ok: true, pause: pause.status(), ...version };
+    case 'engine_status':
+      return { ok: true, pause: pause.status(), engines: engines?.() ?? [], ...version };
     case 'release_next':
+    case 'release_get':
     case 'release_claim':
     case 'release_report': {
       if (!release) return failure('release_not_configured', 'this instance does not release');
       const result =
         request.op === 'release_next'
           ? release.next()
-          : request.op === 'release_claim'
-            ? release.claim(request.releaseId, request.previousCommit)
-            : await release.report(request.releaseId, request.report);
+          : request.op === 'release_get'
+            ? release.get(request.releaseId)
+            : request.op === 'release_claim'
+              ? release.claim(request.releaseId, request.previousCommit)
+              : await release.report(request.releaseId, request.report);
       return { ok: true, pause: pause.status(), release: result, ...version };
     }
   }
@@ -114,6 +132,7 @@ export function serveControlConnection(
   pause: ControlPause,
   log: ControlLog,
   release?: ControlRelease,
+  engines?: ControlEngines,
 ): void {
   connection.on('error', () => connection.destroy());
   connection.setTimeout(IDLE_MS, () => connection.destroy());
@@ -124,7 +143,7 @@ export function serveControlConnection(
     chain = chain.then(async () => {
       let response: ControlResponse;
       try {
-        response = await respond(pause, release, line);
+        response = await respond(pause, release, engines, line);
       } catch (err) {
         const code =
           typeof (err as { code?: unknown }).code === 'string'
@@ -166,8 +185,10 @@ export async function startControlSocket(options: {
   log: ControlLog;
   /** The release watcher's operations (PM-491); absent: the socket only pauses. */
   release?: ControlRelease;
+  /** The cloud registry's engines for `engine_status` (PM-749); absent: none. */
+  engines?: ControlEngines;
 }): Promise<ControlSocket> {
-  const { path, pause, log, release } = options;
+  const { path, pause, log, release, engines } = options;
   const none: ControlSocket = { close: async () => undefined };
   if (Buffer.byteLength(path) > maxSocketPathBytes()) {
     log.error({ path }, 'the control socket path is too long for a socket; it is not opened');
@@ -185,7 +206,7 @@ export async function startControlSocket(options: {
   const server = net.createServer((connection) => {
     connections.add(connection);
     connection.on('close', () => connections.delete(connection));
-    serveControlConnection(connection, pause, log, release);
+    serveControlConnection(connection, pause, log, release, engines);
   });
 
   try {

@@ -209,6 +209,32 @@ describe('the validation', () => {
       expect(message).toContain(field);
   });
 
+  it('takes an optional release target (PM-749), and a file without one parses as before', () => {
+    expect(parseConfig(baseConfig(), HOME)).not.toHaveProperty('releaseTarget');
+    const target = { projectKey: 'PM', repo: 'projectman' };
+    expect(
+      parseConfig(
+        config((value) => (value.releaseTarget = target)),
+        HOME,
+      ).releaseTarget,
+    ).toEqual(target);
+  });
+
+  it.each([
+    ['a lowercase project key', { projectKey: 'pm', repo: 'projectman' }],
+    ['a project key with a slash', { projectKey: 'P/M', repo: 'projectman' }],
+    ['a repository with a slash', { projectKey: 'PM', repo: 'a/b' }],
+    ['a repository with upper case', { projectKey: 'PM', repo: 'ProjectMan' }],
+    ['a repository with a space', { projectKey: 'PM', repo: 'project man' }],
+    ['a line break', { projectKey: 'PM', repo: 'projectman\nEVIL=1' }],
+    ['an empty repository', { projectKey: 'PM', repo: '' }],
+    ['a missing repository', { projectKey: 'PM' }],
+    ['another field', { projectKey: 'PM', repo: 'projectman', branch: 'main' }],
+    ['a string', 'PM/projectman'],
+  ])('refuses a release target with %s', (_name, target) => {
+    expect(refusal(config((value) => (value.releaseTarget = target)))).toContain('releaseTarget');
+  });
+
   it('refuses an unknown field and a wrong version', () => {
     expect(refusal(config((value) => (value.aws.size = 'large')))).toContain('aws');
     expect(refusal(config((value) => (value.extra = true)))).toContain('extra');

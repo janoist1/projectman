@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CONTROL_SOCKET_NAME } from '@projectman/shared';
 import { runControl, sendControlRequest } from '../../../scripts/control/client';
 import { serveControlConnection, startControlSocket } from '../src/control';
-import type { ControlPause } from '../src/control';
+import type { ControlEngines, ControlPause } from '../src/control';
 import { DomainError } from '../src/kernel';
 import {
   pausedSession as session,
@@ -28,9 +28,11 @@ describe('the control protocol and command', () => {
   });
 
   /** The protocol on a loopback port. */
-  async function open(pause: ControlPause = new ScriptedPause()) {
+  async function open(pause: ControlPause = new ScriptedPause(), engines?: ControlEngines) {
     const log = quietLog();
-    const server = net.createServer((connection) => serveControlConnection(connection, pause, log));
+    const server = net.createServer((connection) =>
+      serveControlConnection(connection, pause, log, undefined, engines),
+    );
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const target = { host: '127.0.0.1', port: (server.address() as net.AddressInfo).port };
@@ -85,6 +87,34 @@ describe('the control protocol and command', () => {
       await sendControlRequest(target, { op: 'force' });
       expect(await sendControlRequest(target, { op: 'resume' })).toEqual({ ok: true, pause: null });
       expect(pause.requests).toEqual(['status', 'pause', 'force', 'resume']);
+    });
+
+    it('answers engine_status from the registry, and with no engines when there is none (PM-749)', async () => {
+      const pause = new ScriptedPause();
+      pause.current = status([session({ point: 'idle', waitingFor: null })]);
+      const engines = [
+        { id: 'eng_abcdefghijkl', online: true, version: 'abc123', lastSeenAt: '2026-10-17T10:00:00.000Z' },
+        { id: 'eng_mnopqrstuvwx', online: false, version: null, lastSeenAt: null },
+      ];
+      const registry = await open(pause, () => engines);
+      expect(await sendControlRequest(registry.target, { op: 'engine_status' })).toEqual({
+        ok: true,
+        pause: pause.current,
+        engines,
+      });
+      const single = await open(pause);
+      expect(await sendControlRequest(single.target, { op: 'engine_status' })).toEqual({
+        ok: true,
+        pause: pause.current,
+        engines: [],
+      });
+    });
+
+    it('keeps the earlier requests and answers as they were: no engines field, old payloads accepted', async () => {
+      const { target } = await open(new ScriptedPause(), () => [
+        { id: 'local', online: true, version: 'x', lastSeenAt: null },
+      ]);
+      expect(await sendControlRequest(target, { op: 'status' })).toEqual({ ok: true, pause: null });
     });
 
     it('answers several requests on one connection, in order', async () => {

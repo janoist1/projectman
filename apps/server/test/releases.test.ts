@@ -740,6 +740,7 @@ describe('the release flow', () => {
     const adapter = (): ControlRelease => ({
       appVersion: () => h.domain.releases.appVersion(),
       next: () => h.domain.releases.next(),
+      get: (id) => h.domain.releases.getForControl(id),
       claim: (id, previous) => h.domain.releases.claim(id, previous),
       report: (id, report) => h.domain.releases.report(id, report),
     });
@@ -801,6 +802,67 @@ describe('the release flow', () => {
           report: { outcome: 'published', tag: 'latest', url: 'u' },
         } as never),
       ).toMatchObject({ ok: false, error: { code: 'invalid_request' } });
+    });
+
+    it('reads a release in every state, so a lost claim or report answer can be reconciled (PM-749)', async () => {
+      await setup({ appVersion: sha(0) });
+      const target = await open(adapter());
+      const { release } = await propose();
+      const get = () => sendControlRequest(target, { op: 'release_get', releaseId: release.id });
+      expect(await get()).toMatchObject({ ok: true, release: { id: release.id, state: 'proposed' } });
+      await decide('approve');
+      expect(await get()).toMatchObject({ ok: true, release: { state: 'approved' } });
+      await sendControlRequest(target, {
+        op: 'release_claim',
+        releaseId: release.id,
+        previousCommit: sha(0),
+      });
+      // The claim's answer was lost: the state says it was applied, and claiming again changes nothing.
+      expect(await get()).toMatchObject({
+        ok: true,
+        release: { state: 'deploying', previousCommit: sha(0) },
+      });
+      expect(
+        await sendControlRequest(target, {
+          op: 'release_claim',
+          releaseId: release.id,
+          previousCommit: sha(0),
+        }),
+      ).toMatchObject({ ok: false, error: { code: 'release_state_conflict' } });
+      h.setAppVersion(sha(3));
+      await sendControlRequest(target, {
+        op: 'release_report',
+        releaseId: release.id,
+        report: { outcome: 'live' },
+      });
+      expect(await get()).toMatchObject({ ok: true, release: { state: 'live' }, appVersion: sha(3) });
+      expect(await sendControlRequest(target, { op: 'release_get', releaseId: 'rel_missing' })).toMatchObject(
+        {
+          ok: false,
+          error: { code: 'not_found' },
+        },
+      );
+    });
+
+    it.each([
+      // A project holds one open release, so a foreign copy in the target's own project is a finished one:
+      // the target check must come before the state check (claiming a live release would be a state conflict).
+      ['another repository', { repo: 'other', state: 'live', liveAt: '2026-01-01T00:00:00.000Z' }],
+      ['another project', { projectKey: 'ZZ', state: 'approved' }],
+    ] as const)('refuses to read, claim or report a release of %s (PM-749)', async (_name, over) => {
+      await setup({ appVersion: sha(0) });
+      const target = await open(adapter());
+      const release = await approved();
+      h.repos.releases.insert({ ...release, id: 'rel_foreign', ...over }, '2026-01-01T00:00:00.000Z');
+      const refused = { ok: false, error: { code: 'release_not_configured' } };
+      for (const request of [
+        { op: 'release_get', releaseId: 'rel_foreign' },
+        { op: 'release_claim', releaseId: 'rel_foreign', previousCommit: null },
+        { op: 'release_report', releaseId: 'rel_foreign', report: { outcome: 'live' } },
+      ] as const)
+        expect(await sendControlRequest(target, request), request.op).toMatchObject(refused);
+      expect(h.domain.releases.get('rel_foreign').state).toBe(over.state);
+      expect(h.domain.releases.get(release.id).state).toBe('approved');
     });
 
     it('is not configured on a socket without a release dependency', async () => {

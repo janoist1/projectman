@@ -21,6 +21,7 @@ import {
   runStop,
 } from './machine';
 import { Report } from './report';
+import { runReleaseControl } from './release-control';
 import { runImageBuild, selectedImage, sourceShaSchema } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
@@ -62,6 +63,8 @@ commands:
   ses request-production [--dry-run] request production access separately after owner approval
   ses check                          verify SES production, DKIM, DNS and the sender scope without sending mail
   up [--login-json <file>] [--dry-run] run preflight, aws, edge, deploy, publish, then check with a login file
+  release-control                    relay one control request (one JSON line on stdin) to the board's local control
+                                     socket; the response is the only line on stdout (docs/AWS.md "Release control")
 options:
   --config <file>                    the configuration (default ~/.config/projectman/cloud/config.json)
   --dry-run                          only read; print what would change
@@ -137,6 +140,11 @@ async function preflight(context: CloudContext): Promise<void> {
 
 /** The command table: a later card adds a row and its module. */
 export const COMMANDS: Record<string, CommandSpec> = {
+  'release-control': {
+    summary: 'relay one control request to the board',
+    flags: [],
+    run: (context) => runReleaseControl(context),
+  },
   'trial-reset-plan': {
     summary: 'write a private read-only EC2 trial reset plan',
     flags: [],
@@ -378,9 +386,12 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
     deps.out(USAGE.trimEnd());
     return 0;
   }
-  const report = new Report((line) => deps.out(line));
+  // `release-control` owns the standard output (one JSON response line): its report goes to the standard error.
+  let reportToStderr = false;
+  const report = new Report((line) => (reportToStderr ? deps.err(line) : deps.out(line)));
   try {
     const parsed = parse(argv);
+    reportToStderr = parsed.command === 'release-control';
     const configFile = parsed.config
       ? path.resolve(expandHome(parsed.config, deps.homeDir))
       : defaultConfigPath(deps.homeDir);

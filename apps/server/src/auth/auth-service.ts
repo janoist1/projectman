@@ -1,8 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
+import { IntegratorKeyInfo } from '@projectman/shared';
+import type {
+  CreateIntegratorAccessKeyRequest,
+  IntegratorChannel,
+  IntegratorKeyAuditQuery,
+} from '@projectman/shared';
 import type { IntegratorPrincipal } from '../contracts';
 import type { Repositories, UserRecord } from '../db';
-import { conflict } from '../kernel';
+import { conflict, DomainError } from '../kernel';
 import { newId } from '../kernel';
 
 export interface AuthUser {
@@ -44,11 +50,33 @@ export class AuthService {
   }
 
   createIntegratorKey(userId: string, expiresInDays: number | null) {
+    const created = this.createKey(userId, 'legacy', expiresInDays);
+    return { ...created, key: IntegratorKeyInfo.parse(created.key) };
+  }
+
+  integratorAccessKeys(userId: string) {
+    return this.repos.integratorKeys.list(userId, this.now().toISOString());
+  }
+
+  createIntegratorAccessKey(userId: string, input: CreateIntegratorAccessKeyRequest) {
+    return this.createKey(userId, input.mode, input.expiresInDays);
+  }
+
+  revokeIntegratorAccessKey(userId: string, id: string) {
+    return this.repos.integratorKeys.revokeById(userId, id, this.now().toISOString());
+  }
+
+  integratorKeyAudit(userId: string, query: IntegratorKeyAuditQuery) {
+    return this.repos.integratorKeyAudit.list(userId, query);
+  }
+
+  private createKey(userId: string, mode: IntegratorPrincipal['mode'], expiresInDays: number | null) {
     const secret = `pmi_${randomBytes(32).toString('base64url')}`;
     const at = this.now();
     const key = this.repos.integratorKeys.create({
       id: newId('ikey'),
       userId,
+      mode,
       prefix: secret.slice(0, 12),
       hash: tokenId(secret),
       at: at.toISOString(),
@@ -67,24 +95,40 @@ export class AuthService {
   }
 
   /**
-   * The user behind an integrator key with the principal that names the key (PM-757). Every key issued so
-   * far is `legacy`: the owner's actor through the integrator key. Only this check makes a principal.
+   * Compatibility for legacy callers that use the owner's identity. Explicit super/read keys must use
+   * resolveIntegratorCredential and their own execution policy instead.
    */
   resolveIntegratorPrincipal(secret: string): { user: AuthUser; principal: IntegratorPrincipal } | null {
-    const key = this.repos.integratorKeys.resolveKey(tokenId(secret), this.now().toISOString());
+    const principal = this.resolveIntegratorCredential(secret, 'rest');
+    if (!principal || principal.mode !== 'legacy') return null;
+    return { user: this.user(principal.userId)!, principal };
+  }
+
+  /** The common credential resolver for REST, external MCP and event polling. */
+  resolveIntegratorCredential(secret: string, channel: IntegratorChannel): IntegratorPrincipal | null {
+    const at = this.now().toISOString();
+    const key = this.repos.integratorKeys.resolveKey(tokenId(secret), at);
     if (!key || !this.isHostOwner(key.userId) || !this.hasPassword(key.userId)) return null;
-    const user = this.repos.users.get(key.userId);
-    if (!user) return null;
-    return {
-      user,
-      principal: {
-        kind: 'integrator',
-        userId: key.userId,
-        keyId: key.id,
-        prefix: key.prefix,
-        mode: 'legacy',
-      },
-    };
+    this.repos.integratorKeys.touch(key.id, at, channel);
+    return { kind: 'integrator', userId: key.userId, keyId: key.id, prefix: key.prefix, mode: key.mode };
+  }
+
+  /** Rechecks the exact credential and its current owner without recording another use. */
+  assertActive(principal: IntegratorPrincipal): void {
+    const key = this.repos.integratorKeys.activeById(principal.keyId, this.now().toISOString());
+    if (
+      !key ||
+      principal.kind !== 'integrator' ||
+      key.userId !== principal.userId ||
+      key.prefix !== principal.prefix ||
+      key.mode !== principal.mode ||
+      !this.isHostOwner(key.userId) ||
+      !this.hasPassword(key.userId)
+    ) {
+      throw new DomainError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired', {
+        status: 401,
+      });
+    }
   }
 
   /**

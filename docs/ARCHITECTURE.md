@@ -2084,10 +2084,19 @@ workers follow the machine's size.
   **Module:** `deploy`
 
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
-  `db/integrator-keys.ts`, `runtime/sessions` (`session policy`), `runner/env.ts` (PM-251).
+  `db/integrator-keys.ts`, `db/integrator-key-audit.ts`, `runtime/sessions` (`session policy`),
+  `runner/env.ts` (PM-251, PM-758).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
   Authentication accepts it only on a local connection or HTTPS, using the existing loopback
   proxy protocol rules in `kernel` (`clientAddress`, `requestProtocol`).
+  The host owner's own login manages explicit `super`/`read` keys with 1/7/30-day expiry
+  (default 7); existing keys and the singular API remain `legacy`. Replacement revokes only
+  the same mode, with a database uniqueness constraint and transactional lifecycle audit.
+  The shared credential resolver returns the stored mode and key id; `assertActive` rechecks
+  that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`
+  alongside the last-use timestamp on first use, channel change or after five minutes.
+  The exact external `/mcp` path takes precedence over the self-reported CLI header, which
+  grants no authority. Until the execution policy is composed, explicit modes receive 403.
   The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
   Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
   `PROJECTMAN_INTEGRATOR_KEY` before launching members.

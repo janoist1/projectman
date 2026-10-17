@@ -287,6 +287,47 @@ export const CreateIntegratorKeyRequest = z.object({
 export const CreatedIntegratorKey = z.object({ key: IntegratorKeyInfo, secret: z.string() });
 export type CreatedIntegratorKey = z.infer<typeof CreatedIntegratorKey>;
 
+export const IntegratorKeyMode = z.enum(['legacy', 'super', 'read']);
+export type IntegratorKeyMode = z.infer<typeof IntegratorKeyMode>;
+export const IntegratorChannel = z.enum(['mcp', 'cli', 'rest']);
+export type IntegratorChannel = z.infer<typeof IntegratorChannel>;
+export const IntegratorAccessKeyInfo = IntegratorKeyInfo.extend({
+  id: z.string(),
+  mode: IntegratorKeyMode,
+  lastUsedChannel: IntegratorChannel.nullable(),
+});
+export type IntegratorAccessKeyInfo = z.infer<typeof IntegratorAccessKeyInfo>;
+export const IntegratorAccessKeysResponse = z.object({ keys: z.array(IntegratorAccessKeyInfo) });
+export type IntegratorAccessKeysResponse = z.infer<typeof IntegratorAccessKeysResponse>;
+export const IntegratorAccessKeyResponse = z.object({ key: IntegratorAccessKeyInfo });
+export type IntegratorAccessKeyResponse = z.infer<typeof IntegratorAccessKeyResponse>;
+export const CreateIntegratorAccessKeyRequest = z.object({
+  mode: z.enum(['super', 'read']),
+  expiresInDays: z.union([z.literal(1), z.literal(7), z.literal(30)]).default(7),
+});
+export type CreateIntegratorAccessKeyRequest = z.infer<typeof CreateIntegratorAccessKeyRequest>;
+export const CreatedIntegratorAccessKey = z.object({ key: IntegratorAccessKeyInfo, secret: z.string() });
+export type CreatedIntegratorAccessKey = z.infer<typeof CreatedIntegratorAccessKey>;
+export const IntegratorKeyAuditEntry = z.object({
+  seq: z.number().int().positive(),
+  keyId: z.string(),
+  action: z.enum(['created', 'revoked']),
+  prefix: z.string(),
+  mode: IntegratorKeyMode,
+  at: z.string(),
+});
+export type IntegratorKeyAuditEntry = z.infer<typeof IntegratorKeyAuditEntry>;
+export const IntegratorKeyAuditQuery = z.object({
+  before: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type IntegratorKeyAuditQuery = z.infer<typeof IntegratorKeyAuditQuery>;
+export const IntegratorKeyAuditPage = z.object({
+  entries: z.array(IntegratorKeyAuditEntry),
+  nextBefore: z.number().int().positive().nullable(),
+});
+export type IntegratorKeyAuditPage = z.infer<typeof IntegratorKeyAuditPage>;
+
 export const SetupRequest = z.object({
   name: z.string().min(1),
   email: z.string().min(3),

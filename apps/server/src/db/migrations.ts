@@ -1481,4 +1481,24 @@ migrations.push({
       ON tasks(project_key, seq)
       WHERE kind = 'task' AND status IN ('done', 'cancelled') AND closed_at IS NOT NULL;`,
 });
+migrations.push({
+  version: 79,
+  name: 'explicit integrator key modes and lifecycle audit',
+  sql: `ALTER TABLE integrator_keys ADD COLUMN mode TEXT NOT NULL DEFAULT 'legacy'
+      CHECK (mode IN ('legacy','super','read'));
+    ALTER TABLE integrator_keys ADD COLUMN last_used_channel TEXT
+      CHECK (last_used_channel IN ('mcp','cli','rest'));
+    CREATE UNIQUE INDEX integrator_keys_active_mode ON integrator_keys(user_id, mode)
+      WHERE revoked_at IS NULL;
+    CREATE TABLE integrator_key_audit (
+      seq INTEGER PRIMARY KEY,
+      key_id TEXT NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('created','revoked')),
+      prefix TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK (mode IN ('legacy','super','read')),
+      at TEXT NOT NULL
+    );
+    CREATE INDEX integrator_key_audit_owner ON integrator_key_audit(owner_user_id, seq);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

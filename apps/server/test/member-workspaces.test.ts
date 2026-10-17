@@ -229,37 +229,73 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
   });
 
   it('waits for dependency readiness after checkout and before recording the binding or launching, including resume', async () => {
-    let ready!: () => void;
+    const preparationGate = () => {
+      let enter!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        enter = resolve;
+      });
+      const ready = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { entered, ready, enter, release };
+    };
+    // Both gates exist before checkout, so even a late preparation can be released on failure.
+    const initialPreparation = preparationGate();
+    const resumePreparation = preparationGate();
+    const gates = [initialPreparation, resumePreparation];
     const prepared: string[] = [];
     await setup({
       wrapMemberWorkspaces: (inner) => ({
         ...inner,
         prepareDependencies: async (key) => {
           expect(await branchOf((await inner.location(key)).path)).toBe('AR-1-login-page');
-          await new Promise<void>((resolve) => {
-            ready = resolve;
-            prepared.push(key.member);
-          });
+          const gate = gates[prepared.length];
+          if (!gate) throw new Error('Unexpected dependency preparation');
+          prepared.push(key.member);
+          gate.enter();
+          await gate.ready;
           return { status: 'ready', key: 'a'.repeat(64), changed: true };
         },
       }),
     });
-    const starting = startTask('AR-1', 'dev-1');
-    await vi.waitFor(() => expect(prepared).toEqual(['dev-1']));
-    expect(h.runner.started).toHaveLength(0);
-    expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toHaveLength(0);
-    ready();
-    await starting;
-    expect(h.runner.started).toHaveLength(1);
-    const first = h.runner.lastStarted();
-    h.runner.emit({ type: 'transcript_path', sessionId: first.sessionId, path: '/tmp/fictional-deps.jsonl' });
-    await h.domain.sessions.stop('AR', first.sessionId);
-    const resuming = ensure('dev-1', 'AR-1');
-    await vi.waitFor(() => expect(prepared).toHaveLength(2));
-    expect(h.runner.started).toHaveLength(1);
-    ready();
-    await resuming;
-    expect(h.runner.started).toHaveLength(2);
+    const saveBinding = vi.spyOn(h.repos.memberWorkspaces, 'saveBinding');
+    const pending: Promise<unknown>[] = [];
+    try {
+      const starting = startTask('AR-1', 'dev-1');
+      pending.push(starting);
+      // An early start failure must reject the test instead of leaving the entry wait pending.
+      await Promise.race([initialPreparation.entered, starting]);
+      expect(prepared).toEqual(['dev-1']);
+      expect(h.runner.started).toHaveLength(0);
+      expect(saveBinding).not.toHaveBeenCalled();
+      expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toHaveLength(0);
+      initialPreparation.release();
+      await starting;
+      expect(h.runner.started).toHaveLength(1);
+      expect(saveBinding).toHaveBeenCalledTimes(1);
+      const first = h.runner.lastStarted();
+      h.runner.emit({
+        type: 'transcript_path',
+        sessionId: first.sessionId,
+        path: '/tmp/fictional-deps.jsonl',
+      });
+      await h.domain.sessions.stop('AR', first.sessionId);
+      const resuming = ensure('dev-1', 'AR-1');
+      pending.push(resuming);
+      await Promise.race([resumePreparation.entered, resuming]);
+      expect(prepared).toEqual(['dev-1', 'dev-1']);
+      expect(h.runner.started).toHaveLength(1);
+      expect(saveBinding).toHaveBeenCalledTimes(1);
+      resumePreparation.release();
+      await expect(resuming).resolves.toMatchObject({ resumed: true });
+      expect(h.runner.started).toHaveLength(2);
+      expect(saveBinding).toHaveBeenCalledTimes(2);
+    } finally {
+      for (const gate of gates) gate.release();
+      // Drain in-flight starts before afterEach stops the domain and removes its repositories.
+      await Promise.allSettled(pending);
+    }
   });
 
   it.each(['workspace_dependencies_pending', 'workspace_dependencies_failed'] as const)(

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageKind } from '@projectman/shared';
-import type { TeamMessage } from '@projectman/shared';
+import type { SuperActor, TeamMessage } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createRepositories,
@@ -17,6 +17,14 @@ import type { Db } from '../src/db';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 
 const AT = '2026-10-17T08:00:00.000Z';
+const SUPER: SuperActor = {
+  kind: 'ai',
+  handle: 'operator',
+  via: 'integrator',
+  operatorMode: 'super',
+  credential: { id: 'ikey_fixture', prefix: 'pmi_fixture' },
+};
+const ACTOR_META = { operatorMode: SUPER.operatorMode, credential: SUPER.credential };
 const receipt = (handle: string, kind: 'ai' | 'human' = 'ai', deliveredAt: string | null = null) => ({
   handle,
   kind,
@@ -123,11 +131,19 @@ describe('pending message recipient migration', () => {
       for (const to of ['{', '', 'null', '{}', '[1,null,true]'])
         add.run(`bad_to_${n++}`, 'AR', to, AT, null, null, null);
       add.run('other_project', 'BR', '["a"]', AT, null, null, 'info');
+      add.run('super_origin', 'AR', '["a"]', AT, null, null, 'info');
+      db.prepare('UPDATE team_messages SET from_handle = ?, via = ?, actor_meta = ? WHERE id = ?').run(
+        SUPER.handle,
+        SUPER.via,
+        JSON.stringify(ACTOR_META),
+        'super_origin',
+      );
       const before = db.prepare('SELECT * FROM team_messages ORDER BY seq').all();
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(db.prepare('SELECT * FROM team_messages ORDER BY seq').all()).toEqual(before);
       const repos = createRepositories(db);
       expectEquivalent(repos);
+      expect(repos.messages.pending('AR', 'a').find((m) => m.id === 'super_origin')?.actor).toEqual(SUPER);
       const pairs = pendingPairs(db);
       expect(pairs.length).toBeGreaterThan(0);
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
@@ -137,6 +153,7 @@ describe('pending message recipient migration', () => {
       expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(pendingPairs(db)).toEqual(pairs);
       expectEquivalent(createRepositories(db));
+      expect(createRepositories(db).messages.get('super_origin')?.actor).toEqual(SUPER);
       db.prepare('DELETE FROM team_messages WHERE id = ?').run('other_project');
       expect(
         db.prepare('SELECT * FROM team_message_pending WHERE message_id = ?').all('other_project'),
@@ -157,20 +174,35 @@ describe('pending message repository', () => {
       const repos = createRepositories(db);
       const version = { stageId: 'development', commit: null, reviewCommit: null };
       const subject = { type: 'permission' as const, inboxItemId: 'inb_fixture' };
-      repos.messages.insert(message('metadata', { kind: 'info', version, subject }));
+      repos.messages.insert(
+        message('metadata', {
+          from: SUPER.handle,
+          via: SUPER.via,
+          actor: SUPER,
+          kind: 'info',
+          version,
+          subject,
+        }),
+      );
       const parse = vi.spyOn(JSON, 'parse');
       try {
-        expect(repos.messages.get('metadata')).toMatchObject({ kind: 'info', version, subject });
-        for (const value of [version, subject])
-          expect(parse.mock.calls.filter(([text]) => text === JSON.stringify(value))).toHaveLength(1);
+        for (const read of [
+          () => repos.messages.get('metadata'),
+          () => repos.messages.pending('AR', 'a')[0],
+        ]) {
+          parse.mockClear();
+          expect(read()).toMatchObject({ kind: 'info', version, subject, actor: SUPER });
+          for (const value of [version, subject, ACTOR_META])
+            expect(parse.mock.calls.filter(([text]) => text === JSON.stringify(value))).toHaveLength(1);
+        }
       } finally {
         parse.mockRestore();
       }
       db.prepare(
-        'UPDATE team_messages SET kind = ?, version = ?, subject = ?, attachments = ? WHERE id = ?',
-      ).run('unknown', '{', 'null', '{', 'metadata');
+        'UPDATE team_messages SET kind = ?, version = ?, subject = ?, attachments = ?, actor_meta = ? WHERE id = ?',
+      ).run('unknown', '{', 'null', '{', '{', 'metadata');
       const malformed = repos.messages.get('metadata');
-      for (const field of ['kind', 'version', 'subject', 'attachments'])
+      for (const field of ['kind', 'version', 'subject', 'attachments', 'actor'])
         expect(malformed).not.toHaveProperty(field);
     } finally {
       db.close();

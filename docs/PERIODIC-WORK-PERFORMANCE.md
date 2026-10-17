@@ -7,6 +7,11 @@ commit is `62fcf73fe9aceda20f1fb963659ea5f38c1cd621`. Instrumentation revision
 `9810b8e0260cb97f4eeacc721c3c85f7694030d5` wraps the native statement prototype once,
 retaining no statement instances or call history. Earlier incomplete attempts are not a baseline.
 
+The attached original report (`9810b8e0260c`) and optimized report (`62ac57c09985`) retain their
+measured source revisions from before the rebase onto PM-757 (`77644cb9`). Their migration
+timings describe schema 75 to 76. On the rebased branch the pending migration is 77, after
+PM-757's actor-origin migration 76; those historical timings do not measure schema 76 to 77.
+
 The original run uses the original production tree with this harness. Before running, verify
 `git diff --exit-code cc534b5589aa215dd1c6dcc1ad6363383c09ed61 -- ':(top)apps/server/src'`.
 The report repeats that comparison as `productionMatchesOriginal`. `source` identifies the

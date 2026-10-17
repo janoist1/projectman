@@ -169,30 +169,34 @@ const emptyCounts = (): Counts => ({
 
 function instrument() {
   let counts: Counts | null = null;
-  const prepare = Database.prototype.prepare;
-  Database.prototype.prepare = function (this: Database.Database, sql: string) {
-    const statement = prepare.call(this, sql);
-    for (const method of ['all', 'get', 'run'] as const) {
-      const call = statement[method];
-      Object.defineProperty(statement, method, {
-        value: (...args: unknown[]) => {
-          const result: unknown = Reflect.apply(call, statement, args);
-          if (!counts) return result;
-          counts.sql++;
-          const rows = method === 'all' ? (result as unknown[]) : method === 'get' && result ? [result] : [];
-          for (const row of rows) {
-            if (!row || typeof row !== 'object') continue;
-            if ('from_handle' in row && 'body' in row) counts.messageRows++;
-            if ('stage_id' in row && 'description' in row) counts.taskRows++;
-            if ('task_id' in row && 'ref' in row) counts.linkRows++;
-            if ('actor_kind' in row && 'type' in row) counts.timelineRows++;
-          }
-          return result;
-        },
-      });
-    }
-    return statement;
-  } as typeof prepare;
+  const probe = new Database(':memory:');
+  const prototype = Object.getPrototypeOf(probe.prepare('SELECT 1')) as Database.Statement;
+  probe.close();
+  const descriptors = new Map<string, PropertyDescriptor>();
+  // Wrap the shared native prototype once. Per-statement closures can retain native statements
+  // through the addon's lifetime management and distort a long, query-heavy measurement.
+  for (const method of ['all', 'get', 'run'] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, method)!;
+    descriptors.set(method, descriptor);
+    const call = prototype[method];
+    Object.defineProperty(prototype, method, {
+      ...descriptor,
+      value: function (this: Database.Statement, ...args: unknown[]) {
+        const result: unknown = Reflect.apply(call, this, args);
+        if (!counts) return result;
+        counts.sql++;
+        const rows = method === 'all' ? (result as unknown[]) : method === 'get' && result ? [result] : [];
+        for (const row of rows) {
+          if (!row || typeof row !== 'object') continue;
+          if ('from_handle' in row && 'body' in row) counts.messageRows++;
+          if ('stage_id' in row && 'description' in row) counts.taskRows++;
+          if ('task_id' in row && 'ref' in row) counts.linkRows++;
+          if ('actor_kind' in row && 'type' in row) counts.timelineRows++;
+        }
+        return result;
+      },
+    });
+  }
   const messageParse = MessageKind.safeParse;
   MessageKind.safeParse = (...args) => {
     if (counts) counts.decodedMessages++;
@@ -213,7 +217,7 @@ function instrument() {
       return result;
     },
     restore() {
-      Database.prototype.prepare = prepare;
+      for (const [method, descriptor] of descriptors) Object.defineProperty(prototype, method, descriptor);
       MessageKind.safeParse = messageParse;
       TaskDeveloperLevel.safeParse = taskParse;
     },
@@ -281,7 +285,12 @@ async function measure(run: () => Promise<unknown>, meter: ReturnType<typeof ins
       wall,
       cpu,
       rounds,
+      memory: process.memoryUsage(),
     });
+    console.log(
+      'PM733 repeat',
+      JSON.stringify({ repeat, wallMedianMs: quantile(wall, 0.5), memory: process.memoryUsage() }),
+    );
   }
   return samples;
 }
@@ -352,6 +361,11 @@ describe('periodic work performance protocol (PM-733)', () => {
         const environment = {
           originalSource: ORIGINAL_SOURCE,
           source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+          // A baseline can be reproduced with the original production tree and the current harness.
+          // Verify the whole server source tree against the original commit, rather than trusting an override.
+          productionMatchesOriginal:
+            execFileSync('git', ['diff', ORIGINAL_SOURCE, '--', 'apps/server/src'], { encoding: 'utf8' })
+              .length === 0,
           harnessSha256: createHash('sha256')
             .update(readFileSync(new URL(import.meta.url)))
             .digest('hex'),

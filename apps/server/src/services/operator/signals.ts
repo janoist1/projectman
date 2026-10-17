@@ -597,7 +597,7 @@ export class OperatorSignals {
           taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
         });
       }
-      // Built once for the whole sweep; a later check reads the data of that moment again, never this map.
+      // Built once and reused within this sweep (the stalled-refinement check reads it); never kept between sweeps.
       const board = this.boardCases(config, cards);
       for (const input of board.values()) {
         active.add(input.caseKey);

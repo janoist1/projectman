@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { migrate, migrations } from '../src/db';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { settle } from './helpers/fakes';
 
 // PM-733: keep this generator and protocol unchanged across all three optimization slices.
 // Full measurements are opt-in, in the heavy queue, never part of the normal merge suite:
@@ -23,6 +24,7 @@ const EXTRA_HANDLES = Array.from({ length: 7 }, (_, i) => `worker-${i}`);
 const HANDLES = ['dev-1', 'dev-2', 'cr', 'pm', 'operator', ...EXTRA_HANDLES];
 const RUN_BENCHMARK = process.env.PROJECTMAN_PERIODIC_BENCHMARK === '1';
 const PENDING_ONLY = process.env.PROJECTMAN_PERIODIC_PENDING_ONLY === '1';
+const RUN_STARTUP = process.env.PROJECTMAN_PERIODIC_STARTUP === '1';
 
 function random(seed = 733) {
   let state = seed;
@@ -108,9 +110,13 @@ function configure(config: ProjectConfig) {
   config.pipeline.stages.find((s) => s.id === 'development')!.owners = ['dev-1', 'dev-2', ...EXTRA_HANDLES];
 }
 
-async function fixture(historyMessages: number, historyTasks: number, active: boolean) {
+async function fixture(historyMessages: number, historyTasks: number, active: boolean, persistent = false) {
   const startupStart = performance.now();
-  const h = await createDomainHarness({ adjust: configure, now: () => new Date(NOW) });
+  const h = await createDomainHarness({
+    adjust: configure,
+    now: () => new Date(NOW),
+    ...(persistent ? { persistent } : {}),
+  });
   try {
     await h.domain.projects.create(
       { key: 'BR', name: 'Synthetic second project', workspacePath: h.workspace, templateId: 'test' },
@@ -296,6 +302,45 @@ async function measure(run: () => Promise<unknown>, meter: ReturnType<typeof ins
   return samples;
 }
 
+/**
+ * The startup of a server restarted over the same database file (PM-770): the new domain's start
+ * and the background recovery it fires (AutoAdvance sweep, merge reconciliation, deferred starts),
+ * from the moment the previous domain is stopped. One warmup restart is not counted.
+ */
+async function startupSample(
+  historyMessages: number,
+  historyTasks: number,
+  active: boolean,
+  meter: ReturnType<typeof instrument>,
+  rounds: number,
+) {
+  let current: DomainHarness = await fixture(historyMessages, historyTasks, active, true);
+  const wall: number[] = [];
+  const cpu: number[] = [];
+  const counts: Counts[] = [];
+  try {
+    for (let round = -1; round < rounds; round++) {
+      await current.domain.stop();
+      current.repos.db.close();
+      meter.start();
+      const started = performance.now();
+      const before = process.cpuUsage();
+      current = await createDomainHarness({ now: () => new Date(NOW), directory: current.dir });
+      await settle();
+      const used = process.cpuUsage(before);
+      const elapsed = performance.now() - started;
+      const measured = meter.stop();
+      if (round < 0) continue;
+      wall.push(elapsed);
+      cpu.push((used.user + used.system) / 1000);
+      counts.push(measured);
+    }
+    return { wall, cpu, rounds: counts, memory: process.memoryUsage() };
+  } finally {
+    await current.cleanup();
+  }
+}
+
 function migrationMeasurement(history: number) {
   const migration = migrations.find((m) => m.name === 'pending message recipients');
   if (!migration) return null; // The original-source baseline has no pending derivation yet.
@@ -439,6 +484,80 @@ describe('periodic work performance protocol (PM-733)', () => {
           JSON.stringify({ environment, results, migrationResults, complete: true }, null, 2),
         );
         console.log('PM733 report', reportPath);
+      } finally {
+        meter.restore();
+      }
+    },
+    3_600_000,
+  );
+
+  it('samples the startup recovery of a restarted server at a small scale', async () => {
+    const meter = instrument();
+    try {
+      const sample = await startupSample(20, 20, true, meter, 1);
+      expect(sample.rounds).toHaveLength(1);
+      expect(sample.rounds[0]!.sql).toBeGreaterThan(0);
+    } finally {
+      meter.restore();
+    }
+  });
+
+  // PM-770: the startup recovery (AutoAdvance sweep, merge reconciliation, deferred starts) of a server
+  // restarted over the same database file, measured apart from the periodic paths. Opt-in, heavy queue:
+  // npm run heavy -- env PROJECTMAN_PERIODIC_STARTUP=1 npm run test -w @projectman/server -- test/periodic-work-performance.test.ts
+  it.skipIf(!RUN_STARTUP)(
+    'records the startup recovery CPU measurements',
+    async () => {
+      expect(process.env.PROJECTMAN_HEAVY_LOCK_HELD).toBe('1');
+      const meter = instrument();
+      try {
+        const source = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+        const productionMatchesOriginal =
+          execFileSync('git', ['diff', ORIGINAL_SOURCE, '--', ':(top)apps/server/src'], {
+            encoding: 'utf8',
+          }).length === 0;
+        const environment = {
+          originalSource: ORIGINAL_SOURCE,
+          source,
+          productionMatchesOriginal,
+          harnessSha256: createHash('sha256')
+            .update(readFileSync(new URL(import.meta.url)))
+            .digest('hex'),
+          seed: 733,
+          platform: os.platform(),
+          arch: os.arch(),
+          node: process.version,
+          cpu: os.cpus()[0]?.model,
+          load: os.loadavg(),
+          mode: 'startup',
+        };
+        const results: unknown[] = [];
+        const reportPath = join(
+          process.env.PROJECTMAN_SESSION_DIR ?? os.tmpdir(),
+          `periodic-work-${productionMatchesOriginal ? 'original' : 'optimized'}-startup-${source.slice(0, 12)}.json`,
+        );
+        for (const active of [true, false])
+          for (const [historyMessages, historyTasks] of [
+            [10_000, 2_000],
+            [100_000, 20_000],
+          ]) {
+            const sample = await startupSample(historyMessages!, historyTasks!, active, meter, 10);
+            results.push({ active, historyMessages, historyTasks, ...sample });
+            console.log(
+              'PM770 startup',
+              JSON.stringify({
+                active,
+                historyMessages,
+                historyTasks,
+                wallMedianMs: quantile(sample.wall, 0.5),
+                cpuMedianMs: quantile(sample.cpu, 0.5),
+                counts: sample.rounds[0],
+              }),
+            );
+            writeFileSync(reportPath, JSON.stringify({ environment, results, complete: false }, null, 2));
+          }
+        writeFileSync(reportPath, JSON.stringify({ environment, results, complete: true }, null, 2));
+        console.log('PM770 report', reportPath);
       } finally {
         meter.restore();
       }

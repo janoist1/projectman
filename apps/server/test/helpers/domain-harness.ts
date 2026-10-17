@@ -118,6 +118,8 @@ export async function createDomainHarness(
     merger?: BranchMerger | null;
     /** The project and repository that are the instance itself (PM-491); absent: releases are off. */
     releaseTarget?: { projectKey: string; repo: string };
+    /** The hybrid release binding and the engines' facts (PM-752); absent: the single-target release only. */
+    releaseHybrid?: DomainOptions['releaseHybrid'];
     /** The commit the server runs (PM-491); default `dev`. */
     appVersion?: string;
     /** The release tag of the running build (PM-542); absent: none. */
@@ -196,6 +198,7 @@ export async function createDomainHarness(
     engineName: opts.engineName,
     machineEngine: opts.machineEngine,
     ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
+    ...(opts.releaseHybrid ? { releaseHybrid: opts.releaseHybrid } : {}),
     ...(opts.appTag ? { appTag: opts.appTag } : {}),
     // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).
     get appVersion() {

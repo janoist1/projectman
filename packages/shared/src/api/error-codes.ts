@@ -265,6 +265,18 @@ export const ERROR_CODES = [
   'release_empty',
   'release_commit_unknown',
   'release_state_conflict',
+  // The hybrid release's durable deployment (PM-752): another attempt or a different request holds the
+  // slot, the target or the engine is not the configured one, a foreign pause is open, the work is not
+  // drained, the deployment waits for a person's recovery, the protocol is not available for this
+  // instance, the artifact differs from the bound one.
+  'release_deployment_conflict',
+  'release_target_mismatch',
+  'release_pause_conflict',
+  'release_not_drained',
+  'release_recovery_required',
+  'release_protocol_unavailable',
+  'release_artifact_changed',
+  'release_engine_mismatch',
   // Feedback marks (PM-506): the project has no surface set up (409); the surface or the mark is unknown
   // (404); the member may not mark (403, the reason in `details.reason`); only a processor decides (403); the
   // page is not on an allowed address (403); the launch code or the tool session is not valid (401); too

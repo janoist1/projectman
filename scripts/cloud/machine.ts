@@ -195,10 +195,30 @@ function cloudEnvText(context: CloudContext): string {
     if (equals > 0 && /SECRET|PASSWORD|TOKEN/.test(line.slice(0, equals)))
       context.report.protect(line.slice(equals + 1));
   }
-  return withReleaseTarget(text, context.config.releaseTarget);
+  return withHybridTarget(withReleaseTarget(text, context.config.releaseTarget), context.config.hybrid);
 }
 
 export const RELEASE_TARGET_ENV = 'PROJECTMAN_RELEASE_TARGET';
+export const RELEASE_ENGINE_ENV = 'PROJECTMAN_RELEASE_ENGINE_ID';
+export const RELEASE_TARGET_HASH_ENV = 'PROJECTMAN_RELEASE_TARGET_HASH';
+
+/**
+ * The hybrid binding of the release (PM-752): the configured engine and target hash replace any such line of the
+ * file, both together. Without one the text is left as it is. The server refuses a lone value at start.
+ */
+export function withHybridTarget(
+  text: string,
+  hybrid: { engineId: string; targetHash: string } | undefined,
+): string {
+  if (!hybrid) return text;
+  const kept = text
+    .split('\n')
+    .filter(
+      (line) => !line.startsWith(`${RELEASE_ENGINE_ENV}=`) && !line.startsWith(`${RELEASE_TARGET_HASH_ENV}=`),
+    );
+  const body = kept.join('\n').replace(/\n*$/, '\n');
+  return `${body}${RELEASE_ENGINE_ENV}=${hybrid.engineId}\n${RELEASE_TARGET_HASH_ENV}=${hybrid.targetHash}\n`;
+}
 
 /**
  * The cloud.env the machine gets (PM-749): the configured release target (`releaseTarget` of the

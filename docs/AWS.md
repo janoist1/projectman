@@ -362,30 +362,31 @@ name, so a second run changes nothing.
 The file is validated strictly (`version: 1`, no unknown field). A wrong field exits with status 2
 and names the field's path. `deploy/aws/config.example.json` has every field you usually set.
 
-| Field                                    | Default                                      | Meaning                                                                                             |
-| ---------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `aws.compute`                            | `lightsail`                                  | `ec2` selects EC2 provisioning and SSH over SSM; existing version-1 files keep Lightsail            |
-| `aws.profile`                            | `i`                                          | the AWS CLI profile                                                                                 |
-| `aws.ec2`                                | none                                         | required for EC2: explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)        |
-| `aws.region`                             | required                                     | for example `eu-west-1`                                                                             |
-| `aws.availabilityZone`                   | `<region>a`                                  |                                                                                                     |
-| `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                    |
-| `aws.bundleId`, `aws.blueprintId`        | `small_3_0`, `ubuntu_24_04`                  | machine size and image (must be active)                                                             |
-| `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                        |
-| `aws.sshIdentityFile`                    | none                                         | a private key for ssh instead of Lightsail's temporary one                                          |
-| `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                             |
-| `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone) |
-| `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's               |
-| `cloudflare.accountId`                   | the only account the token sees              | needed when the token sees more than one account                                                    |
-| `cloudflare.tunnelName`                  | `aws.instanceName`                           | the tunnel's name, and the prefix of the Access applications, policies and service tokens (`<N>`)   |
-| `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                           |
-| `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                  |
-| `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                   |
-| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                         |
-| `releaseTarget`                          | none                                         | `{projectKey, repo}` the board releases; `deploy` sends it as `PROJECTMAN_RELEASE_TARGET`           |
-| `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                    |
-| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                         |
-| `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account      |
+| Field                                    | Default                                      | Meaning                                                                                                |
+| ---------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `aws.compute`                            | `lightsail`                                  | `ec2` selects EC2 provisioning and SSH over SSM; existing version-1 files keep Lightsail               |
+| `aws.profile`                            | `i`                                          | the AWS CLI profile                                                                                    |
+| `aws.ec2`                                | none                                         | required for EC2: explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)           |
+| `aws.region`                             | required                                     | for example `eu-west-1`                                                                                |
+| `aws.availabilityZone`                   | `<region>a`                                  |                                                                                                        |
+| `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                       |
+| `aws.bundleId`, `aws.blueprintId`        | `small_3_0`, `ubuntu_24_04`                  | machine size and image (must be active)                                                                |
+| `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                           |
+| `aws.sshIdentityFile`                    | none                                         | a private key for ssh instead of Lightsail's temporary one                                             |
+| `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                                |
+| `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone)    |
+| `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's                  |
+| `cloudflare.accountId`                   | the only account the token sees              | needed when the token sees more than one account                                                       |
+| `cloudflare.tunnelName`                  | `aws.instanceName`                           | the tunnel's name, and the prefix of the Access applications, policies and service tokens (`<N>`)      |
+| `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                              |
+| `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                     |
+| `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                      |
+| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                            |
+| `releaseTarget`                          | none                                         | `{projectKey, repo}` the board releases; `deploy` sends it as `PROJECTMAN_RELEASE_TARGET`              |
+| `hybrid`                                 | none                                         | `{engineId, targetHash}` of a hybrid release (needs `releaseTarget`); `deploy` sends the two env lines |
+| `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                       |
+| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                            |
+| `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account         |
 
 `cloud.env` is a docker env-file: `NAME=value`, one per line, no quotes. `npm run cloud` sets only
 the names it owns and keeps every other line and comment: `aws` writes the S3 names and keys,
@@ -621,6 +622,14 @@ command, `docker exec -i -u 10001:10001 projectman-cloud node /app/apps/server/d
   not changed). `release_get`, `release_claim` and `release_report` all refuse a release whose project or
   repository is not exactly that target (`release_not_configured`). Without the field nothing changes: the board
   does not release, and `release-control` refuses release operations locally.
+- **Hybrid release (PM-752).** The optional `hybrid: {"engineId": "eng_…", "targetHash": "<64 hex>"}` (a remote
+  engine, never `local`; refused without `releaseTarget`) becomes `PROJECTMAN_RELEASE_ENGINE_ID` and
+  `PROJECTMAN_RELEASE_TARGET_HASH` in the sent `cloud.env`, replacing any such line; your local file is not
+  changed. The server then keeps the deployment attempt and the maintenance fence, takes the
+  `release_deploy_get`, `release_deploy_begin` and `release_deploy_change` operations on this channel (the
+  request must stay within 16 KiB and the answer within 64 KiB), and refuses the single-target `release_claim` and
+  `release_report` (`release_protocol_unavailable`). The first hybrid release cannot be driven by a build without
+  this protocol.
 
 Does this work on a remote engine? The control socket and the release records are the cloud server's; the
 engines are not involved. What crosses the Mac/machine boundary is one request line and one response line over

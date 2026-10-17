@@ -46,7 +46,14 @@ import {
   stageOf,
 } from '@projectman/shared';
 import path from 'node:path';
-import type { EngineId, Me, Session, Task } from '@projectman/shared';
+import type {
+  EngineId,
+  HybridReleaseTarget,
+  Me,
+  ReleaseEngineStatus,
+  Session,
+  Task,
+} from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { InvitationAccounts } from './core/members';
 import type { EngineCounters } from './runtime/sessions';
@@ -118,7 +125,12 @@ import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
 import { commandVerdict, engineIdOf, fullTestSandbox, readableRootsFor } from './runtime/sessions';
-import { ReleaseRoadmapNotices, ReleaseService } from './services/releases';
+import {
+  ReleaseDeployments,
+  ReleaseRoadmapNotices,
+  ReleaseService,
+  ReleaseWorkGate,
+} from './services/releases';
 import type { ReleaseTarget } from './services/releases';
 import { LoopWatch } from './runtime/watchers';
 import { OpenQuestionLabel } from './core/inbox';
@@ -174,6 +186,11 @@ export interface DomainOptions {
    * approved and deployed. Absent: releases are off (`release_not_configured`).
    */
   releaseTarget?: ReleaseTarget;
+  /**
+   * The hybrid release (PM-752): the remote engine and the target the instance releases to, and the cloud
+   * registry's view of the engines. Absent: the single-target release only.
+   */
+  releaseHybrid?: { binding: HybridReleaseTarget; engines: () => ReleaseEngineStatus[] };
   /** The commit the server was started from (`resolveAppVersion`); a release goes live when it equals its commit. */
   appVersion?: string;
   /** The release tag on the running build's commit (PM-542); absent: none. */
@@ -851,8 +868,11 @@ export function createDomain(opts: DomainOptions) {
     now,
   });
   const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
+  // The maintenance fence of a hybrid release (PM-752): merges, document writes and test runs start through it.
+  const releaseWork = new ReleaseWorkGate(() => ctx.repos.releaseDeployments.maintenanceHeld());
   // The server's full test of the pinned commit (PM-217) holds the reviewers back until its result is in.
   const fullTests = new FullTestRuns({
+    work: releaseWork,
     runSandbox: fullTestSandbox,
     ctx,
     projects,
@@ -871,6 +891,7 @@ export function createDomain(opts: DomainOptions) {
   );
   messaging.registerCardHold('full_test', fullTests);
   const merges = new Merges({
+    work: releaseWork,
     cards: mergeCards,
     ctx,
     projects,
@@ -885,7 +906,7 @@ export function createDomain(opts: DomainOptions) {
     checkSandbox: fullTestSandbox,
     afterMerge: (task) => autoAdvance.check(task),
   });
-  const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges });
+  const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges, work: releaseWork });
   merges.registerSlotPeer(docWrites);
   inbox.registerDecider('merge_request', async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
@@ -904,6 +925,20 @@ export function createDomain(opts: DomainOptions) {
     engineId: () => LOCAL_ENGINE_ID,
   });
   inbox.registerDecider('release', (item, by, optionId, note) => releases.decide(item, by, optionId, note));
+  const releaseDeployments = new ReleaseDeployments({
+    ctx,
+    releases,
+    pause: pauses,
+    work: releaseWork,
+    binding: opts.releaseHybrid?.binding ?? null,
+    engines: opts.releaseHybrid?.engines ?? (() => []),
+    // The fence is down: what the gate held back starts now.
+    onResumed: () => {
+      merges.pump();
+      docWrites.pump();
+      fullTests.pump();
+    },
+  });
   const releaseRoadmapNotices = new ReleaseRoadmapNotices({ ctx, projects, messaging });
   events.on('release_proposed', (event) => releaseRoadmapNotices.proposed(event));
   // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
@@ -952,6 +987,7 @@ export function createDomain(opts: DomainOptions) {
   const screenshotRuns =
     opts.engines || engines.ids().some((id) => engines.get(id)?.screenshotExecutor)
       ? new ScreenshotRuns({
+          work: releaseWork,
           outputTail,
           executorFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.screenshotExecutor,
           platformFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.platform,
@@ -1864,6 +1900,7 @@ export function createDomain(opts: DomainOptions) {
     docWrites,
     decisionCandidates,
     releases,
+    releaseDeployments,
     loopWatch,
     questionScreening,
     seniorWaits,

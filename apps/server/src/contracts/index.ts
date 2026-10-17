@@ -12,6 +12,7 @@ export * from './operator-knowledge';
 export * from './operator-config-authorization';
 export * from './event-bus';
 export * from './full-test';
+export * from './release-work';
 export * from './engine';
 export * from './machine';
 export * from './email-login';

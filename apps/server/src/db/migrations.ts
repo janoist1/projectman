@@ -1394,4 +1394,32 @@ migrations.push({
     DROP TABLE operator_signals_old;
     CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
 });
+migrations.push({
+  version: 75,
+  name: 'hybrid release deployments',
+  // One row per release attempt. `phase`, `maintenance` and `revision` repeat what `data_json` holds so the
+  // database itself can enforce the one active deployment of the instance and the fence can be read without
+  // parsing; the repository writes them in one statement. Requests are kept to answer a repeat the same way.
+  sql: `CREATE TABLE release_deployments (
+      release_id TEXT PRIMARY KEY REFERENCES releases(id),
+      attempt_id TEXT NOT NULL UNIQUE,
+      controller_id TEXT NOT NULL,
+      phase TEXT NOT NULL CHECK (phase IN ('preparing','prepared','quiescing','switching','live','failed','published','recovery_required')),
+      maintenance INTEGER NOT NULL CHECK (maintenance IN (0,1)),
+      revision INTEGER NOT NULL,
+      data_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX release_deployments_active ON release_deployments((1))
+      WHERE maintenance = 1 OR phase IN ('preparing','prepared','quiescing','switching','recovery_required');
+    CREATE TABLE release_deployment_requests (
+      request_id TEXT PRIMARY KEY,
+      release_id TEXT NOT NULL REFERENCES releases(id),
+      attempt_id TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      resulting_revision INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX release_deployment_requests_release ON release_deployment_requests(release_id);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

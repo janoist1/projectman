@@ -3,9 +3,13 @@ import net from 'node:net';
 import { ControlRequest } from '@projectman/shared';
 import type {
   ControlResponse,
+  HybridDeployment,
   PauseRequest,
   PauseStatus,
   Release,
+  ReleaseDeployBegin,
+  ReleaseDeployChange,
+  ReleaseDrainStatus,
   ReleaseEngineStatus,
   ReleaseReport,
 } from '@projectman/shared';
@@ -23,6 +27,8 @@ export interface ControlPause {
  * domain). Every method refuses with `release_not_configured` when the instance is not set up to release.
  */
 export interface ControlRelease {
+  /** The hybrid deployment's operations (PM-752); absent: this instance has no hybrid binding. */
+  deploy?: ControlDeploy;
   /** The commit the answering server runs. */
   appVersion(): string;
   /** The release the watcher has something to do with, if any. */
@@ -31,6 +37,23 @@ export interface ControlRelease {
   get(releaseId: string): Release;
   claim(releaseId: string, previousCommit: string | null): Release;
   report(releaseId: string, report: ReleaseReport): Promise<Release>;
+}
+
+/** What a `release_deploy_*` operation answers with. */
+export interface ControlDeployView {
+  deployment: HybridDeployment | null;
+  release: Release;
+  drain: ReleaseDrainStatus;
+  databaseSchemaVersion: number;
+}
+
+/** The durable deployment of a hybrid release (PM-752). */
+export interface ControlDeploy {
+  /** Throws `release_protocol_unavailable` on a hybrid instance: the single-target claim and report skip the fence. */
+  refuseLegacy(): void;
+  get(releaseId: string): ControlDeployView;
+  begin(input: ReleaseDeployBegin): Promise<ControlDeployView>;
+  change(input: ReleaseDeployChange): Promise<ControlDeployView>;
 }
 
 /** The engines the cloud registry knows, as `engine_status` answers them (PM-749). */
@@ -113,6 +136,8 @@ async function respond(
     case 'release_claim':
     case 'release_report': {
       if (!release) return failure('release_not_configured', 'this instance does not release');
+      // A hybrid instance moves a release only through the deployment: the legacy pair would skip the fence.
+      if (request.op === 'release_claim' || request.op === 'release_report') release.deploy?.refuseLegacy();
       const result =
         request.op === 'release_next'
           ? release.next()
@@ -122,6 +147,28 @@ async function respond(
               ? release.claim(request.releaseId, request.previousCommit)
               : await release.report(request.releaseId, request.report);
       return { ok: true, pause: pause.status(), release: result, ...version };
+    }
+    case 'release_deploy_get':
+    case 'release_deploy_begin':
+    case 'release_deploy_change': {
+      if (!release?.deploy)
+        return failure('release_not_configured', 'this instance does not release in the hybrid way');
+      const { deploy } = release;
+      const view =
+        request.op === 'release_deploy_get'
+          ? deploy.get(request.releaseId)
+          : request.op === 'release_deploy_begin'
+            ? await deploy.begin(request)
+            : await deploy.change(request);
+      return {
+        ok: true,
+        pause: pause.status(),
+        release: view.release,
+        deployment: view.deployment,
+        drain: view.drain,
+        databaseSchemaVersion: view.databaseSchemaVersion,
+        ...version,
+      };
     }
   }
 }

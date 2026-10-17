@@ -235,6 +235,36 @@ describe('the validation', () => {
     expect(refusal(config((value) => (value.releaseTarget = target)))).toContain('releaseTarget');
   });
 
+  it('takes an optional hybrid binding (PM-752) that needs a release target and a remote engine', () => {
+    const target = { projectKey: 'PM', repo: 'projectman' };
+    const hybrid = { engineId: 'eng_abcdefghijkl', targetHash: 'a'.repeat(64) };
+    expect(parseConfig(baseConfig(), HOME)).not.toHaveProperty('hybrid');
+    expect(
+      parseConfig(
+        config((value) => {
+          value.releaseTarget = target;
+          value.hybrid = hybrid;
+        }),
+        HOME,
+      ).hybrid,
+    ).toEqual(hybrid);
+    expect(refusal(config((value) => (value.hybrid = hybrid)))).toContain('hybrid: needs releaseTarget');
+    for (const bad of [
+      { ...hybrid, engineId: 'local' },
+      { ...hybrid, targetHash: 'abc' },
+      { ...hybrid, extra: 1 },
+      { engineId: hybrid.engineId },
+    ])
+      expect(
+        refusal(
+          config((value) => {
+            value.releaseTarget = target;
+            value.hybrid = bad;
+          }),
+        ),
+      ).toContain('hybrid');
+  });
+
   it('refuses an unknown field and a wrong version', () => {
     expect(refusal(config((value) => (value.aws.size = 'large')))).toContain('aws');
     expect(refusal(config((value) => (value.extra = true)))).toContain('extra');

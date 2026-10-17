@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto';
-import { ACTIVE_HYBRID_PHASES } from '@projectman/shared';
 import type {
   HybridDeployment,
   HybridPhase,
+  HybridRecoveryCode,
   Release,
   ReleaseArtifact,
   ReleaseDeploymentChange,
+  ReleaseFailure,
   ReleaseImageRef,
+  ReleaseStep,
 } from '@projectman/shared';
 import { conflict } from '../../kernel';
 
@@ -80,11 +82,21 @@ export function settledTargets(
   return expectedTargets(deployment, release, deployment.phase === 'failed' ? 'previous' : 'new');
 }
 
+/** What the approvers read when a deployment needs recovery: the step the code stands for, never a raw error. */
+export function recoveryFailure(code: HybridRecoveryCode, message: string): ReleaseFailure {
+  const step: ReleaseStep =
+    code === 'rollback_failed'
+      ? 'rollback'
+      : code === 'engine_switch_failed' || code === 'cloud_transport_failed'
+        ? 'switch'
+        : 'verify';
+  return { step, message, rolledBack: false };
+}
+
 /** The phase a change leads to, or null when the change is not allowed from the deployment's phase. */
 export function nextPhase(
   deployment: Pick<HybridDeployment, 'phase' | 'maintenance'>,
   change: ReleaseDeploymentChange,
-  release: Pick<Release, 'state'>,
 ): HybridPhase | null {
   const { phase } = deployment;
   switch (change.kind) {
@@ -95,23 +107,26 @@ export function nextPhase(
     case 'switch':
       return phase === 'quiescing' ? 'switching' : null;
     case 'recovery':
-      return phase === 'live' || phase === 'failed' || phase === 'published' ? null : 'recovery_required';
+      // Only an attempt that reached the pause can need one: before it a failure ends the attempt (`failed`). A live
+      // deployment qualifies while its fence is up; once resumed it has left the slot.
+      if (phase === 'quiescing' || phase === 'switching' || phase === 'recovery_required')
+        return 'recovery_required';
+      return phase === 'live' && deployment.maintenance ? 'recovery_required' : null;
     case 'resume':
       return SETTLED_PHASES.includes(phase) && deployment.maintenance ? phase : null;
     case 'report': {
       const { report } = change;
       switch (report.outcome) {
         case 'live':
-          if (phase === 'switching') return 'live';
-          // A recovery that was opened by hand (the release is still deploying) may end with the new program running.
-          return phase === 'recovery_required' && release.state === 'deploying' ? 'live' : null;
+          // A deployment in recovery_required is settled by a person, not by a report of the coordinator.
+          return phase === 'switching' ? 'live' : null;
         case 'failed':
-          // Without a confirmed rollback the previous program is not known to run: a person has to look.
-          return ACTIVE_HYBRID_PHASES.includes(phase)
-            ? report.failure.rolledBack
-              ? 'failed'
-              : 'recovery_required'
-            : null;
+          // Before the pause nothing was touched: the attempt just ends. From the pause on, without a confirmed
+          // rollback the previous program is not known to run, and a person has to look.
+          if (phase === 'preparing' || phase === 'prepared') return 'failed';
+          if (phase === 'quiescing' || phase === 'switching')
+            return report.failure.rolledBack ? 'failed' : 'recovery_required';
+          return null;
         case 'published':
           return phase === 'live' ? 'published' : null;
         case 'publish_failed':

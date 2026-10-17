@@ -20,6 +20,7 @@ import {
   nextPhase,
   payloadHash,
   phaseConflict,
+  recoveryFailure,
   sameArtifact,
   sameImage,
   settledTargets,
@@ -123,6 +124,13 @@ export class ReleaseDeployments {
         throw conflict('release_engine_mismatch', 'the engine did not report a commit it runs', {
           version: engine.version,
         });
+      // Both targets start from the same program: the rollback goes back to one pair, not to two unrelated ones.
+      if (engineCommit !== running)
+        throw conflict(
+          'release_engine_mismatch',
+          `the engine runs ${engineCommit}, not the commit ${running} the server runs`,
+          { version: engineCommit, appVersion: running },
+        );
       const at = isoNow(ctx);
       const deployment = HybridDeployment.parse({
         version: 1,
@@ -231,7 +239,7 @@ export class ReleaseDeployments {
         throw conflict('release_artifact_changed', 'the artifact differs from the one the attempt prepared');
       return;
     }
-    const phase = nextPhase(current, change, release);
+    const phase = nextPhase(current, change);
     if (!phase) {
       if (current.phase === 'recovery_required')
         throw conflict('release_recovery_required', 'the deployment needs recovery first', {
@@ -269,7 +277,21 @@ export class ReleaseDeployments {
         return;
       }
       case 'recovery': {
-        this.save(current, { phase, recovery: { code: change.code, message: change.message } }, request);
+        const reporter = await releases.reporter();
+        // The approvers are told once, when the deployment first needs a person; the first cause stays on record.
+        const first = current.phase !== 'recovery_required';
+        this.save(
+          current,
+          {
+            phase,
+            maintenance: true,
+            recovery: first ? { code: change.code, message: change.message } : current.recovery,
+          },
+          request,
+          () => {
+            if (first) reporter.alert(release, recoveryFailure(change.code, change.message));
+          },
+        );
         return;
       }
       case 'resume': {
@@ -288,44 +310,55 @@ export class ReleaseDeployments {
       case 'report': {
         const { report } = change;
         switch (report.outcome) {
+          // The release's own change is part of the deployment's write: they commit together or not at all. What
+          // the configuration needs is read before the checks, so that nothing but the write follows them.
           case 'live': {
+            const reporter = await releases.reporter();
             const artifact = current.artifact;
             if (!artifact) throw phaseConflict(current, 'report live without an artifact');
             if (!change.image || !sameImage(change.image, artifact))
               throw conflict('release_artifact_changed', 'the running image is not the prepared artifact');
             this.requireFacts(expectedTargets(current, release, 'new'), change.image);
-            if (release.state === 'deploying') await releases.report(release.id, { outcome: 'live' });
-            this.save(current, { phase, recovery: null }, request);
+            this.save(current, { phase, recovery: null }, request, () => {
+              if (release.state === 'deploying') reporter.report(release.id, { outcome: 'live' });
+            });
             return;
           }
           case 'failed': {
-            if (report.failure.rolledBack) {
+            const reporter = await releases.reporter();
+            const { failure } = report;
+            if (failure.rolledBack) {
               if (!change.image || !sameImage(change.image, current.previousImage))
                 throw conflict('release_artifact_changed', 'the running image is not the previous image');
               this.requireFacts(expectedTargets(current, release, 'previous'), change.image);
             }
-            if (release.state === 'deploying') await releases.report(release.id, report);
+            // A failure from the pause on that cannot show the previous program running leaves the release
+            // deploying: it is for a person to settle, and the approvers are told.
+            const lost = phase === 'recovery_required';
             this.save(
               current,
-              {
-                phase,
-                recovery: report.failure.rolledBack
-                  ? null
-                  : { code: 'rollback_failed', message: report.failure.message },
-              },
+              { phase, recovery: lost ? { code: 'rollback_failed', message: failure.message } : null },
               request,
+              () => {
+                if (lost) reporter.alert(release, failure);
+                else if (release.state === 'deploying') reporter.report(release.id, report);
+              },
             );
             return;
           }
           case 'published': {
+            const reporter = await releases.reporter();
             this.requireFacts(expectedTargets(current, release, 'new'), null);
-            if (release.state === 'live') await releases.report(release.id, report);
-            this.save(current, { phase }, request);
+            this.save(current, { phase }, request, () => {
+              if (release.state === 'live') reporter.report(release.id, report);
+            });
             return;
           }
           case 'publish_failed': {
-            if (release.state === 'live') await releases.report(release.id, report);
-            this.save(current, { phase }, request);
+            const reporter = await releases.reporter();
+            this.save(current, { phase }, request, () => {
+              if (release.state === 'live') reporter.report(release.id, report);
+            });
             return;
           }
         }
@@ -372,11 +405,15 @@ export class ReleaseDeployments {
       });
   }
 
-  /** Writes the next revision and the request that made it, in the caller's transaction. */
+  /**
+   * Writes the next revision and the request that made it in one transaction (the caller's, when it has one),
+   * together with `alsoInside`: the change of the release that goes with it.
+   */
   private save(
     current: HybridDeployment,
     patch: Partial<HybridDeployment>,
     request: { requestId: string; payloadHash: string },
+    alsoInside?: () => void,
   ): void {
     const { ctx } = this.deps;
     const at = isoNow(ctx);
@@ -402,6 +439,7 @@ export class ReleaseDeployments {
         },
         at,
       );
+      alsoInside?.();
     });
   }
 

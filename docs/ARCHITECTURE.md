@@ -3691,8 +3691,13 @@ screens (PM-492) come in their own cards.
   - **Phases.** `preparing` → `prepared` (the artifact of the release commit is bound once;
     `release_artifact_changed`) → `quiescing` (an owned instance pause and the maintenance bit, saved with the
     pause row in one transaction) → `switching` (only when the drain check says ready, else `release_not_drained`)
-    → `live` → `published`; `failed` before the switch; `recovery_required` when a rollback did not complete,
-    after which nothing but a recorded recovery moves.
+    → `live` → `published`. A failure before the pause (`preparing`, `prepared`) ends the attempt as `failed`
+    with no fence. From the pause on, a failure with a verified rollback is `failed` (the fence stays until the
+    owned `resume`); one without it, and the coordinator's `recovery` change (from `quiescing`, `switching` or a
+    still fenced `live`), is `recovery_required`: the fence stays, the release stays `deploying` (or `live`), the
+    approvers get the `release_failed` alert once, and no `live`, `failed` or `resume` report of the coordinator
+    moves it again (`release_recovery_required`). The release's own change and the deployment write commit in one
+    transaction, and a new proposal is refused while a deployment holds the instance.
   - **Fence.** `ReleaseWorkGate` (`services/releases/work-gate.ts`) is the only admission: the merge queue, the
     document-write queue, the full-test queue and the screenshot runs ask it for a permit before they start a
     root piece of work, and are refused while the maintenance bit is set. The bit is read live from the

@@ -46,6 +46,12 @@ export interface ReleaseCheck {
   proposers: string[];
 }
 
+/** `ReleaseService.reporter`: the synchronous report and alert, to run inside the caller's unit of work. */
+export interface ReleaseReporter {
+  report(id: string, report: ReleaseReport): Release;
+  alert(release: Release, failure: ReleaseFailure): void;
+}
+
 export interface ProposeReleaseInput {
   title: string;
   summary: string;
@@ -236,7 +242,7 @@ export class ReleaseService {
     this.requireNoOpenRelease(projectKey);
   }
 
-  /** One release at a time: a release in progress refuses another. */
+  /** One release at a time: a release in progress, or a deployment that still holds the instance, refuses another. */
   private requireNoOpenRelease(projectKey: string): void {
     const open = this.deps.ctx.repos.releases.open(projectKey);
     if (open)
@@ -244,6 +250,7 @@ export class ReleaseService {
         id: open.id,
         state: open.state,
       });
+    this.requireNoActiveDeployment();
   }
 
   /**
@@ -471,8 +478,34 @@ export class ReleaseService {
 
   /** The watcher's result: live, failed, published or the failure to publish. */
   async report(id: string, report: ReleaseReport): Promise<Release> {
-    const projectKey = this.controlProject();
-    const config = await this.deps.projects.config(projectKey);
+    const reporter = await this.reporter();
+    return this.deps.ctx.unitOfWork(() => reporter.report(id, report));
+  }
+
+  /**
+   * The report and the alert with the project's configuration already read, so that a caller can make them part of
+   * its own unit of work (PM-752: the release and the deployment change together). Both run synchronously.
+   */
+  async reporter(): Promise<ReleaseReporter> {
+    const config = await this.deps.projects.config(this.controlProject());
+    return {
+      report: (id, report) => this.reportNow(config, id, report),
+      alert: (release, failure) => this.alert(config, release, failure),
+    };
+  }
+
+  /** Whether a hybrid deployment still holds the instance, though no release is open (its fence is up). */
+  private requireNoActiveDeployment(): void {
+    const active = this.deps.ctx.repos.releaseDeployments.active();
+    if (active)
+      throw conflict(
+        'release_deployment_conflict',
+        `the deployment of release ${active.releaseId} still holds the instance`,
+        { releaseId: active.releaseId, phase: active.phase },
+      );
+  }
+
+  private reportNow(config: ProjectConfig, id: string, report: ReleaseReport): Release {
     const { ctx, tasks } = this.deps;
     const release = this.getForControl(id);
     const at = isoNow(ctx);

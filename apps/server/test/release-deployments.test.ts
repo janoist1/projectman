@@ -113,6 +113,11 @@ describe('the hybrid release deployment (PM-752)', () => {
     return release;
   }
 
+  /** The release_failed alerts the approvers got about one release. */
+  const releaseAlerts = (releaseId: string) =>
+    h.domain.inbox
+      .list('AR', { kind: 'alert', state: 'open' })
+      .filter((item) => (item.payload as { releaseId?: string } | null)?.releaseId === releaseId);
   const deployments = () => h.domain.releaseDeployments;
   const beginInput = (releaseId: string, over: Record<string, unknown> = {}) => ({
     releaseId,
@@ -229,6 +234,37 @@ describe('the hybrid release deployment (PM-752)', () => {
         code: 'release_engine_mismatch',
       });
       expect(h.domain.releases.get(release.id).state).toBe('approved');
+    });
+
+    it('needs the engine to run the commit the server runs, not just some commit', async () => {
+      await setup();
+      const release = await approved();
+      engine = { ...engine, version: sha(7) };
+      await expect(deployments().begin(beginInput(release.id))).rejects.toMatchObject({
+        code: 'release_engine_mismatch',
+        details: { version: sha(7), appVersion: PREVIOUS },
+      });
+      expect(h.repos.releaseDeployments.get(release.id)).toBeNull();
+      expect(h.domain.releases.get(release.id).state).toBe('approved');
+    });
+
+    it('refuses a new proposal while a deployment still holds the instance, though no release is open', async () => {
+      await setup();
+      const { release, attemptId } = await switching();
+      runs(release.commit);
+      const live = await change(release, attemptId, {
+        kind: 'report',
+        report: { outcome: 'live' },
+        image: artifact(release.commit),
+      });
+      expect(live.release.state).toBe('live');
+      const propose = () => h.domain.releases.propose('AR', 'devops', { title: 'Next', summary: '- AR-1' });
+      await expect(propose()).rejects.toMatchObject({ code: 'release_deployment_conflict' });
+      const refusal = await h.domain.releases.check('AR');
+      expect(refusal.refusal).toMatchObject({ code: 'release_deployment_conflict' });
+      await change(release, attemptId, { kind: 'resume', pauseId: live.deployment!.pauseId! });
+      // The slot is free: whatever the proposal meets now is about its candidate, not the deployment.
+      await expect(propose()).rejects.not.toMatchObject({ code: 'release_deployment_conflict' });
     });
 
     it('holds the slot for one deployment: an active one refuses another release', async () => {
@@ -565,26 +601,48 @@ describe('the hybrid release deployment (PM-752)', () => {
         maintenance: true,
         recovery: { code: 'rollback_failed' },
       });
-      expect(lost.release.state).toBe('failed');
+      // The release is not closed: nobody has shown the previous program to run, and the approvers are told once.
+      expect(lost.release.state).toBe('deploying');
+      expect(releaseAlerts(release.id)).toHaveLength(1);
       expect(h.repos.releaseDeployments.active()).not.toBeNull();
       await expect(change(release, attemptId, { kind: 'quiesce' })).rejects.toMatchObject({
         code: 'release_recovery_required',
       });
-      // The person who recovers brings the previous program back and the coordinator reports it.
-      const settled = await change(release, attemptId, {
+      // No report of the coordinator settles it, whatever the targets run: a person has to.
+      runs(release.commit);
+      const live: ReleaseDeploymentChange = {
+        kind: 'report',
+        report: { outcome: 'live' },
+        image: artifact(release.commit),
+      };
+      await expect(change(release, attemptId, live)).rejects.toMatchObject({
+        code: 'release_recovery_required',
+      });
+      runs(PREVIOUS);
+      const rolledBack: ReleaseDeploymentChange = {
         kind: 'report',
         report: {
           outcome: 'failed',
           failure: { step: 'rollback', message: 'rolled back by hand', rolledBack: true },
         },
         image: image(PREVIOUS),
+      };
+      await expect(change(release, attemptId, rolledBack)).rejects.toMatchObject({
+        code: 'release_recovery_required',
       });
-      expect(settled.deployment).toMatchObject({ phase: 'failed', recovery: null });
+      await expect(
+        change(release, attemptId, { kind: 'resume', pauseId: lost.deployment!.pauseId! }),
+      ).rejects.toMatchObject({ code: 'release_recovery_required' });
+      expect(h.repos.releaseDeployments.get(release.id)).toMatchObject({
+        phase: 'recovery_required',
+        maintenance: true,
+      });
+      expect(h.domain.releases.get(release.id).state).toBe('deploying');
     });
 
-    it('records a recovery the coordinator asks for, from any unfinished phase', async () => {
+    it('records a recovery the coordinator asks for, from the pause on: fence up, release kept, alert once', async () => {
       await setup();
-      const { release, attemptId } = await begun();
+      const { release, attemptId } = await switching();
       const view = await change(release, attemptId, {
         kind: 'recovery',
         code: 'cloud_transport_failed',
@@ -592,9 +650,75 @@ describe('the hybrid release deployment (PM-752)', () => {
       });
       expect(view.deployment).toMatchObject({
         phase: 'recovery_required',
+        maintenance: true,
         recovery: { code: 'cloud_transport_failed' },
       });
+      expect(view.release.state).toBe('deploying');
       expect(h.repos.releaseDeployments.active()).not.toBeNull();
+      expect(releaseAlerts(release.id)).toHaveLength(1);
+      // Asked again: the fence stays, the first cause stays, nobody is told twice.
+      const again = await change(release, attemptId, {
+        kind: 'recovery',
+        code: 'engine_switch_failed',
+        message: 'the engine did not start',
+      });
+      expect(again.deployment).toMatchObject({
+        phase: 'recovery_required',
+        maintenance: true,
+        recovery: { code: 'cloud_transport_failed' },
+      });
+      expect(releaseAlerts(release.id)).toHaveLength(1);
+    });
+
+    it('records a recovery from quiescing, before anything is switched', async () => {
+      await setup();
+      const first = await begun();
+      await change(first.release, first.attemptId, {
+        kind: 'prepared',
+        artifact: artifact(first.release.commit),
+      });
+      await change(first.release, first.attemptId, { kind: 'quiesce' });
+      const quiescing = await change(first.release, first.attemptId, {
+        kind: 'recovery',
+        code: 'engine_switch_failed',
+        message: 'x',
+      });
+      expect(quiescing.deployment).toMatchObject({ phase: 'recovery_required', maintenance: true });
+      expect(quiescing.release.state).toBe('deploying');
+    });
+
+    it('keeps a live release live when its fenced deployment needs recovery', async () => {
+      await setup();
+      const { release, attemptId } = await switching();
+      runs(release.commit);
+      await change(release, attemptId, {
+        kind: 'report',
+        report: { outcome: 'live' },
+        image: artifact(release.commit),
+      });
+      const view = await change(release, attemptId, {
+        kind: 'recovery',
+        code: 'database_incompatible',
+        message: 'the schema is newer',
+      });
+      expect(view.deployment).toMatchObject({ phase: 'recovery_required', maintenance: true });
+      expect(view.release.state).toBe('live');
+      expect(releaseAlerts(release.id)).toHaveLength(1);
+    });
+
+    it('does not take a recovery before the pause: the attempt fails instead', async () => {
+      await setup();
+      const { release, attemptId } = await begun();
+      const recovery = {
+        kind: 'recovery',
+        code: 'cloud_transport_failed',
+        message: 'the cloud did not answer',
+      } as const;
+      await expect(change(release, attemptId, recovery)).rejects.toMatchObject({
+        code: 'release_deployment_conflict',
+        details: { phase: 'preparing' },
+      });
+      expect(releaseAlerts(release.id)).toHaveLength(0);
     });
 
     it('ends a failure before the switch without a fence', async () => {
@@ -608,6 +732,54 @@ describe('the hybrid release deployment (PM-752)', () => {
       expect(view.deployment).toMatchObject({ phase: 'failed', maintenance: false });
       expect(view.release.state).toBe('failed');
       expect(h.repos.releaseDeployments.active()).toBeNull();
+    });
+
+    it.each([false, true])(
+      'ends an unconfirmed failure before the pause (prepared: %s): nothing was touched, no recovery',
+      async (prepared) => {
+        await setup();
+        const { release, attemptId } = await begun();
+        if (prepared)
+          await change(release, attemptId, { kind: 'prepared', artifact: artifact(release.commit) });
+        const view = await change(release, attemptId, {
+          kind: 'report',
+          report: { outcome: 'failed', failure: { step: 'build', message: 'no image', rolledBack: false } },
+        });
+        expect(view.deployment).toMatchObject({
+          phase: 'failed',
+          maintenance: false,
+          pauseId: null,
+          recovery: null,
+        });
+        expect(view.release.state).toBe('failed');
+        expect(h.repos.releaseDeployments.active()).toBeNull();
+        expect(releaseAlerts(release.id)).toHaveLength(1);
+      },
+    );
+
+    it('writes the release and the deployment together: a release that cannot change leaves the deployment as it was', async () => {
+      await setup();
+      const { release, attemptId } = await switching();
+      runs(release.commit);
+      const before = h.repos.releaseDeployments.get(release.id)!;
+      const requestId = randomUUID();
+      vi.spyOn(h.domain.releases, 'reporter').mockResolvedValue({
+        report: () => {
+          throw new Error('the release could not be written');
+        },
+        alert: () => undefined,
+      });
+      await expect(
+        change(
+          release,
+          attemptId,
+          { kind: 'report', report: { outcome: 'live' }, image: artifact(release.commit) },
+          { requestId },
+        ),
+      ).rejects.toThrow('the release could not be written');
+      expect(h.repos.releaseDeployments.get(release.id)).toEqual(before);
+      expect(h.repos.releaseDeployments.request(requestId)).toBeNull();
+      expect(h.domain.releases.get(release.id).state).toBe('deploying');
     });
 
     it('rejects a change the phase does not allow', async () => {

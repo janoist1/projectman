@@ -2173,6 +2173,14 @@ workers follow the machine's size.
   the single-Mac live watcher does not update either the cloud or the separate engine checkout.
   On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
+  PM-775 (part of PM-772) adds to the same entry: `apps/server/src/logging/memory-log.ts`
+  (`PROJECTMAN_MEMORY_LOG_SECONDS`, read in `index.ts`: a `memory` log line every 60 to 86400 seconds, off
+  at 0), `PROJECTMAN_HEAP_LIMIT_MB` (read only by `entrypoint.sh`, which gives the server node's
+  `--max-old-space-size`; 128 to 4096, empty keeps node's default) and a `curl` `HEALTHCHECK` instead of
+  a node process every 30 seconds. **Machine assumption:** the heap ceiling is sized to the cloud
+  machine's memory (docs/HYBRID.md "Settings"); the docker `--memory` limit, the systemd unit and the
+  host (`deploy/aws`) are unchanged. **Remote engine:** none; the engine process does not read either
+  variable and nothing crosses the server/engine boundary.
   The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
   unprivileged user (the entrypoint starts as root only to hand the mounted volume over, then drops
   with `setpriv --no-new-privs`). Its processes: the server (`HOST=127.0.0.1`), Litestream

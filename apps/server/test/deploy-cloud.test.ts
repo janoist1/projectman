@@ -99,6 +99,7 @@ describe('cloud backup and restore with fake storage tools', () => {
   function run(
     command: 'backup' | 'restore' | 'check' | 'serve' | 'rehearse',
     scratch = join(temp, 'restored'),
+    extraEnv: Record<string, string> = {},
   ) {
     return spawnSync(
       bash,
@@ -130,6 +131,7 @@ describe('cloud backup and restore with fake storage tools', () => {
           LITESTREAM_REGION: 'fixture',
           LITESTREAM_ACCESS_KEY_ID: 'fixture',
           LITESTREAM_SECRET_ACCESS_KEY: 'fixture',
+          ...extraEnv,
         },
       },
     );
@@ -248,6 +250,47 @@ else if (tool === 'node') {
     expect(calls().join('\n')).not.toMatch(/node |litestream replicate|cloudflared/);
     expect(existsSync(join(temp, 'fresh/.cloud-volume'))).toBe(false);
   });
+
+  it.each(['128', '256', '4096', '0256'])(
+    'gives the server --max-old-space-size from PROJECTMAN_HEAP_LIMIT_MB=%s (PM-775)',
+    (value) => {
+      expect(run('backup').status).toBe(0);
+      const result = run('rehearse', join(temp, 'rehearsal'), { PROJECTMAN_HEAP_LIMIT_MB: value });
+      expect(result.status).toBe(0);
+      const server = calls().filter((call) => call.startsWith('node '));
+      expect(server).toEqual([`node --max-old-space-size=${Number(value)} ${app}/apps/server/dist/index.js`]);
+    },
+  );
+
+  it.each([undefined, ''])(
+    'leaves the node default heap limit when PROJECTMAN_HEAP_LIMIT_MB is %j',
+    (value) => {
+      expect(run('backup').status).toBe(0);
+      const result = run(
+        'rehearse',
+        join(temp, 'rehearsal'),
+        value === undefined ? {} : { PROJECTMAN_HEAP_LIMIT_MB: value },
+      );
+      expect(result.status).toBe(0);
+      expect(calls().filter((call) => call.startsWith('node '))).toEqual([
+        `node ${app}/apps/server/dist/index.js`,
+      ]);
+    },
+  );
+
+  it.each(['127', '4097', '99999', 'abc', '1e3', '-256', '256.5', '256 ', ' 256', '0'])(
+    'refuses PROJECTMAN_HEAP_LIMIT_MB=%j before starting anything (PM-775)',
+    (value) => {
+      expect(run('backup').status).toBe(0);
+      const before = calls().length;
+      for (const command of ['serve', 'rehearse'] as const) {
+        const result = run(command, join(temp, 'rehearsal'), { PROJECTMAN_HEAP_LIMIT_MB: value });
+        expect(result.status).toBe(64);
+        expect(result.stderr).toContain('invalid PROJECTMAN_HEAP_LIMIT_MB');
+      }
+      expect(calls()).toHaveLength(before);
+    },
+  );
 
   it('refuses a rehearsal against the original home or a reused scratch directory', () => {
     expect(run('rehearse', home).status).toBe(64);
@@ -389,6 +432,27 @@ describe('deploy/cloud image', () => {
     expect(dockerfile).toContain('PROJECTMAN_MODE=cloud');
     expect(dockerfile).toContain('PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip');
     expect(dockerfile).not.toMatch(/^EXPOSE/m);
+  });
+
+  it('checks its health with curl, not a node process, and sets the memory log and the heap limit (PM-775)', () => {
+    const runtime = dockerfile.split(/^FROM .* AS runtime\s*$/m)[1]!;
+    expect(runtime).toMatch(/apt-get install[^\n]*\bcurl\b/);
+    const healthcheck = runtime.match(/^HEALTHCHECK (--[^\n]*\\\n)*\s*CMD (\[[^\n]*\])$/m);
+    expect(healthcheck?.[0]).toMatch(/--interval=30s --timeout=5s --start-period=60s --retries=3/);
+    expect(JSON.parse(healthcheck![2]!)).toEqual([
+      'curl',
+      '-fsS',
+      '--max-time',
+      '5',
+      '-o',
+      '/dev/null',
+      'http://127.0.0.1:4700/api/setup',
+    ]);
+    expect(runtime).toContain('PROJECTMAN_MEMORY_LOG_SECONDS=600');
+    // The ceiling is a whole number in the range the entrypoint accepts (docs/HYBRID.md "Settings").
+    const limit = Number(runtime.match(/PROJECTMAN_HEAP_LIMIT_MB=(\d+)/)?.[1]);
+    expect(limit).toBeGreaterThanOrEqual(128);
+    expect(limit).toBeLessThanOrEqual(4096);
   });
 
   it('holds no secret in an ENV or ARG', () => {

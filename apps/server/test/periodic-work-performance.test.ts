@@ -22,6 +22,7 @@ const PROJECTS = ['AR', 'BR'];
 const EXTRA_HANDLES = Array.from({ length: 7 }, (_, i) => `worker-${i}`);
 const HANDLES = ['dev-1', 'dev-2', 'cr', 'pm', 'operator', ...EXTRA_HANDLES];
 const RUN_BENCHMARK = process.env.PROJECTMAN_PERIODIC_BENCHMARK === '1';
+const PENDING_ONLY = process.env.PROJECTMAN_PERIODIC_PENDING_ONLY === '1';
 
 function random(seed = 733) {
   let state = seed;
@@ -379,12 +380,13 @@ describe('periodic work performance protocol (PM-733)', () => {
           warmup: 2,
           repeats: 5,
           rounds: 10,
+          mode: PENDING_ONLY ? 'pending' : 'full',
         };
         console.log('PM733 environment', JSON.stringify(environment));
         const results: unknown[] = [];
         const reportPath = join(
           process.env.PROJECTMAN_SESSION_DIR ?? os.tmpdir(),
-          `periodic-work-${environment.productionMatchesOriginal ? 'original' : 'optimized'}-${environment.source.slice(0, 12)}.json`,
+          `periodic-work-${environment.productionMatchesOriginal ? 'original' : 'optimized'}-${environment.mode}-${environment.source.slice(0, 12)}.json`,
         );
         for (const active of [true, false]) {
           for (const [historyMessages, historyTasks] of [
@@ -402,7 +404,8 @@ describe('periodic work performance protocol (PM-733)', () => {
                   ...h.fixtureTimings,
                 }),
               );
-              for (const [path, run] of Object.entries(paths(h))) {
+              const runs = paths(h);
+              for (const [path, run] of Object.entries(PENDING_ONLY ? { pending: runs.pending } : runs)) {
                 const samples = await measure(run, meter);
                 results.push({ active, historyMessages, historyTasks, path, samples, ...h.fixtureTimings });
                 writeFileSync(reportPath, JSON.stringify({ environment, results, complete: false }, null, 2));

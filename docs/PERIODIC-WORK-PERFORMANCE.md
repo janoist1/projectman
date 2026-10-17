@@ -3,9 +3,17 @@
 The shared fixture is `apps/server/test/periodic-work-performance.test.ts`. PM-769 adds it
 before changing production code; PM-770 and PM-771 reuse its generator and measurements.
 Original production source: `cc534b5589aa215dd1c6dcc1ad6363383c09ed61`. The initial harness
-commit is `62fcf73fe9aceda20f1fb963659ea5f38c1cd621`. The corrected, memory-bounded harness
-baseline is `b6ed1f014ce4a6f1583cff6d9dd28f7a2aeabfa3`; production code is still identical
-to the original source in that commit.
+commit is `62fcf73fe9aceda20f1fb963659ea5f38c1cd621`. Instrumentation revision
+`9810b8e0260cb97f4eeacc721c3c85f7694030d5` wraps the native statement prototype once,
+retaining no statement instances or call history. Earlier incomplete attempts are not a baseline.
+
+The original run uses the original production tree with this harness. Before running, verify
+`git diff --exit-code cc534b5589aa215dd1c6dcc1ad6363383c09ed61 -- apps/server/src`.
+The report repeats that comparison as `productionMatchesOriginal`. `source` identifies the
+repository/harness commit; when `productionMatchesOriginal` is true, the measured production
+code is exactly `originalSource`, even when the harness itself is a later commit. Restore the
+committed implementation before running the optimized comparison. Do not switch or reset a
+shared checkout to reproduce a measurement.
 
 Run from the repository root, in the foreground:
 
@@ -17,6 +25,12 @@ The opt-in measurement requires the heavy queue. The normal test checks only the
 fixed active set at two small scales. No real provider, GitHub CLI, production data or engine
 process participates: the domain harness supplies fake services. Record an unavailable queue
 or sandbox refusal on the card; do not bypass it.
+
+For a separately identified pending/migration-only report, add `PROJECTMAN_PERIODIC_PENDING_ONLY=1`
+after `env` in the same command. This uses the same generator, instrumentation, warmup and 5×10
+rounds; it does not stand in for the full periodic protocol. PM-769's full run repeatedly lost its
+Vitest worker (`ERR_IPC_CHANNEL_CLOSED`); incomplete results and that exact failure are recorded
+on the card. The shorter report isolates this slice's direct pending change and migration cost.
 
 The seed is 733. There are two projects and 24 AI members in total. The active scenario has
 20 pending messages and 20 open cards. Delivered-message history grows from 10,000 to
@@ -39,7 +53,7 @@ startup AutoAdvance sweep is not described as a recurring thirty-second operatio
 
 Each report records OS, architecture, CPU, Node, load, source commit, harness SHA-256, CPU
 user+system milliseconds, wall median/p95, individual round timings, SQL calls, returned
-message/card/link/timeline rows, and decoded message/card counts. Counters wrap database
+message/card/link/timeline rows, decoded message/card counts and per-repeat memory usage. Counters wrap database
 statements and the existing message-kind/card-recommendation decoding boundaries. Their
 overhead is included in both versions. The report is synthetic process CPU, not an EC2 credit
 measurement. Compare on the same machine; time outliers must be read alongside deterministic
@@ -47,7 +61,9 @@ row counts. CPU spikes and unrelated concurrent machine load can affect wall tim
 
 The JSON report is written into the session folder (the system temp directory outside a member
 session). Attach it to the card before ending a session. It contains individual-round time
-series; console output includes compact repeat summaries. The migration measures logical
+series; console output includes repeat progress and compact path summaries. Original and
+optimized reports have separate names. Partial reports are saved after each path with
+`complete: false`; only a report with `complete: true` includes every path. The migration measures logical
 SQLite page bytes before and after a backfill of the same generated messages, separately from
 the timed periodic paths.
 

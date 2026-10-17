@@ -348,6 +348,12 @@ Restore the database alone to a file, to look at it (point-in-time with `-timest
 litestream restore -config deploy/cloud/litestream.yml -o ./restored.sqlite /data/db.sqlite
 ```
 
+A restored database that is put in service (not only looked at) must get a new event generation first,
+or the readers of the project change journal (PM-761) could continue cursors from the journal that
+was lost: `UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'event_generation'`
+(`docs/ARCHITECTURE.md`, "Project change journal"). Their cursors are then refused with
+`event_cursor_expired`, and they read again from the start.
+
 ## Updating
 
 Build the new image and deploy it (`fly deploy`). The platform sends SIGTERM; the entrypoint stops

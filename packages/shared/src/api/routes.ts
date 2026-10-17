@@ -39,6 +39,11 @@ export const routes = {
   projectFocusItem: (key: string, taskKey: string) => `/api/projects/${key}/focus/items/${taskKey}`,
   /** GET (`?limit=`, 1 to 200, default 50): the project's `focus_changed` events (`ProjectFocusChanges`). */
   projectFocusChanges: (key: string) => `/api/projects/${key}/focus/changes`,
+  /**
+   * GET (`ProjectChangeEventsQuery`: `after` cursor, `limit` 1..500, `waitMs` 0..25000): the project's durable
+   * change journal (`ProjectChangeEventsResponse`, PM-761), waiting up to `waitMs` for a new entry. Internal members only.
+   */
+  projectEvents: (key: string) => `/api/projects/${key}/events`,
   boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,
   decideBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/decide`,
   revokeBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/revoke`,

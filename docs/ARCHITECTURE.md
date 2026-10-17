@@ -887,6 +887,49 @@ two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on cus
 hashes); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
+## Project change journal (PM-761, part of the super mode PM-757)
+
+A durable, cursor-read record of what changed in a project, for the integrator's readers (and the
+members' tools) to continue after an interruption or a restart of the hub. It says **that** something
+changed and **which entity**; the content is read from the normal APIs. Nothing raw is stored: no terminal
+text, chat text or secret, only ids.
+
+- **Table.** `project_change_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, project_key, kind, entity_id,
+at)`, index `(project_key, seq)` (migration 80). `seq` never goes back, also not after a delete of the
+  newest row. Kinds: `task`, `timeline`, `message`, `inbox`, `configuration`, `pause`, `engine`,
+  `handoff`, `operation`. No row is deleted automatically (a journal that forgets cannot tell a reader
+  that it missed something).
+- **Atomic with the change.** SQLite triggers on the state tables (`apps/server/src/db/change-triggers.ts`,
+  the list in `CHANGE_TRIGGER_TABLES`) write the row in the transaction of the very statement. Many
+  facades publish to the websocket after their write and outside a unit of work, so a row written from
+  the bus would not be atomic; a trigger covers every write path (a facade, a sweep, the recovery of an
+  interrupted configuration commit, which ends in the `projects` record update). A rollback, also of a
+  nested unit of work, takes the row with it. A migration that rebuilds one of these tables drops its
+  triggers and must create them again (`test/project-change-journal.test.ts` fails otherwise); a new state
+  table needs a migration that calls `changeTriggerSql`. `engine` is not a table: the engine registry's
+  status changes are written with `ChangeJournal.record` for the projects that have a member on the engine
+  (`assembly.ts`).
+- **The wake only notifies.** `ChangeJournal` (`core/base/change-journal.ts`): waiting readers are woken by
+  the domain event bus (any event with a `projectKey` but the noisy ones: member state, plan usage,
+  chat), by `record`, and by a one second safety read; a reader always reads the database. A reader reads,
+  subscribes, and reads again, so a commit in between is not missed.
+- **Reading.** `GET /api/projects/:key/events?after=<cursor>&limit=100&waitMs=25000` answers
+  `{events, nextCursor}`; `limit` 1..500, `waitMs` 0..25000, no `after`: from the start of the journal. The
+  cursor is base64url JSON `{version:1, generation, projectKey, seq}` with `seq` as a decimal **string**
+  (no number precision loss); a malformed cursor or one of another project is `400 invalid_event_cursor`,
+  one of another generation (or past the end of this journal) is `409 event_cursor_expired`. The same cursor
+  works after a restart: the generation is stored (`instance_meta.event_generation`, made once with the
+  database).
+- **Access during the wait.** Internal members only (clients are refused). The credential and the
+  membership are checked again on every wake and before the answer: a key revoked or expired during the
+  wait gets `401 integrator_key_invalid` at once (revocation wakes the waiter, expiry has a timer), a
+  member who lost access gets the refusal instead of entries. A stopping server ends the waits with
+  `server_stopping`.
+- **Restoring a snapshot.** A database restored from an older copy must get a new generation
+  (`UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'event_generation'`); the restore
+  steps in `docs/AWS.md` and `docs/HYBRID.md` say so. Without it a cursor from the lost journal could
+  continue into a different history (a cursor past the end of the restored journal is refused anyway).
+
 ## Permission settings of an AI member (PM-164, part of PM-162)
 
 An AI member has two permission settings, following what Claude Code and Codex do themselves.
@@ -1389,6 +1432,17 @@ workers follow the machine's size.
   separate owner-approved rollout, and it accepts a state and socket directory only below
   `<app home>/administration`, the folder the session sandbox denies (members run as the same OS user). See
   docs/SECURITY.md "Administration adapter".
+
+- **Project change journal (PM-761)** — `apps/server/src/db/change-triggers.ts`,
+  `apps/server/src/db/project-change-events.ts`, `apps/server/src/core/base/change-journal.ts`,
+  `apps/server/src/api/project-events.ts`, the engine mapping in `apps/server/src/assembly.ts`.
+  The journal is a table in the hub's `db.sqlite` that the hub's own transactions write, and the
+  long-polling read is a hub HTTP route. **Machine assumption:** one hub database and one hub process
+  (the in-memory wake and the safety poll live in it); `event_generation` is bound to that database
+  file. **Remote engine:** nothing runs on the engine and no journal data crosses to it: the engine's
+  state changes reach the hub through the engine link, and the hub's `engines.onChange` writes the
+  `engine` entries for the affected project keys; the readers talk to the hub only. A restored
+  database needs a new generation (see "Project change journal").
 
 - **Private Operator knowledge (PM-687)** — `apps/server/src/config/operator-knowledge-store.ts`,
   injected by `app.ts` through `assembly.ts` as `OperatorKnowledgeStore`. Stores the approved

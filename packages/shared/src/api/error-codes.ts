@@ -20,6 +20,8 @@ export const ERROR_CODES = [
   'task_not_merged',
   'integrator_key_invalid',
   'integrator_https_required',
+  'invalid_event_cursor',
+  'event_cursor_expired',
   'integrator_not_allowed',
   'owner_approval_required',
   'owner_login_required',

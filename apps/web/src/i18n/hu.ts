@@ -1031,6 +1031,9 @@ export const hu = {
         'Az integrálói kulcsot visszavonták, vagy lejárt. A tulajdonos a Beállításokban adhat újat.',
       integrator_not_allowed: 'Az integrálói kulcsot csak a tulajdonos kezelheti, a saját bejelentkezésével.',
       integrator_https_required: 'Az integrálói kulcs csak HTTPS-en vagy ezen a gépen használható.',
+      invalid_event_cursor: 'A változáskövetési kurzor érvénytelen, vagy másik projekté.',
+      event_cursor_expired:
+        'A változásnapló újrakezdődött (például visszaállítás után); az állapotot újra kell olvasni.',
       owner_approval_required:
         'Ez emberi jóváhagyás: csak a tulajdonos adhatja meg, a saját bejelentkezésével.',
       owner_login_required: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével.',

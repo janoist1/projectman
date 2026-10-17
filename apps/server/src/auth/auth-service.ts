@@ -34,6 +34,7 @@ export class AuthService {
   private readonly repos: Repositories;
   private readonly now: () => Date;
   readonly sessionTtlMs: number;
+  private readonly keyListeners = new Set<() => void>();
 
   constructor(opts: { repos: Repositories; now?: () => Date; sessionTtlMs?: number }) {
     this.repos = opts.repos;
@@ -63,7 +64,37 @@ export class AuthService {
   }
 
   revokeIntegratorAccessKey(userId: string, id: string) {
-    return this.repos.integratorKeys.revokeById(userId, id, this.now().toISOString());
+    const revoked = this.repos.integratorKeys.revokeById(userId, id, this.now().toISOString());
+    this.keysChanged();
+    return revoked;
+  }
+
+  /**
+   * Calls `listener` once any integrator key was created, replaced or revoked, so a request that waits
+   * on a key (the long-polling event read, PM-761) checks it again at once. Expiry has no event:
+   * the waiting request times its own check from `integratorKeyExpiresInMs`.
+   */
+  onIntegratorKeysChanged(listener: () => void): () => void {
+    this.keyListeners.add(listener);
+    return () => {
+      this.keyListeners.delete(listener);
+    };
+  }
+
+  /** Milliseconds until an integrator key expires; null: it does not (or is unknown). */
+  integratorKeyExpiresInMs(keyId: string): number | null {
+    const at = this.repos.integratorKeys.expiresAt(keyId);
+    return at ? Date.parse(at) - this.now().getTime() : null;
+  }
+
+  private keysChanged(): void {
+    for (const listener of [...this.keyListeners]) {
+      try {
+        listener();
+      } catch {
+        // A waiting request that cannot be woken still times out on its own.
+      }
+    }
   }
 
   integratorKeyAudit(userId: string, query: IntegratorKeyAuditQuery) {
@@ -83,11 +114,14 @@ export class AuthService {
       expiresAt:
         expiresInDays === null ? null : new Date(at.getTime() + expiresInDays * 86_400_000).toISOString(),
     });
+    this.keysChanged();
     return { key, secret };
   }
 
   revokeIntegratorKey(userId: string) {
-    return this.repos.integratorKeys.revoke(userId, this.now().toISOString());
+    const revoked = this.repos.integratorKeys.revoke(userId, this.now().toISOString());
+    this.keysChanged();
+    return revoked;
   }
 
   resolveIntegratorKey(secret: string): AuthUser | null {

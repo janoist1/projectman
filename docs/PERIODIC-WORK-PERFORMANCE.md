@@ -8,7 +8,7 @@ commit is `62fcf73fe9aceda20f1fb963659ea5f38c1cd621`. Instrumentation revision
 retaining no statement instances or call history. Earlier incomplete attempts are not a baseline.
 
 The original run uses the original production tree with this harness. Before running, verify
-`git diff --exit-code cc534b5589aa215dd1c6dcc1ad6363383c09ed61 -- apps/server/src`.
+`git diff --exit-code cc534b5589aa215dd1c6dcc1ad6363383c09ed61 -- ':(top)apps/server/src'`.
 The report repeats that comparison as `productionMatchesOriginal`. `source` identifies the
 repository/harness commit; when `productionMatchesOriginal` is true, the measured production
 code is exactly `originalSource`, even when the harness itself is a later commit. Restore the
@@ -63,7 +63,8 @@ The JSON report is written into the session folder (the system temp directory ou
 session). Attach it to the card before ending a session. It contains individual-round time
 series; console output includes repeat progress and compact path summaries. Original and
 optimized reports have separate names. Partial reports are saved after each path with
-`complete: false`; only a report with `complete: true` includes every path. The migration measures logical
+`complete: false`; `complete: true` marks every case of the selected mode as finished. The full
+periodic protocol additionally requires `mode: 'full'`. The migration measures logical
 SQLite page bytes before and after a backfill of the same generated messages, separately from
 the timed periodic paths.
 

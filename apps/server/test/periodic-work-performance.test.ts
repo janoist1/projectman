@@ -365,8 +365,9 @@ describe('periodic work performance protocol (PM-733)', () => {
           // A baseline can be reproduced with the original production tree and the current harness.
           // Verify the whole server source tree against the original commit, rather than trusting an override.
           productionMatchesOriginal:
-            execFileSync('git', ['diff', ORIGINAL_SOURCE, '--', 'apps/server/src'], { encoding: 'utf8' })
-              .length === 0,
+            execFileSync('git', ['diff', ORIGINAL_SOURCE, '--', ':(top)apps/server/src'], {
+              encoding: 'utf8',
+            }).length === 0,
           harnessSha256: createHash('sha256')
             .update(readFileSync(new URL(import.meta.url)))
             .digest('hex'),

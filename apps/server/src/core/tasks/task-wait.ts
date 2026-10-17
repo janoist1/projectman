@@ -37,7 +37,21 @@ export class TaskWaits {
     const projectKey = config.project.key;
     if (cards.length === 0) return new Map();
     const roster = this.members.rosterFor(config);
-    const all = new Map(this.ctx.repos.tasks.list(projectKey).map((task) => [task.key, task]));
+    // The cards the `prerequisite` links name, closed ones too, read now for exactly their keys (PM-771):
+    // the wait never reloads the project's whole card list.
+    const named = [
+      ...new Set(
+        cards.flatMap((task) =>
+          task.links.flatMap((link) => (link.kind === 'prerequisite' ? [link.ref] : [])),
+        ),
+      ),
+    ];
+    const all = new Map(
+      (named.length === 0
+        ? []
+        : this.ctx.repos.tasks.readScheduling(projectKey, { kind: 'keys', keys: named })
+      ).map((task) => [task.key, task]),
+    );
     const itemsByTask = new Map<string, InboxItem[]>();
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
       if (!item.taskKey) continue;

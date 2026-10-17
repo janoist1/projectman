@@ -139,7 +139,8 @@ export class MemberService {
     const projectKey = config.project.key;
     const openTasks = new Map(
       this.ctx.repos.tasks
-        .list(projectKey)
+        // Only the open cards count (PM-771): the closed history is never loaded for a roster.
+        .readScheduling(projectKey, { kind: 'open' })
         // A theme is carried by nobody and never counts as work (PM-192).
         .filter((t) => isOpenTask(t) && !isTheme(t))
         .map((t) => [t.key, t]),

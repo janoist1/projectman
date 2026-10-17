@@ -6,7 +6,7 @@ import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
 import { LOCAL_ENGINE_ID, MessageKind, TaskDeveloperLevel } from '@projectman/shared';
-import type { ProjectConfig, Task, TeamMessage } from '@projectman/shared';
+import type { ProjectConfig, Task, TeamMessage, TimelineEvent } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { migrate, migrations } from '../src/db';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
@@ -96,6 +96,64 @@ function* tasks(history: number, active: boolean): Generator<Task> {
   }
 }
 
+/**
+ * PM-771: the same current 7-day evidence at every scale (the Operator signals and the structural
+ * report read it): one family per project whose three subtasks close inside the window, with a few
+ * more structural events. It does not change with the history, so any growth of the walk shows up.
+ */
+function currentEvidence(): { tasks: Task[]; events: TimelineEvent[] } {
+  const hour = 60 * 60_000;
+  const at = (hoursAgo: number) => new Date(Date.parse(NOW) - hoursAgo * hour).toISOString();
+  const found = { tasks: [] as Task[], events: [] as TimelineEvent[] };
+  for (const projectKey of PROJECTS) {
+    const parentKey = `${projectKey}-2000000`;
+    for (let n = 0; n <= 3; n++) {
+      const key = `${projectKey}-${2_000_000 + n}`;
+      found.tasks.push({
+        id: `task_perf_${key}`,
+        key,
+        projectKey,
+        title: `Fictional current card ${n}`,
+        description: 'Synthetic current-window fixture',
+        stageId: 'done',
+        status: 'done',
+        assignee: null,
+        repo: 'web',
+        priority: null,
+        labels: [],
+        links: [],
+        parentKey: n ? parentKey : null,
+        visibility: 'internal',
+        createdBy: 'owner',
+        createdAt: at(72),
+        updatedAt: at(n),
+        closedAt: at(n),
+      });
+      const event = (
+        suffix: string,
+        type: TimelineEvent['type'],
+        data: Record<string, unknown>,
+        hoursAgo: number,
+      ) =>
+        found.events.push({
+          id: `evt_perf_current_${key}_${suffix}`,
+          projectKey,
+          taskKey: key,
+          sessionId: null,
+          actor: { kind: 'human', handle: 'owner' },
+          type,
+          data,
+          createdAt: at(hoursAgo),
+        });
+      // The children close one by one; the parent closes last.
+      event('done', 'task_stage_changed', { from: 'development', to: 'done' }, n ? 4 - n : 0.5);
+      event('labels', 'task_labels_changed', { added: ['perf'], removed: [] }, 40 + n);
+      event('updated', 'task_updated', { fields: ['title'] }, 30 + n);
+    }
+  }
+  return found;
+}
+
 function configure(config: ProjectConfig) {
   // Preserve the template's fixed Operator and other required roles: twelve AI members per project.
   const defaults = config.team.members.find((m) => m.kind === 'ai')!;
@@ -149,6 +207,9 @@ async function fixture(historyMessages: number, historyTasks: number, active: bo
           createdAt: task.createdAt,
         });
       }
+      const current = currentEvidence();
+      for (const task of current.tasks) h.repos.tasks.insert(task);
+      for (const event of current.events) h.repos.timeline.insert(event);
     });
     return Object.assign(h, { fixtureTimings: { startupMs, seedMs: performance.now() - seedStart } });
   } catch (error) {

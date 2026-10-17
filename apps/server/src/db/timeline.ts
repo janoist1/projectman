@@ -39,6 +39,30 @@ const toEvent = (r: TimelineRow): TimelineEvent => ({
   createdAt: r.created_at,
 });
 
+/** The reads whose query plan a test pins (PM-771). */
+export const TIMELINE_SQL = {
+  /**
+   * The state-setting event with the greatest seq before a time, per card (`latestTaskStatesBefore`). The
+   * `type IN (...)` term repeats the partial index `timeline_task_state_before`, which is what lets the
+   * planner use it; the `action` test then picks the task_updated events that set a state.
+   */
+  stateBefore: `SELECT * FROM timeline_events WHERE project_key = ? AND seq IN (
+      SELECT (SELECT t.seq FROM timeline_events t
+               WHERE t.project_key = ? AND t.task_key = k.value AND t.created_at < ?
+                 AND t.type IN ('task_stage_changed', 'task_updated')
+                 AND (t.type = 'task_stage_changed'
+                   OR json_extract(t.data, '$.action') IN ('cancelled', 'reopened'))
+               ORDER BY t.seq DESC LIMIT 1)
+        FROM json_each(?) k)
+    ORDER BY seq`,
+  /** Structured detector evidence in a fixed time window (`structuralEvidence`). */
+  structuralEvidence: `SELECT * FROM timeline_events WHERE project_key = ?
+      AND created_at >= ? AND created_at <= ?
+      AND type IN ('task_merge_requested', 'task_merge_failed', 'task_full_test',
+        'task_stage_changed', 'task_labels_changed', 'task_updated')
+      ORDER BY seq`,
+};
+
 export function createTimelineRepository(db: Db) {
   // `listOfTypes` statements by how many types they take.
   const ofTypes = new Map<number, Statement>();
@@ -73,6 +97,8 @@ export function createTimelineRepository(db: Db) {
            OR (type = 'task_updated' AND EXISTS (SELECT 1 FROM json_each(data, '$.fields') WHERE value = 'description')))
        ORDER BY seq DESC LIMIT 1`,
     ),
+    stateBefore: db.prepare(TIMELINE_SQL.stateBefore),
+    structuralEvidence: db.prepare(TIMELINE_SQL.structuralEvidence),
     ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
     ofProjectType: db.prepare(
       'SELECT * FROM timeline_events WHERE project_key = ? AND type = ? ORDER BY seq DESC LIMIT ?',
@@ -89,17 +115,16 @@ export function createTimelineRepository(db: Db) {
   return {
     /** Structured detector evidence in a fixed time window, independent of unrelated project traffic. */
     structuralEvidence(projectKey: string, since: string, until: string): TimelineEvent[] {
-      return (
-        db
-          .prepare(
-            `SELECT * FROM timeline_events WHERE project_key = ?
-        AND created_at >= ? AND created_at <= ?
-        AND type IN ('task_merge_requested', 'task_merge_failed', 'task_full_test',
-          'task_stage_changed', 'task_labels_changed', 'task_updated')
-        ORDER BY seq`,
-          )
-          .all(projectKey, since, until) as TimelineRow[]
-      ).map(toEvent);
+      return (statements.structuralEvidence.all(projectKey, since, until) as TimelineRow[]).map(toEvent);
+    },
+    /**
+     * `TaskStateHistoryReader`: per card the last state-setting event created before `before`, found per key
+     * through `timeline_task_state_before` (so a card's notes and messages are never walked).
+     */
+    latestTaskStatesBefore(projectKey: string, taskKeys: readonly string[], before: string): TimelineEvent[] {
+      if (taskKeys.length === 0) return [];
+      const keys = JSON.stringify([...new Set(taskKeys)]);
+      return (statements.stateBefore.all(projectKey, projectKey, before, keys) as TimelineRow[]).map(toEvent);
     },
     involvements(projectKey: string, query: InvolvementQuery, cursor?: [string, string]) {
       const params: (string | number)[] = [projectKey];

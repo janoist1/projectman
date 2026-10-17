@@ -70,7 +70,9 @@ import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import { answerEvidenceOf } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
+import { prerequisiteCards } from '../../core/tasks';
 import type { TaskWaits } from '../../core/tasks';
+import type { TaskSchedulingReader } from '../../contracts';
 import { conflict, invalid } from '../../kernel';
 import { newId } from '../../kernel';
 
@@ -190,6 +192,16 @@ export class OperatorSignals {
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
   };
+
+  /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
+  private readonly cardReader: TaskSchedulingReader = {
+    readSchedulingTasks: (projectKey, query) => this.deps.ctx.repos.tasks.readScheduling(projectKey, query),
+  };
+
+  /** The cards that are not done or cancelled: everything the board cases and the waits are decided on. */
+  private openCards(projectKey: string): Task[] {
+    return this.cardReader.readSchedulingTasks(projectKey, { kind: 'open' });
+  }
 
   raise(input: SignalInput): OperatorSignalRecord {
     const { ctx } = this.deps;
@@ -455,7 +467,7 @@ export class OperatorSignals {
         !task.fixLimit &&
         (wait?.reason === 'assignee' || wait?.reason === 'queued') &&
         (stage?.gate?.conditions ?? []).every((condition) => conditionHolds(task, condition)) &&
-        openPrerequisites(task, ctx.repos.tasks.list(projectKey)).length === 0;
+        openPrerequisites(task, prerequisiteCards(this.cardReader, projectKey, task)).length === 0;
       allowed.members =
         ready && task.assignee === answerStalledMember(signal.caseKey) ? startable([task.assignee!]) : [];
       allowed.taskKey = task.key;
@@ -528,7 +540,7 @@ export class OperatorSignals {
   async sweep(projectKey?: string): Promise<void> {
     for (const key of projectKey ? [projectKey] : this.deps.projects.summaries().map((p) => p.key)) {
       const config = await this.deps.projects.config(key);
-      const cards = this.deps.ctx.repos.tasks.list(key);
+      const cards = this.openCards(key);
       const active = new Set<string>();
       const report = new StructuralPatterns(this.deps.ctx).report(config);
       const previous = this.deps.ctx.repos.operatorSignals.list(key);
@@ -585,7 +597,9 @@ export class OperatorSignals {
           taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
         });
       }
-      for (const input of this.boardCases(config, cards).values()) {
+      // Built once for the whole sweep; a later check reads the data of that moment again, never this map.
+      const board = this.boardCases(config, cards);
+      for (const input of board.values()) {
         active.add(input.caseKey);
         // A card may re-enter between sweeps with the same set key after dismissal.
         if (
@@ -604,7 +618,11 @@ export class OperatorSignals {
           !active.has(signal.caseKey)
         )
           this.resolve(key, signal.caseKey);
-        if (signal.kind === 'refinement_stalled' && !signal.resolvedAt && !this.caseHolds(config, signal))
+        if (
+          signal.kind === 'refinement_stalled' &&
+          !signal.resolvedAt &&
+          !this.caseHolds(config, signal, () => board)
+        )
           this.resolve(key, signal.caseKey);
         if (
           signal.kind === 'stalled' &&
@@ -674,7 +692,7 @@ export class OperatorSignals {
         (s.state === 'pending' || s.state === 'open');
       if (!again && !rebound && (s.state !== 'pending' || s.deliveredAt)) return false;
       const valid = this.caseHolds(config, s, () => {
-        board ??= config ? this.boardCases(config, ctx.repos.tasks.list(projectKey)) : new Map();
+        board ??= config ? this.boardCases(config, this.openCards(projectKey)) : new Map();
         return board;
       });
       if (!valid) {
@@ -695,7 +713,7 @@ export class OperatorSignals {
     config: ProjectConfig | undefined,
     s: OperatorSignalRecord,
     board: () => Map<string, SignalInput> = () =>
-      config ? this.boardCases(config, this.deps.ctx.repos.tasks.list(s.projectKey)) : new Map(),
+      config ? this.boardCases(config, this.openCards(s.projectKey)) : new Map(),
   ): boolean {
     if (structuralKind(s.kind)) return this.structuralFacts(s) !== null;
     const { ctx, taskWaits } = this.deps;

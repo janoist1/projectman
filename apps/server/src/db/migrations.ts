@@ -1501,4 +1501,20 @@ migrations.push({
     );
     CREATE INDEX integrator_key_audit_owner ON integrator_key_audit(owner_user_id, seq);`,
 });
+migrations.push({
+  version: 80,
+  name: 'timeline task state before index',
+  // PM-771: `latestTaskStatesBefore` finds a card's last state-setting event before a time (the starting
+  // state of a sibling reconstruction) from the state events alone, never walking its notes and messages.
+  // The structural evidence of the fixed seven-day window (`structuralEvidence`) is found by the creation
+  // time of its six detector event types instead of a walk of the project's whole timeline.
+  // Partial and additive: only those event types are indexed; nothing is rewritten.
+  sql: `CREATE INDEX timeline_task_state_before
+      ON timeline_events(project_key, task_key, created_at, seq)
+      WHERE type IN ('task_stage_changed', 'task_updated');
+    CREATE INDEX timeline_structural_window
+      ON timeline_events(project_key, created_at)
+      WHERE type IN ('task_merge_requested', 'task_merge_failed', 'task_full_test',
+        'task_stage_changed', 'task_labels_changed', 'task_updated');`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

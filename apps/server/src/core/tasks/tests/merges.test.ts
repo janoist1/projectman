@@ -9,6 +9,7 @@ import {
   OWNER,
   OWNER_ACTOR,
   restartDomainHarness,
+  waitForSession,
 } from '../../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../../test/helpers/domain-harness';
 import { pullRequest } from '../../../../test/helpers/fakes';
@@ -382,7 +383,7 @@ describe('member initiated merge', () => {
   });
   describe('while the merge runs on the server (PM-552)', () => {
     type Built = Awaited<ReturnType<BranchMerger['build']>>;
-    const sessionOf = (member: string) => h!.domain.sessions.list('AR', { member, taskKey: 'AR-1' })[0]!;
+    const sessionOf = async (member: string) => await waitForSession(h!.domain, { member, taskKey: 'AR-1' });
     const lastStop = (id: string) => h!.repos.sessions.get(id)?.lastStop;
     /** The turn ends. A message that waited is typed in first, and its round ends too. */
     async function endTurn(id: string) {
@@ -395,7 +396,7 @@ describe('member initiated merge', () => {
     /** The merger's session has a conversation and its turn is running; the merge waits at the gate. */
     async function runningMerge() {
       await setup();
-      const session = sessionOf('dev-1');
+      const session = await sessionOf('dev-1');
       h!.runner.setState(session.id, 'working');
       h!.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });
       const gate = deferred<Built>();
@@ -438,7 +439,7 @@ describe('member initiated merge', () => {
 
     it('closes an idle session at the sweep, without a quarter of an hour of silence', async () => {
       await setup();
-      const session = sessionOf('dev-1');
+      const session = await sessionOf('dev-1');
       h!.runner.setState(session.id, 'working');
       h!.runner.setState(session.id, 'idle');
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -474,7 +475,7 @@ describe('member initiated merge', () => {
 
     it('keeps the session of a merger whose merge failed open', async () => {
       await setup();
-      const session = sessionOf('dev-1');
+      const session = await sessionOf('dev-1');
       merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
       h!.runner.setState(session.id, 'working');
       await start();
@@ -1698,7 +1699,7 @@ describe('member initiated merge', () => {
 
   it('passes the current caller to the merge_task domain handler and gates MCP update_task', async () => {
     await setup();
-    const session = h!.domain.sessions.list('AR', { member: 'dev-1', taskKey: 'AR-1' })[0]!;
+    const session = await waitForSession(h!.domain, { member: 'dev-1', taskKey: 'AR-1' });
     const ctx = { projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1', sessionId: session.id };
     await expect(h!.domain.teamTools.updateTask(ctx, { taskKey: 'AR-1', stageId: 'done' })).rejects.toThrow(
       'the approved commit is not on the default branch',
@@ -1767,7 +1768,7 @@ describe('member initiated merge', () => {
 
     it('requests the approval for an AI member, a drop on the board and a group drop', async () => {
       await setup({ adjust: needsApproval });
-      const session = h!.domain.sessions.list('AR', { member: 'dev-1', taskKey: 'AR-1' })[0]!;
+      const session = await waitForSession(h!.domain, { member: 'dev-1', taskKey: 'AR-1' });
       const ctx = { projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1', sessionId: session.id };
       // The team tool words the request for the member: not `task_not_merged`.
       await expect(h!.domain.teamTools.updateTask(ctx, { taskKey: 'AR-1', stageId: 'done' })).rejects.toThrow(

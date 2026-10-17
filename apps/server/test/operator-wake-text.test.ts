@@ -8,7 +8,7 @@ import {
 import type { OperatorSignalKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import type { MergeRecord } from '../src/db';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -72,11 +72,11 @@ function mergeRow(taskKey: string): MergeRecord {
   };
 }
 
-const operator = (): ToolContext => ({
+const operator = async (): Promise<ToolContext> => ({
   projectKey: 'AR',
   member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+  sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
 });
 
 /** The wake-up texts the Operator got, the last one first read. */
@@ -214,13 +214,13 @@ describe('level drive', () => {
       last_dismissed: null,
     });
     const at = now.toISOString();
-    const result = await h.domain.teamTools.dismissSignal(operator(), {
+    const result = await h.domain.teamTools.dismissSignal(await operator(), {
       signalId: open('ready_waiting')[0]!.id,
       note: 'Parked intentionally.',
     });
     expect(result.state).toBe('dismissed');
     await h.domain.operatorSignals.sweep('AR');
-    h.runner.setState(operator().sessionId, 'idle');
+    h.runner.setState((await operator()).sessionId, 'idle');
     later(1);
     const second = await place({ stageId: 'ready', status: 'active' });
     await h.domain.operatorSignals.sweep('AR');
@@ -267,14 +267,14 @@ describe('level drive', () => {
     await setup('drive');
     const { card, signal } = await idleCard();
     const stepAt = now.toISOString();
-    await h.domain.teamTools.startTask(operator(), { taskKey: card.key, signalId: signal.id });
+    await h.domain.teamTools.startTask(await operator(), { taskKey: card.key, signalId: signal.id });
     // The started developer finishes a turn and sits idle, so the idle case stands again after a while.
-    const developer = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    const developer = await waitForSession(h.domain, { member: 'dev-1' });
     h.runner.setState(developer.id, 'working');
     h.runner.setState(developer.id, 'idle');
     await flush();
     later(OPERATOR_IDLE_MINUTES + OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    const session = operator().sessionId;
+    const session = (await operator()).sessionId;
     h.runner.setState(session, 'working');
     h.runner.setState(session, 'idle');
     await flush();

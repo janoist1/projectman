@@ -4,7 +4,12 @@ import type { AiMemberConfig, TimelineEvent } from '@projectman/shared';
 import { StructuralPatterns, normalizedEvidencePath } from '../src/services/operator/structural-patterns';
 import { CoordinationRequests } from '../src/services/operator';
 import { OperatorTools } from '../src/mcp/operator/handler';
-import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER_ACTOR,
+  restartDomainHarness,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -75,7 +80,7 @@ async function detected() {
   failure(b.key);
   await h.domain.operatorSignals.sweep('AR');
   await flush();
-  const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+  const session = await waitForSession(h.domain, { member: 'pm' });
   h.runner.setState(session.id, 'idle');
   await flush();
   return {

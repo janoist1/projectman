@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import { createAppHarness, createProject, inject, setupOwner, addHumanAndLogin } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
-import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 
 /** PM-342 2/3: the card change answers with what it started, and a closed handoff can be read. */
@@ -24,7 +24,7 @@ describe('handoff API', () => {
   afterEach(async () => h.close());
 
   it('answers the assignee change with the handoff it started, and serves the closed handoff', async () => {
-    const dev1 = h.app.projectman.domain.sessions.list('AR', { member: 'dev-1', taskKey: 'AR-1' })[0]!;
+    const dev1 = await waitForSession(h.app.projectman.domain, { member: 'dev-1', taskKey: 'AR-1' });
     h.runner.emit({ type: 'transcript_path', sessionId: dev1.id, path: `/tmp/${dev1.id}.jsonl` });
     h.runner.setState(dev1.id, 'working');
 

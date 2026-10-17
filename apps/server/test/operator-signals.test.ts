@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OPERATOR_SIGNAL_WAKE_INTERVAL_MS, routes } from '@projectman/shared';
 import type { ServerEvent } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, restartDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  restartDomainHarness,
+  OWNER_ACTOR,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -68,11 +73,11 @@ function raise(caseKey = 'outage:test') {
   return h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'outage', caseKey, subject: 'test' });
 }
 const get = (id: string) => h.repos.operatorSignals.get(id)!;
-const tool = (): ToolContext => ({
+const tool = async (): Promise<ToolContext> => ({
   projectKey: 'AR',
   member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+  sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
 });
 async function deliver() {
   await h.domain.operatorSignals.deliver('AR');
@@ -91,7 +96,7 @@ describe('Operator system signals', () => {
     const a = raise('outage:a');
     const b = raise('outage:b');
     await deliver();
-    const sent = await h.domain.teamTools.sendMessage(tool(), {
+    const sent = await h.domain.teamTools.sendMessage(await tool(), {
       to: ['owner'],
       kind: 'info',
       text: 'Summary',
@@ -115,11 +120,11 @@ describe('Operator system signals', () => {
       { actionableSignalIds: ['foreign'] },
       { to: ['dev-1'] },
     ])
-      await expect(h.domain.teamTools.sendMessage(tool(), { ...input, ...changes })).rejects.toThrow(
+      await expect(h.domain.teamTools.sendMessage(await tool(), { ...input, ...changes })).rejects.toThrow(
         'invalid_request',
       );
     h.domain.operatorSignals.resolve('AR', b.caseKey);
-    await expect(h.domain.teamTools.sendMessage(tool(), input)).rejects.toThrow('no longer open');
+    await expect(h.domain.teamTools.sendMessage(await tool(), input)).rejects.toThrow('no longer open');
     expect(get(a.id).messageId).toBeNull();
     expect(get(b.id).messageId).toBeNull();
   });
@@ -136,7 +141,7 @@ describe('Operator system signals', () => {
       present(project, id, message, actionable);
     });
     await expect(
-      h.domain.teamTools.sendMessage(tool(), {
+      h.domain.teamTools.sendMessage(await tool(), {
         to: ['owner'],
         kind: 'info',
         text: 'Summary',
@@ -235,7 +240,7 @@ describe('Operator system signals', () => {
     await setup();
     const signal = raise();
     await deliver();
-    await h.domain.teamTools.sendMessage(tool(), {
+    await h.domain.teamTools.sendMessage(await tool(), {
       to: ['owner'],
       kind: 'info',
       text: 'Proposal',
@@ -279,7 +284,7 @@ describe('Operator system signals', () => {
     await flush();
     expect(get(signal.id).deliveredAt).toBeNull();
     await expect(h.domain.admission.exclusive(async () => true)).resolves.toBe(true);
-    h.runner.setState(tool().sessionId, 'failed');
+    h.runner.setState((await tool()).sessionId, 'failed');
     await failure;
     expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
     expect(h.domain.operatorSignals.channel('AR').signals).toEqual([]);
@@ -293,7 +298,7 @@ describe('Operator system signals', () => {
     expect(get(signal.id).state).toBe('open');
     expect(h.runner.started).toHaveLength(1);
     expect(h.runner.started[0]!.initialMessage).toContain(signal.id);
-    expect(h.repos.operatorRequests.openOfSession(tool().sessionId)).toEqual([]);
+    expect(h.repos.operatorRequests.openOfSession((await tool()).sessionId)).toEqual([]);
     expect(raise().id).toBe(signal.id);
     h.domain.operatorSignals.decision('AR', signal.id, 'owner', false);
     expect(raise().id).toBe(signal.id);
@@ -324,9 +329,9 @@ describe('Operator system signals', () => {
     const signal = raise();
     await deliver();
     await expect(
-      h.domain.teamTools.startMember(tool(), { member: 'dev-1', text: 'Unauthorized' }),
+      h.domain.teamTools.startMember(await tool(), { member: 'dev-1', text: 'Unauthorized' }),
     ).rejects.toThrow('operator_no_request');
-    const sent = await h.domain.teamTools.sendMessage(tool(), {
+    const sent = await h.domain.teamTools.sendMessage(await tool(), {
       to: ['owner'],
       kind: 'info',
       text: 'Service is down. I propose restarting it.',
@@ -336,14 +341,14 @@ describe('Operator system signals', () => {
     expect(h.repos.messages.get(sent.messageId)?.operatorSignal).toBe(signal.id);
     expect(get(signal.id)).toMatchObject({ actionable: true, messageId: sent.messageId });
     await expect(
-      h.domain.teamTools.sendMessage(tool(), {
+      h.domain.teamTools.sendMessage(await tool(), {
         to: ['owner'],
         kind: 'info',
         text: 'Again',
         signalId: signal.id,
       }),
     ).rejects.toThrow('no longer open');
-    h.runner.setState(tool().sessionId, 'idle');
+    h.runner.setState((await tool()).sessionId, 'idle');
     await flush();
     const accepted = await h.domain.messaging.send(
       'AR',
@@ -353,10 +358,10 @@ describe('Operator system signals', () => {
     );
     await flush();
     expect(get(signal.id)).toMatchObject({ state: 'accepted', decidedBy: 'owner' });
-    expect(h.repos.operatorRequests.openOfSession(tool().sessionId)[0]?.messageId).toBe(accepted.id);
+    expect(h.repos.operatorRequests.openOfSession((await tool()).sessionId)[0]?.messageId).toBe(accepted.id);
     expect(accepted.operatorSignal).toBe(signal.id);
     await expect(
-      h.domain.teamTools.startMember(tool(), { member: 'dev-2', text: 'Authorized work.' }),
+      h.domain.teamTools.startMember(await tool(), { member: 'dev-2', text: 'Authorized work.' }),
     ).resolves.toHaveProperty('messageId');
   });
 
@@ -368,12 +373,12 @@ describe('Operator system signals', () => {
     expect(() => h.domain.operatorSignals.presentation('OTHER', signal.id)).toThrow('unknown signal');
     await expect(
       h.domain.teamTools.sendMessage(
-        { ...tool(), member: 'dev-1' },
+        { ...(await tool()), member: 'dev-1' },
         { to: ['owner'], kind: 'info', text: 'Fake', signalId: signal.id },
       ),
     ).rejects.toThrow('invalid_request');
     await expect(
-      h.domain.teamTools.sendMessage(tool(), {
+      h.domain.teamTools.sendMessage(await tool(), {
         to: ['dev-1'],
         kind: 'info',
         text: 'Wrong recipient',
@@ -396,7 +401,7 @@ describe('Operator system signals', () => {
         { actor: OWNER_ACTOR, operatorSignal: signal.id },
       ),
     ).rejects.toMatchObject({ code: 'operator_signal_closed', status: 409 });
-    await h.domain.teamTools.sendMessage(tool(), {
+    await h.domain.teamTools.sendMessage(await tool(), {
       to: ['owner'],
       kind: 'info',
       text: 'Proposal',
@@ -427,7 +432,7 @@ describe('Operator system signals', () => {
     expect(h.domain.operatorSignals.channel('AR').signals).toEqual([]);
     await h.domain.pauses.resume(scope, by);
     await flush();
-    h.runner.setState(tool().sessionId, 'idle');
+    h.runner.setState((await tool()).sessionId, 'idle');
     await flush();
     expect(get(live.id).state).toBe('open');
     expect(h.runner.started[0]!.initialMessage).not.toContain(gone.id);
@@ -498,7 +503,7 @@ describe('Operator system signals', () => {
     });
     await vi.waitFor(() => expect(h.domain.sessions.list('AR', { member: 'pm' })).toHaveLength(1));
     await flush();
-    h.runner.setState(tool().sessionId, 'idle');
+    h.runner.setState((await tool()).sessionId, 'idle');
     await flush();
     const outage = h.repos.operatorSignals.list('AR')[0]!;
     expect(outage).toMatchObject({ kind: 'outage', state: 'open', inboxItemId: 'alert_1' });
@@ -562,7 +567,7 @@ describe('Operator system signals', () => {
     });
     await app.app.projectman.domain.operatorSignals.deliver('AR');
     await flush();
-    app.runner.setState(app.app.projectman.domain.sessions.list('AR', { member: 'pm' })[0]!.id, 'idle');
+    app.runner.setState((await waitForSession(app.app.projectman.domain, { member: 'pm' })).id, 'idle');
     await flush();
     const url = routes.dismissOperatorSignal('AR', signal.id);
     expect((await app.app.inject({ method: 'POST', url, headers: { cookie: other } })).statusCode).toBe(403);

@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { roleBundle, routes } from '@projectman/shared';
 import type { OperatorOperation } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  restartDomainHarness,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -26,7 +32,7 @@ async function setup(enabled = true, persistent = false) {
     { to: ['operator'], text: 'Set up the agreement and requested changes.' },
     { awaitWake: true },
   );
-  const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
+  const session = await waitForSession(h.domain, { member: 'operator' });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
   const proposal = await h.domain.teamTools.proposeOperatorKnowledge(ctx, {
     expected_revision: 0,
@@ -469,7 +475,7 @@ describe('owner-only waiver API', () => {
       { to: ['operator'], text: 'Agree to ordinary changes' },
       { awaitWake: true },
     );
-    const session = domain.sessions.list('AR', { member: 'operator' })[0]!;
+    const session = await waitForSession(domain, { member: 'operator' });
     const proposal = await domain.teamTools.proposeOperatorKnowledge(
       { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null },
       {

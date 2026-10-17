@@ -4,7 +4,13 @@ import type { CardMover, ProjectConfig } from '@projectman/shared';
 import { migrateProjectConfig } from '../src/config/migrations';
 import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
 import { TEAM_TOOLS } from '../src/mcp';
-import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  restartDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 
@@ -120,7 +126,7 @@ describe('hand-on requests', () => {
 
   it('returns the hand-on completion message from the MCP update_task tool', async () => {
     const { key } = await setup();
-    const session = h.repos.sessions.list('AR', { taskKey: key, member: 'dev-1' })[0]!;
+    const session = await waitForSession(h.domain, { taskKey: key, member: 'dev-1' });
     const update = TEAM_TOOLS.find((tool) => tool.name === 'update_task')!;
     const text = await update.run({
       ctx: { sessionId: session.id, projectKey: 'AR', member: 'dev-1', taskKey: key },

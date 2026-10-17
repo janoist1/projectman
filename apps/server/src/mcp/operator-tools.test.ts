@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../contracts';
-import { createDomainHarness } from '../../test/helpers/domain-harness';
+import { createDomainHarness, waitForSession } from '../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../test/helpers/domain-harness';
 import { settle } from '../../test/helpers/fakes';
 import { TEAM_TOOLS, toolOutputText } from './tools';
@@ -402,7 +402,7 @@ describe('dismiss_signal authorization and domain errors', () => {
   });
 
   it('rejects guest conversations even for the Operator', async () => {
-    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const session = await waitForSession(h.domain, { member: 'pm' });
     const guest = { ...session, id: 'ses_pm_guest', workItem: { type: 'general', with: 'guest' } as const };
     h.repos.sessions.insert(guest);
     await expect(

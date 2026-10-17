@@ -1,3 +1,4 @@
+import { waitForSession } from './helpers/domain-harness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes, CardBusyDetails, MemberProfile, TeamMessage, TeamMessagesView } from '@projectman/shared';
 import type { HumanAccess, ServerEvent } from '@projectman/shared';
@@ -55,7 +56,7 @@ describe('human team messages and member profiles', () => {
     );
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     await flush();
-    const session = domain.sessions.list(key, { member: 'dev-1' })[0]!;
+    const session = await waitForSession(domain, { member: 'dev-1' }, key);
     expect(session.workItem).toEqual({ type: 'task', taskKey: 'AR-1' });
     // The new session takes the whole message in its first input, behind its brief.
     expect(h.runner.lastStarted().initialMessage).toContain('Discuss the Acme webshop');

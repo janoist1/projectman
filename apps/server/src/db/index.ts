@@ -8,6 +8,7 @@ export type {
 import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
+import { createSuperAuditRepository } from './super-audit';
 import { createBoundaryRepository } from './boundary';
 import { createFeedbackRepository } from './feedback';
 export type {
@@ -69,6 +70,7 @@ export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord, AttachmentState, StoredAttachment } from './attachments';
 export type { DeferredStartRecord } from './deferred-starts';
+export type { StoredSuperAudit } from './super-audit';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
 export type { OperatorRequestRecord, OperatorStepRecord } from './operator-requests';
 export type { PauseRecord, SessionPauseRecord, SessionPausePatch } from './pauses';
@@ -93,6 +95,7 @@ export function createRepositories(db: Db) {
     engines: createEngineRepository(db),
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
+    superAudit: createSuperAuditRepository(db),
     invitations: createInvitationRepository(db),
     emailLogin: createEmailLoginRepository(db),
     authSessions: createAuthSessionRepository(db),

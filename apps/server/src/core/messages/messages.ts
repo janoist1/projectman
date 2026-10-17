@@ -1,5 +1,6 @@
 import {
   coordinationMemberOf,
+  hasSuperOrigin,
   structuralReviewOf,
   structuralReviewContinuation,
   isOperator,
@@ -124,6 +125,7 @@ export class MessageService {
       ...(input.answer ? { answer: input.answer } : {}),
       ...(input.relayed ? { relayed: input.relayed } : {}),
       ...(input.actor.via ? { via: input.actor.via } : {}),
+      ...(hasSuperOrigin(input.actor) ? { actor: input.actor } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
       ...(input.operatorRequest ? { operatorRequest: input.operatorRequest } : {}),
       ...(input.operatorSignal ? { operatorSignal: input.operatorSignal } : {}),

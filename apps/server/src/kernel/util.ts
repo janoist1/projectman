@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { Actor } from '@projectman/shared';
+import type { Actor, SuperActor } from '@projectman/shared';
 
 /** Sortable-ish unique id with a type prefix, e.g. "ses_lx2k9a1b2c3d4e5". */
 export function newId(prefix: string): string {
@@ -26,6 +26,20 @@ export function humanActor(handle: string): Actor {
 
 export function aiActor(handle: string): Actor {
   return { kind: 'ai', handle };
+}
+
+/**
+ * The actor a human member's step is recorded as (PM-757): the Operator's super actor when the step was made
+ * in the super mode, otherwise the human with `via` when the owner's integrator key made it. `superActor`
+ * is set only by `bindSuperPrincipal` from an authenticated principal; an `Actor` JSON never reaches here.
+ */
+export function attributedActor(by: {
+  handle: string;
+  via?: 'integrator' | null | undefined;
+  superActor?: SuperActor | undefined;
+}): Actor {
+  if (by.superActor) return { ...by.superActor };
+  return { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) };
 }
 
 /** Member handle to store as the source/creator for an actor (the system has none). */

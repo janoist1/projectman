@@ -8,6 +8,7 @@ import {
   coordinationActorRefusal,
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
+  hasSuperOrigin,
   isOpenTask,
   isOperator,
   isProjectManager,
@@ -766,7 +767,7 @@ export class Messaging {
     let closed: InboxItem | null = null;
     const result = await this.sendReporting(
       item.projectKey,
-      resolution.by,
+      resolverSender(resolution),
       {
         to: [asker.handle],
         text:
@@ -790,9 +791,7 @@ export class Messaging {
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
         actor:
-          memberOf(config, resolution.by)?.kind === 'ai'
-            ? aiActor(resolution.by)
-            : { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
+          memberOf(config, resolution.by)?.kind === 'ai' ? aiActor(resolution.by) : resolverActor(resolution),
         origin: { kind: 'answer', inboxItemId: item.id },
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
@@ -850,7 +849,7 @@ export class Messaging {
       prepared.push(
         await this.prepareSend(
           item.projectKey,
-          resolution.by,
+          resolverSender(resolution),
           {
             to: [item.source],
             taskKey: item.taskKey,
@@ -858,7 +857,7 @@ export class Messaging {
             attachmentIds: [...attachmentIds],
           },
           {
-            actor: { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
+            actor: resolverActor(resolution),
             sessionId: item.sessionId,
             workItem,
             duringRefinement: true,
@@ -1342,6 +1341,21 @@ export class Messaging {
     wake();
     return { delivery: 'wake' };
   }
+}
+
+/** The actor a question's resolution is delivered as: the super origin when it has one (PM-757). */
+function resolverActor(resolution: {
+  by: string;
+  via?: 'integrator' | undefined;
+  actor?: Actor | undefined;
+}): Actor {
+  if (hasSuperOrigin(resolution.actor)) return resolution.actor;
+  return { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) };
+}
+
+/** The sender handle of that answer: the Operator in the super mode, so the message and its actor agree. */
+function resolverSender(resolution: { by: string; actor?: Actor | undefined }): string {
+  return hasSuperOrigin(resolution.actor) ? resolution.actor.handle : resolution.by;
 }
 
 /** How much of a question and of its answer the notice to the card's other workers carries. */

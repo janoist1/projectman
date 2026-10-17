@@ -2,12 +2,25 @@ import type { FastifyRequest } from 'fastify';
 import type { Actor, HumanAccess, IntegratorRefusal } from '@projectman/shared';
 import type { AuthUser } from '../auth';
 import type { ApiDomain } from './ports';
+import { bindSuperPrincipal } from '../core/members';
 import type { ProjectAccess } from '../core/members';
-import { DomainError, forbidden, humanActor, notFound, ownerLoginRequired } from '../kernel';
+import { DomainError, attributedActor, forbidden, notFound, ownerLoginRequired } from '../kernel';
 import { hasAccess } from '@projectman/shared';
 import type { Author } from '../core/projects';
 
+/**
+ * The user of a request. A key of the super or read mode (PM-757) is refused here: a route may only serve it
+ * through `requireAccess`, which binds it to a project and its Operator. Every route that has not been
+ * opened to it that way fails closed instead of acting as the key's owner without the super attribution.
+ */
 export function currentUser(request: FastifyRequest): AuthUser {
+  if (request.principal && request.principal.mode !== 'legacy')
+    throw forbidden('insufficient_access', 'this credential cannot use this endpoint');
+  return authenticatedUser(request);
+}
+
+/** The user of any authenticated request, whatever its key mode: only for code that has bound the key (`requireAccess`). */
+export function authenticatedUser(request: FastifyRequest): AuthUser {
   if (!request.user) throw new DomainError('unauthorized', 'login required', { status: 401 });
   return request.user;
 }
@@ -23,7 +36,7 @@ export async function requireAccess(
   projectKey: string,
   opts: { minimum?: HumanAccess; internal?: boolean; messaging?: boolean } = {},
 ): Promise<ProjectAccess> {
-  const user = currentUser(request);
+  const user = authenticatedUser(request);
   if (!domain.projects.has(projectKey)) throw notFound('project', projectKey);
   const access = await domain.accessFor(projectKey, user.email);
   if (!access) throw forbidden('not_a_member', 'you are not a member of this project');
@@ -36,7 +49,17 @@ export async function requireAccess(
   if (opts.minimum && !hasAccess(access.access, opts.minimum)) {
     throw forbidden('insufficient_access', `requires ${opts.minimum} access`);
   }
-  return { ...access, ...(request.via ? { via: request.via } : {}) };
+  const principal = request.principal;
+  if (!principal || principal.mode === 'legacy')
+    return { ...access, ...(request.via ? { via: request.via } : {}) };
+  // A key of the super or read mode (PM-757; the token lifecycle that issues them is PM-758): a read key
+  // never writes, and a super key is bound to the project's Operator or refused.
+  if (principal.mode === 'read') {
+    if (request.method !== 'GET' && request.method !== 'HEAD')
+      throw forbidden('insufficient_access', 'a read-only credential cannot change anything');
+    return { ...access, via: 'integrator' };
+  }
+  return bindSuperPrincipal(await domain.projects.config(projectKey), access, principal);
 }
 
 /**
@@ -60,10 +83,28 @@ export async function requireInstanceOwner(domain: ApiDomain, request: FastifyRe
 }
 
 export function actorOf(access: ProjectAccess): Actor {
-  return { ...humanActor(access.handle), ...(access.via ? { via: access.via } : {}) };
+  return attributedActor(access);
 }
 
-export function authorOf(request: FastifyRequest): Author {
-  const user = currentUser(request);
-  return { name: user.name, email: user.email, ...(request.via ? { via: request.via } : {}) };
+/** The handle a request's message is sent from: the Operator in the super mode (PM-757), so it agrees with the actor. */
+export function senderOf(access: ProjectAccess): string {
+  return access.superActor?.handle ?? access.handle;
+}
+
+/**
+ * The commit author of a request. A request made with a non-legacy key (PM-757) needs the access bound by
+ * `requireAccess`, which carries the super actor; one without it is refused rather than recorded as the owner.
+ */
+export function authorOf(request: FastifyRequest, access?: ProjectAccess): Author {
+  const user = authenticatedUser(request);
+  if (request.principal && request.principal.mode !== 'legacy' && !access?.superActor)
+    throw forbidden('insufficient_access', 'this credential cannot make this change');
+  return {
+    name: user.name,
+    email: user.email,
+    ...(request.via ? { via: request.via } : {}),
+    ...(access?.superActor
+      ? { superActor: access.superActor, authorizedBy: access.handle, superRequestId: request.id }
+      : {}),
+  };
 }

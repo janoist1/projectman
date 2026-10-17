@@ -18,7 +18,7 @@ import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
 import { canSeeTask, teamMessageParticipant, visibleSession } from '../core/projects';
 import type { Viewer } from '../core/projects';
-import { actorOf, requireAccess } from './context';
+import { actorOf, requireAccess, senderOf } from './context';
 import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
@@ -70,7 +70,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
       key,
       sessionId,
       body.text,
-      access.handle,
+      senderOf(access),
       actorOf(access),
     );
     return reply.code(202).send(message);
@@ -103,7 +103,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
     if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
       throw notFound('task', body.taskKey);
     return reply.code(202).send(
-      await domain.messaging.send(key, access.handle, body, {
+      await domain.messaging.send(key, senderOf(access), body, {
         workerCheck: !body.despiteWorkers,
         actor: actorOf(access),
         operatorSignal: body.operatorSignal,

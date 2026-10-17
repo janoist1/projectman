@@ -13,15 +13,29 @@ import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
 import type { ReleaseFailure, ReleaseState } from './release';
+import { ActorCredential, actorOriginIssue } from './actor-origin';
+// The origin helpers (`hasSuperOrigin`, `SuperActor`, ...) live in actor-origin.ts, a leaf of the domain.
 import { TaskKey } from './task';
 import type { TaskPriority, TaskStartWaiting } from './task';
 
-/** Who did something. Every step is attributed to a human, an AI member or the system. */
-export const Actor = z.object({
-  kind: z.enum(['human', 'ai', 'system']),
-  handle: MemberHandle.nullable(),
-  via: z.literal('integrator').optional(),
-});
+/**
+ * Who did something. Every step is attributed to a human, an AI member or the system.
+ * `operatorMode` and `credential` (PM-757) mark the Operator's super mode: the project's Operator
+ * (`handle`, computed by the server) acting through the integrator, with the credential's id and prefix.
+ * Older steps (a person through the integrator key: `via` alone) stay valid as they are.
+ */
+export const Actor = z
+  .object({
+    kind: z.enum(['human', 'ai', 'system']),
+    handle: MemberHandle.nullable(),
+    via: z.literal('integrator').optional(),
+    operatorMode: z.literal('super').optional(),
+    credential: ActorCredential.optional(),
+  })
+  .superRefine((actor, ctx) => {
+    const issue = actorOriginIssue(actor);
+    if (issue) ctx.addIssue({ code: 'custom', message: issue });
+  });
 export type Actor = z.infer<typeof Actor>;
 
 export const TimelineEventType = z.enum([

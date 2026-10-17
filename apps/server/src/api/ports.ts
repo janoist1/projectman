@@ -15,6 +15,7 @@ import type { ProjectService, RoleService } from '../core/projects';
 import type { InvitationService, MemberService, MemberProfiles, ProjectAccess } from '../core/members';
 import type { MessageService, Messaging } from '../core/messages';
 import type { InboxService } from '../core/inbox';
+import type { SuperAuditService } from '../core/timeline';
 import type { HandoffService, MessageStarts, TaskStarts } from '../runtime/admission';
 import type { PauseService, SessionOrchestrator } from '../runtime/sessions';
 import type { MachineMonitor, WorkOutages } from '../runtime/watchers';
@@ -63,6 +64,7 @@ export interface ApiDomain extends AuthDomain {
   readonly runnerModule: RunnerModule;
   readonly schedules: ScheduleService;
   readonly sessions: SessionOrchestrator;
+  readonly superAudit: SuperAuditService;
   readonly taskStarts: TaskStarts;
   readonly taskWaits: TaskWaits;
   readonly tasks: TaskService;

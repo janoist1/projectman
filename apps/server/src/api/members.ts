@@ -44,7 +44,10 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
     const { key, handle } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     if (handle === access.handle) throw forbidden('cannot_remove_self', 'Cannot remove yourself');
-    await domain.members.removeHuman(key, handle, { actor: actorOf(access), author: authorOf(request) });
+    await domain.members.removeHuman(key, handle, {
+      actor: actorOf(access),
+      author: authorOf(request, access),
+    });
     return reply.code(204).send();
   });
 
@@ -54,7 +57,7 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
     const body = parseBody(AddHumanMemberRequest, request.body);
     const member = await domain.members.addHuman(key, body, {
       actor: actorOf(access),
-      author: authorOf(request),
+      author: authorOf(request, access),
     });
     return reply.code(201).send(member);
   });
@@ -68,7 +71,7 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
     const body = parseBody(HireMemberRequest, request.body);
     const hired = await domain.members.hire(key, body, {
       actor: actorOf(access),
-      author: authorOf(request),
+      author: authorOf(request, access),
       sponsor: await domain.members.sponsorFor(access),
     });
     const view = (await domain.members.roster(key)).find((m) => m.handle === hired.handle);
@@ -80,7 +83,10 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
     const { key, handle } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     const body = parseBody(UpdateMemberRequest, request.body);
-    return domain.members.update(key, handle, body, { actor: actorOf(access), author: authorOf(request) });
+    return domain.members.update(key, handle, body, {
+      actor: actorOf(access),
+      author: authorOf(request, access),
+    });
   });
 
   /** Retires an AI member, handing its tasks over. */
@@ -92,7 +98,7 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
       key,
       handle,
       { handoverTo: body.handoverTo },
-      { actor: actorOf(access), author: authorOf(request) },
+      { actor: actorOf(access), author: authorOf(request, access) },
     );
     return reply.code(204).send();
   });

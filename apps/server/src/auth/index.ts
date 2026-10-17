@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { CreateIntegratorKeyRequest, LoginRequest, routes, SetupRequest } from '@projectman/shared';
 import type { Me, SetupStatus } from '@projectman/shared';
+import type { IntegratorPrincipal } from '../contracts';
 import { apiError, parseBody } from '../http';
 import { DomainError, forbidden } from '../kernel';
 import { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
@@ -41,6 +42,8 @@ declare module 'fastify' {
     /** Token of the login session (from the signed cookie), or null. */
     authToken: string | null;
     via: 'integrator' | null;
+    /** The authenticated integrator key (PM-757), set only by the key check below; null for a login. */
+    principal: IntegratorPrincipal | null;
   }
 }
 
@@ -154,6 +157,7 @@ export function registerAuth(
   app.decorateRequest('user', null);
   app.decorateRequest('authToken', null);
   app.decorateRequest('via', null);
+  app.decorateRequest('principal', null);
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('referrer-policy', 'no-referrer');
@@ -181,13 +185,14 @@ export function registerAuth(
           .code(401)
           .send(apiError('integrator_https_required', 'Integrator key requires HTTPS or a local connection'));
       const secret = bearer.match(/^Bearer (pmi_[A-Za-z0-9_-]+)$/i)?.[1];
-      const user = secret ? auth.resolveIntegratorKey(secret) : null;
-      if (!user)
+      const resolved = secret ? auth.resolveIntegratorPrincipal(secret) : null;
+      if (!resolved)
         return reply
           .code(401)
           .send(apiError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired'));
-      request.user = user;
+      request.user = resolved.user;
       request.via = 'integrator';
+      request.principal = resolved.principal;
     }
     const raw = request.via ? null : request.cookies[SESSION_COOKIE];
     if (raw) {

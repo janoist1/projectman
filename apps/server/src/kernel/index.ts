@@ -17,6 +17,7 @@ export {
   SYSTEM_AUTHOR,
   humanActor,
   aiActor,
+  attributedActor,
   actorHandle,
   unique,
   KeyedMutex,

@@ -27,6 +27,8 @@ export {
   isOperator,
   isOperatorActor,
   isRequiredOperator,
+  isSuperOperatorActor,
+  superActorOf,
   operatorConversationOf,
   operatorOf,
 } from './operator-member';

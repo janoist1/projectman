@@ -4,9 +4,11 @@ import {
   NUDGE_POINTS,
   pauseStateOf,
   RESTART_POINTS,
+  superActorOf,
 } from '@projectman/shared';
 import type {
   Actor,
+  ActorCredential,
   InstancePauseView,
   PausedSession,
   PauseKind,
@@ -30,7 +32,7 @@ import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from './sessions';
 import { waitForShutdownStops } from './shutdown-wait';
 import type { AppendTimelineInput, TimelineService } from '../../core/timeline';
-import { conflict, humanActor, newId, SYSTEM_ACTOR } from '../../kernel';
+import { attributedActor, conflict, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** Catches up the scheduled runs a pause skipped; services/schedules supplies it, the assembly passes it. */
 export interface MissedRunCatchUp {
@@ -51,6 +53,11 @@ export interface PauseRequester {
   userId: string | null;
   source: PauseSource;
   via?: 'integrator';
+  /**
+   * The credential of a super-mode request (PM-757), from a bound principal: each project's pause entry is
+   * then recorded as that project's Operator with this credential, not as the owner.
+   */
+  credential?: ActorCredential;
 }
 
 export interface PauseOptions {
@@ -723,9 +730,16 @@ export class PauseService {
     if (!user) return actors;
     for (const projectKey of projectKeys) {
       try {
-        const member = findHumanByEmail(await this.projects.config(projectKey), user.email);
-        if (member)
-          actors.set(projectKey, { ...humanActor(member.handle), ...(by.via ? { via: by.via } : {}) });
+        const config = await this.projects.config(projectKey);
+        const member = findHumanByEmail(config, user.email);
+        if (!member) continue;
+        // A super request is the project's Operator only while its token owner is an owner there.
+        const superActor =
+          by.credential && member.access === 'owner' ? superActorOf(config, by.credential) : null;
+        actors.set(
+          projectKey,
+          attributedActor({ handle: member.handle, via: by.via, superActor: superActor ?? undefined }),
+        );
       } catch {
         // A project whose config cannot be read has the system as the actor.
       }

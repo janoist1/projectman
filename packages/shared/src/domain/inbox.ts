@@ -184,6 +184,8 @@ export const InboxItem = z.object({
   resolution: z
     .object({
       via: z.literal('integrator').optional(),
+      /** The full origin when the Operator's super mode resolved it (PM-757); older resolutions have none. */
+      actor: Actor.optional(),
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),

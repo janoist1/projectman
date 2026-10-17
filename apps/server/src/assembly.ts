@@ -21,7 +21,7 @@ import {
 import { createInboxService } from './core/inbox';
 import { createStructureService } from './services/structure';
 import { createMessaging } from './core/messages';
-import { createTimelineService } from './core/timeline';
+import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
 import { createTaskService } from './core/tasks';
 import { createProjectService } from './core/projects';
@@ -382,12 +382,14 @@ export function createDomain(opts: DomainOptions) {
     : null;
 
   const timeline = createTimelineService(ctx);
+  const superAudit = createSuperAuditService(ctx);
   const involvements = new InvolvementService(ctx);
   const projects = createProjectService({
     ctx,
     configStore: opts.configStore,
     templates,
     timeline,
+    superAudit,
     // The new project's work runs on the engine its owner's sessions get (`engines` is built below,
     // from this service's cached configurations, so it is looked up when asked).
     isDirectory: async (projectKey, path) => {
@@ -1868,6 +1870,7 @@ export function createDomain(opts: DomainOptions) {
     runnerModule,
     providerKeys,
     presence,
+    superAudit,
     messages,
     messaging,
     sessionCloser,
@@ -1921,6 +1924,10 @@ export function createDomain(opts: DomainOptions) {
     /** Startup: import projects from the repository, clean up state that did not survive a restart, watch PRs. */
     async start(): Promise<void> {
       await projects.syncFromStore();
+      // Super-mode configuration commits whose result a crash lost (PM-757): settled from their commit trailers.
+      await projects.settleSuperAudit().catch((error: unknown) => {
+        opts.logger.warn({ err: error }, 'settling the super-mode audit failed');
+      });
       await sharedOperatorKnowledge.recover();
       await operatorActions.recover();
       await sessions.reconcileAfterRestart();

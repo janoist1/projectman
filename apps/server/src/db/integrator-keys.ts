@@ -55,6 +55,10 @@ export function createIntegratorKeyRepository(db: Db) {
       return result.changes ? this.latest(userId, at) : null;
     },
     resolve(hash: string, at: string): string | null {
+      return this.resolveKey(hash, at)?.userId ?? null;
+    },
+    /** The active key behind a secret's hash (PM-757): its id and prefix go into the principal. */
+    resolveKey(hash: string, at: string): { id: string; userId: string; prefix: string } | null {
       const row = db
         .prepare(
           'SELECT * FROM integrator_keys WHERE token_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)',
@@ -63,7 +67,7 @@ export function createIntegratorKeyRepository(db: Db) {
       if (!row) return null;
       if (!row.last_used_at || Date.parse(at) - Date.parse(row.last_used_at) >= 300_000)
         db.prepare('UPDATE integrator_keys SET last_used_at = ? WHERE id = ?').run(at, row.id);
-      return row.user_id;
+      return { id: row.id, userId: row.user_id, prefix: row.prefix };
     },
   };
 }

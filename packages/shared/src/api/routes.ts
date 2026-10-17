@@ -18,6 +18,17 @@ export const routes = {
   /** POST `ExecuteSuperHandoffRequest`: starts (or resumes) the handoff's operation; 202 `{operation}`. */
   executeSuperHandoff: (key: string, handoffId: string) =>
     `/api/projects/${key}/operator-super/handoffs/${handoffId}/execute`,
+  /** POST `SuperOperateRequest`: starts a command without a handoff; 202 `{operation}` (PM-764). */
+  superOperations: (key: string) => `/api/projects/${key}/operator-super/operations`,
+  /** GET `{operation, result}`: the operation and the administration result recorded for it, if any. */
+  superOperation: (key: string, operationId: string) =>
+    `/api/projects/${key}/operator-super/operations/${operationId}`,
+  /** GET `?target=hub|<engineId>`: `{status}` of the hub's or an engine's supervisor. */
+  superAdministrationStatus: (key: string) => `/api/projects/${key}/operator-super/administration/status`,
+  /** GET `?target=…&limit=50`: `{entries}`, the supervisor's diagnostics (a known code and scalars only). */
+  superAdministrationLogs: (key: string) => `/api/projects/${key}/operator-super/administration/logs`,
+  /** POST `SuperDiagnosticsRequest`: `{columns, rows, truncated}` from a closed catalogue of the project's records. */
+  superDiagnosticsQuery: (key: string) => `/api/projects/${key}/operator-super/diagnostics/query`,
   /** POST `RelayOwnerAnswerRequest`: the integrator relays the owner's answer to a simple information question. */
   relayOwnerAnswer: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/relay-answer`,
   operatorPreferenceMe: (key: string) => `/api/projects/${key}/operator/preferences/me`,

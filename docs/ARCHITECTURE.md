@@ -912,6 +912,33 @@ question the asker marked as plain information (`ask_human` `response_purpose: "
 `ownerAnswerRelayed`, is not an owner decision and never reaches the decision candidates. The external MCP
 tools (`execute_super_handoff`, `list_super_handoffs`, relay) belong to PM-760.
 
+## Super-mode diagnostics, test and build (PM-764, part of the super mode PM-757)
+
+The integrator (a super token, an owner's access) reads and starts what it needs to prepare a release, every call
+bound to the project and to an engine linked to it. `GET …/operator-super/administration/status?target=hub|<engineId>`
+and `…/logs?target=…&limit=50` (at most 200) answer from the supervisor's sanitized view
+(503 `administration_unavailable` where the instance has no adapter, 403 `administration_target_mismatch` for an
+engine that is not linked). `POST …/operator-super/diagnostics/query {query, taskKey?, limit}` reads a closed
+catalogue by name (`tasks`, `sessions`, `merges`, `operations`), each with the fixed columns of
+`SUPER_DIAGNOSTIC_COLUMNS`: there is no SQL, no table or column argument, and no user, key, secret, inbox text or
+personal data in any column. `POST …/operator-super/operations {requestId, taskKey?, command}` starts a
+`SuperCommand` at once (202 `{operation}`), with the same checks, the same owner question and the same registered
+executor as a handoff's operation; `GET …/operations/:id` answers `{operation, result}`.
+
+The `administration` executor re-checks everything directly before it starts anything: the key is still active, its
+owner still owns every affected project (a hub restart or a deploy needs every project of the instance), the engine
+is linked, the commit is one of the card's, and a deploy's release is the one a human owner approved (otherwise
+409 `release_state_conflict` / `release_target_mismatch`). A revoked key therefore starts nothing further and undoes
+nothing already done. It submits the strict command to the protected adapter and returns `{pending: true}`: the
+operation stays `running`, and a registered settler finishes it from the result the supervisor recorded (only
+`inspect`, never a second `submit`, so a restart or a second reader cannot run it twice; a record that cannot be
+found is `unknown`). A finished full test also lands on its card as `task_full_test` (outcome, run id, commit,
+duration, failed files; no output) and `super_operation_changed {operationId, state, resultKind}`; it writes no
+approval label and does not replace the merge's own mandatory test. A quick fix or a release keeps every human
+gate: the super actor can propose a release but not approve it, and a merge stays `merge_task` with its gates (a
+super `merge` command has no executor, 503 `super_executor_unavailable`). The MCP tools for these calls are bound
+by a later card; only their argument shapes (`super-operate.ts`) exist here.
+
 ## Project change journal (PM-761, part of the super mode PM-757)
 
 A durable, cursor-read record of what changed in a project, for the integrator's readers (and the
@@ -1508,6 +1535,32 @@ workers follow the machine's size.
   commands; the integrator's token, the owner's answer and the question never cross it. After a restart of the hub
   an operation that was running is marked `unknown` and never started again by itself. The executors of the
   command kinds are wired by PM-760 and PM-764; until then execute answers 503 `super_executor_unavailable`.
+
+- **Super-mode diagnostics, full test, image build and release preparation (PM-764, Super mode 8/10)** —
+  hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the five routes
+  `routes.superOperations|superOperation|superAdministrationStatus|superAdministrationLogs|superDiagnosticsQuery`
+  (`api/operator.ts`), `packages/shared/src/api/super-operate.ts`. Builder (the machine that tests and builds):
+  `apps/server/src/administration/executors.ts` (`createBuilderExecutors`, `FULL_TEST_COMMANDS`),
+  `scripts/administration/builder.ts` (the real toolbox) and `scripts/administration/supervisor.ts`, which installs
+  the executors only where the supervisor configuration names a builder (`SupervisorConfig.builder {repo, root}`,
+  both absolute paths); `scripts/cloud/images.ts` (`buildPinnedImage`). **Machine assumptions:** the builder
+  repository holds the card's commit (`git cat-file`); the full test checks the commit out into a detached
+  worktree below `builder.root` (`createLocalBranchMerger.checkoutForCheck`) and runs `npm run merge-test` (or
+  `-- --all`) in the full-test sandbox (`sandbox-exec` on macOS) at its turn in the machine's heavy-run queue
+  (`defaultHeavyLockDir`, `requireHeavyLock`); the image build exports the commit with `git archive` (tracked files
+  only, symbolic links and secret-named paths refused) and runs `docker buildx build --output type=docker,dest=…`
+  into `<builder.root>/_image-build`, with no `docker load`, no registry push and no deploy. **Remote engine:**
+  yes, and that is the design: the hub never reads a path or runs a test or a build. It sends the strict command
+  (`full_test` / `image_build` with the card's key and the 40-hex commit) to `builderEngine()` through the
+  `AdministrationPort` (`admin.submit` over the engine link) and keeps only the operation id; the test, the
+  checkout, the build and the archive stay on the registered machine. Back across the boundary come the verdict, the
+  exit code, the duration and the failed file names of a test, or the image digest, the archive checksum and the
+  byte count of a build — never output, a path, an environment or a raw error (the toolbox's exceptions become the
+  code `administration_failed`). The card commit is checked on the hub (it must be the review pin, the merge or the
+  merged commit of a card of this project) and again on the builder (it must exist in its repository). A restart
+  of the hub marks a running job `unknown` and never runs it again. A deploy is not installed on the supervisor
+  here: the release watcher of the administration host deploys, and the hub executor only forwards a release a
+  human owner approved.
 
 - **Project change journal (PM-761)** — `apps/server/src/db/change-triggers.ts`,
   `apps/server/src/db/project-change-events.ts`, `apps/server/src/core/base/change-journal.ts`,

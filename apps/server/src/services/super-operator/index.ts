@@ -19,7 +19,21 @@ import {
 import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from '@projectman/shared';
 
 export { SuperHandoffService, createSuperHandoffService, superCommandHash } from './handoffs';
-export type { SuperCommandExecutor, SuperExecutorJob } from './handoffs';
+export type {
+  SuperCommandExecutor,
+  SuperCommandSettler,
+  SuperExecutorJob,
+  SuperExecutorPending,
+  SuperSettlement,
+} from './handoffs';
+export { cardCommits, createAdministrationExecutor, createAdministrationSettler } from './administration';
+export type { SuperAdministrationDeps } from './administration';
+export { createSuperDiagnostics } from './diagnostics';
+export type { SuperDiagnostics } from './diagnostics';
+export { createSuperAdministration } from './facade';
+export type { SuperAdministration } from './facade';
+export { createSuperRights } from './rights';
+export type { SuperRights } from './rights';
 
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */
 export function createSuperOperator(deps: {

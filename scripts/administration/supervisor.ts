@@ -8,8 +8,13 @@
 // to start (the reason is printed without any path content of the file), 2 wrong usage.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AdministrationSetupError, startSupervisor } from '../../apps/server/src/administration';
+import {
+  AdministrationSetupError,
+  loadSupervisorConfig,
+  startSupervisor,
+} from '../../apps/server/src/administration';
 import { resolveAppVersion } from '../../apps/server/src/engine-link/version';
+import { builderExecutors } from './builder';
 
 const installDir = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '');
 
@@ -21,7 +26,14 @@ if (!configFile || rest.length > 0 || !path.isAbsolute(configFile)) {
 
 try {
   // The commit this checkout runs from, like the hub and the engine report; no environment override is read.
-  const running = await startSupervisor({ configFile, version: await resolveAppVersion(installDir) });
+  // The full test and the image build exist only where the configuration names a builder (PM-764); a deploy is
+  // never installed here: the release watcher of the admin host carries out an approved release.
+  const executors = builderExecutors((await loadSupervisorConfig(configFile)).builder);
+  const running = await startSupervisor({
+    configFile,
+    version: await resolveAppVersion(installDir),
+    ...(executors ? { executors } : {}),
+  });
   console.log(`administration supervisor for ${running.config.target.kind} listening`);
   const stop = () => {
     void running.close().then(

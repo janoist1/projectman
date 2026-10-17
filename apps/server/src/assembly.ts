@@ -20,7 +20,15 @@ import {
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createStructureService } from './services/structure';
-import { createSuperHandoffService, createSuperOperator } from './services/super-operator';
+import {
+  createAdministrationExecutor,
+  createAdministrationSettler,
+  createSuperAdministration,
+  createSuperDiagnostics,
+  createSuperHandoffService,
+  createSuperOperator,
+  createSuperRights,
+} from './services/super-operator';
 import { createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -1570,6 +1578,40 @@ export function createDomain(opts: DomainOptions) {
     credentials: opts.integratorCredentials,
   });
   superOperator.useMutationAuthorizer(superHandoffs.authorizer);
+  // The super mode's administration (PM-764): reads, direct operations and the filtered diagnostics, all bound to
+  // the project and to an engine linked to it. The executor re-checks the integrator's rights right before it
+  // starts anything, and the settler only reads what the supervisor recorded.
+  const engineLinked = (projectKey: string, engineId: EngineId): boolean => {
+    if (engines.get(engineId)?.workspacePath(projectKey)) return true;
+    const config = projects.cachedConfig(projectKey);
+    return !!config?.team.members.some(
+      (member) => member.kind === 'ai' && engines.engineFor(projectKey, member.handle) === engineId,
+    );
+  };
+  if (administration && opts.integratorCredentials) {
+    const administrationDeps = {
+      ctx,
+      administration,
+      rights: createSuperRights({
+        credentials: opts.integratorCredentials,
+        config: (key) => projects.config(key),
+        projectKeys: () => projects.summaries().map((project) => project.key),
+      }),
+      projects,
+      timeline,
+      engineLinked,
+      builderEngine: () => opts.administration?.builderEngine() ?? null,
+      release: (releaseId: string) => releases.getForControl(releaseId),
+    };
+    superHandoffs.registerExecutor('administration', createAdministrationExecutor(administrationDeps));
+    superHandoffs.registerSettler('administration', createAdministrationSettler(administrationDeps));
+  }
+  const superAdministration = createSuperAdministration({
+    handoffs: superHandoffs,
+    administration,
+    diagnostics: createSuperDiagnostics({ ctx }),
+    engineLinked,
+  });
   inbox.registerSuperOperationAnswer(superHandoffs.ownerAnswer);
   inbox.registerQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
   inbox.registerQuestionGroupAnswer((items, attachmentIds, close) =>
@@ -1892,6 +1934,7 @@ export function createDomain(opts: DomainOptions) {
     engineCounters,
     superOperator,
     superHandoffs,
+    superAdministration,
     operatorKnowledge: opts.operatorKnowledge,
     operatorPreferences,
     sharedOperatorKnowledge,
@@ -1993,6 +2036,10 @@ export function createDomain(opts: DomainOptions) {
       inbox.expireOpenPermissions();
       // What was running for the integrator when the server stopped may have had its effect: marked unknown, never re-run.
       superHandoffs.reconcile();
+      // A detached administration job (a test, a build) goes on in its supervisor: its recorded result settles it.
+      await superHandoffs.settleOpen().catch((error: unknown) => {
+        opts.logger.warn({ err: error }, 'settling the detached super operations failed');
+      });
       await boundary.sweep();
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
@@ -2013,6 +2060,9 @@ export function createDomain(opts: DomainOptions) {
         } catch (err) {
           opts.logger.warn({ err }, 'sweeping the super-mode handoffs failed');
         }
+        void superHandoffs.settleOpen().catch((err: unknown) => {
+          opts.logger.warn({ err }, 'settling the detached super operations failed');
+        });
       }, 60_000);
       superHandoffSweep.unref();
       githubSync.start();

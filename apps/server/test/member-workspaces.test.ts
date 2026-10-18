@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { LOCAL_ENGINE_ID } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { aiActor } from '../src/kernel';
@@ -640,6 +641,20 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
       h.repos.operatorSignals.list('AR').find((signal) => signal.kind === 'process_cleanup_failed')
         ?.resolvedAt,
     ).not.toBeNull();
+  });
+
+  it('does not keep the workspace for a session ended by a restart that an engine report would revive (PM-792)', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const sessionId = h.runner.lastStarted().sessionId;
+    // The row is closed while the process goes on, then the late report arrives.
+    await h.domain.sessions.reconcileEngine(LOCAL_ENGINE_ID, new Set(), () => false);
+    h.runner.setState(sessionId, 'idle');
+    expect(h.repos.sessions.get(sessionId)?.state).toBe('exited');
+
+    await h.domain.sessions.reconcileEngine(LOCAL_ENGINE_ID, new Set([sessionId]), () => false);
+    expect(h.runner.stopped).toContain(sessionId);
+    await ensure('dev-1', 'AR-2');
   });
 
   it('starts a new conversation when the workspace had to be made again', async () => {

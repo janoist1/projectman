@@ -427,6 +427,30 @@ describe('sessions on engines', () => {
       expect(h.runner.stopped).toEqual(expect.arrayContaining(['unknown-session', session.id]));
     });
 
+    it('keeps a session ended by the restart ended when its engine reports a state later (PM-792)', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+      // The cloud restarted: no engine link yet, so the row is closed while the process goes on.
+      await h.domain.sessions.reconcileEngine(REMOTE, new Set(), () => false);
+      const ended = h.domain.sessions.get('AR', session.id);
+      expect(ended.state).toBe('exited');
+      expect(ended.endedAt).toBeTruthy();
+      expect(h.runner.isRunning(session.id)).toBe(true);
+
+      // The engine reports the process (still running) before the connect hook ran.
+      h.runner.setState(session.id, 'idle');
+      const after = h.domain.sessions.get('AR', session.id);
+      expect(after.state).toBe('exited');
+      expect(after.endedAt).toBe(ended.endedAt);
+
+      // The connect hook then stops the process, and the row stays ended.
+      await h.domain.sessions.reconcileEngine(REMOTE, new Set([session.id]), () => false);
+      expect(h.runner.stopped).toContain(session.id);
+      expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
+      expect(h.domain.engineCounters(REMOTE).runningSessions).toBe(0);
+    });
+
     it('sweeps the session folders of the engine for the sessions it reports', async () => {
       const swept: string[][] = [];
       const reported = new Set(['live-one']);

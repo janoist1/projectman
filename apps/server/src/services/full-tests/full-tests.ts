@@ -365,6 +365,7 @@ export class FullTestRuns {
       return;
     }
     const reviewTest = reviewTestOf(config, task)!;
+    const command = reviewTest.command;
     const head = await this.sessions.sourceHead(config, task);
     if (runs.get(run.id)?.status !== 'queued') return;
     // The server stopped while the checkout was read: nothing starts after the shutdown.
@@ -396,7 +397,7 @@ export class FullTestRuns {
         {
           runId: run.id,
           cwd: head.path,
-          command: reviewTest.command,
+          command,
           maxWorkers: reviewTest.maxWorkers,
           timeoutMs: reviewTest.timeoutMinutes * 60_000,
           sandbox: this.deps.runSandbox({
@@ -430,8 +431,9 @@ export class FullTestRuns {
     const after = await this.sessions.sourceHead(config, task).catch(() => null);
     if (runs.get(run.id)?.status !== 'running') return;
     if (after && after.commit !== run.commit) return this.cancel(run, 'branch_moved');
-    if (after?.dirty) return this.end(run, task, config, { outcome: 'error', reason: 'checkout_dirty' }, '');
-    await this.end(run, task, config, result, result.outputTail);
+    if (after?.dirty)
+      return this.end(run, task, config, { outcome: 'error', reason: 'checkout_dirty' }, '', command);
+    await this.end(run, task, config, result, result.outputTail, command);
   }
 
   /** Records the end of a run and does what its outcome asks for. */
@@ -441,6 +443,7 @@ export class FullTestRuns {
     config: ProjectConfig,
     result: Partial<FullTestResult> & { outcome: FullTestResult['outcome'] },
     outputTail: string,
+    command?: string,
   ): Promise<void> {
     const { projectKey, taskKey } = run;
     const reason: FullTestErrorReason | undefined = result.outcome === 'error' ? result.reason : undefined;
@@ -464,6 +467,7 @@ export class FullTestRuns {
         data: {
           outcome: result.outcome,
           runId: run.id,
+          ...(command !== undefined ? { command } : {}),
           repo: run.repo,
           branch: run.branch,
           commit: run.commit,

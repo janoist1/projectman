@@ -268,7 +268,12 @@ describe('the full test before review', () => {
     });
     expect(reviewerStarted()).toBe(false);
     expect(events().map((e) => e.data)).toMatchObject([
-      { outcome: 'failed', failedFiles: failed.failedFiles, outputTail: failed.outputTail },
+      {
+        outcome: 'failed',
+        command: REVIEW_TEST.command,
+        failedFiles: failed.failedFiles,
+        outputTail: failed.outputTail,
+      },
     ]);
 
     // The stored failure waits for the developer's next idle, like other AI inputs.

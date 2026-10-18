@@ -1,4 +1,4 @@
-import { expiredLabels, labelDefinition, planLabelChange } from '@projectman/shared';
+import { expiredLabels, labelDefinition, planLabelChange, timelineNoteExcerpt } from '@projectman/shared';
 import type { Actor, LabelChangeReason, LabelClearTrigger, ProjectConfig, Task } from '@projectman/shared';
 import { isoNow } from '../base';
 import { forbidden, invalid } from '../../kernel';
@@ -142,6 +142,7 @@ export class TaskLabels {
       actor.kind === 'ai' && opts.sessionId && plan.added.some((id) => !!labelDefinition(config, id)?.group)
         ? this.store.ctx.repos.sessions.reviewedCommit(opts.sessionId)
         : null;
+    const noteExcerpt = timelineNoteExcerpt(opts.comment);
     this.store.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
@@ -153,6 +154,7 @@ export class TaskLabels {
         removed: plan.removed,
         ...(opts.reason ? { reason: opts.reason } : {}),
         ...(resultCommit ? { resultCommit } : {}),
+        ...(noteExcerpt ? { noteExcerpt } : {}),
       },
     });
     const comment = opts.comment?.trim();

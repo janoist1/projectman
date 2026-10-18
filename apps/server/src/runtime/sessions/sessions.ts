@@ -1545,8 +1545,16 @@ export class SessionOrchestrator {
                 );
             return;
           }
-          // A late event from a process that already ended must not revive the session.
-          if (ENDED.has(session.state) && !this.isRunning(session.id)) return;
+          // A state report never revives an ended row, running process or not: a new process starts only
+          // after the launcher sets the row to `starting` and clears `endedAt`. A process that still runs
+          // under an ended row (a late report after a server restart) is stopped by `reconcileEngine`.
+          if (ENDED.has(session.state)) {
+            this.ctx.logger.debug(
+              { sessionId: session.id, state: event.state },
+              'dropped a state report of an ended session',
+            );
+            return;
+          }
           if (event.state !== 'starting' && event.state !== 'idle')
             this.live.awaitingFirstTurn.delete(session.id);
           const updated = this.ctx.repos.sessions.update(session.id, {

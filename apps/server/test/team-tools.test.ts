@@ -642,7 +642,15 @@ describe('team tools', () => {
     expect(events.slice(-3)).toEqual([
       ['task_updated', { fields: ['title', 'description'] }, 'ses_cr'],
       ['task_note', { text: 'Specified the acceptance criteria', mentions: [] }, 'ses_cr'],
-      ['task_stage_changed', { from: 'development', to: 'code_review' }, null],
+      [
+        'task_stage_changed',
+        {
+          from: 'development',
+          to: 'code_review',
+          noteExcerpt: 'Specified the acceptance criteria',
+        },
+        null,
+      ],
     ]);
     expect(
       (await toolError(h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', title: ' ' }))).code,

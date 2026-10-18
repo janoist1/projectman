@@ -95,7 +95,7 @@ import type {
   WorktreeManager,
 } from './contracts';
 import type { Repositories } from './db';
-import type { EmailCodeMailer, ProcessProbe } from './contracts';
+import type { DocWriteExternalRunner, EmailCodeMailer, ProcessProbe } from './contracts';
 import { createEmailLoginService } from './services/email-login';
 import { createHistoryDocumentSync, createHistoryService } from './services/history';
 import { HistoryDocumentReadSuperseded } from './contracts';
@@ -153,7 +153,7 @@ import {
 } from './services/releases';
 import type { ReleaseTarget } from './services/releases';
 import { LoopWatch } from './runtime/watchers';
-import { OpenQuestionLabel } from './core/inbox';
+import { HumanQuestions, OpenQuestionLabel } from './core/inbox';
 import { ApprovalQuestions } from './core/inbox';
 import { QuestionClosing } from './core/inbox';
 import { InvitationService } from './core/members';
@@ -175,7 +175,7 @@ import { LocalEngineDirectory } from './runtime/sessions';
 import { createLocalEngine } from './engine-host';
 import { createAdministrationService } from './administration';
 import type { EngineAdministration } from './administration';
-import { conflict, notFound } from './kernel';
+import { conflict, forbidden, notFound } from './kernel';
 import { SessionCloser } from './runtime/sessions';
 import { SessionOrchestrator } from './runtime/sessions';
 import { AutoAdvance } from './runtime/watchers';
@@ -1031,6 +1031,41 @@ export function createDomain(opts: DomainOptions) {
     merges,
     work: releaseWork,
     onPublished: (event) => historyDocuments.mainMoved(event),
+    ...(opts.integratorCredentials?.reactivate
+      ? {
+          external: {
+            // A queued bearer-MCP write goes on under a fresh scope of its own key (PM-784); every check
+            // below runs again at the worker's start and before the push, so a revoked key or a changed
+            // owner or Operator ends the write as failed (authorization_revoked).
+            run: async (projectKey, origin, action) => {
+              const credentials = opts.integratorCredentials!;
+              const principal = credentials.reactivate!({
+                userId: origin.ownerUserId,
+                keyId: origin.actor.credential.id,
+                prefix: origin.actor.credential.prefix,
+              });
+              const email = principal ? credentials.user(principal.userId)?.email : undefined;
+              if (!principal || principal.mode !== 'super' || !email)
+                throw forbidden('integrator_key_invalid', 'the credential of the write is no longer valid');
+              const context = { principal, email, requestId: origin.requestId, projectKey };
+              const assertActive = async () => {
+                credentials.assertActive(principal);
+                const config = await projects.config(projectKey);
+                const owner = projectAccessFor(config, email);
+                if (owner?.access !== 'owner')
+                  throw forbidden(
+                    'insufficient_access',
+                    'the key holder is no longer an owner of the project',
+                  );
+                const bound = await superOperator.access(context, owner, 'write');
+                if (bound.superActor?.handle !== origin.actor.handle)
+                  throw forbidden('integrator_not_allowed', 'the project’s Operator changed');
+              };
+              return superOperator.run(context, () => action(assertActive));
+            },
+          } satisfies DocWriteExternalRunner,
+        }
+      : {}),
   });
   merges.registerSlotPeer(docWrites);
   inbox.registerDecider('merge_request', async (item, by) => {
@@ -1402,6 +1437,15 @@ export function createDomain(opts: DomainOptions) {
     logger: opts.logger.child({ module: 'history' }),
     now,
   });
+  const humanQuestions = new HumanQuestions({
+    ctx,
+    projects,
+    tasks,
+    inbox,
+    timeline,
+    questionScreening,
+    openQuestionLabel,
+  });
   const teamTools = new TeamToolsService({
     tools: {
       history: new HistoryTools({ calls: toolCaller, ctx, projects, history }),
@@ -1459,15 +1503,7 @@ export function createDomain(opts: DomainOptions) {
       merges: new MergeTools({ calls: toolCaller, merges }),
       screenshots: new ScreenshotTools({ calls: toolCaller, screenshots: screenshotRuns }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
-      inbox: new InboxTools({
-        calls: toolCaller,
-        ctx,
-        tasks,
-        inbox,
-        timeline,
-        questionScreening,
-        openQuestionLabel,
-      }),
+      inbox: new InboxTools({ calls: toolCaller, ctx, inbox, humanQuestions }),
       messages: new MessageTools({ calls: toolCaller, ctx, messaging, operatorRequests, messageAttachments }),
       admission: new AdmissionTools({ calls: toolCaller, handoffs }),
       watchers: new WatcherTools({ calls: toolCaller, fixLimit }),
@@ -2424,6 +2460,9 @@ export function createDomain(opts: DomainOptions) {
         members,
         projectState,
         releases,
+        docWrites,
+        humanQuestions,
+        structuralReviews,
         superHandoffs,
         superAdministration,
         inbox,

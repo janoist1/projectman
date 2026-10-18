@@ -442,6 +442,31 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceCommit: fixed, roundId: '2' });
   });
 
+  it('reads the fetched default branch for a reader on a card with no branch yet, pinned for the round (PM-805)', async () => {
+    await setup();
+    const head = await commitFile(h.workspace, 'docs.txt', 'current\n');
+    await ensure('cr', 'AR-2');
+    const first = h.runner.lastStarted();
+    const cr = await workspaceOf('cr');
+    expect(first).toMatchObject({ member: 'cr', cwd: cr });
+    expect(first.policy?.placement).toMatchObject({
+      kind: 'review_copy',
+      path: cr,
+      sourceCommit: head,
+      sourceBranch: 'main',
+      baseCommit: head,
+      roundId: '1',
+    });
+    expect(await git(cr, 'rev-parse', 'HEAD')).toBe(head);
+    expect(await branchOf(cr)).toBe('');
+
+    // Continuing the round keeps its pin even when the default branch moves on.
+    await commitFile(h.workspace, 'docs.txt', 'newer\n');
+    await h.domain.sessions.stop('AR', first.sessionId);
+    await ensure('cr', 'AR-2');
+    expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceCommit: head, roundId: '1' });
+  });
+
   it('pins a review round to a snapshot in the project repository and imports the approved commit for the merge (PM-739)', async () => {
     await setup();
     await startTask('AR-1', 'dev-1');

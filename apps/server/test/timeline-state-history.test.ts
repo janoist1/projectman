@@ -49,6 +49,22 @@ beforeEach(() => {
 });
 afterEach(() => repos.db.close());
 
+describe('roundEvents', () => {
+  it('returns every round source in insertion order without a timeline page limit', () => {
+    const events = [
+      put('PM-1', 'task_full_test', { runId: 'r' }, T(1)),
+      put('PM-1', 'task_fix_limit', { phase: 'decided', decision: 'another_round' }, T(1)),
+      stage('PM-1', 'development', T(1)),
+      put('PM-1', 'task_labels_changed', { added: ['code-review-changes'] }, T(1)),
+    ];
+    put('PM-1', 'task_note', { text: 'Excluded' }, T(1));
+    stage('PM-2', 'development', T(1));
+    stage('PM-1', 'development', T(1), 'OT');
+    for (let i = 0; i < 250; i++) events.push(stage('PM-1', 'development', T(1)));
+    expect(ids(repos.timeline.roundEvents('PM', 'PM-1'))).toEqual(ids(events));
+  });
+});
+
 describe('latestTaskStatesBefore', () => {
   const reader = (): TaskStateHistoryReader => repos.timeline;
 

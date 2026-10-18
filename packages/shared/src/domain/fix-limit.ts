@@ -2,9 +2,11 @@ import { dutyMembers } from '../config/duties';
 import { isOnLeave } from '../config/leave';
 import { DEFAULT_MAX_FIX_ROUNDS } from '../config/schema';
 import type { ProjectConfig, TeamLimits } from '../config/schema';
-import { countCardRounds } from './card-measure';
+import { z } from 'zod';
+import { CardRoundKind, classifyCardRoundEvent, countCardRounds } from './card-measure';
 import type { DutyId } from './duty';
-import type { TimelineEvent } from './event';
+import { Actor, timelineNoteExcerpt } from './event';
+import type { TimelineEvent, TimelineEventData } from './event';
 
 /**
  * The upper limit on a card's fix rounds (PM-262), shared by the server and the web's fake backend. A fix
@@ -25,6 +27,8 @@ export interface FixRounds {
   changeRequests: number;
   designChangeRequests: number;
   sendBacks: number;
+  /** Failed full tests, already included in sendBacks. */
+  testsFailed: number;
 }
 
 /**
@@ -38,13 +42,88 @@ export function countFixRounds(
   since: string | null,
 ): FixRounds {
   const counted = since === null ? events : events.filter((event) => event.createdAt > since);
-  const { changeRequests, designChangeRequests, sendBacks } = countCardRounds(counted, config);
+  const { changeRequests, designChangeRequests, sendBacks, testsFailed } = countCardRounds(counted, config);
   return {
     rounds: changeRequests + designChangeRequests + sendBacks,
     changeRequests,
     designChangeRequests,
     sendBacks,
+    testsFailed,
   };
+}
+
+export const FixRoundHistoryEntry = z.object({
+  eventId: z.string(),
+  at: z.string(),
+  kind: z.union([CardRoundKind, z.literal('extra_round')]),
+  round: z.number().int().positive().nullable(),
+  actor: Actor,
+  note: z.string().max(500).nullable(),
+  runId: z.string().optional(),
+  command: z.string().optional(),
+  failedFiles: z.array(z.string()).optional(),
+  commit: z.string().optional(),
+  branch: z.string().optional(),
+  pinned: z.string().optional(),
+  head: z.string().optional(),
+  extraRound: z.number().int().positive().optional(),
+});
+export type FixRoundHistoryEntry = z.infer<typeof FixRoundHistoryEntry>;
+
+/** Source order is authoritative, including when several events have the same timestamp. */
+export function fixRoundHistory(
+  events: readonly TimelineEvent[],
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+  since: string | null,
+): FixRoundHistoryEntry[] {
+  const results = new Map<string, TimelineEventData['task_full_test']>();
+  for (const event of events) {
+    if (event.type === 'task_full_test') {
+      const result = event.data as TimelineEventData['task_full_test'];
+      results.set(result.runId, result);
+    }
+  }
+  const history: FixRoundHistoryEntry[] = [];
+  let round = 0;
+  let extraRound = 0;
+  for (const event of events) {
+    if (since !== null && event.createdAt <= since) continue;
+    const base = { eventId: event.id, at: event.createdAt, actor: event.actor };
+    if (
+      event.type === 'task_fix_limit' &&
+      event.data.phase === 'decided' &&
+      event.data.decision === 'another_round'
+    ) {
+      extraRound += 1;
+      history.push({
+        ...base,
+        kind: 'extra_round',
+        round: null,
+        note: timelineNoteExcerpt(event.data.note) ?? null,
+        extraRound,
+      });
+    }
+    for (const kind of classifyCardRoundEvent(event, config)) {
+      const entry: FixRoundHistoryEntry = {
+        ...base,
+        kind,
+        round: kind === 'branch_moved' ? null : ++round,
+        note: timelineNoteExcerpt(event.data.noteExcerpt) ?? null,
+      };
+      if (kind === 'branch_moved') Object.assign(entry, event.data.branchMoved);
+      if (kind === 'tests_failed') {
+        const source = event.data.testsFailed as TimelineEventData['task_stage_changed']['testsFailed'];
+        if (source) {
+          Object.assign(entry, source);
+          const result = results.get(source.runId);
+          if (result?.command !== undefined) entry.command = result.command;
+          if (result?.failedFiles !== undefined) entry.failedFiles = result.failedFiles;
+        }
+      }
+      history.push(entry);
+    }
+  }
+  return history;
 }
 
 /** The limit a project's limits set, else the default. */

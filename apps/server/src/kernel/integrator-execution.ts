@@ -2,8 +2,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { hasSuperOrigin } from '@projectman/shared';
 import type {
   Actor,
+  ExternalToolOrigin,
   HumanMemberConfig,
   ProjectConfig,
+  SuperActor,
   SuperMutationCommand,
   SuperMutationInput,
 } from '@projectman/shared';
@@ -87,6 +89,43 @@ export async function authorizeSuperMutation(input: SuperMutationInput): Promise
   await scope.authorizeMutation(input);
   if (!scope.active) throw forbidden('insufficient_access', 'the authenticated execution has ended');
   scope.assertMutation(input);
+}
+
+/**
+ * Where a bearer-MCP tool call came from, built from the live scope (PM-784): the key owner, the project's
+ * Operator as the key's super actor and the call's request id. Only a super credential has one; the check of
+ * the key, the owner's membership and the Operator runs here again. No public input carries an origin.
+ */
+export function externalToolOrigin(config: ProjectConfig): ExternalToolOrigin {
+  const scope = execution.getStore();
+  if (!scope || !scope.active)
+    throw forbidden('insufficient_access', 'a bearer tool call needs authenticated execution');
+  const { principal, requestId } = scope.context;
+  if (principal.mode === 'read') throw forbidden('integrator_read_only', 'a read credential cannot write');
+  if (principal.mode !== 'super')
+    throw forbidden('integrator_not_allowed', 'only a super credential does this');
+  const actor = scope.actorFor(config);
+  if (!hasSuperOrigin(actor))
+    throw forbidden('integrator_not_allowed', 'the project has no Operator to act as');
+  return { ownerUserId: principal.userId, actor: externalActorOf(actor), requestId };
+}
+
+function externalActorOf(actor: SuperActor): ExternalToolOrigin['actor'] {
+  return {
+    kind: 'ai',
+    handle: actor.handle,
+    via: 'integrator',
+    operatorMode: 'super',
+    credential: { id: actor.credential.id, prefix: actor.credential.prefix },
+  };
+}
+
+/** The key owner of the live scope, once the access for `operation` is checked; null outside a scope. */
+export function integratorOwnerId(config: ProjectConfig, operation: 'read' | 'write'): string | null {
+  const scope = execution.getStore();
+  if (!scope) return null;
+  assertIntegratorAccess(config, operation);
+  return scope.context.principal.userId;
 }
 
 /** A decision remains a human action even when reached without an Actor argument. */

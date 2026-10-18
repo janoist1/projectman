@@ -57,6 +57,10 @@ import type {
   ProjectDoc,
   SuperCommand,
   SuperHandoff,
+  ExternalAttachmentRead,
+  ExternalDocWriteState,
+  ExternalQuestionRead,
+  StructuralReviewResult,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -1023,6 +1027,66 @@ export interface ExternalToolsHandler {
   /** search_history for the integrator's bound access (PM-787); the same result as the member tool. */
   searchHistory(ctx: ExternalToolContext, args: HistorySearchInput): Promise<HistorySearchResult>;
   readHistorySource(ctx: ExternalToolContext, args: HistorySourceReadArgs): Promise<HistorySourceRead>;
+  /** read_project_doc (PM-784): the Operator's document read; super and read keys. */
+  readProjectDoc(
+    ctx: ExternalToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ): Promise<ProjectDocRead>;
+  /** write_project_docs (PM-784): super keys only; the append-only document rules apply as for the Operator. */
+  writeProjectDocs(
+    ctx: ExternalToolContext,
+    args: {
+      baseCommit: string;
+      message: string;
+      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+    },
+  ): Promise<ProjectDocWrite>;
+  /** get_project_doc_write (PM-784): the state of one write the same owner's keys made. */
+  getProjectDocWrite(ctx: ExternalToolContext, args: { writeId: string }): Promise<ExternalDocWriteState>;
+  getRoleConfiguration(
+    ctx: ExternalToolContext,
+    args: { role: BuiltInRoleId },
+  ): Promise<RoleConfigurationRead>;
+  /** propose_release (PM-784): super keys only; a `preview` records nothing. */
+  proposeRelease(
+    ctx: ExternalToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease>;
+  requestStructuralReview(
+    ctx: ExternalToolContext,
+    args: { signalId: string; note: string },
+  ): Promise<StructuralReviewResult>;
+  /** ask_human (PM-784): a question of the integrator to the owners, answered only by their own login. */
+  askHuman(
+    ctx: ExternalToolContext,
+    args: {
+      question: string;
+      options?: QuestionOptionInput[];
+      taskKey?: string;
+      to?: MemberHandle[];
+      recommended?: string;
+      recommendationReason?: string;
+      details?: string;
+      attachmentIds?: string[];
+      responsePurpose?: QuestionResponsePurpose;
+    },
+  ): Promise<{
+    inboxItemId: string;
+    approvalLabel?: string;
+    attachments?: QuestionAttachment[];
+    state: 'open';
+  }>;
+  /** get_super_question (PM-784): the integrator owner's own question and, once answered, the answer. */
+  getSuperQuestion(ctx: ExternalToolContext, args: { itemId: string }): Promise<ExternalQuestionRead>;
+  withdrawQuestion(
+    ctx: ExternalToolContext,
+    args: { itemId: string; reason: string },
+  ): Promise<{ itemId: string; state: 'cancelled' }>;
+  /** read_attachment (PM-784): one chunk of a file of a card, byte-exact. */
+  readAttachment(
+    ctx: ExternalToolContext,
+    args: { taskKey: string; attachmentId: string; offsetBytes?: number; maxBytes?: number },
+  ): Promise<ExternalAttachmentRead>;
 }
 
 /** The credential modes of an integrator key (PM-757), as the external tool policy sees them. */

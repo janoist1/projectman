@@ -1,6 +1,13 @@
-import { ALERT_SEEN_OPTION, dutyMembers, releaseApprovalOf, releaseApprovers } from '@projectman/shared';
-import { assertOwnApproval } from '../../kernel';
+import {
+  ALERT_SEEN_OPTION,
+  dutyMembers,
+  externalOriginActor,
+  releaseApprovalOf,
+  releaseApprovers,
+} from '@projectman/shared';
+import { assertOwnApproval, externalToolOrigin } from '../../kernel';
 import type {
+  Actor,
   EngineId,
   ErrorCode,
   InboxItem,
@@ -347,12 +354,50 @@ export class ReleaseService {
     by: string,
     input: ProposeReleaseInput,
   ): Promise<{ release: Release; candidate: ReleaseCandidate }> {
+    return this.write(projectKey, input, (config) => {
+      this.requireProposer(config, projectKey, by);
+      return { by, actor: aiActor(by) };
+    });
+  }
+
+  /** The candidate of a release the integrator in super mode may propose (PM-784); no record is made. */
+  async previewExternal(projectKey: string, commit?: string): Promise<ReleaseCandidate> {
+    this.requireTarget(projectKey);
+    externalToolOrigin(await this.deps.projects.config(projectKey));
+    this.requireNoOpenRelease(projectKey);
+    return this.candidate(projectKey, commit);
+  }
+
+  /**
+   * The integrator in super mode proposes a release (PM-784): the same proposal as the Devops' - the card, the
+   * record and the owners' approval request - made as the project's Operator through the key, whose full
+   * actor the events carry. Only the proposal: nobody approves, claims or deploys through it. The scope is
+   * checked again inside the proposal's lock, where the writes begin.
+   */
+  async proposeExternal(
+    projectKey: string,
+    input: ProposeReleaseInput,
+  ): Promise<{ release: Release; candidate: ReleaseCandidate }> {
+    return this.write(projectKey, input, (config) => {
+      const actor = externalOriginActor(externalToolOrigin(config));
+      this.requireNoOpenRelease(projectKey);
+      return { by: actor.handle, actor };
+    });
+  }
+
+  private async write(
+    projectKey: string,
+    input: ProposeReleaseInput,
+    authorize: (config: ProjectConfig) => { by: string; actor: Actor },
+  ): Promise<{ release: Release; candidate: ReleaseCandidate }> {
     this.requireTarget(projectKey);
     return this.proposals.run(projectKey, async () => {
       const { ctx, tasks, inbox, timeline } = this.deps;
       const config = await this.deps.projects.config(projectKey);
-      this.requireProposer(config, projectKey, by);
+      const { by, actor } = authorize(config);
       const candidate = await this.candidate(projectKey, input.commit);
+      // The candidate came from the engine: the proposer is checked again before the first write.
+      authorize(await this.deps.projects.config(projectKey));
       const description = [
         input.summary,
         '',
@@ -362,11 +407,7 @@ export class ReleaseService {
         `Commit: ${candidate.commit}`,
         `Base: ${candidate.baseCommit ?? 'unknown'}`,
       ].join('\n');
-      const card = await tasks.create(
-        projectKey,
-        { title: input.title, description, kind: 'theme' },
-        aiActor(by),
-      );
+      const card = await tasks.create(projectKey, { title: input.title, description, kind: 'theme' }, actor);
       try {
         const at = isoNow(ctx);
         const release: Release = {
@@ -413,7 +454,7 @@ export class ReleaseService {
             },
             options: DECISION_OPTIONS,
           });
-          this.record(release, null, aiActor(by));
+          this.record(release, null, actor);
         });
         await ctx.events.emit('release_proposed', { release });
         return { release, candidate };

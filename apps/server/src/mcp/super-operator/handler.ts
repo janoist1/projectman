@@ -1,18 +1,27 @@
 import {
+  EXTERNAL_ATTACHMENT_DEFAULT_CHUNK_BYTES,
+  EXTERNAL_ATTACHMENT_MAX_FILE_BYTES,
   effectiveRepo,
   isOpenTask,
   isTheme,
   needsRepoChoice,
+  operatorOf,
+  roleBundle,
   TaskKey,
   TaskStatus as TaskStatusSchema,
 } from '@projectman/shared';
 import type {
+  ExternalAttachmentRead,
+  ExternalDocWriteState,
+  ExternalQuestionRead,
   HistorySearchInput,
   HistorySearchResult,
   HistorySourceRead,
   HistoryViewer,
+  ProjectDoc,
   Task,
 } from '@projectman/shared';
+import type { Readable } from 'node:stream';
 import { taskWaitShort } from '../../agent-text';
 import { TeamToolError } from '../../contracts';
 import type {
@@ -23,9 +32,12 @@ import type {
   ExternalToolsHandler,
   HistoryService,
   HistorySourceReadArgs,
+  HumanQuestionsPort,
   IntegratorCredentialAuthority,
   IntegratorPrincipal,
   ListTasksInput,
+  ProjectDocWrite,
+  ProposedRelease,
   TaskSummary,
   TaskToolDetail,
 } from '../../contracts';
@@ -37,8 +49,19 @@ import { canSeeTask } from '../../core/projects';
 import type { ProjectService } from '../../core/projects';
 import type { ProjectFocusService, TaskService, TaskWaits } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
-import { attributedActor, forbidden, unique } from '../../kernel';
-import type { ProjectState } from '../../services/operator';
+import {
+  attributedActor,
+  conflict,
+  DomainError,
+  externalToolOrigin,
+  forbidden,
+  integratorOwnerId,
+  invalid,
+  unique,
+} from '../../kernel';
+import type { ProjectState, StructuralReviews } from '../../services/operator';
+import { docWindow } from '../../services/project-docs';
+import type { DocWrites } from '../../services/project-docs';
 import type { ReleaseService } from '../../services/releases';
 import { relayOwnerAnswer, resolveIntegratorTodo } from '../../services/super-operator';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../../services/super-operator';
@@ -51,7 +74,7 @@ export interface ExternalToolsDeps {
   credentials: IntegratorCredentialAuthority;
   superOperator: Pick<SuperOperator, 'access' | 'execute' | 'executeOwned'>;
   accessFor(projectKey: string, email: string): Promise<ProjectAccess | null>;
-  projects: Pick<ProjectService, 'has' | 'config'>;
+  projects: Pick<ProjectService, 'has' | 'config' | 'load'>;
   tasks: Pick<
     TaskService,
     'list' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
@@ -60,11 +83,14 @@ export interface ExternalToolsDeps {
   taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   projectFocus: Pick<ProjectFocusService, 'places'>;
   cardQuestions: Pick<CardQuestions, 'list'>;
-  attachments: Pick<AttachmentOperations, 'list'>;
+  attachments: Pick<AttachmentOperations, 'list' | 'open'>;
   messaging: Pick<Messaging, 'sendReporting'>;
   members: Pick<MemberService, 'rosterFor'>;
   projectState: Pick<ProjectState, 'task' | 'message' | 'overview' | 'externalDiagnostics'>;
-  releases: Pick<ReleaseService, 'check'>;
+  releases: Pick<ReleaseService, 'check' | 'previewExternal' | 'proposeExternal'>;
+  docWrites: Pick<DocWrites, 'read' | 'requestExternal' | 'externalState'>;
+  humanQuestions: HumanQuestionsPort;
+  structuralReviews: Pick<StructuralReviews, 'requestExternal'>;
   superHandoffs: Pick<SuperHandoffService, 'list' | 'execute'>;
   superAdministration: SuperAdministration;
   inbox: Pick<InboxService, 'get' | 'resolve' | 'resolveIntegratorTodo'>;
@@ -473,4 +499,230 @@ export class ExternalTools implements ExternalToolsHandler {
   async readHistorySource(ctx: ExternalToolContext, args: HistorySourceReadArgs): Promise<HistorySourceRead> {
     return this.deps.history.read(ctx.projectKey, await this.historyViewer(ctx), args);
   }
+
+  /** The project's Operator: the tools of its role are served only when the team has one. */
+  private async operatorHandle(projectKey: string): Promise<string> {
+    const operator = operatorOf(await this.deps.projects.config(projectKey));
+    if (!operator) throw forbidden('integrator_not_allowed', 'the project has no Operator to act as');
+    return operator.handle;
+  }
+
+  async readProjectDoc(
+    ctx: ExternalToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ) {
+    const read = await this.deps.docWrites.read(
+      ctx.projectKey,
+      await this.operatorHandle(ctx.projectKey),
+      args.doc,
+    );
+    return docWindow(args.doc, read, args.fromLine, args.lineCount);
+  }
+
+  async writeProjectDocs(
+    ctx: ExternalToolContext,
+    args: Parameters<ExternalToolsHandler['writeProjectDocs']>[1],
+  ): Promise<ProjectDocWrite> {
+    const outcome = await this.deps.docWrites.requestExternal({ projectKey: ctx.projectKey, ...args });
+    switch (outcome.state) {
+      case 'published':
+        return {
+          write_id: outcome.id,
+          state: 'published',
+          commit: outcome.commit,
+          paths: outcome.paths,
+          ...(outcome.warning
+            ? {
+                warning:
+                  'The default branch is up, but the local checkout could not follow it; tell the owner.',
+              }
+            : {}),
+        };
+      case 'queued':
+        return { write_id: outcome.id, state: 'queued', waiting_for: outcome.waitingFor };
+      case 'running':
+        return { write_id: outcome.id, state: 'running' };
+      case 'stale':
+        throw conflict(
+          'docs_stale',
+          'a file changed since the commit you read. Read it again with read_project_doc and show the owner the new text.',
+          { write_id: outcome.id },
+        );
+      case 'failed':
+        // The raw message may carry git output: the reader gets the failure kind and reads the rest from the write.
+        throw new DomainError('docs_write_failed', `the write failed: ${outcome.failure}`, {
+          status: 422,
+          details: { write_id: outcome.id, failure: outcome.failure },
+        });
+    }
+  }
+
+  async getProjectDocWrite(
+    ctx: ExternalToolContext,
+    args: { writeId: string },
+  ): Promise<ExternalDocWriteState> {
+    return this.deps.docWrites.externalState(ctx.projectKey, args.writeId);
+  }
+
+  async getRoleConfiguration(
+    ctx: ExternalToolContext,
+    args: Parameters<ExternalToolsHandler['getRoleConfiguration']>[1],
+  ) {
+    await this.operatorHandle(ctx.projectKey);
+    const loaded = await this.deps.projects.load(ctx.projectKey);
+    return {
+      version: loaded.version,
+      role: args.role,
+      override: loaded.config.team.roleOverrides?.[args.role] ?? null,
+      effective: roleBundle(loaded.config, args.role),
+    };
+  }
+
+  async proposeRelease(
+    ctx: ExternalToolContext,
+    args: Parameters<ExternalToolsHandler['proposeRelease']>[1],
+  ): Promise<ProposedRelease> {
+    if (args.preview) {
+      const candidate = await this.deps.releases.previewExternal(ctx.projectKey, args.commit);
+      return { commit: candidate.commit, baseCommit: candidate.baseCommit, tasks: candidate.tasks };
+    }
+    const { release, candidate } = await this.deps.releases.proposeExternal(ctx.projectKey, {
+      title: args.title,
+      summary: args.summary,
+      commit: args.commit,
+    });
+    return {
+      releaseId: release.id,
+      taskKey: release.taskKey,
+      commit: release.commit,
+      baseCommit: release.baseCommit,
+      tasks: candidate.tasks,
+    };
+  }
+
+  async requestStructuralReview(
+    ctx: ExternalToolContext,
+    args: Parameters<ExternalToolsHandler['requestStructuralReview']>[1],
+  ) {
+    const access = this.access(ctx);
+    const sender = access.superActor?.handle ?? access.handle;
+    // The start is the project's usual one, made as the Operator through the key: no session, so no start check of its own.
+    return this.deps.structuralReviews.requestExternal(
+      ctx.projectKey,
+      args.signalId,
+      args.note,
+      async (member, text) => {
+        const { message, recipients } = await this.deps.messaging.sendReporting(
+          ctx.projectKey,
+          sender,
+          { to: [member], text, taskKey: null },
+          { actor: ctx.actor, kind: 'action', awaitWake: true, workerCheck: true },
+        );
+        return { messageId: message.id, recipient: recipients[0]! };
+      },
+    );
+  }
+
+  async askHuman(ctx: ExternalToolContext, args: Parameters<ExternalToolsHandler['askHuman']>[1]) {
+    const origin = externalToolOrigin(await this.deps.projects.config(ctx.projectKey));
+    const asked = await this.deps.humanQuestions.ask(
+      ctx.projectKey,
+      { kind: 'external', origin },
+      {
+        ...args,
+        ...(args.to ? { to: unique(args.to) } : {}),
+        ...(args.attachmentIds ? { attachmentIds: unique(args.attachmentIds) } : {}),
+      },
+    );
+    return {
+      inboxItemId: asked.inboxItemId,
+      ...(asked.approvalLabel ? { approvalLabel: asked.approvalLabel } : {}),
+      ...(asked.attachments ? { attachments: asked.attachments } : {}),
+      state: 'open' as const,
+    };
+  }
+
+  async getSuperQuestion(ctx: ExternalToolContext, args: { itemId: string }): Promise<ExternalQuestionRead> {
+    const owner = integratorOwnerId(await this.deps.projects.config(ctx.projectKey), 'read');
+    if (!owner) throw forbidden('insufficient_access', 'the call has no key owner');
+    return this.deps.humanQuestions.readExternal(ctx.projectKey, owner, args.itemId);
+  }
+
+  async withdrawQuestion(ctx: ExternalToolContext, args: { itemId: string; reason: string }) {
+    const origin = externalToolOrigin(await this.deps.projects.config(ctx.projectKey));
+    return this.deps.humanQuestions.withdrawExternal(ctx.projectKey, origin, args.itemId, args.reason);
+  }
+
+  /**
+   * One chunk of a card's file, read from the stored stream: only the window asked for is held, never the file.
+   * The key is checked again after the read, so a key revoked meanwhile gets nothing.
+   */
+  async readAttachment(
+    ctx: ExternalToolContext,
+    args: Parameters<ExternalToolsHandler['readAttachment']>[1],
+  ): Promise<ExternalAttachmentRead> {
+    const taskKey = this.taskKeyOf(ctx.projectKey, args.taskKey);
+    const offset = args.offsetBytes ?? 0;
+    const maxBytes = args.maxBytes ?? EXTERNAL_ATTACHMENT_DEFAULT_CHUNK_BYTES;
+    const { attachment, stream } = await this.deps.attachments.open(
+      ctx.projectKey,
+      taskKey,
+      args.attachmentId,
+      ctx.actor,
+    );
+    try {
+      const total = attachment.size;
+      if (total > EXTERNAL_ATTACHMENT_MAX_FILE_BYTES)
+        throw invalid(
+          'invalid_request',
+          `the file is larger than ${EXTERNAL_ATTACHMENT_MAX_FILE_BYTES} bytes`,
+        );
+      if (offset > total)
+        throw invalid(
+          'invalid_request',
+          `offset_bytes ${offset} is past the end of the file (${total} bytes)`,
+        );
+      const expected = Math.min(maxBytes, total - offset);
+      const data = await readWindow(stream, offset, expected);
+      if (data.length !== expected)
+        throw new Error(`attachment ${attachment.id} is shorter than its recorded size`);
+      this.holder(ctx.principal);
+      const end = offset + data.length;
+      return {
+        attachment,
+        content: {
+          encoding: 'base64',
+          data: data.toString('base64'),
+          offset_bytes: offset,
+          byte_length: data.length,
+          total_bytes: total,
+          next_offset: end < total ? end : null,
+        },
+      };
+    } finally {
+      stream.destroy();
+    }
+  }
+}
+
+/** The bytes `offset` to `offset + length` of a stream, skipping what comes before without keeping it. */
+async function readWindow(stream: Readable, offset: number, length: number): Promise<Buffer> {
+  const parts: Buffer[] = [];
+  let skipped = 0;
+  let taken = 0;
+  if (length === 0) return Buffer.alloc(0);
+  for await (const piece of stream) {
+    let chunk = Buffer.isBuffer(piece) ? piece : Buffer.from(piece as string);
+    if (skipped < offset) {
+      const skip = Math.min(offset - skipped, chunk.length);
+      skipped += skip;
+      chunk = chunk.subarray(skip);
+    }
+    if (chunk.length === 0) continue;
+    const take = Math.min(length - taken, chunk.length);
+    parts.push(chunk.subarray(0, take));
+    taken += take;
+    if (taken >= length) break;
+  }
+  return Buffer.concat(parts);
 }

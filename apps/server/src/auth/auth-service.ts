@@ -156,6 +156,31 @@ export class AuthService {
     return principal;
   }
 
+  /**
+   * The live principal of a stored key (PM-784), for work that outlives its call. It records no use of the key
+   * and gives nothing when the key is gone, expired, or no longer matches the stored owner and prefix.
+   */
+  reactivate(stored: { userId: string; keyId: string; prefix: string }): IntegratorPrincipal | null {
+    const key = this.repos.integratorKeys.activeById(stored.keyId, this.now().toISOString());
+    if (
+      !key ||
+      key.userId !== stored.userId ||
+      key.prefix !== stored.prefix ||
+      !this.isHostOwner(key.userId) ||
+      !this.hasPassword(key.userId)
+    )
+      return null;
+    const principal = Object.freeze({
+      kind: 'integrator' as const,
+      userId: key.userId,
+      keyId: key.id,
+      prefix: key.prefix,
+      mode: key.mode,
+    });
+    this.principals.add(principal);
+    return principal;
+  }
+
   /** Rechecks the exact credential and its current owner without recording another use. */
   assertActive(principal: IntegratorPrincipal): void {
     const key = this.repos.integratorKeys.activeById(principal.keyId, this.now().toISOString());

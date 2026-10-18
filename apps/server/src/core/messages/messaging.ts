@@ -781,6 +781,7 @@ export class Messaging {
   ): Promise<InboxItem | null> {
     const resolution = item.resolution;
     if (item.kind !== 'question' || !resolution) return null;
+    if (questionPayloadOf(item)?.externalQuestion) return this.answerExternal(item, attachmentIds, close);
     const config = await this.projects.config(item.projectKey);
     const asker = memberOf(config, item.source);
     if (asker?.kind !== 'ai') return null;
@@ -845,6 +846,54 @@ export class Messaging {
         state: 'delivered',
         at: isoNow(this.ctx),
       });
+    return closed ? this.ctx.repos.inbox.get(item.id) : null;
+  }
+
+  /**
+   * An owner answered a question the integrator asked through the bearer MCP (PM-784). No session waits for it:
+   * the answer stays on the question, and a durable message (already delivered, so no wake and no pending
+   * delivery) carries its text and files; the question's payload points to it. The files go through the same
+   * send checks as any message, and the question closes in the same transaction.
+   */
+  private async answerExternal(
+    item: InboxItem,
+    attachmentIds: readonly string[],
+    close: () => InboxItem,
+  ): Promise<InboxItem | null> {
+    const resolution = item.resolution!;
+    const sender = resolverActor(resolution);
+    if (attachmentIds.length > 0)
+      this.messageAttachments.assertSendable(item.projectKey, sender, attachmentIds);
+    const id = newId('msg');
+    let closed: InboxItem | null = null;
+    this.ctx.unitOfWork(() => {
+      const attachments =
+        attachmentIds.length > 0
+          ? this.messageAttachments.bindForSend(item.projectKey, sender, attachmentIds, id)
+          : undefined;
+      this.messages.record({
+        id,
+        projectKey: item.projectKey,
+        from: resolverSender(resolution),
+        to: [item.source],
+        taskKey: item.taskKey,
+        body: answerText(item),
+        attachments,
+        actor: sender,
+        sessionId: null,
+        humanRecipients: [],
+        delivered: true,
+        routes: {},
+        origin: { kind: 'answer', inboxItemId: item.id },
+        kind: 'info',
+      });
+      this.ctx.repos.inbox.updatePayload(
+        item.id,
+        { ...item.payload, externalAnswerMessageId: id },
+        isoNow(this.ctx),
+      );
+      closed = close();
+    });
     return closed ? this.ctx.repos.inbox.get(item.id) : null;
   }
 

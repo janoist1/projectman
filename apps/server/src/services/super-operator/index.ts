@@ -175,10 +175,9 @@ export function createSuperOperator(deps: {
       return runIntegratorExecution(scopeFor({ ...context, projectKey: target.projectKey }), async () => {
         const config = await deps.projects.config(target.projectKey);
         assertIntegratorAccess(config, 'read');
-        const actor =
-          context.principal.mode === 'super'
-            ? superActorOf(config, { id: context.principal.keyId, prefix: context.principal.prefix })
-            : null;
+        // A read key's call is audited too (PM-784): the entry carries the project's Operator and the key's
+        // id and prefix, while the principal's mode stays `read`.
+        const actor = superActorOf(config, { id: context.principal.keyId, prefix: context.principal.prefix });
         if (!actor) return run();
         return deps.audit.runExternal(
           { projectKey: target.projectKey, actor, requestId: context.requestId },

@@ -51,6 +51,15 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       description:
         'Only the Operator in its owner general conversation, never guests. Needs no open request. Returns the configuration version, the stored override (null when absent), and the effective full role bundle. Read before editing a role; preserve its existing instructions and other bundle fields.',
       input: { role: BuiltInRoleId },
+      external: {
+        access: 'read',
+        modes: ['super', 'read'],
+        description:
+          'Returns the configuration version, the stored override (null when absent), and the effective full role bundle of one built-in role: {version, role, override, effective}. Read before proposing a change to a role.',
+        async run({ ctx, args, handler }) {
+          return { structured: { ...(await handler.getRoleConfiguration(ctx, args)) } };
+        },
+      },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.getRoleConfiguration(ctx, args));
       },
@@ -62,6 +71,19 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       description:
         'Selected PM internal general session only. Weigh a delivered structural_pattern or milestone_closed signal and give a short reason. Without your own open owner request this only proposes an owner approval; nobody starts before approval. On approval call this tool again with the same signal_id. The server selects a live technical_direction holder with capacity and uses start_member; do not create cards or refactor from this standing review.',
       input: { signal_id: z.string().min(1), note: z.string().trim().min(1).max(2000) },
+      external: {
+        access: 'write',
+        modes: ['super'],
+        description:
+          'Weigh a delivered structural_pattern or milestone_closed signal and give a short reason. The server selects a live technical_direction holder with capacity and starts it as the Operator; do not create cards or refactor from this standing review. An approval request already open for the signal is never bypassed: its state is reported. Answers {status, member, message_id, inbox_item_id}.',
+        async run({ ctx, args, handler }) {
+          return {
+            structured: {
+              ...(await handler.requestStructuralReview(ctx, { signalId: args.signal_id, note: args.note })),
+            },
+          };
+        },
+      },
       async run({ ctx, args, handler }) {
         return JSON.stringify(
           await handler.requestStructuralReview(ctx, { signalId: args.signal_id, note: args.note }),

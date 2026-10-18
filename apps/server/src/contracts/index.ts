@@ -20,6 +20,7 @@ export * from './machine';
 export * from './email-login';
 export * from './task-scheduling';
 export * from './history';
+export * from './human-questions';
 
 export * from './claude-rules';
 export * from './sandbox';

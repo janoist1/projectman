@@ -45,10 +45,11 @@ describe('the bearer MCP endpoint (PM-760)', () => {
         secret: created.secret,
         userId: user.id,
         keyId: auth.resolveIntegratorCredential(created.secret, 'mcp')!.keyId,
+        prefix: null as string | null,
       };
     }
     const created = auth.createIntegratorAccessKey(user.id, { mode, expiresInDays });
-    return { secret: created.secret, userId: user.id, keyId: created.key.id };
+    return { secret: created.secret, userId: user.id, keyId: created.key.id, prefix: created.key.prefix };
   }
 
   /** One HTTP request of a client: stateless, so no session header is ever sent or expected. */
@@ -281,8 +282,34 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(readTools).not.toContain('send_message');
     expect(legacyTools).toContain('create_task');
     // Nothing of the member's session, decision or file tools is offered to anybody.
-    for (const name of ['ask_human', 'attach_file', 'merge_task', 'hand_off', 'operate', 'save_memory'])
+    for (const name of ['attach_file', 'merge_task', 'hand_off', 'operate', 'save_memory'])
       for (const tools of [superTools, readTools, legacyTools]) expect(tools, name).not.toContain(name);
+    // The Operator's tools the super mode got (PM-784): readers also in the read mode, writers super only,
+    // and the legacy mode none of them.
+    const superWriters = [
+      'write_project_docs',
+      'propose_release',
+      'request_structural_review',
+      'ask_human',
+      'withdraw_question',
+    ];
+    const superReaders = [
+      'read_project_doc',
+      'get_role_configuration',
+      'read_attachment',
+      'get_super_question',
+      'get_project_doc_write',
+    ];
+    for (const name of superWriters) {
+      expect(superTools, name).toContain(name);
+      expect(readTools, name).not.toContain(name);
+      expect(legacyTools, name).not.toContain(name);
+    }
+    for (const name of superReaders) {
+      expect(superTools, name).toContain(name);
+      expect(readTools, name).toContain(name);
+      expect(legacyTools, name).not.toContain(name);
+    }
 
     const read = key('read').secret;
     const legacy = key('legacy').secret;
@@ -298,10 +325,20 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(
       (await call(legacy, 'list_super_handoffs', { project_key: 'AR' })).structuredContent?.errorCode,
     ).toBe('integrator_not_allowed');
-    for (const name of ['ask_human', 'attach_file', 'merge_task', 'operate']) {
+    for (const name of ['attach_file', 'merge_task', 'operate']) {
       const denied = await call(superKey, name, { project_key: 'AR' });
       expect(denied.isError, name).toBe(true);
       expect(denied.structuredContent?.errorCode, name).toBe('integrator_not_allowed');
+    }
+    for (const name of [...superWriters, 'read_project_doc', 'get_super_question']) {
+      const denied = await call(legacy, name, { project_key: 'AR' });
+      expect(denied.structuredContent?.errorCode, name).toBe('integrator_not_allowed');
+    }
+    for (const name of superWriters) {
+      const denied = await call(read, name, { project_key: 'AR' });
+      expect(denied.structuredContent?.errorCode, name).toMatch(
+        /integrator_not_allowed|integrator_read_only/,
+      );
     }
     const unknown = await call(superKey, 'no_such_tool', {});
     expect(unknown.structuredContent?.errorCode).toBe('not_found');
@@ -392,12 +429,16 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(operations.filter((operation) => operation === 'mcp_create_task')).toEqual(creates);
   });
 
-  it('audits a super key and gives a read or legacy key no super audit, as the REST API does', async () => {
-    const readKey = key('read');
-    await call(readKey.secret, 'list_tasks', { project_key: 'AR' });
+  it('audits a super key and a read key by their prefix and gives a legacy key no audit', async () => {
     const legacy = key('legacy');
     await call(legacy.secret, 'list_tasks', { project_key: 'AR' });
     expect(audit().filter((e) => e.operation.startsWith('mcp_'))).toEqual([]);
+    const readKey = key('read');
+    await call(readKey.secret, 'list_tasks', { project_key: 'AR' });
+    const readEntries = audit().filter((e) => e.operation.startsWith('mcp_'));
+    expect(readEntries.map((e) => e.operation)).toContain('mcp_list_tasks');
+    expect(new Set(readEntries.map((e) => e.prefix))).toEqual(new Set([readKey.prefix]));
+    expect(JSON.stringify(readEntries)).not.toContain(readKey.secret);
     const superKey = key('super');
     await call(superKey.secret, 'create_task', { project_key: 'AR', title: 'Audited' });
     await call(superKey.secret, 'list_tasks', { project_key: 'AR' });

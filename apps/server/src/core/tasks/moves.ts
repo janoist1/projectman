@@ -2,6 +2,8 @@ import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import {
   actorMoveRefusal,
   boardColumnOf,
+  canSkipCollectingMerge,
+  collectingSourceStateOf,
   evaluateMove,
   fixLimitDecisionOf,
   gateRequestOf,
@@ -265,7 +267,10 @@ export class TaskMoves {
     // The merge is checked only when the move's own gates hold (PM-484): a merge that waits for a gate
     // of the move (a missing approval) would otherwise keep the gate from ever being asked.
     // A move without the gates (PM-647) has no gate left to wait for, so its merge is checked at once.
-    const waived = this.partsClosedOf(config, task, target.id) !== null;
+    const waiver = this.partsClosedOf(config, task, target.id);
+    const waived = waiver !== null;
+    // A collecting card that provably has no code of its own has nothing to merge (PM-797): no engine read.
+    if (this.mergeSkippable(task, waiver)) return { handover: null, mergeChecked: false };
     let mergeChecked = false;
     if (
       this.mergeGate &&
@@ -287,6 +292,17 @@ export class TaskMoves {
       this.store.ctx.repos.tasks.children(task.projectKey, task.key),
       targetId,
     );
+  }
+
+  /**
+   * Whether the merge check does not apply (PM-797): the move has the parts-closed waiver and the hub's records
+   * prove the card never had a source of its own. Read again inside the unit of work, never saved from before it:
+   * a trace of a source or an assignee that came in between ends the exception. Any gap in the evidence says no.
+   */
+  private mergeSkippable(task: Task, waiver: PartsClosed | null): boolean {
+    if (!waiver) return false;
+    const evidence = this.store.ctx.repos.tasks.sourceEvidence(task.projectKey, task.key);
+    return canSkipCollectingMerge(waiver, collectingSourceStateOf(task, evidence));
   }
 
   private async readHandover(config: ProjectConfig, task: Task, target: Stage): Promise<Handover | null> {
@@ -411,7 +427,8 @@ export class TaskMoves {
     // an approval may have come between that and now (PM-484): such a move is not let through unchecked.
     if (this.mergeGate && !opts.mergeChecked) {
       const repo = mergeRepoOf(config, task, task.stageId, target.id);
-      if (repo) throw this.mergeGate.notMergedError(config, task, repo, 'not_merged');
+      if (repo && !this.mergeSkippable(task, waiver))
+        throw this.mergeGate.notMergedError(config, task, repo, 'not_merged');
     }
     const decision = handOnDecision(config, actor, task.stageId, target.id);
     if (decision.kind === 'request')

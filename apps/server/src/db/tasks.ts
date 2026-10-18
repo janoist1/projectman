@@ -1,5 +1,5 @@
 import { TaskDeveloperLevel, taskSeq } from '@projectman/shared';
-import type { RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
+import type { CollectingSourceEvidence, RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
 import { legacyCheckLabels } from '@projectman/templates';
 import type { Statement } from 'better-sqlite3';
 import type { TaskSchedulingQuery } from '../contracts';
@@ -195,6 +195,16 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
   };
 }
 
+/** The origin a card's `task_created` events prove: anything but one well-formed event is `unknown`. */
+function createdOrigin(events: string[]): CollectingSourceEvidence['origin'] {
+  if (events.length !== 1) return 'unknown';
+  const data = parseJson<unknown>(events[0], null);
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return 'unknown';
+  const { imported } = data as { imported?: unknown };
+  if (imported === undefined || imported === false) return 'native';
+  return imported === true ? 'imported' : 'unknown';
+}
+
 export function createTaskRepository(db: Db) {
   const statements = {
     get: db.prepare(`${TASK_SELECT} WHERE t.key = ?`),
@@ -282,6 +292,37 @@ export function createTaskRepository(db: Db) {
        WHERE l.kind = 'pull_request' AND l.repo <> ''
          AND (l.state IS NULL OR l.state NOT IN ('merged', 'closed'))
          AND t.status NOT IN ('done', 'cancelled')`,
+    ),
+    // PM-797: the facts that say whether a card has (or had) a source of its own, from the card's own rows only.
+    sourceFacts: db.prepare(
+      `SELECT
+         t.assignee IS NOT NULL AS assigned,
+         (EXISTS (SELECT 1 FROM task_links l WHERE l.task_id = t.id AND l.kind IN ('branch', 'pull_request'))
+          OR EXISTS (SELECT 1 FROM task_review_pins p WHERE p.project_key = t.project_key AND p.task_key = t.key)
+          OR EXISTS (SELECT 1 FROM task_handovers h WHERE h.project_key = t.project_key AND h.task_key = t.key)
+          OR EXISTS (SELECT 1 FROM task_workspace_bindings b WHERE b.project_key = t.project_key AND b.task_key = t.key)
+          OR EXISTS (SELECT 1 FROM task_merges m WHERE m.project_key = t.project_key AND m.task_key = t.key)
+          OR EXISTS (SELECT 1 FROM sessions s
+                     WHERE s.project_key = t.project_key AND s.work_item_type = 'task' AND s.work_item_ref = t.key
+                       AND (s.branch IS NOT NULL OR s.reviewed_commit IS NOT NULL))
+          OR EXISTS (SELECT 1 FROM timeline_events e
+                     WHERE e.project_key = t.project_key AND e.task_key = t.key
+                       AND (e.type = 'task_merged'
+                         OR (e.type = 'task_link_added' AND json_extract(e.data, '$.kind') IN ('branch', 'pull_request'))
+                         OR (e.type = 'task_stage_changed'
+                             AND (json_extract(e.data, '$.reviewPin') IS NOT NULL
+                               OR json_extract(e.data, '$.branchMoved') IS NOT NULL))
+                         OR (e.type = 'task_updated' AND json_extract(e.data, '$.reviewPin') IS NOT NULL)))
+         ) AS source,
+         EXISTS (SELECT 1 FROM timeline_events e
+                 WHERE e.project_key = t.project_key AND e.task_key = t.key AND e.type = 'task_assigned'
+                   AND (json_extract(e.data, '$.assignee') IS NOT NULL
+                     OR json_extract(e.data, '$.previous') IS NOT NULL
+                     OR json_extract(e.data, '$.from') IS NOT NULL)) AS worked
+       FROM tasks t WHERE t.project_key = ? AND t.key = ?`,
+    ),
+    createdEvents: db.prepare(
+      `SELECT data FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = 'task_created'`,
     ),
   };
   /** UPDATE statements per set of changed columns. */
@@ -499,6 +540,23 @@ export function createTaskRepository(db: Db) {
     /** Writes ranks and nothing else: no card's update time moves with its place. */
     setBoardRanks(projectKey: string, ranks: ReadonlyArray<{ key: string; rank: number }>): void {
       for (const { key, rank } of ranks) statements.setBoardRank.run(rank, key, projectKey);
+    },
+
+    /**
+     * What the hub's own records say about the source of a card (PM-797): null when the card is not in the
+     * project. A database error is not turned into empty evidence. The origin is `native` only when exactly one
+     * well-formed `task_created` event says the card was made here.
+     */
+    sourceEvidence(projectKey: string, taskKey: string): CollectingSourceEvidence | null {
+      const facts = statements.sourceFacts.get(projectKey, taskKey) as
+        { assigned: number; source: number; worked: number } | undefined;
+      if (!facts) return null;
+      const created = statements.createdEvents.all(projectKey, taskKey) as Array<{ data: string }>;
+      return {
+        sourceRecorded: facts.source === 1,
+        workRecorded: facts.assigned === 1 || facts.worked === 1,
+        origin: createdOrigin(created.map((row) => row.data)),
+      };
     },
 
     /** The subtasks of a task. */

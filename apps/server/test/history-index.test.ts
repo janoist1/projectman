@@ -331,7 +331,7 @@ describe('history index', () => {
       await h.domain.stop();
       h.repos.db.close();
 
-      // Take the database back to the build before the index: no history tables or triggers, version 83.
+      // Take the database back before the index and later detector bookkeeping, at version 83.
       const old = new Database(join(directory, 'db.sqlite'));
       for (const row of old
         .prepare(
@@ -346,6 +346,7 @@ describe('history index', () => {
         'history_index_state',
         'history_doc_state',
         'history_searches',
+        'operator_signal_arms',
       ])
         old.exec(`DROP TABLE ${table}`);
       old.pragma('user_version = 83');

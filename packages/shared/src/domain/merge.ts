@@ -2,7 +2,17 @@ import { z } from 'zod';
 import { StageId } from './pipeline';
 import { MemberHandle } from './member';
 
-export const MergeStep = z.enum(['queued', 'merging', 'check_waiting', 'checking', 'pushing', 'finishing']);
+export const MERGE_ENGINE_WAIT_MINUTES = 15;
+
+export const MergeStep = z.enum([
+  'queued',
+  'merging',
+  'check_waiting',
+  'checking',
+  'pushing',
+  'finishing',
+  'engine_waiting',
+]);
 export const MergeBlockReason = z.enum([
   'push_rejected',
   'remote_unreachable',
@@ -15,6 +25,7 @@ export const MergeBlockReason = z.enum([
   'engine_unavailable',
   'gate_changed',
   'merge_error',
+  'engine_offline',
 ]);
 export type MergeBlockReason = z.infer<typeof MergeBlockReason>;
 export const MergeCheck = z.object({

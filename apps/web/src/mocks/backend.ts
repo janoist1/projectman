@@ -4209,6 +4209,7 @@ export class MockBackend {
       this.writeMerge(task, { ...merge, state: 'running', step: 'merging' });
       return task.merge;
     }
+    if (merge.step === 'engine_waiting') return task.merge;
     const step = merge.step === 'queued' || !merge.step ? 'merging' : merge.step;
     if (outcome === 'conflict' && step === 'merging')
       return this.failMerge(task, merge, {

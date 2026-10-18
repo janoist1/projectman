@@ -369,6 +369,25 @@ export interface EngineAttachments {
   }): Promise<string>;
 }
 
+/** A call failed because the engine link was lost, not because the engine refused it (PM-777). */
+export class EngineLinkLostError extends Error {
+  /** true: the link was already waited for (the executor's linkWaitMs ran out). */
+  readonly waited: boolean;
+  constructor(message: string, waited = false) {
+    super(message);
+    this.name = 'EngineLinkLostError';
+    this.waited = waited;
+  }
+}
+
+/** A timeout or a refusal is not a lost engine link. */
+export function isEngineLinkLost(err: unknown): boolean {
+  return (
+    err instanceof EngineLinkLostError ||
+    (typeof err === 'object' && err !== null && 'linkCode' in err && err.linkCode === 'link_down')
+  );
+}
+
 export interface EngineDirectory {
   /** The engine while it can be used (connected); otherwise null. */
   get(id: EngineId): EngineHost | null;
@@ -380,6 +399,12 @@ export interface EngineDirectory {
    */
   engineFor(projectKey: string, member: MemberHandle): EngineId | null;
   onChange(listener: (id: EngineId, online: boolean) => void): () => void;
+  /** Waits until the engine's link is up and its connect steps ran, at most waitMs (0: answers at once). */
+  awaitConnected?(
+    id: EngineId,
+    waitMs: number,
+    signal?: AbortSignal,
+  ): Promise<'connected' | 'timeout' | 'aborted'>;
 }
 
 /** Whether a process (or any process of its group) still exists. */

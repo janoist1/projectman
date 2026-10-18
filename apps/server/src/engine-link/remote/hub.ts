@@ -73,6 +73,11 @@ export interface RemoteHub {
    * counting as available (`ENGINE_OFFLINE_AFTER_MS` after the link dropped, or revoked).
    */
   onChange(listener: (id: EngineId, online: boolean) => void): () => void;
+  /**
+   * Waits for the link and its connect steps, even after the registry marks the engine offline.
+   * `stopWaiting` leaves this wait to the caller's signal; `close` aborts any remaining waits.
+   */
+  awaitLink(id: EngineId, waitMs: number, signal?: AbortSignal): Promise<'connected' | 'timeout' | 'aborted'>;
   /** The server is stopping: a call that waits for a missing link fails at once instead of after a minute. */
   stopWaiting(): void;
   close(): void;
@@ -97,6 +102,7 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
   const eventListeners: Array<(id: EngineId, event: EngineEvent) => void | Promise<void>> = [];
   const terminalListeners: Array<(id: EngineId, sessionId: string, data: string) => void> = [];
   const changeListeners = new Set<(id: EngineId, online: boolean) => void>();
+  const ready = new Set<EngineId>();
 
   const mirror = (id: EngineId): EngineMirror => {
     let found = mirrors.get(id);
@@ -142,6 +148,7 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
   };
 
   const connect = (id: EngineId) => {
+    ready.delete(id);
     const link = links.get(id);
     if (!link) return;
     const hello = link.hello();
@@ -175,20 +182,28 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
           logger.warn({ err, engineId: id }, 'a connect step of the engine failed');
         }
       }
-      if (links.get(id) === link) notify(id, true);
+      if (links.get(id) === link) {
+        ready.add(id);
+        notify(id, true);
+      }
     })();
   };
 
   const offChange = links.onChange((id, online) => {
     if (online) connect(id);
-    else mirror(id).connected = false;
+    else {
+      ready.delete(id);
+      mirror(id).connected = false;
+    }
   });
   const offRegistry = registry.onOnlineChange((id, online) => {
     if (!online) notify(id, false);
   });
 
   let stoppedWaiting = false;
+  let closed = false;
   const waiting = new Set<() => void>();
+  const awaitingReady = new Set<() => void>();
   const waitLink = (id: EngineId, signal?: AbortSignal): Promise<EngineLink> => {
     const now = links.get(id);
     if (now) return Promise.resolve(now);
@@ -228,6 +243,29 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
 
   return {
     mirror,
+    awaitLink(id, waitMs, signal) {
+      if (closed || signal?.aborted) return Promise.resolve('aborted');
+      if (ready.has(id) && links.get(id)) return Promise.resolve('connected');
+      if (waitMs <= 0) return Promise.resolve('timeout');
+      return new Promise((resolve) => {
+        const finish = (result: 'connected' | 'timeout' | 'aborted') => {
+          clearTimeout(timer);
+          changeListeners.delete(onChange);
+          awaitingReady.delete(onAbort);
+          signal?.removeEventListener('abort', onAbort);
+          resolve(result);
+        };
+        const onAbort = () => finish('aborted');
+        const onChange = (changed: EngineId, online: boolean) => {
+          if (changed === id && online) finish('connected');
+        };
+        const timer = setTimeout(() => finish('timeout'), waitMs);
+        timer.unref();
+        changeListeners.add(onChange);
+        awaitingReady.add(onAbort);
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    },
     link: (id) => links.get(id),
     available: (id) => registry.isOnline(id),
     defaultId: () => registry.defaultId(),
@@ -259,6 +297,8 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
       for (const giveUp of [...waiting]) giveUp();
     },
     close() {
+      closed = true;
+      for (const giveUp of [...awaitingReady]) giveUp();
       offChange();
       offRegistry();
       changeListeners.clear();

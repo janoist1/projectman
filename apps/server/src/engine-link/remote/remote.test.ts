@@ -141,6 +141,210 @@ describe('cloud mode remote parts', () => {
     return engine;
   };
 
+  describe('waiting for a ready engine link', () => {
+    it('waits for connect hooks and survives the registry offline transition', async () => {
+      const first = await online();
+      await expect(remote.hub.awaitLink(first.id, 0)).resolves.toBe('connected');
+      first.disconnect();
+      await expect(remote.hub.awaitLink(first.id, 0)).resolves.toBe('timeout');
+      let release!: () => void;
+      domain.sessions.reconcileEngine = async () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      const wait = remote.directory.awaitConnected!(first.id, 900_000);
+      cloud.registry.setOnline(first.id, false);
+      let done = false;
+      void wait.then(() => {
+        done = true;
+      });
+      cloud.connect(first.id);
+      await vi.waitFor(() => expect(release).toBeDefined());
+      expect(done).toBe(false);
+      await expect(remote.hub.awaitLink(first.id, 0)).resolves.toBe('timeout');
+      release();
+      await expect(wait).resolves.toBe('connected');
+    });
+
+    it('times out or aborts by signal and close, while stopWaiting leaves it to the caller', async () => {
+      cloud.registry.add('eng_a' as never);
+      vi.useFakeTimers();
+      try {
+        const wait = remote.hub.awaitLink('eng_a' as never, 900_000);
+        await vi.advanceTimersByTimeAsync(900_000);
+        await expect(wait).resolves.toBe('timeout');
+        const controller = new AbortController();
+        const aborted = remote.hub.awaitLink('eng_a' as never, 900_000, controller.signal);
+        controller.abort();
+        await expect(aborted).resolves.toBe('aborted');
+        await expect(remote.hub.awaitLink('eng_a' as never, 900_000, controller.signal)).resolves.toBe(
+          'aborted',
+        );
+        const stopping = remote.hub.awaitLink('eng_a' as never, 900_000);
+        remote.hub.stopWaiting();
+        let ended = false;
+        void stopping.then(() => {
+          ended = true;
+        });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(ended).toBe(false);
+        const afterStop = remote.hub.awaitLink('eng_a' as never, 900_000);
+        remote.hub.close();
+        await expect(stopping).resolves.toBe('aborted');
+        await expect(afterStop).resolves.toBe('aborted');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('following a full test after a lost link', () => {
+    const passed: FullTestResult = {
+      outcome: 'passed',
+      exitCode: 0,
+      durationMs: 1,
+      failedFiles: [],
+      outputTail: '',
+    };
+    async function lostRun() {
+      const engine = await online();
+      engine.answer('full_test.run', () => new Promise(() => {}));
+      const controller = new AbortController();
+      const onStarted = vi.fn();
+      const onLinkWait = vi.fn();
+      const run = remote.directory
+        .get(engine.id)!
+        .fullTestExecutor!.run(fullTestSpec('f1'), controller.signal, onStarted, {
+          linkWaitMs: 900_000,
+          onLinkWait,
+        });
+      await vi.waitFor(() => expect(engine.requests.some((r) => r.method === 'full_test.run')).toBe(true));
+      engine.disconnect();
+      await vi.waitFor(() => expect(onLinkWait).toHaveBeenCalledWith(true));
+      return { engine, controller, onStarted, onLinkWait, run };
+    }
+
+    it('attaches and retains the start callback until the original result arrives', async () => {
+      const lost = await lostRun();
+      const calls = vi.spyOn(remote.hub, 'call');
+      skewMs = 60_000;
+      let finish!: (value: { state: 'ended'; result: FullTestResult }) => void;
+      const engine = await online('eng_a', {}, (engine) =>
+        engine.answer(
+          'full_test.attach',
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        ),
+      );
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      expect(calls).toHaveBeenCalledWith('eng_a', 'full_test.attach', { runId: 'f1' }, { timeoutMs: 60_000 });
+      expect(lost.onLinkWait.mock.calls).toEqual([[true], [false]]);
+      await engine.emit({ kind: 'full_test_started', runId: 'f1' });
+      expect(lost.onStarted).toHaveBeenCalledTimes(1);
+      finish({ state: 'ended', result: passed });
+      await expect(lost.run).resolves.toEqual(passed);
+      await engine.emit({ kind: 'full_test_started', runId: 'f1' });
+      expect(lost.onStarted).toHaveBeenCalledTimes(1);
+      expect(engine.requests).toEqual([{ method: 'full_test.attach', params: { runId: 'f1' } }]);
+    });
+
+    it('ends after fifteen minutes without a reconnect', async () => {
+      vi.useFakeTimers();
+      try {
+        const { run } = await lostRun();
+        await vi.advanceTimersByTimeAsync(900_000);
+        await expect(run).resolves.toMatchObject({
+          reason: 'engine_offline',
+          outputTail: 'engine eng_a did not reconnect within 15 minutes',
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('aborts a disconnected run without sending cancel', async () => {
+      const { run, controller, engine } = await lostRun();
+      controller.abort();
+      await expect(run).resolves.toMatchObject({ reason: 'killed' });
+      expect(engine.requests.some((r) => r.method === 'full_test.cancel')).toBe(false);
+    });
+
+    it('reports a run forgotten by a restarted engine', async () => {
+      const { run } = await lostRun();
+      await online('eng_a', {}, (engine) => engine.answer('full_test.attach', () => ({ state: 'unknown' })));
+      await expect(run).resolves.toMatchObject({
+        reason: 'engine_offline',
+        outputTail: 'the engine no longer knows the run',
+      });
+    });
+
+    it('waits for cancellation on an engine that does not support attach', async () => {
+      const { run } = await lostRun();
+      let finish!: () => void;
+      const engine = await online('eng_a', {}, (engine) =>
+        engine.answer(
+          'full_test.cancel',
+          () =>
+            new Promise<null>((resolve) => {
+              finish = () => resolve(null);
+            }),
+        ),
+      );
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      let done = false;
+      void run.then(() => {
+        done = true;
+      });
+      expect(done).toBe(false);
+      finish();
+      await expect(run).resolves.toMatchObject({
+        reason: 'engine_offline',
+        outputTail: 'the engine cannot hand over a run after a reconnect; update it',
+      });
+      expect(engine.requests).toEqual([{ method: 'full_test.cancel', params: { runId: 'f1' } }]);
+    });
+
+    it('follows repeated link losses but gives up after five reconnects', async () => {
+      const { run, onLinkWait } = await lostRun();
+      for (let loss = 0; loss < 5; loss++) {
+        const engine = await online('eng_a', {}, (engine) =>
+          engine.answer('full_test.attach', () => new Promise(() => {})),
+        );
+        await vi.waitFor(() =>
+          expect(engine.requests.some((r) => r.method === 'full_test.attach')).toBe(true),
+        );
+        engine.disconnect();
+      }
+      await expect(run).resolves.toMatchObject({
+        reason: 'engine_offline',
+        outputTail: 'the engine kept losing its link',
+      });
+      expect(onLinkWait.mock.calls.filter(([waiting]) => waiting)).toHaveLength(5);
+    });
+
+    it.each([false, true])('cancels an attach that timed out (aborted: %s)', async (aborted) => {
+      const { run, controller } = await lostRun();
+      vi.useFakeTimers();
+      try {
+        const engine = await online('eng_a', {}, (engine) => {
+          engine.answer('full_test.attach', () => new Promise(() => {}));
+          engine.answer('full_test.cancel', async () => null);
+        });
+        await vi.waitFor(() =>
+          expect(engine.requests.some((r) => r.method === 'full_test.attach')).toBe(true),
+        );
+        if (aborted) controller.abort();
+        await vi.advanceTimersByTimeAsync(61_000);
+        await expect(run).resolves.toMatchObject({ reason: aborted ? 'killed' : 'timeout' });
+        expect(engine.requests.filter((r) => r.method === 'full_test.cancel')).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('runner', () => {
     it('relays cleanup and recovery without changing a resumed running generation', async () => {
       const engine = await online('eng_a', { processScope: 'process_group' });

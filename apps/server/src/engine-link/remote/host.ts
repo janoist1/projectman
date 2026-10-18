@@ -11,6 +11,7 @@ import type {
   EnginePaths,
   EngineSessionFolders,
   FullTestExecutor,
+  FullTestResult,
   MemberWorkspaceManager,
   ScreenshotExecutor,
   WorkspaceFile,
@@ -34,6 +35,7 @@ import type { FileTransfers } from './transfers';
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FULL_TEST_GRACE_MS = 60_000;
+const FULL_TEST_LINK_WAITS = 5;
 const SCREENSHOT_GRACE_MS = 60_000;
 const CANCEL_TIMEOUT_MS = 10_000;
 // A full test's cancel is answered when the run has ended, after its processes were stopped.
@@ -211,8 +213,9 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
         // The engine's own sandbox answers at the run; here only whether it can be reached at all.
         return hub.link(id) ? { ok: true } : { ok: false, reason: 'engine_offline' };
       },
-      async run(spec, signal, onStarted) {
+      async run(spec, signal, onStarted, options) {
         const startedAt = now();
+        const linkWaitMs = options?.linkWaitMs ?? 0;
         // An older engine never sends `full_test_started`: the caller stays at its waiting step.
         if (onStarted) fullStarted.set(spec.runId, onStarted);
         // The engine answers a cancel when the run has ended and cleaned up; one cancel serves both paths.
@@ -228,11 +231,80 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           );
           return cancelled;
         };
-        const onAbort = () => void cancel();
+        let waitingForLink = false;
+        const onAbort = () => {
+          if (!waitingForLink) void cancel();
+        };
+        const errorResult = (
+          reason: NonNullable<FullTestResult['reason']>,
+          outputTail = '',
+        ): FullTestResult => ({
+          outcome: 'error',
+          reason,
+          outputTail,
+          exitCode: null,
+          durationMs: now() - startedAt,
+          failedFiles: [],
+        });
+        const follow = async (): Promise<FullTestResult> => {
+          for (let losses = 0; losses < FULL_TEST_LINK_WAITS; losses++) {
+            waitingForLink = true;
+            options?.onLinkWait?.(true);
+            logger.info(
+              { engineId: id, runId: spec.runId, outcome: 'waiting' },
+              'a full test waits for its engine to reconnect',
+            );
+            const back = await hub.awaitLink(id, linkWaitMs, signal);
+            if (back === 'aborted' || signal.aborted) return errorResult('killed');
+            if (back === 'timeout')
+              return errorResult(
+                'engine_offline',
+                `engine ${id} did not reconnect within ${linkWaitMs / 60_000} minutes`,
+              );
+            waitingForLink = false;
+            options?.onLinkWait?.(false);
+            try {
+              const attached = await call(
+                'full_test.attach',
+                { runId: spec.runId },
+                {
+                  timeoutMs: Math.max(0, spec.timeoutMs - (now() - startedAt)) + FULL_TEST_GRACE_MS,
+                },
+              );
+              logger.info(
+                {
+                  engineId: id,
+                  runId: spec.runId,
+                  outcome: attached.state === 'ended' ? attached.result.outcome : attached.state,
+                },
+                'a full test was followed after a reconnect',
+              );
+              return attached.state === 'ended'
+                ? attached.result
+                : errorResult('engine_offline', 'the engine no longer knows the run');
+            } catch (err) {
+              if (linkDown(err)) continue;
+              if (err instanceof EngineCallError && err.linkCode === 'unknown_method') {
+                await cancel();
+                return errorResult(
+                  'engine_offline',
+                  'the engine cannot hand over a run after a reconnect; update it',
+                );
+              }
+              throw err;
+            }
+          }
+          return errorResult('engine_offline', 'the engine kept losing its link');
+        };
         if (signal.aborted) onAbort();
         else signal.addEventListener('abort', onAbort, { once: true });
         try {
-          return await call('full_test.run', { spec }, { timeoutMs: spec.timeoutMs + FULL_TEST_GRACE_MS });
+          try {
+            return await call('full_test.run', { spec }, { timeoutMs: spec.timeoutMs + FULL_TEST_GRACE_MS });
+          } catch (err) {
+            if (linkDown(err) && linkWaitMs > 0) return await follow();
+            throw err;
+          }
         } catch (err) {
           logger.warn({ err, engineId: id, runId: spec.runId }, 'a full test did not end on its engine');
           // The call timed out or was cut off while the engine may still run it: a dependency installation
@@ -483,5 +555,6 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
     ids: () => hub.ids(),
     engineFor: (_projectKey: string, _member: MemberHandle) => hub.defaultId(),
     onChange: (listener) => hub.onChange(listener),
+    awaitConnected: (id, waitMs, signal) => hub.awaitLink(id, waitMs, signal),
   };
 }

@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
-import { alertPayloadOf } from '@projectman/shared';
+import { alertPayloadOf, MERGE_ENGINE_WAIT_MINUTES } from '@projectman/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -197,6 +197,22 @@ describe('the merge box in the drawer (PM-453)', () => {
     expect(
       within(checking).queryByText(t('task.merge.running.checkWaiting', { check: 'npm test' })),
     ).toBeNull();
+  });
+
+  it('shows only the active engine wait while the connection is lost', async () => {
+    const project = mergeProject();
+    withoutMergeItems(project.backend);
+    startMerge(project.backend);
+    project.backend.advanceMerge('AC-27');
+    project.backend.findTask('AC-27')!.merge!.step = 'engine_waiting';
+    project.render(drawer, route);
+    const box = within(await mergeBox());
+    expect(box.getAllByRole('listitem')).toHaveLength(1);
+    const wait = box.getByRole('listitem');
+    expect(wait.getAttribute('data-state')).toBe('active');
+    expect(wait.textContent).toContain(
+      t('task.merge.running.engineWaiting', { minutes: MERGE_ENGINE_WAIT_MINUTES }),
+    );
   });
 
   it('shows a conflict with the files and offers to merge again or send the card back', async () => {

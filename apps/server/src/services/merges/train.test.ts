@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FullTestExecutor, FullTestResult, BranchMerger, MergeBaseState } from '../../contracts';
+import type {
+  FullTestExecutor,
+  FullTestResult,
+  BranchMerger,
+  EngineDirectory,
+  MergeBaseState,
+} from '../../contracts';
+import { EngineLinkLostError } from '../../contracts';
+import { LocalEngineDirectory } from '../../runtime/sessions';
 import { aiActor } from '../../kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from '../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../test/helpers/domain-harness';
@@ -69,6 +77,7 @@ describe('merge train execution', () => {
   let merger: ReturnType<typeof fakeMerger>;
   let executor: FullTestExecutor;
   let peerBusy: boolean;
+  let engines: EngineDirectory;
   const row = (key: string) => h.repos.taskMerges.open('AR', key);
   const settled = () => vi.waitFor(() => expect(h.domain.merges.busy('AR', 'web')).toBe(false));
   async function setup(count = 2, remote = true) {
@@ -80,6 +89,7 @@ describe('merge train execution', () => {
         return passed;
       }),
     };
+    const getEngine = vi.spyOn(LocalEngineDirectory.prototype, 'get');
     h = await createDomainHarness({
       merger,
       fullTestExecutor: executor,
@@ -96,6 +106,8 @@ describe('merge train execution', () => {
         };
       },
     });
+    engines = getEngine.mock.contexts[0] as EngineDirectory;
+    getEngine.mockRestore();
     vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
     peerBusy = true;
     h.domain.merges.registerSlotPeer({ busy: () => peerBusy, pump: () => {} });
@@ -140,6 +152,7 @@ describe('merge train execution', () => {
         expect.objectContaining({ command: reviewTest.command, requireHeavyLock: true }),
         expect.anything(),
         expect.any(Function),
+        expect.objectContaining({ linkWaitMs: 900_000, onLinkWait: expect.any(Function) }),
       );
       expect(merger.push).toHaveBeenCalledTimes(1);
       expect(merger.advance).toHaveBeenCalledTimes(1);
@@ -166,6 +179,111 @@ describe('merge train execution', () => {
       expect(h.repos.mergeTrains.listRunning()).toEqual([]);
     },
   );
+
+  it.each([false, true])(
+    'keeps only member rows waiting during a disconnected group check (started: %s)',
+    async (started) => {
+      await setup();
+      let reconnect!: () => void;
+      let restored: string | undefined;
+      vi.mocked(executor.run).mockImplementationOnce(async (_spec, _signal, onStarted, options) => {
+        if (started) onStarted?.();
+        options!.onLinkWait!(true);
+        await new Promise<void>((resolve) => {
+          reconnect = resolve;
+        });
+        // The engine can replay a start event before attach returns.
+        if (!started) onStarted?.();
+        expect(row('AR-1')?.step).toBe('engine_waiting');
+        options!.onLinkWait!(false);
+        restored = row('AR-1')?.step;
+        return passed;
+      });
+      const save = h.repos.mergeTrains.save;
+      const steps: string[] = [];
+      vi.spyOn(h.repos.mergeTrains, 'save').mockImplementation((train) => {
+        steps.push(train.step);
+        return save(train);
+      });
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.step).toBe('engine_waiting'));
+      expect(row('AR-2')?.step).toBe('engine_waiting');
+      expect(h.repos.mergeTrains.listRunning()[0]?.step).toBe(started ? 'checking' : 'check_waiting');
+      expect(h.domain.merges.busy('AR', 'web')).toBe(true);
+      reconnect();
+      await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+      await settled();
+      expect(restored).toBe('checking');
+      expect(steps).not.toContain('engine_waiting');
+      expect(executor.run).toHaveBeenCalledTimes(1);
+      expect(merger.push).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('restarts a train after a lost check and blocks the sixth loss without splitting', async () => {
+    await setup();
+    vi.mocked(executor.run).mockResolvedValue({ ...passed, outcome: 'error', reason: 'engine_offline' });
+    engines.awaitConnected = vi.fn(async () => 'connected' as const);
+    pump();
+    await vi.waitFor(() => expect(row('AR-1')?.state).toBe('blocked'));
+    await settled();
+    for (const key of ['AR-1', 'AR-2']) {
+      expect(row(key)?.block?.reason).toBe('engine_offline');
+      expect(row(key)?.diagnostic).toBeUndefined();
+    }
+    expect(executor.run).toHaveBeenCalledTimes(6);
+    expect(engines.awaitConnected).toHaveBeenCalledTimes(5);
+    expect(engines.awaitConnected).toHaveBeenCalledWith(expect.anything(), 0, expect.any(AbortSignal));
+    expect(merger.push).not.toHaveBeenCalled();
+  });
+
+  it('restarts a train after a merger call loses its link', async () => {
+    await setup();
+    merger.build.mockRejectedValueOnce(new EngineLinkLostError('disconnected'));
+    let reconnect!: (back: 'connected') => void;
+    engines.awaitConnected = vi.fn(
+      () =>
+        new Promise<'connected'>((resolve) => {
+          reconnect = resolve;
+        }),
+    );
+    pump();
+    await vi.waitFor(() => expect(row('AR-1')?.step).toBe('engine_waiting'));
+    expect(row('AR-2')?.step).toBe('engine_waiting');
+    expect(h.repos.mergeTrains.listRunning()[0]?.step).toBe('merging');
+    reconnect('connected');
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await settled();
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    expect(merger.push).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues individually when the train reservation loses its link', async () => {
+    await setup();
+    merger.prepare.mockRejectedValueOnce(new EngineLinkLostError('disconnected'));
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await settled();
+    expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
+    expect(merger.push).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])('requeues a disconnected train on shutdown (push started: %s)', async (pushing) => {
+    await setup();
+    merger[pushing ? 'push' : 'build'].mockRejectedValueOnce(new EngineLinkLostError('disconnected'));
+    engines.awaitConnected = (_id, _waitMs, signal) =>
+      new Promise((resolve) => signal!.addEventListener('abort', () => resolve('aborted'), { once: true }));
+    pump();
+    await vi.waitFor(() => expect(row('AR-1')?.step).toBe('engine_waiting'));
+    await h.domain.merges.stop();
+    expect(row('AR-1')?.state).toBe(pushing ? 'running' : 'queued');
+    expect(row('AR-2')?.state).toBe(pushing ? 'running' : 'queued');
+    engines.awaitConnected = vi.fn(async () => 'connected' as const);
+    await h.domain.merges.init();
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await settled();
+  });
 
   it('hands every member commit over before it prepares or builds the train (PM-739)', async () => {
     await setup(3);
@@ -324,32 +442,28 @@ describe('merge train execution', () => {
     expect(merger.advance).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    'timeout',
-    'engine_offline',
-    'sandbox_unavailable',
-    'heavy_lock_unavailable',
-    'spawn_failed',
-    'killed',
-  ] as const)('blocks %s without splitting or blaming members', async (reason) => {
-    await setup();
-    vi.mocked(executor.run).mockResolvedValue({
-      ...passed,
-      outcome: 'error',
-      exitCode: 1,
-      reason,
-    });
-    pump();
-    await vi.waitFor(() => expect(row('AR-1')?.state).toBe('blocked'));
-    await settled();
-    expect(merger.push).not.toHaveBeenCalled();
-    expect(merger.advance).not.toHaveBeenCalled();
-    expect(row('AR-1')?.check?.runId).toBe(row('AR-2')?.check?.runId);
-    expect(h.repos.mergeTrains.listRunning()).toEqual([]);
-    expect(row('AR-1')?.block?.message).toContain(reason);
-    expect(row('AR-1')?.diagnostic).toBeUndefined();
-    expect(executor.run).toHaveBeenCalledTimes(1);
-  });
+  it.each(['timeout', 'sandbox_unavailable', 'heavy_lock_unavailable', 'spawn_failed', 'killed'] as const)(
+    'blocks %s without splitting or blaming members',
+    async (reason) => {
+      await setup();
+      vi.mocked(executor.run).mockResolvedValue({
+        ...passed,
+        outcome: 'error',
+        exitCode: 1,
+        reason,
+      });
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.state).toBe('blocked'));
+      await settled();
+      expect(merger.push).not.toHaveBeenCalled();
+      expect(merger.advance).not.toHaveBeenCalled();
+      expect(row('AR-1')?.check?.runId).toBe(row('AR-2')?.check?.runId);
+      expect(h.repos.mergeTrains.listRunning()).toEqual([]);
+      expect(row('AR-1')?.block?.message).toContain(reason);
+      expect(row('AR-1')?.diagnostic).toBeUndefined();
+      expect(executor.run).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it.each([
     [2, [1]],

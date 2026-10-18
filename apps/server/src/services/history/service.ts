@@ -1,0 +1,422 @@
+import {
+  HISTORY_DOC_PATHS,
+  HISTORY_READ_DEFAULT_LINES,
+  HISTORY_SEARCH_DEFAULT_LIMIT,
+  HISTORY_SOURCE_TYPES,
+  HistoryDocumentSnapshot,
+  HistoryReadInput,
+  HistorySearchInput,
+  canSeeTask,
+  memberOf,
+  visibleHistorySource,
+} from '@projectman/shared';
+import type {
+  HistoryDocPath,
+  HistoryDocumentState,
+  HistoryHit,
+  HistoryReference,
+  HistorySearchResult,
+  HistorySourceRead,
+  HistoryText,
+  HistoryViewer,
+  ProjectConfig,
+} from '@projectman/shared';
+import type { EventBus, HistoryConfigSource, HistoryService } from '../../contracts';
+import { historyDocumentEntityId } from '../../db';
+import type { HistoryDocumentRow, HistoryDocStateRow } from '../../db';
+import { DomainError, conflict, forbidden, notFound, unavailable } from '../../kernel';
+import { excerptOf } from './excerpt';
+import { createHistoryIndexer } from './indexer';
+import { QueryError, translateQuery } from './query';
+import { loadRowSource, normalizeAt, relatedOf, taskOfProject } from './sources';
+import type { HistorySourceRepos } from './sources';
+
+type HistoryLogger = {
+  info(obj: object, msg?: string): void;
+  warn(obj: object, msg?: string): void;
+  error(obj: object, msg?: string): void;
+};
+
+export interface HistoryServiceDeps {
+  repos: HistorySourceRepos;
+  /** The project's current configuration: the roster and the registered repositories. */
+  config: HistoryConfigSource;
+  bus?: EventBus;
+  logger: HistoryLogger;
+  now: () => Date;
+  /** The fallback sweep (default 1 s). */
+  sweepMs?: number;
+  /** Rows per backfill page (default 500). */
+  pageSize?: number;
+}
+
+const SWEEP_MS = 1000;
+/** Coalesces the events of one write burst into one index run. */
+const WAKE_MS = 20;
+const WAKE_EVENTS: ReadonlySet<string> = new Set([
+  'task_upserted',
+  'timeline_appended',
+  'inbox_upserted',
+  'team_message',
+  'team_message_updated',
+]);
+
+const invalidRequest = (message: string, details?: unknown) =>
+  new DomainError('invalid_request', message, { status: 422, details });
+
+const issueText = (error: { issues: ReadonlyArray<{ path: PropertyKey[]; message: string }> }) =>
+  error.issues.map((issue) => `${issue.path.join('.') || 'input'}: ${issue.message}`).join('; ');
+
+const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/** The text of a full read: the heading and the body. */
+const fullTextOf = (text: HistoryText) => [text.title, text.body].filter((part) => part !== '').join('\n\n');
+
+export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
+  const { repos, logger } = deps;
+  const history = repos.history;
+  const indexer = createHistoryIndexer({
+    repos,
+    ...(deps.pageSize ? { pageSize: deps.pageSize } : {}),
+    onError: (row, error) =>
+      logger.error(
+        { err: error, projectKey: row.projectKey, sourceType: row.sourceType },
+        'a history source could not be indexed',
+      ),
+  });
+  let ready = false;
+  let stopped = false;
+  let initializing: Promise<void> | null = null;
+  let sweepTimer: ReturnType<typeof setInterval> | null = null;
+  let wakeTimer: ReturnType<typeof setTimeout> | null = null;
+  let unsubscribe: (() => void) | null = null;
+
+  const nowIso = () => deps.now().toISOString();
+
+  function flush(): void {
+    if (!ready) return;
+    try {
+      indexer.drain();
+    } catch (error) {
+      logger.error({ err: error }, 'the history index could not follow the sources');
+    }
+  }
+
+  function wake(): void {
+    if (wakeTimer || stopped) return;
+    wakeTimer = setTimeout(() => {
+      wakeTimer = null;
+      flush();
+    }, WAKE_MS);
+    wakeTimer.unref?.();
+  }
+
+  async function backfill(): Promise<void> {
+    for (const projectKey of history.projectKeys()) {
+      while (!indexer.backfillStep(projectKey)) {
+        if (stopped) return;
+        await yieldToLoop();
+      }
+    }
+    indexer.drain();
+    ready = true;
+  }
+
+  async function init(): Promise<void> {
+    if (ready) return;
+    initializing ??= backfill()
+      .catch((error: unknown) => {
+        logger.error({ err: error }, 'the history index could not be prepared');
+      })
+      .finally(() => {
+        initializing = null;
+      });
+    await initializing;
+    if (stopped) return;
+    sweepTimer ??= setInterval(() => {
+      if (ready) flush();
+      else void init();
+    }, deps.sweepMs ?? SWEEP_MS);
+    sweepTimer.unref?.();
+    if (deps.bus && !unsubscribe)
+      unsubscribe = deps.bus.subscribe((event) => {
+        if (WAKE_EVENTS.has(event.type)) wake();
+      });
+  }
+
+  function ensureUsable(projectKey: string): ProjectConfig {
+    if (!ready) throw unavailable('history_unavailable', 'the history index is not ready');
+    const config = deps.config(projectKey);
+    // An unknown project is as unreachable as one the viewer is not in: the answer must not tell them apart.
+    if (!config) throw forbidden('insufficient_access', 'not a member of the project');
+    const state = history.indexState(projectKey);
+    if (!state) indexer.markEmptyProjectComplete(projectKey);
+    else if (!state.complete) throw unavailable('history_unavailable', 'the history index is not complete');
+    return config;
+  }
+
+  /** The viewer as the current roster knows them: their access is never taken from the caller. */
+  function viewerOf(config: ProjectConfig, viewer: HistoryViewer): HistoryViewer {
+    const member = memberOf(config, viewer.handle);
+    if (!member) throw forbidden('insufficient_access', 'not a member of the project');
+    return {
+      handle: member.handle,
+      access: member.kind === 'ai' ? 'ai' : member.access,
+      ...(viewer.via ? { via: viewer.via } : {}),
+    };
+  }
+
+  function documentStates(config: ProjectConfig): HistoryDocumentState[] {
+    const stored = new Map(
+      history.docStates(config.project.key).map((state) => [`${state.repo}\u0000${state.path}`, state]),
+    );
+    return config.project.repos.flatMap((repo) =>
+      HISTORY_DOC_PATHS.map((path): HistoryDocumentState => {
+        const state = stored.get(`${repo.name}\u0000${path}`);
+        return {
+          repo: repo.name,
+          path,
+          commit: state?.commitSha ?? null,
+          checkedAt: state?.checkedAt ?? null,
+          indexedAt: state?.indexedAt ?? null,
+          status: state?.status ?? 'pending',
+        };
+      }),
+    );
+  }
+
+  function referenceOf(projectKey: string, row: HistoryDocumentRow, line: number): HistoryReference {
+    if (row.sourceType === 'task' && row.taskKey)
+      return { tool: 'get_task', arguments: { project_key: projectKey, task_key: row.taskKey } };
+    if (row.sourceType === 'note' && row.taskKey)
+      return {
+        tool: 'get_task',
+        arguments: { project_key: projectKey, task_key: row.taskKey, event_id: row.entityId },
+      };
+    return {
+      tool: 'read_history_source',
+      arguments: {
+        project_key: projectKey,
+        source_id: row.sourceId,
+        ...(row.sourceType === 'document' && row.commitSha ? { from_line: line, commit: row.commitSha } : {}),
+      },
+    };
+  }
+
+  function search(
+    projectKey: string,
+    viewerIn: HistoryViewer,
+    rawInput: HistorySearchInput,
+  ): HistorySearchResult {
+    const parsed = HistorySearchInput.safeParse(rawInput);
+    if (!parsed.success) throw invalidRequest(issueText(parsed.error));
+    const input = parsed.data;
+    const config = ensureUsable(projectKey);
+    const viewer = viewerOf(config, viewerIn);
+    let translated;
+    try {
+      translated = translateQuery(input.query);
+    } catch (error) {
+      if (error instanceof QueryError) throw invalidRequest(error.message);
+      throw error;
+    }
+    flush();
+    if (input.taskKey) {
+      const task = taskOfProject(repos, projectKey, input.taskKey);
+      if (!task || !canSeeTask(viewer, task)) throw notFound('task', input.taskKey);
+    }
+    // A client never reads a document, so none is scanned for them.
+    const requested = (input.sourceTypes ?? HISTORY_SOURCE_TYPES).filter(
+      (type) => viewer.access !== 'client' || type !== 'document',
+    );
+    const wantsDocuments = requested.includes('document');
+    const limit = input.limit ?? HISTORY_SEARCH_DEFAULT_LIMIT;
+    const matches: HistoryHit[] = [];
+    let hasMore = false;
+    if (requested.length > 0) {
+      const related = relatedOf(repos, projectKey);
+      const rows = history.scan({
+        match: translated.match,
+        projectKey,
+        sourceTypes: requested,
+        ...(input.taskKey ? { taskKey: input.taskKey } : {}),
+        ...(input.since ? { since: normalizeAt(input.since) } : {}),
+        ...(input.until ? { until: normalizeAt(input.until) } : {}),
+      });
+      try {
+        for (const row of rows) {
+          const source = loadRowSource(repos, row);
+          const visible = source && visibleHistorySource(viewer, source, related);
+          // The index copy must be the text the viewer may read: a match in anything else is no hit.
+          if (!visible || visible.title !== row.title || visible.body !== row.body) continue;
+          if (matches.length === limit) {
+            hasMore = true;
+            break;
+          }
+          const { excerpt, line } = excerptOf(visible.title, visible.body, translated.terms);
+          matches.push({
+            sourceId: row.sourceId,
+            sourceType: row.sourceType,
+            taskKey: row.taskKey,
+            author: row.author,
+            at: row.at,
+            excerpt,
+            reference: referenceOf(projectKey, row, line),
+            ...(row.sourceType === 'document' && row.repo && row.path && row.commitSha
+              ? { document: { repo: row.repo, path: row.path, commit: row.commitSha, line } }
+              : {}),
+          });
+        }
+      } finally {
+        rows.return?.();
+      }
+    }
+    return {
+      projectKey,
+      matches,
+      hasMore,
+      documents: viewer.access === 'client' || !wantsDocuments ? [] : documentStates(config),
+    };
+  }
+
+  function read(
+    projectKey: string,
+    viewerIn: HistoryViewer,
+    rawInput: { sourceId: string; fromLine?: number; lineCount?: number; commit?: string },
+  ): HistorySourceRead {
+    const parsed = HistoryReadInput.safeParse(rawInput);
+    if (!parsed.success) throw invalidRequest(issueText(parsed.error));
+    const input = parsed.data;
+    const config = ensureUsable(projectKey);
+    const viewer = viewerOf(config, viewerIn);
+    flush();
+    const row = history.documentBySourceId(projectKey, input.sourceId);
+    const source = row && loadRowSource(repos, row);
+    const visible = row && source && visibleHistorySource(viewer, source, relatedOf(repos, projectKey));
+    if (!row || !visible) throw notFound('history source', input.sourceId);
+    if (input.commit !== undefined) {
+      if (row.sourceType !== 'document') throw invalidRequest('commit applies to a document only');
+      if (row.commitSha !== input.commit)
+        throw conflict('history_source_changed', 'the document copy changed since the search', {
+          sourceId: row.sourceId,
+        });
+    }
+    const text = fullTextOf(visible);
+    const lines = text === '' ? [] : text.split('\n');
+    const fromLine = input.fromLine ?? 1;
+    if (fromLine > Math.max(lines.length, 1))
+      throw invalidRequest(`fromLine ${fromLine} is beyond the last of ${lines.length} lines`);
+    const count = input.lineCount ?? HISTORY_READ_DEFAULT_LINES;
+    return {
+      projectKey,
+      sourceId: row.sourceId,
+      sourceType: row.sourceType,
+      taskKey: row.taskKey,
+      author: row.author,
+      at: row.at,
+      fromLine,
+      totalLines: lines.length,
+      text: lines.slice(fromLine - 1, fromLine - 1 + count).join('\n'),
+      ...(row.sourceType === 'document' && row.repo && row.path && row.commitSha
+        ? { document: { repo: row.repo, path: row.path, commit: row.commitSha } }
+        : {}),
+    };
+  }
+
+  function replaceDocuments(rawInput: HistoryDocumentSnapshot): void {
+    const parsed = HistoryDocumentSnapshot.safeParse(rawInput);
+    if (!parsed.success) throw invalidRequest(issueText(parsed.error));
+    const { projectKey, repo, commit, files } = parsed.data;
+    const checkedAt = normalizeAt(parsed.data.checkedAt);
+    history.transaction(() => {
+      for (const file of files) {
+        const entityId = historyDocumentEntityId(repo, file.path);
+        const current = history.documentOfEntity(projectKey, 'document', entityId);
+        if (file.text === null || file.text === '') {
+          history.deleteDocument(projectKey, 'document', entityId);
+          history.putDocState({
+            projectKey,
+            repo,
+            path: file.path,
+            commitSha: commit,
+            checkedAt,
+            indexedAt: file.text === null ? null : checkedAt,
+            status: file.text === null ? 'missing' : 'ready',
+          });
+          continue;
+        }
+        // The same text keeps its indexing time: only the commit and the check time move on.
+        const unchanged = current !== null && current.body === file.text;
+        const indexedAt = unchanged ? current.at : nowIso();
+        history.upsertDocument({
+          projectKey,
+          sourceType: 'document',
+          entityId,
+          taskKey: null,
+          author: null,
+          at: indexedAt,
+          title: '',
+          body: file.text,
+          repo,
+          path: file.path,
+          commitSha: commit,
+        });
+        history.putDocState({
+          projectKey,
+          repo,
+          path: file.path,
+          commitSha: commit,
+          checkedAt,
+          indexedAt,
+          status: 'ready',
+        });
+      }
+    });
+  }
+
+  function markDocumentsUnavailable(projectKey: string, repo: string, checkedAtIn: string): void {
+    const checkedAt = normalizeAt(checkedAtIn);
+    history.transaction(() => {
+      for (const path of HISTORY_DOC_PATHS as readonly HistoryDocPath[]) {
+        const current = history.documentOfEntity(projectKey, 'document', historyDocumentEntityId(repo, path));
+        const state: HistoryDocStateRow | null = history.docState(projectKey, repo, path);
+        history.putDocState({
+          projectKey,
+          repo,
+          path,
+          commitSha: current ? (current.commitSha ?? state?.commitSha ?? null) : null,
+          checkedAt,
+          indexedAt: current ? (state?.indexedAt ?? current.at) : null,
+          status: current ? 'stale' : 'unavailable',
+        });
+      }
+    });
+  }
+
+  function removeRepositoryDocuments(projectKey: string, repo: string): void {
+    history.transaction(() => history.deleteRepositoryDocuments(projectKey, repo));
+  }
+
+  async function stop(): Promise<void> {
+    stopped = true;
+    ready = false;
+    if (sweepTimer) clearInterval(sweepTimer);
+    if (wakeTimer) clearTimeout(wakeTimer);
+    sweepTimer = null;
+    wakeTimer = null;
+    unsubscribe?.();
+    unsubscribe = null;
+    await initializing;
+  }
+
+  return {
+    init,
+    flush,
+    stop,
+    search,
+    read,
+    replaceDocuments,
+    markDocumentsUnavailable,
+    removeRepositoryDocuments,
+  };
+}

@@ -19,6 +19,7 @@ export * from './administration';
 export * from './machine';
 export * from './email-login';
 export * from './task-scheduling';
+export * from './history';
 
 export * from './claude-rules';
 export * from './sandbox';

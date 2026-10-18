@@ -571,6 +571,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
         join(gitDir, 'packed-refs.lock'),
         // A replacement or graft would change what the default branch shows without moving it.
         join(gitDir, 'refs/replace'),
+        join(gitDir, 'refs/projectman'),
         join(gitDir, 'info/grafts'),
       ],
       // The app home is not below the user's home here, so it is closed on its own; the credentials

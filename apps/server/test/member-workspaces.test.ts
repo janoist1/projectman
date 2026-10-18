@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { LOCAL_ENGINE_ID } from '@projectman/shared';
-import type { ProjectConfig } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { aiActor } from '../src/kernel';
+import { aiActor, newId } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -516,6 +516,113 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     await expect(h.domain.sessions.prepareMergeSource(config, task, 'f'.repeat(40))).rejects.toMatchObject({
       code: 'workspace_source_missing',
     });
+  });
+
+  it('restarts a hybrid merger in its fix checkout, releases the old scope and ignores clone reservations and review refreshes', async () => {
+    const liveProcesses = new Set([1002]);
+    await setup({
+      liveProcesses,
+      adjust(config) {
+        twoTasks(config);
+        config.project.repos[0]!.requireMerge = true;
+        config.team.merger = { kind: 'member', handle: 'cr' };
+        config.pipeline.stages = config.pipeline.stages.filter(
+          (stage) => stage.id !== 'merge' && stage.id !== 'release',
+        );
+        config.pipeline.stages.find((stage) => stage.id === 'done')!.gate = {
+          conditions: [{ type: 'has_label', label: 'code-review-ok' }],
+        };
+        const reviewer = config.team.members.find((m) => m.handle === 'cr')!;
+        if (reviewer.kind === 'ai') {
+          reviewer.role = 'lead_developer';
+          reviewer.permissionMode = 'auto';
+        }
+      },
+    });
+    vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
+    scopeStarts();
+    vi.spyOn(h.runner, 'stop').mockImplementation(async (sessionId) => {
+      h.runner.stopped.push(sessionId);
+      h.runner.emit({
+        type: 'exit',
+        sessionId,
+        exitCode: 0,
+        signal: null,
+        cleanup: scopeCleanup('scp_0123456789abcdef', 'clean'),
+      });
+    });
+    await startTask('AR-1', 'dev-1');
+    const approved = await commitFile(await workspaceOf('dev-1'), 'login.txt', 'approved\n');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await startedCount(2);
+    const review = h.runner.lastStarted();
+    const pin = h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1').find((b) => b.kind === 'review')!;
+    expect(review.member).toBe('cr');
+    expect(h.repos.memberWorkspaces.heldBy(review.sessionId)[0]?.holder).toMatchObject({
+      pid: 1002,
+      scopeId: 'scp_0123456789abcdef',
+    });
+    h.runner.setState(review.sessionId, 'working');
+    const now = new Date().toISOString();
+    h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { labels: ['code-review-ok'] });
+    h.repos.taskMerges.save({
+      id: newId('merge'),
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      repo: 'web',
+      base: 'main',
+      commit: approved,
+      branch: 'AR-1-login-page',
+      fromStageId: 'code_review',
+      toStageId: 'done',
+      merger: 'cr',
+      requestedAt: now,
+      state: 'fixing',
+      landed: 'nowhere',
+      createdAt: now,
+      updatedAt: now,
+      fix: { by: 'cr', base: initial, branch: 'merge-fix/AR-1', startedAt: now },
+    });
+    h.runner.setState(review.sessionId, 'idle');
+    await startedCount(3);
+    const fixer = h.runner.lastStarted();
+    expect(fixer).toMatchObject({
+      sessionId: review.sessionId,
+      policy: { placement: { kind: 'task_worktree', mergeFix: { branch: 'merge-fix/AR-1' } } },
+    });
+    expect(fixer.cwd).toContain('_merge-fix');
+    expect(fixer.policy?.filesystem.writableRoots).toContain(fixer.cwd);
+    expect(h.repos.memberWorkspaces.heldBy(fixer.sessionId)).toHaveLength(0);
+    expect(h.repos.memberWorkspaces.get(pin.workspaceId)?.holder).toBeNull();
+
+    // The merger can review another task in its clone while the fix session uses the worktree.
+    await ensure('cr', 'AR-2');
+    const other = h.runner.lastStarted();
+    h.runner.setState(other.sessionId, 'working');
+    const config = await h.domain.projects.config('AR');
+    const member = config.team.members.find((m) => m.handle === 'cr') as AiMemberConfig;
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    expect(() =>
+      h.domain.sessions.assertWorkspaceFree(config, member, { ...task, merge: undefined }),
+    ).toThrow(expect.objectContaining({ code: 'workspace_busy' }));
+    expect(() => h.domain.sessions.assertWorkspaceFree(config, member, task)).not.toThrow();
+    await h.domain.sessions.stop('AR', fixer.sessionId);
+    await ensure('cr', 'AR-1');
+    expect(h.runner.lastStarted()).toMatchObject({ sessionId: fixer.sessionId, cwd: fixer.cwd });
+    expect(h.repos.memberWorkspaces.heldBy(fixer.sessionId)).toHaveLength(0);
+    expect(h.repos.memberWorkspaces.heldBy(other.sessionId)).toHaveLength(1);
+
+    h.domain.sessions.requestReviewRound('AR', 'AR-1', 'cr');
+    const current = h.domain.sessions.get('AR', fixer.sessionId);
+    expect(h.domain.sessions.reviewRoundDue({ ...current, cwd: review.cwd })).toBe(true);
+    expect(h.domain.sessions.reviewRoundDue(current)).toBe(false);
+    const starts = h.runner.started.length;
+    h.runner.setState(fixer.sessionId, 'idle');
+    await flush();
+    expect(h.runner.started).toHaveLength(starts);
+    expect(
+      h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1').find((b) => b.kind === 'review'),
+    ).toMatchObject({ ...pin, refresh: true });
   });
 
   it('still reads a round pinned before PM-739 directly on the developer workspace', async () => {

@@ -145,6 +145,38 @@ describe('provider-neutral session policy', () => {
     },
   );
 
+  it('protects server-managed workspace snapshot refs in both provider sandboxes', () => {
+    const p = policy('developer', {
+      kind: 'task_worktree',
+      path: source,
+      gitDir: sharedGit,
+      worktreeGitDir: `${sharedGit}/worktrees/fix`,
+    });
+    const sandbox = sessionSandbox(p, { userHome: '/fictional/user', defaultBranch: 'main' })!;
+    const snapshots = `${sharedGit}/refs/projectman`;
+    expect(sandbox.denyWrite).toContain(snapshots);
+    const settings = buildSettings({
+      hookUrl: 'http://fake/hooks',
+      permissionTimeoutMs: 1000,
+      allowedTools: [],
+      policy: p,
+      sandbox,
+    });
+    expect(settings.sandbox?.filesystem.denyWrite).toContain(snapshots);
+    expect(settings.permissions.deny).toContain(`Edit(/${snapshots}/**)`);
+    const s = { ...spec(p, false), sandbox };
+    const args = buildCodexArgs({
+      spec: s,
+      realCwd: s.cwd,
+      hookUrl: 'http://fake/hooks',
+      permissionTimeoutMs: 1000,
+    }).args;
+    const profile = codexOverrides(args).get('permissions.projectman');
+    expect(profile).toContain(`"${sharedGit}/refs"="write"`);
+    expect(profile).toContain(`"${snapshots}"="read"`);
+    expect(profile).not.toContain(`"${snapshots}"="write"`);
+  });
+
   it('does not share denied member directories or give readers member-cache writes', () => {
     const memberDir = '/fictional/app/member-caches/PM/dev';
     const p = development();

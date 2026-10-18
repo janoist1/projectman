@@ -311,10 +311,6 @@ export class SessionLauncher {
     let ws: WorkspacePlacement | null = null;
     const mergeFix = isMergeFixer(task?.merge, member.handle);
     if (mergeFix && task && repoName) {
-      if (workspaces)
-        throw conflict('merge_fix_not_allowed', 'merge fixes require task worktree mode', {
-          reason: 'member_workspaces',
-        });
       if (engineId !== this.host.cardEngineId(projectKey, task))
         throw conflict('merge_fix_engine_mismatch', 'merge fix must run on the card engine');
       placed = await this.mergeCards.run(projectKey, task.key, async () => {

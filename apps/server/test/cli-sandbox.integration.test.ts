@@ -110,6 +110,7 @@ it(
             expect.stringMatching(new RegExp(`/\\.git/${file}\\.lock$`)),
           ]),
           expect.stringMatching(/\/\.git\/refs\/replace$/),
+          expect.stringMatching(/\/\.git\/refs\/projectman$/),
           expect.stringMatching(/\/\.git\/info\/grafts$/),
         ],
         denyRead: [userHome, home, ...denyRead],

@@ -1,5 +1,6 @@
 import {
   effectiveRepo,
+  isMergeFixer,
   isOpenTask,
   isWorkingOnTask,
   roleSessionAccess,
@@ -111,6 +112,7 @@ export class MemberWorkspaces {
 
   /** Admission: refuses with `workspace_busy` while another task's live session holds the workspace. */
   check(config: ProjectConfig, member: AiMemberConfig, task: Task): void {
+    if (isMergeFixer(task.merge, member.handle)) return;
     if (!this.kindFor(config, member, task)) return;
     const repo = effectiveRepo(config, task)!;
     const record = this.ctx.repos.memberWorkspaces.find(config.project.key, member.handle, repo);
@@ -255,7 +257,7 @@ export class MemberWorkspaces {
    * still in a turn wait (they are not typed into the old round) until it idles and restarts.
    */
   roundDue(session: Session): boolean {
-    if (session.workItem.type !== 'task') return false;
+    if (session.workItem.type !== 'task' || !this.isWorkspacePath(session.cwd)) return false;
     return this.ctx.repos.memberWorkspaces
       .bindingsOfTask(session.projectKey, session.workItem.taskKey)
       .some((b) => b.member === session.member && b.kind === 'review' && b.refresh);

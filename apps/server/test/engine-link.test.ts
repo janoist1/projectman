@@ -391,9 +391,9 @@ describe('cloud engine registry and link', () => {
     expect(h.app.projectman.engineRegistry!.status()[0]!.online).toBe(false);
   });
 
-  it('throttles last-seen writes and terminates engines without a pong for 45 seconds', async () => {
+  it('throttles last-seen writes on pongs', async () => {
     const engine = await create();
-    const connected = await handshake(engine.key);
+    await handshake(engine.key);
     const at = Date.now();
     const seen = vi.spyOn(h.app.projectman.repos.engines, 'seen');
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -404,12 +404,131 @@ describe('cloud engine registry and link', () => {
     vi.setSystemTime(at + 61_000);
     server.emit('pong');
     expect(seen).toHaveBeenCalledTimes(1);
-    const heartbeat = intervals.mock.calls.find((args) => args[1] === 20_000)?.[0];
-    expect(typeof heartbeat).toBe('function');
-    vi.setSystemTime(at + 106_001);
-    if (typeof heartbeat === 'function') heartbeat();
-    expect(h.app.projectman.engineLinks!.get(engine.engine.id)).toBeNull();
+  });
+
+  describe('heartbeat', () => {
+    type ServerSocket = {
+      emit(event: 'pong'): void;
+      emit(event: 'message', data: Buffer, binary: boolean): void;
+      ping: () => void;
+    };
+    /** A connected engine, a faked clock and the cloud's heartbeat pulse; time is `at + offset`. */
+    const arrange = async () => {
+      const engine = await create();
+      await handshake(engine.key);
+      const at = Date.now();
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const server = [...h.app.websocketServer.clients][0] as unknown as ServerSocket;
+      const ping = vi.spyOn(server, 'ping');
+      const beat = intervals.mock.calls.find((args) => args[1] === 20_000)?.[0];
+      if (typeof beat !== 'function') throw new Error('The heartbeat interval was not registered');
+      return {
+        server,
+        ping,
+        online: () => h.app.projectman.engineLinks!.get(engine.engine.id) !== null,
+        pulse: (offset: number) => {
+          vi.setSystemTime(at + offset);
+          beat();
+        },
+        hear: (offset: number) => {
+          vi.setSystemTime(at + offset);
+          server.emit(
+            'message',
+            Buffer.from(encodeFrame({ t: 'term', sessionId: 'ses_x', data: 'x' })),
+            false,
+          );
+        },
+      };
+    };
+
+    it('keeps a link that sends frames but no pongs beyond 90 seconds', async () => {
+      const link = await arrange();
+      for (let offset = 20_000; offset <= 400_000; offset += 20_000) {
+        link.hear(offset - 1);
+        link.pulse(offset);
+        expect(link.online(), `at ${offset}`).toBe(true);
+      }
+    });
+
+    it('drops a link with neither pong nor frame after 90 seconds and three unanswered pings', async () => {
+      const link = await arrange();
+      for (const offset of [20_000, 40_000, 60_000, 80_000]) {
+        link.pulse(offset);
+        expect(link.online(), `at ${offset}`).toBe(true);
+      }
+      expect(link.ping).toHaveBeenCalledTimes(4);
+      link.pulse(100_000);
+      expect(link.online()).toBe(false);
+      expect(link.ping).toHaveBeenCalledTimes(4);
+    });
+
+    it('does not drop a live link after a pong or frame resets the count', async () => {
+      const link = await arrange();
+      link.pulse(20_000);
+      link.pulse(40_000);
+      link.pulse(60_000);
+      link.server.emit('pong');
+      link.pulse(120_000);
+      link.pulse(140_000);
+      expect(link.online()).toBe(true);
+    });
+
+    it('does not drop on a late pulse before three pings went out', async () => {
+      const link = await arrange();
+      link.pulse(300_000);
+      link.pulse(320_000);
+      link.pulse(340_000);
+      expect(link.online()).toBe(true);
+      expect(link.ping).toHaveBeenCalledTimes(3);
+      link.pulse(360_000);
+      expect(link.online()).toBe(false);
+    });
+  });
+
+  it('logs the link coming up and going down at info level with code and cause', async () => {
+    await h.close();
+    h = await createAppHarness({
+      now: () => new Date(),
+      app: {
+        engineMode: 'cloud',
+        appVersion: 'test-version',
+        claudeTmpRoots: [],
+        logger: { level: 'info', stream: { write: (line: string) => logs.push(line) } },
+      },
+    });
+    cookie = await setupOwner(h.app);
+    const engine = await create();
+    const connected = await handshake(engine.key);
+    const entries = () => logs.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(entries().find((entry) => entry.msg === 'engine link: connected')).toMatchObject({
+      level: 30,
+      engineId: engine.engine.id,
+      resumed: false,
+      version: 'test-version',
+    });
     connected.ws.terminate();
+    await vi.waitFor(() =>
+      expect(entries().find((entry) => entry.msg === 'engine link: disconnected')).toMatchObject({
+        level: 30,
+        engineId: engine.engine.id,
+        cause: 'closed',
+      }),
+    );
+    expect(logs.join('')).not.toContain(engine.key);
+    const second = await handshake(engine.key);
+    const at = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // The newest heartbeat interval belongs to the harness rebuilt above.
+    const beat = intervals.mock.calls.filter((args) => args[1] === 20_000).at(-1)?.[0];
+    if (typeof beat !== 'function') throw new Error('The heartbeat interval was not registered');
+    for (const offset of [20_000, 40_000, 60_000, 80_000, 100_000]) {
+      vi.setSystemTime(at + offset);
+      beat();
+    }
+    const dropped = entries().filter((entry) => entry.msg === 'engine link: disconnected');
+    expect(dropped.at(-1)).toMatchObject({ code: 4400, cause: 'heartbeat' });
+    expect(dropped.at(-1)!.sinceHeardMs as number).toBeGreaterThanOrEqual(100_000);
+    second.ws.terminate();
   });
 
   it('uses boot identity for resumption while retaining engine-scoped RPC results', async () => {

@@ -324,6 +324,8 @@ describe('engine link handshake recovery', () => {
         socket.readyState = 1;
         events.dispatchEvent(new Event('open'));
       },
+      message: (frame: object) =>
+        events.dispatchEvent(Object.assign(new Event('message'), { data: JSON.stringify(frame) })),
       welcome: () =>
         events.dispatchEvent(
           Object.assign(new Event('message'), {
@@ -338,7 +340,13 @@ describe('engine link handshake recovery', () => {
     };
   };
 
-  const make = () => {
+  const fakeLogger = () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    return { log, logger: log as unknown as typeof logger };
+  };
+
+  const make = (useLogger: typeof logger = logger) => {
+    const buffer = createEngineEventBuffer();
     const sockets: ReturnType<typeof manualSocket>[] = [];
     const createSocket = vi.fn(() => {
       const created = manualSocket();
@@ -366,14 +374,23 @@ describe('engine link handshake recovery', () => {
       hello,
       register,
       onRefused: () => undefined,
-      buffer: createEngineEventBuffer(),
+      buffer,
       status,
-      logger,
+      logger: useLogger,
       createSocket,
       random: () => 1 - Number.EPSILON,
     });
     client.start();
-    return { sockets, createSocket, hello, register, status };
+    return { sockets, createSocket, hello, register, status, buffer };
+  };
+
+  /** A welcomed link on the first socket. */
+  const connectFirst = async (useLogger: typeof logger = logger) => {
+    const made = make(useLogger);
+    made.sockets[0]!.open();
+    await vi.advanceTimersByTimeAsync(0);
+    made.sockets[0]!.welcome();
+    return made;
   };
 
   beforeEach(() => {
@@ -473,6 +490,73 @@ describe('engine link handshake recovery', () => {
     expect(client.connected()).toBe(false);
     await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
     expect(createSocket).toHaveBeenCalledTimes(2);
+  });
+
+  describe('silent link watchdog', () => {
+    it('reports link_silent only on the second silent tick in a row', async () => {
+      const { sockets, buffer, status } = await connectFirst();
+      buffer.emit(pendingInput('ses_a'));
+      await vi.advanceTimersByTimeAsync(100_000);
+      expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(sockets[0]!.socket.close).toHaveBeenCalledExactlyOnceWith(4000, 'silent');
+      expect(status.get().lastError?.code).toBe('link_silent');
+    });
+
+    it('does not drop the link when frames arrive after one late tick', async () => {
+      const { sockets, buffer } = await connectFirst();
+      buffer.emit(pendingInput('ses_a'));
+      await vi.advanceTimersByTimeAsync(100_000);
+      sockets[0]!.message({ t: 'ack', seq: 0 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
+    });
+
+    it('counts consecutive ticks only', async () => {
+      const { sockets, buffer } = await connectFirst();
+      await vi.advanceTimersByTimeAsync(100_000);
+      buffer.emit(pendingInput('ses_a'));
+      // The first silent tick, then nothing pending again: the count starts over.
+      await vi.advanceTimersByTimeAsync(20_000);
+      buffer.acknowledge(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      buffer.emit(pendingInput('ses_b'));
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('info log', () => {
+    it('logs the connection and the disconnection with the time away and no secret', async () => {
+      const { log, logger: fake } = fakeLogger();
+      const { sockets, createSocket } = await connectFirst(fake);
+      expect(log.info).toHaveBeenCalledWith({ attempts: 1, downForMs: null }, 'engine link: connected');
+      await vi.advanceTimersByTimeAsync(5_000);
+      sockets[0]!.close(1006);
+      expect(log.info).toHaveBeenCalledWith(
+        { code: 1006, connectedForMs: 5_000, pendingEvents: 0 },
+        'engine link: disconnected',
+      );
+      await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
+      expect(createSocket).toHaveBeenCalledTimes(2);
+      sockets[1]!.open();
+      await vi.advanceTimersByTimeAsync(0);
+      sockets[1]!.welcome();
+      expect(log.info).toHaveBeenLastCalledWith(
+        { attempts: 2, downForMs: ENGINE_BACKOFF_MIN_MS },
+        'engine link: connected',
+      );
+      expect(JSON.stringify(log.info.mock.calls)).not.toContain(KEY);
+      expect(JSON.stringify(log.info.mock.calls)).not.toContain('127.0.0.1');
+    });
+
+    it('logs nothing at info level for a handshake that never got a welcome', async () => {
+      const { log, logger: fake } = fakeLogger();
+      const { sockets } = make(fake);
+      sockets[0]!.error();
+      await vi.advanceTimersByTimeAsync(ENGINE_HANDSHAKE_TIMEOUT_MS);
+      expect(log.info).not.toHaveBeenCalled();
+    });
   });
 
   it.each([4403, 4410])('stops permanently on close code %s before welcome', async (code) => {

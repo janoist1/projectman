@@ -46,6 +46,10 @@ export default async ({ instance, open, shoot, step }) => {
     await page.reload();
     await page.getByText('pmi_super_demo…', { exact: true }).waitFor();
     await shoot(page, 'super-active', options);
+    await shoot(page, 'super-active-legacy', {
+      ...options,
+      highlight: 'li:has(code:has-text("pmi_legacy_demo"))',
+    });
     await page.getByRole('button', { name: hu.integratorKey.new, exact: true }).click();
     await shoot(page, 'super-create', options);
     await page
@@ -181,7 +185,7 @@ export default async ({ instance, open, shoot, step }) => {
           id: 'legacy_event',
           actor: { kind: 'human', handle: 'owner', via: 'integrator' },
           type: 'task_note',
-          data: { note: 'Historical record' },
+          data: { text: 'Historical record' },
         },
       ];
       await route.fulfill({ response, json: body });
@@ -189,6 +193,7 @@ export default async ({ instance, open, shoot, step }) => {
     await page.goto(`${new URL(page.url()).origin}/p/AC/tasks/AC-1/timeline`);
     await page.getByRole('button', { name: hu.superMode.badge, exact: true }).first().click();
     await page.getByText('pmi_super_demo…', { exact: true }).first().waitFor();
+    await page.locator('#timeline-handoff_event').scrollIntoViewIfNeeded();
     await shoot(page, 'super-timeline', options);
     await page.route('**/api/projects/AC/config', async (route) => {
       const response = await route.fetch();

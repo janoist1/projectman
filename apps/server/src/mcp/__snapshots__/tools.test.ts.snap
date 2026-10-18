@@ -1540,6 +1540,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "minimum": 0,
                           "type": "integer",
                         },
+                        "obligationMinutes": {
+                          "maximum": 1440,
+                          "minimum": 5,
+                          "type": "integer",
+                        },
                         "pauseAbovePlanUsagePercent": {
                           "maximum": 100,
                           "minimum": 10,
@@ -3044,6 +3049,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "minFreeDiskGb": {
                             "maximum": 10000,
                             "minimum": 0,
+                            "type": "integer",
+                          },
+                          "obligationMinutes": {
+                            "maximum": 1440,
+                            "minimum": 5,
                             "type": "integer",
                           },
                           "pauseAbovePlanUsagePercent": {
@@ -4632,6 +4642,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 "minFreeDiskGb": {
                                   "maximum": 10000,
                                   "minimum": 0,
+                                  "type": "integer",
+                                },
+                                "obligationMinutes": {
+                                  "maximum": 1440,
+                                  "minimum": 5,
                                   "type": "integer",
                                 },
                                 "pauseAbovePlanUsagePercent": {

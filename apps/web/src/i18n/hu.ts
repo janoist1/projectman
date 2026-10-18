@@ -3840,6 +3840,7 @@ export const hu = {
       assignee_changed: 'Tárgytalan: a kártya új felelőst kapott',
       withdrawn: 'Visszavonta',
       group_withdrawn: 'Minden kérdező visszavonta',
+      obligation_closed: 'Tárgytalan: a lépés közben elkészült vagy megszűnt',
       operator_moot: 'Tárgytalan: az Operátor szerint',
       todo_done: 'Megcsináltad',
       todo_cannot: 'Nem csinálod meg',
@@ -3863,6 +3864,7 @@ export const hu = {
       assignee_changed: 'Új felelőse lett a kártyának',
       withdrawn: 'Visszavonták',
       group_withdrawn: 'Minden kérdező visszavonta',
+      obligation_closed: 'A lépés közben elkészült vagy megszűnt',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -3901,6 +3903,7 @@ export const hu = {
       assignee_changed: 'a kártya új felelőst kapott',
       withdrawn: 'a kérdező visszavonta',
       group_withdrawn: 'minden kérdező visszavonta',
+      obligation_closed: 'a lépés közben elkészült vagy megszűnt',
       operator_moot: 'az Operátor szerint tárgytalan',
     },
     /** The card of a question that closed while the viewer was answering it (PM-556). */
@@ -4329,6 +4332,15 @@ export const hu = {
     fullMessage: 'Teljes üzenet',
     labelsAdded: 'Rátette: {labels}',
     labelsRemoved: 'Levette: {labels}',
+    /** The step an obligation stands for (PM-806), in the middle of the timeline rows. */
+    obligationSteps: {
+      merge: 'beolvasztás',
+      fix_limit: 'javítási korlát döntése',
+      refinement_turn: 'kidolgozási kör',
+      review_step: 'átnézési lépés',
+      work: 'munka',
+      step: 'lépés',
+    },
     refinement: {
       started: {
         member: 'Kidolgozás indult: {member} soron, „{label}”',
@@ -4540,6 +4552,10 @@ export const hu = {
         'A javítási körök határáról szóló döntés az integrátortól a tulajdonoshoz került: 24 óráig nem döntött.',
       fix_limit_recipient_escalated_passed_on:
         'Az integrátor a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
+      obligation_woken:
+        'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
+      obligation_handed_over:
+        'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért teendő lett belőle ({minutes} perc).',
       integrator_todo_done: 'Lezárta a teendőt: megcsinálta.',
       integrator_todo_cannot: 'Lezárta a teendőt: nem csinálta meg. Indoka: „{note}”',
       question_screened_todo_recorded: 'Teendőként továbbengedte neked: {note} Hiányként rögzítette.',

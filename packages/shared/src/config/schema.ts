@@ -233,6 +233,11 @@ export const TeamLimits = z.object({
    * Absent: `DEFAULT_SENIOR_WAIT_MINUTES`.
    */
   seniorWaitMinutes: z.number().int().min(5).max(1440).optional(),
+  /**
+   * How many minutes an obligation (PM-806) waits before each of its two deadlines: the reminder to the
+   * responsible, then the integrator todo. Absent: `DEFAULT_OBLIGATION_MINUTES`.
+   */
+  obligationMinutes: z.number().int().min(5).max(1440).optional(),
   tempWorkers: z
     .object({
       enabled: z.boolean().default(false),

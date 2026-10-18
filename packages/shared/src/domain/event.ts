@@ -12,6 +12,7 @@ import type {
   QuestionRecipient,
   QuestionRecipientRefusal,
 } from './inbox';
+import type { ObligationKind } from './obligation';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -121,6 +122,8 @@ export const TimelineEventType = z.enum([
   'team_resumed',
   'super_handoff_changed',
   'super_operation_changed',
+  'obligation_woken',
+  'obligation_handed_over',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
 
@@ -465,6 +468,26 @@ export interface TimelineEventData {
   };
   /** A question of `asker` went to the people with no Operator outcome (PM-556). */
   question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };
+  /** The system reminded `responsible` of an open step once (PM-806, actor system); `minutes` is the deadline length. */
+  obligation_woken: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle;
+    subject: string;
+    openedAt: string;
+    minutes: number;
+  };
+  /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
+  obligation_handed_over: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle;
+    subject: string;
+    openedAt: string;
+    minutes: number;
+    inboxItemId: string;
+    recipient: QuestionRecipient;
+  };
   /** A pending question of `asker` was closed without an answer by `rule` (PM-556). */
   question_closed: { inboxItemId: string; asker: string; rule: QuestionCloseRule; note: string | null };
   /** The answer of a question waits for the session of `asker`, or reached it (PM-556). */

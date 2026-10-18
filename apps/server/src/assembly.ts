@@ -197,7 +197,9 @@ import { WorkOutages } from './runtime/watchers';
 import { WorktreeSweep } from './runtime/watchers';
 import { CardMeasure } from './core/tasks';
 import { humanActor, SYSTEM_ACTOR } from './kernel';
-import { SYSTEM_SENDER } from '@projectman/shared';
+import { SYSTEM_SENDER, isSessionAtWork } from '@projectman/shared';
+import { DomainError } from './kernel';
+import { ObligationsService } from './services/obligations';
 
 import { ProviderKeys } from './runtime/usage';
 
@@ -347,6 +349,8 @@ export interface DomainOptions {
    * question to the people at once; for tests that are not about screening.
    */
   screenQuestions?: boolean;
+  /** How often the open steps of the AI members are looked at for their deadlines (default 60 s, PM-806). */
+  obligationSweepMs?: number;
   /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
   seniorWaitMs?: number;
   /**
@@ -1168,6 +1172,48 @@ export function createDomain(opts: DomainOptions) {
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const taskWaits = new TaskWaits({ ctx, members });
+  // The open steps of the AI members (PM-806): a reminder and then an integrator todo, never a decision.
+  const obligations = new ObligationsService({
+    ctx,
+    projects,
+    tasks,
+    taskWaits,
+    inbox,
+    messaging,
+    timeline,
+    refinement,
+    sessions: {
+      ofMember: (projectKey, taskKey, member) =>
+        sessions.list(projectKey, { member, taskKey }).map((session) => {
+          const running = sessions.isRunning(session.id);
+          return {
+            state: session.state,
+            running,
+            atWork:
+              running &&
+              isSessionAtWork(session, {
+                awaitsFirstTurn: sessions.awaitsFirstTurn(session.id),
+                pendingInput: false,
+                messageOnItsWay: false,
+              }),
+            lastActivityAt: session.lastActivityAt,
+            endedAt: session.endedAt,
+          };
+        }),
+    },
+    admission: {
+      refusal: async (config, member, taskKey) => {
+        const aiMember = memberOf(config, member);
+        if (aiMember?.kind !== 'ai') return null;
+        try {
+          await admission.check({ config, member: aiMember, workItem: { type: 'task', taskKey } });
+          return null;
+        } catch (err) {
+          return err instanceof DomainError ? err.code : null;
+        }
+      },
+    },
+  });
   const operatorSignals = new OperatorSignals({
     ctx,
     projects,
@@ -2162,6 +2208,7 @@ export function createDomain(opts: DomainOptions) {
     loopWatch,
     questionScreening,
     seniorWaits,
+    obligations,
     fixLimit,
     autoAdvance,
     taskWaits,
@@ -2361,6 +2408,14 @@ export function createDomain(opts: DomainOptions) {
           everyMs: opts.seniorWaitMs ?? 60_000,
           run: async () => seniorWaits.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
+        },
+        // An open step of an AI member past its deadline: one reminder, then an integrator todo (PM-806).
+        {
+          name: 'obligations',
+          everyMs: opts.obligationSweepMs ?? 60_000,
+          atStart: true,
+          run: () => obligations.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'obligation sweep failed'),
         },
         // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
         {

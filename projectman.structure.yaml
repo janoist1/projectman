@@ -252,6 +252,12 @@ modules:
     summary: Ütemezett tagi munkák.
     paths:
       - apps/server/src/services/schedules/
+  - id: services/obligations
+    area: service
+    name: Kötelezettségek
+    summary: Az AI tagok nyitott lépéseinek felelőse és határideje, egy ébresztés, majd integrátori teendő.
+    paths:
+      - apps/server/src/services/obligations/
   - id: services/email-login
     area: service
     name: E-mailes belépés

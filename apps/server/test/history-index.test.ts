@@ -347,6 +347,7 @@ describe('history index', () => {
         'history_doc_state',
         'history_searches',
         'operator_signal_arms',
+        'obligations',
       ])
         old.exec(`DROP TABLE ${table}`);
       old.pragma('user_version = 83');

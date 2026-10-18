@@ -142,8 +142,15 @@ export class RefinementSteps {
    * turn is a person's, blocked, over, or the card was never refined.
    */
   turnMember(projectKey: string, taskKey: string): string | null {
+    return this.openTurn(projectKey, taskKey)?.member ?? null;
+  }
+
+  /** The turn that is on a member now (PM-806): its label, member and the time its event was recorded. */
+  openTurn(projectKey: string, taskKey: string): { label: string | null; member: string; at: string } | null {
     const turn = this.recorded(projectKey, taskKey);
-    return turn && !isClosedTurn(turn.reason) ? turn.member : null;
+    return turn && !isClosedTurn(turn.reason) && turn.member
+      ? { label: turn.label, member: turn.member, at: turn.at }
+      : null;
   }
 
   /**

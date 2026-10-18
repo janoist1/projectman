@@ -721,6 +721,8 @@ export class Messaging {
     if (item.kind !== 'question' || !resolution || !item.taskKey) return;
     // A forwarded question is not answered yet: the member it went to answers the asker.
     if (resolution.rule === 'operator_forwarded') return;
+    // An obligation todo (PM-806) is the system's own; no member on the card asked it.
+    if (questionPayloadOf(item)?.obligation) return;
     const task = this.tasks.find(item.projectKey, item.taskKey);
     if (!task || !isOpenTask(task)) return;
     const config = await this.projects.config(item.projectKey);
@@ -1461,6 +1463,7 @@ const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {
   withdrawn: 'it was withdrawn',
   group_withdrawn: 'every asker withdrew the shared question',
   operator_moot: 'the Operator found it moot: nothing is left to answer',
+  obligation_closed: 'the step it handed over was done or dropped meanwhile',
 };
 
 /** Why a session joined a card, as the joined notice says it (empty when nothing is known). */

@@ -119,6 +119,23 @@ describe('describeEvent', () => {
     ).toBe('updated priority (high -> none)');
     expect(describeEvent(event('task_updated', { fields: ['priority'] }), 100)).toBe('updated priority');
   });
+  it('describes the reminder and the todo of an open step (PM-806)', () => {
+    const data = { kind: 'review_step', responsible: 'cr', subject: 'code_review@x', minutes: 30 };
+    expect(describeEvent(event('obligation_woken', data, undefined, null), 100)).toBe(
+      'reminded cr once about the open review step (code_review@x): no action in 30 minutes',
+    );
+    expect(
+      describeEvent(
+        event('obligation_handed_over', { ...data, recipient: 'integrator' }, undefined, null),
+        100,
+      ),
+    ).toBe(
+      'gave the open review step (code_review@x) of cr to the integrator as a todo: still no action after the reminder',
+    );
+    expect(describeEvent(event('obligation_woken', {}, undefined, null), 100)).toBe(
+      'reminded the responsible once about the open step (?): no action in ? minutes',
+    );
+  });
   it('names the labels of a label change', () => {
     const changed = event('task_labels_changed', { added: ['qa-ok'], removed: ['qa-failed', 'qa-retest'] });
     expect(describeEvent(changed, 100)).toBe('labels added: qa-ok; labels removed: qa-failed, qa-retest');

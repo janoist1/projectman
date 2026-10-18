@@ -5,7 +5,7 @@ import type { DocWriteSlotPeer } from './ports';
 import { LOCAL_ENGINE_ID, projectDocsOf, SYSTEM_SENDER } from '@projectman/shared';
 import type { ErrorCode, OperatorStepStatus, ProjectDoc, RepoConfig } from '@projectman/shared';
 import { MergeError } from '../../contracts';
-import type { BranchMerger, EngineDirectory, ReleaseWorkAdmission } from '../../contracts';
+import type { BranchMerger, EngineDirectory, HistoryMainMoved, ReleaseWorkAdmission } from '../../contracts';
 import type { DocWriteEdit, DocWritePatch, DocWriteRecord } from '../../db';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
@@ -64,6 +64,8 @@ type Deps = {
   waitMs?: number;
   /** The release gate (PM-752); absent: never held. */
   work?: ReleaseWorkAdmission;
+  /** Runs after the published state commits; a failure must not affect the write. */
+  onPublished?: (event: HistoryMainMoved) => void;
 };
 
 /** An engine call that failed for a reason the caller reads: a refused path, an unknown commit, a git error. */
@@ -445,6 +447,18 @@ export class DocWrites {
       });
       ctx.repos.operatorRequests.updateStep(row.stepId, status, null, refusal);
     });
+    if (ended.state === 'published') {
+      try {
+        this.deps.onPublished?.({
+          projectKey: row.projectKey,
+          repo: row.repo,
+          base: row.base,
+          commit: ended.commit,
+        });
+      } catch (err) {
+        ctx.logger.warn({ err, writeId: row.id }, 'document publication callback failed');
+      }
+    }
     if (this.waiting.has(row.id)) return;
     void this.tell(row, ended);
   }

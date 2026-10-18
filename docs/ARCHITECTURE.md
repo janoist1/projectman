@@ -2123,6 +2123,17 @@ workers follow the machine's size.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
     `full_test_started` event when the run got its turn in the queue (PM-489).
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
+    The cloud history copy also consumes `merge.read_file` and `merge.is_ancestor` (PM-744, PM-788):
+    `services/history/document-sync.ts`, adapted to `EngineDirectory` in `assembly.ts`, reads the fixed
+    `docs/DECISIONS.md` and `docs/LESSONS.md` paths at one commit and publishes them atomically to cloud SQLite.
+    `task_merged` and published `write_project_docs` trigger commit reads without fetching; startup,
+    configuration changes and a ten-minute poll read the head, retrying each minute while pending, stale or unavailable.
+    Git, repository paths and credentials stay on the Operator's selected engine (or the actually registered local
+    engine when there is no Operator); cloud has no hidden local repository fallback. Only project/repository,
+    fixed paths and base/commit leave cloud; a commit and two bounded UTF-8 texts return. `engine-host/merge-repo.ts`
+    serializes upstream fetches per repository across document reads and merge preparation in one engine process.
+    With the engine offline, the last received text remains searchable with a stale indication; it is not claimed
+    current (owner, 2026-10-18). Database history remains searchable independently of document refresh failures.
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
     delivery receipt all run on the server. A screened question that waits for the PM's engine stays
@@ -3849,6 +3860,16 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
+- **Searchable document copies (PM-744, PM-788).** `services/history/document-sync.ts` maintains a cloud SQLite
+  copy of each configured repository's fixed `docs/DECISIONS.md` and `docs/LESSONS.md` paths. The assembly reader
+  uses the same engine selection as structure-map base reads; the second file is pinned to the first file's commit.
+  Published document writes (including the local-checkout warning) and `task_merged` notify it after commit;
+  these reads do not fetch. Startup/configuration changes and ten-minute head reads cover other changes, with
+  one-minute retries while pending/stale/unavailable. Searches only read SQLite. Missing files remove their old
+  copies; engine/git failures preserve old text as stale, or mark a never-read copy unavailable. The last received
+  snapshot survives restart and remains searchable offline, with its status (owner, 2026-10-18). A configured
+  custom decision-log path is not followed by this fixed-path copy. See the `merge.read_file` inventory above
+  for the remote-engine boundary and the per-repository fetch queue.
 - **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
   `release_proposed`; `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) then sends the Operator one
   English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an

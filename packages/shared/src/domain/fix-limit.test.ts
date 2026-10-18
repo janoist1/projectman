@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_MAX_FIX_ROUNDS, ProjectConfig, TeamLimits } from '../config/schema';
 import {
+  MAX_FIX_EXTRA_ROUNDS,
+  FixLimitAssessment,
+  remainingFixExtraRounds,
   countFixRounds,
   fixRoundHistory,
   FixRoundHistoryEntry,
@@ -289,5 +292,29 @@ describe('who decides', () => {
       roles: ['lead_developer'],
     };
     expect(fixLimitDeciders(config([admin]), ['owner'])).toEqual(['boss']);
+  });
+
+  it('counts the lead’s extra rounds against a fixed cap of three', () => {
+    expect(MAX_FIX_EXTRA_ROUNDS).toBe(3);
+    expect([0, 1, 2, 3, 4].map(remainingFixExtraRounds)).toEqual([3, 2, 1, 0, 0]);
+  });
+
+  it('requires every part of the assessment, trimmed, and an executable outcome id', () => {
+    const good = {
+      recurrence: ' The same test fails again. ',
+      currentState: 'Half done.',
+      recommendation: { optionId: 'reassign', reason: 'A fresh view.' },
+    };
+    expect(FixLimitAssessment.parse(good).recurrence).toBe('The same test fails again.');
+    for (const bad of [
+      {},
+      { ...good, recurrence: '   ' },
+      { ...good, currentState: undefined },
+      { ...good, recommendation: undefined },
+      { ...good, recommendation: { optionId: 'to_owner', reason: 'x' } },
+      { ...good, recommendation: { optionId: 'reassign', reason: '' } },
+      { ...good, recurrence: 'x'.repeat(2001) },
+    ])
+      expect(FixLimitAssessment.safeParse(bad).success).toBe(false);
   });
 });

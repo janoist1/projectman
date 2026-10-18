@@ -738,11 +738,18 @@ export interface AdmissionToolsHandler {
 export interface WatcherToolsHandler {
   /**
    * decide_fix_limit (PM-262): the AI member who decides (the lead, or the planner it asked) decides how a
-   * card that reached its fix round limit goes on. The reason is required.
+   * card that reached its fix round limit goes on. The reason is required; so is the assessment of
+   * `to_owner` (PM-714: recurrence, currentState, recommendation {optionId, reason}), which the watcher
+   * validates.
    */
   decideFixLimit(
     ctx: ToolContext,
-    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
+    args: {
+      taskKey: string;
+      decision: 'continue' | 'replan' | 'to_owner';
+      reason: string;
+      assessment?: unknown;
+    },
   ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
 }
 
@@ -1020,6 +1027,23 @@ export interface ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: { itemId: string; optionId: 'todo_done' | 'todo_cannot'; note?: string },
   ): Promise<{ item: InboxItem }>;
+  /**
+   * resolve_integrator_fix_limit (PM-714): the integrator decides the fix round limit item addressed to it
+   * (replan, reassign, another_round) or hands it to the owners (to_owner, with a note). Only that item.
+   */
+  resolveIntegratorFixLimit(
+    ctx: ExternalToolContext,
+    args: {
+      itemId: string;
+      optionId: 'replan' | 'reassign' | 'another_round' | 'to_owner';
+      note?: string;
+    },
+  ): Promise<{ item: InboxItem }>;
+  /** list_integrator_inbox (PM-714): what the integrator is the recipient of, each with its full text. */
+  listIntegratorInbox(
+    ctx: ExternalToolContext,
+    args: { state: 'open' | 'all' },
+  ): Promise<{ items: InboxItem[] }>;
   relayOwnerAnswer(
     ctx: ExternalToolContext,
     args: { itemId: string; answer: string },

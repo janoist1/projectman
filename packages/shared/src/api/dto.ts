@@ -1244,6 +1244,22 @@ export const ResolveIntegratorTodoRequest = z.strictObject({
 });
 export type ResolveIntegratorTodoRequest = z.infer<typeof ResolveIntegratorTodoRequest>;
 
+/**
+ * The integrator's decision about a fix round limit item addressed to it (PM-714): one of the three
+ * outcomes, or `to_owner` to hand the same item to the owners (a note is then required: why). `to_owner` is
+ * a change of recipient, not a fourth outcome.
+ */
+export const ResolveIntegratorFixLimitRequest = z
+  .strictObject({
+    optionId: z.enum(['replan', 'reassign', 'another_round', 'to_owner']),
+    note: z.string().trim().max(10_000).optional(),
+  })
+  .refine((request) => request.optionId !== 'to_owner' || !!request.note, {
+    path: ['note'],
+    message: 'a note is required when the item goes on to the owners',
+  });
+export type ResolveIntegratorFixLimitRequest = z.infer<typeof ResolveIntegratorFixLimitRequest>;
+
 /* ---------- configuration ---------- */
 
 export const ConfigVersionEntry = z.object({

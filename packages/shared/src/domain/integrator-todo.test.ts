@@ -7,7 +7,13 @@ import {
   TODO_CANNOT_OPTION,
   canSeeInboxItem,
   humanInboxAssignment,
+  inboxRecipientOf,
+  isIntegratorFixLimitDecision,
+  isIntegratorInboxItem,
   isIntegratorTodo,
+  planIntegratorInboxEscalation,
+  selectFixLimitRecipient,
+  wasIntegratorInboxItem,
   questionRecipientOf,
   selectTodoRecipient,
   planIntegratorTodoEscalation,
@@ -123,5 +129,109 @@ describe('durable integrator todo rules', () => {
     expect(
       planIntegratorTodoEscalation({ ...item, state: 'resolved' }, '2026-10-19T10:00:00.000Z', ['owner']),
     ).toBeNull();
+  });
+});
+
+describe('integrator fix limit decision rules (PM-714)', () => {
+  const fixLimit = {
+    taskKey: 'AR-1',
+    rounds: 3,
+    limit: 3,
+    changeRequests: 3,
+    designChangeRequests: 0,
+    sendBacks: 0,
+    reason: 'passed_on',
+    decider: 'lead',
+    note: null,
+  };
+  const options = [
+    { id: 'reassign', label: 'reassign', style: 'secondary' as const },
+    { id: 'another_round', label: 'another_round', style: 'primary' as const },
+  ];
+  function decision(payload: Record<string, unknown> = {}): InboxItem {
+    return {
+      ...todo(),
+      kind: 'decision',
+      source: 'system',
+      title: 'Fix limit',
+      options,
+      payload: { fixLimit, recipient: 'integrator', integratorOpenedAt: opened, ...payload },
+    };
+  }
+
+  it('addresses only the narrow decision shape to the integrator, else to the owners with the reason', () => {
+    const { payload: _payload, ...shape } = decision();
+    const item = { ...shape, payload: { fixLimit } };
+    expect(selectFixLimitRecipient(item, true)).toEqual({ recipient: 'integrator' });
+    expect(selectFixLimitRecipient(item, false)).toEqual({
+      recipient: 'owner',
+      recipientRefusal: 'integrator_unavailable',
+    });
+    for (const broken of [
+      { ...item, source: 'dev-1' },
+      { ...item, taskKey: 'AR-2' },
+      { ...item, taskKey: null },
+      { ...item, payload: { fixLimit, release: {} } },
+      { ...item, payload: {} },
+      { ...item, options: [] },
+      { ...item, options: [...options, { id: 'approve', label: 'Approve', style: 'primary' as const }] },
+      { ...item, options: [options[0]!, options[0]!] },
+      { ...item, kind: 'question' as const },
+    ])
+      expect(selectFixLimitRecipient(broken, true)).toEqual({
+        recipient: 'owner',
+        recipientRefusal: 'protected_question',
+      });
+  });
+
+  it('is the integrator’s while open and unescalated, and hidden from every non-owner', () => {
+    const item = decision();
+    expect(isIntegratorFixLimitDecision(item)).toBe(true);
+    expect(isIntegratorInboxItem(item)).toBe(true);
+    expect(inboxRecipientOf(item)).toBe('integrator');
+    expect(humanInboxAssignment(item, 'owner')).toBe(false);
+    expect(humanInboxAssignment(item, null)).toBe(false);
+    for (const access of ['owner', 'admin', 'developer', 'client', 'viewer'] as const)
+      expect(canSeeInboxItem({ access, handle: 'owner' }, item)).toBe(access === 'owner');
+    for (const payload of [
+      { integratorEscalatedAt: opened },
+      { recipient: 'owner' },
+      { integratorOpenedAt: 'bad' },
+      { release: {} },
+    ])
+      expect(isIntegratorFixLimitDecision(decision(payload))).toBe(false);
+    expect(wasIntegratorInboxItem(decision({ recipient: 'owner', integratorEscalatedAt: opened }))).toBe(
+      true,
+    );
+    expect(wasIntegratorInboxItem({ ...decision(), payload: { fixLimit } })).toBe(false);
+  });
+
+  it('gives the item to the owners at exactly 24 hours, or at once when the integrator passes it on', () => {
+    const item = decision();
+    expect(planIntegratorInboxEscalation(item, '2026-10-18T09:59:59.999Z', ['owner'])).toBeNull();
+    const timedOut = planIntegratorInboxEscalation(item, '2026-10-18T10:00:00.000Z', ['owner'])!;
+    expect(timedOut.assignees).toEqual(['owner']);
+    expect(timedOut.payload).toMatchObject({
+      recipient: 'owner',
+      integratorEscalatedAt: '2026-10-18T10:00:00.000Z',
+    });
+    const early = planIntegratorInboxEscalation(
+      item,
+      '2026-10-17T11:00:00.000Z',
+      ['owner'],
+      'integrator_passed_on',
+    )!;
+    expect(early.payload).toMatchObject({ recipient: 'owner', integratorOpenedAt: opened });
+    expect(
+      planIntegratorInboxEscalation({ ...item, ...early }, '2026-10-19T00:00:00.000Z', ['owner']),
+    ).toBeNull();
+    expect(
+      planIntegratorInboxEscalation({ ...item, state: 'resolved' }, '2026-10-19T00:00:00.000Z', ['owner']),
+    ).toBeNull();
+    // A todo cannot be handed on early: only the timeout moves it.
+    expect(
+      planIntegratorInboxEscalation(todo(), '2026-10-17T11:00:00.000Z', ['owner'], 'integrator_passed_on'),
+    ).toBeNull();
+    expect(planIntegratorInboxEscalation(todo(), '2026-10-18T10:00:00.000Z', ['owner'])).not.toBeNull();
   });
 });

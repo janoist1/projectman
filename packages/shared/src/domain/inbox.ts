@@ -3,6 +3,12 @@ import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { ExternalToolOrigin } from './external-tool-origin';
+import {
+  FixLimitAssessment,
+  FixLimitOptionId,
+  FixRoundHistoryEntry,
+  MAX_FIX_EXTRA_ROUNDS,
+} from './fix-limit';
 import { LabelId } from './label';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
@@ -193,6 +199,8 @@ export const InboxItem = z.object({
        */
       ownerAnswerRelayed: z.literal(true).optional(),
       integratorTodo: z.literal(true).optional(),
+      /** The integrator decided a fix round limit item through the dedicated endpoint (PM-714). */
+      integratorFixLimit: z.literal(true).optional(),
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),
@@ -290,7 +298,13 @@ export const LOOP_LET_RUN_OPTION: InboxOption = { id: 'let_run', label: 'let_run
  * (`rounds`: `changeRequests` of the code review, `designChangeRequests` of the UI/UX review, `sendBacks`)
  * and a person decides how it goes on. `reason`: `no_ai_decider` no AI lead developer could be asked,
  * `passed_on` the lead (`decider`) gave it to a person (`note` is its reason), `again` it reached the limit
- * again after one more round. The item is closed by the system when the hold ends otherwise.
+ * again after one more round (items from before PM-714 only), `extra_exhausted` the lead had already given
+ * all of its extra rounds. The item is closed by the system when the hold ends otherwise.
+ *
+ * PM-714 adds, all optional so that older items still parse: `history` the counted rounds (and the extra
+ * rounds given) at the moment the item opened, `testsFailed` the failed full tests inside `sendBacks`,
+ * `extraRounds` the extra rounds given so far (more than the limit when people allowed more),
+ * `remainingExtraRounds`, `extraRoundLimit` and `assessment` the lead's judgement of a `passed_on` item.
  */
 export const FixLimitDecisionPayload = z.object({
   taskKey: TaskKey,
@@ -299,7 +313,13 @@ export const FixLimitDecisionPayload = z.object({
   changeRequests: z.number().int().nonnegative(),
   designChangeRequests: z.number().int().nonnegative(),
   sendBacks: z.number().int().nonnegative(),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again']),
+  testsFailed: z.number().int().nonnegative().optional(),
+  extraRounds: z.number().int().nonnegative().optional(),
+  remainingExtraRounds: z.number().int().nonnegative().optional(),
+  extraRoundLimit: z.literal(MAX_FIX_EXTRA_ROUNDS).optional(),
+  history: z.array(FixRoundHistoryEntry).optional(),
+  assessment: FixLimitAssessment.optional(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted']),
   decider: MemberHandle.nullable(),
   note: z.string().nullable(),
 });
@@ -1004,8 +1024,96 @@ export function wasIntegratorTodo(item: InboxItem): boolean {
   return item.kind === 'question' && !!questionPayloadOf(item)?.integratorOpenedAt;
 }
 
+/** Why a fix limit decision item went from the integrator to the owners (PM-714). */
+export const IntegratorEscalationReason = z.enum(['integrator_timeout', 'integrator_passed_on']);
+export type IntegratorEscalationReason = z.infer<typeof IntegratorEscalationReason>;
+
+/**
+ * The payload keys a fix limit decision item may carry to be delegated to the integrator (PM-714). An allow
+ * list on purpose: a payload with any other key (an approval, a loop, a Senior wait, a structural review, a
+ * gate, anything mixed in) is never delegated.
+ */
+const FIX_LIMIT_ITEM_PAYLOAD_KEYS: readonly string[] = [
+  'fixLimit',
+  'recipient',
+  'recipientRefusal',
+  'integratorOpenedAt',
+  'integratorEscalatedAt',
+  'integratorEscalationReason',
+];
+
+const FIX_LIMIT_OPTION_IDS: readonly string[] = FixLimitOptionId.options;
+
+/**
+ * Whether `item` is a fix round limit decision of the system that an integrator may be given at all (PM-714):
+ * the shape only, not the addressing. A `decision` item of source `system` whose `payload.fixLimit` is valid
+ * and about the item's own card, whose payload has no key beyond the fix limit's and the addressing's, and
+ * whose options are unique and all one of the three fix limit outcomes. Null, mixed or approval payloads fail.
+ */
+export function isDelegableFixLimitDecision(
+  item: Pick<InboxItem, 'kind' | 'source' | 'taskKey' | 'payload' | 'options'>,
+): boolean {
+  if (item.kind !== 'decision' || item.source !== 'system') return false;
+  if (!item.payload || typeof item.payload !== 'object' || Array.isArray(item.payload)) return false;
+  if (Object.keys(item.payload).some((key) => !FIX_LIMIT_ITEM_PAYLOAD_KEYS.includes(key))) return false;
+  const fixLimit = fixLimitDecisionOf(item);
+  if (!fixLimit || !item.taskKey || fixLimit.taskKey !== item.taskKey) return false;
+  const ids = item.options.map((option) => option.id);
+  return (
+    ids.length > 0 && new Set(ids).size === ids.length && ids.every((id) => FIX_LIMIT_OPTION_IDS.includes(id))
+  );
+}
+
+/**
+ * A fix round limit decision currently addressed to the integrator (PM-714): the narrow shape and
+ * `recipient: 'integrator'` with a valid `integratorOpenedAt` and no `integratorEscalatedAt`. State and
+ * authentication are checked by the operation, independently of this durable addressing.
+ */
+export function isIntegratorFixLimitDecision(item: InboxItem): boolean {
+  if (!isDelegableFixLimitDecision(item)) return false;
+  const { recipient, integratorOpenedAt } = item.payload;
+  return (
+    recipient === 'integrator' &&
+    typeof integratorOpenedAt === 'string' &&
+    z.iso.datetime().safeParse(integratorOpenedAt).success &&
+    !('integratorEscalatedAt' in item.payload)
+  );
+}
+
+/** An item the integrator is the recipient of: an integrator todo, or the narrow fix limit decision. */
+export function isIntegratorInboxItem(item: InboxItem): boolean {
+  return isIntegratorTodo(item) || isIntegratorFixLimitDecision(item);
+}
+
+/** Whether the item was ever opened to the integrator, whatever happened to it since (PM-714). */
+export function wasIntegratorInboxItem(item: InboxItem): boolean {
+  if (wasIntegratorTodo(item)) return true;
+  return (
+    item.kind === 'decision' &&
+    !!item.payload &&
+    typeof item.payload === 'object' &&
+    'integratorOpenedAt' in item.payload
+  );
+}
+
+/** Who an item is for: the integrator for `isIntegratorInboxItem`, else the owners. */
+export function inboxRecipientOf(item: InboxItem): QuestionRecipient {
+  return isIntegratorInboxItem(item) ? 'integrator' : 'owner';
+}
+
+/** The recipient a new fix limit decision goes to: the integrator when one is available and the shape is delegable. */
+export function selectFixLimitRecipient(
+  item: Pick<InboxItem, 'kind' | 'source' | 'taskKey' | 'payload' | 'options'>,
+  integratorAvailable: boolean,
+): { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal } {
+  if (!isDelegableFixLimitDecision(item))
+    return { recipient: 'owner', recipientRefusal: 'protected_question' };
+  if (!integratorAvailable) return { recipient: 'owner', recipientRefusal: 'integrator_unavailable' };
+  return { recipient: 'integrator' };
+}
+
 export function humanInboxAssignment(item: InboxItem, handle: string | null): boolean {
-  return questionRecipientOf(item) === 'owner' && (handle === null || item.assignees.includes(handle));
+  return inboxRecipientOf(item) === 'owner' && (handle === null || item.assignees.includes(handle));
 }
 
 export const INTEGRATOR_TODO_TIMEOUT_MS = 86_400_000;
@@ -1020,6 +1128,40 @@ export function planIntegratorTodoEscalation(
   if (!(Date.parse(now) >= Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS)) return null;
   return {
     payload: { ...item.payload, recipient: 'owner', integratorEscalatedAt: now },
+    assignees: [...owners],
+  };
+}
+
+/**
+ * The change that gives an open integrator item to the owners (PM-714), or null when it stays. A todo
+ * follows `planIntegratorTodoEscalation`. A fix limit decision goes after 24 hours (`integrator_timeout`) or at
+ * once when the integrator passes it on (`integrator_passed_on`); the payload and options are kept, only the
+ * addressing changes, so no second decision item is made. `assignees` are the people who then decide.
+ */
+export function planIntegratorInboxEscalation(
+  item: InboxItem,
+  now: string,
+  owners: readonly string[],
+  reason: IntegratorEscalationReason = 'integrator_timeout',
+): Pick<InboxItem, 'payload' | 'assignees'> | null {
+  if (item.state !== 'open' || !owners.length) return null;
+  if (isIntegratorTodo(item)) {
+    return reason === 'integrator_timeout' ? planIntegratorTodoEscalation(item, now, owners) : null;
+  }
+  if (!isIntegratorFixLimitDecision(item)) return null;
+  const openedAt = item.payload.integratorOpenedAt as string;
+  if (
+    reason === 'integrator_timeout' &&
+    !(Date.parse(now) >= Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS)
+  )
+    return null;
+  return {
+    payload: {
+      ...item.payload,
+      recipient: 'owner',
+      integratorEscalatedAt: now,
+      integratorEscalationReason: reason,
+    },
     assignees: [...owners],
   };
 }

@@ -9,9 +9,14 @@ import {
   hasProtectedQuestionPayload,
   humanInboxAssignment,
   isIntegratorTodo,
+  isIntegratorFixLimitDecision,
+  isIntegratorInboxItem,
   wasIntegratorTodo,
-  planIntegratorTodoEscalation,
+  planIntegratorInboxEscalation,
+  selectFixLimitRecipient,
   selectTodoRecipient,
+  FixLimitOptionId,
+  ResolveIntegratorFixLimitRequest as IntegratorFixLimitRequestSchema,
   ResolveIntegratorTodoRequest as IntegratorTodoRequestSchema,
   ScreeningTodo as ScreeningTodoSchema,
   approvalRefusal,
@@ -48,7 +53,9 @@ import {
 import type {
   Actor,
   DelegatedPermissionDecision,
+  FixLimitDecisionPayload,
   GateRequestPayload,
+  IntegratorEscalationReason,
   HumanAccess,
   InboxItem,
   InboxKind,
@@ -60,6 +67,7 @@ import type {
   QuestionScreening,
   QuestionTodo,
   ResolveInboxRequest,
+  ResolveIntegratorFixLimitRequest,
   ResolveIntegratorTodoRequest,
   ScreeningTodo,
   ScreenedQuestionsResponse,
@@ -80,6 +88,7 @@ import type {
 import { ownerHandles } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
+import { formatFixLimitItem } from './fix-limit-text';
 import type { InboxPermissionPolicy, QuestionGroupAnswerer, IntegratorTodoAccess } from './ports';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
@@ -127,6 +136,17 @@ export interface CreateInboxItemInput {
   options: InboxOption[];
   /** `screening`: the Operator looks at an AI member's question first and no person sees it yet (PM-556). */
   state?: 'open' | 'screening';
+}
+
+/** A new fix round limit decision (PM-714): the counted rounds and the options that can be carried out now. */
+export interface CreateFixLimitDecisionInput {
+  projectKey: string;
+  taskKey: string;
+  /** The people who decide when the item is for the owners (`fixLimitDeciders`). */
+  assignees: string[];
+  fixLimit: FixLimitDecisionPayload;
+  /** Only the executable options; the item shows the rest as unavailable but never offers them. */
+  options: InboxOption[];
 }
 
 /** What the Operator settled about a question it screens, with no person involved (PM-558). */
@@ -580,6 +600,48 @@ export class InboxService {
     return item;
   }
 
+  /**
+   * A new fix round limit decision item (PM-714): addressed to the integrator when one is available (the
+   * same `IntegratorTodoAccess` as the todos) and the shape is the narrow delegable one, else to the owners
+   * with the reason on the payload. The title, body and options are written in the project's language here.
+   * Only a new item is addressed this way; an item that exists is never rewritten. Call it inside the unit of
+   * work that also records the hold, so the addressing and the hold stand or fall together.
+   */
+  createFixLimitDecision(config: ProjectConfig, input: CreateFixLimitDecisionInput): InboxItem {
+    const available = input.options
+      .map((option) => FixLimitOptionId.safeParse(option.id))
+      .flatMap((parsed) => (parsed.success ? [parsed.data] : []));
+    const selected = selectFixLimitRecipient(
+      {
+        kind: 'decision',
+        source: 'system',
+        taskKey: input.taskKey,
+        payload: { fixLimit: input.fixLimit },
+        options: input.options,
+      },
+      this.integratorTodoAccess?.available(config) ?? false,
+    );
+    const content = formatFixLimitItem(config, input.fixLimit, available, selected.recipient);
+    return this.ctx.unitOfWork(() =>
+      this.create({
+        projectKey: input.projectKey,
+        kind: 'decision',
+        assignees: input.assignees,
+        source: 'system',
+        taskKey: input.taskKey,
+        title: content.title,
+        body: content.body,
+        payload: {
+          fixLimit: input.fixLimit,
+          recipient: selected.recipient,
+          ...(selected.recipient === 'integrator' ? { integratorOpenedAt: isoNow(this.ctx) } : {}),
+          ...('recipientRefusal' in selected ? { recipientRefusal: selected.recipientRefusal } : {}),
+        },
+        options: content.options,
+      }),
+    );
+  }
+
   get(projectKey: string, id: string): InboxItem {
     const item = this.ctx.repos.inbox.get(id);
     if (!item || item.projectKey !== projectKey) throw notFound('inbox item', id);
@@ -690,14 +752,16 @@ export class InboxService {
       ).length;
   }
 
+  /** Gives every open integrator item (todos and the narrow fix limit decisions) that waited 24 hours to the owners. */
   async sweepIntegratorTodos(): Promise<void> {
-    for (const candidate of this.ctx.repos.inbox.listOpen('question')) {
-      if (!isIntegratorTodo(candidate)) continue;
+    const open = [...this.ctx.repos.inbox.listOpen('question'), ...this.ctx.repos.inbox.listOpen('decision')];
+    for (const candidate of open) {
+      if (!isIntegratorInboxItem(candidate)) continue;
       try {
         await this.questionLock(candidate.id, async () => {
           const config = await this.projects.config(candidate.projectKey);
           const current = this.ctx.repos.inbox.get(candidate.id);
-          if (current) this.escalateIntegratorTodo(current, config);
+          if (current) this.escalateIntegratorItem(current, config);
         });
       } catch (error) {
         this.ctx.logger.warn({ error, itemId: candidate.id }, 'integrator_todo_sweep_failed');
@@ -705,13 +769,41 @@ export class InboxService {
     }
   }
 
-  private escalateIntegratorTodo(item: InboxItem, config: ProjectConfig): boolean {
+  /**
+   * Gives an open integrator item to the owners: the 24 hour timeout (the system), or for a fix limit decision
+   * the integrator's explicit pass-on (`how.actor` is its authenticated super actor, `how.note` the reason). The
+   * same item stays open with its payload and options; only the addressing changes. False when it stays.
+   */
+  private escalateIntegratorItem(
+    item: InboxItem,
+    config: ProjectConfig,
+    how: { reason?: IntegratorEscalationReason; actor?: Actor; note?: string } = {},
+  ): boolean {
     const at = isoNow(this.ctx);
-    const patch = planIntegratorTodoEscalation(item, at, ownerHandles(config));
+    const reason = how.reason ?? 'integrator_timeout';
+    const patch = planIntegratorInboxEscalation(item, at, ownerHandles(config), reason);
     if (!patch) return false;
     const updated = this.ctx.unitOfWork(() => {
       const row = this.ctx.repos.inbox.updateOpen(item.id, patch.payload, patch.assignees, at);
       if (!row) return null;
+      if (item.kind === 'decision') {
+        this.timeline.append({
+          projectKey: item.projectKey,
+          taskKey: item.taskKey,
+          actor: how.actor ?? SYSTEM_ACTOR,
+          type: 'fix_limit_recipient_escalated',
+          createdAt: at,
+          data: {
+            inboxItemId: item.id,
+            from: 'integrator',
+            to: 'owner',
+            openedAt: item.payload.integratorOpenedAt as string,
+            reason,
+            ...(how.note ? { note: how.note } : {}),
+          },
+        });
+        return row;
+      }
       this.timeline.append({
         projectKey: item.projectKey,
         taskKey: item.taskKey,
@@ -732,6 +824,79 @@ export class InboxService {
     });
     if (updated) this.publish(updated);
     return !!updated;
+  }
+
+  /**
+   * The integrator decides a fix round limit item addressed to it (PM-714), the one approval-free decision it
+   * may make. It needs the explicit super credential of a current owner; the item must still be the narrow
+   * fix limit shape, addressed to the integrator and not timed out, and its card must still be held for exactly
+   * this item. `replan`, `reassign` and `another_round` close the item in the integrator's name and run the same
+   * application as an owner's choice (`inbox_resolved` -> `FixLimitWatch.decided`); `to_owner` gives the
+   * same open item to the owners with the reason. Everything is decided under the item's lock, so a timeout, an
+   * owner and a double click cannot each decide.
+   */
+  async resolveIntegratorFixLimit(
+    projectKey: string,
+    id: string,
+    req: ResolveIntegratorFixLimitRequest,
+    by: Resolver,
+  ): Promise<InboxItem> {
+    const parsed = IntegratorFixLimitRequestSchema.safeParse(req);
+    if (!parsed.success) throw invalid('invalid_request', 'invalid integrator fix limit decision');
+    return this.questionLock(id, async () => {
+      const request = parsed.data;
+      const item = this.get(projectKey, id);
+      const config = await this.projects.config(projectKey);
+      assertIntegratorAccess(config, 'write', by.superActor);
+      if (integratorExecution()?.principal.mode !== 'super' || !by.superActor)
+        throw forbidden(
+          'integrator_not_allowed',
+          'only an explicit super credential decides an integrator fix limit item',
+        );
+      if (by.access !== 'owner')
+        throw forbidden('insufficient_access', 'a current project owner is required');
+      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
+      if (this.escalateIntegratorItem(item, config) || !isIntegratorFixLimitDecision(item))
+        throw forbidden('super_relay_refused', 'only a current integrator fix limit decision may be decided');
+      const record = item.taskKey ? this.ctx.repos.taskFixLimits.get(item.taskKey) : null;
+      if (!record || record.inboxItemId !== id || record.holdPhase !== 'owner')
+        throw conflict('fix_limit_not_held', `${item.taskKey} is not held for this fix limit decision`);
+      const note = request.note?.trim() ? request.note.trim() : null;
+      if (request.optionId === 'to_owner') {
+        if (!note) throw invalid('invalid_request', 'say why the owners must decide', { field: 'note' });
+        const moved = this.escalateIntegratorItem(item, config, {
+          reason: 'integrator_passed_on',
+          actor: attributedActor(by),
+          note,
+        });
+        if (!moved) throw forbidden('super_relay_refused', 'the item cannot be handed to the owners');
+        return this.get(projectKey, id);
+      }
+      if (!item.options.some((option) => option.id === request.optionId))
+        throw invalid('unknown_option', `unknown option: ${request.optionId}`);
+      const at = isoNow(this.ctx);
+      const resolved = this.ctx.unitOfWork(() =>
+        this.ctx.repos.inbox.close(
+          id,
+          'resolved',
+          {
+            optionId: request.optionId,
+            by: by.handle,
+            at,
+            note,
+            via: 'integrator',
+            actor: by.superActor,
+            integratorFixLimit: true,
+          },
+          at,
+        ),
+      );
+      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
+      this.publish(resolved);
+      this.waiters.get(id)?.(resolved);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    });
   }
 
   async resolveIntegratorTodo(
@@ -783,17 +948,17 @@ export class InboxService {
       if (item.state !== 'open') throw conflict('inbox_item_closed', 'the inbox item is closed');
       if (hasProtectedQuestionPayload(item))
         throw forbidden('owner_approval_required', 'only a person may approve');
-      if (this.escalateIntegratorTodo(item, initialConfig) || !isIntegratorTodo(item))
+      if (this.escalateIntegratorItem(item, initialConfig) || !isIntegratorTodo(item))
         throw forbidden('super_relay_refused', 'only a current integrator todo may be resolved');
       if (req.optionId !== 'todo_done' && req.optionId !== 'todo_cannot')
         throw invalid('invalid_request', 'only todo result options are accepted');
     } else if (
-      isIntegratorTodo(item) &&
+      isIntegratorInboxItem(item) &&
       (by.via || by.superActor || integratorExecution() || by.access !== 'owner')
     ) {
       throw forbidden(
         'super_relay_refused',
-        'an integrator todo needs the dedicated super endpoint or the owner login',
+        'an integrator item needs the dedicated super endpoint or the owner login',
       );
     }
     if (!['question', 'alert'].includes(item.kind)) assertOwnApproval(by);

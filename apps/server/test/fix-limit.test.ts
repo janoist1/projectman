@@ -90,8 +90,24 @@ describe('fix round limit', () => {
           event.actor.kind === 'system' &&
           (event.data.to as string[]).includes(member),
       );
-  const tool = (member: string, decision: 'continue' | 'replan' | 'to_owner', reason = 'Because.') =>
-    h.domain.fixLimit.decide(member, 'AR', 'AR-1', decision, reason);
+  const ASSESSMENT = {
+    recurrence: 'The same test fails again after each fix.',
+    currentState: 'The fix is half done and the test still fails.',
+    recommendation: { optionId: 'another_round', reason: 'One more try is cheap.' },
+  } as const;
+  const tool = (
+    member: string,
+    decision: 'continue' | 'replan' | 'to_owner',
+    reason = 'Because.',
+    assessment: unknown = ASSESSMENT,
+  ) => h.domain.fixLimit.decide(member, 'AR', 'AR-1', decision, reason, assessment);
+  /** The lead gives `count` extra rounds, each time the card reaches the limit again. */
+  async function giveExtraRounds(count: number) {
+    for (let given = 0; given < count; given += 1) {
+      await tool('lead', 'continue', `Extra ${given + 1}.`);
+      await round(`Fix after extra ${given + 1}`);
+    }
+  }
 
   describe('holding a card at the limit', () => {
     it('lets the first round through and holds the second: its notice waits, the lead is told', async () => {
@@ -259,19 +275,137 @@ describe('fix round limit', () => {
       ]);
     });
 
-    it('reaching the limit again after one more round goes to the people', async () => {
+    it('decides again at the next reach while fewer than three extra rounds were given', async () => {
       await held();
       await tool('lead', 'continue');
       await round('Third fix');
-      expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'again', extraRounds: 1 });
+      expect(record()).toMatchObject({ holdPhase: 'lead', decider: 'lead', extraRounds: 1 });
+      expect(items()).toEqual([]);
+      expect(task().fixLimit).toMatchObject({
+        phase: 'lead',
+        rounds: 3,
+        limit: 3,
+        extraRounds: 1,
+        remainingExtraRounds: 2,
+        extraRoundLimit: 3,
+      });
+      await tool('lead', 'continue');
+      await round('Fourth fix');
+      expect(record()).toMatchObject({ holdPhase: 'lead', extraRounds: 2 });
+      await vi.waitFor(() =>
+        expect(
+          told('lead').filter((text) => text.includes('Extra rounds given so far: 2 of 3')),
+        ).toHaveLength(1),
+      );
+    });
+
+    it('goes to the people at every reach once three extra rounds were given', async () => {
+      await held();
+      await giveExtraRounds(2);
+      await tool('lead', 'continue', 'Third extra.');
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 3 });
+      await round('Fix after the third extra');
+      expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'extra_exhausted', extraRounds: 3 });
+      expect(task().fixLimit).toMatchObject({
+        phase: 'owner',
+        reason: 'extra_exhausted',
+        extraRounds: 3,
+        remainingExtraRounds: 0,
+        deciders: ['owner'],
+      });
       expect(items()).toHaveLength(1);
       expect(items()[0]).toMatchObject({
         source: 'system',
         assignees: ['owner'],
         options: [{ id: 'replan' }, { id: 'reassign' }, { id: 'another_round' }],
-        payload: { fixLimit: { reason: 'again', rounds: 3, limit: 3 } },
+        payload: {
+          fixLimit: {
+            reason: 'extra_exhausted',
+            rounds: 5,
+            limit: 5,
+            extraRounds: 3,
+            remainingExtraRounds: 0,
+            extraRoundLimit: 3,
+          },
+        },
+      });
+      // The lead can no longer decide: the people do.
+      await expect(tool('lead', 'continue')).rejects.toMatchObject({ code: 'fix_limit_not_held' });
+      // A person's extra round is counted in the same counter and the people decide at the next reach again.
+      await h.domain.inbox.resolve('AR', items()[0]!.id, { optionId: 'another_round' }, OWNER_ACCESS);
+      await settle();
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 4 });
+      await round('Fix after the fourth extra');
+      expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'extra_exhausted', extraRounds: 4 });
+    });
+
+    it('counts the extra rounds of a person and the lead in one counter', async () => {
+      await held();
+      await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
+      await round('Third fix');
+      await tool('lead', 'continue');
+      expect(record()).toMatchObject({ extraRounds: 2 });
+    });
+
+    it('begins the extra rounds anew after a replan release and after a reassign', async () => {
+      await held();
+      await giveExtraRounds(1);
+      await tool('lead', 'replan', 'Too loose.');
+      await tool('arch', 'continue', 'Plan written.');
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
+      expect(h.domain.fixLimit.view(task())).toBeUndefined();
+      await round('Fix 1 of the new count');
+      await round('Fix 2 of the new count');
+      expect(record()).toMatchObject({ holdPhase: 'lead', extraRounds: 0 });
+      await tool('lead', 'to_owner', 'Your call.');
+      await h.domain.inbox.resolve('AR', items()[0]!.id, { optionId: 'reassign' }, OWNER_ACCESS);
+      await settle();
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
+    });
+
+    it('keeps an older open hold of the people as it was: the owner decides it, the old reason shows', async () => {
+      await held();
+      // A hold and an item the earlier code made: English title, no history, the reason `again`.
+      const old = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'decision',
+        assignees: ['owner'],
+        source: 'system',
+        taskKey: 'AR-1',
+        title: 'Fix round limit on AR-1: 3 rounds',
+        payload: {
+          fixLimit: {
+            taskKey: 'AR-1',
+            rounds: 3,
+            limit: 3,
+            changeRequests: 3,
+            designChangeRequests: 0,
+            sendBacks: 0,
+            reason: 'again',
+            decider: null,
+            note: null,
+          },
+        },
+        options: [
+          { id: 'reassign', label: 'reassign', style: 'secondary' },
+          { id: 'another_round', label: 'another_round', style: 'primary' },
+        ],
+      });
+      h.repos.taskFixLimits.save({
+        ...record()!,
+        holdPhase: 'owner',
+        decider: null,
+        deciders: ['owner'],
+        reason: 'again',
+        extraRounds: 1,
+        inboxItemId: old.id,
       });
       expect(task().fixLimit).toMatchObject({ phase: 'owner', reason: 'again', deciders: ['owner'] });
+      expect(task().fixLimit?.recipient).toBe('owner');
+      await h.domain.inbox.resolve('AR', old.id, { optionId: 'another_round' }, OWNER_ACCESS);
+      await settle();
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 2 });
     });
 
     it('does not open a new hold after a technical send-back and handover following an extra round', async () => {
@@ -309,17 +443,105 @@ describe('fix round limit', () => {
       await vi.waitFor(() => expect(typed('Plan written.')).toBe(true));
     });
 
-    it('to_owner gives the decision to the people with its reason', async () => {
+    it('to_owner gives the decision to the people with its reason and its assessment', async () => {
       await held();
       await expect(tool('lead', 'to_owner', 'I cannot judge this.')).resolves.toEqual({ phase: 'owner' });
       expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'passed_on' });
       expect(items()[0]).toMatchObject({
-        payload: { fixLimit: { reason: 'passed_on', decider: 'lead', note: 'I cannot judge this.' } },
+        payload: {
+          fixLimit: {
+            reason: 'passed_on',
+            decider: 'lead',
+            note: 'I cannot judge this.',
+            assessment: ASSESSMENT,
+            extraRounds: 0,
+            remainingExtraRounds: 3,
+            extraRoundLimit: 3,
+          },
+        },
       });
       expect(events().map((event) => event.data)).toMatchObject([
         { phase: 'reached' },
-        { phase: 'passed_on', decider: 'lead', note: 'I cannot judge this.' },
+        { phase: 'passed_on', decider: 'lead', note: 'I cannot judge this.', assessment: ASSESSMENT },
       ]);
+    });
+
+    it('writes the whole item in the project language: summary, assessment, every round and the options', async () => {
+      await held();
+      await tool('lead', 'to_owner', 'I cannot judge this.');
+      const item = items()[0]!;
+      const history = (item.payload.fixLimit as { history: unknown[] }).history;
+      expect(history).toHaveLength(2);
+      expect(item.title).toContain('AR-1');
+      expect(item.body).toContain(ASSESSMENT.recurrence);
+      expect(item.body).toContain(ASSESSMENT.currentState);
+      expect(item.body).toContain(ASSESSMENT.recommendation.reason);
+      expect(item.body).toContain('First fix');
+      expect(item.body).toContain('Second fix');
+      for (const id of ['replan', 'reassign', 'another_round']) expect(item.body).toContain(id);
+      expect(item.options.every((option) => option.consequence)).toBe(true);
+      expect(item.options.find((option) => option.id === 'another_round')?.style).toBe('primary');
+      expect(item.payload).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
+    });
+
+    it('refuses to_owner without a good assessment and changes nothing', async () => {
+      await held();
+      const before = events().length;
+      await expect(
+        h.domain.fixLimit.decide('lead', 'AR', 'AR-1', 'to_owner', 'Your call.'),
+      ).rejects.toMatchObject({
+        code: 'fix_limit_assessment_required',
+      });
+      await expect(tool('lead', 'to_owner', 'Your call.', { recurrence: 'x' })).rejects.toMatchObject({
+        code: 'invalid_request',
+      });
+      await expect(
+        tool('lead', 'to_owner', 'Your call.', {
+          ...ASSESSMENT,
+          currentState: '   ',
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+      await expect(
+        tool('lead', 'to_owner', 'Your call.', {
+          ...ASSESSMENT,
+          recommendation: { optionId: 'to_owner', reason: 'x' },
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+      expect(record()).toMatchObject({ holdPhase: 'lead', decider: 'lead', inboxItemId: null });
+      expect(items()).toEqual([]);
+      expect(events()).toHaveLength(before);
+    });
+
+    it('refuses a recommendation of an outcome that cannot be carried out now', async () => {
+      await prepare({ planner: false });
+      await round('First fix');
+      await round('Second fix');
+      await expect(
+        tool('lead', 'to_owner', 'Your call.', {
+          ...ASSESSMENT,
+          recommendation: { optionId: 'replan', reason: 'A plan first.' },
+        }),
+      ).rejects.toMatchObject({ code: 'fix_limit_invalid_recommendation' });
+      expect(record()?.holdPhase).toBe('lead');
+      expect(items()).toEqual([]);
+      await expect(
+        tool('lead', 'to_owner', 'Your call.', {
+          ...ASSESSMENT,
+          recommendation: { optionId: 'reassign', reason: 'Another developer.' },
+        }),
+      ).resolves.toEqual({ phase: 'owner' });
+    });
+
+    it('tells the lead every round, the extra rounds left and what the assessment needs', async () => {
+      await held();
+      await vi.waitFor(() =>
+        expect(told('lead').some((text) => text.includes('Every round so far'))).toBe(true),
+      );
+      const notice = told('lead').find((text) => text.includes('Every round so far'))!;
+      expect(notice).toContain('Extra rounds given so far: 0 of 3; you can give 3 more');
+      expect(notice).toContain('REQUIRES an assessment');
+      expect(notice).toContain('First fix');
+      expect(notice).toContain('Second fix');
     });
 
     it('refuses a decision when the card is not held, and one of a member who does not decide', async () => {

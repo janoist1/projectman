@@ -839,6 +839,7 @@ projectman messages send --project PM --to dev --task PM-12 --file message.txt
 projectman labels add PM-12 waiting-answer --note "Waiting for the reply"
 projectman inbox list --project PM [--state open|all|…]
 projectman inbox answer ITEM --project PM --file answer.txt   # relays the owner's words; no decision
+projectman inbox fix-limit ITEM --project PM --option replan|reassign|another_round|to_owner [--note TEXT]   # only the item addressed to the integrator
 projectman merges list --project PM --repo web
 projectman merges enqueue PM-12
 projectman merges prioritize PM-12 --reason "release blocker"

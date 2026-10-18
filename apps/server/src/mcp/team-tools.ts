@@ -149,7 +149,12 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async decideFixLimit(
     ctx: ToolContext,
-    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
+    args: {
+      taskKey: string;
+      decision: 'continue' | 'replan' | 'to_owner';
+      reason: string;
+      assessment?: unknown;
+    },
   ) {
     return this.tools.watchers.decideFixLimit(ctx, args);
   }

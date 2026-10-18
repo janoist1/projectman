@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { routes } from '@projectman/shared';
+import { FIX_ANOTHER_ROUND_OPTION, routes } from '@projectman/shared';
 import { ingressRules } from '../../../scripts/cloud/cloudflare';
 import type { CloudConfig } from '../../../scripts/cloud/config';
-import { DomainError } from '../src/kernel';
+import { DomainError, humanActor } from '../src/kernel';
 import { EXTERNAL_DENIED, EXTERNAL_TOOLS } from '../src/mcp/super-operator/registry';
 import { TEAM_TOOL_NAMES } from '../src/mcp';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
@@ -126,6 +126,129 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     });
     expect(result.structuredContent?.item.resolution.ownerAnswerRelayed).toBeUndefined();
     expect(TEAM_TOOL_NAMES).not.toContain('resolve_integrator_todo');
+  });
+
+  /** A held card AR-1 with its fix limit decision item, addressed as the current access decides. */
+  async function heldCard() {
+    const { domain, repos } = h.app.projectman;
+    await domain.tasks.create('AR', { title: 'Login page' }, humanActor('owner'));
+    const config = await domain.projects.config('AR');
+    const fixLimit = {
+      taskKey: 'AR-1',
+      rounds: 2,
+      limit: 2,
+      changeRequests: 2,
+      designChangeRequests: 0,
+      sendBacks: 0,
+      reason: 'passed_on' as const,
+      decider: 'lead',
+      note: 'Not my call.',
+      assessment: {
+        recurrence: 'The same test fails again.',
+        currentState: 'Half done.',
+        recommendation: { optionId: 'another_round' as const, reason: 'Cheap to try.' },
+      },
+    };
+    const item = domain.inbox.createFixLimitDecision(config, {
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      assignees: ['owner'],
+      fixLimit,
+      options: [FIX_ANOTHER_ROUND_OPTION],
+    });
+    repos.taskFixLimits.save({
+      taskKey: 'AR-1',
+      projectKey: 'AR',
+      countedFrom: null,
+      extraRounds: 0,
+      holdPhase: 'owner',
+      heldAt: now.toISOString(),
+      decider: null,
+      deciders: ['owner'],
+      reason: 'passed_on',
+      inboxItemId: item.id,
+    });
+    return item;
+  }
+
+  it('lists the fix limit item with its whole text and decides it only through its own tool', async () => {
+    const { secret } = key('super');
+    const created = await heldCard();
+    expect(created.payload.recipient).toBe('integrator');
+    for (const name of ['resolve_integrator_fix_limit', 'list_integrator_inbox']) {
+      expect(
+        (await listTools(secret)).map((tool) => tool.name),
+        name,
+      ).toContain(name);
+      for (const mode of ['read', 'legacy'] as const) {
+        expect(
+          (await listTools(key(mode).secret)).map((tool) => tool.name),
+          name,
+        ).not.toContain(name);
+        const denied = await call(key(mode).secret, name, {
+          project_key: 'AR',
+          item_id: 'x',
+          option_id: 'x',
+        });
+        expect(denied.isError, name).toBe(true);
+      }
+    }
+    expect(TEAM_TOOL_NAMES).not.toContain('resolve_integrator_fix_limit');
+
+    const listed = await call(secret, 'list_integrator_inbox', { project_key: 'AR' });
+    expect(listed.structuredContent?.items.map((entry: { id: string }) => entry.id)).toEqual([created.id]);
+    const text = listed.content[0]!.text!;
+    expect(text).toContain(created.id);
+    expect(text).toContain('The same test fails again.');
+    expect(text).toContain('another_round');
+
+    // Any other item is refused, whatever the integrator calls.
+    const other = h.app.projectman.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'decision',
+      assignees: ['owner'],
+      source: 'system',
+      title: 'Plain',
+      payload: {},
+      options: [{ id: 'another_round', label: 'Another', style: 'primary' }],
+    });
+    const refused = await call(secret, 'resolve_integrator_fix_limit', {
+      project_key: 'AR',
+      item_id: other.id,
+      option_id: 'another_round',
+    });
+    expect(refused).toMatchObject({ isError: true, structuredContent: { errorCode: 'super_relay_refused' } });
+    const noReason = await call(secret, 'resolve_integrator_fix_limit', {
+      project_key: 'AR',
+      item_id: created.id,
+      option_id: 'to_owner',
+    });
+    expect(noReason.structuredContent?.errorCode).toBe('invalid_request');
+
+    const result = await call(secret, 'resolve_integrator_fix_limit', {
+      project_key: 'AR',
+      item_id: created.id,
+      option_id: 'another_round',
+      note: 'One more.',
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent?.item.resolution).toMatchObject({
+      via: 'integrator',
+      integratorFixLimit: true,
+      optionId: 'another_round',
+    });
+    expect(h.app.projectman.repos.taskFixLimits.get('AR-1')).toMatchObject({
+      holdPhase: null,
+      extraRounds: 1,
+    });
+    const after = await call(secret, 'list_integrator_inbox', { project_key: 'AR' });
+    expect(after.structuredContent?.items).toEqual([]);
+    expect(after.content[0]!.text).toBe('Nothing is addressed to you.');
+    const all = await call(secret, 'list_integrator_inbox', { project_key: 'AR', state: 'all' });
+    expect(all.structuredContent?.items.map((entry: { id: string }) => entry.id)).toEqual([created.id]);
+    // The member tool of the lead stays a team tool the integrator cannot call.
+    const member = await call(secret, 'decide_fix_limit', { project_key: 'AR', task_key: 'AR-1' });
+    expect(member.structuredContent?.errorCode).toBe('integrator_not_allowed');
   });
 
   it('initializes, lists, reads and writes with no session and no engine', async () => {
@@ -270,6 +393,9 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       'get_administration_status',
       'get_administration_logs',
       'relay_owner_answer',
+      'resolve_integrator_todo',
+      'resolve_integrator_fix_limit',
+      'list_integrator_inbox',
     ];
     for (const name of superOnly) {
       expect(superTools, name).toContain(name);

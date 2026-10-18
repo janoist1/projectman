@@ -387,6 +387,73 @@ export const hu: TemplateLocale = {
     text: ({ code, validUntil }) =>
       `A belépési kódod: ${code}\n\nA kód egyszer használható, és eddig érvényes: ${validUntil}.\n\nHa nem te kérted, hagyd figyelmen kívül ezt a levelet.\n`,
   },
+  fixLimitItem: {
+    title: 'Javítási körök határa: {key}',
+    summary: 'A(z) {key} kártya {rounds} javítási kör után sem ment át ({parts}). {reason}',
+    parts: {
+      changes: '{count} kódátnézés',
+      design: '{count} UI/UX átnézés',
+      testsFailed: '{count} bukott teljes teszt',
+      sendBacks: '{count} kézi visszaküldés',
+    },
+    reasons: {
+      no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (Műszaki irányítás és Kódellenőrzés).',
+      passed_on: '{name} továbbadta.',
+      extra_exhausted: 'A 3 extra kör elfogyott, és újra elérte a határt.',
+      again: 'Még egy kör után újra elérte a határt.',
+    },
+    extras: {
+      left: 'Extra kör: {used} kiadva a 3-ból, {left} maradt.',
+      none: 'Extra kör: {used} kiadva a 3-ból, nem maradt több.',
+      over: 'Extra kör: {used} kiadva (a határ 3), nem maradt több.',
+    },
+    verdict: { title: '{name} véleménye', repeat: 'Ismétlődik?', now: 'Hol tart most?' },
+    rounds: {
+      heading: 'Körök ({count}):',
+      technicalCount: '{count} technikai újraátadás nem számít',
+      counted: '{n}.',
+      technicalMarker: '–',
+      grantMarker: '+{n}',
+      kind: {
+        code_review: 'Kódátnézés · {name}',
+        design_review: 'UI/UX átnézés · {name}',
+        tests_failed: 'Bukott teljes teszt',
+        tests_failed_command: 'Bukott teljes teszt: {command}',
+        tests_failed_commit: 'Bukott teljes teszt ({commit})',
+        send_back: 'Visszaküldte · {name}',
+        send_back_no_note: 'Visszaküldte · {name} (megjegyzés nélkül)',
+        branch_moved: 'Technikai újraátadás: az ág elmozdult',
+        branch_moved_moves: 'Technikai újraátadás: az ág elmozdult ({from} → {to})',
+        extra_round: 'Még egy kör ({index}/3) · {name}',
+        extra_round_over: 'Még egy kör ({index}, a 3 fölött) · {name}',
+      },
+      notCounted: ' (nem számít körnek)',
+      note: ': „{note}”',
+    },
+    options: {
+      heading: 'Döntési lehetőségek:',
+      recommended: 'javasolt: {reason}',
+      unavailable: {
+        replan: 'ma nem elérhető: nincs másik AI-tag, aki pontosíthatná a tervet.',
+        reassign: 'ma nem elérhető: nincs másik AI fejlesztő, aki átvehetné a kártyát.',
+      },
+      label: { replan: 'Pontosabb terv', reassign: 'Más fejlesztő', another_round: 'Még egy kör' },
+      consequence: {
+        replan:
+          'A Műszaki irányítás egy másik AI-tagja pontosítja a tervet vagy bontja a kártyát; ha elengedi, a számlálás újraindul.',
+        reassign:
+          'A kártyát egy másik fejlesztő kapja, friss munkamenettel; a számlálás újrakezdődik. Az eddigi fejlesztő munkamenete leáll.',
+        another_round: 'A fejlesztő megkapja a várakozó üzeneteket, és eggyel több kört kap.',
+        another_round_over:
+          'A fejlesztő megkapja a várakozó üzeneteket, és eggyel több kört kap. Ha újra eléri a határt, megint emberi döntés kell.',
+      },
+    },
+    footer: {
+      integrator:
+        'Ez a tétel az integrátornak szól: a fenti lehetőségek egyikét választhatja, vagy indoklással továbbadhatja a tulajdonosnak. 24 óra után magától a tulajdonoshoz kerül.',
+      owner: 'Ez a tétel a tulajdonosnak szól.',
+    },
+  },
   stageApproval: (stageName) => `${stageName}: jóváhagyva`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

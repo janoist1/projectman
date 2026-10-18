@@ -5,6 +5,7 @@ import {
   InboxState,
   RelayOwnerAnswerRequest,
   ResolveInboxRequest,
+  ResolveIntegratorFixLimitRequest,
   ResolveIntegratorTodoRequest,
   humanInboxAssignment,
   routes,
@@ -18,7 +19,11 @@ import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
 import { notFound } from '../kernel';
-import { relayOwnerAnswer, resolveIntegratorTodo } from '../services/super-operator';
+import {
+  relayOwnerAnswer,
+  resolveIntegratorFixLimit,
+  resolveIntegratorTodo,
+} from '../services/super-operator';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
@@ -94,6 +99,22 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
       key,
       itemId,
       parseBody(ResolveIntegratorTodoRequest, request.body),
+      access,
+    );
+  });
+
+  /**
+   * The integrator in super mode decides the fix round limit item addressed to it, or hands it on to the
+   * owners with a reason (PM-714). Only that narrow item; it is not an owner decision or approval.
+   */
+  app.post<ItemParams>(routes.resolveIntegratorFixLimit(':key', ':itemId'), async (request) => {
+    const { key, itemId } = request.params;
+    const access = await requireAccess(domain, request, key);
+    return resolveIntegratorFixLimit(
+      domain,
+      key,
+      itemId,
+      parseBody(ResolveIntegratorFixLimitRequest, request.body),
       access,
     );
   });

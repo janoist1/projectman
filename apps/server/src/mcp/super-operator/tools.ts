@@ -7,6 +7,7 @@ import {
   ListSuperHandoffsQuery,
   QuerySuperDiagnosticsArgs,
   RelayOwnerAnswerRequest,
+  ResolveIntegratorFixLimitRequest,
   ResolveIntegratorTodoRequest,
   SuperOperateArgs,
 } from '@projectman/shared';
@@ -165,6 +166,56 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
           ...(args.note !== undefined ? { note: args.note } : {}),
         }),
       };
+    },
+  }),
+  defineExternalTool({
+    name: 'resolve_integrator_fix_limit',
+    title: 'Decide a fix round limit item addressed to you',
+    description:
+      'Decide the fix round limit item that is addressed to you (list_integrator_inbox shows it with its full text): {item}. option_id is replan (a more exact plan first), reassign (another implementer) or another_round (one more round for the same implementer; it counts as an extra round); or to_owner, which hands the same item to the owners and requires why in note. This is your own work, not an owner approval, and it works on that item only: any other item is refused (super_relay_refused). After 24 hours the item belongs to the owners.',
+    access: 'write',
+    modes: ['super'],
+    input: {
+      item_id: z.string().min(1).max(100),
+      option_id: ResolveIntegratorFixLimitRequest.shape.optionId,
+      note: ResolveIntegratorFixLimitRequest.shape.note,
+    },
+    async run({ ctx, args, handler }) {
+      return {
+        structured: await handler.resolveIntegratorFixLimit(ctx, {
+          itemId: args.item_id,
+          optionId: args.option_id,
+          ...(args.note !== undefined ? { note: args.note } : {}),
+        }),
+      };
+    },
+  }),
+  defineExternalTool({
+    name: 'list_integrator_inbox',
+    title: 'List what is addressed to the integrator',
+    description:
+      'The items addressed to you: your todos and the fix round limit decisions, each with its full text (the summary, the extra rounds, the lead’s assessment, every round, and per option its id, label and consequence), newest first: {items}. state is open (default) or all (every item that was ever opened to you, at most 500).',
+    access: 'read',
+    modes: ['super'],
+    input: { state: z.enum(['open', 'all']).optional() },
+    async run({ ctx, args, handler }) {
+      const result = await handler.listIntegratorInbox(ctx, { state: args.state ?? 'open' });
+      const text =
+        result.items.length === 0
+          ? 'Nothing is addressed to you.'
+          : result.items
+              .map((item) =>
+                [
+                  `## ${item.id} · ${item.kind} · ${item.state}${item.taskKey ? ` · ${item.taskKey}` : ''}`,
+                  item.title,
+                  item.body ?? '',
+                  `Options: ${item.options.map((option) => option.id).join(', ')}`,
+                ]
+                  .filter((line) => line !== '')
+                  .join('\n'),
+              )
+              .join('\n\n');
+      return { structured: { ...result }, text };
     },
   }),
   defineExternalTool({

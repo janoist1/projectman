@@ -336,6 +336,99 @@ describe('projectman CLI (PM-765)', () => {
       expect(JSON.parse(all.stdout.join(''))).toEqual({ items: [] });
     });
 
+    it('inbox list: a fix round limit decision is printed in full, other items as one line', async () => {
+      const base = {
+        projectKey: 'PM',
+        kind: 'decision',
+        assignees: ['owner'],
+        source: 'system',
+        sessionId: null,
+        taskKey: 'PM-7',
+        body: null,
+        options: [],
+        state: 'open',
+        resolution: null,
+        createdAt: '2026-10-18T10:00:00.000Z',
+      };
+      const fixLimit = {
+        taskKey: 'PM-7',
+        rounds: 3,
+        limit: 3,
+        changeRequests: 3,
+        designChangeRequests: 0,
+        sendBacks: 0,
+        reason: 'passed_on',
+        decider: 'claude',
+        note: null,
+      };
+      const items = [
+        {
+          ...base,
+          id: 'item_1',
+          title: 'Fix limit PM-7',
+          body: 'Ismétlődés: ugyanaz a teszt.\nAjánlás: another_round',
+          payload: { fixLimit },
+        },
+        { ...base, id: 'item_2', title: 'Plain decision', body: 'Not printed.', payload: {} },
+      ];
+      const result = await run(['inbox', 'list', '--project', 'PM'], () => jsonResponse({ items }));
+      expect(result.stdout.join('')).toBe(
+        'item_1 decision open Fix limit PM-7\nIsmétlődés: ugyanaz a teszt.\nAjánlás: another_round\n\nitem_2 decision open Plain decision\n',
+      );
+      const asJson = await run(['inbox', 'list', '--project', 'PM', '--json'], () => jsonResponse({ items }));
+      expect(JSON.parse(asJson.stdout.join('')).items[0].body).toContain('Ismétlődés');
+    });
+
+    it('inbox fix-limit: only the dedicated endpoint, with the option and the note', async () => {
+      const item = {
+        id: 'item_3',
+        projectKey: 'PM',
+        kind: 'decision',
+        assignees: ['owner'],
+        source: 'system',
+        sessionId: null,
+        taskKey: 'PM-7',
+        title: 'Fix limit',
+        body: null,
+        payload: {},
+        options: [],
+        state: 'resolved',
+        resolution: null,
+        createdAt: '2026-10-18T10:00:00.000Z',
+      };
+      const result = await run(
+        ['inbox', 'fix-limit', 'item_3', '--project', 'PM', '--option', 'to_owner', '--note', 'Your call.'],
+        () => jsonResponse({ item }),
+      );
+      expect(result.code).toBe(0);
+      expect(result.requests).toHaveLength(1);
+      expect(result.requests[0]).toMatchObject({ method: 'POST' });
+      expect(result.requests[0]?.url.pathname).toBe(
+        '/api/projects/PM/inbox/item_3/resolve-integrator-fix-limit',
+      );
+      expect(bodyOf(result.requests[0])).toEqual({ optionId: 'to_owner', note: 'Your call.' });
+      expect(result.requests[0]?.headers['x-request-id']).toBe(REQUEST_1);
+      const without = await run(
+        ['inbox', 'fix-limit', 'item_3', '--project', 'PM', '--option', 'another_round'],
+        () => jsonResponse({ item }),
+      );
+      expect(bodyOf(without.requests[0])).toEqual({ optionId: 'another_round' });
+    });
+
+    it('inbox fix-limit: refuses a wrong option, a missing note for to_owner and a bad item id before any request', async () => {
+      for (const args of [
+        ['inbox', 'fix-limit', 'item_3', '--project', 'PM'],
+        ['inbox', 'fix-limit', 'item_3', '--project', 'PM', '--option', 'approve'],
+        ['inbox', 'fix-limit', 'item_3', '--project', 'PM', '--option', 'to_owner'],
+        ['inbox', 'fix-limit', 'item/3', '--project', 'PM', '--option', 'replan'],
+        ['inbox', 'fix-limit', '--project', 'PM', '--option', 'replan'],
+      ]) {
+        const result = await run(args, accepted);
+        expect(result.code, args.join(' ')).toBe(CLIENT_EXIT.usage);
+        expect(result.requests, args.join(' ')).toHaveLength(0);
+      }
+    });
+
     it('inbox answer: only the relay endpoint, with the answer text as it is', async () => {
       const result = await run(['inbox', 'answer', 'item_9', '--project', 'PM', '--file', '-'], accepted, {
         stdin: 'Yes.\nGo on.\n',

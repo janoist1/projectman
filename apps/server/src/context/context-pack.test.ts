@@ -36,7 +36,7 @@ import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
 import { roleLabel } from './system-prompt';
 import { describeTeamRule } from './team-rules';
-import { handover } from './work-item';
+import { dutyPrompt, handover } from './work-item';
 
 const builder = createContextPackBuilder();
 
@@ -223,7 +223,7 @@ it.each(['queued', 'running'] as const)(
   },
 );
 
-it('explains member initiated merging and forbids manual git merging or pushing', () => {
+it('explains member initiated merging and forbids manually landing or pushing the approved commit', () => {
   const project = buildProject();
   project.project.repos[0]!.requireMerge = true;
   const pack = builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
@@ -231,11 +231,47 @@ it('explains member initiated merging and forbids manual git merging or pushing'
     'Before the merge target, the card merger must use merge_task to merge its approved commit into `main`',
   );
   expect(pack.initialMessage).toContain('The project manager must not request a manual git merge');
-  expect(pack.appendSystemPrompt).toContain('Never merge or push');
+  expect(pack.appendSystemPrompt).toContain('Never merge into `main` or push manually');
   expect(pack.appendSystemPrompt).not.toContain('Commit, push, open a pull request');
   expect(pack.initialMessage).not.toContain('makes the server merge');
   expect(pack.initialMessage).not.toContain('the server owns the merge on Done');
 });
+
+it.each(['claude', 'codex', 'nanogpt', 'gemini'] as const)(
+  'allows %s developers to merge the default branch into their card branch without permission (PM-747)',
+  (provider) => {
+    for (const localOnly of [false, true]) {
+      for (const defaultBranch of ['main', 'develop']) {
+        const project = localOnly ? buildLocalOnlyProject() : buildProject();
+        const repo = project.project.repos.find((entry) => entry.name === 'app')!;
+        repo.requireMerge = true;
+        repo.defaultBranch = defaultBranch;
+        const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider };
+        for (const stageId of ['dev', 'code_review']) {
+          const context = input({ project, member, task: makeTask({ stageId }) });
+          const pack = builder.build(context);
+          for (const text of [
+            pack.initialMessage,
+            pack.appendSystemPrompt,
+            dutyPrompt(context, 'implementation'),
+            dutyPrompt(context, 'docs'),
+          ]) {
+            expect(text).toContain(
+              `Merging \`${defaultBranch}\` into your own task branch (for example to resolve review conflicts) is always allowed and needs no permission.`,
+            );
+            expect(text).toContain(`Never merge into \`${defaultBranch}\` or push manually`);
+            expect(text).toContain(`only the card merger's merge_task may move \`${defaultBranch}\``);
+            expect(text).not.toContain('Never merge or push manually');
+            expect(text).not.toContain('AI members must never merge or push manually');
+          }
+          expect(pack.initialMessage).toContain(
+            `The project manager must not request a manual git merge into \`${defaultBranch}\`.`,
+          );
+        }
+      }
+    }
+  },
+);
 
 describe('team rules in the system prompt', () => {
   it.each([

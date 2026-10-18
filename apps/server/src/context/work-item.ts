@@ -25,7 +25,16 @@ import {
 } from '@projectman/shared';
 import type { DutyId, LabelDefinition, RepoConfig, Stage, Task } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { code, codeList, fullTestLine, labelRef, lowerFirst, mergeStepCheckLine, stageLabel } from './format';
+import {
+  cardBranchMergeRule,
+  code,
+  codeList,
+  fullTestLine,
+  labelRef,
+  lowerFirst,
+  mergeStepCheckLine,
+  stageLabel,
+} from './format';
 
 /** Where the member's work item stands in the pipeline. */
 export interface Situation {
@@ -127,10 +136,14 @@ const LOCAL_ONLY_DUTY_PROMPTS: Partial<Record<DutyId, string>> = {
 export function dutyPrompt(input: ContextPackInput, duty: DutyId): string {
   if (isMergeFixer(input.task?.merge, input.member.handle))
     return 'You are fixing a mechanical merge conflict in the dedicated writable merge-fix worktree. Follow the Merge fix steps; commit the resolution and submit it with merge_task. Send behavioral conflicts back to the developer with a reason. Never push manually.';
-  if (serverMergeRepo(input) && (duty === 'implementation' || duty === 'docs'))
-    return duty === 'implementation'
-      ? "Implement the task and tests only in its worktree; run checks and commit on the task's branch. Never merge or push manually: the card merger uses merge_task before the merge target; the gate checks the approved commit."
-      : "Write documentation in the task worktree, verify examples and commit on the task's branch. Never merge or push manually: the card merger uses merge_task before the merge target; the gate checks the approved commit.";
+  const mergeRepo = serverMergeRepo(input);
+  if (mergeRepo && (duty === 'implementation' || duty === 'docs')) {
+    const work =
+      duty === 'implementation'
+        ? "Implement the task and tests only in its worktree; run checks and commit on the task's branch."
+        : "Write documentation in the task worktree, verify examples and commit on the task's branch.";
+    return `${work} ${cardBranchMergeRule(mergeRepo.defaultBranch)} The gate checks the approved commit.`;
+  }
   return (localOnlyRepo(input) && LOCAL_ONLY_DUTY_PROMPTS[duty]) || DUTIES[duty].prompt;
 }
 
@@ -241,6 +254,7 @@ function reviewBeforeHandover(c: StepContext, target: Stage | null): string[] {
 function building(work: (where: string, tests: string) => string[], ownerReview?: StepRule): StepRule {
   return (c) => {
     const { input, s, current, inQueue, localOnly } = c;
+    const mergeRepo = serverMergeRepo(input);
     if ((inQueue || current.kind === 'work') && (s.ownsStage || s.isAssignee || inQueue)) {
       const working = inQueue ? s.next : current;
       const target = working ? stageAfter(s.stages, working) : null;
@@ -254,8 +268,8 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
         ...work(where, developerTests(input, c.task)),
         localOnly
           ? `Commit the work on the task's own branch in your worktree. Never push and never open a pull request: ${LOCAL_ONLY_REASON}. Before you hand over, make sure everything is committed: \`git status\` shows nothing left to commit.`
-          : serverMergeRepo(input)
-            ? "Commit the work on the task's own branch. Never merge or push manually: before the merge target, the card merger uses merge_task to merge the approved commit and push it if the base has an upstream."
+          : mergeRepo
+            ? `Commit the work on the task's own branch. ${cardBranchMergeRule(mergeRepo.defaultBranch)}`
             : 'Commit, push, open a pull request and attach it with link_pull_request.',
         ...reviewBeforeHandover(c, target),
         handover(input, target, localOnly ? LOCAL_ONLY_FACTS : undefined),
@@ -267,8 +281,8 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
       return [
         localOnly
           ? `${past} Fix what teammates report on the same branch and commit the fixes; never push, because ${LOCAL_ONLY_REASON}. Then ask the reporter for a re-review or a retest with send_message, naming the new commits.`
-          : serverMergeRepo(input)
-            ? `${past} Fix what teammates report on the same branch, commit the fixes, and ask the reporter for a re-review or a retest with send_message. Never merge or push manually; before the merge target, the card merger uses merge_task.`
+          : mergeRepo
+            ? `${past} Fix what teammates report on the same branch, commit the fixes, and ask the reporter for a re-review or a retest with send_message. ${cardBranchMergeRule(mergeRepo.defaultBranch)}`
             : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
         ...(testsAtMerge(input, c.task) ? [developerTests(input, c.task)] : []),
       ];

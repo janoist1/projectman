@@ -1731,4 +1731,26 @@ migrations.push({
     );
     ${HISTORY_DIRTY_TRIGGERS_SQL}`,
 });
+migrations.push({
+  version: 85,
+  name: 'history search log',
+  // PM-787: the private measurement of the history search. One row per authenticated, authorized, valid search,
+  // with the text of the request: it lives in this table only (never in the index, the timeline or a log) and
+  // is purged after 90 days. `via` is 'integrator' for a search made through an integrator key.
+  sql: `CREATE TABLE history_searches (
+      id TEXT PRIMARY KEY,
+      at TEXT NOT NULL,
+      member TEXT NOT NULL,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      via TEXT,
+      query TEXT NOT NULL,
+      filters TEXT NOT NULL,
+      result_count INTEGER,
+      has_more INTEGER,
+      outcome TEXT NOT NULL CHECK (outcome IN ('ok', 'error')),
+      error_code TEXT
+    );
+    CREATE INDEX history_searches_project_at ON history_searches(project_key, at, id);
+    CREATE INDEX history_searches_member_at ON history_searches(project_key, member, at);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

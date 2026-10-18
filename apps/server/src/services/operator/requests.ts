@@ -53,6 +53,8 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'check_release',
   'read_project_doc',
   'list_decision_candidates',
+  'search_history',
+  'read_history_source',
 ]);
 
 /**
@@ -86,6 +88,8 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
  * it reads what that person can see, answers them (`send_message`, to them only), and changes only
  * their personal conversation style (PM-688).
  * `get_project_state` is left out on purpose: guest access needs a viewer filter in a separate task.
+ * The history search reads with the guest's own view (PM-787). `get_history_search_stats` is here only so that
+ * an admin's guest conversation reaches its own check; any other guest is refused `history_stats_forbidden`.
  */
 export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'get_operator_preference',
@@ -97,6 +101,9 @@ export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'read_attachment',
   'read_message_attachment',
   'send_message',
+  'search_history',
+  'read_history_source',
+  'get_history_search_stats',
 ]);
 
 /**

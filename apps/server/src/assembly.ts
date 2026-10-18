@@ -11,6 +11,7 @@ import {
   GithubTools,
   ScreenshotTools,
   ProjectDocTools,
+  HistoryTools,
   TeamToolsService,
   InboxTools,
   MessageTools,
@@ -1386,8 +1387,17 @@ export function createDomain(opts: DomainOptions) {
     sessionEngine,
     coordinationRequests,
   });
+  // The searchable history (PM-786): a durable index of the project history, followed from the database.
+  const history = createHistoryService({
+    repos: opts.repos,
+    config: (key) => projects.cachedConfig(key) ?? null,
+    bus,
+    logger: opts.logger.child({ module: 'history' }),
+    now,
+  });
   const teamTools = new TeamToolsService({
     tools: {
+      history: new HistoryTools({ calls: toolCaller, ctx, projects, history }),
       projectDocs: new ProjectDocTools({
         calls: toolCaller,
         ctx,
@@ -1476,14 +1486,7 @@ export function createDomain(opts: DomainOptions) {
           logger: opts.logger.child({ module: 'email-login' }),
         })
       : null;
-  // The searchable history (PM-786): a durable index of the project history, followed from the database.
-  const history = createHistoryService({
-    repos: opts.repos,
-    config: (key) => projects.cachedConfig(key) ?? null,
-    bus,
-    logger: opts.logger.child({ module: 'history' }),
-    now,
-  });
+  // The history service itself is created before the team tools, which search through it (PM-787).
   const historyDocuments = createHistoryDocumentSync({
     projects: {
       keys: async () => projects.summaries().map((project) => project.key),
@@ -2410,6 +2413,7 @@ export function createDomain(opts: DomainOptions) {
         superHandoffs,
         superAdministration,
         inbox,
+        history,
       }).backend();
     },
 

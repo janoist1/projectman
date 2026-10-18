@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { TimelineEvent } from './event';
 import { canSeeInboxItem, questionPayloadOf, visibleQuestionItem } from './inbox';
 import type { InboxItem } from './inbox';
+import { MemberHandle } from './member';
 import { canSeeTeamMessage } from './message';
 import type { TeamMessage } from './message';
 import { canSeeTask, TaskKey } from './task';
@@ -33,23 +34,36 @@ export const HISTORY_READ_MAX_LINES = 200;
 
 const IsoWithZone = z.iso.datetime({ offset: true });
 
+const searchFilterShape = {
+  taskKey: TaskKey.optional(),
+  sourceTypes: z.array(HistorySourceType).min(1).max(HISTORY_SOURCE_TYPES.length).optional(),
+  since: IsoWithZone.optional(),
+  until: IsoWithZone.optional(),
+  limit: z.number().int().min(1).max(HISTORY_SEARCH_MAX_LIMIT).optional(),
+};
+
+function refineSearchFilters(
+  input: { sourceTypes?: string[] | undefined; since?: string | undefined; until?: string | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  if (input.sourceTypes && new Set(input.sourceTypes).size !== input.sourceTypes.length)
+    ctx.addIssue({ code: 'custom', path: ['sourceTypes'], message: 'source types must be distinct' });
+  if (input.since && input.until && Date.parse(input.since) > Date.parse(input.until))
+    ctx.addIssue({ code: 'custom', path: ['since'], message: 'since must not be after until' });
+}
+
 /** What a search asks for; the project is a separate argument. */
 export const HistorySearchInput = z
   .strictObject({
     query: z.string().trim().min(1).max(HISTORY_QUERY_MAX_LENGTH),
-    taskKey: TaskKey.optional(),
-    sourceTypes: z.array(HistorySourceType).min(1).max(HISTORY_SOURCE_TYPES.length).optional(),
-    since: IsoWithZone.optional(),
-    until: IsoWithZone.optional(),
-    limit: z.number().int().min(1).max(HISTORY_SEARCH_MAX_LIMIT).optional(),
+    ...searchFilterShape,
   })
-  .superRefine((input, ctx) => {
-    if (input.sourceTypes && new Set(input.sourceTypes).size !== input.sourceTypes.length)
-      ctx.addIssue({ code: 'custom', path: ['sourceTypes'], message: 'source types must be distinct' });
-    if (input.since && input.until && Date.parse(input.since) > Date.parse(input.until))
-      ctx.addIssue({ code: 'custom', path: ['since'], message: 'since must not be after until' });
-  });
+  .superRefine(refineSearchFilters);
 export type HistorySearchInput = z.infer<typeof HistorySearchInput>;
+
+/** What a search was narrowed by: its input without the query (what the private measurement keeps, PM-787). */
+export const HistorySearchFilters = z.strictObject(searchFilterShape).superRefine(refineSearchFilters);
+export type HistorySearchFilters = z.infer<typeof HistorySearchFilters>;
 
 /** The full read of one source. */
 export const HistoryReadInput = z.strictObject({
@@ -155,6 +169,73 @@ export type HistoryDocumentSnapshot = z.infer<typeof HistoryDocumentSnapshot>;
 
 /** Whoever searches: a current member of the project. `via` marks the integrator's bound access. */
 export type HistoryViewer = TaskViewer & { via?: 'integrator' };
+
+/** How long the private search log is kept (PM-787): a fixed value in code, not a setting. */
+export const HISTORY_SEARCH_RETENTION_DAYS = 90;
+export const HISTORY_STATS_DEFAULT_DAYS = 30;
+export const HISTORY_STATS_DEFAULT_LIMIT = 50;
+export const HISTORY_STATS_MAX_LIMIT = 200;
+
+/** Where the list of searches without a result continues: the key of its last entry, `(at, id)` descending. */
+export const HistoryStatsCursor = z.strictObject({ at: IsoWithZone, id: z.string().min(1).max(200) });
+export type HistoryStatsCursor = z.infer<typeof HistoryStatsCursor>;
+
+/** What the statistics ask for; the project is a separate argument. */
+export const HistoryStatsInput = z
+  .strictObject({
+    since: IsoWithZone.optional(),
+    until: IsoWithZone.optional(),
+    member: MemberHandle.optional(),
+    limit: z.number().int().min(1).max(HISTORY_STATS_MAX_LIMIT).optional(),
+    cursor: HistoryStatsCursor.optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.since && input.until && Date.parse(input.since) > Date.parse(input.until))
+      ctx.addIssue({ code: 'custom', path: ['since'], message: 'since must not be after until' });
+  });
+export type HistoryStatsInput = z.infer<typeof HistoryStatsInput>;
+
+/** The statistics of the private search log: counts and the searches that found nothing (PM-787). */
+export const HistorySearchStats = z.object({
+  since: z.string(),
+  until: z.string(),
+  /** The oldest time the log still holds; older searches are deleted. */
+  retainedSince: z.string(),
+  /** The searches that ended with a result list (a zero result is one too). */
+  totalSearches: z.number().int().min(0),
+  /** The searches that failed on the server's side; they are in no other number. */
+  failedSearches: z.number().int().min(0),
+  byMember: z.array(
+    z.object({
+      member: z.string(),
+      searches: z.number().int().min(0),
+      zeroResultSearches: z.number().int().min(0),
+    }),
+  ),
+  zeroResultCount: z.number().int().min(0),
+  zeroResultRate: z.number().min(0).max(1),
+  zeroResults: z.array(
+    z.object({
+      id: z.string(),
+      at: z.string(),
+      member: z.string(),
+      query: z.string(),
+      filters: HistorySearchFilters,
+      via: z.literal('integrator').nullable(),
+    }),
+  ),
+  nextCursor: HistoryStatsCursor.nullable(),
+});
+export type HistorySearchStats = z.infer<typeof HistorySearchStats>;
+
+/**
+ * Whether the viewer may read the private search statistics: a current owner or admin on their own request.
+ * The integrator's bound access (`via`) never may, however the key is set; the adapter still checks the
+ * session and the origin of the request.
+ */
+export function canSeeHistorySearchStats(viewer: HistoryViewer): boolean {
+  return !viewer.via && (viewer.access === 'owner' || viewer.access === 'admin');
+}
 
 /** What a source contributes to the index and to a full read: a heading and a body. */
 export interface HistoryText {

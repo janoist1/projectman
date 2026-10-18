@@ -2,10 +2,16 @@ import {
   HISTORY_DOC_PATHS,
   HISTORY_READ_DEFAULT_LINES,
   HISTORY_SEARCH_DEFAULT_LIMIT,
+  HISTORY_SEARCH_RETENTION_DAYS,
   HISTORY_SOURCE_TYPES,
+  HISTORY_STATS_DEFAULT_DAYS,
+  HISTORY_STATS_DEFAULT_LIMIT,
   HistoryDocumentSnapshot,
   HistoryReadInput,
+  HistorySearchFilters,
   HistorySearchInput,
+  HistoryStatsInput,
+  canSeeHistorySearchStats,
   canSeeTask,
   memberOf,
   visibleHistorySource,
@@ -16,6 +22,7 @@ import type {
   HistoryHit,
   HistoryReference,
   HistorySearchResult,
+  HistorySearchStats,
   HistorySourceRead,
   HistoryText,
   HistoryViewer,
@@ -24,7 +31,7 @@ import type {
 import type { EventBus, HistoryConfigSource, HistoryService } from '../../contracts';
 import { historyDocumentEntityId } from '../../db';
 import type { HistoryDocumentRow, HistoryDocStateRow } from '../../db';
-import { DomainError, conflict, forbidden, notFound, unavailable } from '../../kernel';
+import { DomainError, conflict, forbidden, newId, notFound, unavailable } from '../../kernel';
 import { excerptOf } from './excerpt';
 import { createHistoryIndexer } from './indexer';
 import { QueryError, translateQuery } from './query';
@@ -51,6 +58,7 @@ export interface HistoryServiceDeps {
 }
 
 const SWEEP_MS = 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 /** Coalesces the events of one write burst into one index run. */
 const WAKE_MS = 20;
 const WAKE_EVENTS: ReadonlySet<string> = new Set([
@@ -90,6 +98,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
   let sweepTimer: ReturnType<typeof setInterval> | null = null;
   let wakeTimer: ReturnType<typeof setTimeout> | null = null;
   let unsubscribe: (() => void) | null = null;
+  let lastPurgeAt = 0;
 
   const nowIso = () => deps.now().toISOString();
 
@@ -124,6 +133,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
 
   async function init(): Promise<void> {
     if (ready) return;
+    purgeSearchLogSafely();
     initializing ??= backfill()
       .catch((error: unknown) => {
         logger.error({ err: error }, 'the history index could not be prepared');
@@ -134,6 +144,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     await initializing;
     if (stopped) return;
     sweepTimer ??= setInterval(() => {
+      if (deps.now().getTime() - lastPurgeAt >= DAY_MS) purgeSearchLogSafely();
       if (ready) flush();
       else void init();
     }, deps.sweepMs ?? SWEEP_MS);
@@ -144,15 +155,40 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
       });
   }
 
-  function ensureUsable(projectKey: string): ProjectConfig {
-    if (!ready) throw unavailable('history_unavailable', 'the history index is not ready');
+  function configOf(projectKey: string): ProjectConfig {
     const config = deps.config(projectKey);
     // An unknown project is as unreachable as one the viewer is not in: the answer must not tell them apart.
     if (!config) throw forbidden('insufficient_access', 'not a member of the project');
+    return config;
+  }
+
+  function ensureReady(projectKey: string): void {
+    if (!ready) throw unavailable('history_unavailable', 'the history index is not ready');
     const state = history.indexState(projectKey);
     if (!state) indexer.markEmptyProjectComplete(projectKey);
     else if (!state.complete) throw unavailable('history_unavailable', 'the history index is not complete');
+  }
+
+  function ensureUsable(projectKey: string): ProjectConfig {
+    if (!ready) throw unavailable('history_unavailable', 'the history index is not ready');
+    const config = configOf(projectKey);
+    ensureReady(projectKey);
     return config;
+  }
+
+  /** Deletes the searches older than the retention; the one made exactly at the cut-off stays. */
+  function purgeSearchLog(): void {
+    const cutoff = new Date(deps.now().getTime() - HISTORY_SEARCH_RETENTION_DAYS * DAY_MS).toISOString();
+    lastPurgeAt = deps.now().getTime();
+    repos.historySearches.purgeBefore(cutoff);
+  }
+
+  function purgeSearchLogSafely(): void {
+    try {
+      purgeSearchLog();
+    } catch (error) {
+      logger.error({ err: error }, 'the history search log could not be purged');
+    }
   }
 
   /** The viewer as the current roster knows them: their access is never taken from the caller. */
@@ -203,6 +239,22 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     };
   }
 
+  /** What the log keeps of the filters: normalized, so every door writes the same text for the same search. */
+  function filtersOf(input: HistorySearchInput): HistorySearchFilters {
+    const wanted = input.sourceTypes ?? HISTORY_SOURCE_TYPES;
+    return {
+      ...(input.taskKey ? { taskKey: input.taskKey } : {}),
+      sourceTypes: HISTORY_SOURCE_TYPES.filter((type) => wanted.includes(type)),
+      ...(input.since ? { since: normalizeAt(input.since) } : {}),
+      ...(input.until ? { until: normalizeAt(input.until) } : {}),
+      limit: input.limit ?? HISTORY_SEARCH_DEFAULT_LIMIT,
+    };
+  }
+
+  /**
+   * One search, measured exactly once (PM-787): a call that is not a search (invalid, not a member, not found) leaves
+   * no record; a search that ran is recorded as it ended, and its result leaves only after the record is written.
+   */
   function search(
     projectKey: string,
     viewerIn: HistoryViewer,
@@ -211,8 +263,58 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     const parsed = HistorySearchInput.safeParse(rawInput);
     if (!parsed.success) throw invalidRequest(issueText(parsed.error));
     const input = parsed.data;
-    const config = ensureUsable(projectKey);
+    const config = configOf(projectKey);
     const viewer = viewerOf(config, viewerIn);
+    const entry = {
+      id: newId('hsr'),
+      at: nowIso(),
+      member: viewer.handle,
+      projectKey,
+      via: viewer.via ?? null,
+      query: input.query,
+      filters: JSON.stringify(filtersOf(input)),
+    };
+    let result: HistorySearchResult;
+    try {
+      result = runSearch(config, viewer, input);
+    } catch (error) {
+      // A refused request (invalid query, unknown card) is no search; a failure of the server is one that failed.
+      if (error instanceof DomainError && error.status < 500) throw error;
+      try {
+        repos.historySearches.insert({
+          ...entry,
+          resultCount: null,
+          hasMore: null,
+          outcome: 'error',
+          errorCode: error instanceof DomainError ? error.code : 'internal_error',
+        });
+      } catch (recordError) {
+        logger.error({ err: recordError, projectKey }, 'a failed history search could not be recorded');
+      }
+      throw error;
+    }
+    try {
+      repos.historySearches.insert({
+        ...entry,
+        resultCount: result.matches.length,
+        hasMore: result.hasMore,
+        outcome: 'ok',
+        errorCode: null,
+      });
+    } catch (error) {
+      logger.error({ err: error, projectKey }, 'a history search could not be recorded');
+      throw unavailable('history_unavailable', 'the search could not be recorded');
+    }
+    return result;
+  }
+
+  function runSearch(
+    config: ProjectConfig,
+    viewer: HistoryViewer,
+    input: HistorySearchInput,
+  ): HistorySearchResult {
+    const projectKey = config.project.key;
+    ensureReady(projectKey);
     let translated;
     try {
       translated = translateQuery(input.query);
@@ -323,6 +425,68 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     };
   }
 
+  function filtersOfRecord(text: string): HistorySearchFilters {
+    try {
+      const parsed = HistorySearchFilters.safeParse(JSON.parse(text));
+      if (parsed.success) return parsed.data;
+    } catch {
+      // A record this build cannot read is shown without its filters.
+    }
+    return {};
+  }
+
+  /** The private statistics of the search log (PM-787): only a current owner or admin on their own request. */
+  function stats(
+    projectKey: string,
+    viewerIn: HistoryViewer,
+    rawInput: HistoryStatsInput,
+  ): HistorySearchStats {
+    const parsed = HistoryStatsInput.safeParse(rawInput);
+    if (!parsed.success) throw invalidRequest(issueText(parsed.error));
+    const input = parsed.data;
+    const viewer = viewerOf(configOf(projectKey), viewerIn);
+    if (!canSeeHistorySearchStats(viewer))
+      throw forbidden('history_stats_forbidden', 'the search statistics are not for this caller');
+    purgeSearchLog();
+    const now = deps.now().getTime();
+    const until = input.until ? normalizeAt(input.until) : new Date(now).toISOString();
+    const since = input.since
+      ? normalizeAt(input.since)
+      : new Date(Date.parse(until) - HISTORY_STATS_DEFAULT_DAYS * DAY_MS).toISOString();
+    if (since > until) throw invalidRequest('since must not be after until');
+    const period = { projectKey, since, until, ...(input.member ? { member: input.member } : {}) };
+    const limit = input.limit ?? HISTORY_STATS_DEFAULT_LIMIT;
+    const byMember = repos.historySearches.byMember(period);
+    const totalSearches = byMember.reduce((sum, row) => sum + row.searches, 0);
+    const zeroResultCount = byMember.reduce((sum, row) => sum + row.zeroResultSearches, 0);
+    const rows = repos.historySearches.zeroResults(
+      period,
+      input.cursor ? { at: normalizeAt(input.cursor.at), id: input.cursor.id } : null,
+      limit + 1,
+    );
+    const page = rows.slice(0, limit);
+    const last = page[page.length - 1];
+    return {
+      since,
+      until,
+      retainedSince: new Date(now - HISTORY_SEARCH_RETENTION_DAYS * DAY_MS).toISOString(),
+      totalSearches,
+      failedSearches: repos.historySearches.failedCount(period),
+      byMember,
+      zeroResultCount,
+      zeroResultRate: totalSearches === 0 ? 0 : zeroResultCount / totalSearches,
+      zeroResults: page.map((row) => ({
+        id: row.id,
+        at: row.at,
+        member: row.member,
+        query: row.query,
+        filters: filtersOfRecord(row.filters),
+        via: row.via,
+      })),
+      nextCursor: rows.length > limit && last ? { at: last.at, id: last.id } : null,
+    };
+  }
+
   function replaceDocuments(rawInput: HistoryDocumentSnapshot): void {
     const parsed = HistoryDocumentSnapshot.safeParse(rawInput);
     if (!parsed.success) throw invalidRequest(issueText(parsed.error));
@@ -422,6 +586,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     stop,
     search,
     read,
+    stats,
     replaceDocuments,
     markDocumentsUnavailable,
     removeRepositoryDocuments,

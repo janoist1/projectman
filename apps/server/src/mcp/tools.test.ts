@@ -109,6 +109,7 @@ describe('team tool registration', () => {
         'list_decision_candidates',
         'mark_decision_candidates',
       ],
+      'services/history': ['search_history', 'read_history_source', 'get_history_search_stats'],
       'services/merges': ['merge_task', 'prioritize_merge'],
       'services/full-tests': ['take_screenshots', 'get_screenshot_run'],
     });

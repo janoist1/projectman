@@ -21,6 +21,8 @@ const DECISION =
 const FILES = 'it moves files between a session folder or working directory and the project';
 const MEMBER_DUTY = 'it is a duty of an AI member of the card: its session, its hand-over or its merge duty';
 const UNBOUND = 'it has no external binding yet';
+const PRIVATE_STATS =
+  "it reads the private search statistics, which only the Operator shows to an owner's or admin's own request";
 
 /**
  * Why each shared tool is not served here. It only words the refusal; the denial itself is the missing binding.
@@ -38,6 +40,7 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   write_project_docs: OPERATOR,
   list_decision_candidates: OPERATOR,
   mark_decision_candidates: OPERATOR,
+  get_history_search_stats: PRIVATE_STATS,
   screen_question: OPERATOR,
   combine_questions: OPERATOR,
   dismiss_signal: OPERATOR,

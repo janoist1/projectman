@@ -17,6 +17,7 @@ import type {
   ReleaseToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
+  HistoryToolsHandler,
   AttachmentPage,
   ListTasksInput,
   LocatedAttachmentForTool,
@@ -101,12 +102,26 @@ export class TeamToolsService implements TeamToolsHandler {
     releases: ReleaseToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
+    history: HistoryToolsHandler;
     inbox: InboxToolsHandler;
     messages: MessageToolsHandler;
     admission: AdmissionToolsHandler;
     watchers: WatcherToolsHandler;
     sessions: SessionToolsHandler;
   };
+
+  async searchHistory(ctx: ToolContext, args: Parameters<HistoryToolsHandler['searchHistory']>[1]) {
+    return this.tools.history.searchHistory(ctx, args);
+  }
+  async readHistorySource(ctx: ToolContext, args: Parameters<HistoryToolsHandler['readHistorySource']>[1]) {
+    return this.tools.history.readHistorySource(ctx, args);
+  }
+  async getHistorySearchStats(
+    ctx: ToolContext,
+    args: Parameters<HistoryToolsHandler['getHistorySearchStats']>[1],
+  ) {
+    return this.tools.history.getHistorySearchStats(ctx, args);
+  }
 
   async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
     return this.tools.operator.getOperatorDiagnostics(ctx, args);
@@ -152,6 +167,7 @@ export class TeamToolsService implements TeamToolsHandler {
       releases: ReleaseToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
+      history: HistoryToolsHandler;
       inbox: InboxToolsHandler;
       messages: MessageToolsHandler;
       admission: AdmissionToolsHandler;

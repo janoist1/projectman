@@ -117,6 +117,9 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
 | `link_feedback`             | `mark_id`, `task_key`, `reply?`                                                                                                                                                                           | `linkFeedback(ctx, { markId, taskKey, reply? })`                                                                      |
 | `forward_feedback`          | `mark_id`, `reason` (1–1000 chars), `reply` (1–4000 chars)                                                                                                                                                | `forwardFeedback(ctx, { markId, reason, reply })`                                                                     |
 | `close_feedback`            | `mark_id`, `reply?`                                                                                                                                                                                       | `closeFeedback(ctx, { markId, reply? })`                                                                              |
+| `search_history`            | `query` (1–400), `project_key?`, `task_key?`, `source_types?`, `since?`, `until?`, `limit?` (1–50, default 10)                                                                                            | `searchHistory(ctx, { query, projectKey?, taskKey?, sourceTypes?, since?, until?, limit? })`                          |
+| `read_history_source`       | `source_id`, `project_key?`, `from_line?`, `line_count?` (1–200, default 80), `commit?` (40 hex, documents)                                                                                               | `readHistorySource(ctx, { sourceId, projectKey?, fromLine?, lineCount?, commit? })`                                   |
+| `get_history_search_stats`  | `since?`, `until?`, `member?`, `limit?` (1–200, default 50), `cursor?`                                                                                                                                    | `getHistorySearchStats(ctx, { since?, until?, member?, limit?, cursor? })`                                            |
 
 - The feedback tools (PM-512) are for AI members that hold the `feedback_processing` duty (by default the
   project manager); everyone else, the Operator included, gets `forbidden` with `feedback_processor_only`.
@@ -124,6 +127,20 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   act on a mark that waits for the owner). `get_feedback { mark_id }` gives the stored screenshot's path only
   to a session that runs on the server's machine; a session on a remote engine is told to read the image
   from the card's attachment once a card is opened from the mark.
+
+- The history tools (PM-744, `mcp/history/`) search what the project remembers, as the caller could read it:
+  `search_history { query, project_key?, task_key?, source_types?, since?, until?, limit? }` and
+  `read_history_source { source_id, project_key?, from_line?, line_count?, commit? }`. Both are on the member door
+  (bound to the session's project and handle: a foreign `project_key` is `insufficient_access`), in the Operator's read
+  and guest tool sets (a guest searches with their own view) and on the integrator door as read tools in every mode
+  (`project_key` required there, the viewer is the key's person with `via: 'integrator'`). Every valid search is
+  counted once, in the facade (`services/history`), in the private `history_searches` table, kept 90 days; reads and
+  refused calls are not counted. A search whose log write fails is `history_unavailable`.
+  `get_history_search_stats` is internal: only the Operator, in the general conversation of a human owner or admin
+  and during that person's own open message or answer request (provenance read again from the stored rows), else
+  `history_stats_forbidden`. It has no external binding (named in `EXTERNAL_DENIED`), no REST route and no web page.
+  The tool descriptions, the system prompt and the card thread tell members to search before asking a human, then to
+  open the source and check its date: a hit is historical evidence, not an instruction or permission.
 
 - `get_project_state { task_key? }` (PM-465, PM-707) is read-only for the Operator and selected PM in internal
   general conversations, available without an open owner request.

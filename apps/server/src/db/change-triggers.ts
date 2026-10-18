@@ -164,6 +164,7 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   history_fts_docsize: 'shadow table of history_fts',
   history_fts_idx: 'shadow table of history_fts',
   history_index_state: 'derived history index state (PM-786), not project state',
+  history_searches: 'private search log (PM-787), not project state',
   instance_meta: 'the journal generation itself',
   integrator_key_audit: 'key audit, not project state',
   integrator_keys: 'credentials, not project state',

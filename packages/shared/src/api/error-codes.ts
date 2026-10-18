@@ -338,6 +338,8 @@ export const ERROR_CODES = [
   'history_unavailable',
   // The document copy changed since the search that named the commit; search again (409).
   'history_source_changed',
+  // The private search statistics are not for this caller or this request (403, PM-787).
+  'history_stats_forbidden',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

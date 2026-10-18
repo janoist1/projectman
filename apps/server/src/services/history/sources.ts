@@ -2,7 +2,10 @@ import type { HistoryDocumentRow, Repositories } from '../../db';
 import type { HistoryRelated, HistorySourceState, HistorySourceType, Task } from '@projectman/shared';
 
 /** The repositories the history reads its sources through (the current project, never an index copy). */
-export type HistorySourceRepos = Pick<Repositories, 'history' | 'tasks' | 'timeline' | 'inbox' | 'messages'>;
+export type HistorySourceRepos = Pick<
+  Repositories,
+  'history' | 'historySearches' | 'tasks' | 'timeline' | 'inbox' | 'messages'
+>;
 
 /** A time in UTC ISO 8601 with milliseconds, so that the filter and the order of the index compare as text. */
 export function normalizeAt(value: string): string {

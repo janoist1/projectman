@@ -14,6 +14,7 @@ import { TASK_TOOL_GROUP } from './tasks';
 import { ATTACHMENT_TOOL_GROUP } from './attachments';
 import { MERGE_TOOL_GROUP } from './merges';
 import { PROJECT_DOC_TOOL_GROUP } from './project-docs';
+import { HISTORY_TOOL_GROUP } from './history';
 import { FEEDBACK_TOOL_GROUP } from './feedback';
 import { GITHUB_TOOL_GROUP } from './github';
 import { SCREENSHOT_TOOL_GROUP } from './full-tests';
@@ -48,6 +49,7 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   RELEASE_TOOL_GROUP,
   OPERATOR_TOOL_GROUP,
   PROJECT_DOC_TOOL_GROUP,
+  HISTORY_TOOL_GROUP,
   INBOX_TOOL_GROUP,
   MESSAGE_TOOL_GROUP,
   ADMISSION_TOOL_GROUP,

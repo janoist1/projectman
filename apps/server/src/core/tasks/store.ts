@@ -16,6 +16,7 @@ import type {
   ProjectConfig,
   Stage,
   Task,
+  TaskReadyHold,
   WorkOutage,
   TaskFixLimit,
   TaskLoop,
@@ -56,6 +57,7 @@ export class TaskStore {
   readonly projects: ProjectService;
   private readonly startWaiting: StartWaitingReader;
   private readonly outageOf?: (task: Task) => WorkOutage | undefined;
+  private readonly readyHold?: (task: Task) => TaskReadyHold | undefined;
   private readonly fixLimit: ((task: Task) => TaskFixLimit | undefined) | undefined;
 
   constructor(deps: {
@@ -64,6 +66,7 @@ export class TaskStore {
     projects: ProjectService;
     startWaiting: StartWaitingReader;
     outageOf?: (task: Task) => WorkOutage | undefined;
+    readyHold?: (task: Task) => TaskReadyHold | undefined;
     /** The fix round limit hold on a card (PM-262), shown on it. */
     fixLimit?: (task: Task) => TaskFixLimit | undefined;
   }) {
@@ -72,6 +75,7 @@ export class TaskStore {
     this.projects = deps.projects;
     this.startWaiting = deps.startWaiting;
     this.outageOf = deps.outageOf;
+    this.readyHold = deps.readyHold;
     this.fixLimit = deps.fixLimit;
   }
 
@@ -79,6 +83,7 @@ export class TaskStore {
     const {
       startWaiting: _,
       outage: _outage,
+      readyHold: _readyHold,
       reviewPin: __,
       coverAttachmentId: ___,
       loop: ____,
@@ -92,6 +97,7 @@ export class TaskStore {
     } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
     const outage = this.outageOf?.(task);
+    const readyHold = this.readyHold?.(task);
     const reviewPin = this.reviewPin(task);
     const cover = this.cover(task);
     const loop = this.loop(task);
@@ -117,6 +123,7 @@ export class TaskStore {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
       ...(outage ? { outage } : {}),
+      ...(readyHold ? { readyHold } : {}),
       ...(reviewPin ? { reviewPin } : {}),
       ...(cover ? { coverAttachmentId: cover } : {}),
       ...(loop ? { loop } : {}),

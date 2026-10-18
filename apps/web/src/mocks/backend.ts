@@ -3537,6 +3537,7 @@ export class MockBackend {
 
   /** A task as the viewer sees it: the merge is the team's, a client never gets it (like the server). */
   private forViewer(task: Task): Task {
+    // Derived ready holds are supplied by fixtures, without a second scheduling implementation.
     if (this.findMember(this.viewerHandle)?.role !== 'client') return clone(task);
     const { merge: _merge, merged: _merged, ...visible } = task;
     return clone(visible);

@@ -21,6 +21,21 @@ const item = (assignees: string[]) => ({ assignees }) as InboxItem;
 const message = (from: string, to: string[]) => ({ from, to }) as TeamMessage;
 
 describe('client visibility', () => {
+  it('hides ready hold Seniors and engine identifiers from clients', () => {
+    const readyHold = {
+      reason: 'engine_offline' as const,
+      engine: 'eng_private' as const,
+      seniors: ['senior'],
+      since: '2026-10-18T10:00:00Z',
+    };
+    const card = { ...task('AR-1', 'shared'), readyHold };
+    expect(visibleTasks(client, [card])[0]?.readyHold).toEqual({
+      reason: readyHold.reason,
+      since: readyHold.since,
+    });
+    expect(visibleTasks(developer, [card])[0]?.readyHold).toEqual(readyHold);
+    expect(card.readyHold).toEqual(readyHold);
+  });
   it('hides internal tasks, their details and internal timeline entries from clients', () => {
     expect(canSeeTask(client, task('AR-1', 'shared'))).toBe(true);
     expect(canSeeTask(client, task('AR-2', 'internal'))).toBe(false);

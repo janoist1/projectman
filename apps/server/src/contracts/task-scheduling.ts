@@ -8,6 +8,7 @@ import type { Task, TimelineEvent } from '@projectman/shared';
  * - `focus`: these focus roots (closed ones too) and the open cards open roots cover (`projectFocusPlaces`):
  *   a card root's subtasks; a theme root's cards and their subtasks, with the theme read from the parent.
  * - `pull`: the active, unassigned `task` cards of this stage that are urgent or in `focusedKeys`.
+ * - `queue`: all active, unassigned `task` cards of this stage.
  * - `children`: the direct subtasks of these cards (open ones, closed too with `includeClosed`).
  * - `open`: every card that is not done or cancelled, themes included.
  * - `closed-worktrees`: done or cancelled `task` cards closed at or before `closedBefore` (a UTC ISO time),
@@ -17,6 +18,7 @@ export type TaskSchedulingQuery =
   | { kind: 'keys'; keys: readonly string[] }
   | { kind: 'focus'; keys: readonly string[] }
   | { kind: 'pull'; stageId: string; focusedKeys: readonly string[] }
+  | { kind: 'queue'; stageId: string }
   | { kind: 'children'; parentKeys: readonly string[]; includeClosed?: boolean }
   | { kind: 'open' }
   | { kind: 'closed-worktrees'; closedBefore: string; afterSeq?: number; limit?: number };

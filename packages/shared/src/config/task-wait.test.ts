@@ -143,6 +143,20 @@ const hold = (over: Partial<FixLimit> = {}): FixLimit => ({
 
 const handles = (result: ReturnType<typeof wait>) => result?.next.map((member) => member.handle);
 
+it('shows an intentional ready hold with its own start time, leaving ordinary ready unchanged', () => {
+  const task = card({ stageId: 'ready', assignee: null, labels: ['scope-ok'] });
+  const hold = { reason: 'focus_order' as const, since: NOW };
+  expect(wait({ ...task, readyHold: hold })).toMatchObject({
+    reason: 'ready',
+    hold,
+    since: NOW,
+    toStageId: 'dev',
+    next: [],
+  });
+  expect(wait(task)).toMatchObject({ reason: 'ready', since: task.createdAt });
+  expect(wait(task)).not.toHaveProperty('hold');
+});
+
 it('ignores legacy refinement completion notices while retaining actionable alerts', () => {
   const notice = item({
     kind: 'alert',

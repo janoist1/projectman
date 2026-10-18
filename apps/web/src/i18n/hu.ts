@@ -1652,6 +1652,15 @@ export const hu = {
         workspace_codex_config: 'nem engedélyezett beállítás van a munkafa .codex mappájában',
         prerequisite_open: 'előfeltétel',
       },
+      readyHolds: {
+        ai_disabled: 'az AI-munka ki van kapcsolva',
+        team_paused: 'a csapat szünetel',
+        ai_limit_reached: 'túl sok AI dolgozik',
+        engine_offline: 'a gép nem csatlakozik',
+        no_free_member: 'nincs szabad fejlesztő',
+        senior_busy: 'Senior fejlesztőre vár',
+        focus_order: 'előrébb álló kártya kapta a szabad fejlesztőt',
+      },
       /** The bold part when it is not a person. */
       heads: {
         start: 'Indulásra vár',
@@ -1715,6 +1724,8 @@ export const hu = {
       /** The box's "Mire vár" sentences that the start text does not already say. */
       long: {
         capacity: 'Most egy másik munkán dolgozik. Amint végez, ez a kártya következik.',
+        readyHold:
+          'A kártya indítható, de most szándékosan vár. Magától sorra kerül, amint a feltétel megszűnik.',
         prerequisite: 'Egy előfeltétel még nincs lezárva: {keys}.',
         handOn: '{owner} végzett ebben a lépésben: {step}.',
         handOnNoOwner: 'A munka ebben a lépésben kész: {step}.',

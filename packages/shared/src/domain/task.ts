@@ -13,6 +13,7 @@ import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
 import { WorkOutage } from './outage';
+import { TaskReadyHold } from './ready-hold';
 
 /** Human-friendly task key: project key + sequence number, e.g. "AR-21". */
 export const TaskKey = z.string().regex(/^[A-Z][A-Z0-9]{0,9}-\d+$/);
@@ -265,6 +266,8 @@ export const Task = z.object({
   /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
   developerLevel: TaskDeveloperLevel.optional(),
   startWaiting: TaskStartWaiting.optional(),
+  /** Computed on reads; never stored. */
+  readyHold: TaskReadyHold.optional(),
   outage: WorkOutage.optional(),
   reviewPin: TaskReviewPin.optional(),
   merge: TaskMergeState.optional(),

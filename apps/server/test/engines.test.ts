@@ -311,6 +311,24 @@ describe('sessions on engines', () => {
   });
 
   describe('when the engine is not there', () => {
+    it('reports engine availability without throwing and omits offline developers from the start plan', async () => {
+      expect(h.domain.admission.engineOffline('AR', 'dev-1')).toBeNull();
+      engines.placement.set('dev-1', null);
+      expect(h.domain.admission.engineOffline('AR', 'dev-1')).toEqual({});
+      engines.placement.set('dev-1', REMOTE);
+      engines.placement.set('dev-2', REMOTE);
+      engines.setOnline(REMOTE, false);
+      expect(h.domain.admission.engineOffline('AR', 'dev-1')).toEqual({ engine: REMOTE });
+      await h.domain.admission.retryDeferred();
+      expect(h.domain.tasks.get('AR', 'AR-1').readyHold).toMatchObject({
+        reason: 'engine_offline',
+        engine: REMOTE,
+      });
+      engines.setOnline(REMOTE, true);
+      await h.domain.admission.retryDeferred();
+      expect(h.domain.tasks.get('AR', 'AR-1').readyHold).toBeUndefined();
+    });
+
     const startCard = () =>
       h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
 

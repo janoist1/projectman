@@ -42,6 +42,8 @@ export * from './domain/handoff';
 export * from './domain/feedback';
 export * from './domain/feedback-rules';
 export * from './domain/project-focus';
+export * from './domain/start-plan';
+export * from './domain/ready-hold';
 export * from './domain/project-change';
 export * from './chat/chat';
 export * from './config/schema';

@@ -92,6 +92,10 @@ export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key
     merged: _merged,
     ...rest
   } = task;
+  if (rest.readyHold) {
+    const { seniors: _seniors, engine: _engine, ...readyHold } = rest.readyHold;
+    rest.readyHold = readyHold;
+  }
   const visible = withVisibleHolders(rest, canSeeKey);
   const hideTheme = !!visible.themeKey && !canSeeKey(visible.themeKey);
   if (!hideTheme && !visible.links.some(isCardLink)) return visible;

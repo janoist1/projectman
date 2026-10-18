@@ -540,6 +540,7 @@ describe('fix round limit', () => {
       const notice = told('lead').find((text) => text.includes('Every round so far'))!;
       expect(notice).toContain('Extra rounds given so far: 0 of 3; you can give 3 more');
       expect(notice).toContain('REQUIRES an assessment');
+      expect(notice).toContain('one of replan, reassign, another_round');
       expect(notice).toContain('First fix');
       expect(notice).toContain('Second fix');
     });

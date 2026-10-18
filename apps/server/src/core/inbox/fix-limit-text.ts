@@ -102,6 +102,16 @@ function roundLine(
 }
 
 /**
+ * The body of a decision that was addressed to the integrator, now for the owners: the closing line about the
+ * integrator is replaced by the owners' one. The body is returned as it was when it does not end with that line.
+ */
+export function bodyForOwners(config: Pick<ProjectConfig, 'project'>, body: string | null): string | null {
+  const footer = getLocale(config.project.language).fixLimitItem.footer;
+  if (!body?.endsWith(footer.integrator)) return body;
+  return body.slice(0, body.length - footer.integrator.length) + footer.owner;
+}
+
+/**
  * The title, the full body and the options of a new fix round limit decision item (PM-714), in the
  * project's language. The body is what the integrator reads over MCP and the CLI, and what the web falls back
  * to: the summary, the extra rounds, the assessment of the lead (when it passed the card on), every round

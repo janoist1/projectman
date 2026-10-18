@@ -85,10 +85,10 @@ import type {
   PermissionRefusedInfo,
   PermissionRequestInfo,
 } from '../../contracts';
-import { ownerHandles } from '@projectman/shared';
+import { fixLimitDeciders, ownerHandles } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
-import { formatFixLimitItem } from './fix-limit-text';
+import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
 import type { InboxPermissionPolicy, QuestionGroupAnswerer, IntegratorTodoAccess } from './ports';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
@@ -781,10 +781,20 @@ export class InboxService {
   ): boolean {
     const at = isoNow(this.ctx);
     const reason = how.reason ?? 'integrator_timeout';
-    const patch = planIntegratorInboxEscalation(item, at, ownerHandles(config), reason);
+    // A fix limit decision goes to the people the card's hold names (the technical direction holders among the
+    // owners and admins, else the owners), as it would have if no integrator had been asked.
+    const people =
+      item.kind === 'decision' ? fixLimitDeciders(config, ownerHandles(config)) : ownerHandles(config);
+    const patch = planIntegratorInboxEscalation(item, at, people, reason);
     if (!patch) return false;
     const updated = this.ctx.unitOfWork(() => {
-      const row = this.ctx.repos.inbox.updateOpen(item.id, patch.payload, patch.assignees, at);
+      const row = this.ctx.repos.inbox.updateOpen(
+        item.id,
+        patch.payload,
+        patch.assignees,
+        at,
+        item.kind === 'decision' ? (bodyForOwners(config, item.body) ?? undefined) : undefined,
+      );
       if (!row) return null;
       if (item.kind === 'decision') {
         this.timeline.append({

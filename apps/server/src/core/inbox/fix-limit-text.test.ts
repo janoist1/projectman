@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FixLimitDecisionPayload } from '@projectman/shared';
-import { formatFixLimitItem } from './fix-limit-text';
+import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
 
 type Config = Parameters<typeof formatFixLimitItem>[0];
 
@@ -123,6 +123,16 @@ describe('formatFixLimitItem', () => {
     expect(content.body).not.toContain('véleménye');
     expect(content.body).not.toContain('Körök (');
     expect(content.options).toHaveLength(1);
+  });
+
+  it('swaps the closing line about the integrator for the owners’ one, and leaves any other body alone', () => {
+    const body = formatFixLimitItem(config('hu'), fixLimit, ['another_round'], 'integrator').body;
+    const forOwners = bodyForOwners(config('hu'), body)!;
+    const owned = formatFixLimitItem(config('hu'), fixLimit, ['another_round'], 'owner').body;
+    expect(forOwners).toBe(owned);
+    expect(forOwners).not.toContain('integrátor');
+    expect(bodyForOwners(config('hu'), owned)).toBe(owned);
+    expect(bodyForOwners(config('hu'), null)).toBeNull();
   });
 
   it('writes an old item (no extras, no history) and an English project as well', () => {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { INTEGRATOR_TODO_TIMEOUT_MS, routes } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
+import { getLocale } from '@projectman/templates';
 import { aiActor, humanActor } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -211,6 +212,34 @@ describe('integrator fix limit decision', () => {
       actor: { kind: 'human', handle: 'owner' },
       data: { decision: 'another_round' },
     });
+  });
+
+  it('hands the item to the technical direction holders, not to every owner, and rewrites the closing line', async () => {
+    await domain().projects.update('AR', { actor: humanActor('owner'), author: OWNER_LOGIN }, (draft) => {
+      draft.team.members.push({
+        kind: 'human',
+        handle: 'boss',
+        displayName: 'Boss',
+        access: 'admin',
+        roles: ['lead_developer'],
+      } as ProjectConfig['team']['members'][number]);
+      return 'Add an admin who holds the technical direction';
+    });
+    const config = await domain().projects.config('AR');
+    const footer = getLocale(config.project.language).fixLimitItem.footer;
+    const created = await passedOn();
+    expect(created.assignees).toEqual(['boss']);
+    expect(created.body).toContain(footer.integrator);
+    expect(record()!.deciders).toEqual(['boss']);
+
+    const response = await decide(created.id, 'to_owner', 'Not mine to decide.');
+    expect(response.statusCode, response.body).toBe(200);
+    const moved = item(created.id);
+    expect(moved.assignees).toEqual(['boss']);
+    expect(moved.assignees).toEqual(record()!.deciders);
+    expect(moved.body).toContain(ASSESSMENT.recurrence);
+    expect(moved.body).toContain(footer.owner);
+    expect(moved.body).not.toContain(footer.integrator);
   });
 
   it('goes straight to the owners when no integrator access is available', async () => {

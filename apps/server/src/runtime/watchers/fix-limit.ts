@@ -404,7 +404,14 @@ export class FixLimitWatch {
     this.tell(
       task,
       lead,
-      leadNotice(task, rounds, this.limitOf(config, base), canReplan, base.extraRounds, history),
+      leadNotice(
+        task,
+        rounds,
+        this.limitOf(config, base),
+        { replan: canReplan, reassign: this.otherDevelopers(config, task).length > 0 },
+        base.extraRounds,
+        history,
+      ),
     );
   }
 
@@ -811,10 +818,13 @@ function leadNotice(
   task: Task,
   rounds: FixRounds,
   limit: number,
-  canReplan: boolean,
+  can: { replan: boolean; reassign: boolean },
   extraRounds: number,
   history: readonly FixRoundHistoryEntry[],
 ): string {
+  const recommendable = [can.replan ? 'replan' : null, can.reassign ? 'reassign' : null, 'another_round']
+    .filter(Boolean)
+    .join(', ');
   const left = remainingFixExtraRounds(extraRounds);
   const summary = [
     `${task.key} has had ${rounds.rounds} fix rounds (the limit is ${limit}): ${rounds.changeRequests} code review change requests,`,
@@ -823,10 +833,10 @@ function leadNotice(
     `Its implementer ${task.assignee ?? ''} is held back: what AI members write to it waits.`,
     `Read the card and decide with decide_fix_limit (task_key ${task.key}, a reason in one or two sentences):`,
     '"continue" lets the implementer have one more round;',
-    canReplan ? '"replan" asks another technical direction holder for a more exact plan first;' : null,
+    can.replan ? '"replan" asks another technical direction holder for a more exact plan first;' : null,
     '"to_owner" gives the decision to the people and REQUIRES an assessment:',
     'recurrence (one sentence: does the same fault come back), current_state (where the work stands now)',
-    `and recommendation (option_id: ${canReplan ? 'replan, ' : ''}reassign or another_round, and its reason).`,
+    `and recommendation (option_id: one of ${recommendable}, and its reason).`,
   ]
     .filter(Boolean)
     .join(' ');

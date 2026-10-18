@@ -343,14 +343,12 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
               failedFiles: [],
               outputTail: `engine ${id} refused the request: it does not support the required heavy-run queue (requireHeavyLock). Update the engine to this version of projectman.`,
             };
-          return {
-            outcome: 'error',
-            reason: 'engine_offline',
-            exitCode: null,
-            durationMs: now() - startedAt,
-            failedFiles: [],
-            outputTail: '',
-          };
+          if (linkDown(err)) return errorResult('engine_offline');
+          // A refusal or a failed handler is not a link loss: merge callers must not restart it.
+          return errorResult(
+            'spawn_failed',
+            `engine ${id} could not execute the full test request${err instanceof EngineCallError ? ` (${err.linkCode})` : ''}`,
+          );
         } finally {
           fullStarted.delete(spec.runId);
           signal.removeEventListener('abort', onAbort);

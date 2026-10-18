@@ -21,6 +21,7 @@ import { ScreenshotRuns } from '../../services/full-tests';
 import { outputTail } from '../../full-test';
 import { testConfig } from '../../../test/helpers/test-template';
 import type { EngineEvent } from '../protocol';
+import { EngineCallError } from '../rpc';
 import { createCloudRemote } from './index';
 import type { CloudDomain, CloudRemote } from './index';
 import { createFakeCloud, helloOf, silentLogger } from './test-support';
@@ -223,6 +224,50 @@ describe('cloud mode remote parts', () => {
       await vi.waitFor(() => expect(onLinkWait).toHaveBeenCalledWith(true));
       return { engine, controller, onStarted, onLinkWait, run };
     }
+
+    it.each(['internal', 'module_error', 'command_not_allowed'] as const)(
+      'ends a refused initial run as spawn_failed without waiting for a link (%s)',
+      async (code) => {
+        const engine = await online();
+        engine.answer('full_test.run', () => {
+          throw new EngineCallError({
+            code,
+            message: 'fixture failure',
+            ...(code === 'module_error' ? { module: { code: 'fixture_failure' } } : {}),
+          });
+        });
+        const onLinkWait = vi.fn();
+        const result = await remote.directory
+          .get(engine.id)!
+          .fullTestExecutor!.run(fullTestSpec('f1'), new AbortController().signal, undefined, {
+            linkWaitMs: 900_000,
+            onLinkWait,
+          });
+        expect(result).toMatchObject({ outcome: 'error', reason: 'spawn_failed' });
+        expect(result.outputTail).toContain(code);
+        expect(onLinkWait).not.toHaveBeenCalled();
+        expect(engine.requests.map((request) => request.method)).toEqual(['full_test.run']);
+      },
+    );
+
+    it.each(['internal', 'module_error', 'command_not_allowed'] as const)(
+      'does not classify a refused attach as another link loss (%s)',
+      async (code) => {
+        const { run, onLinkWait } = await lostRun();
+        const engine = await online('eng_a', {}, (engine) =>
+          engine.answer('full_test.attach', () => {
+            throw new EngineCallError({
+              code,
+              message: 'fixture failure',
+              ...(code === 'module_error' ? { module: { code: 'fixture_failure' } } : {}),
+            });
+          }),
+        );
+        await expect(run).resolves.toMatchObject({ outcome: 'error', reason: 'spawn_failed' });
+        expect(onLinkWait.mock.calls).toEqual([[true], [false]]);
+        expect(engine.requests.map((request) => request.method)).toEqual(['full_test.attach']);
+      },
+    );
 
     it('attaches and retains the start callback until the original result arrives', async () => {
       const lost = await lostRun();

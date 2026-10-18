@@ -2250,6 +2250,8 @@ workers follow the machine's size.
   caller opts into a bounded wait. `full_test.attach` carries only the run id and result;
   execution, cancellation and checkout cleanup stay on the engine. The cloud retains start
   callbacks until following ends and uses the remaining test timeout plus its existing grace.
+  Other RPC failures end as `spawn_failed`, so handler errors and refusals block the check
+  once instead of being retried as engine link losses.
   `PROJECTMAN_MODE=cloud` runs the UI, the API and the database and no machine-dependent part: the
   runner, the transcripts, the plan usage, the machine probe, the engine directory (worktrees, workspaces,
   session folders, free disk), the GitHub CLI, the full test and the screenshots are the engine's, asked

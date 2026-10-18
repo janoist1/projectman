@@ -8,6 +8,9 @@ import type {
 } from '../../contracts';
 import { EngineLinkLostError } from '../../contracts';
 import { LocalEngineDirectory } from '../../runtime/sessions';
+import { createCloudRemote } from '../../engine-link/remote';
+import type { CloudRemote } from '../../engine-link/remote';
+import { createFakeCloud } from '../../engine-link/remote/test-support';
 import { aiActor } from '../../kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from '../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../test/helpers/domain-harness';
@@ -78,6 +81,7 @@ describe('merge train execution', () => {
   let executor: FullTestExecutor;
   let peerBusy: boolean;
   let engines: EngineDirectory;
+  let remoteCheck: CloudRemote | undefined;
   const row = (key: string) => h.repos.taskMerges.open('AR', key);
   const settled = () => vi.waitFor(() => expect(h.domain.merges.busy('AR', 'web')).toBe(false));
   async function setup(count = 2, remote = true) {
@@ -138,7 +142,55 @@ describe('merge train execution', () => {
   };
   afterEach(async () => {
     if (h) await h.cleanup();
+    remoteCheck?.close();
+    remoteCheck = undefined;
   });
+
+  it.each(['run', 'attach'] as const)(
+    'blocks a train handler error during %s without retrying or splitting',
+    async (phase) => {
+      await setup();
+      const cloud = createFakeCloud();
+      remoteCheck = createCloudRemote({
+        links: cloud.links,
+        registry: cloud.registry,
+        recordedEngine: () => null,
+        spoolDir: `${h.dir}/refused-train-spool`,
+        logger: h.log.logger,
+      });
+      const refusal = () => {
+        throw Object.assign(new Error('fixture failure'), { code: 'internal' });
+      };
+      const engine = cloud.connect('eng_a' as never);
+      engine.answer('full_test.run', phase === 'run' ? refusal : () => new Promise(() => {}));
+      const remoteExecutor = remoteCheck.directory.host(engine.id)!.fullTestExecutor!;
+      vi.mocked(executor.run).mockImplementation((...args) => remoteExecutor.run(...args));
+      engines.awaitConnected = vi.fn(async () => 'connected' as const);
+      pump();
+      if (phase === 'attach') {
+        await vi.waitFor(() =>
+          expect(engine.requests.some((request) => request.method === 'full_test.run')).toBe(true),
+        );
+        engine.disconnect();
+        await vi.waitFor(() => expect(row('AR-1')?.step).toBe('engine_waiting'));
+        cloud.connect(engine.id, {
+          prepare(next) {
+            next.answer('full_test.attach', refusal);
+          },
+        });
+      }
+      await vi.waitFor(() => expect(row('AR-1')?.state).toBe('blocked'));
+      await settled();
+      for (const key of ['AR-1', 'AR-2']) {
+        expect(row(key)?.block?.reason).toBe('check_error');
+        expect(row(key)?.diagnostic).toBeUndefined();
+      }
+      expect(executor.run).toHaveBeenCalledTimes(1);
+      expect(merger.build).toHaveBeenCalledTimes(3);
+      expect(merger.push).not.toHaveBeenCalled();
+      expect(engines.awaitConnected).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([2, 8])(
     'checks, pushes and advances %i members once, preserving each actor and every source',

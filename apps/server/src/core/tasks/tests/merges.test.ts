@@ -567,6 +567,49 @@ describe('member initiated merge', () => {
       config.project.repos[0]!.reviewTest = reviewTest;
     };
 
+    it.each(['run', 'attach'] as const)(
+      'blocks an engine handler error during %s after one check',
+      async (phase) => {
+        const executor = fakeExecutor();
+        await setup({ executor, adjust: withCheck });
+        const cloud = createFakeCloud();
+        remoteCheck = createCloudRemote({
+          links: cloud.links,
+          registry: cloud.registry,
+          recordedEngine: () => null,
+          spoolDir: `${h!.dir}/refused-check-spool`,
+          logger: h!.log.logger,
+        });
+        const refusal = () => {
+          throw Object.assign(new Error('fixture failure'), { code: 'internal' });
+        };
+        const engine = cloud.connect('eng_a' as never);
+        engine.answer('full_test.run', phase === 'run' ? refusal : () => new Promise(() => {}));
+        const remoteExecutor = remoteCheck.directory.host(engine.id)!.fullTestExecutor!;
+        vi.mocked(executor.run).mockImplementation((...args) => remoteExecutor.run(...args));
+        engines.awaitConnected = vi.fn(async () => 'connected' as const);
+        await start();
+        if (phase === 'attach') {
+          await vi.waitFor(() =>
+            expect(engine.requests.some((request) => request.method === 'full_test.run')).toBe(true),
+          );
+          engine.disconnect();
+          await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+          cloud.connect(engine.id, {
+            prepare(next) {
+              next.answer('full_test.attach', refusal);
+            },
+          });
+        }
+        await blocked('check_error');
+        expect(row()?.block?.message).toContain('spawn_failed');
+        expect(executor.run).toHaveBeenCalledTimes(1);
+        expect(merger.build).toHaveBeenCalledTimes(1);
+        expect(merger.push).not.toHaveBeenCalled();
+        expect(engines.awaitConnected).not.toHaveBeenCalled();
+      },
+    );
+
     it.each(['ended', 'unknown', 'old'] as const)(
       'completes a disconnected check without a manual retry (attach: %s)',
       async (attach) => {

@@ -4543,7 +4543,8 @@ export const hu = {
       question_screened_integrator: 'Teendőként az integrátornak adta: {note}',
       question_recipient_escalated:
         'Az integrátornak szóló teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
-      obligation_woken: 'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perce vár rá.',
+      obligation_woken:
+        'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
       obligation_handed_over:
         'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért teendő lett belőle ({minutes} perc).',
       integrator_todo_done: 'Lezárta a teendőt: megcsinálta.',

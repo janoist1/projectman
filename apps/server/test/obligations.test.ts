@@ -1,9 +1,15 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { questionPayloadOf } from '@projectman/shared';
-import type { ProjectConfig } from '@projectman/shared';
+import { LOCAL_ENGINE_ID, questionPayloadOf } from '@projectman/shared';
+import type { EngineId, ProjectConfig } from '@projectman/shared';
+import type { EngineHost } from '../src/contracts';
+import { createLocalEngine } from '../src/engine-host';
+import { LocalEngineDirectory } from '../src/runtime/sessions';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { capturingLogger, FakeWorktreeManager, flush } from './helpers/fakes';
 
 /**
  * PM-806: an open step of an AI member has a responsible and a deadline. At the first deadline the
@@ -288,6 +294,78 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     });
   });
 
+  describe('pauses (held and engine)', () => {
+    it('does not count the time a holding label stands on the card', async () => {
+      await harness();
+      const key = await create();
+      await h.domain.tasks.moveToStage('AR', key, 'development', OWNER_ACTOR);
+      await flush();
+      await stopSessions();
+      await sweep();
+      expect(rows(key)).toMatchObject([{ kind: 'work', responsible: 'dev-1' }]);
+      minutes(10);
+      await h.domain.tasks.changeLabels('AR', key, { add: ['waiting'] }, OWNER_ACTOR);
+      await sweep();
+      expect(rows(key)[0]).toMatchObject({ pauseReason: 'held' });
+      minutes(120);
+      await sweep();
+      expect(reminders(key)).toHaveLength(0);
+      expect(todos()).toHaveLength(0);
+      await h.domain.tasks.changeLabels('AR', key, { remove: ['waiting'] }, OWNER_ACTOR);
+      await sweep();
+      expect(rows(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T12:40:00.000Z' });
+    });
+
+    it('does not count the time the responsible’s engine is offline', async () => {
+      class SwitchableEngines extends LocalEngineDirectory {
+        online = true;
+        override get(id: EngineId): EngineHost | null {
+          return this.online ? super.get(id) : null;
+        }
+      }
+      const dir = mkdtempSync(join(tmpdir(), 'pm-obligations-'));
+      try {
+        const engines = new SwitchableEngines({
+          ...createLocalEngine(
+            {
+              worktrees: new FakeWorktreeManager(join(dir, 'worktrees')),
+              workspacePath: () => dir,
+              claudeTmpRoots: [],
+            },
+            capturingLogger().logger,
+          ),
+          id: LOCAL_ENGINE_ID,
+        });
+        clock = new Date('2026-10-19T10:00:00.000Z');
+        integrator.available = true;
+        h = await createDomainHarness({
+          adjust: roomy,
+          now: () => clock,
+          engines,
+          integratorTodoAccess: { available: () => integrator.available },
+        });
+        const key = await create();
+        await requestMerge(key);
+        await sweep();
+        engines.online = false;
+        minutes(40);
+        await sweep();
+        expect(rows(key)[0]).toMatchObject({ pauseReason: 'start_refused' });
+        minutes(180);
+        await sweep();
+        expect(reminders(key)).toHaveLength(0);
+        expect(todos()).toHaveLength(0);
+        engines.online = true;
+        await sweep();
+        expect(rows(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T14:10:00.000Z' });
+        expect(reminders(key)).toHaveLength(0);
+      } finally {
+        await h?.cleanup();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   /** The same rule on the other kinds: one reminder to the responsible, then one todo, nothing in the owners' inbox. */
   /** The woken sessions of the card do a turn that does not do the step, and end it. */
   const endTurns = async (key: string) => {
@@ -495,6 +573,29 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       expect(questionPayloadOf(todos()[0]!)).toMatchObject({
         obligation: { kind: 'review_step', responsible: 'ana' },
       });
+    });
+
+    it('keeps the step of a reviewer while another member works on the card', async () => {
+      await harness(refinery);
+      const key = await create();
+      await flush();
+      await stopSessions();
+      await sweep();
+      expect(rows(key)).toMatchObject([{ kind: 'review_step', responsible: 'ana' }]);
+      await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], taskKey: key, text: 'Have a look.' });
+      await flush();
+      const session = h.domain.sessions
+        .list('AR', { taskKey: key })
+        .find((s) => s.member === 'dev-1' && h.domain.sessions.isRunning(s.id))!;
+      h.runner.setState(session.id, 'working');
+      minutes(10);
+      await sweep();
+      expect(rows(key)).toMatchObject([{ kind: 'review_step', responsible: 'ana', state: 'open' }]);
+      await endTurns(key);
+      minutes(25);
+      await sweep();
+      expect(reminders(key)).toHaveLength(1);
+      expect(reminders(key)[0]).toMatchObject({ to: ['ana'], kind: 'action' });
     });
 
     it('cancels the row when the label arrives or the card moves on', async () => {

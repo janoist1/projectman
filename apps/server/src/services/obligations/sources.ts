@@ -192,7 +192,15 @@ function reviewSource(deps: SourceDeps): ObligationSource {
           wait.reason === 'labels_missing'
             ? wait.next.filter((entry) => entry.kind === 'ai').map((entry) => entry.handle)
             : wait.reason === 'working'
-              ? wait.next.map((entry) => entry.handle)
+              ? // Someone else working on the card does not close the step of a responsible who is not at work.
+                [
+                  ...new Set([
+                    ...wait.next.map((entry) => entry.handle),
+                    ...project.live
+                      .filter((row) => row.kind === 'review_step' && row.taskKey === task.key)
+                      .map((row) => row.responsible),
+                  ]),
+                ]
               : [];
         for (const responsible of candidates) {
           if (!isAi(project.config, responsible)) continue;

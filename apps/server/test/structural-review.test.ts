@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PatternFacts, structuralReviewOf } from '@projectman/shared';
+import { PatternFacts, structuralReviewOf, superActorOf } from '@projectman/shared';
 import type { AiMemberConfig, TimelineEvent } from '@projectman/shared';
+import type { IntegratorExecutionScope, MemberStartResult } from '../src/contracts';
+import { forbidden, runIntegratorExecution } from '../src/kernel';
 import { StructuralPatterns, normalizedEvidencePath } from '../src/services/operator/structural-patterns';
-import { CoordinationRequests } from '../src/services/operator';
+import { CoordinationRequests, StructuralReviews } from '../src/services/operator';
 import { OperatorTools } from '../src/mcp/operator/handler';
 import {
   createDomainHarness,
@@ -536,5 +538,223 @@ describe('owner-approved occasional review', () => {
         { signalId: signal.id, note: 'Review.' },
       ),
     ).rejects.toThrow('project_manager_only');
+  });
+});
+
+describe('the integrator in super mode requests a review (PM-784)', () => {
+  const KEY = { id: 'ikey_one', prefix: 'pmi_abcdefgh' };
+  /** One service per harness, so that its running requests are shared by the calls of a test. */
+  let cached: { harness: DomainHarness; reviews: StructuralReviews } | null = null;
+  const reviews = () => {
+    if (cached?.harness !== h)
+      cached = {
+        harness: h,
+        reviews: new StructuralReviews({
+          ctx: h.domain.ctx,
+          projects: h.domain.projects,
+          inbox: {} as never,
+          signals: h.domain.operatorSignals,
+          requests: requests(),
+          steps: {} as never,
+          admission: { memberLoad: () => 0 },
+        }),
+      };
+    return cached.reviews;
+  };
+  /** A live scope of a key, as the authenticated facade makes it; `revoked` turns true when the key goes. */
+  function scope(mode: 'super' | 'read' | 'legacy' = 'super', revoked: () => boolean = () => false) {
+    const actor = superActorOf(config(), KEY)!;
+    return {
+      active: true,
+      context: {
+        principal: {
+          kind: 'integrator' as const,
+          userId: 'usr_owner',
+          keyId: KEY.id,
+          prefix: KEY.prefix,
+          mode,
+        },
+        projectKey: 'AR',
+        actor,
+        requestId: 'req-review-1',
+      },
+      actorFor: () => {
+        if (revoked()) throw forbidden('insufficient_access', 'the key was revoked');
+        return actor;
+      },
+      assertAccess: () => undefined,
+      assertMutation: () => {},
+      authorizeMutation: async () => {},
+    } satisfies IntegratorExecutionScope;
+  }
+  /** The member start the assembly makes; `state` and `delivery` are what the start answered. */
+  const startWith = (state?: 'failed' | 'waiting', delivery: 'wake' | 'held' = 'wake') =>
+    vi.fn(
+      async (member: string, _text: string) =>
+        ({
+          messageId: 'msg_external_review',
+          recipient: {
+            handle: member,
+            delivery,
+            ...(state ? { start: { state, ...(state === 'failed' ? { code: 'start_failed' } : {}) } } : {}),
+          },
+        }) as MemberStartResult,
+    );
+  const request = (
+    signalId: string,
+    start: ReturnType<typeof startWith>,
+    over: { scope?: ReturnType<typeof scope> | null } = {},
+  ) => {
+    const call = () => reviews().requestExternal('AR', signalId, 'Please review.', start);
+    return over.scope === null ? call() : runIntegratorExecution(over.scope ?? scope(), call);
+  };
+  const questions = () => h.domain.inbox.list('AR', { kind: 'question' });
+
+  it('starts the review of a current signal as the Operator, with no approval request and no session of its own', async () => {
+    await setup();
+    const { signal } = await detected();
+    const asked = questions().length;
+    const start = startWith();
+    expect(await request(signal.id, start)).toEqual({
+      status: 'started',
+      member: 'planner',
+      message_id: 'msg_external_review',
+      inbox_item_id: null,
+    });
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls[0]![0]).toBe('planner');
+    expect(start.mock.calls[0]![1]).toContain('Reason: Please review.');
+    expect(start.mock.calls[0]![1]).toContain('failed_test_file');
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
+    expect(questions()).toHaveLength(asked);
+    expect(h.domain.sessions.list('AR', { member: 'operator' })).toEqual([]);
+    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+  });
+
+  it('keeps the signal open after a failed start, and the retry then starts', async () => {
+    await setup();
+    const { signal } = await detected();
+    expect(await request(signal.id, startWith('failed'))).toMatchObject({
+      status: 'failed',
+      member: 'planner',
+    });
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+    expect(await request(signal.id, startWith())).toMatchObject({ status: 'started' });
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
+  });
+
+  it.each([
+    ['waiting', startWith('waiting'), 'waiting'],
+    ['held', startWith(undefined, 'held'), 'held'],
+  ] as const)('reports a %s start as it is', async (_name, start, status) => {
+    await setup();
+    const { signal } = await detected();
+    expect(await request(signal.id, start)).toMatchObject({ status, member: 'planner' });
+  });
+
+  it('holds while nobody is free, and starts nothing', async () => {
+    await setup();
+    const { signal } = await detected();
+    (config().team.members.find((m) => m.handle === 'planner') as AiMemberConfig).onLeave = true;
+    const start = startWith();
+    expect(await request(signal.id, start)).toEqual({
+      status: 'held',
+      member: null,
+      message_id: null,
+      inbox_item_id: null,
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+  });
+
+  it('never bypasses an approval request that is waiting or was decided', async () => {
+    await setup();
+    const { ctx, signal } = await detected();
+    const proposal = await h.domain.teamTools.requestStructuralReview(ctx, {
+      signalId: signal.id,
+      note: 'Review the repeated failure.',
+    });
+    expect(proposal.status).toBe('awaiting_approval');
+    const start = startWith();
+    expect(await request(signal.id, start)).toEqual({
+      status: 'awaiting_approval',
+      member: 'planner',
+      message_id: null,
+      inbox_item_id: proposal.inbox_item_id,
+    });
+    await h.domain.inbox.resolve(
+      'AR',
+      proposal.inbox_item_id!,
+      { optionId: 'reject' },
+      { handle: 'owner', access: 'owner' },
+    );
+    expect(await request(signal.id, start)).toMatchObject({
+      status: 'held',
+      inbox_item_id: proposal.inbox_item_id,
+    });
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown or an expired signal and one whose evidence is gone', async () => {
+    await setup();
+    const { signal, b } = await detected();
+    const start = startWith();
+    await expect(request('sig_missing', start)).rejects.toMatchObject({ code: 'invalid_request' });
+    h.repos.db
+      .prepare("DELETE FROM timeline_events WHERE task_key = ? AND type = 'task_full_test'")
+      .run(b.key);
+    await expect(request(signal.id, start)).rejects.toMatchObject({ code: 'operator_signal_closed' });
+    expect(start).not.toHaveBeenCalled();
+    now = new Date(now.getTime() + 8 * 24 * 60 * 60_000);
+    await expect(request(signal.id, start)).rejects.toMatchObject({ code: 'operator_signal_closed' });
+  });
+
+  it('refuses a read or legacy key and a call outside a scope, and starts nothing', async () => {
+    await setup();
+    const { signal } = await detected();
+    const start = startWith();
+    await expect(request(signal.id, start, { scope: scope('read') })).rejects.toMatchObject({
+      code: 'integrator_read_only',
+    });
+    await expect(request(signal.id, start, { scope: scope('legacy') })).rejects.toMatchObject({
+      code: 'integrator_not_allowed',
+    });
+    await expect(request(signal.id, start, { scope: null })).rejects.toMatchObject({
+      code: 'insufficient_access',
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+  });
+
+  it('checks the key again where the start begins, so a key revoked meanwhile starts nothing', async () => {
+    await setup();
+    const { signal } = await detected();
+    const start = startWith();
+    // The first check is the entry, the second is the one right before the start.
+    let checks = 0;
+    await expect(
+      request(signal.id, start, { scope: scope('super', () => ++checks >= 2) }),
+    ).rejects.toMatchObject({ code: 'insufficient_access' });
+    expect(start).not.toHaveBeenCalled();
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+  });
+
+  it('lets one request for a signal run at a time', async () => {
+    await setup();
+    const { signal } = await detected();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = startWith();
+    slow.mockImplementationOnce(async (member: string) => {
+      await gate;
+      return { messageId: 'msg_slow', recipient: { handle: member, delivery: 'wake' } } as MemberStartResult;
+    });
+    const first = request(signal.id, slow);
+    await flush();
+    await expect(request(signal.id, startWith())).rejects.toMatchObject({ code: 'operator_signal_closed' });
+    release();
+    expect(await first).toMatchObject({ status: 'started' });
   });
 });

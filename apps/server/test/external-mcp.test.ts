@@ -45,10 +45,11 @@ describe('the bearer MCP endpoint (PM-760)', () => {
         secret: created.secret,
         userId: user.id,
         keyId: auth.resolveIntegratorCredential(created.secret, 'mcp')!.keyId,
+        prefix: null as string | null,
       };
     }
     const created = auth.createIntegratorAccessKey(user.id, { mode, expiresInDays });
-    return { secret: created.secret, userId: user.id, keyId: created.key.id };
+    return { secret: created.secret, userId: user.id, keyId: created.key.id, prefix: created.key.prefix };
   }
 
   /** One HTTP request of a client: stateless, so no session header is ever sent or expected. */
@@ -428,12 +429,16 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(operations.filter((operation) => operation === 'mcp_create_task')).toEqual(creates);
   });
 
-  it('audits a super key and gives a read or legacy key no super audit, as the REST API does', async () => {
-    const readKey = key('read');
-    await call(readKey.secret, 'list_tasks', { project_key: 'AR' });
+  it('audits a super key and a read key by their prefix and gives a legacy key no audit', async () => {
     const legacy = key('legacy');
     await call(legacy.secret, 'list_tasks', { project_key: 'AR' });
     expect(audit().filter((e) => e.operation.startsWith('mcp_'))).toEqual([]);
+    const readKey = key('read');
+    await call(readKey.secret, 'list_tasks', { project_key: 'AR' });
+    const readEntries = audit().filter((e) => e.operation.startsWith('mcp_'));
+    expect(readEntries.map((e) => e.operation)).toContain('mcp_list_tasks');
+    expect(new Set(readEntries.map((e) => e.prefix))).toEqual(new Set([readKey.prefix]));
+    expect(JSON.stringify(readEntries)).not.toContain(readKey.secret);
     const superKey = key('super');
     await call(superKey.secret, 'create_task', { project_key: 'AR', title: 'Audited' });
     await call(superKey.secret, 'list_tasks', { project_key: 'AR' });

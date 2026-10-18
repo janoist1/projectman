@@ -1,5 +1,7 @@
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
+import { humanActor } from '../src/kernel';
 import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
@@ -339,6 +341,156 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
         'invalid_request',
       );
       expect(code(await call(key('legacy').secret, 'read_attachment', base))).toBe('integrator_not_allowed');
+    });
+
+    /** A PNG-looking file whose bytes all differ by position, so a wrong offset or a re-encoding shows. */
+    const patterned = (size: number) =>
+      Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from(Array.from({ length: size - 8 }, (_, i) => (i * 7 + 3) % 256)),
+      ]);
+    const upload = (taskKey: string, content: Buffer, fileName = 'shot.png') =>
+      h.app.projectman.domain.attachments.upload({
+        projectKey: 'AR',
+        taskKey,
+        actor: humanActor('owner'),
+        fileName,
+        content: Readable.from([content]),
+      });
+    const readChunk = (secret: string, args: Record<string, unknown>) =>
+      call(secret, 'read_attachment', { project_key: 'AR', ...args });
+
+    it('reads the file byte-exact in chunks with the super and the read key, and ends at the last byte', async () => {
+      const owner = humanActor('owner');
+      await h.app.projectman.domain.tasks.create('AR', { title: 'Card' }, owner);
+      const bytes = patterned(1000);
+      const attachment = await upload('AR-1', bytes);
+      for (const mode of ['super', 'read'] as const) {
+        const { secret } = key(mode);
+        const parts: Buffer[] = [];
+        let offset = 0;
+        let calls = 0;
+        for (;;) {
+          calls += 1;
+          const result = await readChunk(secret, {
+            task_key: 'AR-1',
+            attachment_id: attachment.id,
+            offset_bytes: offset,
+            max_bytes: 400,
+          });
+          expect(result.isError, mode).toBeFalsy();
+          const read = result.structuredContent!;
+          expect(JSON.parse(result.content[0]!.text!)).toEqual(read);
+          expect(read.attachment).toMatchObject({ id: attachment.id, size: 1000, fileName: 'shot.png' });
+          expect(read.content).toMatchObject({ encoding: 'base64', offset_bytes: offset, total_bytes: 1000 });
+          const data = Buffer.from(read.content.data, 'base64');
+          expect(data.length).toBe(read.content.byte_length);
+          parts.push(data);
+          offset += data.length;
+          if (read.content.next_offset === null) break;
+          expect(read.content.next_offset).toBe(offset);
+        }
+        expect(calls, mode).toBe(3);
+        expect(Buffer.concat(parts).equals(bytes), mode).toBe(true);
+        expect(offset).toBe(1000);
+      }
+    });
+
+    it('defaults to the whole small file, allows the end offset and refuses one past it', async () => {
+      await h.app.projectman.domain.tasks.create('AR', { title: 'Card' }, humanActor('owner'));
+      const bytes = patterned(300);
+      const attachment = await upload('AR-1', bytes);
+      const { secret } = key('super');
+      const whole = await readChunk(secret, { task_key: 'AR-1', attachment_id: attachment.id });
+      expect(Buffer.from(whole.structuredContent!.content.data, 'base64').equals(bytes)).toBe(true);
+      expect(whole.structuredContent!.content).toMatchObject({
+        offset_bytes: 0,
+        byte_length: 300,
+        total_bytes: 300,
+        next_offset: null,
+      });
+      const end = await readChunk(secret, {
+        task_key: 'AR-1',
+        attachment_id: attachment.id,
+        offset_bytes: 300,
+      });
+      expect(end.structuredContent!.content).toMatchObject({
+        data: '',
+        byte_length: 0,
+        total_bytes: 300,
+        next_offset: null,
+      });
+      const past = await readChunk(secret, {
+        task_key: 'AR-1',
+        attachment_id: attachment.id,
+        offset_bytes: 301,
+      });
+      expect(code(past)).toBe('invalid_request');
+      const middle = await readChunk(secret, {
+        task_key: 'AR-1',
+        attachment_id: attachment.id,
+        offset_bytes: 299,
+        max_bytes: 10,
+      });
+      expect(Buffer.from(middle.structuredContent!.content.data, 'base64').equals(bytes.subarray(299))).toBe(
+        true,
+      );
+    });
+
+    it('finds a file only on the card that holds it and hides a deleted one', async () => {
+      const owner = humanActor('owner');
+      const { domain } = h.app.projectman;
+      await domain.tasks.create('AR', { title: 'Parent' }, owner);
+      await domain.tasks.create('AR', { title: 'Child', parentKey: 'AR-1' }, owner);
+      await domain.tasks.create('AR', { title: 'Other' }, owner);
+      const parentFile = await upload('AR-1', patterned(200), 'parent.png');
+      const otherFile = await upload('AR-3', patterned(200), 'other.png');
+      const { secret } = key('super');
+      expect(
+        (await readChunk(secret, { task_key: 'AR-1', attachment_id: parentFile.id })).isError,
+      ).toBeFalsy();
+      // The file of the parent needs the parent's key, and a file of another card is not found.
+      expect(code(await readChunk(secret, { task_key: 'AR-2', attachment_id: parentFile.id }))).toBe(
+        'not_found',
+      );
+      expect(code(await readChunk(secret, { task_key: 'AR-1', attachment_id: otherFile.id }))).toBe(
+        'not_found',
+      );
+      expect(code(await readChunk(secret, { task_key: 'AR-9', attachment_id: otherFile.id }))).toBe(
+        'not_found',
+      );
+      await domain.attachments.delete('AR', 'AR-3', otherFile.id, owner);
+      expect(code(await readChunk(secret, { task_key: 'AR-3', attachment_id: otherFile.id }))).toBe(
+        'not_found',
+      );
+    });
+
+    it('checks the key and the project on every chunk', async () => {
+      await h.app.projectman.domain.tasks.create('AR', { title: 'Card' }, humanActor('owner'));
+      const attachment = await upload('AR-1', patterned(300));
+      const { secret, id } = key('super');
+      const args = { task_key: 'AR-1', attachment_id: attachment.id, max_bytes: 100 };
+      expect((await readChunk(secret, args)).isError).toBeFalsy();
+      expect(code(await call(secret, 'read_attachment', { ...args, project_key: 'ZZ' }))).toBe(
+        'insufficient_access',
+      );
+      h.app.projectman.auth.revokeIntegratorAccessKey(h.app.projectman.repos.users.list()[0]!.id, id);
+      const revoked = await h.app.inject({
+        method: 'POST',
+        url: '/mcp',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          authorization: `Bearer ${secret}`,
+        },
+        payload: JSON.stringify({
+          jsonrpc: '2.0',
+          id: nextId++,
+          method: 'tools/call',
+          params: { name: 'read_attachment', arguments: { project_key: 'AR', ...args, offset_bytes: 100 } },
+        }),
+      });
+      expect(revoked.statusCode).toBe(401);
     });
   });
 });

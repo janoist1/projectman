@@ -2,6 +2,10 @@ import type { ProviderLoginStatus } from '@projectman/shared';
 import {
   superAccessVerdict,
   isCoordinatorOnlySignal,
+  humanInboxAssignment,
+  isIntegratorTodo,
+  planIntegratorTodoEscalation,
+  ownerHandles,
   superActorOf,
   ownerReservedEffect,
   integratorConfigRefusal,
@@ -1643,6 +1647,29 @@ export class MockBackend {
     }
   }
 
+  sweepIntegratorTodos(now: string): void {
+    for (const item of this.inbox) {
+      const patch = planIntegratorTodoEscalation(item, now, ownerHandles(this.config));
+      if (!patch) continue;
+      this.upsertInbox({ ...item, ...patch });
+      this.addTimeline(
+        item.taskKey,
+        null,
+        'question_recipient_escalated',
+        {
+          inboxItemId: item.id,
+          asker: item.source,
+          from: 'integrator',
+          to: 'owner',
+          openedAt: questionPayloadOf(item)!.integratorOpenedAt!,
+          reason: 'integrator_timeout',
+        },
+        item.sessionId,
+        now,
+      );
+    }
+  }
+
   private commitConfig(message: string): void {
     this.syncPermissionViews();
     this.configVersion = Math.random().toString(16).slice(2, 9);
@@ -1661,6 +1688,7 @@ export class MockBackend {
   }
 
   private board(): BoardView {
+    this.sweepIntegratorTodos(nowIso());
     const stages = resolvedStages(this.config);
     return {
       project: {
@@ -1682,7 +1710,7 @@ export class MockBackend {
       openInboxCount: this.inbox.filter(
         (item) =>
           item.state === 'open' &&
-          item.assignees.includes(this.owner) &&
+          humanInboxAssignment(item, this.owner) &&
           canSeeInboxItem(this.taskViewer(), item),
       ).length,
       aiEnabled: this.config.team.limits.aiEnabled,
@@ -2644,6 +2672,7 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.refreshBoundaryInbox();
+      this.sweepIntegratorTodos(nowIso());
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(
@@ -2651,6 +2680,7 @@ export class MockBackend {
             .filter(
               (item) =>
                 canSeeInboxItem(this.taskViewer(), item) &&
+                (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
                 (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
             )
             .map((item) =>
@@ -6292,7 +6322,10 @@ export class MockBackend {
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
+    this.sweepIntegratorTodos(nowIso());
     const pending = this.inbox.find((item) => item.id === itemId);
+    if (pending && isIntegratorTodo(pending) && (this.integratorMode || this.viewerAccess() !== 'owner'))
+      return error(403, 'super_relay_refused', 'Use the dedicated super endpoint or the owner login');
     if (this.integratorMode && pending && !['question', 'alert'].includes(pending.kind)) {
       const verdict = superAccessVerdict(this.config, {
         mode: this.integratorMode,

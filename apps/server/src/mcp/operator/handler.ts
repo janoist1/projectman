@@ -1,4 +1,11 @@
-import { isOperator, memberOf, roleBundle } from '@projectman/shared';
+import {
+  isOperator,
+  memberOf,
+  roleBundle,
+  ScreeningTodo as ScreeningTodoSchema,
+  questionPayloadOf,
+} from '@projectman/shared';
+import type { QuestionRecipient, QuestionRecipientRefusal } from '@projectman/shared';
 import type {
   OperatorOperation,
   BuiltInRoleId,
@@ -7,7 +14,7 @@ import type {
   OperatorPlan,
   OperatorPreferenceData,
   ScreeningOutcome,
-  QuestionTodo,
+  ScreeningTodo,
   Task,
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
@@ -315,9 +322,14 @@ export class OperatorTools implements OperatorToolsHandler {
       note: string;
       answer?: string;
       forwardTo?: string;
-      todo?: QuestionTodo;
+      todo?: ScreeningTodo;
     },
-  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }> {
+  ): Promise<{
+    inboxItemId: string;
+    outcome: ScreeningOutcome;
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
+  }> {
     return this.calls.guard(async () => {
       const { config } = await this.calls.callerWithRequest(ctx, 'screen_question');
       const { outcome } = args;
@@ -339,6 +351,8 @@ export class OperatorTools implements OperatorToolsHandler {
         throw fieldError(
           outcome === 'todo' ? 'todo needs the todo fields.' : 'only todo takes the todo fields.',
         );
+      if (args.todo && !ScreeningTodoSchema.safeParse(args.todo).success)
+        throw fieldError('todo needs valid what, where, expected and recipient fields.');
       const item = this.ctx.repos.inbox.get(args.itemId);
       if (!item || item.projectKey !== ctx.projectKey || item.kind !== 'question')
         throw new TeamToolError('not_found', `No question ${args.itemId} in this project.`);
@@ -395,7 +409,19 @@ export class OperatorTools implements OperatorToolsHandler {
           'invalid',
           `question_not_screening: ${item.id} is not waiting for the PM any more.`,
         );
-      return { inboxItemId: item.id, outcome };
+      const payload = questionPayloadOf(settled);
+      return {
+        inboxItemId: item.id,
+        outcome,
+        ...(outcome === 'todo'
+          ? {
+              recipient: payload?.recipient ?? 'owner',
+              ...(payload?.screening?.recipientRefusal
+                ? { recipientRefusal: payload.screening.recipientRefusal }
+                : {}),
+            }
+          : {}),
+      };
     });
   }
 

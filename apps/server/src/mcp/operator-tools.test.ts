@@ -273,11 +273,17 @@ describe('Operator MCP tools', () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'screen_question')!;
     expect(tool.annotations.readOnlyHint).toBe(false);
     const handler = createFakeTeamToolsHandler();
-    const todo = { what: 'Renew the certificate', where: 'Hosting panel', expected: 'The new expiry date' };
+    const todo = {
+      what: 'Renew the certificate',
+      where: 'Hosting panel',
+      expected: 'The new expiry date',
+      recipient: 'owner',
+    };
     const args = tool.inputSchema.parse({ item_id: 'inb_1', outcome: 'todo', note: 'Needs a login', todo });
     expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
       inboxItemId: 'inb_1',
       outcome: 'todo',
+      recipient: 'owner',
     });
     expect(handler.calls[0]).toMatchObject({
       method: 'screenQuestion',

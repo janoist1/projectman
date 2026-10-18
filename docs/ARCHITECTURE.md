@@ -2181,6 +2181,10 @@ workers follow the machine's size.
     since only the link state crosses the boundary. Signals and team messages already queue on
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
     trials belong to PM-664.
+    Integrator todo handoff (PM-782, `core/inbox/inbox.ts`, assembly maintenance) uses a separate
+    durable 24-hour wall clock from `integratorOpenedAt`: unlike screening's ten minutes, it keeps
+    running when engines are offline or AI is disabled. The hub alone persists and publishes the handoff;
+    no engine operation or credential crosses the boundary.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
     online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
@@ -2448,6 +2452,13 @@ workers follow the machine's size.
   BranchMerger facade.
   The external bearer MCP endpoint (PM-760, "The external MCP endpoint" below) uses this resolver on
   every HTTP request.
+  Integrator todos (PM-782, `core/inbox`, `services/super-operator/todo.ts`) have a dedicated
+  super-only resolution path for the integrator's own work, with authenticated actor/answer markers
+  instead of an owner relay. `app.ts` supplies `IntegratorTodoAccess` through assembly: it checks
+  current project owners, their existing users and active explicit super keys against shared access
+  policy on every screening release. Only a boolean reaches the domain; no key id, prefix or secret
+  enters question payloads or screening notices. Resolution and the durable 24-hour maintenance
+  handoff run on the hub, even when the engine is offline. Remote engines need no new operation.
   The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
   Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
   `PROJECTMAN_INTEGRATOR_KEY` before launching members.

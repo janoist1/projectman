@@ -134,7 +134,11 @@ export function Timeline({
               <span className={styles.rail}>
                 {imported || event.actor.kind === 'system' || !handle ? (
                   <span className={styles.systemIcon} aria-hidden="true">
-                    <Icon name="layers" size={15} strokeWidth={2} />
+                    <Icon
+                      name={event.type === 'question_recipient_escalated' ? 'handoff' : 'layers'}
+                      size={15}
+                      strokeWidth={2}
+                    />
                   </span>
                 ) : (
                   <Avatar

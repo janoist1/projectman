@@ -11,6 +11,20 @@
   min-width: 0;
 }
 
+.card[data-recipient='integrator'] {
+  background: var(--c-subtle);
+}
+.integratorMoved {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--c-subtle);
+  font-size: 13px;
+  color: var(--c-ink-2);
+}
+
 /* An outage (PM-468): the orange stripe of what stops the work. */
 .card[data-alert='work_outage'] {
   box-shadow: inset 3px 0 0 var(--c-needs);
@@ -50,9 +64,19 @@
 
 .head {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  row-gap: 6px;
+  min-width: 0;
+}
+
+.requester {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .systemIcon {
@@ -71,9 +95,8 @@
   font-size: var(--text-sm);
   font-weight: 800;
   color: var(--c-ink-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 

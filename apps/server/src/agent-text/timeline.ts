@@ -145,7 +145,10 @@ export function describeEvent(
     }
     case 'question_asked':
       return `asked a human: ${text('question') ?? ''}`.trimEnd();
+    case 'question_recipient_escalated':
+      return 'handed the integrator todo to the owner: it was not resolved within 24 hours';
     case 'question_answered':
+      if (data.integratorTodo) return `the integrator resolved its own todo: ${text('answer') ?? ''}`;
       return `answered: ${text('answer') ?? ''}`.trimEnd();
     case 'member_hired':
       return `hired ${member('handle', 'a member')}`;
@@ -231,6 +234,7 @@ const FULL_TEXT_FIELD: Partial<Record<TimelineEvent['type'], string>> = {
   task_note: 'text',
   question_asked: 'question',
   question_answered: 'answer',
+  question_recipient_escalated: 'integrator todo handed to owner',
   task_full_test: 'outputTail',
 };
 

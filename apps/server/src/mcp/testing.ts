@@ -366,7 +366,11 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     },
     async screenQuestion(ctx, args) {
       await enter('screenQuestion', ctx, args);
-      return { inboxItemId: args.itemId, outcome: args.outcome };
+      return {
+        inboxItemId: args.itemId,
+        outcome: args.outcome,
+        ...(args.todo ? { recipient: args.todo.recipient } : {}),
+      };
     },
     async triageLoop(ctx, args) {
       await enter('triageLoop', ctx, args);

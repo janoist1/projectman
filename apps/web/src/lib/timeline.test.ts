@@ -747,6 +747,33 @@ describe('the rows of a question the Operator screens (PM-556)', () => {
     describeEvent({ ...creation, type, actor: { kind: 'system', handle: null }, data }, context).text;
   const asker = 'dev-1';
 
+  it('distinguishes integrator screening, own results and a system handoff from historical owner answers', () => {
+    expect(
+      row('question_screened', {
+        inboxItemId: 'inb_1',
+        asker,
+        note: 'Measure',
+        outcome: 'todo',
+        recipient: 'integrator',
+      }),
+    ).toBe(t('timeline.events.question_screened_integrator', { note: 'Measure' }));
+    expect(
+      row('question_answered', {
+        inboxItemId: 'inb_1',
+        answer: 'Done',
+        integratorTodo: { optionId: 'todo_done', note: null },
+      }),
+    ).toBe(t('timeline.events.integrator_todo_done'));
+    expect(
+      row('question_answered', {
+        inboxItemId: 'inb_1',
+        answer: 'Cannot',
+        integratorTodo: { optionId: 'todo_cannot', note: 'No access' },
+      }),
+    ).toBe(t('timeline.events.integrator_todo_cannot', { note: 'No access' }));
+    expect(row('question_recipient_escalated', {})).toBe(t('timeline.events.question_recipient_escalated'));
+  });
+
   it('words each outcome of the screening', () => {
     const base = { inboxItemId: 'inb_1', asker, note: 'It is clear.' };
     expect(row('question_screened', { ...base, outcome: 'answered', answer: 'Yes' })).toBe(

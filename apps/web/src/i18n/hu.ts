@@ -145,7 +145,7 @@ export const hu = {
       'Az integrátor (a Claude Code a gépeden) ezzel a kulccsal vezeti az Operátor super módját, MCP-n és a projectman parancssorral. A saját nevén dolgozik, nem a tiéden. A kulcs az összes projektedre érvényes.',
     rights: 'Mit tehet?',
     rightsBody:
-      'Mindent, amit te, kivéve a jóváhagyást. Költségről, törlésről, nyilvánosságról és irányról téged kérdez.',
+      'Mindent, amit te, kivéve a jóváhagyást. Költségről, törlésről, nyilvánosságról és irányról téged kérdez. A Rád vár kérdésekre továbbíthatja a válaszodat, és lezárhatja a neki szóló teendőket.',
     none: 'Még nincs kulcs.',
     noValid: 'Nincs érvényes kulcs.',
     create: 'Kulcs létrehozása',
@@ -3448,6 +3448,32 @@ export const hu = {
   },
 
   inbox: {
+    integrator: {
+      title: 'Az integrátornak',
+      titleCount: 'Az integrátornak · {count}',
+      oldest: 'A legrégebbi {age} vár, {left} múlva hozzád kerül.',
+      single: '{age} vár, {left} múlva hozzád kerül.',
+      overdue: 'Hamarosan hozzád kerül.',
+      soon: 'hamarosan',
+      hours: '{count} óra',
+      minutes: '{count} perc',
+      ageHours: '{count} órája',
+      ageMinutes: '{count} perce',
+      closedOnly: 'Nincs nyitott · ma lezárva {count}',
+      lead: 'Ezeket az integrátor intézi a saját kulcsával, nem számítanak a teendőid közé. Ha 24 órán belül nem zárja le, hozzád kerülnek. Ha mégis te csinálod meg, itt lezárhatod.',
+      chip: 'Az integrátornak',
+      left: 'Még {left} az integrátornál, utána hozzád kerül.',
+      closedToday: 'Ma lezárva',
+      done: 'Megcsinálta: {what}',
+      cannot: 'Nem csinálta meg: {what}',
+      doneByYou: 'Megcsináltad: {what}',
+      cannotByYou: 'Nem csináltad meg: {what}',
+      yourNote: 'Eredmény: {note}',
+      resultNote: 'Az integrátor eredménye: {note}',
+      reasonNote: 'Indoka: {note}',
+      wasForIntegrator: 'az integrátornak szólt',
+      moved: 'Az integrátornak szólt, de 24 óráig nem zárta le, ezért hozzád került.',
+    },
     group: {
       line: 'Közös kérdés {count} kártyáról:',
       lineMixed: 'Közös kérdés {count} forrásból:',
@@ -4491,6 +4517,11 @@ export const hu = {
       question_screened_moot: 'Tárgytalannak zárta {asker} kérdését: {note}',
       question_screened_decision: 'Döntésként továbbengedte neked: {note}',
       question_screened_todo: 'Teendőként továbbengedte neked: {note}',
+      question_screened_integrator: 'Teendőként az integrátornak adta: {note}',
+      question_recipient_escalated:
+        'Az integrátornak szóló teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
+      integrator_todo_done: 'Lezárta a teendőt: megcsinálta.',
+      integrator_todo_cannot: 'Lezárta a teendőt: nem csinálta meg. Indoka: „{note}”',
       question_screened_todo_recorded: 'Teendőként továbbengedte neked: {note} Hiányként rögzítette.',
       question_screening_skipped_timeout:
         '{asker} kérdése 10 perc után az Operátor szűrése nélkül került hozzád: az Operátor nem válaszolt időben',

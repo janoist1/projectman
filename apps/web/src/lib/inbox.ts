@@ -1,5 +1,6 @@
 import {
   alertPayloadOf,
+  humanInboxAssignment,
   BoundaryRequest,
   fixLimitDecisionOf,
   gateRequestOf,
@@ -737,6 +738,17 @@ export function resolverName(item: InboxItem, members: MemberIndex, myHandle: st
 
 /** The note written with the decision (an answer, or an older automatic decision's note), or null. */
 export function resolutionNote(item: InboxItem): string | null {
+  if (item.resolution?.integratorTodo) {
+    const note = item.resolution.note?.trim();
+    return note
+      ? t(
+          item.resolution.optionId === 'todo_cannot'
+            ? 'inbox.integrator.reasonNote'
+            : 'inbox.integrator.resultNote',
+          { note },
+        )
+      : null;
+  }
   if (item.kind === 'question' && item.resolution?.via && item.resolution.note?.trim())
     return `${t('integratorKey.forwarded')}: ${item.resolution.note.trim()}`;
   if (item.kind === 'boundary' && item.resolution?.note)
@@ -776,6 +788,7 @@ export function resolutionMark(item: InboxItem): ResolutionMark {
  * does not keep a plain decision released and closed later, so that case stays in the trail.
  */
 export function isRecentDecision(item: InboxItem): boolean {
+  if (item.resolution?.integratorTodo) return false;
   if (item.state === 'open' || item.state === 'screening') return false;
   const rule = item.resolution?.rule;
   if (rule === 'operator_answered' || rule === 'operator_forwarded') return false;
@@ -914,7 +927,7 @@ export function closedReasonOf(item: InboxItem): string | null {
  */
 export function closedBySomeoneElse(item: InboxItem, myHandle: string | null): boolean {
   if (item.state === 'open' || item.state === 'screening') return false;
-  if (isClosedWithoutAnswer(item)) return true;
+  if (isClosedWithoutAnswer(item) || item.resolution?.integratorTodo) return true;
   return item.resolution?.by !== undefined && item.resolution.by !== myHandle;
 }
 
@@ -951,12 +964,12 @@ export function operatorTrailNote(
 }
 
 export function isAssignedTo(item: InboxItem, handle: string | null): boolean {
-  return !handle || item.assignees.includes(handle);
+  return humanInboxAssignment(item, handle);
 }
 
 /** Ids of every open item (the timeline marks requests that still wait). */
 export function openItemIds(items: readonly InboxItem[] | undefined): Set<string> {
-  return new Set(openItems(items).map((item) => item.id));
+  return new Set(openItemsFor(items, null).map((item) => item.id));
 }
 
 /** Open items waiting for this member (every open item when the handle is unknown). */

@@ -5,6 +5,7 @@ import {
   ListSuperHandoffsQuery,
   QuerySuperDiagnosticsArgs,
   RelayOwnerAnswerRequest,
+  ResolveIntegratorTodoRequest,
   SuperOperateArgs,
 } from '@projectman/shared';
 import { z } from 'zod';
@@ -138,6 +139,28 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
         structured: await handler.getAdministrationLogs(ctx, {
           target: args.target,
           limit: args.limit ?? 50,
+        }),
+      };
+    },
+  }),
+  defineExternalTool({
+    name: 'resolve_integrator_todo',
+    title: 'Resolve the integrator’s own todo',
+    description:
+      'Report the result of an open integrator-addressed todo: {item}. This is your own work, never an owner answer or approval. Cannot do it requires a reason in note. After 24 hours only the owner may resolve it. This endpoint grants no execution authority.',
+    access: 'write',
+    modes: ['super'],
+    input: {
+      item_id: z.string().min(1).max(100),
+      option_id: ResolveIntegratorTodoRequest.shape.optionId,
+      note: ResolveIntegratorTodoRequest.shape.note,
+    },
+    async run({ ctx, args, handler }) {
+      return {
+        structured: await handler.resolveIntegratorTodo(ctx, {
+          itemId: args.item_id,
+          optionId: args.option_id,
+          ...(args.note !== undefined ? { note: args.note } : {}),
         }),
       };
     },

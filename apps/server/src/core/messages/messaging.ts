@@ -794,8 +794,9 @@ export class Messaging {
       resolverSender(resolution),
       {
         to: [asker.handle],
-        text:
-          todo && !byOperator
+        text: resolution.integratorTodo
+          ? `The integrator resolved its own task (not an owner answer, decision or approval). Result for your question "${question}":\n\n${answerText(item)}`
+          : todo && !byOperator
             ? `Answer to your question "${question}":\n\nThe Operator turned it into a task for a person: ` +
               `${todo.what} (where: ${todo.where}; expected: ${todo.expected}). The person's result:\n\n${answerText(item)}`
             : `Answer to your question "${question}":\n\n${answerText(item)}` +
@@ -823,6 +824,7 @@ export class Messaging {
           kind: 'answer',
           inboxItemId: item.id,
           ...(resolution.ownerAnswerRelayed ? { ownerAnswerRelayed: true as const } : {}),
+          ...(resolution.integratorTodo ? { integratorTodo: true as const } : {}),
         },
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },

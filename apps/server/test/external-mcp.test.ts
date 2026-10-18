@@ -84,6 +84,49 @@ describe('the bearer MCP endpoint (PM-760)', () => {
 
   const audit = () => h.app.projectman.repos.superAudit.list('AR', { limit: 100 }).entries;
 
+  it('offers own-todo resolution only to super credentials and resolves it without a relay', async () => {
+    const { secret } = key('super');
+    expect((await listTools(secret)).map((tool) => tool.name)).toContain('resolve_integrator_todo');
+    for (const mode of ['read', 'legacy'] as const)
+      expect((await listTools(key(mode).secret)).map((tool) => tool.name)).not.toContain(
+        'resolve_integrator_todo',
+      );
+    const { domain } = h.app.projectman;
+    const item = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Measure',
+      payload: {
+        question: 'Measure',
+        recipient: 'integrator',
+        integratorOpenedAt: now.toISOString(),
+        screening: {
+          until: now.toISOString(),
+          outcome: 'todo',
+          todo: { what: 'Measure', where: 'Hub', expected: 'Result', recipient: 'integrator' },
+        },
+      },
+      options: [
+        { id: 'todo_done', label: 'Done', style: 'primary' },
+        { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+      ],
+    });
+    const result = await call(secret, 'resolve_integrator_todo', {
+      project_key: 'AR',
+      item_id: item.id,
+      option_id: 'todo_done',
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent?.item.resolution).toMatchObject({
+      integratorTodo: true,
+      via: 'integrator',
+    });
+    expect(result.structuredContent?.item.resolution.ownerAnswerRelayed).toBeUndefined();
+    expect(TEAM_TOOL_NAMES).not.toContain('resolve_integrator_todo');
+  });
+
   it('initializes, lists, reads and writes with no session and no engine', async () => {
     const { secret } = key('super');
     const initialized = await post(

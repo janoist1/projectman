@@ -40,7 +40,7 @@ import type { TimelineService } from '../../core/timeline';
 import { attributedActor, forbidden, unique } from '../../kernel';
 import type { ProjectState } from '../../services/operator';
 import type { ReleaseService } from '../../services/releases';
-import { relayOwnerAnswer } from '../../services/super-operator';
+import { relayOwnerAnswer, resolveIntegratorTodo } from '../../services/super-operator';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../../services/super-operator';
 
 /** Attachments get_task shows; the rest are paged with list_attachments. */
@@ -67,7 +67,7 @@ export interface ExternalToolsDeps {
   releases: Pick<ReleaseService, 'check'>;
   superHandoffs: Pick<SuperHandoffService, 'list' | 'execute'>;
   superAdministration: SuperAdministration;
-  inbox: Pick<InboxService, 'get' | 'resolve'>;
+  inbox: Pick<InboxService, 'get' | 'resolve' | 'resolveIntegratorTodo'>;
   history: Pick<HistoryService, 'search' | 'read'>;
 }
 
@@ -436,6 +436,19 @@ export class ExternalTools implements ExternalToolsHandler {
     args: Parameters<ExternalToolsHandler['getAdministrationLogs']>[1],
   ) {
     return this.deps.superAdministration.logs(ctx.projectKey, args.target, args.limit);
+  }
+
+  async resolveIntegratorTodo(
+    ctx: ExternalToolContext,
+    args: { itemId: string; optionId: 'todo_done' | 'todo_cannot'; note?: string },
+  ) {
+    return resolveIntegratorTodo(
+      this.deps,
+      ctx.projectKey,
+      args.itemId,
+      { optionId: args.optionId, ...(args.note !== undefined ? { note: args.note } : {}) },
+      this.access(ctx),
+    );
   }
 
   async relayOwnerAnswer(ctx: ExternalToolContext, args: { itemId: string; answer: string }) {

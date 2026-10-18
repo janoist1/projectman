@@ -4,7 +4,13 @@ import type { OperatorKnowledgeChange } from './operator-knowledge';
 import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
-import type { QuestionCloseRule, QuestionTodo, ScreeningOutcome } from './inbox';
+import type {
+  QuestionCloseRule,
+  QuestionTodo,
+  ScreeningOutcome,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
+} from './inbox';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -76,6 +82,7 @@ export const TimelineEventType = z.enum([
   'question_answered',
   'question_grouped',
   'question_screened',
+  'question_recipient_escalated',
   'question_screening_skipped',
   'question_closed',
   'question_answer_delivery',
@@ -394,15 +401,31 @@ export interface TimelineEventData {
    * without screening, replacing `previousItemId`, for `reason`.
    */
   question_asked: {
+    requestedRecipient?: QuestionRecipient;
     inboxItemId: string;
     question: string;
     screening?: true;
     unscreened?: { reason: string; previousItemId: string };
   };
-  question_answered: { inboxItemId: string; answer: string; groupPrimaryItemId?: string };
+  question_answered: {
+    inboxItemId: string;
+    answer: string;
+    groupPrimaryItemId?: string;
+    integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string | null };
+  };
+  question_recipient_escalated: {
+    inboxItemId: string;
+    asker: string;
+    from: 'integrator';
+    to: 'owner';
+    openedAt: string;
+    reason: 'integrator_timeout';
+  };
   question_grouped: { primaryItemId: string; itemIds: string[]; by: MemberHandle };
   /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
   question_screened: {
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
     inboxItemId: string;
     asker: string;
     outcome: ScreeningOutcome;

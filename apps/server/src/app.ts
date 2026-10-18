@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { CONTROL_SOCKET_NAME } from '@projectman/shared';
+import { CONTROL_SOCKET_NAME, superAccessVerdict } from '@projectman/shared';
 import type { HybridReleaseTarget, ReleaseEngineStatus } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
@@ -467,6 +467,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt }));
     const domain = createDomain({
       integratorCredentials: auth,
+      integratorTodoAccess: {
+        available: (config) =>
+          superAccessVerdict(config, { mode: 'super', operation: 'write', ownerMembership: true }).allowed &&
+          config.team.members.some((member) => {
+            if (member.kind !== 'human' || member.access !== 'owner' || !member.email) return false;
+            const user = repos?.users.findByEmail(member.email);
+            return (
+              !!user &&
+              auth.integratorAccessKeys(user.id).some((key) => key.mode === 'super' && key.state === 'active')
+            );
+          }),
+      },
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),
       ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),

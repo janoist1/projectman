@@ -5,6 +5,7 @@ import {
   MemberHandle,
   questionChoices,
   QuestionResponsePurpose,
+  QuestionRecipient,
   TaskKey,
 } from '@projectman/shared';
 import { formatQuestionAsked } from '../format';
@@ -150,6 +151,9 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .describe(
             'Why a person must see it after all (the Operator’s answer was not enough). Needs reask_of.',
           ),
+        recipient: QuestionRecipient.optional().describe(
+          'Suggested todo recipient (default owner). Screening decides the actual recipient; this proposal grants no authority.',
+        ),
         response_purpose: QuestionResponsePurpose.optional().describe(
           'information: a plain factual question whose answer is no decision (for example "what is the port?"); ' +
             'the integrator working for the owner may relay the answer. owner_decision (default): a choice, an ' +
@@ -180,6 +184,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
         const to = args.to ? unique(args.to) : undefined;
         const { inboxItemId, approvalLabel, attachments, screening } = await handler.askHuman(ctx, {
           question: args.question,
+          ...(args.recipient ? { recipient: args.recipient } : {}),
           ...(args.options ? { options: args.options } : {}),
           ...(args.recommended ? { recommended: args.recommended } : {}),
           ...(args.recommendation_reason ? { recommendationReason: args.recommendation_reason } : {}),
@@ -191,16 +196,21 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           ...(args.reask_reason !== undefined ? { reaskReason: args.reask_reason } : {}),
           ...(args.response_purpose ? { responsePurpose: args.response_purpose } : {}),
         });
-        return formatQuestionAsked(
-          inboxItemId,
-          to,
-          {
-            question: args.question,
-            recommended: args.recommended,
-          },
-          approvalLabel,
-          attachments,
-          screening === true,
+        return (
+          (args.recipient
+            ? `Suggested recipient: ${args.recipient}; screening decides the actual recipient.\n`
+            : '') +
+          formatQuestionAsked(
+            inboxItemId,
+            to,
+            {
+              question: args.question,
+              recommended: args.recommended,
+            },
+            approvalLabel,
+            attachments,
+            screening === true,
+          )
         );
       },
     }),

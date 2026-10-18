@@ -21,6 +21,7 @@ import {
   ExternalTools,
 } from './mcp';
 import { createInboxService } from './core/inbox';
+import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
   createAdministrationExecutor,
@@ -201,6 +202,7 @@ import { ProviderKeys } from './runtime/usage';
 
 export interface DomainOptions {
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
+  integratorTodoAccess?: IntegratorTodoAccess;
   nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
   /**
    * The project and repository that are this instance itself (PM-491): its releases are proposed,
@@ -553,6 +555,7 @@ export function createDomain(opts: DomainOptions) {
     timeline,
     projects,
     policy: { engineIdOf, readableRootsFor, commandVerdict },
+    integratorTodoAccess: opts.integratorTodoAccess,
     engines,
     attachmentDirectory,
   });
@@ -2298,6 +2301,13 @@ export function createDomain(opts: DomainOptions) {
         },
         // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
         // people (PM-558). A question that waited through a restart is looked at now.
+        {
+          name: 'integrator-todos',
+          everyMs: 30_000,
+          atStart: true,
+          run: () => inbox.sweepIntegratorTodos(),
+          onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
+        },
         {
           name: 'question-screening',
           everyMs: opts.questionScreeningMs ?? 30_000,

@@ -96,6 +96,22 @@ describe('the Operator screens AI members’ questions', () => {
   const screen = (args: Parameters<typeof h.domain.teamTools.screenQuestion>[1]) =>
     h.domain.teamTools.screenQuestion(operatorTool(), args);
 
+  it('refuses a new todo without a recipient at the direct handler boundary without writing', async () => {
+    const { inboxItemId } = await ask();
+    const before = item(inboxItemId);
+    const error = await refusal(
+      screen({
+        itemId: inboxItemId,
+        outcome: 'todo',
+        note: 'Technical step',
+        todo: { what: 'Measure', where: 'Hub', expected: 'Report' } as never,
+      }),
+    );
+    expect(error.code).toBe('invalid');
+    expect(error.message).toContain('invalid_outcome_fields');
+    expect(item(inboxItemId)).toEqual(before);
+  });
+
   describe('who is screened', () => {
     it('puts a question of an AI member into screening, hidden from the people, and wakes the Operator', async () => {
       const { inboxItemId, screening } = await ask();
@@ -107,6 +123,10 @@ describe('the Operator screens AI members’ questions', () => {
       expect(humanQueue()).toEqual([]);
       expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
       expect(timelineOf('question_asked')[0]?.data).toMatchObject({ inboxItemId, screening: true });
+      expect(questionPayloadOf(item(inboxItemId))).toMatchObject({
+        requestedRecipient: 'owner',
+        recipient: 'owner',
+      });
 
       const [operator] = sessionsOf('pm');
       expect(operator).toBeDefined();
@@ -299,6 +319,7 @@ describe('the Operator screens AI members’ questions', () => {
     it('todo: opens with Done and Cannot do it, and Cannot do it needs a reason', async () => {
       const { inboxItemId } = await ask('Please create the API key');
       const todo = {
+        recipient: 'owner' as const,
         what: 'Create the API key',
         where: 'The vendor console',
         expected: 'The key in the vault',
@@ -357,7 +378,7 @@ describe('the Operator screens AI members’ questions', () => {
 
     it('refuses fields that do not fit the outcome, and a note-less call', async () => {
       const { inboxItemId } = await ask();
-      const todo = { what: 'a', where: 'b', expected: 'c' };
+      const todo = { what: 'a', where: 'b', expected: 'c', recipient: 'owner' as const };
       const bad = [
         { outcome: 'answered' as const, note: 'x' },
         { outcome: 'moot' as const, note: 'x', answer: 'No.' },
@@ -462,6 +483,7 @@ describe('the Operator screens AI members’ questions', () => {
     const reask = (previous: string | undefined, reason: string | undefined, as: ToolContext = dev) =>
       h.domain.teamTools.askHuman(as, {
         question: 'Really Inter?',
+        recipient: 'integrator',
         ...(previous !== undefined ? { reaskOf: previous } : {}),
         ...(reason !== undefined ? { reaskReason: reason } : {}),
       });
@@ -477,6 +499,11 @@ describe('the Operator screens AI members’ questions', () => {
         previousItemId: first,
       });
       expect(questionPayloadOf(item(again.inboxItemId))?.screening).toBeUndefined();
+      expect(questionPayloadOf(item(again.inboxItemId))).toMatchObject({
+        requestedRecipient: 'integrator',
+        recipient: 'owner',
+      });
+      expect(questionPayloadOf(item(again.inboxItemId))?.integratorOpenedAt).toBeUndefined();
       expect(timelineOf('question_asked').at(-1)?.data).toMatchObject({
         inboxItemId: again.inboxItemId,
         unscreened: { previousItemId: first },

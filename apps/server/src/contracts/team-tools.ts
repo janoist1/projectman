@@ -24,8 +24,10 @@ import type {
   MemberView,
   QuestionAttachment,
   QuestionResponsePurpose,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
   QuestionOptionInput,
-  QuestionTodo,
+  ScreeningTodo,
   ScreeningOutcome,
   Task,
   TaskDetail,
@@ -670,6 +672,7 @@ export interface InboxToolsHandler {
       reaskReason?: string;
       /** `information`: a simple fact the super-mode integrator may relay (PM-762); missing means an owner decision. */
       responsePurpose?: QuestionResponsePurpose;
+      recipient?: QuestionRecipient;
     },
   ): Promise<{
     inboxItemId: string;
@@ -895,9 +898,14 @@ export interface OperatorToolsHandler {
       note: string;
       answer?: string;
       forwardTo?: MemberHandle;
-      todo?: QuestionTodo;
+      todo?: ScreeningTodo;
     },
-  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
+  ): Promise<{
+    inboxItemId: string;
+    outcome: ScreeningOutcome;
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
+  }>;
   combineQuestions(
     ctx: ToolContext,
     args: { itemIds: string[]; question: string; note: string },
@@ -1004,6 +1012,10 @@ export interface ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: { target: AdministrationTarget; limit: number },
   ): Promise<{ entries: DiagnosticLogEntry[] }>;
+  resolveIntegratorTodo(
+    ctx: ExternalToolContext,
+    args: { itemId: string; optionId: 'todo_done' | 'todo_cannot'; note?: string },
+  ): Promise<{ item: InboxItem }>;
   relayOwnerAnswer(
     ctx: ExternalToolContext,
     args: { itemId: string; answer: string },

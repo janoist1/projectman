@@ -191,6 +191,7 @@ export const InboxItem = z.object({
        * the owner did not decide this with their own login, so it is no evidence of an owner decision.
        */
       ownerAnswerRelayed: z.literal(true).optional(),
+      integratorTodo: z.literal(true).optional(),
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),
@@ -214,6 +215,7 @@ export function canSeeInboxItem(
   viewer: TaskViewer & { via?: 'integrator' },
   item: Pick<InboxItem, 'state' | 'assignees' | 'payload'>,
 ): boolean {
+  if (hasIntegratorTodoOrigin(item.payload) && viewer.access !== 'owner') return false;
   // Check the field itself: malformed or historical private proposals must also stay private.
   if (item.payload && 'operatorKnowledge' in item.payload)
     return !viewer.via && canSeeAllTeamMessages(viewer);
@@ -568,13 +570,21 @@ export const QUESTION_SCREENING_MINUTES = 10;
 export const ScreeningOutcome = z.enum(['answered', 'forwarded', 'moot', 'decision', 'todo']);
 export type ScreeningOutcome = z.infer<typeof ScreeningOutcome>;
 
+export const QuestionRecipient = z.enum(['owner', 'integrator']);
+export type QuestionRecipient = z.infer<typeof QuestionRecipient>;
+export const QuestionRecipientRefusal = z.enum(['protected_question', 'integrator_unavailable']);
+export type QuestionRecipientRefusal = z.infer<typeof QuestionRecipientRefusal>;
+
 /** A task for a person that the Operator made out of a question: what to do, where, and what is expected. */
 export const QuestionTodo = z.object({
   what: z.string().min(1).max(2000),
   where: z.string().min(1).max(500),
   expected: z.string().min(1).max(1000),
+  recipient: QuestionRecipient.optional(),
 });
 export type QuestionTodo = z.infer<typeof QuestionTodo>;
+export const ScreeningTodo = QuestionTodo.extend({ recipient: QuestionRecipient });
+export type ScreeningTodo = z.infer<typeof ScreeningTodo>;
 
 /** The whole screening window in milliseconds (`QUESTION_SCREENING_MINUTES`). */
 export const QUESTION_SCREENING_MS = QUESTION_SCREENING_MINUTES * 60_000;
@@ -612,6 +622,7 @@ export const QuestionScreening = z.object({
   forwardedTo: z.string().optional(),
   /** Outcome `todo`. */
   todo: QuestionTodo.optional(),
+  recipientRefusal: QuestionRecipientRefusal.optional(),
   /** Released to the people with no outcome. */
   fallback: z.enum(['timeout', 'unavailable']).optional(),
   /** The feedback item (PM-472) of a todo. */
@@ -862,6 +873,10 @@ export function isRelayableQuestionItem(item: Pick<InboxItem, 'kind' | 'payload'
 }
 
 export const QuestionPayload = z.object({
+  requestedRecipient: QuestionRecipient.optional(),
+  recipient: QuestionRecipient.optional(),
+  integratorOpenedAt: z.iso.datetime().optional(),
+  integratorEscalatedAt: z.iso.datetime().optional(),
   group: QuestionGroup.optional(),
   question: z.string(),
   /** The approval this question appears to request. An answer never sets it; setting it closes the question (approval_given). */
@@ -901,6 +916,85 @@ export type QuestionPayload = z.infer<typeof QuestionPayload>;
 export function questionPayloadOf(item: Pick<InboxItem, 'payload'>): QuestionPayload | null {
   const parsed = QuestionPayload.safeParse(item.payload);
   return parsed.success ? parsed.data : null;
+}
+
+/** Protected fields are checked before parsing: even a null approval is never delegated. */
+export function hasProtectedQuestionPayload(item: Pick<InboxItem, 'kind' | 'payload'>): boolean {
+  if (!item.payload || typeof item.payload !== 'object') return true;
+  return (
+    item.kind !== 'question' ||
+    ['approvalLabel', 'superOperation', ...APPROVAL_PAYLOAD_KEYS].some((key) => key in item.payload)
+  );
+}
+
+function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const screening = payload.screening;
+  const todo = screening && typeof screening === 'object' && 'todo' in screening ? screening.todo : null;
+  return (
+    payload.recipient === 'integrator' ||
+    'integratorOpenedAt' in payload ||
+    'integratorEscalatedAt' in payload ||
+    !!(todo && typeof todo === 'object' && 'recipient' in todo && todo.recipient === 'integrator')
+  );
+}
+
+export function selectTodoRecipient(
+  item: InboxItem,
+  requested: QuestionRecipient,
+  integratorAvailable: boolean,
+): { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal } {
+  if (requested === 'owner') return { recipient: 'owner' };
+  if (hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload)
+    return { recipient: 'owner', recipientRefusal: 'protected_question' };
+  if (!integratorAvailable) return { recipient: 'owner', recipientRefusal: 'integrator_unavailable' };
+  return { recipient: 'integrator' };
+}
+
+/** State and authentication are checked by the operation, independently of durable addressing. */
+export function isIntegratorTodo(item: InboxItem): boolean {
+  const p = questionPayloadOf(item);
+  return (
+    !hasProtectedQuestionPayload(item) &&
+    !!p &&
+    p.recipient === 'integrator' &&
+    p.screening?.outcome === 'todo' &&
+    p.screening.todo?.recipient === 'integrator' &&
+    !!p.integratorOpenedAt &&
+    !('integratorEscalatedAt' in item.payload) &&
+    !('group' in item.payload) &&
+    item.options.length === 2 &&
+    new Set(item.options.map((o) => o.id)).size === 2 &&
+    item.options.every((o) => o.id === TODO_DONE_OPTION.id || o.id === TODO_CANNOT_OPTION.id)
+  );
+}
+
+export function questionRecipientOf(item: InboxItem): QuestionRecipient {
+  return isIntegratorTodo(item) ? 'integrator' : 'owner';
+}
+
+export function wasIntegratorTodo(item: InboxItem): boolean {
+  return item.kind === 'question' && !!questionPayloadOf(item)?.integratorOpenedAt;
+}
+
+export function humanInboxAssignment(item: InboxItem, handle: string | null): boolean {
+  return questionRecipientOf(item) === 'owner' && (handle === null || item.assignees.includes(handle));
+}
+
+export const INTEGRATOR_TODO_TIMEOUT_MS = 86_400_000;
+
+export function planIntegratorTodoEscalation(
+  item: InboxItem,
+  now: string,
+  owners: readonly string[],
+): Pick<InboxItem, 'payload' | 'assignees'> | null {
+  if (item.state !== 'open' || !isIntegratorTodo(item) || !owners.length) return null;
+  const openedAt = questionPayloadOf(item)!.integratorOpenedAt!;
+  if (!(Date.parse(now) >= Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS)) return null;
+  return {
+    payload: { ...item.payload, recipient: 'owner', integratorEscalatedAt: now },
+    assignees: [...owners],
+  };
 }
 
 /**

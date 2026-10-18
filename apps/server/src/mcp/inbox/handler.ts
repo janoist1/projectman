@@ -18,6 +18,8 @@ import type {
   QuestionAttachment,
   QuestionOptionInput,
   QuestionResponsePurpose,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
   Task,
 } from '@projectman/shared';
 import type { InboxToolsHandler } from '../../contracts';
@@ -101,6 +103,7 @@ export class InboxTools implements InboxToolsHandler {
       reaskOf?: string;
       reaskReason?: string;
       responsePurpose?: QuestionResponsePurpose;
+      recipient?: QuestionRecipient;
     },
   ): Promise<{
     inboxItemId: string;
@@ -197,6 +200,8 @@ export class InboxTools implements InboxToolsHandler {
         ...(screened ? { state: 'screening' as const } : {}),
         payload: {
           question,
+          requestedRecipient: args.recipient ?? 'owner',
+          recipient: 'owner',
           ...(screened
             ? {
                 screening: {
@@ -233,6 +238,7 @@ export class InboxTools implements InboxToolsHandler {
         data: {
           inboxItemId: item.id,
           question,
+          requestedRecipient: args.recipient ?? 'owner',
           ...(screened ? { screening: true as const } : {}),
           ...(unscreened ? { unscreened } : {}),
         },

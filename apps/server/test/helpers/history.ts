@@ -27,7 +27,9 @@ export function addHumans(config: ProjectConfig): void {
     });
 }
 
-export const historyHarness = (opts: Parameters<typeof createDomainHarness>[0] = {}): Promise<DomainHarness> =>
+export const historyHarness = (
+  opts: Parameters<typeof createDomainHarness>[0] = {},
+): Promise<DomainHarness> =>
   createDomainHarness({
     ...opts,
     adjust: (config) => {

@@ -63,10 +63,7 @@ describe('history search and read visibility', () => {
   }
 
   const tagsOf = (viewer: HistoryViewer) =>
-    h.domain.history
-      .search('AR', viewer, { query: 'zebra', limit: 50 })
-      .matches.map(keyOf)
-      .sort();
+    h.domain.history.search('AR', viewer, { query: 'zebra', limit: 50 }).matches.map(keyOf).sort();
 
   beforeEach(async () => {
     h = await historyHarness();
@@ -102,7 +99,9 @@ describe('history search and read visibility', () => {
     record('dev-1', ['acme'], 'tagm8', {
       answer: { inboxItemId: q1.id, question: 'zebra', answer: 'zebra' },
     });
-    record('dev-1', ['owner'], 'tagm9', { origin: { kind: 'operator_knowledge_approval', inboxItemId: q4.id } });
+    record('dev-1', ['owner'], 'tagm9', {
+      origin: { kind: 'operator_knowledge_approval', inboxItemId: q4.id },
+    });
     h.domain.history.flush();
     ids = {};
     for (const match of h.domain.history.search('AR', OWNER, { query: 'zebra', limit: 50 }).matches)
@@ -164,16 +163,19 @@ describe('history search and read visibility', () => {
     expect(tagsOf(as(handle))).toEqual([...expected].sort());
   });
 
-  it.each(matrix)('reads exactly what %s may read, and nothing else is told apart from a missing source', (handle, expected) => {
-    for (const [tag, sourceId] of Object.entries(ids)) {
-      const read = () => h.domain.history.read('AR', as(handle), { sourceId });
-      if (expected.includes(tag)) expect(read().text).toContain('zebra');
-      else expect(read).toThrowError(expect.objectContaining({ status: 404, code: 'not_found' }));
-    }
-    expect(() => h.domain.history.read('AR', as(handle), { sourceId: 'hsrc_unknown' })).toThrowError(
-      expect.objectContaining({ status: 404, code: 'not_found' }),
-    );
-  });
+  it.each(matrix)(
+    'reads exactly what %s may read, and nothing else is told apart from a missing source',
+    (handle, expected) => {
+      for (const [tag, sourceId] of Object.entries(ids)) {
+        const read = () => h.domain.history.read('AR', as(handle), { sourceId });
+        if (expected.includes(tag)) expect(read().text).toContain('zebra');
+        else expect(read).toThrowError(expect.objectContaining({ status: 404, code: 'not_found' }));
+      }
+      expect(() => h.domain.history.read('AR', as(handle), { sourceId: 'hsrc_unknown' })).toThrowError(
+        expect.objectContaining({ status: 404, code: 'not_found' }),
+      );
+    },
+  );
 
   it('hides the Operator knowledge approval and its copy from the integrator, even for the owner', () => {
     const via: HistoryViewer = { ...OWNER, via: 'integrator' };
@@ -195,10 +197,14 @@ describe('history search and read visibility', () => {
     expect(() => h.domain.history.read('AR', as('stranger'), { sourceId: ids.tagt2! })).toThrowError(refused);
     expect(() => h.domain.history.search('NOPE', OWNER, { query: 'zebra' })).toThrowError(refused);
     expect(tagsOf(as('beta'))).toEqual(['tagt2']);
-    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } }, (draft) => {
-      draft.team.members = draft.team.members.filter((member) => member.handle !== 'beta');
-      return 'Remove a fictional member';
-    });
+    await h.domain.projects.update(
+      'AR',
+      { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
+      (draft) => {
+        draft.team.members = draft.team.members.filter((member) => member.handle !== 'beta');
+        return 'Remove a fictional member';
+      },
+    );
     expect(() => h.domain.history.search('AR', as('beta'), { query: 'zebra' })).toThrowError(refused);
     expect(() => h.domain.history.read('AR', as('beta'), { sourceId: ids.tagt2! })).toThrowError(refused);
   });

@@ -4,7 +4,18 @@ import type { ProjectConfig } from '@projectman/shared';
 import type { TaskMoves } from '../moves';
 import { TaskService } from '../service';
 import { TaskStore } from '../store';
-import type { BranchMerger, FullTestExecutor, FullTestResult, MergeBaseState } from '../../../contracts';
+import type {
+  BranchMerger,
+  EngineDirectory,
+  FullTestExecutor,
+  FullTestResult,
+  MergeBaseState,
+} from '../../../contracts';
+import { EngineLinkLostError } from '../../../contracts';
+import { LocalEngineDirectory } from '../../../runtime/sessions';
+import { createCloudRemote } from '../../../engine-link/remote';
+import type { CloudRemote } from '../../../engine-link/remote';
+import { createFakeCloud } from '../../../engine-link/remote/test-support';
 import { withVisibleCardLinks, clientCanSeeTimelineEvent } from '../../projects';
 import {
   createDomainHarness,
@@ -14,7 +25,7 @@ import {
   waitForSession,
 } from '../../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../../test/helpers/domain-harness';
-import { pullRequest } from '../../../../test/helpers/fakes';
+import { flush, pullRequest } from '../../../../test/helpers/fakes';
 import { makeLocalOnly } from '../../../../test/helpers/test-template';
 import { aiActor, humanActor } from '../../../kernel';
 
@@ -76,6 +87,8 @@ function fakeExecutor(result: FullTestResult = passed): FullTestExecutor {
 describe('member initiated merge', () => {
   let h: DomainHarness | undefined;
   let merger: ReturnType<typeof fakeMerger>;
+  let engines: EngineDirectory;
+  let remoteCheck: CloudRemote | undefined;
   const task = (key = 'AR-1') => h!.domain.tasks.get('AR', key);
   const row = (key = 'AR-1') => h!.repos.taskMerges.open('AR', key);
   const events = (type: string) =>
@@ -92,6 +105,7 @@ describe('member initiated merge', () => {
     } = {},
   ) {
     merger = fakeMerger(opts.remote);
+    const getEngine = vi.spyOn(LocalEngineDirectory.prototype, 'get');
     h = await createDomainHarness({
       merger: opts.unavailable ? null : merger,
       fullTestExecutor: opts.executor,
@@ -111,6 +125,8 @@ describe('member initiated merge', () => {
         opts.adjust?.(config);
       },
     });
+    engines = getEngine.mock.contexts[0] as EngineDirectory;
+    getEngine.mockRestore();
     vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
     await card('AR-1', 'web', 'dev-1');
   }
@@ -527,6 +543,8 @@ describe('member initiated merge', () => {
   });
   afterEach(async () => {
     await h?.cleanup();
+    remoteCheck?.close();
+    remoteCheck = undefined;
     h = undefined;
   });
 
@@ -542,6 +560,323 @@ describe('member initiated merge', () => {
     expect(msg).toMatchObject({ kind: 'action', from: 'system', origin: { kind: 'note' } });
     await h!.domain.merges.reconcile('AR', 'AR-1');
     expect(events('task_merge_requested')).toHaveLength(1);
+  });
+
+  describe('engine reconnection', () => {
+    const withCheck = (config: ProjectConfig) => {
+      config.project.repos[0]!.reviewTest = reviewTest;
+    };
+
+    it.each(['run', 'attach'] as const)(
+      'blocks an engine handler error during %s after one check',
+      async (phase) => {
+        const executor = fakeExecutor();
+        await setup({ executor, adjust: withCheck });
+        const cloud = createFakeCloud();
+        remoteCheck = createCloudRemote({
+          links: cloud.links,
+          registry: cloud.registry,
+          recordedEngine: () => null,
+          spoolDir: `${h!.dir}/refused-check-spool`,
+          logger: h!.log.logger,
+        });
+        const refusal = () => {
+          throw Object.assign(new Error('fixture failure'), { code: 'internal' });
+        };
+        const engine = cloud.connect('eng_a' as never);
+        engine.answer('full_test.run', phase === 'run' ? refusal : () => new Promise(() => {}));
+        const remoteExecutor = remoteCheck.directory.host(engine.id)!.fullTestExecutor!;
+        vi.mocked(executor.run).mockImplementation((...args) => remoteExecutor.run(...args));
+        engines.awaitConnected = vi.fn(async () => 'connected' as const);
+        await start();
+        if (phase === 'attach') {
+          await vi.waitFor(() =>
+            expect(engine.requests.some((request) => request.method === 'full_test.run')).toBe(true),
+          );
+          engine.disconnect();
+          await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+          cloud.connect(engine.id, {
+            prepare(next) {
+              next.answer('full_test.attach', refusal);
+            },
+          });
+        }
+        await blocked('check_error');
+        expect(row()?.block?.message).toContain('spawn_failed');
+        expect(executor.run).toHaveBeenCalledTimes(1);
+        expect(merger.build).toHaveBeenCalledTimes(1);
+        expect(merger.push).not.toHaveBeenCalled();
+        expect(engines.awaitConnected).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['ended', 'unknown', 'old'] as const)(
+      'completes a disconnected check without a manual retry (attach: %s)',
+      async (attach) => {
+        const executor = fakeExecutor();
+        await setup({ executor, adjust: withCheck });
+        const cloud = createFakeCloud();
+        remoteCheck = createCloudRemote({
+          links: cloud.links,
+          registry: cloud.registry,
+          recordedEngine: () => null,
+          spoolDir: `${h!.dir}/reconnect-spool`,
+          logger: h!.log.logger,
+        });
+        const first = cloud.connect('eng_a' as never);
+        first.answer('full_test.run', () => new Promise(() => {}));
+        const remoteExecutor = remoteCheck.directory.host(first.id)!.fullTestExecutor!;
+        vi.mocked(executor.run).mockImplementation((...args) => remoteExecutor.run(...args));
+        await start();
+        await vi.waitFor(() => expect(first.requests.some((r) => r.method === 'full_test.run')).toBe(true));
+        const firstRun = (
+          first.requests.find((r) => r.method === 'full_test.run')!.params as { spec: { runId: string } }
+        ).spec.runId;
+        first.disconnect();
+        await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+        expect(h!.domain.merges.busy('AR', 'web')).toBe(true);
+        const next = cloud.connect(first.id, {
+          prepare(engine) {
+            if (attach !== 'old')
+              engine.answer('full_test.attach', () =>
+                attach === 'ended' ? { state: 'ended', result: passed } : { state: 'unknown' },
+              );
+            engine.answer('full_test.cancel', async () => null);
+            engine.answer('full_test.run', () => passed);
+          },
+        });
+        await merged();
+        if (attach === 'ended') {
+          expect(task().merged?.check?.runId).toBe(firstRun);
+          expect(merger.checkoutForCheck).toHaveBeenCalledTimes(1);
+          expect(next.requests.map((r) => r.method)).toEqual(['full_test.attach']);
+        } else {
+          expect(task().merged?.check?.runId).not.toBe(firstRun);
+          expect(merger.checkoutForCheck).toHaveBeenCalledTimes(2);
+          expect(next.requests.some((r) => r.method === 'full_test.cancel')).toBe(attach === 'old');
+          expect(next.requests.filter((r) => r.method === 'full_test.run')).toHaveLength(1);
+        }
+        expect(merger.push).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each(['build', 'checkoutForCheck'] as const)(
+      'restarts after losing the link during %s',
+      async (method) => {
+        await setup({ executor: fakeExecutor(), adjust: withCheck });
+        merger[method].mockRejectedValueOnce({ linkCode: 'link_down' });
+        const back = deferred<'connected'>();
+        engines.awaitConnected = vi.fn(() => back.promise);
+        await start();
+        await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+        expect(engines.awaitConnected).toHaveBeenCalledWith(
+          expect.anything(),
+          900_000,
+          expect.any(AbortSignal),
+        );
+        back.resolve('connected');
+        await merged();
+        expect(merger.build).toHaveBeenCalledTimes(2);
+        expect(merger.push).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('waits for a registered engine that disconnected before execution', async () => {
+      await setup();
+      let busy = true;
+      h!.domain.merges.registerSlotPeer({ busy: () => busy, pump: () => {} });
+      await start();
+      const get = vi.spyOn(engines, 'get').mockReturnValue(null);
+      const back = deferred<'connected'>();
+      engines.awaitConnected = vi.fn(() => back.promise);
+      busy = false;
+      h!.domain.merges.pump();
+      await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+      expect(merger.build).not.toHaveBeenCalled();
+      get.mockRestore();
+      back.resolve('connected');
+      await merged();
+    });
+
+    it('restarts after losing the link during source handover', async () => {
+      await setup();
+      const handover = vi
+        .spyOn(h!.domain.sessions, 'prepareMergeSource')
+        .mockRejectedValueOnce(new EngineLinkLostError('disconnected'));
+      const back = deferred<'connected'>();
+      engines.awaitConnected = () => back.promise;
+      await start();
+      await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+      back.resolve('connected');
+      await merged();
+      expect(handover).toHaveBeenCalledTimes(2);
+      expect(merger.build).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits when the check availability probe reports an offline engine', async () => {
+      const executor = fakeExecutor();
+      await setup({ executor, adjust: withCheck });
+      vi.mocked(executor.available).mockResolvedValueOnce({ ok: false, reason: 'engine_offline' });
+      const back = deferred<'connected'>();
+      engines.awaitConnected = vi.fn(() => back.promise);
+      await start();
+      await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+      back.resolve('connected');
+      await merged();
+      expect(executor.run).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks after fifteen minutes without an engine', async () => {
+      await setup();
+      merger.build.mockRejectedValueOnce(new EngineLinkLostError('disconnected'));
+      engines.awaitConnected = (_id, waitMs) =>
+        new Promise((resolve) => setTimeout(() => resolve('timeout'), waitMs));
+      vi.useFakeTimers();
+      try {
+        await start();
+        await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+        await vi.advanceTimersByTimeAsync(900_000);
+        await blocked('engine_offline');
+        expect(row()?.block?.message).toBe('the card engine was unreachable for 15 minutes');
+        expect(merger.push).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not wait another fifteen minutes when the executor already waited', async () => {
+      await setup({
+        executor: fakeExecutor({ ...passed, outcome: 'error', reason: 'engine_offline' }),
+        adjust: withCheck,
+      });
+      engines.awaitConnected = vi.fn(async () => 'timeout' as const);
+      await start();
+      await blocked('engine_offline');
+      expect(engines.awaitConnected).toHaveBeenCalledWith(expect.anything(), 0, expect.any(AbortSignal));
+    });
+
+    it('requeues a disconnected check when the cloud stops waiting before domain shutdown', async () => {
+      const executor = fakeExecutor();
+      await setup({ executor, adjust: withCheck });
+      const cloud = createFakeCloud();
+      remoteCheck = createCloudRemote({
+        links: cloud.links,
+        registry: cloud.registry,
+        recordedEngine: () => null,
+        spoolDir: `${h!.dir}/shutdown-spool`,
+        logger: h!.log.logger,
+      });
+      const engine = cloud.connect('eng_a' as never);
+      engine.answer('full_test.run', () => new Promise(() => {}));
+      const remoteExecutor = remoteCheck.directory.host(engine.id)!.fullTestExecutor!;
+      vi.mocked(executor.run).mockImplementation((...args) => remoteExecutor.run(...args));
+      await start();
+      await vi.waitFor(() => expect(engine.requests.some((r) => r.method === 'full_test.run')).toBe(true));
+      engine.disconnect();
+      await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+      const drain = deferred<void>();
+      const stop = h!.domain.fullTests.stop.bind(h!.domain.fullTests);
+      const fullTestsStop = vi.spyOn(h!.domain.fullTests, 'stop').mockImplementation(async () => {
+        await drain.promise;
+        await stop();
+      });
+      remoteCheck.stopWaiting();
+      const stopping = h!.domain.stop();
+      await flush();
+      expect(row()).toMatchObject({ state: 'running', step: 'engine_waiting' });
+      drain.resolve();
+      await stopping;
+      fullTestsStop.mockRestore();
+      expect(row()).toMatchObject({ state: 'queued', step: 'queued' });
+    });
+
+    it.each([false, true])(
+      'requeues a wait on shutdown, retaining publication recovery (push started: %s)',
+      async (pushing) => {
+        await setup();
+        merger[pushing ? 'push' : 'build'].mockRejectedValueOnce(new EngineLinkLostError('disconnected'));
+        engines.awaitConnected = (_id, _waitMs, signal) =>
+          new Promise((resolve) =>
+            signal!.addEventListener('abort', () => resolve('aborted'), { once: true }),
+          );
+        await start();
+        await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+        const id = row()!.id;
+        await h!.domain.merges.stop();
+        expect(row()).toMatchObject({
+          id,
+          state: pushing ? 'running' : 'queued',
+          step: pushing ? 'engine_waiting' : 'queued',
+        });
+        engines.awaitConnected = vi.fn(async () => 'connected' as const);
+        await h!.domain.merges.init();
+        await merged();
+      },
+    );
+
+    it('recovers a push that landed before the connection was lost', async () => {
+      await setup();
+      merger.push.mockImplementationOnce(async (_ref, input) => {
+        merger.base.remote!.commit = input.mergeCommit;
+        throw new EngineLinkLostError('push reply lost');
+      });
+      merger.isAncestor.mockImplementation(async (_ref, input) => input.ancestor === input.commit);
+      engines.awaitConnected = vi.fn(async () => 'connected' as const);
+      await start();
+      await merged();
+      expect(merger.push).toHaveBeenCalledTimes(1);
+      expect(merger.build).toHaveBeenCalledTimes(1);
+      expect(merger.advance).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks the sixth engine loss', async () => {
+      await setup();
+      merger.build.mockRejectedValue(new EngineLinkLostError('disconnected'));
+      engines.awaitConnected = vi.fn(async () => 'connected' as const);
+      await start();
+      await blocked('engine_offline');
+      expect(row()?.block?.message).toBe('the card engine kept losing its link');
+      expect(merger.build).toHaveBeenCalledTimes(6);
+      expect(engines.awaitConnected).toHaveBeenCalledTimes(5);
+    });
+
+    it.each(['timeout', 'unknown_method', 'module_error'])(
+      'does not treat %s as a lost link',
+      async (linkCode) => {
+        await setup();
+        merger.build.mockRejectedValueOnce({ linkCode });
+        engines.awaitConnected = vi.fn(async () => 'connected' as const);
+        await start();
+        await blocked('merge_error');
+        expect(engines.awaitConnected).not.toHaveBeenCalled();
+      },
+    );
+
+    it('holds its repository slot while a different repository can merge', async () => {
+      await setup({
+        adjust(config) {
+          config.project.repos.push({ name: 'api', path: 'api', defaultBranch: 'main', requireMerge: true });
+          config.team.limits.maxConcurrentAi = 6;
+          for (const member of config.team.members)
+            if (member.kind === 'ai' && member.handle.startsWith('dev-')) member.capacity = 4;
+        },
+      });
+      await card('AR-2', 'web', 'dev-2');
+      await card('AR-3', 'api', 'dev-2');
+      merger.build.mockRejectedValueOnce(new EngineLinkLostError('disconnected'));
+      const back = deferred<'connected'>();
+      engines.awaitConnected = () => back.promise;
+      await start();
+      await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
+      await start('AR-2');
+      await start('AR-3');
+      await merged('AR-3');
+      expect(row('AR-2')?.state).toBe('queued');
+      expect(h!.domain.merges.holder('AR', 'web')).toBe('AR-1');
+      back.resolve('connected');
+      await merged();
+      await merged('AR-2');
+    });
   });
 
   it('cancels a request when the gate ceases to hold', async () => {
@@ -747,7 +1082,7 @@ describe('member initiated merge', () => {
       },
     );
 
-    it.each(['dependency_install_failed', 'timeout', 'killed', 'engine_offline'] as const)(
+    it.each(['dependency_install_failed', 'timeout', 'killed'] as const)(
       'blocks as check_error, not as a failed check, when the preparation ends with %s',
       async (reason) => {
         const executor = fakeExecutor({

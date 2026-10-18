@@ -18,6 +18,7 @@ import type {
   WorkspaceCheckout,
   WorkspaceSource,
 } from '../../contracts';
+import { isEngineLinkLost } from '../../contracts';
 import type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from '../../db';
 import { taskBranchName } from '@projectman/shared';
 import { isoNow } from '../../core/base';
@@ -562,6 +563,7 @@ export class MemberWorkspaces {
     if (!work?.binding.branch) return;
     const key = { project: config, repoName: work.record.repo, member: work.record.member };
     await this.manager.publishTaskBranch(key, task.key, work.binding.branch, commit).catch((err: unknown) => {
+      if (isEngineLinkLost(err)) throw err;
       throw toDomainError(err, work.record.member);
     });
   }

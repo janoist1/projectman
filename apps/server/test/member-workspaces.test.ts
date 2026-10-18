@@ -516,6 +516,25 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(pin()).toMatchObject({ sourcePath: dev1, sourceRef: 'refs/heads/AR-1-login-page' });
   });
 
+  it('preserves a lost engine link while handing a merge source over', async () => {
+    const lost = Object.assign(new Error('the link dropped'), { linkCode: 'link_down' });
+    let disconnected = false;
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        publishTaskBranch: (...args) =>
+          disconnected ? Promise.reject(lost) : inner.publishTaskBranch(...args),
+      }),
+    });
+    await startTask('AR-1', 'dev-1');
+    const config = await h.domain.projects.config('AR');
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    disconnected = true;
+    await expect(h.domain.sessions.prepareMergeSource(config, task, initial)).rejects.toBe(lost);
+    disconnected = false;
+    await h.domain.sessions.prepareMergeSource(config, task, initial);
+  });
+
   it('keeps a reservation over a restart until the old processes are proven gone', async () => {
     const liveProcesses = new Set<number>();
     await setup({ liveProcesses });

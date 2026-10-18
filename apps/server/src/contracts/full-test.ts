@@ -105,6 +105,13 @@ export interface ScreenshotExecutor {
   run(spec: ScreenshotRunSpec, signal: AbortSignal, onStarted: () => void): Promise<ScreenshotRunEnded>;
 }
 
+export interface FullTestRunOptions {
+  /** How long one lost engine link is waited for before the run ends `engine_offline` (PM-777); absent or 0: not waited for. */
+  linkWaitMs?: number;
+  /** true when the run starts waiting for the engine link, false when it follows the run again. */
+  onLinkWait?: (waiting: boolean) => void;
+}
+
 export interface FullTestExecutor {
   /** Whether the sandbox can run here; `reason` says why not. */
   available(): Promise<{ ok: true } | { ok: false; reason: string }>;
@@ -113,5 +120,10 @@ export interface FullTestExecutor {
    * `onStarted` is called once the run got its turn in the machine's heavy-run queue (at once without
    * the queue), before it runs; never for a run stopped while it waited.
    */
-  run(spec: FullTestSpec, signal: AbortSignal, onStarted?: () => void): Promise<FullTestResult>;
+  run(
+    spec: FullTestSpec,
+    signal: AbortSignal,
+    onStarted?: () => void,
+    options?: FullTestRunOptions,
+  ): Promise<FullTestResult>;
 }

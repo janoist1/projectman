@@ -6,8 +6,10 @@ import {
   memberOf,
   mergeReadiness,
   openPrerequisites,
+  MERGE_ENGINE_WAIT_MINUTES,
 } from '@projectman/shared';
 import type { MergeBlockReason, MergeFailure, ProjectConfig, Task } from '@projectman/shared';
+import { EngineLinkLostError, isEngineLinkLost } from '../../contracts';
 import { mergedState } from '../../db';
 import type { MergeRecord, MergeTrainRecord } from '../../db';
 import { isoNow } from '../../core/base';
@@ -18,6 +20,7 @@ import type { MergeDeps, MergeRun } from './deps';
 import type { MergeSteps } from './steps';
 import { selectMergeTrain } from './train-selection';
 import type { MergeTrainCandidate } from './train-selection';
+import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
 
 type Hooks = {
   stopped(): boolean;
@@ -522,10 +525,55 @@ export class MergeTrains {
   async run(run: MergeRun, recoverOnly = false): Promise<void> {
     const train = run.train!;
     const { ctx, engines } = this.deps;
+    for (let losses = 0; ;) {
+      try {
+        await this.attempt(run, recoverOnly);
+        return;
+      } catch (err) {
+        if (!run.pushing && !(await this.checkpoint(run))) return;
+        if (!isEngineLinkLost(err)) throw err;
+        if (++losses > MERGE_ENGINE_LOSSES)
+          return this.terminal(run, 'engine_offline', 'the card engine kept losing its link');
+        this.patchMembers(train, { step: 'engine_waiting' });
+        ctx.logger.info(
+          { mergeId: train.id, engineId: train.engineId, losses },
+          'a merge waits for its engine',
+        );
+        const waited = err instanceof EngineLinkLostError && err.waited;
+        const back = await waitForEngine(
+          engines,
+          train.engineId,
+          waited ? 0 : MERGE_ENGINE_WAIT_MS,
+          run.signal,
+        );
+        if (back === 'aborted') {
+          await this.checkpoint(run);
+          return;
+        }
+        if (back === 'timeout')
+          return this.terminal(
+            run,
+            'engine_offline',
+            `the card engine was unreachable for ${MERGE_ENGINE_WAIT_MINUTES} minutes`,
+          );
+        this.patchMembers(train, { step: train.step });
+        ctx.logger.info(
+          { mergeId: train.id, engineId: train.engineId, losses },
+          'a merge goes on after its engine reconnected',
+        );
+      }
+    }
+  }
+
+  private async attempt(run: MergeRun, recoverOnly: boolean): Promise<void> {
+    const train = run.train!;
+    const { ctx, engines } = this.deps;
     const engine = engines.get(train.engineId);
     const merger = engine?.merger;
     const ref = { projectKey: train.projectKey, repo: train.repo };
     try {
+      if (!engine && engines.ids().includes(train.engineId))
+        throw new EngineLinkLostError('the card engine is not connected');
       if (!engine || !merger)
         return await this.terminal(run, 'engine_unavailable', 'The train engine is unavailable');
       await this.prepareSources(train);
@@ -616,6 +664,8 @@ export class MergeTrains {
           );
         const executor = engine.fullTestExecutor;
         const available = await executor?.available();
+        if (available && !available.ok && available.reason === 'engine_offline')
+          throw new EngineLinkLostError('the merge check engine is not connected');
         if (!executor || !available?.ok)
           return await this.terminal(
             run,
@@ -632,6 +682,7 @@ export class MergeTrains {
         const paths = engine.paths();
         const runId = newId('mergecheck');
         let started = false;
+        let waitingForEngine = false;
         const result = await executor.run(
           {
             runId,
@@ -657,11 +708,26 @@ export class MergeTrains {
             started = true;
             ctx.unitOfWork(() => {
               this.save(train, { step: 'checking' });
-              this.patchMembers(train, { step: 'checking' });
+              if (!waitingForEngine) this.patchMembers(train, { step: 'checking' });
             });
+          },
+          {
+            linkWaitMs: MERGE_ENGINE_WAIT_MS,
+            onLinkWait: (waiting) => {
+              waitingForEngine = waiting;
+              if (
+                !run.signal?.aborted &&
+                !this.hooks.stopped() &&
+                ctx.repos.mergeTrains.get(train.id)?.state === 'running' &&
+                this.rows(train).every((row) => row.state === 'running')
+              )
+                this.patchMembers(train, { step: waiting ? 'engine_waiting' : train.step });
+            },
           },
         );
         if (!(await this.checkpoint(run))) return;
+        if (result.outcome === 'error' && result.reason === 'engine_offline')
+          throw new EngineLinkLostError('the merge check lost the card engine', true);
         const check = { command: train.reviewTest.command, runId, status: result.outcome };
         ctx.unitOfWork(() => {
           this.save(train, { check });
@@ -750,6 +816,7 @@ export class MergeTrains {
       // A failed transaction rolls back SQLite, not the in-memory manifest object.
       Object.assign(train, durable);
       if (!run.pushing && !(await this.checkpoint(run))) return;
+      if (isEngineLinkLost(err)) throw err;
       await this.terminal(
         run,
         train.step === 'check_waiting' || train.step === 'checking' ? 'check_error' : 'merge_error',

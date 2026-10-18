@@ -33,6 +33,7 @@ import { makeMergeQueue } from './queue';
 import type { MergeQueueEffects } from './queue';
 import { MergeSteps } from './steps';
 import { MergeTrains } from './train';
+import { isEngineLinkLost } from '../../contracts';
 
 /** The states of a card's open merge record (`task_merges.open`). */
 const OPEN_MERGE_STATES = ['requested', 'queued', 'running', 'failed', 'blocked', 'fixing'] as const;
@@ -72,12 +73,16 @@ export class Merges {
               try {
                 reserved = await this.trains.reserve(run);
               } catch (err) {
-                await this.steps.block(
-                  run,
-                  'merge_error',
-                  err instanceof Error ? err.message : 'Could not reserve the merge train',
-                );
-                return;
+                // No train was reserved: the individual program owns reconnect waiting and recovery.
+                if (isEngineLinkLost(err)) reserved = false;
+                else {
+                  await this.steps.block(
+                    run,
+                    'merge_error',
+                    err instanceof Error ? err.message : 'Could not reserve the merge train',
+                  );
+                  return;
+                }
               }
               if (reserved) await this.trains.run(run);
               else if (!run.signal?.aborted) await this.steps.run(run);

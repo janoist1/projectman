@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import { useRef, useState } from 'react';
-import { isMergeFixer, PRIORITIZE_MERGE_REASON_MAX } from '@projectman/shared';
+import { isMergeFixer, MERGE_ENGINE_WAIT_MINUTES, PRIORITIZE_MERGE_REASON_MAX } from '@projectman/shared';
 import type { ProjectConfig, StartMergeRequest, Task, TaskMergeState } from '@projectman/shared';
 import { usePrioritizeMerge, useStartMerge } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -44,6 +44,14 @@ type StepState = 'done' | 'active' | 'todo' | 'failed';
 
 /** Which of the merge's steps are done, running or still to come, from the step the server reports. */
 function runningSteps(merge: TaskMergeState, check: string | null, hasPush: boolean) {
+  if (merge.step === 'engine_waiting')
+    return [
+      {
+        id: 'engine',
+        state: 'active' as const,
+        text: t('task.merge.running.engineWaiting', { minutes: MERGE_ENGINE_WAIT_MINUTES }),
+      },
+    ];
   const command = check ?? merge.check?.command ?? null;
   const order = ['queued', 'merging', 'check_waiting', 'pushing', 'finishing'] as const;
   // Waiting for the machine's test queue is the check's own row (index 2), shown with its own text.

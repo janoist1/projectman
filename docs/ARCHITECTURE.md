@@ -1309,6 +1309,18 @@ heavy-run queue (PM-332), then `checking` when the executor reports that the run
 `full_test.run` handler like `screenshot_started`). An engine that does not send the event leaves the step at
 `check_waiting` until the run ends; a reused passed run goes straight to `checking`. A repository with
 `fullTestAtMerge` and no `reviewTest` blocks (`check_unavailable`): nothing merges unchecked.
+
+A lost engine link is waited for up to 15 minutes per loss, at most five losses per merge
+(PM-791, PM-777). The repository slot stays occupied while other repositories can proceed.
+`engine_waiting` replaces the card's visible steps; train manifests retain their last durable
+step. A remote check follows its run with `full_test.attach` after reconciliation, including
+replayed start events. If an engine restarted or cannot attach, a new attempt recreates the
+check checkout only after PM-790's cleanup invariant stops the old test. Other lost merge
+calls restart from prepare and recover an already published candidate before building again;
+the publication flag is retained. Shutdown aborts the wait through the merge signal and requeues
+unpublished work; a merge already pushing retains its durable publication recovery for startup. A timed-out
+wait or repeated losses block with `engine_offline`; no database migration is needed.
+
 `task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
 already in the default branch stays a system event.
 Conflicts and failed checks notify the merger and keep the card in place; a failed check tells an AI merger
@@ -2068,6 +2080,11 @@ workers follow the machine's size.
 
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
   `runtime/sessions` (`EngineRegistry`), `db/engines.ts`, `api/engines.ts` (PM-313).
+  PM-791 adds `engine-link/remote/hub.ts` `awaitLink`: readiness is recorded only after connect
+  hooks finish. A bounded merge wait survives the registry's 120-second offline transition;
+  disconnect clears readiness and an abort signal or hub close ends the wait. `stopWaiting` only
+  ends the RPC relay waits, leaving merge waits to their signals during domain shutdown. This runs on the
+  cloud and needs only the remote engine's existing authenticated link, with no local path assumption.
   PM-698 adds optional `hello.processScope`, running-session `scopeId`, exit `cleanup` and
   `scope_recovered`. All scope inspection and signals stay on the owning engine; only generation
   identifiers and cleanup results cross the boundary. Protocol version stays 1; update the hub first.
@@ -2250,6 +2267,12 @@ workers follow the machine's size.
   `engine-link/index.ts` (`EngineLinks.authenticate`), `app.ts` (`parseMode`, `createCloudRemote`),
   `runtime/sessions` (`SessionOrchestrator`, `EngineRegistry`), `core/messages`, `runtime/watchers` (`MachineMonitor`),
   `services/full-tests/{full-tests,screenshot-runs}.ts` (PM-315, PM-601).
+  PM-791 lets `host.ts` follow a full test across at most five engine link losses when the
+  caller opts into a bounded wait. `full_test.attach` carries only the run id and result;
+  execution, cancellation and checkout cleanup stay on the engine. The cloud retains start
+  callbacks until following ends and uses the remaining test timeout plus its existing grace.
+  Other RPC failures end as `spawn_failed`, so handler errors and refusals block the check
+  once instead of being retried as engine link losses.
   `PROJECTMAN_MODE=cloud` runs the UI, the API and the database and no machine-dependent part: the
   runner, the transcripts, the plan usage, the machine probe, the engine directory (worktrees, workspaces,
   session folders, free disk), the GitHub CLI, the full test and the screenshots are the engine's, asked
@@ -3281,6 +3304,12 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
+  PM-791 adds `services/merges/engine-wait.ts` and reconnect loops in `steps.ts` and `train.ts`:
+  the cloud holds the repository slot for up to 15 minutes per lost link and resumes through
+  prepare/publication recovery. Persistent or repeated loss becomes `engine_offline`. Remote
+  git and checks remain engine-local; only calls, run ids, results and link readiness cross the boundary.
+  The member-workspace source handover (`runtime/sessions/workspaces.ts` `prepareMergeSource`)
+  preserves link-loss errors for these loops; ordinary session preparation keeps its domain error mapping.
   Structure map reads (PM-682, PM-683) reuse this boundary: `services/structure/index.ts`
   invokes `listPaths`, `readFile` and `changedPaths`. Git and repository registration stay
   on the selected engine; remote engines return bounded file names and descriptor text.

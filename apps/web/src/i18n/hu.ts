@@ -1394,6 +1394,7 @@ export const hu = {
         queued: 'sorra vár',
         merging: 'összefésülés',
         check_waiting: 'a teszt sorra vár',
+        engine_waiting: 'a gép kapcsolatára vár',
         checking: 'ellenőrzés fut',
         pushing: 'felküldés',
         finishing: 'lezárás',
@@ -1979,6 +1980,8 @@ export const hu = {
         check: 'Ellenőrzés: {check}',
         checkWaiting: 'A teljes teszt a gép tesztsorára vár: {check}',
         checkUnknown: 'Ellenőrzés',
+        engineWaiting:
+          'Megszakadt a kapcsolat a géppel. Legfeljebb {minutes} percig várunk rá, utána a beolvasztás magától folytatódik.',
         push: 'Felküldés a GitHubra',
         done: 'kész',
         active: 'folyamatban',
@@ -2044,6 +2047,8 @@ export const hu = {
             'A kártya gépén nem futtatható az ellenőrzés ({check}), ellenőrzés nélkül pedig nem olvaszt be a rendszer.',
           engine_unavailable:
             'A gép, amelyen a kártya dolgozik, most nem érhető el. Ha újra elérhető, próbáld újra.',
+          engine_offline:
+            'A gép, amelyen a kártya dolgozik, tartósan nem érhető el, vagy a kapcsolata újra meg újra megszakad. Ha újra elérhető, próbáld újra.',
           gate_changed:
             'Közben megváltozott a kártya, és a {target} feltételei már nem teljesülnek. Pótold, ami hiányzik, és próbáld újra.',
           merge_error: 'Váratlan hiba történt a beolvasztás közben. A részletekben látszik, mi.',

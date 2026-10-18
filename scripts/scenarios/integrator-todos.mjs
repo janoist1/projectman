@@ -96,13 +96,13 @@ export default async ({ instance, open, shoot, step }) => {
             }
           }
         }
-        await shoot(page, `r1-${name}`, { widths: [width] });
+        await shoot(page, `r2-${name}`, { widths: [width] });
       }
       if (name === '02-mixed-expanded') {
         await page
           .locator('article[data-recipient="integrator"]')
           .evaluate((node) => node.scrollIntoView({ block: 'end' }));
-        await shoot(page, 'r1-02-mixed-expanded-actions', { widths: [390] });
+        await shoot(page, 'r2-02-mixed-expanded-actions', { widths: [390] });
       }
       await page.close();
     };
@@ -246,13 +246,13 @@ export default async ({ instance, open, shoot, step }) => {
       await page
         .getByText('Az integrátornak szóló teendő a tulajdonoshoz került:', { exact: false })
         .waitFor();
-      await shoot(page, 'r1-07-timeline', { widths: [1512, 390] });
+      await shoot(page, 'r2-07-timeline', { widths: [1512, 390] });
       await page.close();
     });
     await step('integrator key terminology', async () => {
       const page = await open({ path: '/p/AC/settings/integrator' });
-      await page.getByRole('heading', { name: 'Integrátor', exact: true }).waitFor();
-      await shoot(page, 'r1-09-settings', { widths: [1512, 390] });
+      await page.getByRole('heading', { name: 'Operátor super mód', exact: true }).waitFor();
+      await shoot(page, 'r2-09-settings', { widths: [1512, 390] });
       await page.close();
     });
     await step('non-owner inbox', async () => {
@@ -266,7 +266,7 @@ export default async ({ instance, open, shoot, step }) => {
       await page.getByRole('heading', { name: 'Rád vár', exact: true }).waitFor();
       if (await page.locator('summary').filter({ hasText: 'Az integrátornak' }).count())
         throw new Error('Integrator group leaked');
-      await shoot(page, 'r1-08-non-owner', { widths: [1512, 390] });
+      await shoot(page, 'r2-08-non-owner', { widths: [1512, 390] });
     });
   } finally {
     db.close();

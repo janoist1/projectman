@@ -271,6 +271,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
                     messageTextWithAttachments(message),
                     message.taskKey,
                     message.via,
+                    message.actor,
                   )),
           );
           yield* typeInto(session, typed).pipe(
@@ -367,6 +368,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
             next.map((m) => ({
               from: m.from,
               via: m.via,
+              actor: m.actor,
               // What does not wake the Operator is information for it, not an instruction (PM-463).
               ...(operator && !messages.wakes(config, m, handle) ? { info: true } : {}),
               taskKey: m.taskKey,

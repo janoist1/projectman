@@ -2985,6 +2985,12 @@ assumption or remote-engine RPC.
   without its engine's saved state is insufficient for resume. `summary()` runs on the engine,
   next to the conversation; only the `HandoffSummary` (at most 8000 characters) crosses the
   server/engine boundary.
+  PM-766 carries the public super-mode `Actor` (id/prefix, never the bearer secret) from
+  `core/messages/messaging.ts` and `runtime/delivery/delivery.ts` in a separate injected metadata
+  line. The shared chat formatter/parser and `runner/transcript/chat-items.ts` preserve it in
+  `ChatItem.actor` for single, information and batched messages. On a remote engine the same
+  injected text travels to the engine; live chat and `transcript.read` return this display
+  provenance to the hub. Missing or invalid metadata keeps historical rendering and grants no rights.
   Since PM-311 a session records its engine (`sessions.engine_id`, `Session.engineId`), the transcript
   reader calls carry the optional `engineId`, and a conversation resumes only on the same engine (a
   different one counts as `relocated`).

@@ -61,6 +61,10 @@ export const SuperHandoff = z.strictObject({
 });
 export type SuperHandoff = z.infer<typeof SuperHandoff>;
 
+/** Direct read of a handoff, including records outside the bounded list (PM-766). */
+export const SuperHandoffDetail = z.strictObject({ handoff: SuperHandoff });
+export type SuperHandoffDetail = z.infer<typeof SuperHandoffDetail>;
+
 export const SuperOperation = z.strictObject({
   id: z.string(),
   projectKey: z.string(),

@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CreatedIntegratorAccessKey,
   ExecuteSuperHandoffResponse,
   ListSuperHandoffsResponse,
+  SuperHandoffDetail,
   routes,
 } from '@projectman/shared';
 import type { SuperCommand } from '@projectman/shared';
@@ -47,6 +50,34 @@ describe('super-mode handoff routes (PM-762)', () => {
       { reason: 'A fictional reason', command: PAUSE, requestId: randomUUID() },
     );
 
+  it('reads an older handoff by id with the same access as the list', async () => {
+    const pending = await handoff();
+    await app.app.inject({
+      method: 'POST',
+      url: routes.executeSuperHandoff('AR', pending.id),
+      headers: bearer,
+      payload: { requestId: randomUUID() },
+    });
+    const made = app.app.projectman.domain.superHandoffs.handoff('AR', pending.id);
+    for (let i = 0; i < 51; i++) await handoff();
+    const list = await inject(app.app, 'GET', routes.superHandoffs('AR'), cookie);
+    expect(ListSuperHandoffsResponse.parse(list.json()).handoffs.some((entry) => entry.id === made.id)).toBe(
+      false,
+    );
+    const url = routes.superHandoff('AR', made.id);
+    const owner = await inject(app.app, 'GET', url, cookie);
+    expect(owner.statusCode).toBe(200);
+    expect(SuperHandoffDetail.parse(owner.json()).handoff).toEqual(made);
+    expect((await app.app.inject({ method: 'GET', url, headers: bearer })).statusCode).toBe(200);
+    const admin = await addHumanAndLogin(app.app, { handle: 'ada', access: 'admin' });
+    expect((await inject(app.app, 'GET', url, admin)).statusCode).toBe(403);
+    expect((await app.app.inject({ method: 'GET', url })).statusCode).toBe(401);
+    const missing = await inject(app.app, 'GET', routes.superHandoff('AR', 'missing'), cookie);
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error.code).toBe('not_found');
+    expect(ran).toBe(1);
+  });
+
   it('lists for the owner`s login and the token, filters by state, and refuses others', async () => {
     const made = await handoff();
     const url = routes.superHandoffs('AR');
@@ -68,6 +99,23 @@ describe('super-mode handoff routes (PM-762)', () => {
     const admin = await addHumanAndLogin(app.app, { handle: 'ada', access: 'admin' });
     expect((await inject(app.app, 'GET', url, admin)).statusCode).toBe(403);
     expect((await app.app.inject({ method: 'GET', url })).statusCode).toBe(401);
+  });
+
+  it('does not disclose an id belonging to another project', async () => {
+    const made = await handoff();
+    const workspace = join(app.home, 'other-project');
+    mkdirSync(workspace);
+    const created = await inject(app.app, 'POST', routes.projects(), cookie, {
+      key: 'BR',
+      name: 'Other project',
+      workspacePath: workspace,
+      templateId: 'test',
+      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+    });
+    expect(created.statusCode).toBe(201);
+    const response = await inject(app.app, 'GET', routes.superHandoff('BR', made.id), cookie);
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error.code).toBe('not_found');
   });
 
   it('executes with the token only: 202 and the operation, the same request again is the same operation', async () => {

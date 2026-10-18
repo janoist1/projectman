@@ -7,8 +7,49 @@ import { groupChatItems } from '../../lib/chat';
 import { inbox } from '../../mocks/fixtures';
 import { mockIndexes } from '../../test/render';
 import { ChatView } from './ChatView';
+import { mockProject } from '../../test/mockProject';
+import { formatInjectedTeamMessage } from '@projectman/shared';
 
 const at = (minute: number) => `2026-09-29T14:${String(minute).padStart(2, '0')}:00.000Z`;
+it('shows a stored super origin beside a historical owner message', async () => {
+  const project = mockProject();
+  const { members } = mockIndexes();
+  const actor = {
+    kind: 'ai' as const,
+    handle: 'actual-operator',
+    via: 'integrator' as const,
+    operatorMode: 'super' as const,
+    credential: { id: 'key', prefix: 'pmi_test' },
+  };
+  project.render(
+    <ChatView
+      items={[
+        {
+          id: 'super',
+          ts: at(1),
+          kind: 'user_text',
+          origin: 'team_message',
+          text: formatInjectedTeamMessage(actor.handle, 'Super message', null, 'integrator', actor),
+        },
+        {
+          id: 'old',
+          ts: at(2),
+          kind: 'user_text',
+          origin: 'team_message',
+          text: formatInjectedTeamMessage('owner', 'Legacy message', null, 'integrator'),
+        },
+      ]}
+      members={members}
+      myHandle="owner"
+      sessionMember="fe-1"
+    />,
+  );
+  expect(screen.getByText(t('superMode.name'))).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: t('superMode.badge') }));
+  expect(screen.getByText('pmi_test…')).toBeTruthy();
+  expect(screen.getByText(t('involvement.integrator'))).toBeTruthy();
+  expect(screen.queryByText(t('common.you'))).toBeNull();
+});
 it('attributes an integrator prefix to the integrator even for the owner viewer', () => {
   const { members } = mockIndexes();
   render(

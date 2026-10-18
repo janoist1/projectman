@@ -974,9 +974,17 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         t(d.scope === 'instance' ? 'timeline.events.team_resumed_instance' : 'timeline.events.team_resumed'),
       );
     case 'super_handoff_changed':
-      return normal(t('timeline.events.super_handoff_changed', { state: str(d.state) }));
+      return normal(
+        t('timeline.events.super_handoff_changed', {
+          state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
+        }),
+      );
     case 'super_operation_changed':
-      return normal(t('timeline.events.super_operation_changed', { state: str(d.state) }));
+      return normal(
+        t('timeline.events.super_operation_changed', {
+          state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
+        }),
+      );
     case 'focus_changed':
       return normal(
         t(`timeline.events.focus_${d.action === 'added' || d.action === 'removed' ? d.action : 'moved'}`, {

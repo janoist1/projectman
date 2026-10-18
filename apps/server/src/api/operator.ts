@@ -15,6 +15,7 @@ import {
 import type {
   ExecuteSuperHandoffResponse,
   ListSuperHandoffsResponse,
+  SuperHandoffDetail,
   SuperAuditPage,
   SuperDiagnosticsResponse,
   SuperOperateResponse,
@@ -58,6 +59,16 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
       return { handoffs: domain.superHandoffs.list(key, query) };
     },
   );
+  /** Reads an individual handoff even after it leaves the bounded list. */
+  app.get<{ Params: { key: string; handoffId: string } }>(
+    routes.superHandoff(':key', ':handoffId'),
+    async (request): Promise<SuperHandoffDetail> => {
+      const { key, handoffId } = request.params;
+      await requireAccess(domain, request, key, { minimum: 'owner' });
+      return { handoff: domain.superHandoffs.handoff(key, handoffId) };
+    },
+  );
+
   /** The integrator starts (or, after the owner's yes, resumes) the operation of a handoff. */
   app.post<{ Params: { key: string; handoffId: string } }>(
     routes.executeSuperHandoff(':key', ':handoffId'),

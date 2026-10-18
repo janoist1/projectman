@@ -11,7 +11,7 @@
 .facts {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .facts div {
@@ -74,6 +74,69 @@
 }
 @media (max-width: 600px) {
   .facts {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: stretch;
+}
+.content > button {
+  align-self: flex-start;
+}
+.keys {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.keyRow {
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+.keyRow[data-past='true'] {
+  background: var(--c-subtle);
+  color: var(--c-ink-3);
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.empty {
+  border: 1px dashed var(--c-line);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+.muted {
+  color: var(--c-ink-3);
+  font-weight: 400;
+}
+.modes {
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px;
+  display: grid;
+  gap: 12px;
+}
+.modes label {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-height: 36px;
+}
+.modes label span span {
+  display: block;
 }

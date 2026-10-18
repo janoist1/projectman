@@ -1,5 +1,6 @@
 import clsx from 'clsx';
-import type { MemberStatus } from '@projectman/shared';
+import { hasSuperOrigin } from '@projectman/shared';
+import type { Actor, MemberStatus } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { iconFor, initialsFor, toneFor } from '../lib/members';
 import type { MemberLike } from '../lib/members';
@@ -12,6 +13,7 @@ const pixelSize: Record<AvatarSize, number> = { xs: 20, sm: 24, md: 28, lg: 38, 
 const iconSize: Record<AvatarSize, number> = { xs: 11, sm: 13, md: 15, lg: 20, xl: 22, xxl: 26 };
 
 interface AvatarProps {
+  actor?: Actor;
   via?: 'integrator';
   member: MemberLike | null | undefined;
   /** Shown when the member is unknown. */
@@ -30,7 +32,8 @@ interface AvatarProps {
 
 /** Humans are round with initials; AI members are rounded squares (role icon or initials). */
 export function Avatar({
-  via,
+  actor,
+  via = actor?.via,
   member,
   handle,
   isMe = false,
@@ -41,12 +44,15 @@ export function Avatar({
   label,
   className,
 }: AvatarProps) {
+  const superMode = hasSuperOrigin(actor);
   const isAi = member?.kind === 'ai' || via === 'integrator';
-  const tone = via
-    ? 'owner'
-    : member
-      ? toneFor(isMe && member.kind === 'human' ? { ...member, role: 'owner' } : member)
-      : 'system';
+  const tone = superMode
+    ? 'operator'
+    : via
+      ? 'owner'
+      : member
+        ? toneFor(isMe && member.kind === 'human' ? { ...member, role: 'owner' } : member)
+        : 'system';
   const showIcon = isAi && variant === 'icon';
   const px = pixelSize[size];
   return (
@@ -61,15 +67,20 @@ export function Avatar({
       data-tone={tone}
       style={{ width: px, height: px }}
       role={label || via ? 'img' : undefined}
-      aria-label={via ? t('involvement.integratorFull') : label}
+      aria-label={superMode ? t('superMode.avatar') : via ? t('involvement.integratorFull') : label}
       aria-hidden={label || via ? undefined : true}
-      title={via ? t('involvement.integratorFull') : label}
+      title={superMode ? t('superMode.avatar') : via ? t('involvement.integratorFull') : label}
     >
       {showIcon ? (
-        <Icon name={via ? 'terminal' : iconFor(member)} size={iconSize[size]} strokeWidth={2} />
+        <Icon name={via && !superMode ? 'terminal' : iconFor(member)} size={iconSize[size]} strokeWidth={2} />
       ) : (
         <span className={styles.initials}>{initialsFor(member, isMe, handle)}</span>
       )}
+      {superMode ? (
+        <span className={styles.superBadge}>
+          <Icon name="terminal" size={10} />
+        </span>
+      ) : null}
       {status ? (
         <span
           className={clsx(styles.dot, status === 'working' && 'pulse')}

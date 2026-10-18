@@ -7,7 +7,7 @@ import { Chip } from '../../components/Chip';
 import { LeaveChip } from '../../components/LeaveChip';
 import { formatAge, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { nameOf, roleLabel } from '../../lib/members';
+import { actorLabel, recordActor, nameOf, roleLabel } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { attachmentPreview, plainPreview } from './conversations';
 import { Icon } from '../../components/Icon';
@@ -83,7 +83,7 @@ export function ConversationList({
           : '';
         const text = message
           ? message.via
-            ? `${t('involvement.integrator')}: ${preview}`
+            ? `${actorLabel(recordActor(message), members, myHandle)}: ${preview}`
             : message.from === myHandle
               ? t('messages.list.you', { text: preview })
               : preview

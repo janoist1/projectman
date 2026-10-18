@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
-import { Outlet, useMatch } from 'react-router';
+import { Outlet, useLocation, useMatch } from 'react-router';
 import {
   InboxKind,
   handOnRequestOf,
@@ -13,6 +13,7 @@ import {
 import type { InboxItem } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
 import { Button } from '../../components/Button';
+import { ActorName } from '../../components/ActorName';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
@@ -123,12 +124,24 @@ function RecentRow({
           <span className={styles.recentSubject}>{subject}</span>
         )}
         <span className={styles.recentMeta}>
-          {item.resolution
-            ? t('inbox.resolvedBy', {
-                who: resolverName(item, members, myHandle),
-                time: formatAgo(item.resolution.at),
-              })
-            : formatAgo(item.createdAt)}
+          {item.resolution?.actor?.operatorMode === 'super' ? (
+            <>
+              <ActorName
+                actor={item.resolution.actor}
+                members={members}
+                myHandle={myHandle}
+                projectKey={item.projectKey}
+              />{' '}
+              · {formatAgo(item.resolution.at)}
+            </>
+          ) : item.resolution ? (
+            t('inbox.resolvedBy', {
+              who: resolverName(item, members, myHandle),
+              time: formatAgo(item.resolution.at),
+            })
+          ) : (
+            formatAgo(item.createdAt)
+          )}
           {group?.sources && item.state === 'resolved'
             ? ` · ${t('inbox.group.answeredCount', { count: group.answeredCount ?? group.sources.filter((s) => s.state === 'live').length })}`
             : null}
@@ -226,6 +239,15 @@ export function InboxPage() {
   useDocumentTitle(t('inbox.title'), board.data?.project.name);
 
   const items = inbox.data?.items;
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!hash.startsWith('#inbox-item-')) return;
+    const target = document.getElementById(hash.slice(1));
+    if (!target) return;
+    target.scrollIntoView({ block: 'center' });
+    target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+  }, [hash, items]);
   const mine = useMemo(
     () =>
       newestFirst(

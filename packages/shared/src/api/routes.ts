@@ -15,6 +15,8 @@ export const routes = {
   operatorSuperAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,
   /** GET the project's super-mode handoffs (`ListSuperHandoffsResponse`, PM-762); the integrator and the owner. */
   superHandoffs: (key: string) => `/api/projects/${key}/operator-super/handoffs`,
+  superHandoff: (key: string, handoffId: string) =>
+    `/api/projects/${key}/operator-super/handoffs/${handoffId}`,
   /** POST `ExecuteSuperHandoffRequest`: starts (or resumes) the handoff's operation; 202 `{operation}`. */
   executeSuperHandoff: (key: string, handoffId: string) =>
     `/api/projects/${key}/operator-super/handoffs/${handoffId}/execute`,

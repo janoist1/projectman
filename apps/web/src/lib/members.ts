@@ -1,4 +1,4 @@
-import { isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
+import { hasSuperOrigin, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -63,7 +63,13 @@ export function roleLabel(
 export type MemberIndex = ReadonlyMap<string, MemberView>;
 
 export function actorLabel(actor: Actor, index: MemberIndex, myHandle: string | null): string {
+  if (hasSuperOrigin(actor)) return t('superMode.actor');
   return actor.via === 'integrator' ? t('involvement.integrator') : nameOf(actor.handle, index, myHandle);
+}
+
+/** Historical records without an actor retain their original sender and integrator attribution. */
+export function recordActor(record: { actor?: Actor; via?: 'integrator'; from: string }): Actor {
+  return record.actor ?? { kind: 'human', handle: record.from, ...(record.via ? { via: record.via } : {}) };
 }
 
 export function indexMembers(members: readonly MemberView[] | undefined): MemberIndex {

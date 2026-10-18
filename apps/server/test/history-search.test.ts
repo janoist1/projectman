@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HISTORY_EXCERPT_MAX_CHARS, HistorySearchResult } from '@projectman/shared';
 import type { HistorySearchInput, HistoryViewer } from '@projectman/shared';
 import type { DomainHarness } from './helpers/domain-harness';
+import type { BranchMerger } from '../src/contracts';
 import { as, historyHarness, OWNER_ACTOR } from './helpers/history';
 
 const OWNER: HistoryViewer = { handle: 'owner', access: 'owner' };
@@ -339,26 +340,39 @@ describe('history search behaviour', () => {
     const stateOf = (path: string) =>
       search({ query: 'whatever', sourceTypes: ['document'] }).documents.find((doc) => doc.path === path)!;
 
-    it('lists a registered repository as pending until a snapshot arrives', () => {
-      expect(search({ query: 'alpha', sourceTypes: ['document'] }).documents).toEqual([
-        {
-          repo: 'web',
-          path: 'docs/DECISIONS.md',
-          commit: null,
-          checkedAt: null,
-          indexedAt: null,
-          status: 'pending',
-        },
-        {
-          repo: 'web',
-          path: 'docs/LESSONS.md',
-          commit: null,
-          checkedAt: null,
-          indexedAt: null,
-          status: 'pending',
-        },
-      ]);
-      expect(search({ query: 'alpha', sourceTypes: ['task'] }).documents).toEqual([]);
+    it('lists a registered repository as pending until the first engine read completes', async () => {
+      await h.cleanup();
+      let release!: (value: { commit: string; text: null }) => void;
+      const firstRead = new Promise<{ commit: string; text: null }>((resolve) => {
+        release = resolve;
+      });
+      h = await historyHarness({
+        now: () => clock,
+        merger: { readFile: () => firstRead } as unknown as BranchMerger,
+      });
+      try {
+        expect(search({ query: 'alpha', sourceTypes: ['document'] }).documents).toEqual([
+          {
+            repo: 'web',
+            path: 'docs/DECISIONS.md',
+            commit: null,
+            checkedAt: null,
+            indexedAt: null,
+            status: 'pending',
+          },
+          {
+            repo: 'web',
+            path: 'docs/LESSONS.md',
+            commit: null,
+            checkedAt: null,
+            indexedAt: null,
+            status: 'pending',
+          },
+        ]);
+        expect(search({ query: 'alpha', sourceTypes: ['task'] }).documents).toEqual([]);
+      } finally {
+        release({ commit: COMMIT, text: null });
+      }
     });
 
     it('stores a snapshot, finds its text with the commit and the line, and reads it in full', () => {
@@ -440,6 +454,21 @@ describe('history search behaviour', () => {
         indexedAt: null,
       });
       expect(stateOf('docs/LESSONS.md')).toMatchObject({ status: 'ready' });
+    });
+
+    it('keeps the indexing time of an unchanged empty document in a new commit', () => {
+      h.domain.history.replaceDocuments(snapshot('', null));
+      const first = stateOf('docs/DECISIONS.md');
+      h.domain.history.replaceDocuments({
+        ...snapshot('', null, COMMIT_2),
+        checkedAt: '2026-10-12T10:00:00Z',
+      });
+      expect(stateOf('docs/DECISIONS.md')).toMatchObject({
+        indexedAt: first.indexedAt,
+        checkedAt: '2026-10-12T10:00:00.000Z',
+        commit: COMMIT_2,
+        status: 'ready',
+      });
     });
 
     it('marks the copy stale when the repository cannot be read, and unavailable when there is none', () => {

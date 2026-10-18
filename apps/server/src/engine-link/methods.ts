@@ -94,6 +94,10 @@ const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   failedFiles: texts,
   outputTail: text,
 });
+const fullAttachResult = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('ended'), result: fullResult }),
+  z.strictObject({ state: z.literal('unknown') }),
+]);
 const screenshotSpec: z.ZodType<ScreenshotRunSpec> = z.strictObject({
   runId: text,
   cwd: text,
@@ -517,6 +521,7 @@ export const methods = {
   ),
   'github.unwatch': method(z.strictObject({ watchId: text }), done),
   'full_test.run': method(z.strictObject({ spec: fullSpec }), fullResult),
+  'full_test.attach': method(z.strictObject({ runId: text }), fullAttachResult),
   'full_test.cancel': method(z.strictObject({ runId: text }), done),
   'screenshots.run': method(z.strictObject({ runId: text, spec: screenshotSpec }), screenshotEnded),
   'screenshots.cancel': method(z.strictObject({ runId: text }), done),

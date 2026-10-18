@@ -1,5 +1,6 @@
 import type {
   HistoryDocumentSnapshot,
+  HistoryDocumentState,
   HistorySearchInput,
   HistorySearchResult,
   HistorySearchStats,
@@ -11,6 +12,33 @@ import type {
 
 /** The project's current configuration, as the history service needs it (its roster and its repositories). */
 export type HistoryConfigSource = (projectKey: string) => ProjectConfig | null;
+
+export type HistoryDocAt = { kind: 'head' } | { kind: 'commit'; commit: string };
+
+/** The reply belongs to an engine assignment that is no longer current; it must not update any copy state. */
+export class HistoryDocumentReadSuperseded extends Error {
+  constructor() {
+    super('The history document engine selection changed');
+    this.name = 'HistoryDocumentReadSuperseded';
+  }
+}
+
+/** Engine document reads for the cloud search copy; both fixed paths come from one commit. */
+export interface HistoryDocumentReader {
+  read(projectKey: string, repo: string, at: HistoryDocAt): Promise<HistoryDocumentSnapshot>;
+  isAncestor(
+    projectKey: string,
+    repo: string,
+    input: { ancestor: string; commit: string },
+  ): Promise<boolean | null>;
+}
+
+export interface HistoryMainMoved {
+  projectKey: string;
+  repo: string;
+  base: string;
+  commit: string;
+}
 
 /**
  * The searchable history of a project (PM-744, PM-786): one durable full-text index of cards, notes, closed
@@ -42,4 +70,6 @@ export interface HistoryService {
   markDocumentsUnavailable(projectKey: string, repo: string, checkedAt: string): void;
   /** Removes the stored copies and the state of a repository that left the project. */
   removeRepositoryDocuments(projectKey: string, repo: string): void;
+  /** Stored document states, including their commits, for the synchronizer's monotonicity check. */
+  documentStates(projectKey: string, repo: string): HistoryDocumentState[];
 }

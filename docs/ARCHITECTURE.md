@@ -2089,6 +2089,16 @@ workers follow the machine's size.
   `bootId` identifies a process start; `instanceTag` still identifies the engine home. Disconnects
   immediately remove the live link, but status stays online for 120 seconds. Registry and key
   management run only in cloud engine mode; single mode exposes an empty status list.
+  PM-789 heartbeat: the cloud pings every 20 s (`ENGINE_HEARTBEAT_MS`) and counts the pings without
+  an answer; every decoded frame and every pong is a sign of life (`lastHeard`, `unanswered = 0`).
+  It drops the link (close 4400, cause `heartbeat`) only when nothing was heard for
+  `ENGINE_DEAD_AFTER_MS` (90 s) **and** `ENGINE_DEAD_AFTER_PINGS` (3) pings went unanswered, so a
+  loaded engine that pongs late, or a cloud whose event loop stalled (no ping went out), does not
+  lose a live link. The engine's watchdog reports `link_silent` only after two consecutive ticks
+  with pending events and more than 90 s of silence. Both sides log `engine link: connected` and
+  `engine link: disconnected` at info level (code and cause; never the key or URL). Protocol version
+  stays 1: an old engine with a new cloud is tolerated for 90 s (the old engine reconnects after
+  45 s when events wait), a new engine with an old cloud keeps the old 45 s drop.
   **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
   CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
   cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in
@@ -2121,8 +2131,25 @@ workers follow the machine's size.
   - Free-disk admission: `host.free_disk`; idle heavy-run protection: `host.heavy_run_sessions`;
     CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
-    `full_test_started` event when the run got its turn in the queue (PM-489).
+    `full_test_started` event when the run got its turn in the queue (PM-489). PM-790 adds
+    `full_test.attach {runId}` in `engine-link/{methods,engine-handlers}.ts`: attachments wait for
+    an active run or read its retained result. The engine keeps completed results in memory for
+    60 minutes, at most 32, pruning on run/attach calls and completion without a timer. Cancel and
+    final disposal forget records; link closure leaves the executor and records alive. Only run ids
+    and strict full-test results cross the boundary. Protocol version stays 1; an older engine
+    answers `unknown_method`.
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
+    The cloud history copy also consumes `merge.read_file` and `merge.is_ancestor` (PM-744, PM-788):
+    `services/history/document-sync.ts`, adapted to `EngineDirectory` in `assembly.ts`, reads the fixed
+    `docs/DECISIONS.md` and `docs/LESSONS.md` paths at one commit and publishes them atomically to cloud SQLite.
+    `task_merged` and published `write_project_docs` trigger commit reads without fetching; startup,
+    configuration changes and a ten-minute poll read the head, retrying each minute while pending, stale or unavailable.
+    Git, repository paths and credentials stay on the Operator's selected engine (or the actually registered local
+    engine when there is no Operator); cloud has no hidden local repository fallback. Only project/repository,
+    fixed paths and base/commit leave cloud; a commit and two bounded UTF-8 texts return. `engine-host/merge-repo.ts`
+    serializes upstream fetches per repository across document reads and merge preparation in one engine process.
+    With the engine offline, the last received text remains searchable with a stale indication; it is not claimed
+    current (owner, 2026-10-18). Database history remains searchable independently of document refresh failures.
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
     delivery receipt all run on the server. A screened question that waits for the PM's engine stays
@@ -3263,7 +3290,15 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
   `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
   `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from an installed checkout with a byte-identical
-  merged lockfile, an APFS clone `cp -c` on macOS; PM-580). The engine tries the bounded preferred source,
+  merged lockfile, an APFS clone `cp -c` on macOS; PM-580). PM-790 centralizes the checkout path in
+  `contracts/engine.ts` (`MERGE_CHECK_DIR`, `mergeCheckPath`). Before recreating or releasing a check
+  checkout, `engine-link/engine-handlers.ts` aborts all active full tests whose resolved working
+  directories are that checkout or its descendants and awaits executor cleanup, including dependency
+  preparation and the heavy-run lock. It then forgets those runs and logs their run/merge ids at info
+  level; other merge ids are unaffected. The comparison uses the same engine-local
+  `realpath(worktreesRoot)` as checkout creation alongside the configured root, so a symlinked engine
+  home matches either test working directory form; relative paths exclude parent traversal at directory
+  boundaries. It requires no cloud filesystem access or new machine assumption. The engine tries the bounded preferred source,
   its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
   source after copying and blocks with `check_error` before checks if none matches. Since PM-681
   `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer
@@ -3849,6 +3884,16 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
+- **Searchable document copies (PM-744, PM-788).** `services/history/document-sync.ts` maintains a cloud SQLite
+  copy of each configured repository's fixed `docs/DECISIONS.md` and `docs/LESSONS.md` paths. The assembly reader
+  uses the same engine selection as structure-map base reads; the second file is pinned to the first file's commit.
+  Published document writes (including the local-checkout warning) and `task_merged` notify it after commit;
+  these reads do not fetch. Startup/configuration changes and ten-minute head reads cover other changes, with
+  one-minute retries while pending/stale/unavailable. Searches only read SQLite. Missing files remove their old
+  copies; engine/git failures preserve old text as stale, or mark a never-read copy unavailable. The last received
+  snapshot survives restart and remains searchable offline, with its status (owner, 2026-10-18). A configured
+  custom decision-log path is not followed by this fixed-path copy. See the `merge.read_file` inventory above
+  for the remote-engine boundary and the per-repository fetch queue.
 - **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
   `release_proposed`; `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) then sends the Operator one
   English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an

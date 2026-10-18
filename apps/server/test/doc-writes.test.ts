@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
-import type { BranchMerger, ToolContext } from '../src/contracts';
+import type { BranchMerger, EngineDirectory, EngineHost, ToolContext } from '../src/contracts';
+import { createDomainContext } from '../src/core/base';
+import { DocWrites } from '../src/services/project-docs';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -190,8 +192,77 @@ describe('read_project_doc (PM-495)', () => {
 });
 
 describe('write_project_docs (PM-495)', () => {
+  it.each([false, true])(
+    'notifies publication once after commit, including a local checkout warning (%s)',
+    async (warning) => {
+      const merger = (await setup())!;
+      const { requestId } = await ownerAsks();
+      await h.domain.docWrites.stop();
+      if (warning)
+        merger.advance.mockResolvedValue({
+          ok: false,
+          reason: 'checkout_in_the_way',
+          paths: [],
+          message: 'busy',
+        });
+      let committed: unknown;
+      const onPublished = vi.fn(() => {
+        const row = h.repos.docWrites.list('published')[0]!;
+        committed = {
+          transaction: h.repos.db.inTransaction,
+          commit: row.commitSha,
+          status: stepsOf(requestId)[0]?.status,
+        };
+        throw new Error('notification failed');
+      });
+      const ctx = createDomainContext({
+        repos: h.repos,
+        bus: h.domain.bus,
+        logger: h.log.logger,
+        now: () => new Date(),
+      });
+      const writes = new DocWrites({
+        ctx,
+        projects: h.domain.projects,
+        engines: {
+          engineFor: () => 'local',
+          get: () => ({ merger }) as unknown as EngineHost,
+        } as unknown as EngineDirectory,
+        messaging: h.domain.messaging,
+        merges: { busy: () => false, holder: () => null, pump: () => {} },
+        onPublished,
+      });
+      try {
+        const result = await writes.request({
+          projectKey: 'AR',
+          author: 'operator',
+          requestedBy: 'owner',
+          requestId,
+          baseCommit: BASE,
+          message: 'Add decision',
+          edits: [append('3. Third')],
+        });
+        expect(result).toMatchObject({
+          state: 'published',
+          ...(warning ? { warning: 'local_checkout' } : {}),
+        });
+        expect(onPublished).toHaveBeenCalledExactlyOnceWith({
+          projectKey: 'AR',
+          repo: 'web',
+          base: 'main',
+          commit: 'w1'.padEnd(40, '0'),
+        });
+        expect(committed).toEqual({ transaction: false, commit: 'w1'.padEnd(40, '0'), status: 'done' });
+      } finally {
+        await writes.stop();
+        ctx.journal.stop();
+      }
+    },
+  );
+
   it('publishes one commit with the trailers, pushes it and moves the local branch', async () => {
     const merger = (await setup())!;
+    merger.isAncestor.mockResolvedValue(true);
     const { ctx, requestId } = await ownerAsks();
     const result = await write(ctx);
     expect(result).toEqual({
@@ -221,6 +292,15 @@ describe('write_project_docs (PM-495)', () => {
       commitSha: 'w1'.padEnd(40, '0'),
       author: 'operator',
       requestedBy: 'owner',
+    });
+    await vi.waitFor(() => {
+      const copy = h.domain.history.search(
+        'AR',
+        { handle: 'owner', access: 'owner' },
+        { query: 'Third', sourceTypes: ['document'] },
+      );
+      expect(copy.matches).toHaveLength(1);
+      expect(copy.matches[0]?.document).toMatchObject({ path: DECISIONS, commit: 'w1'.padEnd(40, '0') });
     });
     // The answer was the tool's: no message follows.
     expect(h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system')).toEqual(

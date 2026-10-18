@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { Readable } from 'node:stream';
 import type { Attachment, EngineId, MemberHandle } from '@projectman/shared';
 import type { MemberWorkspaceManager, WorktreeManager } from './context';
@@ -29,6 +30,13 @@ export interface EnginePaths {
   heavyLockDir: string | null;
   /** The user's global git excludes file, computed once. */
   gitExcludesFile: string | null;
+}
+
+export const MERGE_CHECK_DIR = '_merge';
+
+/** The merge check checkout of a merge or a train on its engine: `<worktreesRoot>/_merge/<mergeId>`. */
+export function mergeCheckPath(worktreesRoot: string, mergeId: string): string {
+  return path.join(worktreesRoot, MERGE_CHECK_DIR, mergeId);
 }
 
 /**

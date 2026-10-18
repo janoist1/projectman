@@ -108,6 +108,9 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
   let attempts = 0;
   let lastFrameAt = now();
   let watchdog: NodeJS.Timeout | null = null;
+  let silentTicks = 0;
+  let connectedAt = now();
+  let downSince: number | null = null;
   const waiters = new Set<() => void>();
   const flushers = new Set<() => void>();
 
@@ -166,6 +169,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       if (rpc === connection) rpc = null;
       connection?.close();
       buffer.disconnect();
+      if (welcomed) {
+        downSince = now();
+        logger.info(
+          { code, connectedForMs: downSince - connectedAt, pendingEvents: buffer.pending() },
+          'engine link: disconnected',
+        );
+      }
       if (stopped) return;
       if (code === CLOSE_REVOKED || code === CLOSE_REPLACED) {
         // The cloud will not take this engine again: reconnecting would only fight it.
@@ -258,6 +268,11 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         clearTimeout(handshake);
         rpc = connection;
         failures = 0;
+        connectedAt = now();
+        logger.info(
+          { attempts, downForMs: downSince === null ? null : connectedAt - downSince },
+          'engine link: connected',
+        );
         status.set({
           connection: 'connected',
           connectedSince: new Date(now()).toISOString(),
@@ -301,8 +316,14 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       if (watchdog) return;
       // The global WebSocket shows no ping or pong, so a link that went silent is noticed by the events
       // it never acknowledges: if some are waiting and nothing came for `ENGINE_DEAD_AFTER_MS`, reconnect.
+      // It takes two ticks in a row: after a stalled event loop Node runs the timer before it reads the
+      // frames queued meanwhile, so one late tick alone does not prove the cloud went silent.
       watchdog = setInterval(() => {
-        if (socket && rpc && buffer.pending() > 0 && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS) {
+        const silent =
+          !!socket && !!rpc && buffer.pending() > 0 && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;
+        silentTicks = silent ? silentTicks + 1 : 0;
+        if (silent && silentTicks >= 2 && socket) {
+          silentTicks = 0;
           fail('link_silent', 'The cloud did not answer; reconnecting');
           closeSocket(socket, 4000, 'silent');
         }

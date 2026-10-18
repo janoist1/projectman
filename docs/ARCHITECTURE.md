@@ -2089,6 +2089,16 @@ workers follow the machine's size.
   `bootId` identifies a process start; `instanceTag` still identifies the engine home. Disconnects
   immediately remove the live link, but status stays online for 120 seconds. Registry and key
   management run only in cloud engine mode; single mode exposes an empty status list.
+  PM-789 heartbeat: the cloud pings every 20 s (`ENGINE_HEARTBEAT_MS`) and counts the pings without
+  an answer; every decoded frame and every pong is a sign of life (`lastHeard`, `unanswered = 0`).
+  It drops the link (close 4400, cause `heartbeat`) only when nothing was heard for
+  `ENGINE_DEAD_AFTER_MS` (90 s) **and** `ENGINE_DEAD_AFTER_PINGS` (3) pings went unanswered, so a
+  loaded engine that pongs late, or a cloud whose event loop stalled (no ping went out), does not
+  lose a live link. The engine's watchdog reports `link_silent` only after two consecutive ticks
+  with pending events and more than 90 s of silence. Both sides log `engine link: connected` and
+  `engine link: disconnected` at info level (code and cause; never the key or URL). Protocol version
+  stays 1: an old engine with a new cloud is tolerated for 90 s (the old engine reconnects after
+  45 s when events wait), a new engine with an old cloud keeps the old 45 s drop.
   **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
   CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
   cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in

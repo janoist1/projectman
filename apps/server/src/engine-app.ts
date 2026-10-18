@@ -492,6 +492,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     transfers,
     fullTest: engine.fullTestExecutor,
     screenshots: engine.screenshotExecutor,
+    logger: log,
     mcpBase: baseUrl,
     emit,
     terminals,

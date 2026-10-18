@@ -102,6 +102,24 @@ describe('engine RPC', () => {
     rpc.close();
   });
 
+  it('accepts only strict ended or unknown full_test.attach responses (PM-790)', () => {
+    const { params, result } = methods['full_test.attach'];
+    const fullResult = { outcome: 'passed', exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+    expect(params.safeParse({ runId: 'run' }).success).toBe(true);
+    expect(params.safeParse({ runId: 'run', extra: true }).success).toBe(false);
+    expect(result.safeParse({ state: 'unknown' }).success).toBe(true);
+    expect(result.safeParse({ state: 'ended', result: fullResult }).success).toBe(true);
+    for (const invalid of [
+      { state: 'running' },
+      { state: 'ended' },
+      { state: 'ended', result: fullResult, extra: true },
+      { state: 'ended', result: { ...fullResult, extra: true } },
+      { state: 'unknown', extra: true },
+      { state: 'unknown', result: fullResult },
+    ])
+      expect(result.safeParse(invalid).success).toBe(false);
+  });
+
   it('takes requireHeavyLock in the strict full_test.run spec as an optional boolean only (PM-658)', () => {
     const spec = {
       runId: 'f1',

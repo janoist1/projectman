@@ -35,10 +35,42 @@ export const CardRounds = z.object({
   changeRequests: Count,
   /** How many times the `design-review-changes` label was put on it (PM-262). */
   designChangeRequests: Count.default(0),
-  /** How many times it went back into a work stage from a later stage (also by hand or after a failed merge). */
+  /** Send-backs into a work stage, including failed tests and excluding technical branch moves. */
   sendBacks: Count,
+  /** Failed full tests, already included in sendBacks. */
+  testsFailed: Count.default(0),
 });
 export type CardRounds = z.infer<typeof CardRounds>;
+
+export const CardRoundKind = z.enum([
+  'code_review',
+  'design_review',
+  'tests_failed',
+  'send_back',
+  'branch_moved',
+]);
+export type CardRoundKind = z.infer<typeof CardRoundKind>;
+
+/** Classifies fix-round sources; technical send-backs are retained but never counted. */
+export function classifyCardRoundEvent(
+  event: Pick<TimelineEvent, 'type' | 'data'>,
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+): readonly CardRoundKind[] {
+  if (event.type === 'task_labels_changed') {
+    const added = event.data.added;
+    if (!Array.isArray(added)) return [];
+    return [
+      ...(added.includes(CODE_REVIEW_CHANGES_LABEL) ? ['code_review' as const] : []),
+      ...(added.includes(DESIGN_REVIEW_CHANGES_LABEL) ? ['design_review' as const] : []),
+    ];
+  }
+  if (event.type !== 'task_stage_changed') return [];
+  const stages = config.pipeline.stages;
+  const from = stages.findIndex((stage) => stage.id === event.data.from);
+  const to = stages.findIndex((stage) => stage.id === event.data.to);
+  if (stages[to]?.kind !== 'work' || from <= to) return [];
+  return [event.data.branchMoved ? 'branch_moved' : event.data.testsFailed ? 'tests_failed' : 'send_back'];
+}
 
 /** Counts one card's rounds from its timeline events (any order of other event types, old ones too). */
 export function countCardRounds(
@@ -47,20 +79,25 @@ export function countCardRounds(
 ): CardRounds {
   const stages = config.pipeline.stages;
   const indexOf = (id: unknown) => (typeof id === 'string' ? stages.findIndex((s) => s.id === id) : -1);
-  const rounds: CardRounds = { reviewRounds: 0, changeRequests: 0, designChangeRequests: 0, sendBacks: 0 };
+  const rounds: CardRounds = {
+    reviewRounds: 0,
+    changeRequests: 0,
+    designChangeRequests: 0,
+    sendBacks: 0,
+    testsFailed: 0,
+  };
   for (const event of events) {
     if (event.type === 'task_stage_changed') {
-      const from = indexOf(event.data.from);
       const to = indexOf(event.data.to);
       const target = stages[to];
       if (!target) continue;
       if (isCodeReviewStage(config, target)) rounds.reviewRounds += 1;
-      if (target.kind === 'work' && from > to) rounds.sendBacks += 1;
-    } else if (event.type === 'task_labels_changed') {
-      const added = event.data.added;
-      if (!Array.isArray(added)) continue;
-      if (added.includes(CODE_REVIEW_CHANGES_LABEL)) rounds.changeRequests += 1;
-      if (added.includes(DESIGN_REVIEW_CHANGES_LABEL)) rounds.designChangeRequests += 1;
+    }
+    for (const kind of classifyCardRoundEvent(event, config)) {
+      if (kind === 'code_review') rounds.changeRequests += 1;
+      if (kind === 'design_review') rounds.designChangeRequests += 1;
+      if (kind === 'send_back' || kind === 'tests_failed') rounds.sendBacks += 1;
+      if (kind === 'tests_failed') rounds.testsFailed += 1;
     }
   }
   return rounds;

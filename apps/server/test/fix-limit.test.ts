@@ -274,6 +274,21 @@ describe('fix round limit', () => {
       expect(task().fixLimit).toMatchObject({ phase: 'owner', reason: 'again', deciders: ['owner'] });
     });
 
+    it('does not open a new hold after a technical send-back and handover following an extra round', async () => {
+      await held();
+      await tool('lead', 'continue');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', SYSTEM_ACTOR, {
+        branchMoved: { branch: 'task/AR-1', pinned: 'old', head: 'new' },
+      });
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+      await settle();
+      const config = await h.domain.projects.config('AR');
+      expect(h.domain.fixLimit.fixRounds(task(), config)).toEqual({ rounds: 2, limit: 3 });
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
+      expect(items()).toEqual([]);
+      expect(events().filter((event) => event.data.phase === 'reached')).toHaveLength(1);
+    });
+
     it('replan asks another technical direction holder, who releases the card with a fresh count', async () => {
       await held();
       await expect(tool('lead', 'replan', 'The plan is too loose.')).resolves.toEqual({ phase: 'replan' });

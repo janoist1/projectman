@@ -109,6 +109,8 @@ export interface PreparedMove {
 
 /** What a move may carry besides its target (PM-183). */
 export interface MoveOptions {
+  /** Excerpt of the note supplied in the same update call. */
+  noteExcerpt?: string;
   /** An automatic move is valid only during the stage stay that selected its target. */
   expectedFrom?: Pick<Task, 'stageId' | 'stageEnteredAt'>;
   /** Read by `prepareMove` before the unit of work; the move records the pin. */
@@ -419,11 +421,12 @@ export class TaskMoves {
     const head = opts.handover?.head;
     const extra: Pick<
       TimelineEventData['task_stage_changed'],
-      'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled' | 'partsClosed'
+      'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled' | 'partsClosed' | 'noteExcerpt'
     > = {
       ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
       ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
       ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
+      ...(opts.noteExcerpt ? { noteExcerpt: opts.noteExcerpt } : {}),
       ...(opts.pulled ? { pulled: opts.pulled } : {}),
       ...(waiver ? { partsClosed: waiver } : {}),
     };
@@ -776,7 +779,14 @@ export class TaskMoves {
     actor: Actor,
     extra: Pick<
       TimelineEventData['task_stage_changed'],
-      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled' | 'partsClosed'
+      | 'approvedBy'
+      | 'inboxItemIds'
+      | 'reviewPin'
+      | 'branchMoved'
+      | 'testsFailed'
+      | 'pulled'
+      | 'partsClosed'
+      | 'noteExcerpt'
     >,
     effects: Effect[],
     pin?: SourceHead,

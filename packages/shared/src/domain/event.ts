@@ -44,6 +44,17 @@ export const Actor = z
   });
 export type Actor = z.infer<typeof Actor>;
 
+/** A note excerpt belongs only to the call that supplied it. */
+export function timelineNoteExcerpt(note: unknown): string | undefined {
+  return typeof note === 'string'
+    ? note
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean)
+        ?.slice(0, 500)
+    : undefined;
+}
+
 export const TimelineEventType = z.enum([
   'task_subtask_added',
   'task_subtask_removed',
@@ -194,6 +205,7 @@ export interface TimelineEventData {
    * failed (PM-217); `runId` is the run (its `task_full_test` event holds the output).
    */
   task_stage_changed: {
+    noteExcerpt?: string;
     from: string;
     to: string;
     approvedBy?: string[];
@@ -265,6 +277,7 @@ export interface TimelineEventData {
   task_check_changed: { check: string; from: string | null; to: string };
   /** `reason` names an automatic change: the task moving back, a PR update or merge, an approval. */
   task_labels_changed: {
+    noteExcerpt?: string;
     added: string[];
     removed: string[];
     reason?: LabelChangeReason;
@@ -541,6 +554,7 @@ export interface TimelineEventData {
    * 6000 characters (`failed`/`error`).
    */
   task_full_test: {
+    command?: string;
     outcome: 'passed' | 'failed' | 'error';
     runId: string;
     repo: string;

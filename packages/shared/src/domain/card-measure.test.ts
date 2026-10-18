@@ -43,7 +43,13 @@ const labels = (added: string[], removed: string[] = []) => ({
   data: { added, removed },
 });
 
-const NO_ROUNDS = { reviewRounds: 0, changeRequests: 0, designChangeRequests: 0, sendBacks: 0 };
+const NO_ROUNDS = {
+  reviewRounds: 0,
+  changeRequests: 0,
+  designChangeRequests: 0,
+  sendBacks: 0,
+  testsFailed: 0,
+};
 
 describe('countCardRounds (PM-222)', () => {
   it('counts two reviews, one change request and one send-back of a card', () => {
@@ -62,6 +68,7 @@ describe('countCardRounds (PM-222)', () => {
       changeRequests: 1,
       designChangeRequests: 0,
       sendBacks: 1,
+      testsFailed: 0,
     });
   });
 
@@ -129,7 +136,13 @@ describe('weightedTokensByModel (PM-222)', () => {
 });
 
 describe('measureClosedCard (PM-222)', () => {
-  const rounds = { reviewRounds: 2, changeRequests: 1, designChangeRequests: 0, sendBacks: 1 };
+  const rounds = {
+    reviewRounds: 2,
+    changeRequests: 1,
+    designChangeRequests: 0,
+    sendBacks: 1,
+    testsFailed: 0,
+  };
   const row = (model: string, scope: TokenUsage['scope'], input: number): TokenUsage => ({
     model,
     scope,

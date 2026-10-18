@@ -40,6 +40,7 @@ import {
   priorityRefusal,
   repoOf,
   subtaskParentRefusal,
+  timelineNoteExcerpt,
 } from '@projectman/shared';
 import type {
   GateEvaluation,
@@ -804,6 +805,7 @@ export class TaskService implements TaskSchedulingReader {
     if (!moving) return { task: next, handoffStart };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects, {
       ...prepared,
+      noteExcerpt: timelineNoteExcerpt(change.note),
       despitePrerequisites: change.despitePrerequisites,
     });
     return moved.moved

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_MAX_FIX_ROUNDS, ProjectConfig, TeamLimits } from '../config/schema';
 import {
   countFixRounds,
+  fixRoundHistory,
+  FixRoundHistoryEntry,
   fixLimitDeciders,
   fixLimitLead,
   fixLimitPlanner,
@@ -10,6 +12,7 @@ import {
   maxFixRoundsOf,
 } from './fix-limit';
 import type { TimelineEvent } from './event';
+import { CardRounds, countCardRounds } from './card-measure';
 
 function config(members: object[] = []) {
   return ProjectConfig.parse({
@@ -75,6 +78,7 @@ describe('countFixRounds (PM-262)', () => {
       changeRequests: 1,
       designChangeRequests: 1,
       sendBacks: 1,
+      testsFailed: 0,
     });
   });
 
@@ -84,6 +88,7 @@ describe('countFixRounds (PM-262)', () => {
       changeRequests: 0,
       designChangeRequests: 1,
       sendBacks: 0,
+      testsFailed: 0,
     });
     expect(countFixRounds(events, config(), at(10)).rounds).toBe(0);
   });
@@ -98,6 +103,135 @@ describe('countFixRounds (PM-262)', () => {
       },
     ];
     expect(countFixRounds(other, config(), null).rounds).toBe(0);
+  });
+});
+
+describe('round sources (PM-800)', () => {
+  const event = (
+    id: string,
+    type: TimelineEvent['type'],
+    data: Record<string, unknown>,
+    minute = 1,
+  ): TimelineEvent => ({
+    id,
+    type,
+    data,
+    createdAt: at(minute),
+    projectKey: 'EX',
+    taskKey: 'EX-1',
+    sessionId: null,
+    actor: { kind: 'ai', handle: 'lead' },
+  });
+  const technical = event('technical', 'task_stage_changed', {
+    from: 'cr',
+    to: 'dev',
+    branchMoved: { branch: 'task', pinned: 'old', head: 'new' },
+  });
+
+  it('excludes technical send-backs and handovers, preserving review entry counts', () => {
+    const events = [move(0, 'dev', 'cr'), technical, move(2, 'dev', 'cr')];
+    expect(countFixRounds(events, config(), null).rounds).toBe(0);
+    expect(countCardRounds(events, config())).toMatchObject({
+      reviewRounds: 2,
+      sendBacks: 0,
+      testsFailed: 0,
+    });
+  });
+
+  it('counts failed tests once, both review labels individually and manual send-backs', () => {
+    const events = [
+      technical,
+      event('test', 'task_stage_changed', {
+        from: 'cr',
+        to: 'dev',
+        testsFailed: { runId: 'r', commit: 'c', branch: 'b' },
+      }),
+      labelled(1, 'code-review-changes', 'design-review-changes'),
+      move(1, 'cr', 'dev'),
+    ];
+    expect(countFixRounds(events, config(), null)).toEqual({
+      rounds: 4,
+      changeRequests: 1,
+      designChangeRequests: 1,
+      sendBacks: 2,
+      testsFailed: 1,
+    });
+    expect(countFixRounds(events, config(), at(1)).rounds).toBe(0);
+    expect(CardRounds.parse({ reviewRounds: 0, changeRequests: 0, sendBacks: 0 }).testsFailed).toBe(0);
+    expect(
+      CardRounds.safeParse({ reviewRounds: 0, changeRequests: 0, sendBacks: 0, testsFailed: -1 }).success,
+    ).toBe(false);
+  });
+
+  it('keeps source order at equal times and joins the exact run, preserving technical and grant rows', () => {
+    const events = [
+      event('result', 'task_full_test', { runId: 'r1', command: 'npm test', failedFiles: ['right.test.ts'] }),
+      event('other', 'task_full_test', { runId: 'r2', command: 'wrong', failedFiles: ['wrong.test.ts'] }),
+      event('labels', 'task_labels_changed', {
+        added: ['code-review-changes', 'design-review-changes'],
+        noteExcerpt: '  \n First reason\nSecond reason',
+      }),
+      event('failure', 'task_stage_changed', {
+        from: 'cr',
+        to: 'dev',
+        testsFailed: { runId: 'r1', commit: 'c1', branch: 'task' },
+      }),
+      technical,
+      event('grant', 'task_fix_limit', {
+        phase: 'decided',
+        decision: 'another_round',
+        note: '  More time\nDetails',
+      }),
+      event('planner', 'task_fix_limit', { phase: 'decided', decision: 'continue' }),
+      event('grant2', 'task_fix_limit', { phase: 'decided', decision: 'another_round' }),
+      event('unrelated-note', 'task_note', { text: 'Do not infer this reason' }),
+      event('manual', 'task_stage_changed', { from: 'cr', to: 'dev' }),
+    ];
+    const history = fixRoundHistory(events, config(), null);
+    expect(history.map((entry) => [entry.eventId, entry.kind, entry.round])).toEqual([
+      ['labels', 'code_review', 1],
+      ['labels', 'design_review', 2],
+      ['failure', 'tests_failed', 3],
+      ['technical', 'branch_moved', null],
+      ['grant', 'extra_round', null],
+      ['grant2', 'extra_round', null],
+      ['manual', 'send_back', 4],
+    ]);
+    expect(history[0]?.note).toBe('First reason');
+    expect(history[2]).toMatchObject({
+      runId: 'r1',
+      commit: 'c1',
+      command: 'npm test',
+      failedFiles: ['right.test.ts'],
+      note: null,
+    });
+    expect(history[3]).toMatchObject({ branch: 'task', pinned: 'old', head: 'new' });
+    expect(history[4]).toMatchObject({ extraRound: 1, note: 'More time' });
+    expect(history[5]).toMatchObject({ extraRound: 2, note: null });
+    expect(history[6]?.note).toBeNull();
+    expect(history.every((entry) => FixRoundHistoryEntry.safeParse(entry).success)).toBe(true);
+    expect(fixRoundHistory(events, config(), at(1))).toEqual([]);
+  });
+
+  it('keeps missing legacy failure details absent and restarts numbering after since', () => {
+    const history = fixRoundHistory(
+      [
+        event('old', 'task_fix_limit', { phase: 'decided', decision: 'another_round' }, 0),
+        event(
+          'failure',
+          'task_stage_changed',
+          { from: 'cr', to: 'dev', testsFailed: { runId: 'missing', branch: 'b', commit: 'c' } },
+          2,
+        ),
+        event('grant', 'task_fix_limit', { phase: 'decided', decision: 'another_round' }, 2),
+      ],
+      config(),
+      at(0),
+    );
+    expect(history[0]).toMatchObject({ round: 1, runId: 'missing', commit: 'c', note: null });
+    expect(history[0]).not.toHaveProperty('command');
+    expect(history[0]).not.toHaveProperty('failedFiles');
+    expect(history[1]?.extraRound).toBe(1);
   });
 });
 

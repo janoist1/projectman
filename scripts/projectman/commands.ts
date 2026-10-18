@@ -11,6 +11,8 @@ import {
   PauseRequest,
   ProjectPauseView,
   RelayOwnerAnswerRequest,
+  ResolveIntegratorFixLimitRequest,
+  fixLimitDecisionOf,
   routes,
   StartTaskRequest,
   SuperOperateResponse,
@@ -340,9 +342,51 @@ export const COMMANDS: CommandSpec[] = [
         response.json,
         (view) =>
           view.items
-            .map((item) => `${item.id} ${item.kind} ${item.state} ${item.title ?? ''}`.trimEnd())
+            .map((item) => {
+              const line = `${item.id} ${item.kind} ${item.state} ${item.title ?? ''}`.trimEnd();
+              // A fix round limit decision is read in full (PM-714): its body is the summary, the lead's
+              // assessment, every round and the options. JSON output keeps the item as it is.
+              return fixLimitDecisionOf(item) && item.body ? `${line}\n${item.body}\n` : line;
+            })
             .join('\n'),
         false,
+      );
+    },
+  },
+  {
+    name: 'inbox fix-limit',
+    usage: 'inbox fix-limit ITEM --project KEY --option replan|reassign|another_round|to_owner [--note TEXT]',
+    summary:
+      'Decides the fix round limit item addressed to the integrator, or hands it to the owners (to_owner needs --note)',
+    options: { ...WRITE, project: { type: 'string' }, option: { type: 'string' }, note: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      const project = projectOf(ctx);
+      const item = ctx.positionals[0]!;
+      if (!/^[A-Za-z0-9_-]{1,100}$/.test(item)) throw new UsageError('ITEM is not an inbox item id');
+      const note = text(ctx, 'note');
+      const body = ResolveIntegratorFixLimitRequest.safeParse({
+        optionId: required(ctx, 'option'),
+        ...(note === undefined ? {} : { note }),
+      });
+      if (!body.success)
+        throw new UsageError(
+          '--option must be replan, reassign, another_round or to_owner (the last needs a --note)',
+        );
+      const response = await ctx.api.send({
+        method: 'POST',
+        path: routes.resolveIntegratorFixLimit(project, item),
+        body: body.data,
+        write: true,
+        requestId: requestIdOf(ctx),
+      });
+      return show(
+        ctx,
+        z.object({ item: InboxItem }),
+        response.json,
+        (view) => `decided ${view.item.id} ${view.item.state}`,
+        true,
       );
     },
   },

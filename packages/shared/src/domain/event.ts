@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ConfigChangeRow } from '../config/operator';
 import type { OperatorKnowledgeChange } from './operator-knowledge';
 import type { DeveloperLevel } from './developer-level';
+import type { FixLimitAssessment } from './fix-limit';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
 import type {
@@ -95,6 +96,7 @@ export const TimelineEventType = z.enum([
   'question_grouped',
   'question_screened',
   'question_recipient_escalated',
+  'fix_limit_recipient_escalated',
   'question_screening_skipped',
   'question_closed',
   'question_answer_delivery',
@@ -437,6 +439,19 @@ export interface TimelineEventData {
     openedAt: string;
     reason: 'integrator_timeout';
   };
+  /**
+   * A fix round limit decision item went from the integrator to the owners (PM-714): after 24 hours
+   * (`integrator_timeout`, actor system) or because the integrator passed it on (`integrator_passed_on`,
+   * actor: the authenticated integrator; `note` is its reason).
+   */
+  fix_limit_recipient_escalated: {
+    inboxItemId: string;
+    from: 'integrator';
+    to: 'owner';
+    openedAt: string;
+    reason: 'integrator_timeout' | 'integrator_passed_on';
+    note?: string;
+  };
   question_grouped: { primaryItemId: string; itemIds: string[]; by: MemberHandle };
   /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
   question_screened: {
@@ -539,9 +554,16 @@ export interface TimelineEventData {
     changeRequests: number;
     designChangeRequests: number;
     sendBacks: number;
+    /** The failed full tests inside `sendBacks` (PM-714). */
+    testsFailed?: number;
+    /** The extra rounds given: for `decided` with `another_round` already counting this one (PM-714). */
+    extraRounds?: number;
+    remainingExtraRounds?: number;
+    /** The lead's judgement, on `passed_on` (PM-714). */
+    assessment?: FixLimitAssessment;
     decider?: string | null;
     deciders?: string[];
-    reason?: 'no_ai_decider' | 'passed_on' | 'again';
+    reason?: 'no_ai_decider' | 'passed_on' | 'again' | 'extra_exhausted';
     decision?: 'continue' | 'replan' | 'another_round' | 'reassign';
     by?: string;
     note?: string;

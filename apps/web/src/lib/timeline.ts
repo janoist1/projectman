@@ -870,6 +870,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'question_recipient_escalated':
       return normal(t('timeline.events.question_recipient_escalated'));
+    case 'fix_limit_recipient_escalated':
+      return d.reason === 'integrator_passed_on'
+        ? normal(
+            t('timeline.events.fix_limit_recipient_escalated_passed_on', {
+              note: str(d.note) ? t('fixLimit.events.note', { note: str(d.note) }) : '',
+            }),
+          )
+        : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
     case 'obligation_woken':
     case 'obligation_handed_over': {
       const kind = ObligationKind.safeParse(d.kind);

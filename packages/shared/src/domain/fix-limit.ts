@@ -16,6 +16,36 @@ import type { TimelineEvent, TimelineEventData } from './event';
  * decides, and a person when the lead cannot or when it goes on after the lead.
  */
 
+/**
+ * The most extra rounds ("one more round") the lead developer may hand out within one count (PM-714): after
+ * that, every time the card reaches the limit a person decides. A fixed rule, not a project setting. People
+ * may allow more; the stored count is never cut to this value.
+ */
+export const MAX_FIX_EXTRA_ROUNDS = 3;
+
+/** The extra rounds still left for the lead developer to give, given the `extraRounds` handed out so far. */
+export function remainingFixExtraRounds(extraRounds: number): number {
+  return Math.max(0, MAX_FIX_EXTRA_ROUNDS - extraRounds);
+}
+
+/** The outcomes of a fix limit decision; `replan` and `reassign` may be left out of an item when nobody can take them. */
+export const FixLimitOptionId = z.enum(['replan', 'reassign', 'another_round']);
+export type FixLimitOptionId = z.infer<typeof FixLimitOptionId>;
+
+const AssessmentText = z.string().trim().min(1).max(2000);
+
+/**
+ * The lead developer's judgement when it passes a held card to the people (`decide_fix_limit` `to_owner`,
+ * required there): whether the same fault comes back (one sentence), where the work stands now, and the
+ * outcome it recommends with a reason. The system does not judge the fault itself.
+ */
+export const FixLimitAssessment = z.object({
+  recurrence: AssessmentText,
+  currentState: AssessmentText,
+  recommendation: z.object({ optionId: FixLimitOptionId, reason: AssessmentText }),
+});
+export type FixLimitAssessment = z.infer<typeof FixLimitAssessment>;
+
 /** The duty of the lead developer who decides first, and the duty the lead also has to hold. */
 export const FIX_LIMIT_DECISION_DUTY: DutyId = 'technical_direction';
 export const FIX_LIMIT_LEAD_DUTY: DutyId = 'code_review';

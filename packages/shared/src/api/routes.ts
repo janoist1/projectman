@@ -35,6 +35,9 @@ export const routes = {
   relayOwnerAnswer: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/relay-answer`,
   resolveIntegratorTodo: (key: string, itemId: string) =>
     `/api/projects/${key}/inbox/${itemId}/resolve-integrator-todo`,
+  /** POST `ResolveIntegratorFixLimitRequest`: the integrator decides a fix round limit item addressed to it (PM-714). */
+  resolveIntegratorFixLimit: (key: string, itemId: string) =>
+    `/api/projects/${key}/inbox/${itemId}/resolve-integrator-fix-limit`,
   operatorPreferenceMe: (key: string) => `/api/projects/${key}/operator/preferences/me`,
   dismissOperatorSignal: (key: string, signalId: string) =>
     `/api/projects/${key}/operator/signals/${signalId}/dismiss`,

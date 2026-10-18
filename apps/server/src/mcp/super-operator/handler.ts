@@ -19,6 +19,7 @@ import type {
   HistorySourceRead,
   HistoryViewer,
   ProjectDoc,
+  ResolveIntegratorFixLimitRequest,
   Task,
 } from '@projectman/shared';
 import type { Readable } from 'node:stream';
@@ -63,7 +64,12 @@ import type { ProjectState, StructuralReviews } from '../../services/operator';
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
 import type { ReleaseService } from '../../services/releases';
-import { relayOwnerAnswer, resolveIntegratorTodo } from '../../services/super-operator';
+import {
+  listIntegratorInbox,
+  relayOwnerAnswer,
+  resolveIntegratorFixLimit,
+  resolveIntegratorTodo,
+} from '../../services/super-operator';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../../services/super-operator';
 
 /** Attachments get_task shows; the rest are paged with list_attachments. */
@@ -93,7 +99,10 @@ export interface ExternalToolsDeps {
   structuralReviews: Pick<StructuralReviews, 'requestExternal'>;
   superHandoffs: Pick<SuperHandoffService, 'list' | 'execute'>;
   superAdministration: SuperAdministration;
-  inbox: Pick<InboxService, 'get' | 'resolve' | 'resolveIntegratorTodo'>;
+  inbox: Pick<
+    InboxService,
+    'get' | 'list' | 'resolve' | 'resolveIntegratorTodo' | 'resolveIntegratorFixLimit'
+  >;
   history: Pick<HistoryService, 'search' | 'read'>;
 }
 
@@ -475,6 +484,23 @@ export class ExternalTools implements ExternalToolsHandler {
       { optionId: args.optionId, ...(args.note !== undefined ? { note: args.note } : {}) },
       this.access(ctx),
     );
+  }
+
+  async resolveIntegratorFixLimit(
+    ctx: ExternalToolContext,
+    args: { itemId: string; optionId: ResolveIntegratorFixLimitRequest['optionId']; note?: string },
+  ) {
+    return resolveIntegratorFixLimit(
+      this.deps,
+      ctx.projectKey,
+      args.itemId,
+      { optionId: args.optionId, ...(args.note !== undefined ? { note: args.note } : {}) },
+      this.access(ctx),
+    );
+  }
+
+  async listIntegratorInbox(ctx: ExternalToolContext, args: { state: 'open' | 'all' }) {
+    return listIntegratorInbox(this.deps, ctx.projectKey, args.state, this.access(ctx));
   }
 
   async relayOwnerAnswer(ctx: ExternalToolContext, args: { itemId: string; answer: string }) {

@@ -9,6 +9,11 @@ stay with owners. The external bearer MCP alone offers `resolve_integrator_todo`
 reason. It records the integrator's own work, not an owner answer or approval; relay semantics stay
 unchanged. The hub hands unresolved todos to owners after 24 hours, independently of engine state.
 
+PM-801: the same endpoint, in super mode, also offers `list_integrator_inbox` (the open items addressed to the
+integrator, with the full text) and `resolve_integrator_fix_limit`
+(`{item_id, option_id: replan | reassign | another_round | to_owner, note?}`; `to_owner` hands the same item to
+the owners and needs a reason in `note`). `decide_fix_limit` takes an `assessment` that `to_owner` requires.
+
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
 sessions. The handler contracts live in

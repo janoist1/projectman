@@ -2190,7 +2190,8 @@ workers follow the machine's size.
     Integrator todo handoff (PM-782, `core/inbox/inbox.ts`, assembly maintenance) uses a separate
     durable 24-hour wall clock from `integratorOpenedAt`: unlike screening's ten minutes, it keeps
     running when engines are offline or AI is disabled. The hub alone persists and publishes the handoff;
-    no engine operation or credential crosses the boundary.
+    no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
+    decisions on the same clock and sweep (`planIntegratorInboxEscalation`): hub-side only.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
     online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
@@ -3623,6 +3624,26 @@ the card's closing; its inbox decision closes itself with the `fix_limit_ended` 
 running assignee are not stored team messages (the timeline would show their English text): a `delivery.notice`
 into the member's running session of the card, or the first input of a new one, like the loop watch's; only
 when admission cannot start the session now is the notice stored as a message from `system`.
+
+Extra rounds are capped and the lead decides first (PM-714, PM-801). `MAX_FIX_EXTRA_ROUNDS` is 3: while fewer
+extras have been given, the lead decides at every limit reach (a card that reached the limit again after an extra
+round goes back to the lead, reason `again`); once three extras are used, and the card reaches the limit again, the
+decision has reason `extra_exhausted`. The decision item goes to the integrator (the PM-782 queue, `recipient:
+'integrator'`) when extras are exhausted, when the lead passes it on with `to_owner`, or when no AI member can
+decide; it falls back to the owners when no integrator is available, after the same durable 24-hour clock as an
+integrator todo, or when the integrator passes it on (timeline event `fix_limit_recipient_escalated`, reasons
+`integrator_timeout` and `integrator_passed_on`). `decide_fix_limit` with `to_owner` requires an `assessment`
+(`recurrence`, `currentState`, `recommendation { optionId, reason }`; errors `fix_limit_assessment_required`,
+`fix_limit_invalid_recommendation`). The item carries the whole text (body, round history `fixRoundHistory`, extras,
+assessment, each option's label and consequence), written in the project language by `core/inbox/fix-limit-text.ts`
+from the `fixLimitItem` locale section, so REST, the MCP tools and the CLI show the same words. The integrator's
+only right is `InboxService.resolveIntegratorFixLimit` (REST `POST /api/projects/:key/inbox/:itemId/resolve-integrator-fix-limit`,
+external MCP `resolve_integrator_fix_limit` in super mode, CLI `projectman inbox fix-limit`): `replan`, `reassign`,
+`another_round`, or the same item passed on to the owners with a reason; the resolution carries
+`integratorFixLimit: true` and the super actor. Every other approval boundary is unchanged, and the generic
+resolve path refuses an item addressed to the integrator until it is escalated. Does this work on a remote engine?
+Yes, unchanged: the decision, the clock and the resolution are hub state; no engine operation, path or credential
+crosses the boundary, and no machine-dependent inventory entry changes.
 
 ### Automatic stage advance (PM-445)
 

@@ -217,6 +217,9 @@ export const ERROR_CODES = [
   'fix_limit_not_held',
   'fix_limit_not_decider',
   'fix_limit_no_planner',
+  // Passing a held card to the people needs the lead's judgement, and its recommendation an executable outcome (PM-714).
+  'fix_limit_assessment_required',
+  'fix_limit_invalid_recommendation',
   // The server's full test of the pinned commit (PM-217) has not ended: the review start waits for it.
   'full_test_pending',
   // The session's engine is not connected (PM-311): the start waits for it.

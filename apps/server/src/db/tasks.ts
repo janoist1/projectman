@@ -134,6 +134,8 @@ export const SCHEDULING_SQL = {
     ORDER BY t.seq`,
   pullUrgent: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
       AND t.assignee IS NULL AND t.priority = 1 ORDER BY t.seq`,
+  queue: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
+      AND t.assignee IS NULL ORDER BY t.seq`,
   pullFocused: `${TASK_SELECT} WHERE +t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
       AND t.assignee IS NULL AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
   open: `${TASK_SELECT} WHERE t.project_key = ? AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,
@@ -222,6 +224,7 @@ export function createTaskRepository(db: Db) {
     schedulingChildren: db.prepare(SCHEDULING_SQL.children),
     schedulingChildrenAll: db.prepare(SCHEDULING_SQL.childrenAll),
     schedulingPullUrgent: db.prepare(SCHEDULING_SQL.pullUrgent),
+    schedulingQueue: db.prepare(SCHEDULING_SQL.queue),
     schedulingPullFocused: db.prepare(SCHEDULING_SQL.pullFocused),
     schedulingOpen: db.prepare(SCHEDULING_SQL.open),
     schedulingClosed: db.prepare(SCHEDULING_SQL.closed),
@@ -448,6 +451,8 @@ export function createTaskRepository(db: Db) {
           return hydrate(rowsOfKeys(projectKey, query.keys));
         case 'focus':
           return hydrate(focusRows(projectKey, query.keys));
+        case 'queue':
+          return hydrate(statements.schedulingQueue.all(projectKey, query.stageId) as TaskRow[]);
         case 'pull': {
           const rows = statements.schedulingPullUrgent.all(projectKey, query.stageId) as TaskRow[];
           if (query.focusedKeys.length > 0)

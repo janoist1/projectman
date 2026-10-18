@@ -129,8 +129,16 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
   switch (wait.reason) {
     case 'working':
     case 'handing_off':
-    case 'ready':
       return null;
+    case 'ready':
+      if (!wait.hold) return null;
+      return build({
+        head: t('taskStatus.next.heads.start'),
+        waiting: t(`taskStatus.next.readyHolds.${wait.hold.reason}`),
+        long: t('taskStatus.next.long.readyHold'),
+        todo: t('taskStatus.next.todo.auto'),
+        noWho: t('task.whyBox.nobodyAuto'),
+      });
 
     case 'start_waiting': {
       const waiting = wait.startWaiting;

@@ -55,6 +55,10 @@ export function describeTaskWait(wait: TaskWait): string {
     case 'refinement':
       return `a refinement step is on turn${wait.labels.length > 0 ? ` (${labelsOf(wait)})` : ''}${by}.`;
     case 'ready':
+      if (wait.hold) {
+        const { reason, seniors } = wait.hold;
+        return `ready in its queue, but its start waits on purpose (${reason}${seniors ? `: ${seniors.join(', ')}` : ''}); nothing to do${wait.toStageId ? ` (next: ${wait.toStageId})` : ''}.`;
+      }
       return `ready in its queue; it can be started${wait.toStageId ? ` (next: ${wait.toStageId})` : ''}.`;
     case 'queued':
       return wait.next.length > 0 ? `queued for ${handles(wait)}.` : 'queued for the owner of its stage.';
@@ -83,6 +87,7 @@ export function taskWaitShort(wait: TaskWait): string {
     case 'part_left':
       return `part left in its first stage; ${handles(wait) || 'its creator'} takes it on`;
     case 'ready':
+      if (wait.hold) return `ready, waits (${wait.hold.reason})`;
       return 'ready to start';
     case 'nobody':
       return 'nobody can take it on';

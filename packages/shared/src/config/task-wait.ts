@@ -16,6 +16,7 @@ import { MemberHandle } from '../domain/member';
 import { StageId } from '../domain/pipeline';
 import { isTheme, TaskKey, TaskStartWaiting } from '../domain/task';
 import type { Task } from '../domain/task';
+import { TaskReadyHold } from '../domain/ready-hold';
 import { stageOwners } from './duties';
 import { aiLabelSetters, evaluateMove, evaluateStart, stageAdvance, stageIndex } from './gates';
 import { labelDefinition } from './labels';
@@ -84,6 +85,7 @@ export const TaskWait = z.object({
   inboxItemId: z.string().nullable(),
   inboxKind: InboxKind.nullable(),
   startWaiting: TaskStartWaiting.nullable(),
+  hold: TaskReadyHold.optional(),
   prerequisites: z.array(TaskKey),
   since: z.string(),
 });
@@ -435,6 +437,11 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
         prerequisites: [...input.openPrerequisites],
       });
     }
+    if (task.readyHold)
+      return make(config, 'ready', task.readyHold.since, [], {
+        toStageId: nextStageId(config, task),
+        hold: task.readyHold,
+      });
     return make(config, 'ready', task.createdAt, [], { toStageId: nextStageId(config, task) });
   }
 

@@ -36,6 +36,25 @@ const human = (handle: string) => ({ handle, kind: 'human' as const });
 const ai = (handle: string) => ({ handle, kind: 'ai' as const });
 
 describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
+  it.each([
+    'ai_disabled',
+    'team_paused',
+    'ai_limit_reached',
+    'engine_offline',
+    'no_free_member',
+    'senior_busy',
+    'focus_order',
+  ] as const)('shows the intentional ready wait %s', (reason) => {
+    const next = deriveNext(
+      task,
+      wait({ reason: 'ready', hold: { reason, since: '2026-10-18T10:00:00Z' } }),
+      ctx(),
+    )!;
+    expect(next.waiting).toBe(t(`taskStatus.next.readyHolds.${reason}`));
+    expect(next.long).toBe(t('taskStatus.next.long.readyHold'));
+    expect(next.todo).toBe(t('taskStatus.next.todo.auto'));
+    expect(deriveNext(task, wait({ reason: 'ready' }), ctx())).toBeNull();
+  });
   it('asks the selected human merger to merge the approved work before advancing', () => {
     const next = deriveNext(
       task,

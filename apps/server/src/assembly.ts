@@ -105,6 +105,7 @@ import {
   Admission,
   DeferredStarts,
   FocusPull,
+  StartRound,
   MessageStarts,
   RefinementSteps,
   SeniorWaits,
@@ -614,6 +615,7 @@ export function createDomain(opts: DomainOptions) {
     projects,
     inbox,
     startWaiting: deferredStarts,
+    readyHold: (task) => startRound.holdOf(task),
     outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
     sourceHead: (config, task, opts) => sessions.sourceHead(config, task, opts),
@@ -889,6 +891,8 @@ export function createDomain(opts: DomainOptions) {
       starts: workStarts,
     }),
   );
+  const startRound = new StartRound({ ctx, projects, tasks, focus: projectFocus, seniorWaits, admission });
+  admission.useRound(startRound);
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   // A card at its fix round limit holds back its assignee's messages and hand-over notice (PM-262); the
   // hold needs the classes it binds to, which are built first.

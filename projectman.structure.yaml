@@ -258,6 +258,12 @@ modules:
     summary: Belépési kódok küldése és ellenőrzése e-mailben.
     paths:
       - apps/server/src/services/email-login/
+  - id: services/history
+    area: service
+    name: Előzménykereső
+    summary: A kártyák, jegyzetek, lezárt kérdések, üzenetek és dokumentumok tartós keresőindexe.
+    paths:
+      - apps/server/src/services/history/
   - id: services/operator
     area: service
     name: Operátor

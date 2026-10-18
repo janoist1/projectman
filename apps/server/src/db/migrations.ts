@@ -1604,4 +1604,131 @@ migrations.push({
     CREATE INDEX super_operations_handoff ON super_operations(handoff_id);
     ${V83_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
+/** One trigger of a history source table: record that the source changed (never decide anything about it). */
+function historyDirtyTrigger(
+  name: string,
+  when: string,
+  on: string,
+  row: 'new' | 'old',
+  type: string,
+  id: string,
+) {
+  return `CREATE TRIGGER history_dirty_${name} AFTER ${on} BEGIN
+      INSERT INTO history_dirty (project_key, source_type, entity_id)
+        SELECT ${row}.project_key, '${type}', ${row}.${id} WHERE ${when}
+        ON CONFLICT (project_key, source_type, entity_id) DO UPDATE SET revision = revision + 1;
+    END;`;
+}
+const NOTE_ROW = "type = 'task_note'";
+const HISTORY_DIRTY_TRIGGERS_SQL = [
+  historyDirtyTrigger('task_ai', '1', 'INSERT ON tasks', 'new', 'task', 'id'),
+  historyDirtyTrigger(
+    'task_au',
+    '1',
+    'UPDATE OF title, description, created_by, updated_at ON tasks',
+    'new',
+    'task',
+    'id',
+  ),
+  historyDirtyTrigger('task_ad', '1', 'DELETE ON tasks', 'old', 'task', 'id'),
+  historyDirtyTrigger('note_ai', `new.${NOTE_ROW}`, 'INSERT ON timeline_events', 'new', 'note', 'id'),
+  historyDirtyTrigger(
+    'note_au',
+    `new.${NOTE_ROW}`,
+    'UPDATE OF type, task_key, actor_handle, data, created_at ON timeline_events',
+    'new',
+    'note',
+    'id',
+  ),
+  historyDirtyTrigger(
+    'note_au_old',
+    `old.${NOTE_ROW} AND new.type <> 'task_note'`,
+    'UPDATE OF type ON timeline_events',
+    'old',
+    'note',
+    'id',
+  ),
+  historyDirtyTrigger('note_ad', `old.${NOTE_ROW}`, 'DELETE ON timeline_events', 'old', 'note', 'id'),
+  historyDirtyTrigger('question_ai', '1', 'INSERT ON inbox_items', 'new', 'question', 'id'),
+  historyDirtyTrigger('question_au', '1', 'UPDATE ON inbox_items', 'new', 'question', 'id'),
+  historyDirtyTrigger('question_ad', '1', 'DELETE ON inbox_items', 'old', 'question', 'id'),
+  historyDirtyTrigger('message_ai', '1', 'INSERT ON team_messages', 'new', 'message', 'id'),
+  // A delivery receipt (`delivered_at`, `receipts`) changes no searchable text.
+  historyDirtyTrigger(
+    'message_au',
+    '1',
+    'UPDATE OF body, answer, origin, from_handle, to_handles, task_key, created_at ON team_messages',
+    'new',
+    'message',
+    'id',
+  ),
+  historyDirtyTrigger('message_ad', '1', 'DELETE ON team_messages', 'old', 'message', 'id'),
+].join('\n    ');
+migrations.push({
+  version: 84,
+  name: 'history search index',
+  // PM-786: a durable full-text index of the project history (cards, notes, closed questions, team messages and
+  // the two project documents). `history_documents` holds the searchable projection only, never an access copy:
+  // who may read a hit is decided from the live source at query time. The triggers on the four source tables
+  // only record WHICH source changed (`history_dirty`, in the writing transaction); the indexer reads the
+  // current source and updates the projection. `history_index_state` is the backfill's checkpoint.
+  sql: `CREATE TABLE history_documents (
+      id INTEGER PRIMARY KEY,
+      source_id TEXT NOT NULL UNIQUE,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      source_type TEXT NOT NULL CHECK (source_type IN ('task', 'note', 'question', 'message', 'document')),
+      entity_id TEXT NOT NULL,
+      task_key TEXT,
+      author TEXT,
+      at TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      repo TEXT,
+      path TEXT,
+      commit_sha TEXT
+    );
+    CREATE INDEX history_documents_type_at ON history_documents(project_key, source_type, at);
+    CREATE INDEX history_documents_task ON history_documents(project_key, task_key);
+    CREATE UNIQUE INDEX history_documents_entity ON history_documents(project_key, source_type, entity_id);
+    CREATE VIRTUAL TABLE history_fts USING fts5(
+      title, body,
+      content='history_documents', content_rowid='id',
+      tokenize='unicode61 remove_diacritics 2', prefix='3 4 5'
+    );
+    CREATE TRIGGER history_documents_ai AFTER INSERT ON history_documents BEGIN
+      INSERT INTO history_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+    END;
+    CREATE TRIGGER history_documents_ad AFTER DELETE ON history_documents BEGIN
+      INSERT INTO history_fts(history_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+    END;
+    CREATE TRIGGER history_documents_au AFTER UPDATE OF title, body ON history_documents BEGIN
+      INSERT INTO history_fts(history_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+      INSERT INTO history_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+    END;
+    CREATE TABLE history_dirty (
+      project_key TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (project_key, source_type, entity_id)
+    );
+    CREATE TABLE history_index_state (
+      project_key TEXT PRIMARY KEY,
+      version INTEGER NOT NULL,
+      complete INTEGER NOT NULL DEFAULT 0,
+      source_type TEXT,
+      last_id TEXT
+    );
+    CREATE TABLE history_doc_state (
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      path TEXT NOT NULL,
+      commit_sha TEXT,
+      checked_at TEXT,
+      indexed_at TEXT,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'stale', 'unavailable', 'missing')),
+      PRIMARY KEY (project_key, repo, path)
+    );
+    ${HISTORY_DIRTY_TRIGGERS_SQL}`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

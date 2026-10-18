@@ -4,10 +4,12 @@ import {
   canSeeOperatorSessions,
   canSeeTask,
   canSeeTeamMessage,
+  clientCanSeeTimelineEvent,
   isCardLink,
   visibleQuestionItem,
+  visibleTimelineEvent,
 } from '@projectman/shared';
-import type { MemberView, ServerEvent, Session, Task, TaskDetail, TimelineEvent } from '@projectman/shared';
+import type { MemberView, ServerEvent, Session, Task, TaskDetail } from '@projectman/shared';
 import type { ProjectAccess } from '../members';
 
 /**
@@ -28,31 +30,8 @@ import type { ProjectAccess } from '../members';
  */
 export type Viewer = Pick<ProjectAccess, 'access' | 'handle' | 'via'>;
 
-export function visibleTimelineEvent(
-  viewer: Viewer,
-  event: TimelineEvent,
-  messageParticipants: (id: string) => { from: string; to: string[] } | null,
-): TimelineEvent {
-  // Why a card was pulled into a stage (PM-427) is the team's: a client sees the move, not the reason.
-  // The subtasks a collecting card closed with (PM-647) are internal cards' keys.
-  if (
-    event.type === 'task_stage_changed' &&
-    isClient(viewer) &&
-    event.data &&
-    ('pulled' in event.data || 'partsClosed' in event.data)
-  ) {
-    const { pulled: _pulled, partsClosed: _partsClosed, ...visible } = event.data;
-    return { ...event, data: visible };
-  }
-  if (event.type !== 'session_started') return event;
-  if (canSeeAllTeamMessages(viewer)) return event;
-  const cause = event.data?.cause as { messageId?: string; quote?: string } | undefined;
-  if (!cause?.quote || !cause.messageId) return event;
-  const message = messageParticipants(cause.messageId);
-  if (message && canSeeTeamMessage(viewer, message)) return event;
-  const { quote: _quote, ...visible } = cause;
-  return { ...event, data: { ...event.data, cause: visible } };
-}
+/** The two timeline rules live in `packages/shared` (the history search uses them too, PM-786). */
+export { visibleTimelineEvent, clientCanSeeTimelineEvent };
 
 export function visibleSession(
   viewer: Viewer,
@@ -164,19 +143,6 @@ export function memberForViewer(
     currentTaskKeys: member.currentTaskKeys.filter(canSeeKey),
     ...(member.taskWork ? { taskWork: member.taskWork.filter((work) => canSeeKey(work.taskKey)) } : {}),
   };
-}
-
-const CLIENT_TASK_TIMELINE = new Set<TimelineEvent['type']>([
-  'task_created',
-  'task_stage_changed',
-  'task_check_changed',
-  'attachment_added',
-  'attachment_deleted',
-]);
-
-/** The main milestones of a task, the part of its timeline a client sees in the task detail. */
-export function clientCanSeeTimelineEvent(event: TimelineEvent): boolean {
-  return CLIENT_TASK_TIMELINE.has(event.type);
 }
 
 /**

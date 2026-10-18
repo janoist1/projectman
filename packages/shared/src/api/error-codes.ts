@@ -333,6 +333,11 @@ export const ERROR_CODES = [
   'super_executor_unavailable',
   // The answer cannot be relayed for the owner (403).
   'super_relay_refused',
+  // History search (PM-786).
+  // The search index cannot be used now (503).
+  'history_unavailable',
+  // The document copy changed since the search that named the commit; search again (409).
+  'history_source_changed',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

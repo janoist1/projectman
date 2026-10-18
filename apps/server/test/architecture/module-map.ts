@@ -238,6 +238,13 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     sealed: true,
   },
   {
+    id: 'services/history',
+    layer: 'service',
+    target: 'services/history',
+    pass: 'split',
+    sealed: true,
+  },
+  {
     id: 'services/operator',
     layer: 'service',
     target: 'services/operator',

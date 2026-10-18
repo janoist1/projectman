@@ -91,6 +91,7 @@ import type {
 import type { Repositories } from './db';
 import type { EmailCodeMailer, ProcessProbe } from './contracts';
 import { createEmailLoginService } from './services/email-login';
+import { createHistoryService } from './services/history';
 import { createEmailLoginDirectory, projectAccessFor } from './core/members';
 import type { ProjectAccess } from './core/members';
 import {
@@ -1394,6 +1395,14 @@ export function createDomain(opts: DomainOptions) {
           logger: opts.logger.child({ module: 'email-login' }),
         })
       : null;
+  // The searchable history (PM-786): a durable index of the project history, followed from the database.
+  const history = createHistoryService({
+    repos: opts.repos,
+    config: (key) => projects.cachedConfig(key) ?? null,
+    bus,
+    logger: opts.logger.child({ module: 'history' }),
+    now,
+  });
   const cardMeasure = new CardMeasure({
     ctx,
     projects,
@@ -2020,11 +2029,14 @@ export function createDomain(opts: DomainOptions) {
     profiles,
     invitations,
     emailLogin,
+    history,
     cardMeasure,
 
     /** Startup: import projects from the repository, clean up state that did not survive a restart, watch PRs. */
     async start(): Promise<void> {
       await projects.syncFromStore();
+      // The history index holds every database source before the server reports itself ready (PM-786).
+      await history.init();
       // Super-mode configuration commits whose result a crash lost (PM-757): settled from their commit trailers.
       await projects.settleSuperAudit().catch((error: unknown) => {
         opts.logger.warn({ err: error }, 'settling the super-mode audit failed');
@@ -2245,6 +2257,7 @@ export function createDomain(opts: DomainOptions) {
       await screenshotRuns?.stop();
       await outages.stop();
       await emailLogin?.stop();
+      await history.stop();
       await Promise.all([sweepsStopped, background.stop()]);
       await delivery.close();
       pauses.dispose();

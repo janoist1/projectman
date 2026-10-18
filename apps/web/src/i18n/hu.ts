@@ -1042,6 +1042,8 @@ export const hu = {
       super_operation_expired: 'A tulajdonos nem válaszolt időben, a művelet lejárt.',
       super_executor_unavailable: 'Ezt a műveletet ez a telepítés még nem tudja végrehajtani.',
       super_relay_refused: 'Ezt a választ nem lehet a tulajdonos nevében továbbítani.',
+      history_unavailable: 'Az előzménykereső most nem használható.',
+      history_source_changed: 'A dokumentum közben megváltozott: keress újra.',
       integrator_https_required: 'Az integrálói kulcs csak HTTPS-en vagy ezen a gépen használható.',
       invalid_event_cursor: 'A változáskövetési kurzor érvénytelen, vagy másik projekté.',
       event_cursor_expired:

@@ -26,3 +26,8 @@ export interface ObligationAdmission {
 export interface ObligationRefinement {
   openTurn(projectKey: string, taskKey: string): { label: string | null; member: string; at: string } | null;
 }
+
+/** The runtime's existing owner-decision path, adapted by the assembly. */
+export interface ObligationFixLimit {
+  timeOut(projectKey: string, taskKey: string, decider: string): Promise<{ decisionItemId: string } | null>;
+}

@@ -16,7 +16,7 @@ export interface TaskFixLimitRecord {
   decider: string | null;
   /** The people who decide (`owner`). */
   deciders: string[];
-  reason: 'no_ai_decider' | 'passed_on' | 'again' | null;
+  reason: 'no_ai_decider' | 'passed_on' | 'again' | 'decider_timeout' | null;
   /** The decision item of the hold, once there is one. */
   inboxItemId: string | null;
 }

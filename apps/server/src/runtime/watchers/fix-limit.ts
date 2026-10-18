@@ -370,6 +370,38 @@ export class FixLimitWatch {
     this.tell(task, lead, leadNotice(task, rounds, this.limitOf(config, base), canReplan));
   }
 
+  /** The AI decider let the obligation lapse: the hold goes to the owners as a decision. */
+  async timeOut(
+    projectKey: string,
+    taskKey: string,
+    decider: string,
+  ): Promise<{ decisionItemId: string } | null> {
+    const config = await this.projects.config(projectKey);
+    return this.cards.run(taskKey, async () => {
+      const record = this.ctx.repos.taskFixLimits.get(taskKey);
+      const task = this.tasks.find(projectKey, taskKey);
+      if (
+        !task ||
+        !isOpenTask(task) ||
+        record?.projectKey !== projectKey ||
+        (record.holdPhase !== 'lead' && record.holdPhase !== 'replan') ||
+        record.decider !== decider
+      )
+        return null;
+      this.toOwner(
+        config,
+        task,
+        record,
+        this.roundsOf(task, config, record),
+        'decider_timeout',
+        decider,
+        null,
+      );
+      const decisionItemId = this.ctx.repos.taskFixLimits.get(taskKey)?.inboxItemId;
+      return decisionItemId ? { decisionItemId } : null;
+    });
+  }
+
   /** The card goes to the people: one decision item with the buttons that apply. */
   private toOwner(
     config: ProjectConfig,

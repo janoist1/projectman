@@ -228,7 +228,7 @@ export const TaskFixLimit = z.object({
   decider: MemberHandle.nullable(),
   /** `owner`: the people who decide. */
   deciders: z.array(MemberHandle),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again']).nullable(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'decider_timeout']).nullable(),
   heldAt: z.string(),
 });
 export type TaskFixLimit = z.infer<typeof TaskFixLimit>;

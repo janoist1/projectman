@@ -303,7 +303,7 @@ export const FixLimitDecisionPayload = z.object({
   changeRequests: z.number().int().nonnegative(),
   designChangeRequests: z.number().int().nonnegative(),
   sendBacks: z.number().int().nonnegative(),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again']),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'decider_timeout']),
   decider: MemberHandle.nullable(),
   note: z.string().nullable(),
 });

@@ -1814,4 +1814,31 @@ migrations.push({
       entity: (row) => `${row}.id`,
     })}`,
 });
+migrations.push({
+  version: 88,
+  name: 'obligations',
+  // PM-806: an open step with a responsible and a deadline (merge, work, review step, refinement turn). It has
+  // at most one reminder (`woken_at`) and at most one integrator todo (`inbox_item_id`), also after a restart.
+  // Bookkeeping only: its wake and hand-over are timeline events, so the table is not in the change journal.
+  sql: `CREATE TABLE obligations (
+      id              TEXT PRIMARY KEY,
+      project_key     TEXT NOT NULL,
+      task_key        TEXT NOT NULL,
+      kind            TEXT NOT NULL CHECK (kind IN ('merge','fix_limit','refinement_turn','review_step','work')),
+      responsible     TEXT NOT NULL,
+      subject         TEXT NOT NULL,
+      opened_at       TEXT NOT NULL,
+      due_at          TEXT NOT NULL,
+      paused_since    TEXT,
+      pause_reason    TEXT CHECK (pause_reason IN ('held','inbox','permission','start_refused')),
+      woken_at        TEXT,
+      handed_over_at  TEXT,
+      inbox_item_id   TEXT,
+      state           TEXT NOT NULL CHECK (state IN ('open','handed_over','fulfilled','cancelled')),
+      closed_at       TEXT,
+      updated_at      TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, responsible, subject);
+    CREATE INDEX obligations_state ON obligations(state);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

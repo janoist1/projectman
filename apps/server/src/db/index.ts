@@ -79,6 +79,7 @@ export type { MergeTrainMember, MergeTrainRecord } from './merge-trains';
 export { mergeState, mergedState } from './task-merges';
 export type { MergeRecord } from './task-merges';
 import { createScheduleRepository } from './schedules';
+import { createObligationRepository } from './obligations';
 import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
 import { createSessionCleanupRepository } from './session-cleanups';
@@ -153,6 +154,7 @@ export function createRepositories(db: Db) {
     operatorRequests: createOperatorRequestRepository(db),
     operatorSignals: createOperatorSignalRepository(db),
     seniorWaits: createSeniorWaitRepository(db),
+    obligations: createObligationRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),
     docWrites: createDocWriteRepository(db),

@@ -136,6 +136,8 @@ export async function createDomainHarness(
     releaseHybrid?: DomainOptions['releaseHybrid'];
     /** The protected administration adapter (PM-764); absent: the domain has none. */
     administration?: DomainOptions['administration'];
+    /** Whether an integrator can take todos (PM-806); absent: none can, so every todo goes to the owners. */
+    integratorTodoAccess?: DomainOptions['integratorTodoAccess'];
     /** The commit the server runs (PM-491); default `dev`. */
     appVersion?: string;
     /** The release tag of the running build (PM-542); absent: none. */
@@ -281,6 +283,9 @@ export async function createDomainHarness(
     idleCloseSweepMs: 3_600_000,
     // And the handoff sweep: tests call `domain.handoffs.sweep()` after moving the clock.
     handoffSweepMs: 3_600_000,
+    // And the obligation sweep: tests call `domain.obligations.sweep()` after moving the clock.
+    obligationSweepMs: 3_600_000,
+    ...(opts.integratorTodoAccess ? { integratorTodoAccess: opts.integratorTodoAccess } : {}),
     freeDiskBytes: opts.freeDiskBytes,
     heavyRunSessions: opts.heavyRunSessions,
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,

@@ -39,6 +39,8 @@ import type {
   MemberView,
   QuestionAttachment,
   QuestionResponsePurpose,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
   QuestionOptionInput,
   ScreeningOutcome,
   Task,
@@ -54,7 +56,7 @@ import type {
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
   ProjectDoc,
-  QuestionTodo,
+  ScreeningTodo,
 } from '@projectman/shared';
 
 /**
@@ -374,6 +376,7 @@ export class TeamToolsService implements TeamToolsHandler {
       reaskOf?: string;
       reaskReason?: string;
       responsePurpose?: QuestionResponsePurpose;
+      recipient?: QuestionRecipient;
     },
   ): Promise<{
     inboxItemId: string;
@@ -396,9 +399,14 @@ export class TeamToolsService implements TeamToolsHandler {
       note: string;
       answer?: string;
       forwardTo?: string;
-      todo?: QuestionTodo;
+      todo?: ScreeningTodo;
     },
-  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }> {
+  ): Promise<{
+    inboxItemId: string;
+    outcome: ScreeningOutcome;
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
+  }> {
     return this.tools.operator.screenQuestion(ctx, args);
   }
 

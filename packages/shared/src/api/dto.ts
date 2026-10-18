@@ -1238,6 +1238,12 @@ export const ResolveInboxRequest = z.object({
 });
 export type ResolveInboxRequest = z.infer<typeof ResolveInboxRequest>;
 
+export const ResolveIntegratorTodoRequest = z.strictObject({
+  optionId: z.enum(['todo_done', 'todo_cannot']),
+  note: z.string().trim().max(10_000).optional(),
+});
+export type ResolveIntegratorTodoRequest = z.infer<typeof ResolveIntegratorTodoRequest>;
+
 /* ---------- configuration ---------- */
 
 export const ConfigVersionEntry = z.object({

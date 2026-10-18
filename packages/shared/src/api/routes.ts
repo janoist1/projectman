@@ -33,6 +33,8 @@ export const routes = {
   superDiagnosticsQuery: (key: string) => `/api/projects/${key}/operator-super/diagnostics/query`,
   /** POST `RelayOwnerAnswerRequest`: the integrator relays the owner's answer to a simple information question. */
   relayOwnerAnswer: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/relay-answer`,
+  resolveIntegratorTodo: (key: string, itemId: string) =>
+    `/api/projects/${key}/inbox/${itemId}/resolve-integrator-todo`,
   operatorPreferenceMe: (key: string) => `/api/projects/${key}/operator/preferences/me`,
   dismissOperatorSignal: (key: string, signalId: string) =>
     `/api/projects/${key}/operator/signals/${signalId}/dismiss`,

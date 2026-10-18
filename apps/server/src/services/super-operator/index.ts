@@ -33,6 +33,7 @@ export type { SuperDiagnostics } from './diagnostics';
 export { createSuperAdministration } from './facade';
 export type { SuperAdministration } from './facade';
 export { relayOwnerAnswer } from './relay';
+export { resolveIntegratorTodo } from './todo';
 export { createSuperRights } from './rights';
 export type { SuperRights } from './rights';
 

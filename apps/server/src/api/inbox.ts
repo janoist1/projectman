@@ -5,6 +5,8 @@ import {
   InboxState,
   RelayOwnerAnswerRequest,
   ResolveInboxRequest,
+  ResolveIntegratorTodoRequest,
+  humanInboxAssignment,
   routes,
   visibleQuestionItem,
   canSeeTask,
@@ -16,7 +18,7 @@ import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
 import { notFound } from '../kernel';
-import { relayOwnerAnswer } from '../services/super-operator';
+import { relayOwnerAnswer, resolveIntegratorTodo } from '../services/super-operator';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
@@ -48,7 +50,7 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const mine = query.mine === 'true' || query.mine === '1';
     const items = domain.inbox
       .list(key, { state, kind: query.kind, limit: 500 })
-      .filter((item) => canSeeInboxItem(access, item) && (!mine || item.assignees.includes(access.handle)))
+      .filter((item) => canSeeInboxItem(access, item) && (!mine || humanInboxAssignment(item, access.handle)))
       .filter((item) => state === undefined || !isLinkedQuestion(item))
       .map((item) =>
         visibleQuestionItem(access, item, (taskKey) => {
@@ -83,6 +85,18 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
       return relayOwnerAnswer(domain, key, itemId, body.answer, access);
     },
   );
+
+  app.post<ItemParams>(routes.resolveIntegratorTodo(':key', ':itemId'), async (request) => {
+    const { key, itemId } = request.params;
+    const access = await requireAccess(domain, request, key);
+    return resolveIntegratorTodo(
+      domain,
+      key,
+      itemId,
+      parseBody(ResolveIntegratorTodoRequest, request.body),
+      access,
+    );
+  });
 
   /** Assignees resolve items; owners may also answer permission requests and questions. */
   app.post<ItemParams>(routes.resolveInbox(':key', ':itemId'), async (request): Promise<InboxItem> => {

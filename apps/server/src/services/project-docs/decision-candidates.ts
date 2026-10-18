@@ -33,7 +33,7 @@ export class DecisionCandidates {
       const resolution = item.resolution;
       if (!resolution || resolution.rule || !owners.includes(resolution.by)) return false;
       // An answer the integrator relayed is no decision of the owner (PM-762).
-      if (resolution.ownerAnswerRelayed) return false;
+      if (resolution.ownerAnswerRelayed || resolution.integratorTodo) return false;
       return !isOperator(memberOf(config, this.askerOf(item) ?? ''));
     });
   }

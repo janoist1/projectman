@@ -48,6 +48,7 @@ function answered(
     rule?: 'approval_given';
     via?: 'integrator';
     relayed?: boolean;
+    integratorTodo?: boolean;
     taskKey?: string | null;
     optionId?: string;
     note?: string | null;
@@ -80,6 +81,7 @@ function answered(
       ...(extra.rule ? { rule: extra.rule } : {}),
       ...(extra.via ? { via: extra.via } : {}),
       ...(extra.relayed ? { ownerAnswerRelayed: true } : {}),
+      ...(extra.integratorTodo ? { integratorTodo: true } : {}),
     },
     createdAt: '2026-10-11T08:00:00.000Z',
   };
@@ -190,6 +192,12 @@ describe('the decision candidates (PM-496)', () => {
     answered('inb_decided', '2026-10-11T09:01:00.000Z', { via: 'integrator' });
     expect(h.domain.decisionCandidates.unseen('AR', await config())).toBe(1);
     expect((await candidates()).candidates.map((c) => c.item_id)).toEqual(['inb_decided']);
+  });
+
+  it('leaves out the integrator own work even though resolution.by names an owner', async () => {
+    await setup();
+    answered('inb_integrator_todo', '2026-10-11T09:00:00.000Z', { via: 'integrator', integratorTodo: true });
+    expect((await candidates()).candidates).toHaveLength(0);
   });
 
   it('leaves out answers given before the project’s since, and a project with no row has no bound', async () => {

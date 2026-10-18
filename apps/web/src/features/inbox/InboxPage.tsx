@@ -9,6 +9,8 @@ import {
   operatorKnowledgeApprovalOf,
   questionPayloadOf,
   isLinkedQuestion,
+  isIntegratorTodo,
+  wasIntegratorTodo,
 } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
@@ -57,6 +59,7 @@ import type { DrawerBase } from '../board/drawerBase';
 import { moveErrorText } from '../board/moveTask';
 import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
+import { IntegratorTodos } from './IntegratorTodos';
 import { OperatorTrail } from './OperatorTrail';
 import { FoldedCommand } from './PermissionParts';
 import { QuestionSources } from './QuestionSources';
@@ -142,6 +145,7 @@ function RecentRow({
           ) : (
             formatAgo(item.createdAt)
           )}
+          {wasIntegratorTodo(item) ? ` · ${t('inbox.integrator.wasForIntegrator')}` : null}
           {group?.sources && item.state === 'resolved'
             ? ` · ${t('inbox.group.answeredCount', { count: group.answeredCount ?? group.sources.filter((s) => s.state === 'live').length })}`
             : null}
@@ -292,8 +296,15 @@ export function InboxPage() {
         for (const item of gone) if (!next.has(item.id)) next.set(item.id, 'closed');
         return next.size === current.size ? current : next;
       });
-    shownOpen.current = new Set(mine.map((item) => item.id));
-  }, [items, mine, myHandle]);
+    shownOpen.current = new Set(
+      (items ?? [])
+        .filter(
+          (item) =>
+            item.state === 'open' && (isAssignedTo(item, myHandle) || (isOwner && isIntegratorTodo(item))),
+        )
+        .map((item) => item.id),
+    );
+  }, [items, mine, myHandle, isOwner]);
   const dismissGone = (id: string) => {
     // The focus goes on to the title of the next card (the previous one when it was the last), so it does not
     // fall to the page. A notice that goes away on its own, with the focus elsewhere, leaves the focus alone.
@@ -372,9 +383,15 @@ export function InboxPage() {
   // A pill per kind that has something waiting (and the one picked, so its empty text can say so).
   const pillKinds = FILTER_KINDS.filter((kind) => (counts.get(kind) ?? 0) > 0 || kind === filter);
   const filtered = filter === 'all' ? mine : mine.filter((item) => displayKindOf(item) === filter);
+  // Keep an edited integrator card mounted in the render that first observes its external closure.
+  const displayedLingering = new Map(lingering);
+  for (const item of items ?? []) {
+    if (isIntegratorTodo(item) && shownOpen.current.has(item.id) && closedBySomeoneElse(item, myHandle))
+      displayedLingering.set(item.id, lingering.get(item.id) ?? 'closed');
+  }
   // A question that closed while open keeps its place as a notice, whatever the filter.
   const gone = (items ?? []).filter(
-    (item) => lingering.has(item.id) && !filtered.some((f) => f.id === item.id),
+    (item) => lingering.has(item.id) && !isIntegratorTodo(item) && !filtered.some((f) => f.id === item.id),
   );
   const visible = gone.length > 0 ? newestFirst([...filtered, ...gone]) : filtered;
   const todoCount = visible.filter((item) => displayKindOf(item) === 'todo').length;
@@ -402,7 +419,7 @@ export function InboxPage() {
       })}
       cardHref={item.taskKey ? `/p/${key}/tasks/${item.taskKey}` : null}
       pending={resolve.isPending && resolve.variables?.item.id === item.id}
-      closedWhileOpen={lingering.get(item.id) ?? null}
+      closedWhileOpen={displayedLingering.get(item.id) ?? null}
       onDismissGone={() => dismissGone(item.id)}
       error={
         // A refused "Tovább" says why on its card (the gate), not in a toast.
@@ -527,6 +544,15 @@ export function InboxPage() {
             />
           ) : null}
         </div>
+        {isOwner && (filter === 'all' || filter === 'todo') ? (
+          <IntegratorTodos
+            items={items ?? []}
+            lingering={displayedLingering}
+            renderCard={renderCard}
+            members={members}
+            myHandle={myHandle}
+          />
+        ) : null}
         {isMobile ? (
           <>
             <RecentDecisions

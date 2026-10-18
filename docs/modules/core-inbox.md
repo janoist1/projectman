@@ -62,6 +62,33 @@ with durable human answer messages. Source-card deletion and delivery receipts n
 This is server-side state and uses the existing message and attachment transfer paths. No
 machine-dependent part or new engine-boundary method is added.
 
+## Integrator todos (PM-782)
+
+Question addressing is durable payload data (`requestedRecipient`, `recipient`,
+`integratorOpenedAt`, `integratorEscalatedAt`). Missing addressing means owner; there is no migration.
+New `screen_question.todo` input requires a recipient; decisions, fallback and unscreened reasks
+always remain owner work. Shared rules select the recipient, protect approvals even with malformed
+raw payload fields, restrict human visibility to owners, exclude integrator work from human counts
+and plan the exact 24-hour handoff. Assignees remain real human handles.
+
+`IntegratorTodoAccess` is a boolean port, defaulting to unavailable. `app.ts` checks current owners,
+users, active explicit super credentials and `superAccessVerdict`; assembly passes it to inbox.
+`resolveIntegratorTodo` is reached through the super-only REST/MCP adapter in
+`services/super-operator/todo.ts`. It uses the same question lock and transactional answer delivery
+as owner resolution, rechecking authenticated execution before persistence. The result carries
+`resolution.integratorTodo` and the full super actor, never `ownerAnswerRelayed` or a decision candidate.
+The owner can still resolve with their own login through normal resolution.
+The guarded automatic removal of the last question's `waiting-answer` label runs as system
+cleanup outside the caller's execution scope; generic label edits keep all credential checks.
+
+The hub's `integrator-todos` maintenance job sweeps at startup and every 30 seconds, independently
+of AI availability or engine connectivity. Handoff and resolution serialize on the same lock.
+At or after the deadline, a super resolution first commits the handoff, then refuses. A resolution
+accepted under the lock before the deadline can finish while the sweep waits. Handoff records
+`question_recipient_escalated` atomically with owner addressing and current owner assignees;
+it sends no answer and does not release the waiting label. Existing inbox change triggers journal
+opening, handoff and closure. No new machine operation or engine-boundary method is needed.
+
 ## Remote engine (existing permission requests)
 
 Questions, approval records and rules remain on the server. Permission requests retain the session engine's paths, and the existing broker/engine contracts carry decisions to that engine. `InboxService` still checks a tool's canonical working directory through that engine's `realpath` before consulting its injected policy. Server paths must not replace engine paths; PM-635 adds no boundary method or payload.

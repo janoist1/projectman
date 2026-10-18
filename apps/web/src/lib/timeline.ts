@@ -867,7 +867,20 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
       };
     }
+    case 'question_recipient_escalated':
+      return normal(t('timeline.events.question_recipient_escalated'));
     case 'question_answered':
+      if (d.integratorTodo && typeof d.integratorTodo === 'object') {
+        const result = d.integratorTodo as { optionId?: string; note?: string | null };
+        return normal(
+          t(
+            result.optionId === 'todo_cannot'
+              ? 'timeline.events.integrator_todo_cannot'
+              : 'timeline.events.integrator_todo_done',
+            { note: result.note ?? '' },
+          ),
+        );
+      }
       return normal(
         t(
           d.groupPrimaryItemId
@@ -897,6 +910,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         case 'decision':
           return normal(t('timeline.events.question_screened_decision', { note }));
         case 'todo':
+          if (d.recipient === 'integrator')
+            return normal(t('timeline.events.question_screened_integrator', { note }));
           // Only a todo that was recorded as a missing feature (PM-472) says so.
           return normal(
             t(

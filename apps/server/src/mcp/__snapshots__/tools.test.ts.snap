@@ -84,6 +84,14 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "minLength": 1,
           "type": "string",
         },
+        "recipient": {
+          "description": "Suggested todo recipient (default owner). Screening decides the actual recipient; this proposal grants no authority.",
+          "enum": [
+            "owner",
+            "integrator",
+          ],
+          "type": "string",
+        },
         "recommendation_reason": {
           "description": "Why you recommend it, in one plain sentence. Needs recommended.",
           "maxLength": 400,
@@ -6225,7 +6233,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Screen an AI member’s question",
     },
-    "description": "Only the selected PM in its internal general conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (only a person can do it; needs todo with the exact step: what, where, expected; the inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.",
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (an owner or external integrator step; needs what, where, expected and recipient: owner or integrator. Independently choose the actual recipient, explain changes in note. Use forwarded for AI teammate work and decision for approvals. The inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -6273,6 +6281,14 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "minLength": 1,
               "type": "string",
             },
+            "recipient": {
+              "description": "Who performs the step. Integrator only for external technical work; decisions and approvals belong to the owner. Independently reconsider the proposed recipient; explain changes in note.",
+              "enum": [
+                "owner",
+                "integrator",
+              ],
+              "type": "string",
+            },
             "what": {
               "description": "What the person has to do.",
               "maxLength": 2000,
@@ -6290,6 +6306,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
             "what",
             "where",
             "expected",
+            "recipient",
           ],
           "type": "object",
         },

@@ -1,5 +1,14 @@
 # Team tools MCP server (`src/mcp`)
 
+PM-782: `ask_human` accepts optional `recipient: owner | integrator` (default owner), a proposal
+until screening. New `screen_question.todo` requires `recipient` along with `what`, `where` and
+`expected`; it reports the actual `recipient` and optional `recipientRefusal` (`protected_question`
+or `integrator_unavailable`). The Operator chooses independently; approvals and fallback always
+stay with owners. The external bearer MCP alone offers `resolve_integrator_todo` in super mode:
+`{project_key, item_id, option_id: todo_done | todo_cannot, note?}` → `{item}`. Cannot requires a
+reason. It records the integrator's own work, not an owner answer or approval; relay semantics stay
+unchanged. The hub hands unresolved todos to owners after 24 hours, independently of engine state.
+
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
 sessions. The handler contracts live in

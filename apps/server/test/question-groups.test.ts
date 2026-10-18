@@ -313,7 +313,10 @@ describe('combined owner questions', () => {
     for (const args of [
       { outcome: 'answered' as const, answer: 'Yes' },
       { outcome: 'forwarded' as const, forwardTo: 'cr' },
-      { outcome: 'todo' as const, todo: { what: 'Check', where: 'Here', expected: 'Done' } },
+      {
+        outcome: 'todo' as const,
+        todo: { what: 'Check', where: 'Here', expected: 'Done', recipient: 'owner' as const },
+      },
     ])
       await expect(
         h.domain.teamTools.screenQuestion(await pm(), { itemId: first, note: 'Reason', ...args }),

@@ -11,6 +11,20 @@
   min-width: 0;
 }
 
+.card[data-recipient='integrator'] {
+  background: var(--c-subtle);
+}
+.integratorMoved {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--c-subtle);
+  font-size: 13px;
+  color: var(--c-ink-2);
+}
+
 /* An outage (PM-468): the orange stripe of what stops the work. */
 .card[data-alert='work_outage'] {
   box-shadow: inset 3px 0 0 var(--c-needs);

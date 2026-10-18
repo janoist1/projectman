@@ -1364,7 +1364,9 @@ describe('system prompt', () => {
         'in the decision log (DECISIONS.md), in the roadmap (ROADMAP.md), in the code or in an earlier owner answer; name the source in the note',
         'forwarded: when answering is another AI member',
         'moot: when the question is obsolete',
-        'todo: when only a person can do it; give the exact step (what, where, expected).',
+        'todo: a step for the owner or their external integrator; give what, where, expected and recipient (owner or integrator).',
+        'Independently choose the recipient, regardless of requestedRecipient',
+        'Integrator addressing grants no execution authority; approvals and decisions stay with the owner.',
         'decision: everything else. Always choose decision for an approval, a release, human access, a cost or fee, a change of scope or deadline',
         "start or move nothing on the board, change no settings, and never decide in the owner's name.",
       ])

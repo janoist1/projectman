@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
 import {
   BoundaryReason,
+  isIntegratorTodo,
   alertPayloadOf,
   handOnRequestOf,
   operatorApprovalOf,
@@ -61,6 +62,7 @@ import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails, showInboxItem } from './Question';
 import { generalQuestionSources, QuestionSources, QuestionSourcesLine } from './QuestionSources';
 import { QuestionAttachments } from './QuestionAttachments';
+import { IntegratorTodoClock } from './IntegratorTodos';
 import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
 import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
 import { useFileDrop } from '../board/useFileDrop';
@@ -368,6 +370,11 @@ export function InboxCard({
   const headRow = (
     <div className={styles.head}>
       <Chip tone="kind">{t(`inbox.kinds.${displayKind}`)}</Chip>
+      {isIntegratorTodo(item) ? (
+        <Chip tone="outline" icon="terminal">
+          {t('inbox.integrator.chip')}
+        </Chip>
+      ) : null}
       {grouped ? (
         <span className={styles.groupAvatars} aria-hidden="true">
           {groupAskers.slice(0, 3).map((asker) => (
@@ -411,6 +418,7 @@ export function InboxCard({
           mobile && styles.mobile,
         )}
         data-kind={displayKind}
+        data-recipient={isIntegratorTodo(item) ? 'integrator' : undefined}
       >
         {headRow}
         {taskRow}
@@ -563,6 +571,12 @@ export function InboxCard({
     >
       {headRow}
       {taskRow}
+      {question?.integratorEscalatedAt ? (
+        <p className={styles.integratorMoved}>
+          <Icon name="arrowRight" size={16} />
+          {t('inbox.integrator.moved')}
+        </p>
+      ) : null}
       <Heading className={styles.title} tabIndex={-1} data-inbox-title="">
         {heading}
       </Heading>
@@ -653,6 +667,7 @@ export function InboxCard({
           </dl>
         </section>
       ) : null}
+      {isIntegratorTodo(item) ? <IntegratorTodoClock item={item} /> : null}
       {grouped && group.note ? (
         <p className={styles.operatorNote}>
           <span aria-hidden="true">

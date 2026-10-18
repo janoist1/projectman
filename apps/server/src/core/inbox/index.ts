@@ -17,6 +17,7 @@ export { QuestionScreening } from './question-screening';
 export { OpenQuestionLabel } from './open-question-label';
 export type {
   QuestionGroupAnswerer,
+  IntegratorTodoAccess,
   InboxPermissionPolicy,
   ScreeningAttempt,
   ScreeningAdmission,

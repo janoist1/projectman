@@ -359,6 +359,7 @@ function noticeOf(item: InboxItem, nowMs: number) {
     taskKey: item.taskKey,
     title: item.title,
     question: payload?.question ?? item.title,
+    requestedRecipient: payload?.requestedRecipient ?? 'owner',
     details: payload?.details ?? null,
     options: payload?.options ?? [],
     recommended: payload?.recommended ?? null,

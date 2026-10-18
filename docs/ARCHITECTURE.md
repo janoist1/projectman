@@ -3086,6 +3086,8 @@ assumption or remote-engine RPC.
   PM-741 adds a read-only consumer of the engine's `_merge-deps/<sha256(JSON [project,repo])>/current`
   store: member dependency preparation copies a complete matching generation under the same heavy
   lock, replacing only validated package trees. Member installations never publish into this store.
+  PM-797: the close of a collecting card with no code of its own reads no worktree or source commit; it decides on
+  the hub's data (`TaskRepository.sourceEvidence`), so a missing or offline engine does not hold it back.
   **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
   is required.
   **Module:** `worktree`
@@ -3321,6 +3323,9 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
+  PM-797: a collecting card with no code of its own, whose subtasks are all closed, skips the gate on the hub's
+  own data (`TaskRepository.sourceEvidence`, "Collecting card closes with its parts"), so its close makes no
+  engine call and adds no machine assumption; a card with a trace of a source keeps the gate.
   PM-791 adds `services/merges/engine-wait.ts` and reconnect loops in `steps.ts` and `train.ts`:
   the cloud holds the repository slot for up to 15 minutes per lost link and resumes through
   prepare/publication recovery. Persistent or repeated loss becomes `engine_offline`. Remote
@@ -3621,9 +3626,21 @@ work nobody did on the card itself) say nothing once every subtask is closed. Th
   every one is `done` or `cancelled`, at least one is `done`, and no blocking label (an open question) is on it. When
   every subtask was cancelled the plan fell, not the work, and a person decides. `TaskMoves.move` and `prepareMove`
   (`core/tasks/moves.ts`) and `TaskService.update` use it for every move path, a person's or the system's, so the
-  board drop, the card update and the hand-on decision need no rule of their own. The waiver skips only the gates: the
-  merge check stays, so a card with its own unmerged branch is still refused (`task_not_merged`). The
-  `task_stage_changed` event carries `partsClosed` (the subtasks by outcome); clients do not see it.
+  board drop, the card update and the hand-on decision need no rule of their own. The waiver skips the gates, and
+  the merge check only for a card with no code of its own (PM-797, below); a card with its own unmerged branch is
+  still refused (`task_not_merged`). The `task_stage_changed` event carries `partsClosed` (the subtasks by outcome);
+  clients do not see it.
+- `collectingSourceStateOf` / `canSkipCollectingMerge` (PM-797): the merge check reads a source commit from the
+  engine, so a collecting card with nothing to merge must not need one. The state is `none` only when the hub's own
+  data proves it: `TaskRepository.sourceEvidence` reads SQLite only (links, review pins, hand-overs, workspace
+  bindings, sessions with a branch, merge records, and the timeline for the same facts and for the creation event) and
+  reports whether a source was ever recorded, whether anybody worked on the card (an assignee now or in the
+  history), and whether the card was created natively. A card with a source trace is `present`; an imported or
+  legacy card, one with work recorded, an assignee or a gap in the evidence is `unknown`; both keep the merge check,
+  so a gap never reads as "no source". `prepareMove` (before the unit of work) and `move` (inside the
+  transaction) each re-read the evidence and recompute the waiver, so a trace or a reopened part that appears in
+  between sends the move back to the normal check. A database error propagates and never releases the card. No
+  engine call is made on the skipping path, so it works while the engine is online, offline or remote.
 - `collectingAutoClose`: the system closes the card itself when the waiver holds, the card is `active` or `waiting`
   and it stands before the development stage (before Done when there is no development stage). A card somebody
   works on is not closed under them; a person's move gets the waiver anyway.
@@ -3636,7 +3653,8 @@ a person's move in between wins. A refusal (`gate_blocked`, `task_not_merged`, `
 is logged and the card stays for a person to move. There is deliberately no periodic or start-up sweep: it would close
 again a card a person reopened. What a lost trigger leaves open (a restart between the commit and the background
 work) the person's move fixes. It touches no machine-dependent part; the only machine-near step is the merge check
-every move to Done already makes (`engine_unavailable` leaves the card open).
+a card with a source of its own makes (`engine_unavailable` leaves that card open). A card with no code of its own
+makes no engine call (PM-797), so its close does not depend on the engine.
 
 ### Assignee handoff (PM-342)
 

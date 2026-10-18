@@ -145,7 +145,7 @@ export const hu = {
       'Az integrátor (a Claude Code a gépeden) ezzel a kulccsal vezeti az Operátor super módját, MCP-n és a projectman parancssorral. A saját nevén dolgozik, nem a tiéden. A kulcs az összes projektedre érvényes.',
     rights: 'Mit tehet?',
     rightsBody:
-      'Mindent, amit te, kivéve a jóváhagyást. Költségről, törlésről, nyilvánosságról és irányról téged kérdez.',
+      'Mindent, amit te, kivéve a jóváhagyást. Költségről, törlésről, nyilvánosságról és irányról téged kérdez. A Rád vár kérdésekre továbbíthatja a válaszodat, és lezárhatja a neki szóló teendőket.',
     none: 'Még nincs kulcs.',
     noValid: 'Nincs érvényes kulcs.',
     create: 'Kulcs létrehozása',
@@ -3466,6 +3466,9 @@ export const hu = {
       closedToday: 'Ma lezárva',
       done: 'Megcsinálta: {what}',
       cannot: 'Nem csinálta meg: {what}',
+      doneByYou: 'Megcsináltad: {what}',
+      cannotByYou: 'Nem csináltad meg: {what}',
+      yourNote: 'Eredmény: {note}',
       resultNote: 'Az integrátor eredménye: {note}',
       reasonNote: 'Indoka: {note}',
       wasForIntegrator: 'az integrátornak szólt',

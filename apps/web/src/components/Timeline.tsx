@@ -135,7 +135,7 @@ export function Timeline({
                 {imported || event.actor.kind === 'system' || !handle ? (
                   <span className={styles.systemIcon} aria-hidden="true">
                     <Icon
-                      name={event.type === 'question_recipient_escalated' ? 'arrowRight' : 'layers'}
+                      name={event.type === 'question_recipient_escalated' ? 'handoff' : 'layers'}
                       size={15}
                       strokeWidth={2}
                     />

@@ -103,6 +103,7 @@ describe('quiet integrator todos in the owner inbox', () => {
     fireEvent.click(summary);
     expect(details.open).toBe(true);
     expect(within(details).getByText(t('inbox.integrator.lead'))).toBeTruthy();
+    expect(details.querySelector('article')?.getAttribute('data-recipient')).toBe('integrator');
     expect(
       within(details).getByText(
         t('inbox.integrator.left', { left: t('inbox.integrator.hours', { count: 21 }) }),
@@ -205,4 +206,41 @@ describe('quiet integrator todos in the owner inbox', () => {
     expect(project.backend.inbox[0]!.resolution?.integratorTodo).toBeUndefined();
     expect(await screen.findByText(new RegExp(t('inbox.integrator.wasForIntegrator')))).toBeTruthy();
   });
+
+  it.each(['todo_done', 'todo_cannot'] as const)(
+    'attributes the owner %s result to the owner in the closed group',
+    async (optionId) => {
+      const project = mockProject();
+      const item: InboxItem = {
+        ...todo(),
+        state: 'resolved',
+        resolution: {
+          optionId,
+          by: 'owner',
+          at: new Date().toISOString(),
+          note: 'Owner result',
+        },
+      };
+      project.backend.inbox = [item];
+      project.render(<InboxPage />, '/p/AC/inbox');
+      const summary = (await screen.findByText(t('inbox.integrator.title'))).closest('summary')!;
+      fireEvent.click(summary);
+      const group = within(summary.closest('details')!);
+      expect(
+        group.getByText(
+          t(optionId === 'todo_done' ? 'inbox.integrator.doneByYou' : 'inbox.integrator.cannotByYou', {
+            what: 'Measure latency',
+          }),
+        ),
+      ).toBeTruthy();
+      expect(
+        group.getByText(
+          t(optionId === 'todo_done' ? 'inbox.integrator.yourNote' : 'inbox.integrator.reasonNote', {
+            note: 'Owner result',
+          }),
+        ),
+      ).toBeTruthy();
+      expect(group.queryByText(t('inbox.integrator.resultNote', { note: 'Owner result' }))).toBeNull();
+    },
+  );
 });

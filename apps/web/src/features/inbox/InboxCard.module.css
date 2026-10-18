@@ -64,9 +64,19 @@
 
 .head {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  row-gap: 6px;
+  min-width: 0;
+}
+
+.requester {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .systemIcon {
@@ -85,9 +95,8 @@
   font-size: var(--text-sm);
   font-weight: 800;
   color: var(--c-ink-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 

@@ -134,9 +134,13 @@ export function IntegratorTodos({
                   <div>
                     <strong>
                       {t(
-                        item.resolution!.optionId === 'todo_done'
-                          ? 'inbox.integrator.done'
-                          : 'inbox.integrator.cannot',
+                        item.resolution!.integratorTodo
+                          ? item.resolution!.optionId === 'todo_done'
+                            ? 'inbox.integrator.done'
+                            : 'inbox.integrator.cannot'
+                          : item.resolution!.optionId === 'todo_done'
+                            ? 'inbox.integrator.doneByYou'
+                            : 'inbox.integrator.cannotByYou',
                         { what: questionPayloadOf(item)?.screening?.todo?.what ?? item.title },
                       )}
                     </strong>
@@ -149,7 +153,9 @@ export function IntegratorTodos({
                         {t(
                           item.resolution!.optionId === 'todo_cannot'
                             ? 'inbox.integrator.reasonNote'
-                            : 'inbox.integrator.resultNote',
+                            : item.resolution!.integratorTodo
+                              ? 'inbox.integrator.resultNote'
+                              : 'inbox.integrator.yourNote',
                           { note: item.resolution!.note!.trim() },
                         )}
                       </p>

@@ -13,6 +13,12 @@ export function codeList(values: readonly string[]): string {
   return values.map(code).join(', ');
 }
 
+/** Distinguish updating a card branch from landing its approved commit (PM-747). */
+export function cardBranchMergeRule(defaultBranch: string): string {
+  const base = code(defaultBranch);
+  return `Merging ${base} into your own task branch (for example to resolve review conflicts) is always allowed and needs no permission. Never merge into ${base} or push manually: only the card merger's merge_task may move ${base} by merging the approved commit and push it when the branch has an upstream.`;
+}
+
 /**
  * Where the task's work happens, worded for the brief and the system prompt: its repository as
  * inline code (the task's own, else the project's only one), else why it has none.

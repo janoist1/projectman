@@ -223,7 +223,8 @@ export function guestSessionDir(appHome: string, projectKey: string, guestHandle
  * rewriting it can move or drop the default branch. Nor `refs/replace` (the directory) and
  * `info/grafts`: with them every local git command would see other content or history for the
  * default branch without the ref moving (a `git replace` of one of its blobs reaches the
- * integrating checkout's diff, merge and checkout). Everything else stays writable (the task's own
+ * integrating checkout's diff, merge and checkout). Server-managed `refs/projectman` snapshots
+ * also stay read-only (PM-794). Everything else stays writable (the task's own
  * branch, objects, other worktrees' metadata); Claude Code itself keeps `hooks` and `config` out.
  */
 export function sharedGitDenials(gitDir: string, defaultBranch: string): string[] {
@@ -233,6 +234,7 @@ export function sharedGitDenials(gitDir: string, defaultBranch: string): string[
       path.join(gitDir, `${file}.lock`),
     ]),
     path.join(gitDir, 'refs', 'replace'),
+    path.join(gitDir, 'refs', 'projectman'),
     path.join(gitDir, 'info', 'grafts'),
   ];
 }

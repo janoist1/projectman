@@ -123,10 +123,6 @@ export class MergeSteps {
     const engine = engines.get(engineId);
     if (!engine || !engine.merger)
       throw conflict('merge_fix_not_allowed', 'the card engine is unavailable', { reason: 'not_conflict' });
-    if (engine.memberWorkspaces)
-      throw conflict('merge_fix_not_allowed', 'merge fixes require task worktree mode', {
-        reason: 'member_workspaces',
-      });
     if (engines.engineFor(projectKey, handle!) !== engineId)
       throw conflict('merge_fix_engine_mismatch', 'the merger must use the card engine');
     const config = await projects.config(projectKey);
@@ -135,6 +131,7 @@ export class MergeSteps {
     if (options.fixConflict) {
       if (!row.commit)
         throw conflict('merge_fix_invalid', 'the approved commit is missing', { reason: 'missing_commit' });
+      await this.prepareMergeSource(config, task, row, row.commit);
       const info = await engine.worktrees.ensureMergeFix({ ...key, commit: row.commit });
       if (
         ctx.repos.taskMerges.open(projectKey, taskKey)?.id !== row.id ||
@@ -301,6 +298,17 @@ export class MergeSteps {
     return true;
   }
 
+  private async prepareMergeSource(
+    config: ProjectConfig,
+    task: Task,
+    row: MergeRecord,
+    commit: string,
+  ): Promise<void> {
+    // A submitted fix, including one that conflicts again, already lives in the engine repository (PM-794).
+    if (row.fix && row.resolution?.commit === commit) return;
+    await this.deps.sessions.prepareMergeSource(config, task, commit);
+  }
+
   private async execute(running: MergeRun): Promise<void> {
     const row = running.row;
     const { projects, tasks, sessions, engines, github, ctx } = this.deps;
@@ -324,7 +332,7 @@ export class MergeSteps {
     const ref = this.ref(row);
     // Member workspaces: the approved commit reaches the repository before anything reads it, on
     // a restart or a recovery as well. A refusal blocks this attempt (the merge row says why).
-    await sessions.prepareMergeSource(config, task, commit);
+    await this.prepareMergeSource(config, task, row, commit);
     if (!this.continue(running)) return;
     for (let attempt = 0; attempt < 2; attempt++) {
       const base = await merger.prepare(ref, { base: row.base, commit: commit });

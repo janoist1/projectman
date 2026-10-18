@@ -292,11 +292,31 @@ describe('member initiated merge', () => {
       expect(h!.worktrees.fixes.size).toBe(0);
     },
   );
-  it('refuses conflict fixing in member workspace mode without creating a fix checkout', async () => {
+  async function workspaceConflict() {
     merger = fakeMerger(false);
-    h = await createDomainHarness({ memberWorkspaces: true, merger });
+    h = await createDomainHarness({
+      memberWorkspaces: true,
+      merger,
+      adjust(config) {
+        config.project.repos[0]!.requireMerge = true;
+        config.team.merger = { kind: 'member', handle: 'dev-1' };
+        config.pipeline.stages = config.pipeline.stages.filter(
+          (stage) => stage.id !== 'merge' && stage.id !== 'release',
+        );
+      },
+    });
+    vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
     const card = await h.domain.tasks.create('AR', { title: 'Conflict', repo: 'web' }, OWNER_ACTOR);
     const now = new Date().toISOString();
+    h.repos.tasks.update(card.id, { stageId: 'code_review', labels: ['code-review-ok'] });
+    h.repos.taskHandovers.save({
+      projectKey: 'AR',
+      taskKey: card.key,
+      commit: 'approved',
+      branch: 'task/AR-1',
+      stageId: 'code_review',
+      at: now,
+    });
     h.repos.taskMerges.save({
       id: 'm',
       projectKey: 'AR',
@@ -305,7 +325,7 @@ describe('member initiated merge', () => {
       base: 'main',
       commit: 'approved',
       branch: 'task/AR-1',
-      fromStageId: card.stageId,
+      fromStageId: 'code_review',
       toStageId: 'done',
       merger: 'dev-1',
       requestedAt: now,
@@ -315,12 +335,79 @@ describe('member initiated merge', () => {
       createdAt: now,
       updatedAt: now,
     });
-    await expect(fix({ fixConflict: true })).rejects.toMatchObject({
-      code: 'merge_fix_not_allowed',
-      details: { reason: 'member_workspaces' },
+  }
+  it('publishes the approved workspace commit before creating a fix and merges its resolution without republishing it', async () => {
+    await workspaceConflict();
+    const publish = vi
+      .spyOn(h!.domain.sessions, 'prepareMergeSource')
+      .mockImplementation(async (_c, _t, commit) => {
+        if (commit !== 'approved') throw new Error('workspace_source_missing');
+      });
+    const ensureFix = vi.spyOn(h!.worktrees, 'ensureMergeFix');
+    await fix({ fixConflict: true });
+    expect(publish).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ key: 'AR-1' }),
+      'approved',
+    );
+    expect(publish.mock.invocationCallOrder[0]).toBeLessThan(ensureFix.mock.invocationCallOrder[0]!);
+    expect(h!.worktrees.fixes.size).toBe(1);
+    expect(row()).toMatchObject({ state: 'fixing', fix: { branch: 'merge-fix/AR-1' } });
+    const tree = [...h!.worktrees.fixes.values()][0]!;
+    h!.worktrees.heads.get(tree.path)!.commit = 'resolved';
+    merger.isAncestor.mockResolvedValue(true);
+    await fix({ resolution: 'Resolve the mechanical conflict' });
+    await merged();
+    expect(publish.mock.calls.map((call) => call[2])).not.toContain('resolved');
+    expect(task()).toMatchObject({
+      stageId: 'code_review',
+      labels: ['code-review-ok'],
+      merged: {
+        commit: 'resolved',
+        resolution: { commit: 'resolved', note: 'Resolve the mechanical conflict' },
+      },
     });
-    expect(h.worktrees.fixes.size).toBe(0);
+    await move();
+    expect(task().stageId).toBe('done');
   });
+  it('can fix a submitted workspace resolution again when it conflicts with a newer base', async () => {
+    await workspaceConflict();
+    const publish = vi
+      .spyOn(h!.domain.sessions, 'prepareMergeSource')
+      .mockImplementation(async (_config, _task, commit) => {
+        if (commit !== 'approved') throw new Error('workspace_source_missing');
+      });
+    await fix({ fixConflict: true });
+    const tree = [...h!.worktrees.fixes.values()][0]!;
+    h!.worktrees.heads.get(tree.path)!.commit = 'resolved';
+    merger.isAncestor.mockResolvedValue(true);
+    merger.base.local = 'new-base';
+    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+    await fix({ resolution: 'Resolve the first conflict' });
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    expect(row()).toMatchObject({ commit: 'resolved', failure: { base: 'new-base' } });
+    await fix({ fixConflict: true });
+    expect(row()).toMatchObject({ state: 'fixing', fix: { base: 'new-base' } });
+    expect(publish.mock.calls.map((call) => call[2])).not.toContain('resolved');
+    h!.worktrees.heads.get(tree.path)!.commit = 'resolved-again';
+    await fix({ resolution: 'Resolve the newer base conflict' });
+    await merged();
+    expect(task().merged).toMatchObject({
+      commit: 'resolved-again',
+      resolution: { commit: 'resolved-again', note: 'Resolve the newer base conflict' },
+    });
+    expect(publish.mock.calls.map((call) => call[2])).not.toContain('resolved-again');
+  });
+  it.each([new Error('source missing'), new EngineLinkLostError('link dropped')])(
+    'preserves source publication failures before creating a fix: %s',
+    async (error) => {
+      await workspaceConflict();
+      vi.spyOn(h!.domain.sessions, 'prepareMergeSource').mockRejectedValue(error);
+      await expect(fix({ fixConflict: true })).rejects.toBe(error);
+      expect(h!.worktrees.fixes.size).toBe(0);
+      expect(row()?.state).toBe('failed');
+    },
+  );
   it('retains the resolved commit and note when retrying a blocked fix merge', async () => {
     await conflictFailure();
     await fix({ fixConflict: true });

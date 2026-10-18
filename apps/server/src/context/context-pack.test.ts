@@ -3446,7 +3446,7 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).not.toContain('`PROJECTMAN_SKIP_PTY_TESTS` is');
     expect(text).toContain('`PROJECTMAN_SKIP_PTY_TESTS=1` is set here');
     expect(text).toContain(
-      'Never these paths of the shared git directory (the default branch, the integrating checkout, replacements and grafts): `/src/app/.git/refs/heads/main`, `/src/app/.git/HEAD`, `/src/app/.git/index`, `/src/app/.git/packed-refs`, `/src/app/.git/refs/replace`, `/src/app/.git/info/grafts` (and their lock files)',
+      'Never these paths of the shared git directory (the default branch, the integrating checkout, replacements, server-managed snapshot refs and grafts): `/src/app/.git/refs/heads/main`, `/src/app/.git/HEAD`, `/src/app/.git/index`, `/src/app/.git/packed-refs`, `/src/app/.git/refs/replace`, `/src/app/.git/refs/projectman`, `/src/app/.git/info/grafts` (and their lock files)',
     );
     expect(text).toContain(
       'Reading: nothing below `/home/anna` and `/pm` except `/pm/worktrees/AR/AR-21-app`, `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`, `/pm/member-caches/AR/fe-1/gitconfig`, `/src/app/.git`, `/home/anna/.gitconfig`',

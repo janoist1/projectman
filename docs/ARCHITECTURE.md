@@ -253,7 +253,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`workspace_dirty`); nothing is stashed, reset, cleaned or removed, and done or cancelled tasks
   leave the workspace, its branches and dependencies in place. A conversation of an older
   generation of the workspace (made again or moved) is not resumed. Memory stays per project and
-  member (`memory/<KEY>/<handle>.md`).
+  member (`memory/<KEY>/<handle>.md`). The merger resolves conflicts in the card engine's
+  dedicated merge-fix checkout, including in member workspace mode (PM-794).
 - **Context pack** — built when a session starts: the project's own `CLAUDE.md`/`AGENTS.md`
   (read by the CLI from the working directory), the member's identity, duty fragments and
   instructions, the team roster, the project's labels, how to use the team tools, the rules
@@ -3323,9 +3324,17 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   engine through the worktree and merge contracts; only checkout metadata, commit ids and the
   resolution note cross the boundary. A merger assigned to another engine is refused. The
   server stores the fix state and resolution attribution; it never edits conflict files.
-  This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
-  with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
-  `MemberWorkspaces` retains its existing work/review choices. The server's shared
+  Both task worktree and member workspace modes use this checkout (PM-794). In member workspace
+  mode the approved commit is first published as a snapshot from the developer's clone into the
+  engine's project repository; the submitted fix head already lives there and is not published
+  from the developer's clone, including when a newer base causes another conflict-fix round.
+  Placement remains `task_worktree` with `mergeFix.branch`, without
+  reserving the merger's member workspace. `MemberWorkspaces.check` bypasses clone admission for
+  the nominated fixer, and `roundDue` ignores sessions outside member workspaces, so a pending
+  review refresh cannot restart a fix session. On restart the old process scope's cleanup releases
+  its clone reservation. Shared git protections also deny session writes to `refs/projectman`,
+  including the server-managed workspace snapshot refs, in both Claude and Codex sandboxes.
+  The server's shared
   `kernel` (`MergeCardLock`) lock serializes fix creation, session placement and cleanup;
   cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
   Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept

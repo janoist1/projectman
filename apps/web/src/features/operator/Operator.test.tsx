@@ -764,7 +764,16 @@ describe('a signal the Operator raised', () => {
     renderLayout(project);
     const operator = await button();
     fireEvent.click(operator);
-    await waitFor(() => expect(document.querySelectorAll('[data-signal]').length).toBe(3));
+    const group = await screen.findByRole('button', {
+      name: new RegExp(`^${t('operator.signal.pending', { count: 3 })}`),
+    });
+    fireEvent.click(group);
+    const rows = within(group.closest('section')!).getAllByRole('listitem');
+    expect(rows.map((row) => row.getAttribute('data-signal-id')).sort()).toEqual([
+      'nobody',
+      'silent',
+      'stalled',
+    ]);
     expect(operator.getAttribute('aria-label')).toContain(t('operator.button.signals', { count: 3 }));
     expect(
       document.querySelector('[data-signal="structural_pattern"], [data-signal="milestone_closed"]'),

@@ -77,7 +77,7 @@ export default async ({ instance, open, shoot, step }) => {
       await page.waitForSelector('#operator-panel textarea');
       if (scene.messages.length)
         await page.getByText(scene.messages[0].body.split(':')[0], { exact: false }).first().waitFor();
-      if (scene.signals.length) await page.waitForSelector('[data-signal], [data-signal-id]');
+      if (scene.signals.length) await page.waitForSelector('#operator-panel [data-state="open"]');
       await shoot(page, scene.name, { widths: [1512, 390] });
       await page.close();
     });

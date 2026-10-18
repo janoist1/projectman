@@ -55,8 +55,11 @@ import type {
   InboxOption,
   InboxResolutionRule,
   InboxState,
+  ObligationRef,
   ProjectConfig,
   QuestionCloseRule,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
   QuestionScreening,
   QuestionTodo,
   ResolveInboxRequest,
@@ -1313,6 +1316,119 @@ export class InboxService {
   }
 
   /**
+   * The payload, options and recipient a question has when it goes to the people (PM-558): the one rule of
+   * `releaseScreened` and of the todo the system opens itself (`openIntegratorTodo`).
+   */
+  private releaseFields(current: InboxItem, release: ScreeningRelease, config: ProjectConfig, at: string) {
+    const { outcome, fallback } = release;
+    const selected =
+      outcome === 'todo'
+        ? selectTodoRecipient(
+            current,
+            release.todo!.recipient,
+            this.integratorTodoAccess?.available(config) ?? false,
+          )
+        : { recipient: 'owner' as const };
+    const todo = release.todo ? { ...release.todo, recipient: selected.recipient } : undefined;
+    const payload = withScreening(
+      {
+        ...current.payload,
+        recipient: selected.recipient,
+        ...(selected.recipient === 'integrator' ? { integratorOpenedAt: at } : {}),
+      },
+      {
+        at,
+        ...(outcome ? { outcome } : {}),
+        ...(release.by ? { by: release.by } : {}),
+        ...(release.note ? { note: release.note } : {}),
+        ...(todo ? { todo } : {}),
+        ...('recipientRefusal' in selected ? { recipientRefusal: selected.recipientRefusal } : {}),
+        ...(fallback ? { fallback } : {}),
+      },
+      at,
+    );
+    const options = outcome === 'todo' ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : current.options;
+    return { selected, todo, payload, options };
+  }
+
+  /**
+   * The system opens a todo for the integrator itself (PM-806): nobody asked it, so `askedBy` (`system`, or the
+   * project manager's handle) is the item's source and no answer is delivered to anyone. It takes the screening's
+   * todo path (`releaseFields`), but opens at once, without the Operator. When the integrator cannot take it
+   * (`recipientRefusal`), the owners get it. It sets no waiting label. The obligation's id is on the payload, so
+   * a todo whose row was not written (a crash) is found again.
+   */
+  async openIntegratorTodo(input: {
+    projectKey: string;
+    taskKey: string | null;
+    askedBy: string;
+    question: string;
+    todo: QuestionTodo;
+    obligation?: ObligationRef;
+  }): Promise<{
+    itemId: string;
+    recipient: QuestionRecipient;
+    recipientRefusal: QuestionRecipientRefusal | null;
+  }> {
+    const config = await this.projects.config(input.projectKey);
+    const owners = ownerHandles(config);
+    if (owners.length === 0) throw invalid('no_assignees', 'the project has no owner to give a todo to');
+    const at = isoNow(this.ctx);
+    const draft: InboxItem = {
+      id: newId('inb'),
+      projectKey: input.projectKey,
+      kind: 'question',
+      assignees: owners,
+      source: input.askedBy,
+      sessionId: null,
+      taskKey: input.taskKey,
+      title: input.question,
+      body: null,
+      payload: {
+        question: input.question,
+        requestedRecipient: 'integrator',
+        recipient: 'owner',
+        ...(input.obligation ? { obligation: input.obligation } : {}),
+      },
+      options: [],
+      state: 'open',
+      resolution: null,
+      createdAt: at,
+    };
+    const { selected, payload, options } = this.releaseFields(
+      draft,
+      { outcome: 'todo', by: 'system', todo: { ...input.todo, recipient: 'integrator' } },
+      config,
+      at,
+    );
+    const item = this.create({
+      id: draft.id,
+      projectKey: draft.projectKey,
+      kind: 'question',
+      assignees: owners,
+      source: draft.source,
+      taskKey: draft.taskKey,
+      title: draft.title,
+      payload,
+      options,
+    });
+    return {
+      itemId: item.id,
+      recipient: selected.recipient,
+      recipientRefusal: 'recipientRefusal' in selected ? (selected.recipientRefusal ?? null) : null,
+    };
+  }
+
+  /**
+   * The obligation an integrator todo handed over was fulfilled or cancelled (PM-806): the todo closes with the
+   * rule `obligation_closed`, as the one `closeQuestion` branch of every question closed by the system. Nothing
+   * happens when it is closed already.
+   */
+  async closeObligationTodo(itemId: string, _at: string): Promise<void> {
+    await this.closeQuestion(itemId, { rule: 'obligation_closed', by: 'system', note: null });
+  }
+
+  /**
    * The question leaves the Operator's screening for the people (PM-558): it opens, with the Operator's
    * outcome (`decision`: a person decides; `todo`: a person does something, the options become Done and
    * Cannot do it) or, with no outcome, because the system gave up waiting (`fallback`). Null when the item
@@ -1334,33 +1450,7 @@ export class InboxService {
       const { outcome, fallback } = release;
       const config = await this.projects.config(current.projectKey);
       const at = isoNow(this.ctx);
-      const selected =
-        outcome === 'todo'
-          ? selectTodoRecipient(
-              current,
-              release.todo!.recipient,
-              this.integratorTodoAccess?.available(config) ?? false,
-            )
-          : { recipient: 'owner' as const };
-      const todo = release.todo ? { ...release.todo, recipient: selected.recipient } : undefined;
-      const payload = withScreening(
-        {
-          ...current.payload,
-          recipient: selected.recipient,
-          ...(selected.recipient === 'integrator' ? { integratorOpenedAt: at } : {}),
-        },
-        {
-          at,
-          ...(outcome ? { outcome } : {}),
-          ...(release.by ? { by: release.by } : {}),
-          ...(release.note ? { note: release.note } : {}),
-          ...(todo ? { todo } : {}),
-          ...('recipientRefusal' in selected ? { recipientRefusal: selected.recipientRefusal } : {}),
-          ...(fallback ? { fallback } : {}),
-        },
-        at,
-      );
-      const options = outcome === 'todo' ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : current.options;
+      const { selected, todo, payload, options } = this.releaseFields(current, release, config, at);
       const released = this.ctx.unitOfWork(() => {
         if (!this.ctx.repos.inbox.release(id, { payload, options, at })) return null;
         if (selected.recipient === 'integrator')

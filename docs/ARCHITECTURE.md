@@ -646,6 +646,7 @@ construction order; the factories return the existing classes without changing b
 | `services/releases`                               | Release proposals and release roadmap notices.                              |
 | `services/structure`                              | Repository structure descriptors, module sizes and card file placement.     |
 | `services/github`                                 | GitHub synchronization, pull requests and publishing.                       |
+| `services/obligations`                            | Open-step deadlines, one reminder and one integrator todo (PM-806).         |
 | `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
 | `services/project-docs`                           | Operator document writes and decision candidates.                           |
 | `services/boundary`                               | External operation authorization and boundary requests.                     |
@@ -3704,6 +3705,29 @@ for a live session of the old assignee (only a change of the repository is).
 **Remote engine:** the only machine-dependent part is the `sourceHead` git query for the note and the fallback record
 (see the inventory entry "Task worktrees and shared git storage"); the conversation state, the stop at a safe point and
 the transcript summary go through the existing runner and transcript entries.
+
+### Obligation tracking (PM-806, part of PM-796)
+
+An open step of an AI member must not get lost when its session exits, stalls or misunderstands.
+`services/obligations` (`ObligationsService`) gives every such step a responsible and a deadline of
+`TeamLimits.obligationMinutes` minutes (5–1440, default 30, in `WAIVER_LIMITS`). Kinds in this card:
+`merge`, `work`, `review_step` and `refinement_turn` (`fix_limit` and the PM path follow in other cards).
+Each kind has a source (`sources.ts`) that derives, from the task waits, the merge requests and the
+refinement turn, which steps are open now; the sweep writes one row of `obligations` (migration 88, not
+journaled) per card, kind, responsible and subject, and closes a row whose step ended.
+
+The pure clock is `planObligation` in `packages/shared/src/domain/obligation.ts`: the first expiry sends
+one action message from the system to the responsible (`obligation_woken`), the second makes one integrator
+todo (`obligation_handed_over`, `core/inbox` `openIntegratorTodo`). Activity of the responsible moves the
+deadline; a person's open question, a held card, a pending permission and a refused start (team paused,
+engine offline, `PAUSING_REFUSALS`) stop the clock and a resume restarts it. A restart, a double sweep and
+a crash between the todo and the row write repeat nothing: the rows hold the clock and the todo is found
+again through its `payload.obligation`. The system never merges, decides or sets a label. The hub job
+`obligations` runs the sweep at start-up and every minute.
+
+**Remote engine:** everything runs on the hub. The reminder goes through `Messaging` and `ensureSession`,
+whose start takes the engine path as any message; an engine that is offline is a `start_refused` pause of
+the clock, not an error. No machine-dependent part is added, so the inventory does not change.
 
 ### Project focus (PM-427, PM-435)
 

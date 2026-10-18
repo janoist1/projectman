@@ -249,6 +249,25 @@ describe('parts left after a breakdown on the timeline (PM-480)', () => {
   });
 });
 
+describe('open-step reminders on the timeline (PM-806)', () => {
+  const row = (type: 'obligation_woken' | 'obligation_handed_over', data: Record<string, unknown>) =>
+    describeEvent({ ...creation, actor: { kind: 'system', handle: null }, type, data }, context).text;
+
+  it('names the responsible, the step and the minutes', () => {
+    const data = { kind: 'merge', responsible: 'dev-1', minutes: 30 };
+    expect(row('obligation_woken', data)).toBe(
+      t('timeline.events.obligation_woken', { responsible: 'dev-1', step: 'beolvasztás', minutes: 30 }),
+    );
+    expect(row('obligation_handed_over', data)).toBe(
+      t('timeline.events.obligation_handed_over', { responsible: 'dev-1', step: 'beolvasztás', minutes: 30 }),
+    );
+  });
+
+  it('calls a step kind this build does not know a step', () => {
+    expect(row('obligation_woken', { kind: 'other', responsible: 'dev-1', minutes: 5 })).toContain('lépés');
+  });
+});
+
 describe('card relations on the timeline (PM-192)', () => {
   const relation = (type: 'task_relation_added' | 'task_relation_removed', kind: string, ref: string) =>
     describeEvent({ ...creation, type, data: { kind, ref } }, context).text;

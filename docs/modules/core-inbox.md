@@ -89,6 +89,23 @@ accepted under the lock before the deadline can finish while the sweep waits. Ha
 it sends no answer and does not release the waiting label. Existing inbox change triggers journal
 opening, handoff and closure. No new machine operation or engine-boundary method is needed.
 
+## Obligation todos (PM-806)
+
+`ObligationsService` (`services/obligations`) hands a step whose responsible did not act to the
+integrator through two inbox operations. `openIntegratorTodo` opens a question item that carries
+`payload.obligation` (`kind`, `responsible`, `subject`) and the same `integratorOpenedAt` clock as any
+integrator todo, so the 24-hour owner handoff applies to it too; with no integrator available the owners
+get it directly, which the `IntegratorTodoAccess` port decides. The item has no asker to answer: the
+system is its source, so `resolveIntegratorTodo` and `resolve` record the result and send no message
+(`answeredNotice` skips obligation todos).
+
+`closeObligationTodo` cancels an open obligation todo when its step is fulfilled, cancelled or moved on.
+The resolution rule is `obligation_closed` (`QuestionCloseRule`), recorded as the closing rule on the
+item. The todo is found again by `ofInboxItem` / `inboxItemId` of the obligation row, so a crash between
+creating the todo and writing the row does not open a second one. Obligation todos do not count as an
+open person's question when the sweep decides whether the card is paused. No machine operation or
+engine-boundary method is added.
+
 ## Remote engine (existing permission requests)
 
 Questions, approval records and rules remain on the server. Permission requests retain the session engine's paths, and the existing broker/engine contracts carry decisions to that engine. `InboxService` still checks a tool's canonical working directory through that engine's `realpath` before consulting its injected policy. Server paths must not replace engine paths; PM-635 adds no boundary method or payload.

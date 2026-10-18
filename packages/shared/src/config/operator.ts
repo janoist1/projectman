@@ -656,6 +656,7 @@ const WAIVER_LIMITS: WaiverFields = {
   loopWatch: { enabled: true, count: true, minutes: true },
   maxFixRounds: true,
   seniorWaitMinutes: true,
+  obligationMinutes: true,
   tempWorkers: { enabled: true, max: true, role: true },
 };
 const WAIVER_STAGE: WaiverFields = {

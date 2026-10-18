@@ -5,6 +5,7 @@ import {
   ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
+  ObligationKind,
   QuestionCloseRule,
   TaskRelationKind,
   TaskPriority,
@@ -869,6 +870,19 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'question_recipient_escalated':
       return normal(t('timeline.events.question_recipient_escalated'));
+    case 'obligation_woken':
+    case 'obligation_handed_over': {
+      const kind = ObligationKind.safeParse(d.kind);
+      return normal(
+        t(`timeline.events.${event.type}`, {
+          responsible: nameOf(str(d.responsible), ctx.members, ctx.myHandle),
+          step: kind.success
+            ? t(`timeline.obligationSteps.${kind.data}`)
+            : t('timeline.obligationSteps.step'),
+          minutes: typeof d.minutes === 'number' ? d.minutes : 0,
+        }),
+      );
+    }
     case 'question_answered':
       if (d.integratorTodo && typeof d.integratorTodo === 'object') {
         const result = d.integratorTodo as { optionId?: string; note?: string | null };

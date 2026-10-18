@@ -6,6 +6,7 @@ import { ExternalToolOrigin } from './external-tool-origin';
 import { LabelId } from './label';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
+import { ObligationRef } from './obligation';
 import { StageId } from './pipeline';
 import { ReleaseStep } from './release';
 import { TaskRelationKind } from './relations';
@@ -151,6 +152,8 @@ export const InboxResolutionRule = z.enum([
   /** The asking member withdrew the question (PM-556). */
   'withdrawn',
   'group_withdrawn',
+  /** The obligation an integrator todo asked about was fulfilled or cancelled meanwhile (PM-806). */
+  'obligation_closed',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -163,6 +166,7 @@ export const QuestionCloseRule = InboxResolutionRule.extract([
   'withdrawn',
   'group_withdrawn',
   'operator_moot',
+  'obligation_closed',
 ]);
 export type QuestionCloseRule = z.infer<typeof QuestionCloseRule>;
 
@@ -923,6 +927,8 @@ export const QuestionPayload = z.object({
   externalQuestion: ExternalToolOrigin.optional(),
   /** The durable message that carries the answer of an `externalQuestion` (PM-784); no session reads it. */
   externalAnswerMessageId: z.string().optional(),
+  /** The obligation this integrator todo hands over (PM-806): the system opened it, no member asked. */
+  obligation: ObligationRef.optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 

@@ -1,6 +1,12 @@
 import { lstat, mkdir, readFile as readFileBytes, realpath, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { MergeError, type BranchMerger, type MergeRepoRef } from '../contracts';
+import {
+  MERGE_CHECK_DIR,
+  mergeCheckPath,
+  MergeError,
+  type BranchMerger,
+  type MergeRepoRef,
+} from '../contracts';
 import { copyDependencyTrees, DEPENDENCY_LOCKFILE, findDependencyReference } from '../worktree';
 import { runGit } from './merge-git';
 import { invalidInput, isMergeId, type MergeArgs } from './merge-input';
@@ -12,7 +18,7 @@ import { isWithin } from './within';
  * worktree of the merge commit under `<worktreesRoot>/_merge/<mergeId>`, made for the card's checks.
  */
 
-export const MERGE_CHECK_DIR = '_merge';
+export { MERGE_CHECK_DIR } from '../contracts';
 export const DEPENDENCIES_NOT_INSTALLED =
   "No checkout of the repository has the dependencies of the merge result installed (its package-lock.json matches no installed checkout). Install them with npm ci in a checkout whose package-lock.json is the merge result's: the repository's own checkout of the default branch when the card does not change the dependencies, otherwise the card's worktree after merging the default branch into it. Then retry merge_task.";
 export interface MergeCheckOptions {
@@ -29,13 +35,14 @@ export function createMergeChecks(
 ): Pick<BranchMerger, 'checkoutForCheck' | 'releaseCheck'> {
   const { args, platform } = options;
 
-  const checkRoot = async (): Promise<string> => {
+  const checkPath = async (mergeId: string): Promise<string> => {
     if (!options.worktreesRoot) return invalidInput('This engine has no worktrees root');
-    const root = path.join(await realpath(options.worktreesRoot), MERGE_CHECK_DIR);
+    const worktreesRoot = await realpath(options.worktreesRoot);
+    const root = path.join(worktreesRoot, MERGE_CHECK_DIR);
     const known = await lstat(root).catch(() => null);
     if (known && (!known.isDirectory() || known.isSymbolicLink()))
       return invalidInput(`${root} is not a directory`);
-    return root;
+    return mergeCheckPath(worktreesRoot, mergeId);
   };
 
   const release = async (repo: string, target: string): Promise<void> => {
@@ -103,9 +110,8 @@ export function createMergeChecks(
     const mergeCommit = args.commit(input.mergeCommit, 'The merge commit');
     if (input.depsFrom !== null && !path.isAbsolute(input.depsFrom))
       invalidInput('The dependencies path is not absolute');
-    const root = await checkRoot();
-    const target = path.join(root, input.mergeId);
-    await mkdir(root, { recursive: true, mode: 0o700 });
+    const target = await checkPath(input.mergeId);
+    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     // A leftover of an earlier try with this id is made again from scratch.
     await release(repo, target);
     await must(repo, ['worktree', 'add', '--detach', target, mergeCommit], 'worktree add');
@@ -157,8 +163,7 @@ export function createMergeChecks(
   const releaseCheck = async (ref: MergeRepoRef, input: { mergeId: string }): Promise<void> => {
     const repo = args.repo(ref);
     if (!isMergeId(input.mergeId)) invalidInput('Not a merge id');
-    const root = await checkRoot();
-    await release(repo, path.join(root, input.mergeId));
+    await release(repo, await checkPath(input.mergeId));
   };
 
   return { checkoutForCheck, releaseCheck };

@@ -2121,7 +2121,13 @@ workers follow the machine's size.
   - Free-disk admission: `host.free_disk`; idle heavy-run protection: `host.heavy_run_sessions`;
     CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
-    `full_test_started` event when the run got its turn in the queue (PM-489).
+    `full_test_started` event when the run got its turn in the queue (PM-489). PM-790 adds
+    `full_test.attach {runId}` in `engine-link/{methods,engine-handlers}.ts`: attachments wait for
+    an active run or read its retained result. The engine keeps completed results in memory for
+    60 minutes, at most 32, pruning on run/attach calls and completion without a timer. Cancel and
+    final disposal forget records; link closure leaves the executor and records alive. Only run ids
+    and strict full-test results cross the boundary. Protocol version stays 1; an older engine
+    answers `unknown_method`.
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
@@ -3263,7 +3269,13 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
   `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
   `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from an installed checkout with a byte-identical
-  merged lockfile, an APFS clone `cp -c` on macOS; PM-580). The engine tries the bounded preferred source,
+  merged lockfile, an APFS clone `cp -c` on macOS; PM-580). PM-790 centralizes the checkout path in
+  `contracts/engine.ts` (`MERGE_CHECK_DIR`, `mergeCheckPath`). Before recreating or releasing a check
+  checkout, `engine-link/engine-handlers.ts` aborts all active full tests whose resolved working
+  directories are that checkout or its descendants and awaits executor cleanup, including dependency
+  preparation and the heavy-run lock. It then forgets those runs and logs their run/merge ids at info
+  level; other merge ids are unaffected. The comparison uses engine-local resolved paths and requires
+  no cloud filesystem access or new machine assumption. The engine tries the bounded preferred source,
   its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
   source after copying and blocks with `check_error` before checks if none matches. Since PM-681
   `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer

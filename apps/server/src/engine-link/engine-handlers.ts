@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import type { FastifyBaseLogger } from 'fastify';
 import { routes } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
 import type {
@@ -9,6 +10,7 @@ import type {
   AdministrationTarget,
   EngineHost,
   FullTestExecutor,
+  FullTestResult,
   GithubService,
   MachineProbe,
   PlanUsageProvider,
@@ -16,7 +18,7 @@ import type {
   SessionRunner,
   TranscriptReader,
 } from '../contracts';
-import { WorkspaceFileRefusal } from '../contracts';
+import { mergeCheckPath, WorkspaceFileRefusal } from '../contracts';
 import { conflict } from '../kernel';
 import { git } from '../worktree';
 import type { EngineAudit } from './engine-audit';
@@ -47,6 +49,14 @@ export const ENV_VALUE_NAMES = [
 const MAX_ENV_PIDS = 5000;
 const MAX_WATCH_TARGETS = 500;
 const MAX_WATCHES = 50;
+const FULL_TEST_RESULT_KEEP_MS = 60 * 60_000;
+const FULL_TEST_RESULTS_KEPT = 32;
+
+interface FullRunRecord {
+  cwd: string;
+  ended: Promise<FullTestResult>;
+  endedAt: number | null;
+}
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 const REFUSAL_CODES: ReadonlySet<EngineErrorCode> = new Set([
   'invalid_params',
@@ -73,6 +83,8 @@ export interface EngineHandlerDeps {
   transfers: EngineTransfers;
   fullTest?: FullTestExecutor;
   screenshots?: ScreenshotExecutor;
+  now?: () => number;
+  logger?: Pick<FastifyBaseLogger, 'info'>;
   /** The engine's own loopback address (`http://127.0.0.1:<port>`) the CLIs reach hooks and team tools at. */
   mcpBase: string;
   emit: (event: EngineEvent) => void;
@@ -108,6 +120,7 @@ function memberOf(params: unknown): string | undefined {
 
 export function createEngineHandlers(deps: EngineHandlerDeps) {
   const { limit, audit, runner, engine, github, probe, transfers } = deps;
+  const now = deps.now ?? Date.now;
   const memberWorkspaces = () => {
     if (!engine.memberWorkspaces)
       throw new EngineRpcError('unknown_method', 'This engine has no member workspaces');
@@ -135,8 +148,39 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
   const fullRuns = new Map<string, AbortController>();
   /** Settles when the run of a `full_test.run` has ended and its executor has cleaned up. */
   const fullRunEnds = new Map<string, Promise<void>>();
+  const fullRunRecords = new Map<string, FullRunRecord>();
   const shotRuns = new Map<string, AbortController>();
   const watches = new Map<string, () => void>();
+
+  const pruneFullRunRecords = () => {
+    const at = now();
+    const ended = [...fullRunRecords].filter(([, record]) => record.endedAt !== null);
+    ended.sort((a, b) => a[1].endedAt! - b[1].endedAt!);
+    for (const [index, [runId, record]] of ended.entries()) {
+      if (at - record.endedAt! >= FULL_TEST_RESULT_KEEP_MS || index < ended.length - FULL_TEST_RESULTS_KEPT)
+        fullRunRecords.delete(runId);
+    }
+  };
+
+  const endChecksIn = async (mergeId: string) => {
+    const { worktreesRoot } = engine.paths();
+    if (worktreesRoot === null) return;
+    const checkout = path.resolve(mergeCheckPath(worktreesRoot, mergeId));
+    await Promise.all(
+      [...fullRunRecords].map(async ([runId, record]) => {
+        if (record.endedAt !== null) return;
+        const relative = path.relative(checkout, path.resolve(record.cwd));
+        if (relative.startsWith('..') || path.isAbsolute(relative)) return;
+        fullRuns.get(runId)?.abort();
+        await fullRunEnds.get(runId);
+        fullRunRecords.delete(runId);
+        deps.logger?.info(
+          { runId, mergeId },
+          'engine: stopped a full test still running in a merge check checkout',
+        );
+      }),
+    );
+  };
 
   const upload = (token: string, purpose: 'file' | 'transcript' | 'bundle', body: Buffer) =>
     transfers.upload(limit.token(token), purpose, { size: body.length, stream: () => Readable.from([body]) });
@@ -311,13 +355,17 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       return none;
     },
     async 'full_test.run'({ spec }) {
+      pruneFullRunRecords();
       if (!engine.fullTestExecutor)
         throw new EngineRpcError('command_not_allowed', 'This engine runs no full test');
       const controller = new AbortController();
       fullRuns.set(spec.runId, controller);
-      const running = engine.fullTestExecutor.run(spec, controller.signal, () =>
-        deps.emit({ kind: 'full_test_started', runId: spec.runId }),
-      );
+      const running = (async () =>
+        engine.fullTestExecutor!.run(spec, controller.signal, () =>
+          deps.emit({ kind: 'full_test_started', runId: spec.runId }),
+        ))();
+      const record: FullRunRecord = { cwd: spec.cwd, ended: running, endedAt: null };
+      fullRunRecords.set(spec.runId, record);
       fullRunEnds.set(
         spec.runId,
         running.then(
@@ -328,15 +376,24 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       try {
         return await running;
       } finally {
+        record.endedAt = now();
         fullRuns.delete(spec.runId);
         fullRunEnds.delete(spec.runId);
+        pruneFullRunRecords();
       }
+    },
+    async 'full_test.attach'({ runId }) {
+      pruneFullRunRecords();
+      const record = fullRunRecords.get(runId);
+      if (!record) return { state: 'unknown' };
+      return { state: 'ended', result: await record.ended };
     },
     async 'full_test.cancel'({ runId }) {
       fullRuns.get(runId)?.abort();
       // The answer comes when the run has ended: the cloud removes the check checkout after it (PM-681),
       // so a dependency installation must be gone by then.
       await fullRunEnds.get(runId);
+      fullRunRecords.delete(runId);
       return none;
     },
     async 'screenshots.run'({ runId, spec }) {
@@ -464,9 +521,11 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       return merger().checkoutConflicts(ref, input);
     },
     async 'merge.checkout_for_check'({ ref, ...input }) {
+      await endChecksIn(input.mergeId);
       return merger().checkoutForCheck(ref, input);
     },
     async 'merge.release_check'({ ref, ...input }) {
+      await endChecksIn(input.mergeId);
       await merger().releaseCheck(ref, input);
       return none;
     },
@@ -573,6 +632,7 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     /** Stops what runs for the cloud when the link is gone for good or the engine stops. */
     dispose() {
       for (const controller of [...fullRuns.values(), ...shotRuns.values()]) controller.abort();
+      fullRunRecords.clear();
       for (const unwatch of watches.values()) unwatch();
       watches.clear();
     },

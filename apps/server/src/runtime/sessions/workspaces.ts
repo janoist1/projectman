@@ -31,6 +31,8 @@ type FetchedBase = Awaited<ReturnType<MemberWorkspaceManager['fetchBase']>>;
 
 /** The refs of commits a developer's workspace handed over to the project repository (PM-739). */
 const SNAPSHOT_REF_PREFIX = 'refs/projectman/workspaces/';
+/** Where `MemberWorkspaceManager.fetchBase` leaves the default branch in the member's own clone. */
+const BASE_TRACKING_REF_PREFIX = 'refs/remotes/upstream/';
 
 /** Where a task session works in its member's workspace, as `SessionOrchestrator.start` uses it. */
 export interface WorkspacePlacement {
@@ -466,11 +468,11 @@ export class MemberWorkspaces {
       binding = { ...previous, kind: 'review' };
     } else {
       // A new round: the handed-over branch's commit now, and the default branch fetched for this start.
-      const selected = await this.reviewSource(config, key, task);
-      if (!selected)
-        throw conflict('workspace_source_missing', `task ${task.key} has no committed branch to review yet`, {
-          taskKey: task.key,
-        });
+      // A card with no branch yet (one being worked out) is read on the fetched default branch.
+      const selected = (await this.reviewSource(config, key, task)) ?? {
+        source: { path: record.path, ref: `${BASE_TRACKING_REF_PREFIX}${base.branch}` },
+        commit: base.commit,
+      };
       const { source, commit } = selected;
       checkout = await this.manager.checkoutReview(key, source, commit);
       binding = {
@@ -548,6 +550,7 @@ export class MemberWorkspaces {
 
   /** The branch name a review shows: a snapshot's is the developer's branch, not its internal ref. */
   private sourceBranchOf(task: Task, ref: string): string {
+    if (ref.startsWith(BASE_TRACKING_REF_PREFIX)) return ref.slice(BASE_TRACKING_REF_PREFIX.length);
     if (!ref.startsWith(SNAPSHOT_REF_PREFIX)) return ref.replace(/^refs\/(heads|remotes\/origin)\//, '');
     return this.workOf(task.projectKey, task.key)?.binding.branch ?? taskBranchNameOf(task);
   }

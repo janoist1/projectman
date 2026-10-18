@@ -32,6 +32,8 @@ async function setup(activePm = false) {
       if (activePm && pm.kind === 'ai') pm.onLeave = false;
     },
   });
+  for (const kind of ['structural_pattern', 'milestone_closed'] as const)
+    h.repos.operatorSignals.arm('AR', kind, '2026-09-01T00:00:00.000Z');
 }
 const config = () => h.domain.projects.cachedConfig('AR')!;
 const report = (until?: string) => new StructuralPatterns(h.domain.ctx).report(config(), until);

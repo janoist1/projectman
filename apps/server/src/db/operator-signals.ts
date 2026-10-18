@@ -21,6 +21,18 @@ export function createOperatorSignalRepository(db: Db) {
   const openByCase = db.prepare(`SELECT ${columns} FROM operator_signals
     WHERE project_key = ? AND case_key = ? AND resolved_at IS NULL`);
   return {
+    armedAt(projectKey: string, kind: OperatorSignalKind): string | null {
+      const row = db
+        .prepare('SELECT armed_at FROM operator_signal_arms WHERE project_key = ? AND kind = ?')
+        .get(projectKey, kind) as { armed_at: string } | undefined;
+      return row?.armed_at ?? null;
+    },
+    arm(projectKey: string, kind: OperatorSignalKind, at: string): string {
+      db.prepare(
+        'INSERT OR IGNORE INTO operator_signal_arms (project_key, kind, armed_at) VALUES (?, ?, ?)',
+      ).run(projectKey, kind, at);
+      return this.armedAt(projectKey, kind)!;
+    },
     latestDismissed(projectKey: string, kind: OperatorSignalKind): OperatorSignalRecord | null {
       const row = db
         .prepare(

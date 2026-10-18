@@ -7,10 +7,19 @@ export const OperatorWatch = z.enum(OPERATOR_WATCH_LEVELS);
 export type OperatorWatch = z.infer<typeof OperatorWatch>;
 export const DEFAULT_OPERATOR_WATCH: OperatorWatch = 'report';
 
+export const COORDINATOR_ONLY_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
+  'structural_pattern',
+  'milestone_closed',
+];
+export function isCoordinatorOnlySignal(kind: OperatorSignalKind): boolean {
+  return COORDINATOR_ONLY_SIGNAL_KINDS.includes(kind);
+}
+
 /** The signal kinds the coordinator may close as needing nothing instead of presenting them. */
 export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
   'ready_waiting',
   'refinement_stalled',
+  ...COORDINATOR_ONLY_SIGNAL_KINDS,
 ];
 
 /** How much the coordinator does on its own on a system signal (PM-545); absent means report. */

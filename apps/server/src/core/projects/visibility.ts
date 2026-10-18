@@ -6,6 +6,7 @@ import {
   canSeeTeamMessage,
   clientCanSeeTimelineEvent,
   isCardLink,
+  isCoordinatorOnlySignal,
   visibleQuestionItem,
   visibleTimelineEvent,
 } from '@projectman/shared';
@@ -220,7 +221,8 @@ export function canSeeProjectEvent(
   isOperatorSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
-  if (event.type === 'operator_signal') return viewer.access === 'owner';
+  if (event.type === 'operator_signal')
+    return viewer.access === 'owner' && !isCoordinatorOnlySignal(event.signal.kind);
   if (event.type === 'inbox_upserted') return canSeeInboxItem(viewer, event.item);
   if (event.type === 'team_message' || event.type === 'team_message_updated')
     return canSeeTeamMessage(viewer, event.message);

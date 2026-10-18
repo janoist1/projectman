@@ -706,6 +706,71 @@ describe('a signal the Operator raised', () => {
   const presenting = (project: Project, body = 'A kártyát most senki nem viheti.') =>
     project.backend.sendTeamMessage('operator', ['owner'], 'AC-20', body);
 
+  it.each([false, true])(
+    'hides coordinator-only cards and preserves their message (mixed: %s)',
+    async (mixed) => {
+      const project = mockProject();
+      const message = presenting(project, 'Historical summary stays readable.');
+      project.backend.operatorSignals = [
+        ...(['pending', 'open', 'dismissed', 'resolved'] as const).flatMap((state) =>
+          (['structural_pattern', 'milestone_closed'] as const).map((kind) =>
+            signal({ id: `${kind}:${state}`, kind, state, messageId: message.id }),
+          ),
+        ),
+        ...(mixed
+          ? [
+              signal({ id: 'visible-stalled', kind: 'stalled', messageId: message.id }),
+              signal({
+                id: 'visible-outage',
+                kind: 'outage',
+                actionable: false,
+                messageId: message.id,
+                inboxItemId: 'inb_outage',
+              }),
+            ]
+          : []),
+      ];
+      renderLayout(project);
+      const operator = await button();
+      fireEvent.click(operator);
+      await screen.findByText('Historical summary stays readable.');
+      await waitFor(() => expect(document.querySelectorAll('[data-signal-id]').length).toBe(mixed ? 2 : 0));
+      expect(
+        document.querySelector('[data-signal="structural_pattern"], [data-signal-id^="structural_pattern"]'),
+      ).toBeNull();
+      expect(
+        document.querySelector('[data-signal="milestone_closed"], [data-signal-id^="milestone_closed"]'),
+      ).toBeNull();
+      if (mixed) {
+        expect(operator.getAttribute('aria-label')).toContain(t('operator.button.signals', { count: 2 }));
+        expect(
+          screen.getByRole('heading', { name: new RegExp(t('operator.signal.group')) }).textContent,
+        ).toContain(t('operator.signal.groupCount', { count: 2 }));
+      } else {
+        expect(within(operator).queryByTestId('operator-signals-count')).toBeNull();
+        expect(document.querySelector('[data-signal]')).toBeNull();
+      }
+    },
+  );
+
+  it('filters trailing coordinator-only cards and counts only three remaining decisions', async () => {
+    const project = mockProject();
+    project.backend.operatorSignals = [
+      ...Array.from({ length: 5 }, (_, index) =>
+        signal({ id: `hidden_${index}`, kind: index % 2 ? 'milestone_closed' : 'structural_pattern' }),
+      ),
+      ...(['stalled', 'silent', 'nobody'] as const).map((kind) => signal({ id: kind, kind })),
+    ];
+    renderLayout(project);
+    const operator = await button();
+    fireEvent.click(operator);
+    await waitFor(() => expect(document.querySelectorAll('[data-signal]').length).toBe(3));
+    expect(operator.getAttribute('aria-label')).toContain(t('operator.button.signals', { count: 3 }));
+    expect(
+      document.querySelector('[data-signal="structural_pattern"], [data-signal="milestone_closed"]'),
+    ).toBeNull();
+  });
+
   it('groups decisions, orders actionable signals first and keeps rows in place after acceptance', async () => {
     const project = mockProject();
     const message = presenting(project, operatorSummaryFixture('summary').body);

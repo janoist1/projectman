@@ -173,8 +173,10 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
-- `dismiss_signal { signal_id, note }` (PM-679) closes a delivered, unpresented `ready_waiting` signal
-  whose cards all wait on purpose. Only the selected PM in its internal general conversation, without an owner
+- `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `ready_waiting`
+  whose cards all wait on purpose, an intermediate/resolved `refinement_stalled`, or a coordinator-only
+  `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
+  `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
 - `combine_questions { item_ids, question, note }` (PM-695) lets only the selected PM's internal

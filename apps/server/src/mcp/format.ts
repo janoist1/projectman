@@ -240,9 +240,9 @@ export function formatReleaseCheck(check: ReleaseCheckResult): string {
 function signalLine(signal: OperatorSignal): string {
   const explanations: Record<OperatorSignal['kind'], string> = {
     structural_pattern:
-      'Repeated structured evidence across independent cards; report only. Weigh request_structural_review; it needs an owner approval before starting anyone.',
+      'Repeated structured evidence across independent cards; coordinator only, never put in signal_ids. Weigh request_structural_review (owner approval required); otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
     milestone_closed:
-      'A theme or collecting milestone closed; report only. Consider an occasional review with request_structural_review.',
+      'A theme or collecting milestone closed; coordinator only, never put in signal_ids. Consider request_structural_review; otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
     loop_suspected:
       'A suspected loop awaits PM assessment with triage_loop; report only, no stop or approval authority.',
     process_cleanup_failed:

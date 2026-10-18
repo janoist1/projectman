@@ -2836,6 +2836,9 @@ assumption or remote-engine RPC.
   the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
+  Scenario resolution sends only `{ cwd, sessionDir }` as roots, without the browser directory
+  or sandbox settings, matching the strict `files.resolve_scenario` contract in hybrid mode
+  (PM-785). This adds no machine-dependent operation and leaves the engine boundary unchanged.
   **Cloud mode (PM-315):** `screenshots.run/cancel` run on the session's engine
   (`services/full-tests/screenshot-runs.ts` takes a remote executor, announced by the engine's `screenshot_started`
   event); a run with no connected engine is refused as `engine_offline`. The scenario and the image list come from the engine (`files.*`).

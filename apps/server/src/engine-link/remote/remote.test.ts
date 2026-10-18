@@ -17,6 +17,8 @@ import type {
   StartSessionSpec,
 } from '../../contracts';
 import { MergeError } from '../../contracts';
+import { ScreenshotRuns } from '../../services/full-tests';
+import { outputTail } from '../../full-test';
 import { testConfig } from '../../../test/helpers/test-template';
 import type { EngineEvent } from '../protocol';
 import { createCloudRemote } from './index';
@@ -634,6 +636,55 @@ describe('cloud mode remote parts', () => {
       expect(engine.requests.at(-1)!.params).toEqual({ keepSessionIds: ['live'] });
       expect(removed).toEqual(['gone']);
       expect(folders.of('gone')).toBeUndefined();
+    });
+
+    it('takes screenshots through the remote host with only scenario roots crossing the RPC boundary', async () => {
+      const engine = await online();
+      const host = remote.directory.get('eng_a' as never)!;
+      const scope = {
+        cwd: '/fictional/work',
+        sessionDir: '/fictional/folders/s1',
+        browsersDir: '/fictional/browsers',
+        sandbox: { allowWrite: [], denyWrite: [], denyRead: [], allowRead: [] },
+      };
+      const scenario = '/fictional/work/shots/login.mjs';
+      const image = '/fictional/folders/s1/shots/login.png';
+      const resolve = vi.fn(() => ({ path: scenario }));
+      engine.answer('files.resolve_scenario', resolve);
+      engine.answer('files.list_images', () => [image]);
+      engine.answer('screenshots.run', () => ({
+        exitCode: 0,
+        timedOut: false,
+        aborted: false,
+        output: 'ok',
+      }));
+      const runs = new ScreenshotRuns({
+        executorFor: () => host.screenshotExecutor,
+        diskFor: () => host,
+        sessions: { screenshotScope: () => scope },
+        outputTail,
+        logger: silentLogger(),
+        platform: 'darwin',
+      });
+      try {
+        await expect(
+          runs.take(
+            { sessionId: 's1', projectKey: 'PM', member: 'codex', taskKey: 'PM-785' },
+            { scenario: 'shots/login.mjs' },
+          ),
+        ).resolves.toMatchObject({ status: 'done', files: [image], exitCode: 0 });
+        expect(resolve).toHaveBeenCalledWith({
+          roots: { cwd: scope.cwd, sessionDir: scope.sessionDir },
+          requested: 'shots/login.mjs',
+        });
+        expect(engine.requests.find((request) => request.method === 'screenshots.run')?.params).toMatchObject(
+          {
+            spec: { ...scope, args: [scenario] },
+          },
+        );
+      } finally {
+        await runs.stop();
+      }
     });
 
     it('reports a screenshot run started by the engine and cancels it with the signal', async () => {

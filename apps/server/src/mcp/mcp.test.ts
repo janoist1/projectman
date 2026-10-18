@@ -181,6 +181,7 @@ describe('team MCP endpoint', () => {
         'question',
         'reask_of',
         'reask_reason',
+        'recipient',
         'recommendation_reason',
         'recommended',
         'response_purpose',

@@ -324,6 +324,8 @@ describe('team tools', () => {
     ]);
     expect(item.payload).toEqual({
       question,
+      requestedRecipient: 'owner',
+      recipient: 'owner',
       options: ['Under the field', 'Pop-up', 'Nowhere'],
       recommended: 'option_2',
       recommendationReason: 'It is easier to read on a phone.',
@@ -357,6 +359,8 @@ describe('team tools', () => {
     const item = h.domain.inbox.get('AR', inboxItemId);
     expect(item.payload).toEqual({
       question: 'Which font should the login page use?',
+      requestedRecipient: 'owner',
+      recipient: 'owner',
       options: ['Inter', 'Roboto'],
     });
     // The first option is the primary button when nothing is recommended.
@@ -367,6 +371,8 @@ describe('team tools', () => {
     ]);
     expect(questionPayloadOf(item)).toEqual({
       question: 'Which font should the login page use?',
+      requestedRecipient: 'owner',
+      recipient: 'owner',
       options: ['Inter', 'Roboto'],
     });
   });

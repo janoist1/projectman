@@ -18,11 +18,13 @@ export function OperatorSignalGroup({
   operatorHandle,
   readOnly,
   onDismiss,
+  onResize,
 }: {
   signals: OperatorSignal[];
   operatorHandle: string;
   readOnly: boolean;
   onDismiss: (id: string) => void;
+  onResize?: () => void;
 }) {
   const { key, myHandle } = useProject();
   const client = useQueryClient();
@@ -36,6 +38,13 @@ export function OperatorSignalGroup({
   const pendingFocus = useRef<string | null>(null);
   const focus = useRef<'toggle' | 'bulk' | 'confirm' | 'retry' | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const previousExpanded = useRef(expanded);
+  useLayoutEffect(() => {
+    if (previousExpanded.current === expanded) return;
+    previousExpanded.current = expanded;
+    // Expanding changes the distance from the bottom without a scroll event.
+    onResize?.();
+  }, [expanded, onResize]);
   const [confirm, setConfirm] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [failures, setFailures] = useState<string[]>([]);
@@ -171,7 +180,7 @@ export function OperatorSignalGroup({
             ) : confirm ? (
               <>
                 <p>{t('operator.signal.dismissAllConfirm', { count: open.length })}</p>
-                <Button ref={confirmButton} size="md" variant="danger" onClick={() => void dismissAll()}>
+                <Button ref={confirmButton} size="md" variant="dangerSolid" onClick={() => void dismissAll()}>
                   {t('operator.signal.dismissAllYes')}
                 </Button>
                 <Button size="md" variant="secondary" onClick={cancel}>

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { PROJECT_MANAGER_ROLE, isUnreadBy } from '@projectman/shared';
 import type {
@@ -177,6 +177,10 @@ export function OperatorThread({
   // The thread opens at its end and follows new messages while the reader is near the bottom.
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const measureStick = useCallback(() => {
+    const box = scroller.current;
+    if (box) stick.current = box.scrollHeight - box.scrollTop - box.clientHeight < STICK_PX;
+  }, []);
   const ready = Boolean(conversation.data);
   useLayoutEffect(() => {
     const box = scroller.current;
@@ -282,10 +286,7 @@ export function OperatorThread({
       role="log"
       aria-live="polite"
       aria-label={t('operator.thread.label')}
-      onScroll={(event) => {
-        const box = event.currentTarget;
-        stick.current = box.scrollHeight - box.scrollTop - box.clientHeight < STICK_PX;
-      }}
+      onScroll={measureStick}
     >
       {empty ? (
         <div className={styles.intro}>
@@ -352,6 +353,7 @@ export function OperatorThread({
               ) : null}
               {entry.signals.length > 1 ? (
                 <OperatorSignalGroup
+                  onResize={measureStick}
                   signals={entry.signals}
                   operatorHandle={handle}
                   readOnly={readOnly}

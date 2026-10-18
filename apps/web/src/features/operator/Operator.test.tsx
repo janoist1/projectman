@@ -538,9 +538,20 @@ describe('unanchored Operator signals', () => {
     const toggle = await groupButton(55);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     const log = screen.getByRole('log');
+    // jsdom has no layout: model the height change while the reader is at the bottom.
+    Object.defineProperties(log, {
+      scrollHeight: {
+        configurable: true,
+        get: () => (toggle.getAttribute('aria-expanded') === 'true' ? 6000 : 800),
+      },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    log.scrollTop = 200;
+    fireEvent.scroll(log);
     expect(log.lastElementChild?.textContent).toContain('Latest reply');
     expect(screen.queryByRole('button', { name: t('operator.signal.dismiss') })).toBeNull();
     fireEvent.click(toggle);
+    expect(log.scrollTop).toBe(200);
     const rows = within(toggle.closest('section')!).getAllByRole('listitem');
     expect(rows).toHaveLength(55);
     fireEvent.click(within(rows[0]!).getByRole('button', { name: t('operator.signal.dismiss') }));
@@ -552,6 +563,7 @@ describe('unanchored Operator signals', () => {
     );
     expect(posted(project, '/operator/signals/sig_0/dismiss')).toHaveLength(1);
     expect(log.lastElementChild?.textContent).toContain('Latest reply');
+    expect(log.scrollTop).toBe(200);
   });
 
   it('places a single signal after an equally timed reply, with its own day heading when needed', async () => {

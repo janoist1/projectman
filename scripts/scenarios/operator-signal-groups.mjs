@@ -109,6 +109,20 @@ export default async ({ instance, open, shoot }) => {
     .getByRole('button', { name: /^Most ne$/ })
     .click();
   await panel.locator('li[data-state="dismissed"]').waitFor();
+  for (const width of [1512, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForFunction(() => {
+      const log = document.querySelector('#operator-panel [role="log"]');
+      const dismissed = log.querySelector('li[data-state="dismissed"]');
+      const next = log.querySelector('li[data-state="open"] button');
+      const visible = (element) => {
+        const rect = element.getBoundingClientRect();
+        const viewport = log.getBoundingClientRect();
+        return rect.top >= viewport.top && rect.bottom <= viewport.bottom;
+      };
+      return visible(dismissed) && visible(next) && document.activeElement === next;
+    });
+  }
   await capture('a-dismissed-row');
   await panel.getByRole('button', { name: /^Mind / }).click();
   await panel.getByRole('button', { name: /^Igen, mindet/ }).click();
@@ -121,6 +135,19 @@ export default async ({ instance, open, shoot }) => {
   signals = makeSignals(2, 62);
   await reopen();
   await capture('b-after-reply');
+  signals = makeSignals(55, 62);
+  await reopen();
+  await toggle.click();
+  for (const width of [1512, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForFunction(() => {
+      const log = document.querySelector('#operator-panel [role="log"]');
+      const header = log.querySelector('h3 button[aria-expanded="true"]').getBoundingClientRect();
+      const viewport = log.getBoundingClientRect();
+      return header.top >= viewport.top && header.bottom <= viewport.bottom;
+    });
+  }
+  await capture('b-expanded-after-reply');
   signals = makeSignals(1, 62);
   await page.reload();
   await page.click('[data-operator-button]');

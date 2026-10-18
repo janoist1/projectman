@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { PROJECT_MANAGER_ROLE, isUnreadBy } from '@projectman/shared';
 import type {
@@ -18,7 +18,7 @@ import { Button } from '../../components/Button';
 import { Markdown } from '../../components/Markdown';
 import { ErrorState } from '../../components/States';
 import { Avatar } from '../../components/Avatar';
-import { formatTime } from '../../i18n/format';
+import { formatDayHeading, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { layoutThread, threadItems } from '../messages/conversations';
 import type { ThreadEntry } from '../messages/conversations';
@@ -28,6 +28,7 @@ import { TaskChip } from '../messages/TaskChip';
 import { operatorSentText, operatorWaitOf } from './operatorChannel';
 import { OperatorSignalCard } from './OperatorSignalCard';
 import { OperatorSignalList } from './OperatorSignalList';
+import { OperatorSignalGroup } from './OperatorSignalGroup';
 import { OperatorSteps } from './OperatorSteps';
 import styles from './OperatorThread.module.css';
 
@@ -36,6 +37,56 @@ export interface FailedOperatorMessage {
   text: string;
   taskKey: string | null;
   attachments?: MessageAttachmentRef[];
+}
+
+type OperatorEntry =
+  | { type: 'message'; id: string; at: string; day: string | null; entry: ThreadEntry }
+  | { type: 'signals'; id: string; at: string; day: string | null; signals: OperatorSignal[] };
+
+/** Keep signal runs within a calendar day and break message runs around them. */
+function operatorEntries(messages: TeamMessage[], signals: OperatorSignal[]): OperatorEntry[] {
+  const items: OperatorEntry[] = [
+    ...layoutThread(threadItems(messages, [], []), null).map((entry): OperatorEntry => ({
+      type: 'message',
+      id: entry.item.id,
+      at: entry.item.at,
+      day: null,
+      entry,
+    })),
+    ...signals.map((signal): OperatorEntry => ({
+      type: 'signals',
+      id: signal.id,
+      at: signal.raisedAt,
+      day: null,
+      signals: [signal],
+    })),
+  ];
+  items.sort(
+    (a, b) =>
+      new Date(a.at).getTime() - new Date(b.at).getTime() ||
+      Number(a.type === 'signals') - Number(b.type === 'signals') ||
+      a.id.localeCompare(b.id),
+  );
+  const result: OperatorEntry[] = [];
+  let lastDay = '';
+  for (const item of items) {
+    const day = new Date(item.at).toDateString();
+    const previous = result.at(-1);
+    if (item.type === 'signals' && previous?.type === 'signals' && day === lastDay) {
+      previous.signals.push(...item.signals);
+      continue;
+    }
+    item.day = day !== lastDay ? formatDayHeading(item.at) : null;
+    if (item.type === 'message')
+      item.entry = {
+        ...item.entry,
+        day: item.day,
+        firstOfRun: item.entry.firstOfRun || previous?.type === 'signals' || day !== lastDay,
+      };
+    result.push(item);
+    lastDay = day;
+  }
+  return result;
 }
 
 /**
@@ -89,7 +140,6 @@ export function OperatorThread({
     [board.data],
   );
   const messages = useMemo(() => conversation.data?.messages ?? [], [conversation.data]);
-  const entries = useMemo(() => layoutThread(threadItems(messages, [], []), null), [messages]);
   const wait = operatorWaitOf(channel);
   const anchors = useMemo(() => stepAnchors(channel.requests, messages), [channel.requests, messages]);
   const signalByMessage = useMemo(() => {
@@ -100,11 +150,14 @@ export function OperatorThread({
   }, [channel.signals]);
   // Only decisions made in this mounted thread retain feedback without a presenting message.
   const [dismissedHere, setDismissedHere] = useState<ReadonlySet<string>>(() => new Set());
-  const trailingSignals = channel.signals.filter(
+  const unanchoredSignals = channel.signals.filter(
     (signal) =>
-      (signal.state === 'open' || (signal.state === 'dismissed' && dismissedHere.has(signal.id))) &&
+      (signal.state === 'open' || dismissedHere.has(signal.id)) &&
       (!signal.messageId || !messages.some((message) => message.id === signal.messageId)),
   );
+  const entries = operatorEntries(messages, unanchoredSignals);
+  const retainSignal = (id: string) =>
+    setDismissedHere((previous) => (previous.has(id) ? previous : new Set([...previous, id])));
   const pmHandle = [...members.values()].find(
     (m) => m.kind === 'ai' && m.role === PROJECT_MANAGER_ROLE,
   )?.handle;
@@ -124,6 +177,10 @@ export function OperatorThread({
   // The thread opens at its end and follows new messages while the reader is near the bottom.
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const measureStick = useCallback(() => {
+    const box = scroller.current;
+    if (box) stick.current = box.scrollHeight - box.scrollTop - box.clientHeight < STICK_PX;
+  }, []);
   const ready = Boolean(conversation.data);
   useLayoutEffect(() => {
     const box = scroller.current;
@@ -219,8 +276,7 @@ export function OperatorThread({
     );
   };
 
-  const empty =
-    entries.length === 0 && !failed && anchors.trailing.length === 0 && trailingSignals.length === 0;
+  const empty = entries.length === 0 && !failed && anchors.trailing.length === 0;
   const examples = readOnly ? (['status', 'mine'] as const) : (['status', 'why', 'writer'] as const);
 
   return (
@@ -230,10 +286,7 @@ export function OperatorThread({
       role="log"
       aria-live="polite"
       aria-label={t('operator.thread.label')}
-      onScroll={(event) => {
-        const box = event.currentTarget;
-        stick.current = box.scrollHeight - box.scrollTop - box.clientHeight < STICK_PX;
-      }}
+      onScroll={measureStick}
     >
       {empty ? (
         <div className={styles.intro}>
@@ -288,22 +341,41 @@ export function OperatorThread({
           ) : null}
         </div>
       ) : (
-        entries.map(renderEntry)
+        entries.map((entry) =>
+          entry.type === 'message' ? (
+            renderEntry(entry.entry)
+          ) : (
+            <div key={entry.id} className={styles.entry}>
+              {entry.day ? (
+                <div className={styles.day} role="separator">
+                  {entry.day}
+                </div>
+              ) : null}
+              {entry.signals.length > 1 ? (
+                <OperatorSignalGroup
+                  onResize={measureStick}
+                  signals={entry.signals}
+                  operatorHandle={handle}
+                  readOnly={readOnly}
+                  onDismiss={retainSignal}
+                />
+              ) : (
+                <OperatorSignalCard
+                  signal={entry.signals[0]!}
+                  message={null}
+                  operatorHandle={handle}
+                  readOnly={readOnly}
+                  onDismiss={retainSignal}
+                />
+              )}
+            </div>
+          ),
+        )
       )}
       {anchors.trailing.map((request) => (
         <div key={request.id} className={styles.extra}>
           <OperatorSteps request={request} titles={titles} />
         </div>
-      ))}
-      {trailingSignals.map((signal) => (
-        <OperatorSignalCard
-          key={signal.id}
-          signal={signal}
-          message={null}
-          operatorHandle={handle}
-          readOnly={readOnly}
-          onDismiss={(id) => setDismissedHere((previous) => new Set([...previous, id]))}
-        />
       ))}
       {failed ? (
         <div className={clsx(styles.entry, styles.failed)}>

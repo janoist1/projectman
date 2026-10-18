@@ -66,12 +66,15 @@ describe('engine local limit', () => {
     ...overrides,
   });
 
-  const make = (overrides: Partial<ResolvedEngineConfig> = {}): EngineLimit =>
+  const make = (
+    overrides: Partial<ResolvedEngineConfig> = {},
+    pathOverrides: Partial<EnginePaths> = {},
+  ): EngineLimit =>
     createEngineLimit({
       config: config(overrides),
       home,
       userHome,
-      paths: paths(),
+      paths: { ...paths(), ...pathOverrides },
       instanceTag: 'a'.repeat(16),
       transcriptRoots: [path.join(userHome, '.claude', 'projects')],
       tmpdir: path.join(base, 'os-tmp'),
@@ -247,6 +250,20 @@ describe('engine local limit', () => {
             }) as never,
           ),
         ).resolves.toBeDefined();
+      });
+
+      it('accepts a merge-fix worktree on an engine with member workspaces', async () => {
+        const limit = make({}, { workspacesRoot: path.join(home, 'workspaces') });
+        const fix = path.join(worktrees, 'PM', '_merge-fix', 'PM-1-projectman');
+        const placement = taskWorktree({ path: fix, mergeFix: { branch: 'merge-fix/PM-1' } });
+        const result = await limit.check(
+          'session.start',
+          start({
+            cwd: fix,
+            policy: policy({ placement, filesystem: { readableRoots: [fix], writableRoots: [fix] } }),
+          }) as never,
+        );
+        expect(result).toMatchObject({ cwd: fix, policy: { placement } });
       });
 
       it('lets a task session read its card’s attachments cache, and only that cache (PM-667)', async () => {

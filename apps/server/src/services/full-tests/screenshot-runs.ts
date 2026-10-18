@@ -142,7 +142,10 @@ export class ScreenshotRuns {
     run.permit = permit;
     let scenario: string;
     try {
-      const resolved = await disk.resolveScenario(scope, input.scenario);
+      const resolved = await disk.resolveScenario(
+        { cwd: scope.cwd, sessionDir: scope.sessionDir },
+        input.scenario,
+      );
       if ('refused' in resolved)
         throw new TeamToolError(
           'invalid',

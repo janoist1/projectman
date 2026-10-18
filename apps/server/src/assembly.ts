@@ -38,6 +38,7 @@ import { createProjectService } from './core/projects';
 import {
   canManageInstancePause,
   coordinationMemberOf,
+  HISTORY_DOC_PATHS,
   isOnLeave,
   isOpenTask,
   OPERATOR_SILENT_WORK_MINUTES,
@@ -53,12 +54,14 @@ import {
   routeFor,
   seniorWaitMinutesOf,
   stageOf,
+  TaskMerged,
 } from '@projectman/shared';
 import path from 'node:path';
 import type {
   EngineId,
   HybridReleaseTarget,
   Me,
+  ProjectConfig,
   ReleaseEngineStatus,
   Session,
   Task,
@@ -80,6 +83,7 @@ import type {
   ScreenshotExecutor,
   ExternalMcpBackend,
   GithubService,
+  HistoryDocumentReader,
   MachineProbe,
   MemberMemoryStore,
   OperatorKnowledgeStore,
@@ -91,7 +95,8 @@ import type {
 import type { Repositories } from './db';
 import type { EmailCodeMailer, ProcessProbe } from './contracts';
 import { createEmailLoginService } from './services/email-login';
-import { createHistoryService } from './services/history';
+import { createHistoryDocumentSync, createHistoryService } from './services/history';
+import { HistoryDocumentReadSuperseded } from './contracts';
 import { createEmailLoginDirectory, projectAccessFor } from './core/members';
 import type { ProjectAccess } from './core/members';
 import {
@@ -167,7 +172,7 @@ import { LocalEngineDirectory } from './runtime/sessions';
 import { createLocalEngine } from './engine-host';
 import { createAdministrationService } from './administration';
 import type { EngineAdministration } from './administration';
-import { conflict } from './kernel';
+import { conflict, notFound } from './kernel';
 import { SessionCloser } from './runtime/sessions';
 import { SessionOrchestrator } from './runtime/sessions';
 import { AutoAdvance } from './runtime/watchers';
@@ -389,6 +394,74 @@ export interface DomainOptions {
 }
 
 export type Domain = ReturnType<typeof createDomain>;
+
+/** The history consumer's adapter: git and the registered repository stay on the selected engine. */
+export function createHistoryDocumentReader(deps: {
+  projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
+  engines: EngineDirectory;
+  now: () => Date;
+}): HistoryDocumentReader {
+  const selection = (projectKey: string, config: ProjectConfig) => {
+    const operator = operatorOf(config);
+    return operator
+      ? deps.engines.engineFor(projectKey, operator.handle)
+      : deps.engines.ids().includes(LOCAL_ENGINE_ID)
+        ? LOCAL_ENGINE_ID
+        : null;
+  };
+  const locate = async (projectKey: string, repoName: string) => {
+    const config = await deps.projects.config(projectKey);
+    const repo = config.project.repos.find((repo) => repo.name === repoName);
+    if (!repo) throw notFound('repository', repoName);
+    const id = selection(projectKey, config);
+    const merger = id ? deps.engines.get(id)?.merger : undefined;
+    if (!merger) throw conflict('engine_offline', 'The document repository engine is not connected');
+    const assertCurrent = () => {
+      const latest = deps.projects.cachedConfig(projectKey);
+      if (!latest || selection(projectKey, latest) !== id) throw new HistoryDocumentReadSuperseded();
+    };
+    return { repo, merger, assertCurrent };
+  };
+  return {
+    async read(projectKey, repoName, at) {
+      const { repo, merger, assertCurrent } = await locate(projectKey, repoName);
+      const ref = { projectKey, repo: repoName };
+      try {
+        assertCurrent();
+        const decisions = await merger.readFile(ref, {
+          at: at.kind === 'head' ? { base: repo.defaultBranch } : { commit: at.commit },
+          path: HISTORY_DOC_PATHS[0],
+        });
+        const lessons = await merger.readFile(ref, {
+          at: { commit: decisions.commit },
+          path: HISTORY_DOC_PATHS[1],
+        });
+        return {
+          projectKey,
+          repo: repoName,
+          commit: decisions.commit,
+          checkedAt: deps.now().toISOString(),
+          files: [
+            { path: HISTORY_DOC_PATHS[0], text: decisions.text },
+            { path: HISTORY_DOC_PATHS[1], text: lessons.text },
+          ],
+        };
+      } finally {
+        // A failed call from the previous engine is superseded too, rather than an offline update.
+        assertCurrent();
+      }
+    },
+    async isAncestor(projectKey, repo, input) {
+      const { merger, assertCurrent } = await locate(projectKey, repo);
+      try {
+        assertCurrent();
+        return await merger.isAncestor({ projectKey, repo }, input);
+      } finally {
+        assertCurrent();
+      }
+    },
+  };
+}
 
 /** Events that carry no durable change (activity and chat flow): they do not wake the change journal's readers. */
 const QUIET_EVENTS: ReadonlySet<string> = new Set(['member_state', 'plan_usage', 'chat_appended']);
@@ -942,7 +1015,15 @@ export function createDomain(opts: DomainOptions) {
     checkSandbox: fullTestSandbox,
     afterMerge: (task) => autoAdvance.check(task),
   });
-  const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges, work: releaseWork });
+  const docWrites = new DocWrites({
+    ctx,
+    projects,
+    engines,
+    messaging,
+    merges,
+    work: releaseWork,
+    onPublished: (event) => historyDocuments.mainMoved(event),
+  });
   merges.registerSlotPeer(docWrites);
   inbox.registerDecider('merge_request', async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
@@ -1403,6 +1484,24 @@ export function createDomain(opts: DomainOptions) {
     logger: opts.logger.child({ module: 'history' }),
     now,
   });
+  const historyDocuments = createHistoryDocumentSync({
+    projects: {
+      keys: async () => projects.summaries().map((project) => project.key),
+      config: (key) => projects.config(key),
+    },
+    reader: createHistoryDocumentReader({ projects, engines, now }),
+    history,
+    logger: opts.logger.child({ module: 'history-documents' }),
+    now,
+  });
+  const unsubscribeHistoryDocuments = bus.subscribe((event) => {
+    if (event.type !== 'timeline_appended' || event.event.type !== 'task_merged') return;
+    const parsed = TaskMerged.safeParse(event.event.data);
+    if (!parsed.success) return;
+    const { repo, base, mergeCommit, commit } = parsed.data;
+    historyDocuments.mainMoved({ projectKey: event.projectKey, repo, base, commit: mergeCommit ?? commit });
+  });
+  events.on('config_changed', ({ projectKey }) => historyDocuments.refresh(projectKey));
   const cardMeasure = new CardMeasure({
     ctx,
     projects,
@@ -2037,6 +2136,7 @@ export function createDomain(opts: DomainOptions) {
       await projects.syncFromStore();
       // The history index holds every database source before the server reports itself ready (PM-786).
       await history.init();
+      await historyDocuments.init();
       // Super-mode configuration commits whose result a crash lost (PM-757): settled from their commit trailers.
       await projects.settleSuperAudit().catch((error: unknown) => {
         opts.logger.warn({ err: error }, 'settling the super-mode audit failed');
@@ -2238,6 +2338,8 @@ export function createDomain(opts: DomainOptions) {
     },
 
     async stop(): Promise<void> {
+      unsubscribeHistoryDocuments();
+      const historyDocumentsStopped = historyDocuments.stop();
       // No sweep ticks from here on; running rounds end with the background work (PM-613).
       const sweepsStopped = sweeps?.stop();
       sweeps = undefined;
@@ -2257,6 +2359,7 @@ export function createDomain(opts: DomainOptions) {
       await screenshotRuns?.stop();
       await outages.stop();
       await emailLogin?.stop();
+      await historyDocumentsStopped;
       await history.stop();
       await Promise.all([sweepsStopped, background.stop()]);
       await delivery.close();

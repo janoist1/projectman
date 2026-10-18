@@ -166,7 +166,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     };
   }
 
-  function documentStates(config: ProjectConfig): HistoryDocumentState[] {
+  function searchDocumentStates(config: ProjectConfig): HistoryDocumentState[] {
     const stored = new Map(
       history.docStates(config.project.key).map((state) => [`${state.repo}\u0000${state.path}`, state]),
     );
@@ -275,7 +275,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
       projectKey,
       matches,
       hasMore,
-      documents: viewer.access === 'client' || !wantsDocuments ? [] : documentStates(config),
+      documents: viewer.access === 'client' || !wantsDocuments ? [] : searchDocumentStates(config),
     };
   }
 
@@ -333,6 +333,13 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
         const entityId = historyDocumentEntityId(repo, file.path);
         const current = history.documentOfEntity(projectKey, 'document', entityId);
         if (file.text === null || file.text === '') {
+          const previous = history.docState(projectKey, repo, file.path);
+          const indexedAt =
+            file.text === null
+              ? null
+              : !current && previous?.status === 'ready'
+                ? (previous.indexedAt ?? checkedAt)
+                : checkedAt;
           history.deleteDocument(projectKey, 'document', entityId);
           history.putDocState({
             projectKey,
@@ -340,7 +347,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
             path: file.path,
             commitSha: commit,
             checkedAt,
-            indexedAt: file.text === null ? null : checkedAt,
+            indexedAt,
             status: file.text === null ? 'missing' : 'ready',
           });
           continue;
@@ -418,5 +425,17 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     replaceDocuments,
     markDocumentsUnavailable,
     removeRepositoryDocuments,
+    documentStates: (projectKey, repo) =>
+      history
+        .docStates(projectKey)
+        .filter((state) => state.repo === repo)
+        .map((state) => ({
+          repo: state.repo,
+          path: state.path,
+          commit: state.commitSha,
+          checkedAt: state.checkedAt,
+          indexedAt: state.indexedAt,
+          status: state.status,
+        })),
   };
 }

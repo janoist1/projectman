@@ -39,6 +39,13 @@ export type {
   HistoryIndexStateRow,
   HistoryRepository,
 } from './history';
+import { createHistorySearchRepository } from './history-searches';
+export type {
+  HistorySearchCursorKey,
+  HistorySearchPeriod,
+  HistorySearchRecord,
+  HistorySearchRepository,
+} from './history-searches';
 import { createFullTestRunRepository } from './full-test-runs';
 import { createEmailLoginRepository } from './email-login';
 export { EMAIL_LOGIN_MAX_FAILED_ATTEMPTS } from './email-login';
@@ -160,6 +167,7 @@ export function createRepositories(db: Db) {
     memberState: createMemberStateRepository(db),
     feedback: createFeedbackRepository(db),
     history: createHistoryRepository(db),
+    historySearches: createHistorySearchRepository(db),
     /** Runs `fn` in a single SQLite transaction. */
     transaction<T>(fn: () => T): T {
       return db.transaction(fn)();

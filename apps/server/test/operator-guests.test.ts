@@ -250,13 +250,17 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     );
     expect(OPERATOR_GUEST_TOOLS.has('get_project_state')).toBe(false);
     expect([...OPERATOR_GUEST_TOOLS].sort()).toEqual([
+      // Only a human admin's own request reaches the statistics: the handler refuses every other guest (PM-787).
+      'get_history_search_stats',
       'get_operator_preference',
       'get_task',
       'list_attachments',
       'list_members',
       'list_tasks',
       'read_attachment',
+      'read_history_source',
       'read_message_attachment',
+      'search_history',
       'send_message',
       'set_operator_preference',
     ]);

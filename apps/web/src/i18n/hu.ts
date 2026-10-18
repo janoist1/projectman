@@ -1044,6 +1044,7 @@ export const hu = {
       super_relay_refused: 'Ezt a választ nem lehet a tulajdonos nevében továbbítani.',
       history_unavailable: 'Az előzménykereső most nem használható.',
       history_source_changed: 'A dokumentum közben megváltozott: keress újra.',
+      history_stats_forbidden: 'A keresési statisztikát ez a kérés nem olvashatja.',
       integrator_https_required: 'Az integrálói kulcs csak HTTPS-en vagy ezen a gépen használható.',
       invalid_event_cursor: 'A változáskövetési kurzor érvénytelen, vagy másik projekté.',
       event_cursor_expired:

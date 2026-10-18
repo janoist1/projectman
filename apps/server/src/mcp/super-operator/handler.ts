@@ -6,7 +6,13 @@ import {
   TaskKey,
   TaskStatus as TaskStatusSchema,
 } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type {
+  HistorySearchInput,
+  HistorySearchResult,
+  HistorySourceRead,
+  HistoryViewer,
+  Task,
+} from '@projectman/shared';
 import { taskWaitShort } from '../../agent-text';
 import { TeamToolError } from '../../contracts';
 import type {
@@ -15,6 +21,8 @@ import type {
   ExternalSentMessage,
   ExternalToolContext,
   ExternalToolsHandler,
+  HistoryService,
+  HistorySourceReadArgs,
   IntegratorCredentialAuthority,
   IntegratorPrincipal,
   ListTasksInput,
@@ -60,6 +68,7 @@ export interface ExternalToolsDeps {
   superHandoffs: Pick<SuperHandoffService, 'list' | 'execute'>;
   superAdministration: SuperAdministration;
   inbox: Pick<InboxService, 'get' | 'resolve'>;
+  history: Pick<HistoryService, 'search' | 'read'>;
 }
 
 /**
@@ -431,5 +440,24 @@ export class ExternalTools implements ExternalToolsHandler {
 
   async relayOwnerAnswer(ctx: ExternalToolContext, args: { itemId: string; answer: string }) {
     return relayOwnerAnswer(this.deps, ctx.projectKey, args.itemId, args.answer, this.access(ctx));
+  }
+
+  /**
+   * The history search for the bound access (PM-787): the shared facade with the integrator's own viewer, so
+   * the visibility rule and the measurement are the member tool's. The project's configuration is loaded first
+   * (the authenticated read), then the facade decides synchronously from it.
+   */
+  private async historyViewer(ctx: ExternalToolContext): Promise<HistoryViewer> {
+    await this.deps.projects.config(ctx.projectKey);
+    const access = this.access(ctx);
+    return { handle: access.handle, access: access.access, via: 'integrator' };
+  }
+
+  async searchHistory(ctx: ExternalToolContext, args: HistorySearchInput): Promise<HistorySearchResult> {
+    return this.deps.history.search(ctx.projectKey, await this.historyViewer(ctx), args);
+  }
+
+  async readHistorySource(ctx: ExternalToolContext, args: HistorySourceReadArgs): Promise<HistorySourceRead> {
+    return this.deps.history.read(ctx.projectKey, await this.historyViewer(ctx), args);
   }
 }

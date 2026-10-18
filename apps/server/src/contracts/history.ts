@@ -2,7 +2,9 @@ import type {
   HistoryDocumentSnapshot,
   HistorySearchInput,
   HistorySearchResult,
+  HistorySearchStats,
   HistorySourceRead,
+  HistoryStatsInput,
   HistoryViewer,
   ProjectConfig,
 } from '@projectman/shared';
@@ -28,6 +30,12 @@ export interface HistoryService {
     viewer: HistoryViewer,
     input: { sourceId: string; fromLine?: number; lineCount?: number; commit?: string },
   ): HistorySourceRead;
+  /**
+   * The private statistics of the search log (PM-787). Every `search` is recorded once, whatever door it came
+   * through; only a current human owner or admin without `via` may read the statistics, otherwise
+   * `history_stats_forbidden`. The log is purged after 90 days.
+   */
+  stats(projectKey: string, viewer: HistoryViewer, input: HistoryStatsInput): HistorySearchStats;
   /** Replaces the stored copy of the two documents of one repository (a missing file has `null` text). */
   replaceDocuments(input: HistoryDocumentSnapshot): void;
   /** Records a failed read: the stored copies turn stale, a repository never read turns unavailable. */

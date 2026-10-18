@@ -10,6 +10,11 @@ import type {
   FeedbackOutcome,
   FeedbackStatus,
   FocusPlace,
+  HistorySearchInput,
+  HistorySearchResult,
+  HistorySearchStats,
+  HistorySourceRead,
+  HistoryStatsInput,
   MemberHandle,
   OperatorDiagnostics,
   MessageAttachmentRef,
@@ -593,11 +598,44 @@ export interface TeamToolsHandler
     ReleaseToolsHandler,
     OperatorToolsHandler,
     ProjectDocToolsHandler,
+    HistoryToolsHandler,
     InboxToolsHandler,
     MessageToolsHandler,
     AdmissionToolsHandler,
     WatcherToolsHandler,
     SessionToolsHandler {}
+
+/** What read_history_source takes: one source of the project's history, read in lines (PM-787). */
+export interface HistorySourceReadArgs {
+  sourceId: string;
+  fromLine?: number;
+  lineCount?: number;
+  commit?: string;
+}
+
+/** The tools of services/history (PM-787): search and read the project's history, and the private statistics. */
+export interface HistoryToolsHandler {
+  /**
+   * search_history: the visible hits of the project history for the caller, through the shared visibility rule.
+   * `projectKey` defaults to the session's project; another project of an AI member is `insufficient_access`.
+   * Every valid search is measured once, privately.
+   */
+  searchHistory(
+    ctx: ToolContext,
+    args: HistorySearchInput & { projectKey?: string },
+  ): Promise<HistorySearchResult>;
+  /** read_history_source: one source a search named, in lines; hidden and missing give the same `not_found`. */
+  readHistorySource(
+    ctx: ToolContext,
+    args: HistorySourceReadArgs & { projectKey?: string },
+  ): Promise<HistorySourceRead>;
+  /**
+   * get_history_search_stats: the private statistics of the search log. Only the Operator, in the general
+   * conversation of a human owner or admin, tied to their own open message or answer request; otherwise
+   * `history_stats_forbidden`.
+   */
+  getHistorySearchStats(ctx: ToolContext, args: HistoryStatsInput): Promise<HistorySearchStats>;
+}
 
 export interface InboxToolsHandler {
   /**
@@ -970,6 +1008,9 @@ export interface ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: { itemId: string; answer: string },
   ): Promise<{ item: InboxItem }>;
+  /** search_history for the integrator's bound access (PM-787); the same result as the member tool. */
+  searchHistory(ctx: ExternalToolContext, args: HistorySearchInput): Promise<HistorySearchResult>;
+  readHistorySource(ctx: ExternalToolContext, args: HistorySourceReadArgs): Promise<HistorySourceRead>;
 }
 
 /** The credential modes of an integrator key (PM-757), as the external tool policy sees them. */

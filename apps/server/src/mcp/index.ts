@@ -24,6 +24,7 @@ export { BoundaryTools } from './boundary';
 export { GithubTools } from './github';
 export { ScreenshotTools } from './full-tests';
 export { ProjectDocTools } from './project-docs';
+export { HistoryTools } from './history';
 export { TeamToolsService } from './team-tools';
 export { InboxTools } from './inbox';
 export { MessageTools } from './messages';

@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { FastifyBaseLogger } from 'fastify';
@@ -165,12 +165,18 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
   const endChecksIn = async (mergeId: string) => {
     const { worktreesRoot } = engine.paths();
     if (worktreesRoot === null) return;
-    const checkout = path.resolve(mergeCheckPath(worktreesRoot, mergeId));
+    // The merger returns a canonical checkout path, even when the configured engine home is a symlink.
+    const roots = new Set([worktreesRoot, await realpath(worktreesRoot).catch(() => worktreesRoot)]);
+    const checkouts = [...roots].map((root) => path.resolve(mergeCheckPath(root, mergeId)));
     await Promise.all(
       [...fullRunRecords].map(async ([runId, record]) => {
         if (record.endedAt !== null) return;
-        const relative = path.relative(checkout, path.resolve(record.cwd));
-        if (relative.startsWith('..') || path.isAbsolute(relative)) return;
+        const cwd = path.resolve(record.cwd);
+        const inside = checkouts.some((checkout) => {
+          const relative = path.relative(checkout, cwd);
+          return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+        });
+        if (!inside) return;
         fullRuns.get(runId)?.abort();
         await fullRunEnds.get(runId);
         fullRunRecords.delete(runId);

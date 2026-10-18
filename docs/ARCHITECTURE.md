@@ -3274,8 +3274,10 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   checkout, `engine-link/engine-handlers.ts` aborts all active full tests whose resolved working
   directories are that checkout or its descendants and awaits executor cleanup, including dependency
   preparation and the heavy-run lock. It then forgets those runs and logs their run/merge ids at info
-  level; other merge ids are unaffected. The comparison uses engine-local resolved paths and requires
-  no cloud filesystem access or new machine assumption. The engine tries the bounded preferred source,
+  level; other merge ids are unaffected. The comparison uses the same engine-local
+  `realpath(worktreesRoot)` as checkout creation alongside the configured root, so a symlinked engine
+  home matches either test working directory form; relative paths exclude parent traversal at directory
+  boundaries. It requires no cloud filesystem access or new machine assumption. The engine tries the bounded preferred source,
   its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
   source after copying and blocks with `check_error` before checks if none matches. Since PM-681
   `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer

@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { CLOUD_METHODS, createEngineHandlers } from './engine-handlers';
 import { methods } from './methods';
@@ -15,6 +18,12 @@ function deferred<T>() {
     reject = fail;
   });
   return { promise, resolve, reject };
+}
+
+async function temporaryCheckRoot() {
+  const directory = await mkdtemp(path.join(tmpdir(), 'engine-check-'));
+  onTestFinished(() => rm(directory, { recursive: true, force: true }));
+  return realpath(directory);
 }
 
 const passed: FullTestResult = {
@@ -423,10 +432,12 @@ describe('engine handlers', () => {
     it.each(['merge.checkout_for_check', 'merge.release_check'] as const)(
       '%s aborts all matching runs and waits for their cleanup, including rejected runs',
       async (method) => {
+        const worktreesRoot = await temporaryCheckRoot();
+        const checkCwd = path.join(worktreesRoot, '_merge', 'mrg_1');
         const specs = [
-          fullSpec('root'),
-          fullSpec('child', `${checkCwd}/src/../apps/server`),
-          fullSpec('other-merge', `${checkRoot}/_merge/mrg_2`),
+          fullSpec('root', checkCwd),
+          fullSpec('child', `${checkCwd}/src/../..x`),
+          fullSpec('other-merge', `${worktreesRoot}/_merge/mrg_2`),
           fullSpec('prefix', `${checkCwd}-other`),
           fullSpec('outside', `${checkCwd}/../outside`),
         ];
@@ -434,13 +445,16 @@ describe('engine handlers', () => {
         const signals = new Map<string, AbortSignal>();
         const bothAborted = deferred<void>();
         let aborts = 0;
-        const { call, checkoutForCheck, releaseCheck, info } = fullTestHarness((spec, signal) => {
-          signals.set(spec.runId, signal);
-          signal.addEventListener('abort', () => {
-            if (++aborts === 2) bothAborted.resolve();
-          });
-          return runs.get(spec.runId)!.promise;
-        });
+        const { call, checkoutForCheck, releaseCheck, info } = fullTestHarness(
+          (spec, signal) => {
+            signals.set(spec.runId, signal);
+            signal.addEventListener('abort', () => {
+              if (++aborts === 2) bothAborted.resolve();
+            });
+            return runs.get(spec.runId)!.promise;
+          },
+          { worktreesRoot },
+        );
         const allRuns = Promise.allSettled(specs.map((spec) => call('full_test.run', { spec })));
         const ref = { projectKey: 'PM', repo: 'projectman' };
         const operation = call(
@@ -475,6 +489,67 @@ describe('engine handlers', () => {
           await expect(call('full_test.attach', { runId })).resolves.toEqual({ state: 'unknown' });
         for (const runId of ['other-merge', 'prefix', 'outside']) runs.get(runId)!.resolve(passed);
         await allRuns;
+      },
+    );
+
+    it.each([
+      ['merge.checkout_for_check', 'canonical'],
+      ['merge.checkout_for_check', 'configured'],
+      ['merge.release_check', 'canonical'],
+      ['merge.release_check', 'configured'],
+    ] as const)(
+      '%s resolves a symlinked engine home before stopping a check run with a %s cwd',
+      async (method, cwdForm) => {
+        const directory = await temporaryCheckRoot();
+        const engineHome = path.join(directory, 'engine');
+        const worktreesRoot = path.join(engineHome, 'worktrees');
+        const linkedHome = path.join(directory, 'linked-engine');
+        await mkdir(worktreesRoot, { recursive: true });
+        await symlink(engineHome, linkedHome, 'dir');
+        const started = deferred<void>();
+        const aborted = deferred<void>();
+        const ended = deferred<FullTestResult>();
+        const { call, checkoutForCheck, releaseCheck } = fullTestHarness(
+          (_spec, signal) => {
+            signal.addEventListener('abort', () => aborted.resolve());
+            started.resolve();
+            return ended.promise;
+          },
+          { worktreesRoot: path.join(linkedHome, 'worktrees') },
+        );
+        // checkoutForCheck returns a realpath, even when the engine home was configured via a link.
+        const cwd = path.join(
+          cwdForm === 'canonical' ? await realpath(worktreesRoot) : path.join(linkedHome, 'worktrees'),
+          '_merge',
+          'mrg_1',
+        );
+        const run = call('full_test.run', { spec: fullSpec('symlinked', cwd) });
+        await started.promise;
+        const ref = { projectKey: 'PM', repo: 'projectman' };
+        const operation = call(
+          method,
+          method === 'merge.checkout_for_check'
+            ? { ref, mergeId: 'mrg_1', mergeCommit: 'a'.repeat(40), depsFrom: null }
+            : { ref, mergeId: 'mrg_1' },
+        );
+        try {
+          await expect(
+            Promise.race([aborted.promise.then(() => 'aborted'), operation.then(() => 'checkout changed')]),
+          ).resolves.toBe('aborted');
+          expect(checkoutForCheck).not.toHaveBeenCalled();
+          expect(releaseCheck).not.toHaveBeenCalled();
+          ended.resolve(passed);
+          await operation;
+          expect(
+            method === 'merge.checkout_for_check' ? checkoutForCheck : releaseCheck,
+          ).toHaveBeenCalledOnce();
+          await expect(call('full_test.attach', { runId: 'symlinked' })).resolves.toEqual({
+            state: 'unknown',
+          });
+        } finally {
+          ended.resolve(passed);
+          await Promise.all([run, operation]);
+        }
       },
     );
 

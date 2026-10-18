@@ -384,6 +384,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };
     },
+    async openIntegratorTodo(ctx, args) {
+      await enter('openIntegratorTodo', ctx, args);
+      return { itemId: 'inb_todo_1', recipient: 'integrator', recipientRefusal: null };
+    },
     async getOperatorPreference(ctx) {
       await enter('getOperatorPreference', ctx, {});
       return { schemaVersion: 1, revision: 0, data: { ...DEFAULT_OPERATOR_PREFERENCE }, updatedAt: null };

@@ -37,6 +37,7 @@ import type {
   StructuralReviews,
   LoopTriages,
 } from '../../services/operator';
+import type { ObligationsService } from '../../services/obligations';
 import type { SuperHandoffService } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
@@ -46,6 +47,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly inbox: InboxService;
+  private readonly obligations: Pick<ObligationsService, 'listOpen'>;
   private readonly messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
   private readonly projectState: ProjectState;
   private readonly operatorActions: OperatorActions;
@@ -63,6 +65,7 @@ export class OperatorTools implements OperatorToolsHandler {
     projects: ProjectService;
     tasks: TaskService;
     inbox: InboxService;
+    obligations: Pick<ObligationsService, 'listOpen'>;
     messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
     projectState: ProjectState;
     operatorActions: OperatorActions;
@@ -79,6 +82,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.inbox = deps.inbox;
+    this.obligations = deps.obligations;
     this.messaging = deps.messaging;
     this.projectState = deps.projectState;
     this.operatorActions = deps.operatorActions;
@@ -207,6 +211,39 @@ export class OperatorTools implements OperatorToolsHandler {
           args.note,
         );
         return { signalId: signal.id, state: 'dismissed' };
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
+  }
+
+  async openIntegratorTodo(
+    ctx: ToolContext,
+    args: { taskKey?: string; question: string; what: string; where: string; expected: string },
+  ): Promise<{
+    itemId: string;
+    recipient: QuestionRecipient;
+    recipientRefusal: QuestionRecipientRefusal | null;
+  }> {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'open_integrator_todo');
+      const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : null;
+      // A followed step has its own wake-up and its own todo: the PM does not open a second one (PM-796 R2.7).
+      const tracked = taskKey ? this.obligations.listOpen(ctx.projectKey, taskKey)[0] : undefined;
+      if (tracked)
+        throw new TeamToolError(
+          'invalid',
+          `obligation_tracked: ${taskKey} is followed by projectman (${tracked.kind}, ${tracked.responsible}): it wakes the responsible and hands the step to the integrator itself`,
+        );
+      try {
+        return await this.inbox.openIntegratorTodo({
+          projectKey: ctx.projectKey,
+          taskKey,
+          askedBy: ctx.member,
+          question: args.question,
+          todo: { what: args.what, where: args.where, expected: args.expected },
+        });
       } catch (err) {
         if (err instanceof DomainError) throw toToolError(err);
         throw err;

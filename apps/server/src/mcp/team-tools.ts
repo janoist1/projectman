@@ -423,6 +423,12 @@ export class TeamToolsService implements TeamToolsHandler {
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.tools.operator.dismissSignal(ctx, args);
   }
+  async openIntegratorTodo(
+    ctx: ToolContext,
+    args: Parameters<OperatorToolsHandler['openIntegratorTodo']>[1],
+  ) {
+    return this.tools.operator.openIntegratorTodo(ctx, args);
+  }
   async withdrawQuestion(
     ctx: ToolContext,
     args: { itemId: string; reason: string },

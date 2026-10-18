@@ -918,6 +918,19 @@ export interface OperatorToolsHandler {
     ctx: ToolContext,
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }>;
+  /**
+   * The PM opens a todo in the integrator's queue (PM-808), the way the system does for an obligation: the
+   * PM is the asker, so the answer comes back to it. The owners get it when the integrator cannot take it.
+   * Refused (`obligation_tracked`) on a card projectman follows itself.
+   */
+  openIntegratorTodo(
+    ctx: ToolContext,
+    args: { taskKey?: string; question: string; what: string; where: string; expected: string },
+  ): Promise<{
+    itemId: string;
+    recipient: QuestionRecipient;
+    recipientRefusal: QuestionRecipientRefusal | null;
+  }>;
   triageLoop(
     ctx: ToolContext,
     args: {

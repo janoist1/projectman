@@ -1556,7 +1556,10 @@ describe('system prompt', () => {
           expect(operator).toContain(
             'On a signal you never merge, release, approve, move a card, or set a label or a setting.',
           );
-          expect(operator).toContain('A stalled, silent, outage or nobody signal always goes to the owners.');
+          expect(operator).toContain(
+            'When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human.',
+          );
+          expect(operator).not.toContain('always goes to the owners');
           expect(operator).toContain('at most one message per wake-up');
           expect(operator).toContain('with signal_ids');
           expect(operator).toContain('(signal → step → result)');

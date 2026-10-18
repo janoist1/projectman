@@ -17,7 +17,7 @@ import type { MemberStartResult, ToolContext } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { InboxService, Resolver } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
-import { conflict, forbidden } from '../../kernel';
+import { conflict, externalToolOrigin, forbidden } from '../../kernel';
 import type { OperatorAdmission } from './ports';
 import type { CoordinationRequests, OperatorSteps } from './requests';
 import type { OperatorSignals } from './signals';
@@ -186,6 +186,68 @@ export class StructuralReviews {
       this.running.delete(signalId);
       this.running.delete(sessionKey);
       this.starting.delete(ctx.sessionId);
+    }
+  }
+
+  /**
+   * The integrator in super mode starts the review a current structural signal calls for (PM-784), with the
+   * key owner's authority instead of an approval request: the signal must be open for the coordinator, the
+   * evidence must hold and a member must be free. A proposal that is waiting for an owner, or that an owner
+   * already decided, is reported as it stands and never bypassed. A failed start leaves the signal open.
+   * `start` is the project's usual member start, made with the full super actor by the caller.
+   */
+  async requestExternal(
+    projectKey: string,
+    signalId: string,
+    note: string,
+    start: (member: string, text: string) => Promise<MemberStartResult>,
+  ): Promise<StructuralReviewResult> {
+    if (this.running.has(signalId))
+      throw conflict('operator_signal_closed', 'a review request is already running');
+    this.running.add(signalId);
+    try {
+      const config = await this.deps.projects.config(projectKey);
+      externalToolOrigin(config);
+      const { signal } = this.deps.signals.currentStepTargets(projectKey, signalId);
+      const facts = this.deps.signals.structuralFacts(signal);
+      if (!facts) throw conflict('operator_signal_closed', 'structural evidence is no longer current');
+      const existing = this.deps.ctx.repos.inbox
+        .list(projectKey, { kind: 'question', state: ['open', 'resolved'] })
+        .find((item) => structuralReviewOf(item)?.signalId === signalId);
+      if (existing)
+        return {
+          status: existing.state === 'open' ? 'awaiting_approval' : 'held',
+          member: structuralReviewOf(existing)!.member,
+          message_id: null,
+          inbox_item_id: existing.id,
+        };
+      const member = this.select(config);
+      if (!member) return { status: 'held', member: null, message_id: null, inbox_item_id: null };
+      const text = structuralReviewText({ signalId, ...facts, note, member: member.handle });
+      // The scope, the signal and the free member are checked again where the start begins.
+      const latest = await this.deps.projects.config(projectKey);
+      externalToolOrigin(latest);
+      const current = this.deps.signals.currentStepTargets(projectKey, signalId).signal;
+      if (!this.deps.signals.structuralFacts(current) || this.select(latest)?.handle !== member.handle)
+        throw conflict('operator_signal_closed', 'review target, capacity or evidence changed');
+      const result = await start(member.handle, text);
+      const state = result.recipient.start?.state;
+      if (state !== 'failed') this.deps.signals.resolve(projectKey, signal.caseKey);
+      return {
+        status:
+          state === 'failed'
+            ? 'failed'
+            : state === 'waiting' || state === 'starting'
+              ? 'waiting'
+              : result.recipient.delivery === 'held'
+                ? 'held'
+                : 'started',
+        member: member.handle,
+        message_id: result.messageId,
+        inbox_item_id: null,
+      };
+    } finally {
+      this.running.delete(signalId);
     }
   }
 

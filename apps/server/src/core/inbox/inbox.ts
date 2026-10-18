@@ -19,8 +19,10 @@ import {
   DELEGATED_INPUT_LIMIT,
   canDecidePermission,
   effectiveSessionPermissions,
+  externalQuestionAnswerRefusal,
   gateRequestOf,
   handOnRequestOf,
+  hasSuperOrigin,
   isPendingQuestion,
   isLinkedQuestion,
   isRelayableQuestionItem,
@@ -293,6 +295,8 @@ export class InboxService {
     return Promise.all(
       items.map(async (item) => {
         if (!isPendingQuestion(item)) return item;
+        // The integrator's own question waits for no session (PM-784): it reads the answer back itself.
+        if (questionPayloadOf(item)?.externalQuestion) return item;
         try {
           const config = await this.projects.config(projectKey);
           if (memberOf(config, item.source)?.kind !== 'ai') return item;
@@ -810,6 +814,22 @@ export class InboxService {
       throw forbidden('owner_approval_required', 'Only the owner may decide this, using their own login', {
         kind: item.kind,
       });
+    // A question the integrator asked itself (PM-784) is answered by an owner's own login: neither a token nor
+    // the integrator, in any mode, closes it, including by a direct core call.
+    const asked = item.kind === 'question' ? questionPayloadOf(item) : null;
+    const askedRefusal = asked
+      ? externalQuestionAnswerRefusal(asked, {
+          via: by.via ?? (integratorExecution() ? 'integrator' : undefined),
+          superActor: by.superActor,
+        })
+      : null;
+    if (askedRefusal)
+      throw forbidden(
+        askedRefusal,
+        askedRefusal === 'super_relay_refused'
+          ? 'The integrator cannot answer its own question'
+          : 'Only the owner may decide this, using their own login',
+      );
     // A super-mode step on any other question only relays an answer to a plain information question.
     let relayed = false;
     if (by.superActor && item.kind === 'question' && !integratorTodo) {
@@ -1209,6 +1229,11 @@ export class InboxService {
       note: string | null;
       /** The Operator found the question moot (PM-558): the screening record keeps the outcome too. */
       screened?: ScreeningSettlement;
+      /**
+       * The full actor when the question is closed through the integrator (PM-784): the resolution keeps its
+       * `via` and origin, and the timeline records it; `by` stays the handle.
+       */
+      actor?: Actor;
     },
   ): Promise<InboxItem | null> {
     return this.questionLock(id, async () => {
@@ -1223,7 +1248,15 @@ export class InboxService {
       const primaryWithdrawal = group?.primaryItemId === id;
       const at = isoNow(this.ctx);
       const closed = this.ctx.unitOfWork(() => {
-        const resolution = { optionId: 'closed', by: close.by, at, note: close.note, rule: close.rule };
+        const resolution = {
+          optionId: 'closed',
+          by: close.by,
+          at,
+          note: close.note,
+          rule: close.rule,
+          ...(close.actor?.via ? { via: close.actor.via } : {}),
+          ...(close.actor && hasSuperOrigin(close.actor) ? { actor: close.actor } : {}),
+        };
         if (primaryWithdrawal)
           this.ctx.repos.inbox.updatePayload(id, { ...current.payload, groupWithdrawn: true }, at);
         let item =
@@ -1266,7 +1299,7 @@ export class InboxService {
           projectKey: item.projectKey,
           taskKey: item.taskKey,
           sessionId: item.sessionId,
-          actor: close.by === 'system' ? SYSTEM_ACTOR : aiActor(close.by),
+          actor: close.actor ?? (close.by === 'system' ? SYSTEM_ACTOR : aiActor(close.by)),
           type: 'question_closed',
           data: { inboxItemId: item.id, asker: item.source, rule: close.rule, note: close.note },
         });

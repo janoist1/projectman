@@ -1768,4 +1768,50 @@ migrations.push({
       WHERE kind IN ('structural_pattern', 'milestone_closed')
         AND resolved_at IS NULL AND state IN ('pending', 'open');`,
 });
+migrations.push({
+  version: 87,
+  name: 'external origin of document writes',
+  // PM-784: a document write made through the bearer MCP has no Operator request, step or requesting owner;
+  // it carries the verified external origin instead (`external_origin`, JSON). The three old columns become
+  // nullable, so an old row stays as it is (origin NULL) and a new external row leaves them NULL. The table
+  // is rebuilt, which drops its journal triggers and its open-write index: both are created again.
+  sql: `DROP TRIGGER doc_writes_change_insert;
+    DROP TRIGGER doc_writes_change_update;
+    DROP INDEX doc_writes_open;
+    ALTER TABLE doc_writes RENAME TO doc_writes_old;
+    CREATE TABLE doc_writes (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      base TEXT NOT NULL,
+      base_commit TEXT NOT NULL,
+      edits TEXT NOT NULL,
+      message TEXT NOT NULL,
+      author TEXT NOT NULL,
+      requested_by TEXT,
+      request_id TEXT,
+      step_id TEXT,
+      engine_id TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('queued','running','published','stale','failed')),
+      commit_sha TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      external_origin TEXT
+    );
+    INSERT INTO doc_writes (id, project_key, repo, base, base_commit, edits, message, author, requested_by,
+        request_id, step_id, engine_id, state, commit_sha, error, created_at, updated_at, external_origin)
+      SELECT id, project_key, repo, base, base_commit, edits, message, author, requested_by,
+        request_id, step_id, engine_id, state, commit_sha, error, created_at, updated_at, NULL
+      FROM doc_writes_old ORDER BY rowid;
+    DROP TABLE doc_writes_old;
+    CREATE UNIQUE INDEX doc_writes_open ON doc_writes(project_key) WHERE state IN ('queued','running');
+    ${changeTriggerSql({
+      table: 'doc_writes',
+      kind: 'operation',
+      on: ['INSERT', 'UPDATE'],
+      project: (row) => `${row}.project_key`,
+      entity: (row) => `${row}.id`,
+    })}`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

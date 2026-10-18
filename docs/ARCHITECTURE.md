@@ -1464,6 +1464,10 @@ is the `MergeSlotPeer` port: `busy` and `pump`; the writes use `DocWriteSlotPeer
 `push`, `advance`), run in the order of the card's merge: a `non_fast_forward` push is built again once, on the
 new head. The built commit is saved (`commit_sha`) before the push; a `running` row from before a restart is
 `published` when the remote already has that commit (the local branch is advanced), otherwise `queued` again.
+A write made through the bearer MCP (PM-784, `requestExternal`) has no Operator request or step: its row carries
+the key's origin (`external_origin`), its commit has the key's trailers, and it answers after about five seconds
+(`EXTERNAL_DOC_WRITE_WAIT_MS`) with `published`, `queued` or `running`; `get_project_doc_write` reads it on. A row
+without a request and without an origin never runs (`authorization_revoked`).
 
 ## Heavy-run queue (PM-332)
 
@@ -2155,7 +2159,7 @@ workers follow the machine's size.
     final disposal forget records; link closure leaves the executor and records alive. Only run ids
     and strict full-test results cross the boundary. Protocol version stays 1; an older engine
     answers `unknown_method`.
-  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
+  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents; PM-784: also the integrator's document write through the bearer MCP, same calls, started by the hub with no member session), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
     The cloud history copy also consumes `merge.read_file` and `merge.is_ancestor` (PM-744, PM-788):
     `services/history/document-sync.ts`, adapted to `EngineDirectory` in `assembly.ts`, reads the fixed
     `docs/DECISIONS.md` and `docs/LESSONS.md` paths at one commit and publishes them atomically to cloud SQLite.
@@ -2471,6 +2475,17 @@ workers follow the machine's size.
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
   runs on or crosses to an engine.
+  **Operator tools on the endpoint (PM-784):** `read_project_doc`, `write_project_docs`, `get_project_doc_write`,
+  `get_role_configuration`, `propose_release`, `request_structural_review`, `ask_human`, `get_super_question`,
+  `withdraw_question` and `read_attachment` (`mcp/*/tools.ts` `external` bindings, `mcp/super-operator/handler.ts`,
+  `core/inbox/human-questions.ts`, `services/project-docs/doc-writes.ts`). They run on the hub with no session or
+  engine. The only engine traffic is the one a member's call already has: a document write's git work
+  (`merge.read_file`, `merge.commit_files`, `merge.push`, see "Merge") and a review request's usual member start. A
+  queued write goes on under a fresh scope of its key (`auth.reactivate`, assembly's `DocWriteExternalRunner`) and
+  checks the key, the owner and the Operator again before it starts and before the push; the origin (`ownerUserId`,
+  key id and prefix, request id) is stored in `doc_writes.external_origin`, never taken from input. An attachment
+  chunk is read from the hub's own attachment storage (at most 1 MiB per call, 25 MiB per file); on a remote engine
+  nothing changes, since the hub already holds the stored files.
   **Cloud (PM-317):** in front of the cloud the integrator also passes Cloudflare Access with a
   service token of its own, kept beside the key in `~/.config/projectman/` (DEPLOY.md,
   "Integrator access"); the key still works only over HTTPS, which the container sees as

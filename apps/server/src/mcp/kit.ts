@@ -185,7 +185,9 @@ export interface ExternalBinding<Args> {
   description?: string;
   /** Parameters of the member schema the bearer endpoint does not take (session file paths, PM-only signals). */
   omit?: readonly string[];
-  run(call: ExternalToolRun<Args>): Promise<string | ToolOutput>;
+  /** Overrides the modes of the access class, e.g. a tool only the super mode calls (PM-784). */
+  modes?: readonly ExternalCredentialMode[];
+  run(call: ExternalToolRun<Args>): Promise<ExternalResult>;
 }
 
 type ToolInput<Shape extends z.core.$ZodLooseShape> = z.output<z.ZodObject<Shape, z.core.$strict>>;
@@ -285,6 +287,11 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
   check?(args: ToolInput<Shape>, issue: (parameter: string, message: string) => void): void;
   /** Serves the tool to the bearer endpoint as well (PM-760); without it the tool is denied there. */
   external?: ExternalBinding<ToolInput<Shape>>;
+  /**
+   * Instead of `external`: a full external tool (PM-784) for a tool whose external input differs from the
+   * member's, e.g. no file path. It must carry the member tool's name.
+   */
+  externalTool?: ExternalTool;
   run(call: ToolRun<ToolInput<Shape>>): Promise<string | ToolOutput>;
 }): TeamTool {
   // Strict: an unknown key (e.g. a misspelled parameter) is an error instead of being ignored.
@@ -294,7 +301,9 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
         ? issue.keys.map((key) => def.refused?.[key]).find((reason) => reason !== undefined)
         : undefined,
   });
-  const { check, external } = def;
+  const { check, external, externalTool } = def;
+  if (externalTool && externalTool.name !== def.name)
+    throw new Error(`the external tool of ${def.name} is named ${externalTool.name}`);
   return {
     ...(external
       ? {
@@ -310,13 +319,15 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
               openWorldHint: false,
             },
             access: external.access,
-            modes: EXTERNAL_MODES[external.access],
+            modes: external.modes ?? EXTERNAL_MODES[external.access],
             projectless: false,
             run: async (call: ExternalToolRun<Record<string, unknown>>) =>
               external.run(call as ExternalToolRun<ToolInput<Shape>>),
           } satisfies ExternalTool,
         }
-      : {}),
+      : externalTool
+        ? { external: externalTool }
+        : {}),
     name: def.name,
     title: def.title,
     description: def.description,

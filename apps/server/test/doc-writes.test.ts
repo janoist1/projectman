@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { superActorOf } from '@projectman/shared';
 import type { ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
-import type { BranchMerger, EngineDirectory, EngineHost, ToolContext } from '../src/contracts';
+import type {
+  BranchMerger,
+  DocWriteExternalRunner,
+  EngineDirectory,
+  EngineHost,
+  IntegratorExecutionScope,
+  ToolContext,
+} from '../src/contracts';
 import { createDomainContext } from '../src/core/base';
+import { runIntegratorExecution } from '../src/kernel';
 import { DocWrites } from '../src/services/project-docs';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, restartDomainHarness } from './helpers/domain-harness';
@@ -645,6 +654,7 @@ describe('write_project_docs (PM-495)', () => {
         error: null,
         createdAt: now,
         updatedAt: now,
+        externalOrigin: null,
       });
       return { merger, requestId };
     }
@@ -691,5 +701,248 @@ describe('write_project_docs (PM-495)', () => {
       await settle();
       expect(h.repos.docWrites.get('dw_left')).toMatchObject({ state: 'published' });
     });
+  });
+});
+
+describe('write_project_docs through the bearer MCP (PM-784)', () => {
+  const OWNER_USER = 'usr_owner';
+  const KEY = { id: 'ikey_one', prefix: 'pmi_abcdefgh' };
+  const stops: (() => Promise<void> | void)[] = [];
+  afterEach(async () => {
+    for (const stop of stops.splice(0)) await stop();
+  });
+
+  /** A live scope of a key, as the authenticated facade makes it; the checks of membership are the facade's own. */
+  async function scope(mode: 'super' | 'read' | 'legacy' = 'super', userId = OWNER_USER) {
+    const config = await h.domain.projects.config('AR');
+    const actor = superActorOf(config, KEY)!;
+    return {
+      active: true,
+      context: {
+        principal: { kind: 'integrator' as const, userId, keyId: KEY.id, prefix: KEY.prefix, mode },
+        projectKey: 'AR',
+        actor,
+        requestId: 'req-ext-1',
+      },
+      actorFor: () => actor,
+      assertAccess: () => undefined,
+      assertMutation: () => {},
+      authorizeMutation: async () => {},
+    } satisfies IntegratorExecutionScope;
+  }
+
+  /** The service with an external runner whose `assertActive` the test controls. */
+  function externalWrites(
+    merger: ReturnType<typeof fakeDocsMerger>,
+    runner: DocWriteExternalRunner | null,
+    externalWaitMs = 2000,
+  ) {
+    const ctx = createDomainContext({
+      repos: h.repos,
+      bus: h.domain.bus,
+      logger: h.log.logger,
+      now: () => new Date(),
+    });
+    const writes = new DocWrites({
+      ctx,
+      projects: h.domain.projects,
+      engines: {
+        engineFor: () => 'local',
+        get: () => ({ merger }) as unknown as EngineHost,
+      } as unknown as EngineDirectory,
+      messaging: h.domain.messaging,
+      merges: { busy: () => false, holder: () => null, pump: () => {} },
+      ...(runner ? { external: runner } : {}),
+      externalWaitMs,
+    });
+    stops.push(async () => {
+      await writes.stop();
+      ctx.journal.stop();
+    });
+    return writes;
+  }
+  const request = (writes: DocWrites, s: IntegratorExecutionScope, base = BASE, text = '3. Third') =>
+    runIntegratorExecution(s, () =>
+      writes.requestExternal({
+        projectKey: 'AR',
+        baseCommit: base,
+        message: 'Add decision 3',
+        edits: [append(text)],
+      }),
+    );
+  const allowing: DocWriteExternalRunner = { run: async (_key, _origin, action) => action(async () => {}) };
+
+  it('publishes with the key’s trailers, and the same owner reads the write back', async () => {
+    const merger = (await setup())!;
+    const writes = externalWrites(merger, allowing);
+    const outcome = await request(writes, await scope());
+    expect(outcome).toMatchObject({ state: 'published', commit: 'w1'.padEnd(40, '0'), paths: [DECISIONS] });
+    const input = merger.commitFiles.mock.calls[0]![1];
+    expect(input.message).toBe(
+      [
+        'Add decision 3',
+        '',
+        'Projectman-Operator: operator',
+        'Projectman-Operator-Mode: super',
+        'Projectman-Via: integrator',
+        `Projectman-Credential-Id: ${KEY.id}`,
+        `Projectman-Credential-Prefix: ${KEY.prefix}`,
+        'Projectman-External-Request: req-ext-1',
+      ].join('\n'),
+    );
+    const id = (outcome as { id: string }).id;
+    expect(h.repos.docWrites.get(id)).toMatchObject({
+      state: 'published',
+      author: 'operator',
+      requestedBy: null,
+      requestId: null,
+      externalOrigin: { ownerUserId: OWNER_USER, requestId: 'req-ext-1' },
+    });
+    // The same owner reads it in the read mode as well; another owner and a missing id are not_found.
+    expect(
+      await runIntegratorExecution(await scope('read'), () => writes.externalState('AR', id)),
+    ).toMatchObject({
+      write_id: id,
+      state: 'published',
+      commit: 'w1'.padEnd(40, '0'),
+      failure: null,
+    });
+    await expect(
+      runIntegratorExecution(await scope('read', 'usr_other'), () => writes.externalState('AR', id)),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await expect(
+      runIntegratorExecution(await scope('read'), () => writes.externalState('AR', 'dw_missing')),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('keeps the decision log append-only and a stale base out, before anything is queued', async () => {
+    const merger = (await setup())!;
+    const writes = externalWrites(merger, allowing);
+    await expect(
+      runIntegratorExecution(await scope(), () =>
+        writes.requestExternal({
+          projectKey: 'AR',
+          baseCommit: BASE,
+          message: 'Rewrite',
+          edits: [{ doc: 'decisions', old_text: '1. First', new_text: '1. Changed' }],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'docs_not_append_only' });
+    await expect(request(writes, await scope(), 'f'.repeat(40))).rejects.toThrow(
+      /unknown commit|readable|read/i,
+    );
+    expect(h.repos.docWrites.list('queued')).toEqual([]);
+    expect(merger.commitFiles).not.toHaveBeenCalled();
+  });
+
+  it('refuses a read key, a legacy key and a build without the runner', async () => {
+    const merger = (await setup())!;
+    const writes = externalWrites(merger, allowing);
+    await expect(request(writes, await scope('read'))).rejects.toMatchObject({
+      code: 'integrator_read_only',
+    });
+    await expect(request(writes, await scope('legacy'))).rejects.toMatchObject({
+      code: 'integrator_not_allowed',
+    });
+    const without = externalWrites(merger, null);
+    await expect(request(without, await scope())).rejects.toMatchObject({ code: 'integrator_not_allowed' });
+    // A call outside any authenticated scope has no origin to write under.
+    await expect(
+      writes.requestExternal({ projectKey: 'AR', baseCommit: BASE, message: 'm', edits: [append('x')] }),
+    ).rejects.toMatchObject({ code: 'insufficient_access' });
+    expect(h.repos.docWrites.list('queued')).toEqual([]);
+  });
+
+  it('ends a queued write as authorization_revoked when the key is gone at its start, and pushes nothing', async () => {
+    const merger = (await setup())!;
+    const revoked: DocWriteExternalRunner = {
+      run: async () => {
+        throw new Error('the credential is gone');
+      },
+    };
+    const writes = externalWrites(merger, revoked);
+    const outcome = await request(writes, await scope());
+    expect(outcome).toMatchObject({ state: 'failed', failure: 'authorization_revoked' });
+    expect(merger.commitFiles).not.toHaveBeenCalled();
+    expect(merger.push).not.toHaveBeenCalled();
+    const id = (outcome as { id: string }).id;
+    expect(
+      await runIntegratorExecution(await scope('read'), () => writes.externalState('AR', id)),
+    ).toMatchObject({
+      state: 'failed',
+      failure: 'authorization_revoked',
+      commit: null,
+    });
+  });
+
+  it('checks the authorization again before the push, and ends the write as revoked when it went', async () => {
+    const merger = (await setup())!;
+    let calls = 0;
+    const revokedMidway: DocWriteExternalRunner = {
+      run: async (_key, _origin, action) =>
+        action(async () => {
+          // The first check is at the start; the next ones come after the commit is built.
+          if (++calls > 1) throw new Error('the key was revoked');
+        }),
+    };
+    const writes = externalWrites(merger, revokedMidway);
+    const outcome = await request(writes, await scope());
+    expect(outcome).toMatchObject({ state: 'failed', failure: 'authorization_revoked' });
+    expect(merger.push).not.toHaveBeenCalled();
+    expect(merger.state.remote).toBe(BASE);
+  });
+
+  it('refuses a second write while one is open', async () => {
+    const merger = (await setup())!;
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const slow: DocWriteExternalRunner = {
+      run: async (_key, _origin, action) => {
+        await held;
+        return action(async () => {});
+      },
+    };
+    const writes = externalWrites(merger, slow, 20);
+    const first = await request(writes, await scope());
+    expect(first).toMatchObject({ state: 'running' });
+    await expect(request(writes, await scope(), BASE, '4. Fourth')).rejects.toMatchObject({
+      code: 'docs_write_pending',
+    });
+    release();
+    await vi.waitFor(() =>
+      expect(h.repos.docWrites.get((first as { id: string }).id)?.state).toBe('published'),
+    );
+  });
+
+  it('leaves a write of the old kind (no origin, no request) as revoked after a restart', async () => {
+    const merger = (await setup(fakeDocsMerger(), { persistent: true }))!;
+    const now = new Date().toISOString();
+    h.repos.docWrites.insert({
+      id: 'dw_forged',
+      projectKey: 'AR',
+      repo: (await h.domain.projects.config('AR')).project.repos[0]!.name,
+      base: 'main',
+      baseCommit: BASE,
+      edits: [{ path: DECISIONS, old_text: '', new_text: '3. Third' }],
+      message: 'Forged\n\nProjectman-Operator: operator',
+      author: 'operator',
+      requestedBy: null,
+      requestId: null,
+      stepId: null,
+      engineId: 'local',
+      state: 'queued',
+      commitSha: null,
+      error: null,
+      createdAt: now,
+      updatedAt: now,
+      externalOrigin: null,
+    });
+    h = await restartDomainHarness(h, { merger });
+    await settle();
+    expect(h.repos.docWrites.get('dw_forged')).toMatchObject({
+      state: 'failed',
+      error: { code: 'authorization_revoked' },
+    });
+    expect(merger.push).not.toHaveBeenCalled();
   });
 });

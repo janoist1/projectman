@@ -281,8 +281,34 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(readTools).not.toContain('send_message');
     expect(legacyTools).toContain('create_task');
     // Nothing of the member's session, decision or file tools is offered to anybody.
-    for (const name of ['ask_human', 'attach_file', 'merge_task', 'hand_off', 'operate', 'save_memory'])
+    for (const name of ['attach_file', 'merge_task', 'hand_off', 'operate', 'save_memory'])
       for (const tools of [superTools, readTools, legacyTools]) expect(tools, name).not.toContain(name);
+    // The Operator's tools the super mode got (PM-784): readers also in the read mode, writers super only,
+    // and the legacy mode none of them.
+    const superWriters = [
+      'write_project_docs',
+      'propose_release',
+      'request_structural_review',
+      'ask_human',
+      'withdraw_question',
+    ];
+    const superReaders = [
+      'read_project_doc',
+      'get_role_configuration',
+      'read_attachment',
+      'get_super_question',
+      'get_project_doc_write',
+    ];
+    for (const name of superWriters) {
+      expect(superTools, name).toContain(name);
+      expect(readTools, name).not.toContain(name);
+      expect(legacyTools, name).not.toContain(name);
+    }
+    for (const name of superReaders) {
+      expect(superTools, name).toContain(name);
+      expect(readTools, name).toContain(name);
+      expect(legacyTools, name).not.toContain(name);
+    }
 
     const read = key('read').secret;
     const legacy = key('legacy').secret;
@@ -298,10 +324,20 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(
       (await call(legacy, 'list_super_handoffs', { project_key: 'AR' })).structuredContent?.errorCode,
     ).toBe('integrator_not_allowed');
-    for (const name of ['ask_human', 'attach_file', 'merge_task', 'operate']) {
+    for (const name of ['attach_file', 'merge_task', 'operate']) {
       const denied = await call(superKey, name, { project_key: 'AR' });
       expect(denied.isError, name).toBe(true);
       expect(denied.structuredContent?.errorCode, name).toBe('integrator_not_allowed');
+    }
+    for (const name of [...superWriters, 'read_project_doc', 'get_super_question']) {
+      const denied = await call(legacy, name, { project_key: 'AR' });
+      expect(denied.structuredContent?.errorCode, name).toBe('integrator_not_allowed');
+    }
+    for (const name of superWriters) {
+      const denied = await call(read, name, { project_key: 'AR' });
+      expect(denied.structuredContent?.errorCode, name).toMatch(
+        /integrator_not_allowed|integrator_read_only/,
+      );
     }
     const unknown = await call(superKey, 'no_such_tool', {});
     expect(unknown.structuredContent?.errorCode).toBe('not_found');

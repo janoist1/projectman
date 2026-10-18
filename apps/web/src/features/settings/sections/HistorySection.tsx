@@ -66,6 +66,12 @@ export function HistorySection({
                       myHandle={myHandle}
                       projectKey={key}
                       history
+                      after={
+                        <>
+                          <span aria-hidden="true"> · </span>
+                          <time dateTime={entry.at}>{formatStamp(entry.at)}</time>
+                        </>
+                      }
                     />
                   ) : (
                     t('settings.history.by', {
@@ -73,7 +79,6 @@ export function HistorySection({
                       time: formatStamp(entry.at),
                     })
                   )}
-                  {entry.actor ? <time dateTime={entry.at}>{formatStamp(entry.at)}</time> : null}
                   {entry.approvedBy ? (
                     <Chip tone="ok">
                       {t('settings.history.approvedBy', {

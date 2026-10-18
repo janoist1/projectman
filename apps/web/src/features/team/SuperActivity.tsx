@@ -67,7 +67,11 @@ export function SuperActivity() {
         title={t('superMode.activity')}
         subtitle={prefix ? `${t('integratorKey.prefix')}: ${prefix}…` : undefined}
       />
-      {prefix ? <Link to={`/p/${key}/sessions?by=super`}>{t('involvement.clear')}</Link> : null}
+      {prefix ? (
+        <Link className={styles.clearFilter} to={`/p/${key}/sessions?by=super`}>
+          {t('involvement.clear')}
+        </Link>
+      ) : null}
       {!prefix && handoffs.isError ? (
         <ErrorState error={handoffs.error} onRetry={() => void handoffs.refetch()} />
       ) : null}
@@ -76,7 +80,7 @@ export function SuperActivity() {
         <ErrorState error={selected.error} onRetry={() => void selected.refetch()} />
       ) : null}
       {!prefix && shownHandoffs.length ? (
-        <section aria-labelledby="super-handoffs-title">
+        <section className={styles.section} aria-labelledby="super-handoffs-title">
           <h2 id="super-handoffs-title">{t('superMode.handoffsTitle')}</h2>
           <ol className={styles.list}>
             {shownHandoffs.map((handoff) => (
@@ -105,7 +109,7 @@ export function SuperActivity() {
       ) : null}
       {query.isPending ? <LoadingState /> : null}
       {query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : null}
-      <section aria-labelledby="super-operations-title">
+      <section className={styles.section} aria-labelledby="super-operations-title">
         <h2 id="super-operations-title">{t('superMode.operationsTitle')}</h2>
         {query.data && !entries.length ? <p>{t(prefix ? 'superMode.empty' : 'superMode.emptyAll')}</p> : null}
         <ol className={styles.list}>

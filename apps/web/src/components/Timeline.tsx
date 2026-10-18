@@ -159,12 +159,22 @@ export function Timeline({
                         members={ctx.members}
                         myHandle={ctx.myHandle}
                         projectKey={event.projectKey}
+                        after={
+                          <span className={styles.timestamp}>
+                            <span aria-hidden="true"> · </span>
+                            <time dateTime={at}>{formatStamp(at)}</time>
+                          </span>
+                        }
                       />
                     )}
                   </span>
-                  <span aria-hidden="true"> · </span>
-                  <time dateTime={at}>{formatStamp(at)}</time>
-                  {imported ? <span> · {t('task.comments.imported')}</span> : null}
+                  {imported ? (
+                    <>
+                      <span aria-hidden="true"> · </span>
+                      <time dateTime={at}>{formatStamp(at)}</time>
+                      <span> · {t('task.comments.imported')}</span>
+                    </>
+                  ) : null}
                 </span>
                 <span
                   className={clsx(

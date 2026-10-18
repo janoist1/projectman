@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { hasSuperOrigin } from '@projectman/shared';
 import type { Actor } from '@projectman/shared';
@@ -14,17 +15,24 @@ export function ActorName({
   myHandle,
   projectKey,
   history = false,
+  after,
 }: {
   actor: Actor;
   members: MemberIndex;
   myHandle: string | null;
   projectKey: string;
   history?: boolean;
+  after?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const id = useId();
   if (!hasSuperOrigin(actor))
-    return <>{actor.via ? t('involvement.integratorFull') : actorLabel(actor, members, myHandle)}</>;
+    return (
+      <>
+        {actor.via ? t('involvement.integratorFull') : actorLabel(actor, members, myHandle)}
+        {after}
+      </>
+    );
   return (
     <span className={styles.actor}>
       {t('superMode.name')}{' '}
@@ -42,6 +50,7 @@ export function ActorName({
         </button>
       )}
       {!history ? <span className={styles.muted}> · {t('superMode.driven')}</span> : null}
+      {after}
       {history || expanded ? (
         <span id={id} className={styles.detail}>
           {history ? `${t('superMode.driven')} · ` : `${t('integratorKey.prefix')}: `}

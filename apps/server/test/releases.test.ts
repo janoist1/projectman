@@ -1,12 +1,12 @@
 import net from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isOperator, MemberConfig, releaseApprovalOf } from '@projectman/shared';
+import { isOperator, MemberConfig, releaseApprovalOf, superActorOf } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, ReleaseReport } from '@projectman/shared';
 import { sendControlRequest } from '../../../scripts/control/client';
 import { serveControlConnection } from '../src/control';
 import type { ControlRelease } from '../src/control';
-import type { BranchMerger, MergeBaseState } from '../src/contracts';
-import { conflict } from '../src/kernel';
+import type { BranchMerger, IntegratorExecutionScope, MergeBaseState } from '../src/contracts';
+import { conflict, forbidden, runIntegratorExecution } from '../src/kernel';
 import type { Resolver } from '../src/core/inbox';
 import type { Messaging } from '../src/core/messages';
 import type { ProjectService } from '../src/core/projects';
@@ -976,6 +976,141 @@ describe('the release flow', () => {
       await expect(
         h.domain.teamTools.proposeRelease({ ...devops, member: 'dev-1' }, { title: 'x', summary: 'x' }),
       ).rejects.toMatchObject({ code: 'forbidden' });
+    });
+  });
+
+  describe('the integrator in super mode proposes (PM-784)', () => {
+    const KEY = { id: 'ikey_one', prefix: 'pmi_abcdefgh' };
+    beforeEach(async () => setup());
+
+    /** A live scope of a key, as the authenticated facade makes it; `revoked` turns true when the key goes. */
+    async function scope(mode: 'super' | 'read' | 'legacy' = 'super', revoked: () => boolean = () => false) {
+      const actor = superActorOf(await h.domain.projects.config('AR'), KEY)!;
+      return {
+        active: true,
+        context: {
+          principal: {
+            kind: 'integrator' as const,
+            userId: 'usr_owner',
+            keyId: KEY.id,
+            prefix: KEY.prefix,
+            mode,
+          },
+          projectKey: 'AR',
+          actor,
+          requestId: 'req-rel-1',
+        },
+        actorFor: () => {
+          if (revoked()) throw forbidden('insufficient_access', 'the key was revoked');
+          return actor;
+        },
+        assertAccess: () => undefined,
+        assertMutation: () => {},
+        authorizeMutation: async () => {},
+      } satisfies IntegratorExecutionScope;
+    }
+    const inScope = <T>(s: IntegratorExecutionScope, run: () => Promise<T>) => runIntegratorExecution(s, run);
+    const superActor = () => ({
+      kind: 'ai',
+      handle: 'operator',
+      via: 'integrator',
+      operatorMode: 'super',
+      credential: KEY,
+    });
+
+    it('previews the candidate and records nothing', async () => {
+      const candidate = await inScope(await scope(), () => h.domain.releases.previewExternal('AR'));
+      expect(candidate).toMatchObject({ repo: 'web', commit: sha(3), baseCommit: null });
+      expect(candidate.tasks.map((card) => card.key)).toEqual(['AR-1', 'AR-2', 'AR-3']);
+      const chosen = await inScope(await scope(), () => h.domain.releases.previewExternal('AR', sha(2)));
+      expect(chosen.tasks.map((card) => card.key)).toEqual(['AR-1', 'AR-2']);
+      expect(h.repos.releases.list('AR')).toEqual([]);
+      expect(h.domain.inbox.list('AR', { kind: 'release' })).toEqual([]);
+      expect(h.domain.tasks.list('AR').filter((card) => card.kind === 'theme')).toEqual([]);
+    });
+
+    it('proposes as the Operator through the key, for the owners’ approval, without the duty check', async () => {
+      const { release, candidate } = await inScope(await scope(), () =>
+        h.domain.releases.proposeExternal('AR', { title: 'Super release', summary: '- AR-1' }),
+      );
+      expect(release).toMatchObject({
+        state: 'proposed',
+        commit: sha(3),
+        tasks: ['AR-1', 'AR-2', 'AR-3'],
+        proposedBy: 'operator',
+        taskKey: 'AR-4',
+      });
+      expect(candidate.tasks).toHaveLength(3);
+      expect(task('AR-4')).toMatchObject({ kind: 'theme', title: 'Super release' });
+      const items = h.domain.inbox.list('AR', { kind: 'release', state: 'open' });
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ assignees: ['owner'], taskKey: 'AR-4', source: 'operator' });
+      // The events carry the whole actor of the key, never only the handle.
+      const created = h.domain.timeline
+        .list('AR', { taskKey: 'AR-4' })
+        .filter((event) => event.type === 'task_created');
+      expect(created.map((event) => event.actor)).toEqual([superActor()]);
+      expect(events('AR-4').map((event) => event.actor)).toEqual([superActor()]);
+      expect(events('AR-4')[0]!.data).toMatchObject({ state: 'proposed', previousState: null });
+    });
+
+    it('stays a proposal: neither the key nor the proposal approves, and the owner’s own login does', async () => {
+      await inScope(await scope(), () =>
+        h.domain.releases.proposeExternal('AR', { title: 'Super release', summary: 'x' }),
+      );
+      await expect(inScope(await scope(), async () => decide('approve', OWNER))).rejects.toMatchObject({
+        code: 'owner_approval_required',
+      });
+      expect(h.repos.releases.open('AR')).toMatchObject({ state: 'proposed' });
+      await decide('approve', OWNER);
+      expect(h.repos.releases.open('AR')).toMatchObject({ state: 'approved', decidedBy: 'owner' });
+    });
+
+    it('refuses an open release, a read or a legacy key and a call outside a scope, and writes nothing', async () => {
+      await inScope(await scope(), () =>
+        h.domain.releases.proposeExternal('AR', { title: 'First', summary: 'x' }),
+      );
+      await expect(
+        inScope(await scope(), () =>
+          h.domain.releases.proposeExternal('AR', { title: 'Second', summary: 'x' }),
+        ),
+      ).rejects.toMatchObject({ code: 'release_open', status: 409 });
+      await expect(
+        inScope(await scope(), () => h.domain.releases.previewExternal('AR')),
+      ).rejects.toMatchObject({ code: 'release_open' });
+      await decide('reject');
+      for (const [mode, code] of [
+        ['read', 'integrator_read_only'],
+        ['legacy', 'integrator_not_allowed'],
+      ] as const) {
+        await expect(
+          inScope(await scope(mode), () =>
+            h.domain.releases.proposeExternal('AR', { title: 'No', summary: 'x' }),
+          ),
+          mode,
+        ).rejects.toMatchObject({ code });
+        await expect(
+          inScope(await scope(mode), () => h.domain.releases.previewExternal('AR')),
+          mode,
+        ).rejects.toMatchObject({ code });
+      }
+      await expect(
+        h.domain.releases.proposeExternal('AR', { title: 'No scope', summary: 'x' }),
+      ).rejects.toMatchObject({ code: 'insufficient_access' });
+      expect(h.repos.releases.list('AR')).toHaveLength(1);
+      expect(h.domain.tasks.list('AR').filter((card) => card.kind === 'theme')).toHaveLength(1);
+    });
+
+    it('checks the key again after the candidate is read, and a key revoked meanwhile records nothing', async () => {
+      // The first check opens the lock, the candidate is read, and the key is gone at the second check.
+      let checks = 0;
+      const s = await scope('super', () => ++checks >= 2);
+      await expect(
+        inScope(s, () => h.domain.releases.proposeExternal('AR', { title: 'Late', summary: 'x' })),
+      ).rejects.toMatchObject({ code: 'insufficient_access' });
+      expect(h.repos.releases.list('AR')).toEqual([]);
+      expect(h.domain.inbox.list('AR', { kind: 'release' })).toEqual([]);
+      expect(h.domain.tasks.list('AR').filter((card) => card.kind === 'theme')).toEqual([]);
     });
   });
 });

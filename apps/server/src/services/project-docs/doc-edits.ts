@@ -1,9 +1,34 @@
+import type { ProjectDoc } from '@projectman/shared';
+import type { ProjectDocRead } from '../../contracts';
 import { DomainError } from '../../kernel';
 
 /** The lines of a text: none for an empty one; the line break that ends the last line does not start another. */
 export function docLines(text: string): string[] {
   if (text === '') return [];
   return (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n');
+}
+
+/** The most lines `read_project_doc` returns in one call. */
+export const MAX_DOC_LINES = 2000;
+
+/** What `read_project_doc` answers: the window of lines asked for of a document read at one commit. */
+export function docWindow(
+  doc: ProjectDoc,
+  read: { repo: { name: string }; path: string; commit: string; text: string | null },
+  fromLine = 1,
+  lineCount = MAX_DOC_LINES,
+): ProjectDocRead {
+  const lines = docLines(read.text ?? '');
+  return {
+    doc,
+    repo: read.repo.name,
+    path: read.path,
+    commit: read.commit,
+    exists: read.text !== null,
+    total_lines: lines.length,
+    from_line: fromLine,
+    text: lines.slice(fromLine - 1, fromLine - 1 + lineCount).join('\n'),
+  };
 }
 
 /**

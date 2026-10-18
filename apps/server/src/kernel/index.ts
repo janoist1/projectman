@@ -50,5 +50,7 @@ export {
   assertOwnApproval,
   assertSuperMutation,
   authorizeSuperMutation,
+  externalToolOrigin,
+  integratorOwnerId,
   withoutIntegratorExecution,
 } from './integrator-execution';

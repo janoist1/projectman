@@ -36,6 +36,21 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
           .optional()
           .describe('Only list the commit and the cards of the release; record nothing (default false).'),
       },
+      external: {
+        access: 'write',
+        modes: ['super'],
+        description:
+          "Propose releasing the project's default branch (or the merge commit `commit`) to the owners, as the Operator through your key. It makes a release card and an approval request in the owners' inbox: {releaseId, taskKey, commit, baseCommit, tasks}. Nothing is deployed until an owner approves with their own login, and the release watcher deploys it. The release has the merged cards between the last release and the commit. Only one release is open at a time. With `preview: true` nothing is recorded: the result lists the commit and the cards, so you can write the summary.",
+        async run({ ctx, args, handler }) {
+          const result = await handler.proposeRelease(ctx, {
+            title: args.title,
+            summary: args.summary,
+            ...(args.commit ? { commit: args.commit } : {}),
+            preview: args.preview ?? false,
+          });
+          return { structured: { ...result } };
+        },
+      },
       async run({ ctx, args, handler }) {
         const result = await handler.proposeRelease(ctx, {
           title: args.title,

@@ -1,3 +1,5 @@
+import { parseExternalToolOrigin } from '@projectman/shared';
+import type { ExternalToolOrigin } from '@projectman/shared';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -24,10 +26,12 @@ export interface DocWriteRecord {
   message: string;
   /** The Operator's handle. */
   author: string;
-  /** The owner whose request it ran under. */
-  requestedBy: string;
-  requestId: string;
-  stepId: string;
+  /** The owner whose request it ran under; null for a write made through the bearer MCP (PM-784). */
+  requestedBy: string | null;
+  /** The Operator request it ran under; null for a write made through the bearer MCP. */
+  requestId: string | null;
+  /** The Operator step that tracks it; null for a write made through the bearer MCP. */
+  stepId: string | null;
   engineId: string;
   state: DocWriteState;
   /** The commit that was built; saved before the push. */
@@ -36,6 +40,11 @@ export interface DocWriteRecord {
   error: { code: string; message: string } | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Where a write made through the bearer MCP came from (PM-784); null for the Operator's own and for rows
+   * from before. Provenance only: the key and the owner's membership are checked again whenever it is used.
+   */
+  externalOrigin: ExternalToolOrigin | null;
 }
 
 interface DocWriteRow {
@@ -47,15 +56,16 @@ interface DocWriteRow {
   edits: string;
   message: string;
   author: string;
-  requested_by: string;
-  request_id: string;
-  step_id: string;
+  requested_by: string | null;
+  request_id: string | null;
+  step_id: string | null;
   engine_id: string;
   state: DocWriteState;
   commit_sha: string | null;
   error: string | null;
   created_at: string;
   updated_at: string;
+  external_origin: string | null;
 }
 
 const toRecord = (row: DocWriteRow): DocWriteRecord => ({
@@ -76,6 +86,9 @@ const toRecord = (row: DocWriteRow): DocWriteRecord => ({
   error: row.error ? parseJson<DocWriteRecord['error']>(row.error, null) : null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  externalOrigin: row.external_origin
+    ? parseExternalToolOrigin(parseJson<unknown>(row.external_origin, null))
+    : null,
 });
 
 /** What `update` may change; `updatedAt` is always set by the caller. */
@@ -88,9 +101,9 @@ export function createDocWriteRepository(db: Db) {
   const statements = {
     insert: db.prepare(`INSERT INTO doc_writes
       (id, project_key, repo, base, base_commit, edits, message, author, requested_by, request_id, step_id,
-       engine_id, state, commit_sha, error, created_at, updated_at)
+       engine_id, state, commit_sha, error, created_at, updated_at, external_origin)
       VALUES (@id, @projectKey, @repo, @base, @baseCommit, @edits, @message, @author, @requestedBy, @requestId,
-       @stepId, @engineId, @state, @commitSha, @error, @createdAt, @updatedAt)`),
+       @stepId, @engineId, @state, @commitSha, @error, @createdAt, @updatedAt, @externalOrigin)`),
     get: db.prepare('SELECT * FROM doc_writes WHERE id = ?'),
     openOf: db.prepare("SELECT * FROM doc_writes WHERE project_key = ? AND state IN ('queued','running')"),
     list: db.prepare('SELECT * FROM doc_writes WHERE state = ? ORDER BY created_at, rowid'),
@@ -101,6 +114,7 @@ export function createDocWriteRepository(db: Db) {
         ...record,
         edits: toJson(record.edits),
         error: record.error ? toJson(record.error) : null,
+        externalOrigin: record.externalOrigin ? toJson(record.externalOrigin) : null,
       });
     },
     get(id: string): DocWriteRecord | null {

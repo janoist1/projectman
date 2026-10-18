@@ -6,7 +6,7 @@ import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 import type { ProjectService } from '../../core/projects';
 import type { OperatorSteps } from '../../services/operator';
-import { docLines, type DocWrites, type DecisionCandidates } from '../../services/project-docs';
+import { docWindow, type DocWrites, type DecisionCandidates } from '../../services/project-docs';
 import {
   refusalOf,
   toToolError,
@@ -15,9 +15,6 @@ import {
   type ToolCaller,
   type CallerWithRequest,
 } from '../caller';
-
-/** The most lines read_project_doc returns in one call. */
-const MAX_DOC_LINES = 2000;
 
 /** A refusal of the document tools in words the agent reads: the error code first (`code: message`). */
 function docToolError(err: unknown): unknown {
@@ -67,18 +64,7 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
     await this.calls.callerWithRequest(ctx, 'read_project_doc');
     try {
       const read = await this.docWrites.read(ctx.projectKey, ctx.member, args.doc);
-      const lines = docLines(read.text ?? '');
-      const from = args.fromLine ?? 1;
-      return {
-        doc: args.doc,
-        repo: read.repo.name,
-        path: read.path,
-        commit: read.commit,
-        exists: read.text !== null,
-        total_lines: lines.length,
-        from_line: from,
-        text: lines.slice(from - 1, from - 1 + (args.lineCount ?? MAX_DOC_LINES)).join('\n'),
-      };
+      return docWindow(args.doc, read, args.fromLine, args.lineCount);
     } catch (err) {
       throw docToolError(err);
     }

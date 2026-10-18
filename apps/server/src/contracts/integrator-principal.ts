@@ -1,5 +1,6 @@
 import type {
   Actor,
+  ExternalToolOrigin,
   HumanMemberConfig,
   ProjectConfig,
   SuperActor,
@@ -53,6 +54,25 @@ export interface AuthenticatedIntegratorExecutionContext {
 export interface IntegratorCredentialAuthority {
   assertActive(principal: IntegratorPrincipal): void;
   user(id: string): { email: string } | null;
+  /**
+   * The live principal of a stored key (PM-784), for work that outlives the call that started it: a queued
+   * document write. Null when the key is revoked, expired or no longer the one stored (id, owner, prefix);
+   * the mode is the key's own. It records no use of the key.
+   */
+  reactivate?(stored: { userId: string; keyId: string; prefix: string }): IntegratorPrincipal | null;
+}
+
+/**
+ * Runs the later steps of a bearer-MCP write under a fresh authenticated scope (PM-784). `action` gets
+ * `assertActive`, which re-checks the key, the owner's membership and the Operator and throws when any of
+ * them is gone; the runner itself throws the same way before `action` starts.
+ */
+export interface DocWriteExternalRunner {
+  run<T>(
+    projectKey: string,
+    origin: ExternalToolOrigin,
+    action: (assertActive: () => Promise<void>) => Promise<T>,
+  ): Promise<T>;
 }
 
 export interface SuperMutationAuthorizer {

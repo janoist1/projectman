@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
+import { ExternalToolOrigin } from './external-tool-origin';
 import { LabelId } from './label';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
@@ -738,6 +739,8 @@ export interface CombineQuestionsResult {
 
 /** Compatibility is structural; the PM must also establish that the decisions mean the same thing. */
 export function questionGroupCompatible(a: InboxItem, b: InboxItem): boolean {
+  // A question the integrator asked through the bearer MCP (PM-784) never joins a member's group.
+  if (questionPayloadOf(a)?.externalQuestion || questionPayloadOf(b)?.externalQuestion) return false;
   const signature = (item: InboxItem) => {
     const p = questionPayloadOf(item);
     return JSON.stringify({
@@ -839,10 +842,14 @@ export type SuperOperationQuestionPayload = z.infer<typeof SuperOperationQuestio
  * action whatever its declared purpose, and so is one bound to a super operation.
  */
 export function isRelayableQuestion(
-  payload: Pick<QuestionPayload, 'responsePurpose' | 'superOperation' | 'approvalLabel' | 'screening'>,
+  payload: Pick<
+    QuestionPayload,
+    'responsePurpose' | 'superOperation' | 'approvalLabel' | 'screening' | 'externalQuestion'
+  >,
 ) {
   return (
     payload.responsePurpose === 'information' &&
+    !payload.externalQuestion &&
     !payload.superOperation &&
     !payload.approvalLabel &&
     !payload.screening?.todo &&
@@ -909,8 +916,28 @@ export const QuestionPayload = z.object({
   responsePurpose: QuestionResponsePurpose.optional(),
   /** Binds the question to one durable super operation (PM-762); such a question is always an owner decision. */
   superOperation: SuperOperationQuestionPayload.optional(),
+  /**
+   * Present when the integrator asked this question through the bearer MCP (PM-784): who it came from. It
+   * is provenance only; such a question is answered by a person's own login, never by a token.
+   */
+  externalQuestion: ExternalToolOrigin.optional(),
+  /** The durable message that carries the answer of an `externalQuestion` (PM-784); no session reads it. */
+  externalAnswerMessageId: z.string().optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
+
+/**
+ * Why a token (the integrator in any mode, or a person through a key) may not answer an integrator-asked
+ * question (PM-784), or null when the answerer is not one. The question's own answer is never relayed
+ * (`super_relay_refused`); a decision needs the owner's own login (`owner_approval_required`).
+ */
+export function externalQuestionAnswerRefusal(
+  payload: Pick<QuestionPayload, 'externalQuestion' | 'responsePurpose'>,
+  by: { via?: unknown; superActor?: unknown },
+): 'super_relay_refused' | 'owner_approval_required' | null {
+  if (!payload.externalQuestion || (!by.via && !by.superActor)) return null;
+  return payload.responsePurpose === 'information' ? 'super_relay_refused' : 'owner_approval_required';
+}
 
 /** The question payload of an item, or null when it has none (or an unreadable one). */
 export function questionPayloadOf(item: Pick<InboxItem, 'payload'>): QuestionPayload | null {

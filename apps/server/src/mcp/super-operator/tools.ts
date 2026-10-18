@@ -1,7 +1,9 @@
 import {
   GetAdministrationLogsArgs,
   GetAdministrationStatusArgs,
+  GetProjectDocWriteInput,
   GetSuperOperationArgs,
+  GetSuperQuestionInput,
   ListSuperHandoffsQuery,
   QuerySuperDiagnosticsArgs,
   RelayOwnerAnswerRequest,
@@ -163,6 +165,30 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
           ...(args.note !== undefined ? { note: args.note } : {}),
         }),
       };
+    },
+  }),
+  defineExternalTool({
+    name: 'get_super_question',
+    title: 'Read your own question and its answer',
+    description:
+      'A question you asked with ask_human through this owner’s keys in this project: {item, answer, answer_attachments}. answer is null while it is open and after it was withdrawn or closed. answer_attachments lists the files the answer carries (a deleted one stays, marked); their content comes through the protected message-attachment download. Any other question is not_found.',
+    access: 'read',
+    modes: ['super', 'read'],
+    input: GetSuperQuestionInput.shape,
+    async run({ ctx, args, handler }) {
+      return { structured: { ...(await handler.getSuperQuestion(ctx, { itemId: args.item_id })) } };
+    },
+  }),
+  defineExternalTool({
+    name: 'get_project_doc_write',
+    title: 'Read the state of a document write',
+    description:
+      'One write_project_docs write the keys of this owner made in this project: {write_id, state: queued|running|published|stale|failed, commit, paths, warning, failure}. Ask again until the state is final. Any other write is not_found.',
+    access: 'read',
+    modes: ['super', 'read'],
+    input: GetProjectDocWriteInput.shape,
+    async run({ ctx, args, handler }) {
+      return { structured: { ...(await handler.getProjectDocWrite(ctx, { writeId: args.write_id })) } };
     },
   }),
   defineExternalTool({

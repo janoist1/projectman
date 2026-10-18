@@ -91,6 +91,39 @@ async function deliver() {
 }
 
 describe('Operator system signals', () => {
+  it('filters every coordinator-only state from the channel and live owner events, retaining outage', async () => {
+    await setup();
+    for (const kind of ['structural_pattern', 'milestone_closed', 'stalled', 'outage'] as const) {
+      for (const state of ['pending', 'open', 'dismissed', 'resolved'] as const) {
+        const signal = h.domain.operatorSignals.raise({
+          projectKey: 'AR',
+          kind,
+          caseKey: `${kind}:${state}`,
+        });
+        const saved = {
+          ...signal,
+          state,
+          deliveredAt: now.toISOString(),
+          resolvedAt: state === 'resolved' ? now.toISOString() : null,
+        };
+        h.repos.operatorSignals.save(saved);
+        const event = { type: 'operator_signal' as const, projectKey: 'AR', signal: saved };
+        expect(canSeeProjectEvent({ access: 'owner', handle: 'owner' }, event)).toBe(
+          kind === 'stalled' || kind === 'outage',
+        );
+      }
+    }
+    const channel = h.domain.operatorSignals.channel('AR');
+    expect(channel.openSignals).toBe(2);
+    expect(channel.signals.map((s) => s.kind)).toEqual([
+      'stalled',
+      'stalled',
+      'stalled',
+      'outage',
+      'outage',
+      'outage',
+    ]);
+  });
   it('presents multiple signals in one message and preserves per-signal actions', async () => {
     await setup();
     const a = raise('outage:a');

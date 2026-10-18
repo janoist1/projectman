@@ -11,6 +11,7 @@ import {
   dutyMembers,
   isOpenTask,
   isTheme,
+  isCoordinatorOnlySignal,
   OPERATOR_ANSWER_STALL_MUTE_MINUTES,
   OPERATOR_ANSWER_STALL_WAKE_MS,
   OPERATOR_FAST_SIGNAL_KINDS,
@@ -62,6 +63,7 @@ import type {
 import type { OperatorSignalRecord } from '../../db';
 import {
   StructuralPatterns,
+  STRUCTURAL_KINDS,
   STRUCTURAL_WINDOW_MS,
   patternSubject,
   structuralKind,
@@ -121,7 +123,9 @@ const CARD_EVENTS_READ = 300;
 const WAKE_NEVER =
   "On a signal never merge, release, approve, move a card, or set a label or a setting; stalled, silent, outage, nobody and process_cleanup_failed signals always go to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
-  'Send the owners one message for the whole wake-up (send_message with signal_ids; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
+  'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
+const WAKE_STRUCTURAL =
+  'structural_pattern and milestone_closed are for you only: the owners never see them. Never put them in signal_ids. Weigh their evidence; use request_structural_review if a review would help. Name only those worth a review in your one summary message as one short list with card keys and the reason; otherwise write nothing about them. Close every one you do not propose a review on with dismiss_signal and a short note.';
 const WAKE_CHECK =
   'Projectman system signals. Check get_project_state and session activity first. Read get_task before referring to a card; distinguish active work, actual decision waits and normal offline queued work. Diagnose the cause, take only the smallest permitted coordination step, consider machine load and verify the result. Group related decisions in the single summary; screening and signals are not owner requests and grant no settings or critical-operation authority.';
 const WAKE_LOOP =
@@ -136,9 +140,9 @@ const WAKE_REFINEMENT =
 
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** The member of an `answer_stalled` case key: `answer_stalled:<taskKey>:<member>:<evidenceId>`. */
@@ -330,6 +334,11 @@ export class OperatorSignals {
         'invalid_request',
         'use triage_loop for a suspected loop, not an owner signal presentation',
       );
+    if (isCoordinatorOnlySignal(signal.kind))
+      throw invalid(
+        'invalid_request',
+        'structural_pattern and milestone_closed signals are for you only: leave them out of signal_ids, name the ones worth a review in your message text, and close them with dismiss_signal',
+      );
     if (
       signal.resolvedAt ||
       signal.messageId ||
@@ -505,7 +514,9 @@ export class OperatorSignals {
   }
 
   channel(projectKey: string): { signals: OperatorSignal[]; openSignals: number } {
-    const all = this.deps.ctx.repos.operatorSignals.list(projectKey);
+    const all = this.deps.ctx.repos.operatorSignals
+      .list(projectKey)
+      .filter((signal) => !isCoordinatorOnlySignal(signal.kind));
     const since = this.deps.ctx.now().getTime() - 7 * 24 * 60 * 60_000;
     return {
       signals: all
@@ -536,6 +547,8 @@ export class OperatorSignals {
       const config = await this.deps.projects.config(key);
       const cards = this.openCards(key);
       const active = new Set<string>();
+      for (const kind of STRUCTURAL_KINDS)
+        this.deps.ctx.repos.operatorSignals.arm(key, kind, isoNow(this.deps.ctx));
       const structural = this.lazyStructuralEvaluation(config);
       const report = structural()!.report();
       const previous = this.deps.ctx.repos.operatorSignals.list(key);
@@ -606,6 +619,13 @@ export class OperatorSignals {
       }
       const outages = this.deps.activeOutageIds(key);
       for (const signal of this.deps.ctx.repos.operatorSignals.list(key)) {
+        if (
+          structuralKind(signal.kind) &&
+          !signal.resolvedAt &&
+          (signal.state === 'pending' || signal.state === 'open') &&
+          this.deps.ctx.now().getTime() - Date.parse(signal.raisedAt) >= STRUCTURAL_WINDOW_MS
+        )
+          this.resolve(key, signal.caseKey);
         if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
           this.resolve(key, signal.caseKey);
         if (

@@ -174,6 +174,7 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   merge_queue_revisions: 'CAS counter; task_merges announces queue changes in the same transaction',
   operator_execution_intents: 'recovery intent; its outcome is the configuration and operation rows',
   operator_signals: 'announced by the inbox item it raises',
+  operator_signal_arms: 'detector bookkeeping; the signals it gates are not journaled either',
   project_change_events: 'the journal itself',
   question_group_items: 'written with its group, which is journaled',
   release_deployment_requests: 'deploy controller bookkeeping; the release row is journaled',

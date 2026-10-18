@@ -20,7 +20,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await h?.cleanup();
 });
-async function setup(architect = true) {
+async function setup(architect = true, armed = true) {
   now = new Date('2026-10-16T09:00:00Z');
   h = await createDomainHarness({
     persistent: true,
@@ -45,6 +45,9 @@ async function setup(architect = true) {
       });
     },
   });
+  if (armed)
+    for (const kind of ['structural_pattern', 'milestone_closed'] as const)
+      h.repos.operatorSignals.arm('AR', kind, '2026-10-01T00:00:00.000Z');
 }
 const config = () => h.domain.projects.cachedConfig('AR')!;
 const report = () => new StructuralPatterns(h.domain.ctx).report(config());
@@ -92,6 +95,59 @@ async function detected() {
 }
 
 describe('structured pattern evidence', () => {
+  it('arms on the first sweep, skips old evidence and preserves the boundary after restart', async () => {
+    await setup(true, false);
+    const a = await card();
+    const b = await card();
+    const old = new Date(now.getTime() - 60_000);
+    failure(a.key, undefined, 'web', old);
+    failure(b.key, undefined, 'web', old);
+    const theme = await h.domain.tasks.create('AR', { title: 'Theme', kind: 'theme' }, OWNER_ACTOR);
+    evidence(theme.key, 'task_updated', { action: 'closed', previousStatus: 'active' }, old);
+    const reads = vi.spyOn(h.repos.timeline, 'structuralEvidence');
+    expect(report()).toEqual({ patterns: [], milestones: [] });
+    expect(reads).not.toHaveBeenCalled();
+    await h.domain.operatorSignals.sweep('AR');
+    expect(signals()).toHaveLength(0);
+    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'milestone_closed')).toHaveLength(0);
+    const armedAt = now.toISOString();
+    for (const kind of ['structural_pattern', 'milestone_closed'] as const)
+      expect(h.repos.operatorSignals.armedAt('AR', kind)).toBe(armedAt);
+    now = new Date(now.getTime() + 1000);
+    failure(a.key);
+    expect(report().patterns).toEqual([]); // One old and one new card never form a pattern.
+    failure(b.key);
+    evidence(theme.key, 'task_updated', { action: 'closed', previousStatus: 'active' });
+    await h.domain.operatorSignals.sweep('AR');
+    expect(signals()).toHaveLength(1);
+    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'milestone_closed')).toHaveLength(1);
+    h = await restartDomainHarness(h, { now: () => now });
+    await h.domain.operatorSignals.sweep('AR');
+    expect(signals()).toHaveLength(1);
+    expect(h.repos.operatorSignals.arm('AR', 'structural_pattern', now.toISOString())).toBe(armedAt);
+    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'milestone_closed')).toHaveLength(1);
+    now = new Date(now.getTime() + 8 * 24 * 60 * 60_000);
+    await h.domain.operatorSignals.sweep('AR');
+    expect(signals()[0]).toMatchObject({ state: 'resolved', resolvedAt: now.toISOString() });
+  });
+
+  it('uses separate activation boundaries for patterns and milestones', async () => {
+    await setup(true, false);
+    const a = await card();
+    const b = await card();
+    const theme = await h.domain.tasks.create('AR', { title: 'Theme', kind: 'theme' }, OWNER_ACTOR);
+    h.repos.operatorSignals.arm('AR', 'milestone_closed', new Date(now.getTime() - 1000).toISOString());
+    failure(a.key);
+    failure(b.key);
+    evidence(theme.key, 'task_updated', { action: 'closed', previousStatus: 'active' });
+    expect(report().patterns).toEqual([]);
+    expect(report().milestones).toHaveLength(1);
+    now = new Date(now.getTime() + 1000);
+    h.repos.operatorSignals.arm('AR', 'structural_pattern', now.toISOString());
+    expect(report().patterns).toEqual([]);
+    expect(report().milestones).toHaveLength(1);
+  });
+
   it('groups independent cards by repository and normalized file, never retries or raw output', async () => {
     await setup();
     const a = await card();
@@ -355,16 +411,18 @@ describe('owner-approved occasional review', () => {
     ]);
   });
 
-  it('keeps report-only signals non-actionable even if a presentation requests action authority', async () => {
+  it('refuses owner presentation and lets the PM close report-only signals with a note', async () => {
     await setup();
     const { ctx, signal } = await detected();
-    await h.domain.teamTools.sendMessage(ctx, {
-      to: ['owner'],
-      kind: 'info',
-      text: 'A review may help.',
-      signalId: signal.id,
-      signalActionable: true,
-    });
+    await expect(
+      h.domain.teamTools.sendMessage(ctx, {
+        to: ['owner'],
+        kind: 'info',
+        text: 'A review may help.',
+        signalIds: [signal.id],
+        actionableSignalIds: [signal.id],
+      }),
+    ).rejects.toThrow('for you only');
     expect(h.repos.operatorSignals.get(signal.id)?.actionable).toBe(false);
     await expect(
       h.domain.messaging.sendReporting(
@@ -375,6 +433,13 @@ describe('owner-approved occasional review', () => {
       ),
     ).rejects.toThrow('signal');
     expect(requests().openFor(ctx.sessionId)).toBeNull();
+    await expect(
+      h.domain.teamTools.dismissSignal(ctx, { signalId: signal.id, note: 'No review needed.' }),
+    ).resolves.toEqual({ signalId: signal.id, state: 'dismissed' });
+    expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({
+      state: 'dismissed',
+      decisionNote: 'No review needed.',
+    });
   });
 
   it('only proposes before approval, rejects an integrator/admin, and continues only the PM request', async () => {

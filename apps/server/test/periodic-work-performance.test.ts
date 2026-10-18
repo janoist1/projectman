@@ -485,6 +485,9 @@ async function structuralFixture(
         },
       );
     const base = currentEvidence().tasks[0]!;
+    for (const projectKey of PROJECTS)
+      for (const kind of ['structural_pattern', 'milestone_closed'] as const)
+        h.repos.operatorSignals.arm(projectKey, kind, OLD);
     h.repos.transaction(() => {
       for (const projectKey of PROJECTS)
         for (let n = 0; n < groups; n++) {

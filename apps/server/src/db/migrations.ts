@@ -1753,4 +1753,19 @@ migrations.push({
     CREATE INDEX history_searches_project_at ON history_searches(project_key, at, id);
     CREATE INDEX history_searches_member_at ON history_searches(project_key, member, at);`,
 });
+migrations.push({
+  version: 86,
+  name: 'arm coordinator-only signals without retroactive notifications',
+  sql: `CREATE TABLE operator_signal_arms (
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      armed_at TEXT NOT NULL,
+      PRIMARY KEY (project_key, kind)
+    );
+    UPDATE operator_signals SET state = 'resolved',
+      resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+      decision_note = 'PM-780: retroactive report-only signal closed at upgrade'
+      WHERE kind IN ('structural_pattern', 'milestone_closed')
+        AND resolved_at IS NULL AND state IN ('pending', 'open');`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

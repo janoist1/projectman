@@ -4,7 +4,8 @@ import type { OperatorSignalKind, ProjectConfig, Task, TimelineEvent } from '@pr
 import type { DomainContext } from '../../core/base';
 
 export const STRUCTURAL_WINDOW_MS = 7 * 24 * 60 * 60_000;
-export const structuralKind = (kind: string) => kind === 'structural_pattern' || kind === 'milestone_closed';
+export const STRUCTURAL_KINDS = ['structural_pattern', 'milestone_closed'] as const;
+export const structuralKind = (kind: string) => STRUCTURAL_KINDS.some((candidate) => candidate === kind);
 export const patternSubject = (fingerprint: string) =>
   createHash('sha256').update(fingerprint).digest('hex').slice(0, 24);
 
@@ -60,6 +61,9 @@ export class StructuralPatterns {
   /** One synchronous phase only: never retain an evaluation across awaits or evidence/config writes. */
   evaluate(config: ProjectConfig, until = this.ctx.now().toISOString()): StructuralEvaluation {
     const projectKey = config.project.key;
+    const armed = new Map(
+      STRUCTURAL_KINDS.map((kind) => [kind, this.ctx.repos.operatorSignals.armedAt(projectKey, kind)]),
+    );
     const windows = new Map<string, ReturnType<typeof load>>();
     const requests = new Map<string, Map<unknown, TimelineEvent>>();
     const merges = new Map<string, ReturnType<DomainContext['repos']['taskMerges']['get']>>();
@@ -86,7 +90,16 @@ export class StructuralPatterns {
     };
     const load = (end: string) => {
       const since = new Date(Date.parse(end) - STRUCTURAL_WINDOW_MS).toISOString();
-      const events = this.ctx.repos.timeline.structuralEvidence(projectKey, since, end);
+      const from = (kind: (typeof STRUCTURAL_KINDS)[number]) => {
+        const at = armed.get(kind);
+        return at ? (at > since ? at : since) : null;
+      };
+      const patternFrom = from('structural_pattern');
+      const milestoneFrom = from('milestone_closed');
+      const starts = [patternFrom, milestoneFrom].filter((at): at is string => at !== null && at <= end);
+      const events = starts.length
+        ? this.ctx.repos.timeline.structuralEvidence(projectKey, starts.sort()[0]!, end)
+        : [];
       const keys = [...new Set(events.flatMap((event) => (event.taskKey ? [event.taskKey] : [])))];
       const cards =
         keys.length === 0 ? [] : this.ctx.repos.tasks.readScheduling(projectKey, { kind: 'keys', keys });
@@ -95,7 +108,17 @@ export class StructuralPatterns {
       let milestones: StructuralReport['milestones'] | undefined;
       let milestoneKeys: Set<string> | undefined;
       return {
-        patterns: () => (patterns ??= this.patterns(config, events, cards, since, end, conflictRepo)),
+        patterns: () =>
+          (patterns ??= patternFrom
+            ? this.patterns(
+                config,
+                events.filter((event) => event.createdAt >= patternFrom),
+                cards,
+                patternFrom,
+                end,
+                conflictRepo,
+              )
+            : []),
         subjects() {
           if (!subjects) {
             subjects = new Map();
@@ -107,12 +130,14 @@ export class StructuralPatterns {
           return subjects;
         },
         milestones: () =>
-          (milestones ??= this.milestones(
-            config,
-            events,
-            new Map(cards.map((card) => [card.key, card])),
-            since,
-          )),
+          (milestones ??= milestoneFrom
+            ? this.milestones(
+                config,
+                events.filter((event) => event.createdAt >= milestoneFrom),
+                new Map(cards.map((card) => [card.key, card])),
+                milestoneFrom,
+              )
+            : []),
         milestoneKeys() {
           return (milestoneKeys ??= new Set(
             this.milestones().map((entry) => JSON.stringify([entry.taskKey, entry.eventId])),

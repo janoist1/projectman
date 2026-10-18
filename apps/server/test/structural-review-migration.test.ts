@@ -2,6 +2,50 @@ import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import { LATEST_SCHEMA_VERSION, migrate, migrations } from '../src/db';
 
+it('closes only open structural history once, retaining rows and an upgrade reason', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((m) => m.version < 86)) db.exec(migration.sql);
+    db.pragma('user_version = 85');
+    const insert =
+      db.prepare(`INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at)
+      VALUES (?, 'AR', ?, ?, ?, '2026-10-16T19:40:42.000Z')`);
+    for (const kind of ['structural_pattern', 'milestone_closed', 'outage', 'stalled']) {
+      for (const state of ['pending', 'open', 'dismissed', 'resolved']) {
+        const id = `${kind}:${state}`;
+        insert.run(id, kind, id, state);
+      }
+    }
+    const before = db.prepare('SELECT * FROM operator_signals ORDER BY id').all() as Record<
+      string,
+      unknown
+    >[];
+    migrate(db);
+    const after = db.prepare('SELECT * FROM operator_signals ORDER BY id').all() as Record<string, unknown>[];
+    expect(after).toHaveLength(before.length);
+    for (const [index, row] of before.entries()) {
+      const closed =
+        ['structural_pattern', 'milestone_closed'].includes(String(row.kind)) &&
+        ['pending', 'open'].includes(String(row.state));
+      expect(after[index]).toEqual(
+        closed
+          ? {
+              ...row,
+              state: 'resolved',
+              resolved_at: expect.any(String),
+              decision_note: 'PM-780: retroactive report-only signal closed at upgrade',
+            }
+          : row,
+      );
+    }
+    migrate(db);
+    expect(db.prepare('SELECT * FROM operator_signals ORDER BY id').all()).toEqual(after);
+    expect(db.prepare('SELECT * FROM operator_signal_arms').all()).toEqual([]);
+  } finally {
+    db.close();
+  }
+});
+
 it('preserves every signal field, ordering and partial uniqueness while extending only the kind constraint', () => {
   const db = new Database(':memory:');
   try {

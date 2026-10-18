@@ -1,6 +1,7 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
   superAccessVerdict,
+  isCoordinatorOnlySignal,
   superActorOf,
   ownerReservedEffect,
   integratorConfigRefusal,
@@ -5915,11 +5916,12 @@ export class MockBackend {
       : undefined;
     const sessionId = session?.id ?? null;
     const readOnly = viewer.role !== 'owner';
+    const signals = this.operatorSignals.filter((signal) => !isCoordinatorOnlySignal(signal.kind));
     const rest = {
       requests: clone(this.operatorRequests),
       readOnly,
-      signals: readOnly ? [] : clone(this.operatorSignals),
-      openSignals: readOnly ? 0 : this.operatorSignals.filter((s) => s.state === 'open').length,
+      signals: readOnly ? [] : clone(signals),
+      openSignals: readOnly ? 0 : signals.filter((s) => s.state === 'open' && !s.resolvedAt).length,
     };
     if (!operator) return ok({ member: null, state: 'missing', sessionId, ...rest });
     const member = {

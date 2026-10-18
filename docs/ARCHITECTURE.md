@@ -3769,6 +3769,17 @@ existing "Cloud composition" and "Provider and engine outage watch" boundaries.
 
 ### Coordination belongs to the PM (PM-707)
 
+PM-780 keeps `structural_pattern` and `milestone_closed` exclusively with the coordinator. The shared
+`isCoordinatorOnlySignal` rule filters them from owner channels, counts and websocket signal events,
+including historical closed signals; timeline entries and message text remain readable. The PM never
+presents their IDs to owners: it summarizes worthwhile reviews once per wake-up and closes the rest
+with `dismiss_signal` and a note. Open structural signals expire after seven days.
+Migration 86 closes existing pending/open structural signals with a traceable upgrade reason and adds
+`operator_signal_arms`, keyed by project and kind. Only a sweep arms a detector, once; evidence windows
+start at the later of this durable timestamp and the seven-day boundary. Earlier events never create
+retroactive signals, including after restart. Detection and migration stay on the server; no engine or
+machine-dependent boundary changes.
+
 PM-696 adds report-only `structural_pattern` and `milestone_closed` signals. The server's
 `services/operator/structural-patterns.ts` reads structured timeline evidence in a seven-day window:
 the same repository-relative conflict or failed-test file on two independent cards, or at least three

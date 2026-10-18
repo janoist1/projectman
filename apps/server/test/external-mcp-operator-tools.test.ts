@@ -149,6 +149,47 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
       ).toBe('inbox_item_closed');
     });
 
+    it('lists the files of the owner’s own answer, and keeps listing them', async () => {
+      const { secret } = key('super');
+      const asked = await call(secret, 'ask_human', {
+        project_key: 'AR',
+        question: 'Which layout?',
+        options: ['First', 'Second'],
+      });
+      const itemId = asked.structuredContent!.inbox_item_id as string;
+      const png = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from(Array.from({ length: 32 }, (_, i) => i)),
+      ]);
+      const file = await h.app.projectman.domain.messageAttachments.upload({
+        projectKey: 'AR',
+        actor: humanActor('owner'),
+        fileName: 'layout.png',
+        content: Readable.from([png]),
+      });
+      const open = await call(secret, 'get_super_question', { project_key: 'AR', item_id: itemId });
+      expect(open.structuredContent).toMatchObject({ answer: null, answer_attachments: [] });
+
+      await h.app.projectman.domain.inbox.resolve(
+        'AR',
+        itemId,
+        { optionId: 'option_2', attachmentIds: [file.id] },
+        { handle: 'owner', access: 'owner' },
+      );
+      // The answer is stored with the question, so it reads the same on every later call.
+      for (const mode of ['super', 'read'] as const) {
+        const answered = await call(key(mode).secret, 'get_super_question', {
+          project_key: 'AR',
+          item_id: itemId,
+        });
+        expect(answered.structuredContent).toMatchObject({
+          item: { state: 'resolved' },
+          answer_attachments: [{ id: file.id, fileName: 'layout.png' }],
+        });
+        expect(answered.structuredContent!.answer).not.toBeNull();
+      }
+    });
+
     it('shows a question only to the key owner who asked it and in its own project', async () => {
       const { secret } = key('super');
       const asked = await call(secret, 'ask_human', { project_key: 'AR', question: 'Is this mine?' });
@@ -491,6 +532,26 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
         }),
       });
       expect(revoked.statusCode).toBe(401);
+    });
+
+    it('refuses a file over the size limit before it reads anything', async () => {
+      await h.app.projectman.domain.tasks.create('AR', { title: 'Card' }, humanActor('owner'));
+      const attachment = await upload('AR-1', patterned(300));
+      const attachments = h.app.projectman.domain.attachments;
+      const open = attachments.open.bind(attachments);
+      vi.spyOn(attachments, 'open').mockImplementation(async (...args) => {
+        const opened = await open(...args);
+        return { ...opened, attachment: { ...opened.attachment, size: 25 * 1_048_576 + 1 } };
+      });
+      const { secret } = key('super');
+      const refused = await readChunk(secret, { task_key: 'AR-1', attachment_id: attachment.id });
+      expect(code(refused)).toBe('invalid_request');
+      expect(JSON.stringify(refused)).toContain('larger than');
+      // The limit is the recorded size: the file itself is untouched and a normal read still works.
+      vi.restoreAllMocks();
+      expect(
+        (await readChunk(secret, { task_key: 'AR-1', attachment_id: attachment.id })).isError,
+      ).toBeFalsy();
     });
   });
 });

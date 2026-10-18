@@ -15,7 +15,7 @@ export const GetSuperQuestionInput = z.strictObject({ item_id: z.string().trim()
 export type GetSuperQuestionInput = z.infer<typeof GetSuperQuestionInput>;
 
 /** `get_project_doc_write`: one document write the same owner's keys made. */
-export const GetProjectDocWriteInput = z.strictObject({ write_id: z.string().min(1).max(100) });
+export const GetProjectDocWriteInput = z.strictObject({ write_id: z.string().trim().min(1).max(100) });
 export type GetProjectDocWriteInput = z.infer<typeof GetProjectDocWriteInput>;
 
 export const ExternalQuestionRead = z.strictObject({

@@ -2,9 +2,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
-import { browserStatus } from '../../../scripts/lib/browser.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { browserStatus, createScenarioApi, launchBrowser } from '../../../scripts/lib/browser.mjs';
+import type { ScenarioApi } from '../../../scripts/lib/browser.mjs';
+import { startInstance } from '../../../scripts/lib/instance.mjs';
+import type { Account, Instance } from '../../../scripts/lib/instance.mjs';
 
 /**
  * `npm run shots` with the real headless Chromium (PM-270). Skipped, with a note in the output, when
@@ -21,6 +24,10 @@ const status = (() => {
 const SLOW = 180_000;
 const QUESTION = 'Which colour should the basket button be?';
 const shotsScript = fileURLToPath(new URL('../../../scripts/shots.mjs', import.meta.url));
+const calmMachineFile = fileURLToPath(
+  new URL('../../../scripts/fixtures/machine/calm.json', import.meta.url),
+);
+const calmMachine = readFileSync(calmMachineFile, 'utf8');
 const temporary: string[] = [];
 
 if (!status.installed)
@@ -47,19 +54,6 @@ function scenario(body: string): string {
   );
   return file;
 }
-
-const askQuestion = `
-  const developer = (await instance.api('/api/projects/AC/members')).find(
-    (member) => member.kind === 'ai' && member.role === 'developer',
-  );
-  const sessionId = await instance.startSession('AC', 'AC-1', developer.handle);
-  await instance.waitIdle('AC', sessionId);
-  await instance.setFakeCalls([{ tool: 'ask_human', arguments: { question: ${JSON.stringify(QUESTION)} } }]);
-  await instance.say('AC', sessionId, 'CALLS please');
-  await instance.waitIdle('AC', sessionId);
-  const colleague = await instance.invite({ project: 'AC', email: 'dana@acme.test', name: 'Dana Dev', access: 'developer' });
-  log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
-`;
 
 interface Run {
   status: number | null;
@@ -180,20 +174,148 @@ function pngSize(file: string) {
 }
 
 describe.skipIf(!status.installed)('npm run shots with a browser', () => {
+  let browser: any;
+  let realContext: any;
+  let httpHandler: ((route: any) => unknown) | undefined;
+  let wsHandler: ((socket: any) => void) | undefined;
+  let sharedInstance: Instance;
+  let colleague: Account;
+  let seededSessionId: string;
+  const cleanups: (() => Promise<void>)[] = [];
+
+  beforeAll(async () => {
+    [browser, sharedInstance] = await Promise.all([launchBrowser(), startInstance({ machine: calmMachine })]);
+    [seededSessionId, colleague] = await Promise.all([
+      (async () => {
+        const developer = (await sharedInstance.api('/api/projects/AC/members')).find(
+          (member: { kind: string; role: string }) => member.kind === 'ai' && member.role === 'developer',
+        );
+        const id = await sharedInstance.startSession('AC', 'AC-1', developer.handle);
+        await sharedInstance.waitIdle('AC', id);
+        await sharedInstance.setFakeCalls([{ tool: 'ask_human', arguments: { question: QUESTION } }]);
+        await sharedInstance.say('AC', id, 'CALLS please');
+        await sharedInstance.waitIdle('AC', id);
+        await sharedInstance.setFakeCalls([]);
+        return id;
+      })(),
+      (async () => {
+        colleague = await sharedInstance.invite({
+          project: 'AC',
+          email: 'dana@acme.test',
+          name: 'Dana Dev',
+          access: 'developer',
+        });
+        // Warm up Vite module transformation while the fake AI session runs its turns.
+        const { api } = sharedScenario(join(temp(), 'warmup'));
+        const page = await api.open({ as: colleague, path: '/p/AC/tasks/AC-1/timeline' });
+        await page.waitForURL(/\/p\/AC\/tasks\/AC-1\/timeline$/, { timeout: 15_000 }).catch(() => {});
+        for (const cleanup of cleanups.splice(0)) await cleanup();
+        return colleague;
+      })(),
+    ]);
+  }, SLOW);
+
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) {
+      await cleanup();
+    }
+  });
+
+  afterAll(async () => {
+    await realContext?.close().catch(() => {});
+    await browser?.close().catch(() => {});
+    await sharedInstance?.stop();
+  }, SLOW);
+
+  function sharedScenario(out: string) {
+    const lines: string[] = [];
+    const testBrowser = {
+      // Single-process Chromium crashes (SIGTRAP) on a second Playwright BrowserContext (scripts/lib/browser.mjs),
+      // so each test gets a freshly reset context state (pages closed, storage/cookies/routes replaced).
+      newContext: async (options: { storageState?: { cookies?: unknown[] }; [key: string]: unknown }) => {
+        const pageListeners: ((page: unknown) => void)[] = [];
+        if (!realContext) {
+          realContext = await browser.newContext(options);
+          await realContext.route(/.*/, (route: any) => httpHandler?.(route));
+          await realContext.routeWebSocket(/.*/, (socket: any) => wsHandler?.(socket));
+        } else {
+          await realContext.clearCookies();
+          if (options.storageState?.cookies?.length) {
+            await realContext.addCookies(options.storageState.cookies);
+          }
+        }
+        cleanups.push(async () => {
+          for (const listener of pageListeners) realContext.off('page', listener);
+          for (const page of realContext?.pages() ?? []) {
+            if (!page.isClosed()) {
+              await page
+                .evaluate(() => {
+                  localStorage.clear();
+                  sessionStorage.clear();
+                })
+                .catch(() => {});
+              await page.close().catch(() => {});
+            }
+          }
+        });
+        return {
+          route: async (_url: unknown, handler: (route: any) => unknown) => {
+            httpHandler = handler;
+          },
+          routeWebSocket: async (_url: unknown, handler: (socket: any) => void) => {
+            wsHandler = handler;
+          },
+          on: (event: string, listener: (page: unknown) => void) => {
+            if (event === 'page') pageListeners.push(listener);
+            realContext.on(event, listener);
+          },
+          newPage: () => realContext.newPage(),
+          clearCookies: () => realContext.clearCookies(),
+          addCookies: (cookies: unknown) => realContext.addCookies(cookies),
+        };
+      },
+    };
+    const instance: Instance = {
+      ...sharedInstance,
+      get serverUrl() {
+        return sharedInstance.serverUrl;
+      },
+      get webUrl() {
+        return sharedInstance.webUrl;
+      },
+      startSession: async (project, taskKey, assignee) =>
+        project === 'AC' && taskKey === 'AC-1'
+          ? seededSessionId
+          : sharedInstance.startSession(project, taskKey, assignee),
+      waitIdle: async (project, sessionId, timeoutMs) =>
+        sessionId === seededSessionId ? undefined : sharedInstance.waitIdle(project, sessionId, timeoutMs),
+      setFakeCalls: async () => {},
+      say: async (project, sessionId, text) =>
+        sessionId === seededSessionId ? undefined : sharedInstance.say(project, sessionId, text),
+      invite: async (input) =>
+        input.email.toLowerCase() === colleague.email ? colleague : sharedInstance.invite(input),
+    };
+    const api: ScenarioApi = createScenarioApi({
+      browser: testBrowser,
+      instance,
+      out,
+      print: (line) => lines.push(line),
+    });
+    return { api, lines };
+  }
+
   it(
     'opens a card with an open question as a non-admin and writes four images of the given sizes',
     async () => {
       const out = join(temp(), 'out');
-      const file = scenario(`${askQuestion}
-  await step('open the card', async () => {
-    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1/timeline' });
-    await page.waitForFunction((text) => document.body.innerText.includes(text), ${JSON.stringify(QUESTION)});
-    await shoot(page, 'card');
-  });`);
-      const result = await run(file, ['--out', out, '--timeout', '80'], { limitMs: 100_000 });
-      expect(result.status, why(result)).toBe(0);
-      expect(result.stderr.slice(0, 2000)).toBe('');
-      const sizes = [...result.stdout.matchAll(/^shot (\S+) (\d+)x(\d+)$/gm)].map((m) => [m[1], m[2], m[3]]);
+      const { api, lines } = sharedScenario(out);
+      await api.step('open the card', async () => {
+        const page = await api.open({ as: colleague, path: '/p/AC/tasks/AC-1/timeline' });
+        await page.waitForFunction((text: string) => document.body.innerText.includes(text), QUESTION);
+        await api.shoot(page, 'card');
+      });
+      const stdout = lines.join('\n');
+      const sizes = [...stdout.matchAll(/^shot (\S+) (\d+)x(\d+)$/gm)].map((m) => [m[1], m[2], m[3]]);
       expect(sizes).toEqual([
         [join(out, 'card-1512.png'), '1512', '982'],
         [join(out, 'card-800.png'), '800', '900'],
@@ -202,7 +324,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
       ]);
       for (const [path, width, height] of sizes)
         expect(pngSize(path!)).toEqual({ width: Number(width), height: Number(height) });
-      await expectNothingLeft(result);
     },
     SLOW,
   );
@@ -211,17 +332,14 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
     'exits 1 after a failed step, with an error image, and leaves nothing running',
     async () => {
       const out = join(temp(), 'out');
-      const file = scenario(`
-  log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
-  await step('open the board', async () => {
-    const page = await open({ path: '/p/AC' });
-    await page.locator('#does-not-exist').click({ timeout: 1000 });
-  });`);
-      const result = await run(file, ['--out', out, '--timeout', '80'], { limitMs: 100_000 });
-      expect(result.status, why(result)).toBe(1);
-      expect(result.stderr).toContain('Step 1 "open the board" failed');
+      const { api } = sharedScenario(out);
+      await expect(
+        api.step('open the board', async () => {
+          const page = await api.open({ path: '/p/AC' });
+          await page.locator('#does-not-exist').click({ timeout: 1000 });
+        }),
+      ).rejects.toThrow('Step 1 "open the board" failed');
       expect(existsSync(join(out, 'error-1.png'))).toBe(true);
-      await expectNothingLeft(result);
     },
     SLOW,
   );
@@ -230,15 +348,17 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
     'runs the sample scenario of the documentation: a non-admin sees the card, two images',
     async () => {
       const out = join(temp(), 'out');
+      const { api, lines } = sharedScenario(out);
       const sample = fileURLToPath(
         new URL('../../../scripts/scenarios/card-with-question.mjs', import.meta.url),
       );
-      const result = await run(sample, ['--out', out, '--timeout', '80'], { limitMs: 100_000 });
-      expect(result.status, why(result)).toBe(0);
-      expect(result.stdout).toContain('signed in as dana@acme.test: [{"key":"AC","access":"developer"}]');
+      const { default: runSample } = (await import(pathToFileURL(sample).href)) as {
+        default: (api: ScenarioApi) => Promise<void>;
+      };
+      await runSample(api);
+      expect(lines.join('\n')).toContain('signed in as dana@acme.test: [{"key":"AC","access":"developer"}]');
       for (const width of [1512, 390])
         expect(pngSize(join(out, `card-question-${width}.png`)).width).toBe(width);
-      await expectNothingLeft(result);
     },
     SLOW,
   );
@@ -247,21 +367,20 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
     'logs in again for another account in the same browser and back',
     async () => {
       const out = join(temp(), 'out');
-      const file = scenario(`
-  const colleague = await instance.invite({ project: 'AC', email: 'dana@acme.test', name: 'Dana Dev', access: 'developer' });
-  log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
-  await step('three logins, one after the other', async () => {
-    for (const [name, account] of [['owner', undefined], ['colleague', colleague], ['owner-again', undefined]]) {
-      const page = await open({ as: account, path: '/p/AC' });
-      await page.waitForURL(/\\/p\\/AC$/, { timeout: 15000 });
-      await shoot(page, name, { widths: [1512] });
-    }
-  });`);
-      const result = await run(file, ['--out', out, '--timeout', '80'], { limitMs: 100_000 });
-      expect(result.status, why(result)).toBe(0);
+      const { api } = sharedScenario(out);
+      await api.step('three logins, one after the other', async () => {
+        for (const [name, account] of [
+          ['owner', undefined],
+          ['colleague', colleague],
+          ['owner-again', undefined],
+        ] as const) {
+          const page = await api.open({ as: account, path: '/p/AC' });
+          await page.waitForURL(/\/p\/AC$/, { timeout: 15000 });
+          await api.shoot(page, name, { widths: [1512] });
+        }
+      });
       for (const name of ['owner', 'colleague', 'owner-again'])
         expect(pngSize(join(out, `${name}-1512.png`))).toEqual({ width: 1512, height: 982 });
-      await expectNothingLeft(result);
     },
     SLOW,
   );
@@ -269,23 +388,51 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
   it(
     'stops everything at the timeout, on SIGINT and on SIGTERM: exit code 1, no data folder left',
     async () => {
+      // Separate `--seed none` instances: this test kills the shots CLI and checks that its instance directory and processes are gone.
       const hang = scenario(`
   log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
   log('dir ' + instance.dir);
   await open({ path: '/' });
   log('hanging');
   await new Promise(() => {});`);
-      for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-        const interrupted = await run(
+      const slow = scenario(`
+  log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
+  await new Promise(() => {});`);
+
+      const [sigint, sigterm, expired] = await Promise.all([
+        run(
           hang,
-          ['--out', join(temp(), 'out'), '--timeout', '50', '--seed', 'none'],
+          ['--out', join(temp(), 'out'), '--timeout', '50', '--seed', 'none', '--machine', calmMachineFile],
           {
             limitMs: 50_000,
             onLine: (line, child) => {
-              if (line === 'hanging') setTimeout(() => child.kill(signal), 200);
+              if (line === 'hanging') setTimeout(() => child.kill('SIGINT'), 200);
             },
           },
-        );
+        ),
+        run(
+          hang,
+          ['--out', join(temp(), 'out'), '--timeout', '50', '--seed', 'none', '--machine', calmMachineFile],
+          {
+            limitMs: 50_000,
+            onLine: (line, child) => {
+              if (line === 'hanging') setTimeout(() => child.kill('SIGTERM'), 200);
+            },
+          },
+        ),
+        run(
+          slow,
+          ['--out', join(temp(), 'out'), '--timeout', '12', '--seed', 'none', '--machine', calmMachineFile],
+          {
+            limitMs: 60_000,
+          },
+        ),
+      ]);
+
+      for (const [signal, interrupted] of [
+        ['SIGINT', sigint],
+        ['SIGTERM', sigterm],
+      ] as const) {
         // Exit code 1 and the message, not death by the signal (130 for SIGINT, no code for SIGTERM).
         expect(interrupted.status, why(interrupted)).toBe(1);
         expect(interrupted.stderr).toContain(`Stopped by ${signal}`);
@@ -295,12 +442,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
         await expectNothingLeft(interrupted);
       }
 
-      const slow = scenario(`
-  log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
-  await new Promise(() => {});`);
-      const expired = await run(slow, ['--out', join(temp(), 'out'), '--timeout', '12', '--seed', 'none'], {
-        limitMs: 60_000,
-      });
       expect(expired.status, why(expired)).toBe(1);
       expect(expired.stderr).toContain('--timeout');
       await expectNothingLeft(expired);

@@ -187,8 +187,8 @@ export async function runSteps(steps: readonly MergeTestStep[], deps: MergeTestD
       deps.log(`merge-test: rerunning the failed files of ${step.workspace} once: ${files.join(', ')}`);
       const again = await deps.spawn(testStep(step.workspace, files).args);
       if (again.code === 0 && !again.signaled) {
+        // A flaky result depends on the changed-file rerun rule and must keep its diagnostic on retries.
         flaky.push(...files);
-        markPassed(key);
         continue;
       }
       const still = again.signaled ? null : failedRepoFiles(step, again.output);

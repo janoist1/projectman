@@ -195,11 +195,12 @@ describe('runSteps', () => {
     const lines: string[] = [];
     const spawn = vi
       .fn<(args: string[]) => Promise<StepRun>>()
+      .mockResolvedValueOnce(ok())
       .mockResolvedValueOnce(bad(failLines('test/a.test.ts')))
       .mockResolvedValueOnce(ok())
       .mockRejectedValueOnce(new Error('spawn npm ENOENT'));
     await expect(
-      runSteps([server, testStep('apps/web')], {
+      runSteps([typecheckStep('apps/server'), server, testStep('apps/web')], {
         spawn,
         changed: new Set(),
         tree: 'candidate-tree',
@@ -207,7 +208,9 @@ describe('runSteps', () => {
       }),
     ).rejects.toThrow('ENOENT');
     expect(markers(lines)).toEqual(['merge-test flaky: apps/server/test/a.test.ts']);
-    expect(mergeTestPassedSteps(lines.join('\n'))).toEqual([mergeTestStepKey('candidate-tree', server.args)]);
+    expect(mergeTestPassedSteps(lines.join('\n'))).toEqual([
+      mergeTestStepKey('candidate-tree', typecheckStep('apps/server').args),
+    ]);
   });
 });
 
@@ -313,13 +316,49 @@ describe('passed step reuse', () => {
     expect(mergeTestPassedSteps(t.lines.join('\n'))).toEqual([]);
   });
 
-  it('marks the original step when its failed-file rerun passes', async () => {
+  it('reports a green failed-file rerun as flaky without caching the original step', async () => {
     const t = setup([bad(failLines('test/a.test.ts')), ok()]);
     expect(await t.run([server])).toBe(0);
-    expect(mergeTestPassedSteps(t.lines.join('\n'))).toEqual([
-      mergeTestStepKey('candidate-tree', server.args),
-    ]);
+    expect(mergeTestPassedSteps(t.lines.join('\n'))).toEqual([]);
+    expect(markers(t.lines)).toEqual(['merge-test flaky: apps/server/test/a.test.ts']);
   });
+
+  it.each([false, true])(
+    'retries flaky steps on the same tree and respects a changed rerun condition (%s)',
+    async (changed) => {
+      root = mkdtempSync(resolve(tmpdir(), 'pm-flaky-cache-'));
+      const passedKeysFile = resolve(root, 'passed');
+      const check = typecheckStep('apps/server');
+      const steps = [check, server];
+      const first = setup([ok(), bad(failLines('test/a.test.ts')), ok()]);
+      expect(await first.run(steps)).toBe(0);
+      const keys = mergeTestPassedSteps(first.lines.join('\n'));
+      expect(keys).toEqual([mergeTestStepKey('candidate-tree', check.args)]);
+      writeFileSync(passedKeysFile, keys.join('\n'));
+
+      const lines: string[] = [];
+      const spawn = vi
+        .fn<(args: string[]) => Promise<StepRun>>()
+        .mockResolvedValueOnce(bad(failLines('test/a.test.ts')))
+        .mockResolvedValue(ok());
+      expect(
+        await runSteps(steps, {
+          tree: 'candidate-tree',
+          changed: new Set(changed ? ['apps/server/test/a.test.ts'] : []),
+          passedKeysFile,
+          spawn,
+          log: (line) => lines.push(line),
+        }),
+      ).toBe(changed ? 1 : 0);
+      expect(spawn).toHaveBeenCalledTimes(changed ? 1 : 2);
+      expect(spawn.mock.calls[0]?.[0]).toEqual(server.args);
+      expect(lines).toContain('merge-test cached: npm run typecheck -w apps/server');
+      expect(mergeTestPassedSteps(lines.join('\n'))).toEqual(keys);
+      expect(markers(lines)).toEqual([
+        `merge-test ${changed ? 'failed' : 'flaky'}: apps/server/test/a.test.ts`,
+      ]);
+    },
+  );
 });
 
 describe('filesSteps', () => {

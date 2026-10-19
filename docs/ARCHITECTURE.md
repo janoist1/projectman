@@ -1611,8 +1611,10 @@ workers follow the machine's size.
   14 days and writes a disposable `sandbox/merge-test-passed-keys` list, exposed by
   `PROJECTMAN_MERGE_TEST_PASSED_KEYS`. A hit prints `merge-test cached: <command>` and skips npm;
   `--no-cache` bypasses reads. Passed steps print `merge-test step passed: <64-hex key>` immediately
-  and again before the closing scope line. The shared `mergeTestPassedSteps` parser accepts at most
-  50 unique, line-anchored keys, after ANSI removal. After any command outcome, including timeout or
+  and again before the closing scope line. Only an original invocation with exit code 0 produces a
+  passed-step key; a green failed-file rerun stays flaky and is never cached, so retries retain its
+  diagnostic and apply their own changed-file rerun condition. The shared `mergeTestPassedSteps`
+  parser accepts at most 50 unique, line-anchored keys, after ANSI removal. After any command outcome, including timeout or
   cancellation, the executor merges those keys with fresh timestamps and the run id, retains the
   newest 500 entries and publishes the version-1 JSON by temporary file and rename. Cache failures
   are warnings and never change the test verdict. The sandbox never writes the persistent cache;

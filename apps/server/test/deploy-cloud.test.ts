@@ -330,7 +330,11 @@ describe('deploy/cloud shell scripts', () => {
     const hostScript = read('deploy/aws/host.sh');
     const relay = shellFunction(hostScript, 'release_control');
     // /app is the image's working directory; the relay is the file the build writes.
-    expect(relay).toContain('node /app/apps/server/dist/control/cli.js /data/control.sock');
+    expect(relay).toContain(
+      '/usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock',
+    );
+    // The relay starts with a cleared environment (PM-754): env -i runs before Node.
+    expect(relay).toContain('/usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8');
     expect(dockerfile).toContain('WORKDIR /app');
   });
 

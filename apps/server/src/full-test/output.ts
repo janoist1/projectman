@@ -1,5 +1,7 @@
 /** What the full test's output says: the failed files and the part of the output worth showing (PM-217). */
 
+import { mergeTestMarkedFiles, mergeTestMarkerLine } from '@projectman/shared';
+
 /** The most output kept in memory. */
 export const OUTPUT_LIMIT_BYTES = 2 * 1024 * 1024;
 /** The most characters of output shown for a failed or errored run. */
@@ -31,11 +33,30 @@ export class OutputTail {
 }
 
 /**
+ * The failed files of a run: the repository paths of the `merge-test failed:` marker lines when the
+ * output has any (PM-842: `npm run merge-test` names them after its rerun), else those of vitest's
+ * ` FAIL ` lines (`vitestFailedFiles`).
+ */
+export function failedFiles(output: string): string[] {
+  const marked = mergeTestMarkedFiles(output, 'failed');
+  return marked.length > 0 ? marked : vitestFailedFiles(output);
+}
+
+/**
+ * What a passed run reports (PM-842): the `merge-test flaky:` marker lines of files the merge check
+ * passed only after a rerun, one per line, or '' when there are none.
+ */
+export function passedOutputTail(output: string): string {
+  const lines = mergeTestMarkedFiles(output, 'flaky').map((file) => mergeTestMarkerLine('flaky', file));
+  return lines.length > 0 ? `${lines.join('\n')}\n` : '';
+}
+
+/**
  * The files of vitest's ` FAIL ` lines (` FAIL  test/a.test.ts > suite > test`, with a project name
  * ` FAIL  |server| test/a.test.ts`), unique, in order of appearance. Empty for a failure that is
  * not a test (a type check).
  */
-export function failedFiles(output: string): string[] {
+export function vitestFailedFiles(output: string): string[] {
   const files: string[] = [];
   for (const line of stripAnsi(output).split(/\r?\n/)) {
     const found = /^\s*FAIL\s+(?:\|[^|]*\|\s+)?(\S+)/.exec(line);

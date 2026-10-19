@@ -448,6 +448,27 @@ describe('merge train execution', () => {
     expect(runIds.size).toBe(count);
   });
 
+  it('notes the flaky test files of a passed group check on every member, and merges them', async () => {
+    await setup(3);
+    vi.mocked(executor.run).mockResolvedValue({
+      ...passed,
+      outputTail: 'merge-test flaky: apps/server/test/a.test.ts\n',
+    });
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+    await settled();
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    for (const key of ['AR-1', 'AR-2', 'AR-3']) {
+      const notes = h.domain.timeline
+        .list('AR', { taskKey: key })
+        .filter((e) => e.type === 'task_note' && String(e.data.text).includes('flaky'));
+      expect(notes, key).toHaveLength(1);
+      expect(notes[0]!.data.text).toMatch(
+        /^Merge check \S+ passed after rerunning these test files once \(flaky\): apps\/server\/test\/a\.test\.ts$/,
+      );
+    }
+  });
+
   it('reports a persistent source conflict through the individual conflict path', async () => {
     await setup();
     const build = merger.build.getMockImplementation()!;

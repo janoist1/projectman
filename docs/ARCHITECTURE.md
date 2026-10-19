@@ -1540,6 +1540,22 @@ workers follow the machine's size.
   workspaces; `--all` forces them. Scope, selected modules, test count and fallback reason are logged
   before and after execution. The executor holds
   the machine's lock, so the nested root scripts do not queue again.
+  **Rerun and marker lines (PM-842).** `scripts/merge-test/steps.ts` runs the steps one by one (the
+  full run is split by workspace: every type check, then every test, so a failed file belongs to a
+  workspace). A failed `test` step reruns once, with only its failed files, when it ended with an
+  exit code, 1-5 files can be read from vitest's `FAIL` lines, there is no "Unhandled Errors"
+  block and the merge (`HEAD^1..HEAD`) did not change any of those files (a card's own tests are
+  never rerun). A green rerun makes the step green and prints `merge-test flaky: <path>` per file; any
+  other failure prints `merge-test failed: <path>`. The marker lines come last, before the closing
+  `merge-test scope:` line; the rule (`mergeTestMarkerLine`, `mergeTestMarkedFiles`) is in
+  `packages/shared/src/domain/merge-test.ts`. `npm run merge-test -- --files <path>...` runs only
+  those test files (grouped by workspace, no type check, same rerun rule; a path absent from the
+  checkout prints `merge-test skipped (absent): <path>` and is left out). The executor
+  (`full-test/output.ts`) reads the markers: `failedFiles` prefers the `failed` lines, and a passed
+  run's `outputTail` holds the `flaky` lines. The server adds a system `task_note` to the card of a
+  single merge, and to every member of a train, when its check passed with flaky files, and logs
+  `merge check passed with flaky test files`; the merge goes on. The engine link is unchanged: the
+  lines travel in the existing `failedFiles` and `outputTail` fields.
 
 ## Machine-dependent parts (PM-341)
 

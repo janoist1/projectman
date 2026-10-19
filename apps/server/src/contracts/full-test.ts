@@ -53,9 +53,12 @@ export interface FullTestResult {
   reason?: FullTestErrorReason;
   exitCode: number | null;
   durationMs: number;
-  /** Files of vitest's " FAIL " lines, unique, at most 20. */
+  /** Files of the `merge-test failed:` lines, else of vitest's " FAIL " lines, unique, at most 20. */
   failedFiles: string[];
-  /** The end of the output, ANSI removed: vitest's "Failed Tests" section from its start if there is one. */
+  /**
+   * The end of the output, ANSI removed: vitest's "Failed Tests" section from its start if there is one.
+   * passed: the `merge-test flaky:` marker lines, if any (PM-842).
+   */
   outputTail: string;
 }
 

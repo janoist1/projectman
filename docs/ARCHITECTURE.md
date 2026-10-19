@@ -3129,9 +3129,11 @@ assumption or remote-engine RPC.
 - **Work volume (PM-846)** — `engine-host/work-roots.ts` (`resolveWorkRoots`, `WORK_ROOT_MARKER`,
   `WorkRootError`), `engine-link/engine-config.ts` (`workRoot`), `engine-app.ts`, `app.ts`,
   `index.ts` (`PROJECTMAN_WORK_ROOT`, single mode only), `scripts/engine/{commands,move-work-root}.ts`
-  (`npm run engine -- move-work-root`). An optional work root puts `worktrees/`, `workspaces/` and the
-  full test's `tmp/` (the `pmft-*` run directories) below one directory, so that a separate APFS volume
-  with `.fseventsd/no_log` takes the file churn that made `fseventsd` grow to 17 GB. Absent: the
+  (`npm run engine -- move-work-root`). An optional work root puts `worktrees/`, and `workspaces/` below one
+  directory, so that a separate APFS volume with `.fseventsd/no_log` takes the file churn that made
+  `fseventsd` grow to 17 GB. The full test's `pmft-*` run directories stay in `os.tmpdir()` (PM-848): the full
+  test sandbox denies the home for reading and allows only the run's own directory, so a run directory
+  inside the home leaves its parents unreadable. Absent: the
   paths below `PROJECTMAN_HOME`, as before. The start fails closed (`work_root_invalid`): an absolute
   path, an existing directory, a regular `.projectman-work-root` file in it (an unmounted volume is an empty
   directory on the system volume) and a real path strictly inside the real home. Inside the home, because the
@@ -3375,7 +3377,7 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   **Module:** `runner`
 - **Server full test before review** — `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine), PM-846: with a work root the
-  executor gets `tmpDir: <workRoot>/tmp`, so the `pmft-*` run directories are on the work volume,
+  executor gets only `worktreesRoot`; the `pmft-*` run directories stay in `os.tmpdir()`, outside the home (PM-848),
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;

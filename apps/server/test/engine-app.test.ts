@@ -270,7 +270,7 @@ describe('engine process', () => {
         return root;
       };
 
-      it('keeps today’s paths and gives the full test no tmp root without one', async () => {
+      it('keeps today’s paths without a work root', async () => {
         const full = vi.fn(() => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never);
         await startEngine({ modules: { ...modulesOf(), createFullTestExecutor: full } });
         await cloud.connected();
@@ -284,7 +284,7 @@ describe('engine process', () => {
         });
       });
 
-      it('puts the worktrees, the workspaces and the full test’s tmp below the work root', async () => {
+      it('puts the worktrees and the workspaces below the work root, the full test’s run directories stay out of it', async () => {
         const root = mountWorkRoot();
         setWorkRoot(root);
         const full = vi.fn(() => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never);
@@ -297,8 +297,8 @@ describe('engine process', () => {
         expect(full).toHaveBeenCalledWith({
           heavyLockDir: path.join(base, 'heavy'),
           worktreesRoot: path.join(root, 'worktrees'),
-          tmpDir: path.join(root, 'tmp'),
         });
+        expect(existsSync(path.join(root, 'tmp'))).toBe(false);
       });
 
       it('does not start when the volume is not mounted (no marker), and creates nothing', async () => {

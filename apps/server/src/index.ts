@@ -62,8 +62,8 @@ import {
  *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
  *   installed checkout with the same lockfile (PM-332, APFS clones on macOS); any other value stops the server.
  *   PROJECTMAN_WORK_ROOT (unset): PM-846, docs/DEPLOY.md: the absolute path of a work volume mounted inside
- *   the home; the worktrees, the member workspaces and the full test's run directories then live below it
- *   (single mode only; an engine reads `workRoot` of its engine.json). The start stops when it is not
+ *   the home; the worktrees and the member workspaces then live below it (the
+ *   full test's run directories stay in the system temp directory, PM-848; single mode only; an engine reads `workRoot` of its engine.json). The start stops when it is not
  *   there, has no `.projectman-work-root` file or lies outside the home.
  *   PROJECTMAN_MODE (single): `cloud` enables the engine registry and authenticated engine link (PM-313).
  *   In cloud mode the sessions, worktrees, gh, full test and screenshots run on the connected engine
@@ -377,13 +377,12 @@ async function main(): Promise<void> {
         : {
             ...config.app.modules,
             nanogptKeyCheck: createNanogptKeyCheck(),
-            createFullTestExecutor: ({ logger, worktreesRoot, tmpDir }) =>
+            createFullTestExecutor: ({ logger, worktreesRoot }) =>
               fullTest.createFullTestExecutor({
                 logger,
                 env: process.env,
                 heavyLockDir: config.app.heavyLockDir,
                 worktreesRoot,
-                ...(tmpDir ? { tmpDir } : {}),
               }),
             createScreenshotExecutor: ({ logger }) =>
               fullTest.createScreenshotExecutor({

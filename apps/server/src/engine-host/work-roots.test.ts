@@ -40,7 +40,6 @@ describe('resolveWorkRoots', () => {
       workRoot: null,
       worktrees: path.join(home, 'worktrees'),
       workspaces: path.join(home, 'workspaces'),
-      fullTestTmp: undefined,
     });
     expect(statSyncOrNull(path.join(home, 'worktrees'))).toBeNull();
   });
@@ -98,10 +97,8 @@ describe('resolveWorkRoots', () => {
       workRoot: real,
       worktrees: path.join(real, 'worktrees'),
       workspaces: path.join(real, 'workspaces'),
-      fullTestTmp: path.join(real, 'tmp'),
     });
-    for (const dir of [roots.worktrees, roots.workspaces, roots.fullTestTmp!])
-      expect(statSync(dir).mode & 0o777).toBe(0o700);
+    for (const dir of [roots.worktrees, roots.workspaces]) expect(statSync(dir).mode & 0o777).toBe(0o700);
   });
 
   it('keeps what is already in the subdirectories', () => {

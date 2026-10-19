@@ -741,6 +741,7 @@ const staleExplanations: Record<StaleReason, string> = {
   sender_result: "already has the sender's result",
   result_recorded: 'already has a result for that commit',
   permission_closed: 'is decided',
+  obligation_closed: 'has its step done',
 };
 
 /**

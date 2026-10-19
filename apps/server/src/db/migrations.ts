@@ -1841,4 +1841,26 @@ migrations.push({
     CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, responsible, subject);
     CREATE INDEX obligations_state ON obligations(state);`,
 });
+migrations.push({
+  version: 89,
+  name: 'obligation reminders carry their obligation',
+  // PM-813: a reminder that waits undelivered is dropped once its obligation is closed. The reminders written
+  // before this carry no subject; the obligation of each waiting one is its row on the same card and
+  // responsible that was woken last before the message (the only reminder one row ever sends). The sweep
+  // then discards the waiting reminders whose obligation is closed. A reminder with no such row is left alone.
+  sql: `UPDATE team_messages SET subject = json_object('type', 'obligation', 'obligationId',
+        (SELECT o.id FROM obligations AS o
+          WHERE o.project_key = team_messages.project_key AND o.task_key = team_messages.task_key
+            AND o.responsible = json_extract(team_messages.to_handles, '$[0]')
+            AND o.woken_at IS NOT NULL AND o.woken_at <= team_messages.created_at
+          ORDER BY o.woken_at DESC LIMIT 1))
+    WHERE from_handle = 'system' AND subject IS NULL AND task_key IS NOT NULL
+      AND body LIKE 'projectman reminder:%'
+      AND json_valid(to_handles) AND json_array_length(to_handles) = 1
+      AND id IN (SELECT message_id FROM team_message_pending)
+      AND EXISTS (SELECT 1 FROM obligations AS o
+          WHERE o.project_key = team_messages.project_key AND o.task_key = team_messages.task_key
+            AND o.responsible = json_extract(team_messages.to_handles, '$[0]')
+            AND o.woken_at IS NOT NULL AND o.woken_at <= team_messages.created_at);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

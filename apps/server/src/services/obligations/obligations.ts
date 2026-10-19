@@ -24,7 +24,8 @@ import type {
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
-import type { Messaging } from '../../core/messages';
+import { staleReasonFor } from '../../core/messages';
+import type { MessageService, Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
@@ -57,6 +58,7 @@ export interface ObligationsDeps {
   taskWaits: Pick<TaskWaits, 'of'>;
   inbox: Pick<InboxService, 'openIntegratorTodo' | 'closeObligationTodo'>;
   messaging: Pick<Messaging, 'send'>;
+  messages: Pick<MessageService, 'markRecipientDelivered'>;
   timeline: Pick<TimelineService, 'append'>;
   sessions: ObligationSessions;
   admission: ObligationAdmission;
@@ -92,6 +94,7 @@ export class ObligationsService {
   private readonly taskWaits: ObligationsDeps['taskWaits'];
   private readonly inbox: ObligationsDeps['inbox'];
   private readonly messaging: ObligationsDeps['messaging'];
+  private readonly messages: ObligationsDeps['messages'];
   private readonly timeline: ObligationsDeps['timeline'];
   private readonly sessions: ObligationSessions;
   private readonly admission: ObligationAdmission;
@@ -105,6 +108,7 @@ export class ObligationsService {
     this.taskWaits = deps.taskWaits;
     this.inbox = deps.inbox;
     this.messaging = deps.messaging;
+    this.messages = deps.messages;
     this.timeline = deps.timeline;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
@@ -204,6 +208,19 @@ export class ObligationsService {
       } catch (err) {
         this.ctx.logger.warn({ err, projectKey, taskKey }, 'could not sweep the obligations of a card');
       }
+    }
+    this.discardClosedReminders(projectKey, config);
+  }
+
+  /**
+   * A reminder that waits in a recipient's queue (it could not start: capacity, leave) is dropped once its
+   * step is not open any more (PM-813). It is marked delivered without being typed anywhere, and it started
+   * nothing before either: the delivery treats it as stale. This also clears the queue after a restart.
+   */
+  private discardClosedReminders(projectKey: string, config: ProjectConfig): void {
+    for (const { message, handles } of this.ctx.repos.messages.pendingObligationReminders(projectKey)) {
+      if (staleReasonFor(this.ctx, config, message, handles[0]!) !== 'obligation_closed') continue;
+      for (const handle of handles) this.messages.markRecipientDelivered(message.id, handle);
     }
   }
 
@@ -416,7 +433,13 @@ export class ObligationsService {
           taskKey: row.taskKey,
           text: this.sourceOf(row.kind).wakeText(row, minutes, minutesBetween(row.openedAt, at), view),
         },
-        { actor: SYSTEM_ACTOR, kind: 'action', ownCard: true },
+        // The subject lets the delivery see that the reminder is out of date once the step is done (PM-813).
+        {
+          actor: SYSTEM_ACTOR,
+          kind: 'action',
+          ownCard: true,
+          subject: { type: 'obligation', obligationId: row.id },
+        },
       );
     } catch (err) {
       this.ctx.logger.warn(

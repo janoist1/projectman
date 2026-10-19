@@ -118,9 +118,12 @@ describe('merge test scope', () => {
         'apps/server/test/release-',
         'apps/server/test/architecture',
         'apps/server/test/merge-test-',
+        // The real Unix socket boundary (PM-754): the exact files, so a cloud merge cannot skip them.
+        'apps/server/test/control-relay.integration.test.ts',
+        'apps/server/test/control-socket.integration.test.ts',
       ]);
       expect(scopeLine(cloud)).toBe(
-        'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-; fallback: none',
+        'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-, apps/server/test/control-relay.integration.test.ts, apps/server/test/control-socket.integration.test.ts; fallback: none',
       );
     });
   });

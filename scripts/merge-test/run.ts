@@ -13,7 +13,16 @@ const CLOUD_TEST_FILTERS = [
   'apps/server/test/release-',
   'apps/server/test/architecture/',
   'apps/server/test/merge-test-',
+  // The real Unix socket boundary of the admin channel (PM-754): exact paths, never skipped in a merge.
+  'apps/server/test/control-relay.integration.test.ts',
+  'apps/server/test/control-socket.integration.test.ts',
 ];
+
+/** Whether the scope runs the server's tests, which include the PTY and Unix socket integration tests. */
+function runsServerTests(scope: MergeTestScope): boolean {
+  if (scope.kind === 'all' || scope.kind === 'cloud' || scope.kind === 'modules') return true;
+  return scope.kind === 'workspaces' && scope.workspaces.includes('apps/server');
+}
 
 export function scopeLine(scope: MergeTestScope): string {
   if (scope.kind === 'cloud')
@@ -123,6 +132,12 @@ export function runMergeTest(argv: readonly string[]): number {
     }
   } catch (error) {
     console.error(`merge-test: ${error instanceof Error ? error.message : String(error)}`);
+    return 2;
+  }
+  // A merge never counts a run that leaves the PTY and socket integration tests out as a pass. The variable is the
+  // members' own sandbox signal: the full test sandbox does not carry it (`fullTestEnv`).
+  if (runsServerTests(scope) && process.env.PROJECTMAN_SKIP_PTY_TESTS === '1') {
+    console.error('merge-test: server checks require PTY and Unix socket integration tests');
     return 2;
   }
   const line = scopeLine(scope);

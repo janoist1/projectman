@@ -1,15 +1,20 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMergeTest } from '../../../scripts/merge-test/run';
 
 vi.mock('node:child_process', () => ({ spawnSync: vi.fn() }));
 const spawn = vi.mocked(spawnSync);
 const ended = (stdout = '', status = 0) => ({ stdout, stderr: '', status, signal: null, pid: 1, output: [] });
 
+beforeEach(() => {
+  // The members' sandboxes carry the PTY skip; the merge runs without it (PM-754).
+  vi.stubEnv('PROJECTMAN_SKIP_PTY_TESTS', '');
+});
 afterEach(() => {
   vi.resetAllMocks();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('merge test runner', () => {
@@ -126,6 +131,8 @@ describe('merge test runner', () => {
         resolve('apps/server/test/release-'),
         resolve('apps/server/test/architecture'),
         resolve('apps/server/test/merge-test-'),
+        resolve('apps/server/test/control-relay.integration.test.ts'),
+        resolve('apps/server/test/control-socket.integration.test.ts'),
       ],
     ]);
     expect(spawn.mock.calls.some(([, args]) => args?.[0] === 'ls-tree')).toBe(false);
@@ -159,6 +166,49 @@ describe('merge test runner', () => {
     spawn.mockImplementation((...args) => (args[0] === 'npm' ? ended('', 9) : original(...args)));
     expect(runMergeTest([])).toBe(9);
     expect(spawn.mock.calls.filter(([command]) => command === 'npm')).toHaveLength(1);
+  });
+  describe('with the members’ PTY skip set (PM-754)', () => {
+    const npmCalls = () => spawn.mock.calls.filter(([command]) => command === 'npm');
+    const refused = () => {
+      vi.stubEnv('PROJECTMAN_SKIP_PTY_TESTS', '1');
+      return vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    };
+    it.each([
+      ['all', ['apps/server/src/logging/index.ts', 'packages/shared/src/a.ts']],
+      ['cloud', ['scripts/cloud/a.ts']],
+      ['modules', ['apps/server/src/logging/index.ts']],
+      ['server workspace fallback', ['apps/server/test/helpers/a.ts']],
+    ])('exits 2 before any check for the %s scope', (_name, changed) => {
+      output();
+      mockTrees(changed);
+      const error = refused();
+      expect(runMergeTest([])).toBe(2);
+      expect(error).toHaveBeenCalledWith(
+        'merge-test: server checks require PTY and Unix socket integration tests',
+      );
+      expect(npmCalls()).toHaveLength(0);
+    });
+    it('exits 2 for --all too', () => {
+      output();
+      const error = refused();
+      expect(runMergeTest(['--all'])).toBe(2);
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(spawn).not.toHaveBeenCalled();
+    });
+    it('keeps the web-only and the none scopes unchanged', () => {
+      output();
+      refused();
+      mockTrees(['apps/web/src/a.ts']);
+      expect(runMergeTest([])).toBe(0);
+      expect(npmCalls().map(([, args]) => args)).toEqual([
+        ['run', 'typecheck', '-w', 'apps/web'],
+        ['test', '-w', 'apps/web'],
+      ]);
+      spawn.mockReset();
+      mockTrees(['docs/a.md']);
+      expect(runMergeTest([])).toBe(0);
+      expect(npmCalls()).toHaveLength(0);
+    });
   });
   it('fails closed for malformed batch output', () => {
     output();

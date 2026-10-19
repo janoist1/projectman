@@ -1500,8 +1500,12 @@ workers follow the machine's size.
   commands are covered; grace is in memory and does not survive a server restart.
 - **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
-  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
-  signal is passed on to the command. An unusable queue folder (`heavy_lock_unavailable`) stops the
+  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75.
+  The command runs under `scripts/lib/child-guard.mjs` (PM-863) as the leader of its own process group
+  (its stdin is `/dev/null`): SIGINT, SIGTERM and SIGHUP to the CLI, and the CLI's death even by SIGKILL
+  (the guard's stdin is a pipe from the CLI), stop the whole group (SIGTERM, SIGKILL after 5 s), and any
+  member left when the leader exits is killed. The lock is released only after the guard has gone, so
+  no vitest worker outlives an interrupted run or overlaps the next one. An unusable queue folder (`heavy_lock_unavailable`) stops the
   command with exit status 78 and a four-line message; it does not run without the queue (decision 33,
   PM-346). `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
   without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.

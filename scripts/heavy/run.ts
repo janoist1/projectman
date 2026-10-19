@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
 import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   acquireHeavyLock,
   defaultHeavyLockDir,
@@ -13,8 +14,8 @@ export const EXIT_QUEUE_TIMEOUT = 75;
 /** Exit status of a command that did not run because the queue folder cannot be used (EX_CONFIG, PM-346). */
 export const EXIT_QUEUE_UNAVAILABLE = 78;
 const EXIT_USAGE = 2;
-const EXIT_NOT_FOUND = 127;
 const LABEL_MAX = 120;
+const CHILD_GUARD = fileURLToPath(new URL('../lib/child-guard.mjs', import.meta.url));
 /** Set for everything the CLI runs: a nested call, and the server's full test, run without the lock. */
 export const HELD_VARIABLE = 'PROJECTMAN_HEAVY_LOCK_HELD';
 
@@ -96,7 +97,8 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
   const childEnv = { ...run.env, [HELD_VARIABLE]: '1' };
   const label = (parsed.label ?? `${basename(run.cwd)}: ${parsed.command.join(' ')}`).slice(0, LABEL_MAX);
 
-  // A signal while waiting ends the wait; once the command runs it is passed on to it.
+  // A signal while waiting ends the wait; once the command runs it is passed on to the guard, which
+  // stops the command's whole process group (SIGTERM, then SIGKILL).
   const abort = new AbortController();
   let child: ReturnType<typeof spawn> | undefined;
   let received: NodeJS.Signals | undefined;
@@ -107,8 +109,10 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
   };
   const onInt = (): void => onSignal('SIGINT');
   const onTerm = (): void => onSignal('SIGTERM');
+  const onHup = (): void => onSignal('SIGHUP');
   process.on('SIGINT', onInt);
   process.on('SIGTERM', onTerm);
+  process.on('SIGHUP', onHup);
   const signalStatus = (signal: NodeJS.Signals): number => 128 + (constants.signals[signal] ?? 0);
 
   let lock: HeavyLock | undefined;
@@ -147,17 +151,26 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
         return EXIT_QUEUE_UNAVAILABLE;
       }
     }
+    // A signal that came after the lock was taken but before the command started.
+    if (received) return signalStatus(received);
+    // The command runs under the child guard (PM-863): it leads its own process group, and the group is
+    // stopped when this process gets a signal or dies, even by SIGKILL (the guard's stdin is a pipe from
+    // here). The lock is released only after the guard has gone, so the next run never overlaps leftovers.
     return await new Promise<number>((resolve) => {
-      child = spawn(file, rest, { stdio: 'inherit', env: childEnv });
+      child = spawn(process.execPath, [CHILD_GUARD, file, ...rest], {
+        stdio: ['pipe', 'inherit', 'inherit'],
+        env: childEnv,
+      });
       child.on('error', (err: NodeJS.ErrnoException) => {
         run.stderr(`heavy: cannot run ${file}: ${err.message}\n`);
-        resolve(err.code === 'ENOENT' ? EXIT_NOT_FOUND : 126);
+        resolve(126);
       });
       child.on('close', (code, signal) => resolve(code ?? (signal ? signalStatus(signal) : 1)));
     });
   } finally {
     process.off('SIGINT', onInt);
     process.off('SIGTERM', onTerm);
+    process.off('SIGHUP', onHup);
     await lock?.release();
   }
 }

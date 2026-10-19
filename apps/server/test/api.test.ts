@@ -80,6 +80,42 @@ describe('REST API', () => {
       );
     });
 
+    it.each(['100.64.0.5', '203.0.113.7'])(
+      'rejects a forged HTTPS origin and protocol from the remote peer %s',
+      async (remoteAddress) => {
+        await setupOwner(h.app);
+        const login = await h.app.inject({
+          method: 'POST',
+          url: '/api/auth/login',
+          remoteAddress,
+          headers: {
+            host: 'pm.example',
+            origin: 'https://pm.example',
+            'x-forwarded-proto': 'https',
+          },
+          payload: OWNER_LOGIN,
+        });
+        expect(login.statusCode).toBe(403);
+        expect(login.json<ApiError>().error.code).toBe('invalid_origin');
+        expect(login.headers['set-cookie']).toBeUndefined();
+      },
+    );
+
+    it('allows local HTTP login without setting a Secure cookie', async () => {
+      await setupOwner(h.app);
+      const login = await h.app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        remoteAddress: '127.0.0.1',
+        headers: { host: 'localhost', origin: 'http://localhost' },
+        payload: OWNER_LOGIN,
+      });
+      expect(login.statusCode).toBe(200);
+      expect(login.headers['set-cookie']).toEqual(expect.stringContaining('pm_session='));
+      expect(login.headers['set-cookie']).not.toEqual(expect.stringContaining('Secure'));
+      expect((await call('GET', '/api/me', cookieOf(login))).status).toBe(200);
+    });
+
     it('bounds concurrent password attempts before hashing', async () => {
       await setupOwner(h.app);
       const attempts = await Promise.all(

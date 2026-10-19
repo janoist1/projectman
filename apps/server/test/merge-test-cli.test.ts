@@ -26,6 +26,7 @@ describe('merge test runner', () => {
   /** HEAD with these parents, whose first-parent diff is `changed`. */
   function mockHead(parents: string, changed: string[] = []) {
     spawn.mockImplementation((_command, args) => {
+      if (args?.[0] === 'rev-parse') return ended('head');
       if (args?.[0] === 'rev-list') return ended(`head ${parents}`);
       if (args?.[0] === 'diff') return ended(changed.map((file) => `${file}\0`).join(''));
       throw new Error('unexpected command');
@@ -93,13 +94,14 @@ describe('merge test runner', () => {
     ['apps/server/src/logging/index.test.ts', "import './index';"],
     ['apps/server/test/golden-path-example.test.ts', ''],
   ];
-  function mockTrees(changed: string[], tree = sourceTree, after = tree) {
+  function mockTrees(changed: string[], tree = sourceTree, after = tree, revision = 'HEAD') {
     let current = tree;
     spawn.mockImplementation((_command, args) => {
+      if (args?.[0] === 'rev-parse') return ended(revision);
       if (args?.[0] === 'rev-list') return ended('head first second');
       if (args?.[0] === 'diff') return ended(changed.join('\0') + '\0');
       if (args?.[0] === 'ls-tree') {
-        current = args[3] === 'HEAD' ? after : tree;
+        current = args[3] === revision ? after : tree;
         return ended(current.map(([path], i) => `100644 blob oid${i}\t${path}\0`).join(''));
       }
       if (args?.[0] === 'cat-file')
@@ -247,14 +249,14 @@ describe('merge test runner', () => {
   });
   it('keeps server fallback local while checking all types for shared changes', async () => {
     const log = output();
-    mockTrees(['packages/shared/src/leaf.ts', 'apps/server/test/helpers/a.ts'], sharedTree);
+    mockTrees(['packages/shared/src/leaf.ts', 'apps/server/test/fixtures/a.ts'], sharedTree);
     expect(await run([])).toBe(0);
     expect(npmCalls()).toEqual([
       ...sharedChecks,
       ['test', '-w', 'packages/shared', '--if-present'],
       ['test', '-w', 'apps/server', '--if-present'],
     ]);
-    expect(log.mock.calls[0]?.[0]).toContain('fallback: test, helper or fixture changed');
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: test support changed');
   });
   it('runs everything when a template consumes an affected export', async () => {
     const log = output();
@@ -305,20 +307,122 @@ describe('merge test runner', () => {
     expect(
       gitCalls()
         .filter((args) => args?.[0] === 'ls-tree')
-        .map((args) => args?.[3]),
-    ).toEqual(['HEAD^1', 'HEAD']);
+        .map((args) => args?.slice(3)),
+    ).toEqual(['HEAD^1', 'HEAD'].map((rev) => [rev, '--', 'apps/server', 'scripts']));
     expect(log.mock.calls[0]?.[0]).toContain('tests: 2');
     expect(log.mock.calls[0]).toEqual(log.mock.calls.at(-1));
   });
-  it('keeps full workspace fallback with its reason for helper changes', async () => {
+  it('keeps full workspace fallback with its reason for fixture changes', async () => {
     const log = output();
-    mockTrees(['apps/server/test/helpers/a.ts']);
+    mockTrees(['apps/server/test/fixtures/a.ts']);
     expect(await run([])).toBe(0);
     expect(npmCalls()).toEqual([
       ['run', 'typecheck', '-w', 'apps/server'],
       ['test', '-w', 'apps/server'],
     ]);
-    expect(log.mock.calls[0]?.[0]).toContain('fallback: test, helper or fixture changed');
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: test support changed');
+  });
+  it('keeps script edges when shared and server changes are combined', async () => {
+    const log = output();
+    const tree = [
+      ...sharedTree,
+      ['scripts/a.ts', "import { Value } from '@projectman/shared';"],
+      ['apps/server/test/script.test.ts', "import '../../../scripts/a';"],
+    ];
+    mockTrees(['packages/shared/src/leaf.ts'], tree);
+    expect(await run([])).toBe(0);
+    expect(log.mock.calls[0]?.[0]).toContain('apps/server/test/script.test.ts');
+    expect(log.mock.calls[0]?.[0]).not.toContain('fallback: unresolved');
+  });
+  it.each(['contracts', 'config'])(
+    'follows a changed %s source through a script into its test',
+    async (module) => {
+      const log = output();
+      const path = `apps/server/src/${module}/example.ts`;
+      const tree = [
+        ...sourceTree,
+        [path, 'export const value = 1;'],
+        ['scripts/example.ts', `import '../${path.slice(0, -3)}';`],
+        ['apps/server/test/script.test.ts', "import '../../../scripts/example';"],
+      ];
+      mockTrees([path], tree);
+      expect(await run([])).toBe(0);
+      expect(log.mock.calls[0]?.[0]).toContain(`modules (${module})`);
+      expect(npmCalls().flat()).toContain(resolve('apps/server/test/script.test.ts'));
+      expect(npmCalls()).toHaveLength(2);
+    },
+  );
+  it('selects a changed script without running an unrelated source test', async () => {
+    const log = output();
+    mockTrees(
+      ['scripts/example.ts'],
+      [
+        ...sourceTree,
+        ['scripts/example.ts', 'export const value = 1;'],
+        ['apps/server/test/script.test.ts', "import '../../../scripts/example';"],
+      ],
+    );
+    expect(await run([])).toBe(0);
+    expect(log.mock.calls[0]?.[0]).toContain('scope: modules (); tests: 2;');
+    expect(npmCalls().flat()).toContain(resolve('apps/server/test/script.test.ts'));
+    expect(npmCalls().flat()).not.toContain(resolve('apps/server/src/logging/index.test.ts'));
+  });
+  it.each(['HEAD', 'historic'])(
+    'prints the commands for %s without executing any check',
+    async (revision) => {
+      const log = output();
+      mockTrees(['apps/server/src/logging/index.ts'], sourceTree, sourceTree, revision);
+      expect(await run(revision === 'HEAD' ? ['--dry-run'] : ['--dry-run', revision])).toBe(0);
+      expect(npm).not.toHaveBeenCalled();
+      expect(log.mock.calls.map(([line]) => line)).toEqual([
+        expect.stringContaining('merge-test scope: modules (logging); tests: 2;'),
+        'merge-test step: npm run typecheck -w apps/server',
+        `merge-test step: npm test -w apps/server -- ${resolve('apps/server/src/logging/index.test.ts')} ${resolve('apps/server/test/golden-path-example.test.ts')}`,
+      ]);
+      expect(
+        gitCalls()
+          .filter((args) => args?.[0] === 'ls-tree')
+          .map((args) => args?.[3]),
+      ).toEqual([`${revision}^1`, revision]);
+      expect(gitCalls()).toContainEqual([
+        'diff',
+        '--name-only',
+        '--no-renames',
+        '-z',
+        `${revision}^1`,
+        revision,
+      ]);
+      expect(gitCalls().some((args) => args?.[0] === 'checkout')).toBe(false);
+    },
+  );
+  it('reports all steps for a dry run of a non-merge commit, including a root commit', async () => {
+    const log = output();
+    mockHead('');
+    expect(await run(['--dry-run', 'root'])).toBe(0);
+    expect(log.mock.calls[0]?.[0]).toContain('all (root has no second parent)');
+    expect(log.mock.calls.filter(([line]) => line.startsWith('merge-test step:'))).toHaveLength(10);
+    expect(npm).not.toHaveBeenCalled();
+    expect(gitCalls().some((args) => args?.[0] === 'diff')).toBe(false);
+  });
+  it('returns a git error from a dry run without executing checks', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    spawn.mockReturnValue({ ...ended('', 128), stderr: 'unknown revision' });
+    expect(await run(['--dry-run', 'missing'])).toBe(2);
+    expect(error).toHaveBeenCalledWith('merge-test: unknown revision');
+    expect(npm).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['--dry-run', 'a', 'b'],
+    ['--dry-run', '--all'],
+    ['--dry-run', '--files'],
+    ['--all', '--dry-run'],
+    ['--dry-run', ''],
+    ['--dry-run', '--help'],
+  ])('rejects an invalid dry run %j before git', async (...argv) => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(await run(argv)).toBe(2);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(npm).not.toHaveBeenCalled();
   });
   it('runs only the filtered cloud checks for a cloud-only first-parent diff', async () => {
     const log = output();

@@ -1018,7 +1018,10 @@ the account boundary.
 - **Limits** (durable, counted from the database, so a restart does not reset them): one code per
   address per minute, 5 per hour, 10 per day; 20 requests per client address per hour; 200 letters per
   day in all; 30 redemptions per client address per hour. The client address is the trusted
-  `PROJECTMAN_CLIENT_IP_HEADER` value; without it all clients share one address.
+  `PROJECTMAN_CLIENT_IP_HEADER` value; without it all clients share one address. This service's
+  request and redemption limits group IPv6 addresses by canonical /64 (PM-703); IPv4, including
+  mapped IPv4, retains the full address. Old full-IPv6-address events age out within one hour;
+  no migration is needed. Other services' in-memory limiters keep their existing keys.
 - **Storage and logs.** Addresses, IPs and codes are kept only as HMAC-SHA-256 with a key derived from
   the `secret` file; the events are pruned after a day. Logs carry fixed codes and counts only: never
   an address, a code, an IP or a provider error text.

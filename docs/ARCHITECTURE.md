@@ -1933,7 +1933,10 @@ workers follow the machine's size.
   `secret` file, so a copied database alone cannot be tested against guessed addresses. All limits count
   durable rows, so a restart does not reset them. **Machine assumptions:** the client address comes from
   `PROJECTMAN_CLIENT_IP_HEADER` (a trusted loopback proxy sets it; without it every client counts as
-  `127.0.0.1` and shares the IP limits), the `secret` file in the home, and the SQLite database. **Does this
+  `127.0.0.1` and shares the IP limits). For this service, `kernel/local-request.ts`'s `ipRateLimitKey`
+  groups IPv6 addresses by canonical /64 and keeps IPv4 addresses whole, including mapped IPv4 (PM-703);
+  other limiters retain their existing keys. The `secret` file in the home and the SQLite database
+  are also local assumptions. **Does this
   work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
   and no engine protocol or payload changes.
 

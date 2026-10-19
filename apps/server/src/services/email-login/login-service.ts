@@ -4,7 +4,7 @@ import { EMAIL_LOGIN_MAX_FAILED_ATTEMPTS } from '../../db';
 import type { EmailLoginEventKind, Repositories } from '../../db';
 import { EMAIL_CODE_DELIVERY_FAILED } from '../../contracts';
 import type { EmailCodeMailer, EmailLoginDirectory } from '../../contracts';
-import { DomainError, invalid, KeyedMutex, newId } from '../../kernel';
+import { DomainError, invalid, ipRateLimitKey, KeyedMutex, newId } from '../../kernel';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -72,7 +72,7 @@ export function createEmailLoginService(deps: {
 
   const since = (ms: number) => new Date(now().getTime() - ms).toISOString();
   const addressHash = (address: string) => mac(key, 'address', address);
-  const ipSubject = (ip: string) => `ip:${mac(key, 'ip', ip)}`;
+  const ipSubject = (ip: string) => `ip:${mac(key, 'ip', ipRateLimitKey(ip))}`;
 
   /** Seconds until the oldest event in the window leaves it, at least 1. */
   function retryAfter(kind: EmailLoginEventKind, subject: string | null, windowMs: number): number {

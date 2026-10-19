@@ -224,6 +224,31 @@ describe('e-mail login of invited clients (PM-670)', () => {
       expect([res.statusCode, res.json().error.code]).toEqual([400, 'email_code_invalid']);
     });
 
+    it.each(['missing', 'used', 'expired', 'exhausted', 'unknown-token'])(
+      'answers byte for byte the same for a %s code and a wrong live code',
+      async (state) => {
+        await requestCode({ email: 'kata@acme.test' });
+        const code = mailer.codeFor('kata@acme.test');
+        const wrong = code === '000000' ? '111111' : '000000';
+        const reference = await verify({ email: 'kata@acme.test', code: wrong });
+        let input: Record<string, string> = { email: 'kata@acme.test', code };
+        if (state === 'missing') input = { email: 'unknown@acme.test', code };
+        if (state === 'unknown-token') input = { inviteToken: 'unknown-token', code };
+        if (state === 'used') {
+          expect((await verify(input)).statusCode).toBe(200);
+        }
+        if (state === 'expired') now = new Date(now.getTime() + EMAIL_LOGIN_LIMITS.codeTtlMs);
+        if (state === 'exhausted') {
+          for (let i = 1; i < 5; i += 1) {
+            expect((await verify({ email: 'kata@acme.test', code: wrong })).statusCode).toBe(400);
+          }
+        }
+        const rejected = await verify(input);
+        expect(rejected.statusCode).toBe(400);
+        expect([rejected.statusCode, rejected.body]).toEqual([reference.statusCode, reference.body]);
+      },
+    );
+
     it('accepts a code just before it expires', async () => {
       await requestCode({ email: 'kata@acme.test' });
       const code = mailer.codeFor('kata@acme.test');
@@ -566,6 +591,56 @@ describe('e-mail login of invited clients (PM-670)', () => {
       expect((await verify({ email: 'kata@acme.test', code: '123456' }, '203.0.113.10')).statusCode).toBe(
         400,
       );
+    });
+
+    it('shares the request limit across different addresses in an IPv6 /64', async () => {
+      for (let i = 1; i <= EMAIL_LOGIN_LIMITS.requestsPerIpHour; i += 1) {
+        const res = await post(
+          routes.emailLoginRequest(),
+          { email: `n${i}@acme.test` },
+          `2001:db8:1234:5678::${i.toString(16)}`,
+        );
+        expect(res.statusCode).toBe(202);
+      }
+      const limited = await post(
+        routes.emailLoginRequest(),
+        { email: 'kata@acme.test' },
+        '2001:0DB8:1234:5678:FFFF:FFFF:FFFF:FFFF',
+      );
+      expect([limited.statusCode, limited.json().error.code]).toEqual([429, 'email_login_rate_limited']);
+      expect(limited.headers['retry-after']).toBe('3600');
+      expect(
+        (await post(routes.emailLoginRequest(), { email: 'kata@acme.test' }, '2001:db8:1234:5679::1'))
+          .statusCode,
+      ).toBe(202);
+      now = new Date(now.getTime() + HOUR);
+      expect(
+        (await post(routes.emailLoginRequest(), { email: 'kata@acme.test' }, '2001:db8:1234:5678::1'))
+          .statusCode,
+      ).toBe(202);
+    });
+
+    it('shares the redemption limit across different addresses in an IPv6 /64', async () => {
+      for (let i = 1; i <= EMAIL_LOGIN_LIMITS.verifiesPerIpHour; i += 1) {
+        const res = await verify(
+          { email: 'kata@acme.test', code: '123456' },
+          `2001:db8:1234:5678::${i.toString(16)}`,
+        );
+        expect(res.statusCode).toBe(400);
+      }
+      const limited = await verify(
+        { email: 'kata@acme.test', code: '123456' },
+        '2001:0DB8:1234:5678:FFFF:FFFF:FFFF:FFFF',
+      );
+      expect([limited.statusCode, limited.json().error.code]).toEqual([429, 'email_login_rate_limited']);
+      expect(limited.headers['retry-after']).toBe('3600');
+      expect(
+        (await verify({ email: 'kata@acme.test', code: '123456' }, '2001:db8:1234:5679::1')).statusCode,
+      ).toBe(400);
+      now = new Date(now.getTime() + HOUR);
+      expect(
+        (await verify({ email: 'kata@acme.test', code: '123456' }, '2001:db8:1234:5678::1')).statusCode,
+      ).toBe(400);
     });
 
     it('keeps the counts across a restart, because they live in the database', async () => {

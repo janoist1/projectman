@@ -36,6 +36,8 @@ export function createNanogptAdapter(opts: {
   bin: string;
   codexHome: string;
   nanogptKey: () => Promise<string | null>;
+  /** The cloud holds the key and reports its presence itself (PM-736): the login check never asks for it. */
+  keyInCloud?: boolean;
   logger: FastifyBaseLogger;
   ambientConfig?: AmbientConfigLocations;
   fetch?: typeof fetch;
@@ -115,7 +117,8 @@ export function createNanogptAdapter(opts: {
       );
       if (!status.loggedIn) return status;
       if (await hasAuth()) return { ...status, loggedIn: false, method: 'chatgpt', problem: 'chatgpt_login' };
-      if (!(await opts.nanogptKey())) return { ...status, loggedIn: false, problem: 'no_key' };
+      if (!opts.keyInCloud && !(await opts.nanogptKey()))
+        return { ...status, loggedIn: false, problem: 'no_key' };
       return status;
     },
     async launch(input) {

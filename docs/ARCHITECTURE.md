@@ -2093,6 +2093,7 @@ workers follow the machine's size.
   (Effect, PM-617).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
   connectivity comes from the server's engine registry. No new engine code is needed.
+  For NanoGPT the cloud's key store decides whether the key is there (PM-736).
   A remote engine that has not connected since server startup gets the same 120-second
   grace as a disconnected link; existing alerts stay open until recovery is confirmed.
   Reconnection releases waiting work even if publishing the outage update fails.
@@ -2554,7 +2555,11 @@ workers follow the machine's size.
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs. The current server and
   CLI share a machine and filesystem. A remote engine performs local version and auth-file
-  checks and returns readiness status. It never persists or returns the delivered key,
+  checks and returns readiness status; it never asks for the key outside a start
+  (`nanogptKeyInCloud`). The cloud adds whether it holds the key to the status it returns
+  (`withNanogptKeyFact` in `engine-link/remote/runner.ts`, from its own key store, PM-736); only
+  that fact is derived, never the key, and no engine method changes. The key goes out only to a
+  starting session. A remote engine never persists or returns the delivered key,
   including in its spool; a replaced key affects only subsequent launches and resumes.
   Codex rollout `task_complete` (including an empty failed response) and `turn_aborted`
   events end the runner's turn even without a Stop hook; a later `task_started` supersedes

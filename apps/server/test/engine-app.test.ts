@@ -16,6 +16,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fullTest from '../src/full-test';
 import { buildEngineApp } from '../src/engine-app';
+import type { SessionRunner } from '../src/contracts';
 import type { EngineApp, EngineAppOptions } from '../src/engine-app';
 import {
   EngineConfig,
@@ -456,6 +457,30 @@ describe('engine process', () => {
       // Outside a start (the plan usage, the login check) there is no key.
       await expect(nanogptKeyOf()()).resolves.toBeNull();
       expect(requests).toEqual(['s-nano']);
+    });
+
+    it('is not asked for by a provider status request, which leaves the key to the cloud (PM-736)', async () => {
+      const requests: string[] = [];
+      cloud.handle('secret.nanogpt_key', ({ sessionId }) => {
+        requests.push(sessionId);
+        return { key: NANOGPT_KEY };
+      });
+      await startEngine();
+      expect(fake.options()?.nanogptKeyInCloud).toBe(true);
+      // The status check reads the key the way the adapter does, outside any start.
+      const statusRunner = fake.runner as typeof fake.runner & Pick<SessionRunner, 'providerStatus'>;
+      statusRunner.providerStatus = async (provider) => {
+        const key = await nanogptKeyOf()();
+        return { provider, loggedIn: key !== null, method: 'api_key', checkedAt: new Date().toISOString() };
+      };
+      const { call } = await cloud.connected();
+      const status = await call('provider.status', { provider: 'nanogpt', refresh: true });
+      expect(requests).toEqual([]);
+      expect(JSON.stringify(status)).not.toContain(NANOGPT_KEY);
+      await engine!.close();
+      expect(readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8')).not.toContain(
+        'secret.nanogpt_key',
+      );
     });
 
     it('never reaches the log, the status file, the audit log or the hello', async () => {

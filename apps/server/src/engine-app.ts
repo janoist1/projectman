@@ -350,6 +350,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     codexHome: options.codexHome,
     nanogptCodexHome,
     nanogptKey,
+    nanogptKeyInCloud: true,
     geminiBin: options.geminiBin,
     geminiConfigDir,
     claudeConfigPath: options.claudeConfigPath,

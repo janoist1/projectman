@@ -98,10 +98,13 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
     now: options.now,
   });
   const directory = createRemoteEngineDirectory({ hub, transfers, logger, now: options.now });
+  // Set by `createRunnerModule`; the runner reads only whether it holds a key, never the key itself.
+  let nanogptKey: () => Promise<string | null> = async () => null;
   const runner = createRemoteRunner({
     hub,
     recordedEngine: options.recordedEngine,
     logger,
+    nanogptKeySet: async () => (await nanogptKey()) !== null,
     now: options.now,
   });
   const transcripts = createRemoteTranscripts({ hub, transfers, now: options.now });
@@ -169,12 +172,13 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
     github,
     attachments,
     administration: createRemoteAdministration({ hub }),
-    createRunnerModule(broker, nanogptKey) {
+    createRunnerModule(broker, key) {
+      if (key) nanogptKey = key;
       registerCloudHandlers({
         hub,
         runner,
         broker,
-        nanogptKey: nanogptKey ?? (async () => null),
+        nanogptKey,
         relayMcp,
         logger,
       });

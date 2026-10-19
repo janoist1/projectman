@@ -569,6 +569,11 @@ export interface RunnerModuleOptions {
   nanogptCodexHome?: string;
   nanogptKey?: () => Promise<string | null>;
   /**
+   * On a remote engine the cloud holds the key and adds its presence to the status (PM-736): the
+   * login check never asks for it. Default: false.
+   */
+  nanogptKeyInCloud?: boolean;
+  /**
    * The environment the runner reads its defaults from ($CODEX_BIN, $CODEX_HOME,
    * $CLAUDE_CONFIG_DIR, PATH) and starts the CLIs with, after removing billing and host-session
    * variables. Explicit options above take precedence. Default: `process.env`.

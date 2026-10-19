@@ -142,9 +142,11 @@ describe('level unblock', () => {
     expect(text).toContain('you may take it yourself with its signal_id after weighing it');
     expect(text).toContain('follow_up true');
     expect(text).toContain('On a signal never merge, release, approve, move a card');
+    // The same sense as the system prompt's signal rules: the two texts must not contradict each other.
     expect(text).toContain(
-      'stalled, silent, outage, nobody and process_cleanup_failed signals always go to the owners',
+      'When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human',
     );
+    expect(text).not.toContain('always go to the owners');
     expect(text).toContain("Never stop another member's processes yourself.");
     expect(text).toContain('one message for the whole wake-up');
     expect(text).toContain('close with dismiss_signal and a note');

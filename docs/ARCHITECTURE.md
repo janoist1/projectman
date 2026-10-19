@@ -3163,9 +3163,13 @@ assumption or remote-engine RPC.
   **Cloud admin channel (PM-749):** on the cloud machine the same socket is reached through
   `npm run cloud -- release-control` (`scripts/cloud/release-control.ts`): one request line on the Mac's standard
   input, the verified SSH/SSM host session, `host.sh release-control`, then the fixed `docker exec -i -u 10001:10001
-projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (`control/cli.ts`, built by
-  `apps/server/scripts/build.mjs`), and one response line back. Assumes the Docker container name, the data uid/gid and the
-  `/data/control.sock` path of the cloud image; the control socket is never published or mounted. A remote
+projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 /usr/local/bin/node
+/app/apps/server/dist/control/cli.js /data/control.sock` (`control/cli.ts`, built by
+  `apps/server/scripts/build.mjs`), and one response line back (PM-754: `env -i` clears the environment `docker exec`
+  inherits from the container before Node starts; the relay gets exactly those two values). Assumes the Docker
+  container name, the data uid/gid, the `/usr/bin/env` and `/usr/local/bin/node` binaries of the official
+  Node-based cloud image and the `/data/control.sock` path; the control socket is never published or mounted
+  ([SECURITY.md](SECURITY.md) "The control socket and the admin channel"). A remote
   engine needs nothing of it: the socket is the cloud server's, and `engine_status` only reports the engine
   registry. The request is sent once; a lost answer is reconciled with `release_get`.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.pause/force_pause/release/stop` (PM-313), keep the administrative socket local, propagate pause/stop to engines
@@ -3282,7 +3286,14 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt`. Its sandbox
+  it is unavailable without macOS/`srt`. PM-754: the run may bind and connect Unix sockets below its own
+  `sandbox/tmp` only (`srtSettings`: `allowUnixSockets: [paths.tmp]`, `allowAllUnixSockets: false`; the macOS
+  generator of srt 0.0.78 makes that a `network-bind`/`network-outbound` subpath rule), so the control socket
+  integration tests (`control-relay` and `control-socket`, `*.integration.test.ts`) run in the merge check and
+  prove the real socket boundary. The installer and screenshot settings do not get it; Linux has no equivalent
+  guarantee and no fallback. `npm run merge-test` exits 2 for any scope that runs the server's tests when
+  `PROJECTMAN_SKIP_PTY_TESTS=1` is set (the members' sandbox signal, which `fullTestEnv` never passes), and its
+  cloud scope names the two integration files. Its sandbox
   (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `full_test.run/cancel` (PM-313), plan where the pinned commit and dependencies are tested, equivalent

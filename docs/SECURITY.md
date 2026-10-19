@@ -1067,10 +1067,51 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   board's login. The login's own limits apply (the code and address limits above); a WAF rule or Turnstile
   in front of the login is not part of this change.
 
+## The control socket and the admin channel (PM-749, PM-754)
+
+The board has a local control socket (`<home>/control.sock`, `/data/control.sock` in the cloud container) for the
+administration the board's people do not do in the app: pause, resume, status and the release operations.
+
+- **Authority is the file.** The socket is a Unix socket with mode 0600, owned by the board's own user. Whoever can
+  open it may send every `ControlRequest`; there is no login on it. It is never published on a TCP port and never
+  mounted out of the container. The protocol (`packages/shared`) has no approval, proposal or rejection of a
+  release: those stay with the person in the board.
+- **The cloud path.** admin → verified SSH or SSM session → the fixed `host.sh release-control` command → `docker
+exec` as the board's uid/gid (10001:10001) → the packaged relay (`control/cli.js`) → the local socket. The
+  command, user, container and socket path are constants; nothing from the request becomes an argument, a path or
+  a process. No admin port is opened and nothing is mounted.
+- **Limits.** One request line of at most 16 KiB (the host command passes on one byte more, so the relay sees an
+  oversized request) and one response line of at most 64 KiB. The relay's client waits 30 s; the admin tool gives
+  the whole call 90 s. One request, one response, and no automatic repeat: after a lost answer the caller reads
+  the release with `release_get` instead of sending a claim or report again.
+- **Errors and output.** The standard output holds the one response line only (a domain refusal is an answer, exit
+  0). Exit 1 is a transport failure, 2 a refusal (invalid input, the board is not running, no `releaseTarget`),
+  64 a wrong argument; diagnostics go to the standard error and carry no secret.
+- **Tied to the release target.** `release_get`, `release_claim`, `release_report` and the `release_deploy_get`,
+  `release_deploy_begin`, `release_deploy_change` operations of PM-752 only touch a release of the configured
+  `releaseTarget` (project and repository), and they are refused without one. The relay itself forwards the whole
+  `ControlRequest` set, not only the release operations. With a hybrid configuration the deployment protocol is
+  used and the legacy single-target claim and report are refused.
+- **The environment.** `docker exec` would hand the relay the container's environment. The host command therefore
+  runs `/usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8` before Node starts, so the relay gets
+  exactly those two values: no `NODE_OPTIONS` or `NODE_PATH` can change how it starts, and no AWS, backup,
+  provider or `PROJECTMAN_*` value reaches it (a test with synthetic markers proves it). If `env` or Node is
+  missing, the call fails; it never falls back to the inherited environment.
+- **What it does not give.** The cleared environment only removes needless inheritance. The relay still runs with
+  the board's data user, who owns the database and the socket. Anyone who can run Docker or SSH on the host, or who
+  has taken over the container, has the board's rights anyway; this channel is not isolation against them. Its
+  protection is the verified admin session before the fixed command and the narrow request protocol after it.
+- **The test.** The real Unix socket boundary is proven by `control-relay.integration.test.ts` and
+  `control-socket.integration.test.ts`, which the merge check must run: the full test sandbox allows Unix sockets
+  below its own temporary directory only (not `/tmp`, the checkout, the app home or another run), the tests prove
+  that a bind elsewhere in the run's writable area, also through a symlink, is refused, and `npm run merge-test`
+  refuses a run in which the PTY and socket tests would be skipped.
+
 ## The hybrid release watcher (PM-751, part of PM-735)
 
 `npm run release` moves one owner-approved release to the cloud and the Mac engine. It is an administration
-tool: it reaches the cloud board's control socket only through `npm run cloud -- release-control` (PM-749) and
+tool: it reaches the cloud board's control socket only through `npm run cloud -- release-control` (PM-749, see
+"The control socket and the admin channel" above) and
 holds the AWS and cloud credentials only in `~/.config/projectman/cloud/`, which the member sandboxes deny.
 
 - **One approval, nothing wider.** The owner's approval of the release covers the whole chain and the program

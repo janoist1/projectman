@@ -596,8 +596,14 @@ refuse.
 `npm run cloud -- release-control [--config <file>]` is how the release watcher on your Mac reaches the cloud
 board's local control socket (`/data/control.sock` in the container) over the same verified SSH session (Lightsail
 or EC2/SSM) that `deploy` uses. No port is published and no live home is mounted: the machine runs one fixed
-command, `docker exec -i -u 10001:10001 projectman-cloud node /app/apps/server/dist/control/cli.js
-/data/control.sock`, and nothing from the request becomes a command, a path, a container or a user.
+command, `docker exec -i -u 10001:10001 projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin
+LANG=C.UTF-8 /usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock`, and nothing from the
+request becomes a command, a path, a container or a user. `env -i` runs before Node and clears the environment
+`docker exec` would inherit from the container (PM-754): the relay sees only `PATH` and `LANG`, never the
+board's `NODE_OPTIONS`, `NODE_PATH`, AWS, backup or provider settings, and there is no fallback to the inherited
+environment. It relies on `/usr/bin/env` and `/usr/local/bin/node` of the official Node-based image; if either is
+missing the call fails as a transport error. What the channel does and does not protect is in
+[SECURITY.md](SECURITY.md) "The control socket and the admin channel".
 
 - **Input.** Exactly one `ControlRequest` JSON line on the standard input: UTF-8, at most 16 KiB, ending in a
   newline, then end of input. Anything else (two lines, text after the newline, broken JSON, an unknown or

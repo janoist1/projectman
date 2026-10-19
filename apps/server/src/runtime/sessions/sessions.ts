@@ -431,7 +431,9 @@ export class SessionOrchestrator {
 
   /**
    * The engine of the card (PM-311): the one its assignee's session runs on, else the one the
-   * assignee starts on, else the local one. Where the task's branch is read and its worktrees go.
+   * assignee starts on. Without an assignee, use the latest developer workspace's member placement,
+   * then the latest task session with a source trace, else the local engine (PM-818).
+   * Where the task's branch is read and its worktrees go.
    */
   cardEngineId(projectKey: string, task: Task): EngineId {
     if (task.assignee) {
@@ -442,6 +444,13 @@ export class SessionOrchestrator {
       if (session) return engineIdOf(session);
       return this.deps.engines.engineFor(projectKey, task.assignee) ?? LOCAL_ENGINE_ID;
     }
+    const work = this.ctx.repos.memberWorkspaces
+      .bindingsOfTask(projectKey, task.key)
+      .filter((binding) => binding.kind === 'work' && binding.branch)
+      .at(-1);
+    if (work) return this.deps.engines.engineFor(projectKey, work.member) ?? LOCAL_ENGINE_ID;
+    const sourceSession = this.ctx.repos.sessions.latestSourceOfTask(projectKey, task.key);
+    if (sourceSession) return engineIdOf(sourceSession);
     return LOCAL_ENGINE_ID;
   }
 
@@ -589,6 +598,17 @@ export class SessionOrchestrator {
     const repoName = effectiveRepo(config, task);
     if (!repoName) return null;
     try {
+      // A cloud hub has no local worktree. Without an assignee, developer workspace or source session,
+      // there is no engine source to read; recorded handovers and pins are read by the merge service.
+      if (
+        !task.assignee &&
+        !this.deps.engines.ids().includes(LOCAL_ENGINE_ID) &&
+        !this.ctx.repos.sessions.latestSourceOfTask(config.project.key, task.key) &&
+        !this.ctx.repos.memberWorkspaces
+          .bindingsOfTask(config.project.key, task.key)
+          .some((binding) => binding.kind === 'work')
+      )
+        return null;
       const engineId = this.cardEngineId(config.project.key, task);
       const engine = this.deps.engines.get(engineId);
       if (!engine) {

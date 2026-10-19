@@ -3078,6 +3078,14 @@ assumption or remote-engine RPC.
   PM-712 uses the existing engine-local `sourceHead` read again before loop triage and human
   fallback, so a review fix committed since detection closes the loop. Only commit/time facts
   reach the server; unavailable heads never count as progress. No new git or shell capability.
+  PM-818: `runtime/sessions/sessions.ts` resolves an unassigned card's source engine from its latest
+  branch-bearing `work` binding's member placement, in the same order as `MemberWorkspaces.workOf`.
+  With no such binding it uses the latest task session with a branch or reviewed commit (including legacy
+  remote task worktrees), read by the bounded `SessionRepository.latestSourceOfTask` query.
+  If the card has no assignee, no work binding and no source session, and LOCAL is not registered, there is no engine source to read:
+  `sourceHead` returns null without RPC. Single-machine assembly always registers LOCAL; a registered
+  but disconnected engine and a recorded developer workspace retain strict read failures. Remote git
+  still runs on the selected engine; no engine path is read by the hub and no RPC contract changes.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
@@ -3369,6 +3377,10 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   PM-797: a collecting card with no code of its own, whose subtasks are all closed, skips the gate on the hub's
   own data (`TaskRepository.sourceEvidence`, "Collecting card closes with its parts"), so its close makes no
   engine call and adds no machine assumption; a card with a trace of a source keeps the gate.
+  PM-818 keeps that evidence rule. The normal gate can find no engine source for an unassigned card
+  without a work binding or a source session when the hub has no registered LOCAL engine; it then needs no source RPC.
+  Recorded handovers and review pins retain precedence, and a previous developer workspace is read
+  on its member's engine, with offline reads still refused.
   PM-791 adds `services/merges/engine-wait.ts` and reconnect loops in `steps.ts` and `train.ts`:
   the cloud holds the repository slot for up to 15 minutes per lost link and resumes through
   prepare/publication recovery. Persistent or repeated loss becomes `engine_offline`. Remote

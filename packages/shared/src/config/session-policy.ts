@@ -68,7 +68,9 @@ export function roleSessionAccess(config: Pick<ProjectConfig, 'team'>, role: str
   const duties = roleBundle(config, role).duties;
   const worktree = roleUsesWorktree(config, role);
   const readOnlyTools = duties.some((id) => DUTIES[id].toolPolicy === 'read_only');
-  const reviewCopy = duties.some((id) => REVIEW_DUTIES.includes(id));
+  const reviewCopy =
+    duties.some((id) => REVIEW_DUTIES.includes(id)) ||
+    (duties.includes('ux_design') && !duties.includes('implementation'));
   return { worktree, readOnlyTools, reviewCopy };
 }
 

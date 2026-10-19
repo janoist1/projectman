@@ -3,7 +3,9 @@ import { isHumanOnlyLabel, RELEASE_APPROVAL_DUTY } from '../domain/label';
 import type { LabelClearTrigger, LabelDefinition, LabelRefusal } from '../domain/label';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
+import { hasSuperOrigin } from '../domain/actor-origin';
 import { dutyMembers, REVIEW_DUTIES, taskAuthors } from './duties';
+import { ownerHandles } from './lookup';
 import type { ProjectConfig } from './schema';
 
 type LabelConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
@@ -105,21 +107,38 @@ export function labelSetters(
 }
 
 /**
+ * The authority behind a super-mode step (PM-831): the key owner's handle, taken only from the
+ * authenticated scope, never from a request or a stored row.
+ */
+export interface LabelAuthority {
+  authorizedBy: string;
+}
+
+/**
  * Why an actor may not add or remove a label on a task, or null when it may. The system actor
  * (integrations, automatic clearing) may change any label; plain tags (no definition) are open.
+ * A super-mode step may also use the holding of the key owner (`authority`): the owner holding the
+ * label is enough, while the owner-reserved labels stay refused above it.
  */
 export function labelRefusal(
   config: LabelConfig,
   label: LabelDefinition | undefined,
   actor: Actor,
   task: Pick<Task, 'assignee' | 'links'>,
+  authority?: LabelAuthority,
 ): LabelRefusal | null {
   if (actor.kind === 'system' || !label) return null;
   if (actor.via === 'integrator' && isOwnerApprovalLabel(config, label)) return 'owner_approval';
   if (label.setBy === 'system') return 'system_only';
   if (isHumanOnlyLabel(label) && actor.kind !== 'human') return 'humans_only';
-  if (!labelHolders(config, label).includes(actor.handle ?? '')) return 'not_holder';
-  if (labelExcludesAuthors(config, label) && taskAuthors(task).includes(actor.handle ?? ''))
+  const holders = labelHolders(config, label);
+  const delegated =
+    authority !== undefined &&
+    holders.includes(authority.authorizedBy) &&
+    ownerHandles(config).includes(authority.authorizedBy);
+  if (!holders.includes(actor.handle ?? '') && !delegated) return 'not_holder';
+  const authors = labelExcludesAuthors(config, label) ? taskAuthors(task) : [];
+  if (authors.includes(actor.handle ?? '') || (authority && authors.includes(authority.authorizedBy)))
     return 'self_review';
   return null;
 }
@@ -185,7 +204,10 @@ export function planLabelChange(
   change: { add?: readonly string[]; remove?: readonly string[] },
   actor: Actor,
   comment?: string,
+  authority?: LabelAuthority,
 ): LabelChangePlan {
+  // Only a super-mode step carries the key owner's authority; the removal below drops the origin.
+  const delegated = hasSuperOrigin(actor) ? authority : undefined;
   const add = [...new Set((change.add ?? []).map((label) => label.trim()).filter(Boolean))].filter(
     (label) => !task.labels.includes(label),
   );
@@ -198,6 +220,7 @@ export function planLabelChange(
       labelDefinition(config, label),
       remove.includes(label) && actor.via ? { kind: actor.kind, handle: actor.handle } : actor,
       task,
+      delegated,
     );
     if (refusal === 'owner_approval')
       return { ok: false, refusal: { code: 'owner_approval_required', label } };

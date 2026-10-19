@@ -599,6 +599,17 @@ export const hu = {
       viewer: 'Megtekintheti a projektet; nem módosíthatja.',
     },
   },
+  // Installable web app. The build reads these for the manifest and the offline page (src/pwa).
+  pwa: {
+    description: 'A csapatod táblája, kérdései és átnézései egy helyen.',
+    offline: {
+      title: 'Nincs kapcsolat',
+      body: 'A {name} most nem éri el a szervert. Ha visszajön a hálózat, magától újratölt.',
+      retry: 'Újra',
+      retrying: 'Próbálom…',
+      stillOffline: 'Még mindig nincs kapcsolat.',
+    },
+  },
   app: {
     name: 'projectman',
     loading: 'Betöltés…',
@@ -1138,6 +1149,7 @@ export const hu = {
       super_owner_decision_pending: 'A tulajdonos döntésére még várunk.',
       super_operation_expired: 'A tulajdonos nem válaszolt időben, a művelet lejárt.',
       super_executor_unavailable: 'Ezt a műveletet ez a telepítés még nem tudja végrehajtani.',
+      super_operation_unsupported: 'Ezt a műveletet super módban még nem lehet végrehajtani.',
       super_relay_refused: 'Ezt a választ nem lehet a tulajdonos nevében továbbítani.',
       history_unavailable: 'Az előzménykereső most nem használható.',
       history_source_changed: 'A dokumentum közben megváltozott: keress újra.',

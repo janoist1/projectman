@@ -28,6 +28,8 @@ export type {
 } from './handoffs';
 export { cardCommits, createAdministrationExecutor, createAdministrationSettler } from './administration';
 export type { SuperAdministrationDeps } from './administration';
+export { createOperateExecutor } from './operate';
+export type { OperateExecutorDeps } from './operate';
 export { createSuperDiagnostics } from './diagnostics';
 export type { SuperDiagnostics } from './diagnostics';
 export { createSuperAdministration } from './facade';

@@ -36,6 +36,8 @@ import {
   FakeWorktreeManager,
   planUsage,
 } from './fakes';
+import { seedCustomizationRepository } from './customization-seed';
+import { openMigratedMemoryDatabase, seedDatabaseFile } from './database-seed';
 import { testTemplate } from './test-template';
 
 export const OWNER = { name: 'Owner', email: 'owner@example.com' };
@@ -150,9 +152,13 @@ export async function createDomainHarness(
   const restarted = opts.directory !== undefined;
   const dir = opts.directory ?? mkdtempSync(join(tmpdir(), 'pm-domain-'));
   const workspace = join(dir, 'workspace');
-  if (!restarted) mkdirSync(workspace);
+  if (!restarted) {
+    mkdirSync(workspace);
+    await seedCustomizationRepository(join(dir, 'customization'));
+    if (opts.persistent) seedDatabaseFile(join(dir, 'db.sqlite'));
+  }
   const repos = createRepositories(
-    openDatabase(restarted || opts.persistent ? join(dir, 'db.sqlite') : ':memory:'),
+    restarted || opts.persistent ? openDatabase(join(dir, 'db.sqlite')) : openMigratedMemoryDatabase(),
   );
   const configStore = (opts.configStore ?? ((inner) => inner))(
     createConfigStore({ rootDir: join(dir, 'customization') }),

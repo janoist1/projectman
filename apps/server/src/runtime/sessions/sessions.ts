@@ -579,7 +579,9 @@ export class SessionOrchestrator {
    * developer wrote to a reviewer (that one). Their next start pins the latest commit.
    */
   requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
-    for (const workspaces of this.allWorkspaces()) workspaces.requestReviewRound(projectKey, taskKey, member);
+    const config = this.deps.projects.cachedConfig(projectKey);
+    for (const workspaces of this.allWorkspaces())
+      workspaces.requestReviewRound(projectKey, taskKey, member, config);
     // A reviewer that gave the work back has a new round now (PM-570).
     for (const s of this.list(projectKey, { taskKey }))
       if ((!member || s.member === member) && this.closeStates.isAwaitingFix(s.id)) this.cancelClose(s.id);

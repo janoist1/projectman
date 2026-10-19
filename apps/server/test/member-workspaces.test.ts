@@ -10,6 +10,9 @@ import { aiActor, newId } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { createDomainContext, createEventBus } from '../src/core/base';
+import { MemberWorkspaces } from '../src/runtime/sessions/workspaces';
+import { createMemberWorkspaceManager } from '../src/worktree';
 
 /*
  * PM-138: durable member workspaces with the real git-backed manager and the fake runner. The
@@ -372,6 +375,126 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     await git(dev1, 'branch', '--quiet', '-D', 'AR-1-login-page');
     await expect(ensure('dev-1', 'AR-1')).rejects.toMatchObject({ code: 'workspace_branch_missing' });
   });
+
+  it('selects design review only for a non-implementing designer inspecting another member branch (PM-828)', async () => {
+    await setup();
+    const config = await h.domain.projects.config('AR');
+    const designer: AiMemberConfig = {
+      ...(config.team.members.find((m) => m.handle === 'dev-2') as AiMemberConfig),
+      role: 'designer',
+    };
+    const workspaces = new MemberWorkspaces({
+      ctx: createDomainContext({
+        repos: h.repos,
+        bus: createEventBus(),
+        logger: h.log.logger,
+        now: () => new Date(),
+      }),
+      manager: createMemberWorkspaceManager({ rootDir: h.workspacesDir, logger: h.log.logger }),
+      isRunning: () => false,
+      stop: async () => undefined,
+      processExists: () => false,
+    });
+    const unstarted = h.domain.tasks.get('AR', 'AR-1');
+    expect(workspaces.kindFor(config, designer, unstarted)).toBe('work');
+    await startTask('AR-1', 'dev-1');
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    expect(workspaces.kindFor(config, designer, task)).toBe('review');
+    expect(workspaces.kindFor(config, designer, { ...task, stageId: 'code_review' })).toBe('review');
+    expect(workspaces.kindFor(config, designer, { ...task, assignee: designer.handle })).toBe('work');
+    config.team.roleOverrides = {
+      ...config.team.roleOverrides,
+      designer: { duties: ['ux_design', 'implementation'], instructions: '' },
+    };
+    expect(workspaces.kindFor(config, designer, task)).toBe('work');
+  });
+
+  it.each(['stopped', 'idle', 'working'] as const)(
+    'starts a %s designer from the current developer commit on a message in development (PM-828)',
+    async (state) => {
+      await setup({
+        adjust: (config) => {
+          twoTasks(config);
+          config.team.members.push({
+            ...(config.team.members.find((m) => m.handle === 'dev-1') as AiMemberConfig),
+            kind: 'ai',
+            handle: 'designer',
+            displayName: 'Designer',
+            role: 'designer',
+            sponsor: 'owner',
+          });
+        },
+      });
+      // Planning can leave an older branch in the designer's clone.
+      await ensure('designer', 'AR-1');
+      const planning = h.runner.lastStarted();
+      expect(planning.policy?.placement.kind).toBe('task_worktree');
+      h.runner.emit({ type: 'transcript_path', sessionId: planning.sessionId, path: '/tmp/planning.jsonl' });
+      if (state === 'stopped') await h.domain.sessions.stop('AR', planning.sessionId);
+      else h.runner.setState(planning.sessionId, state);
+      await startTask('AR-1', 'dev-1');
+      const dev = await workspaceOf('dev-1');
+      const current = await commitFile(dev, 'screen.txt', 'ready for design review\n');
+      const request = async () => {
+        await h.domain.messaging.send(
+          'AR',
+          'dev-1',
+          { to: ['designer'], text: 'Please review the screen.', taskKey: 'AR-1' },
+          { actor: aiActor('dev-1') },
+        );
+      };
+      await request();
+      if (state === 'working') {
+        await flush();
+        expect(h.runner.started).toHaveLength(2);
+        expect(h.runner.stopped).not.toContain(planning.sessionId);
+        h.runner.setState(planning.sessionId, 'idle');
+      }
+      await startedCount(3);
+      const designer = await workspaceOf('designer');
+      expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
+      expect(h.runner.lastStarted().policy?.placement).toMatchObject({
+        kind: 'review_copy',
+        sourceCommit: current,
+        roundId: '1',
+      });
+      expect(await git(designer, 'rev-parse', 'HEAD')).toBe(current);
+      expect(await git(designer, 'rev-parse', 'refs/heads/AR-1-login-page')).toBe(initial);
+      expect(
+        await h.domain.sessions.sourceHead(
+          await h.domain.projects.config('AR'),
+          h.domain.tasks.get('AR', 'AR-1'),
+        ),
+      ).toMatchObject({ commit: current, path: dev });
+      expect(await readFile(path.join(designer, 'screen.txt'), 'utf8')).toBe('ready for design review\n');
+
+      // A rewritten developer tip must reach the next round too.
+      const review = h.runner.lastStarted();
+      h.runner.emit({ type: 'transcript_path', sessionId: review.sessionId, path: '/tmp/designer.jsonl' });
+      h.runner.setState(review.sessionId, 'idle');
+      await writeFile(path.join(dev, 'screen.txt'), 'revised screen\n');
+      await git(dev, 'add', 'screen.txt');
+      await git(dev, 'commit', '--quiet', '--amend', '-m', 'Revise screen');
+      const rewritten = await git(dev, 'rev-parse', 'HEAD');
+      await request();
+      await startedCount(4);
+      expect(h.runner.lastStarted().policy?.placement).toMatchObject({
+        kind: 'review_copy',
+        sourceCommit: rewritten,
+        roundId: '2',
+      });
+      expect(await git(designer, 'rev-parse', 'HEAD')).toBe(rewritten);
+
+      await h.domain.sessions.stop('AR', review.sessionId);
+      const latest = await commitFile(dev, 'screen.txt', 'latest screen\n');
+      await ensure('designer', 'AR-1');
+      expect(h.runner.lastStarted().policy?.placement).toMatchObject({
+        sourceCommit: latest,
+        roundId: '3',
+      });
+      expect(await git(designer, 'rev-parse', 'HEAD')).toBe(latest);
+    },
+  );
 
   it("reviews the handed-over commit in the reviewer's own workspace; a new round on a stage entry or the developer's message", async () => {
     await setup();

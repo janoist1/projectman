@@ -415,6 +415,39 @@ export class FixLimitWatch {
     );
   }
 
+  /** The AI decider let the obligation lapse: hand it over through the existing decision routing. */
+  async timeOut(
+    projectKey: string,
+    taskKey: string,
+    decider: string,
+  ): Promise<{ decisionItemId: string } | null> {
+    const config = await this.projects.config(projectKey);
+    return this.cards.run(taskKey, async () => {
+      const record = this.ctx.repos.taskFixLimits.get(taskKey);
+      const task = this.tasks.find(projectKey, taskKey);
+      if (
+        !task ||
+        !isOpenTask(task) ||
+        record?.projectKey !== projectKey ||
+        (record.holdPhase !== 'lead' && record.holdPhase !== 'replan') ||
+        record.decider !== decider
+      )
+        return null;
+      this.toOwner(
+        config,
+        task,
+        record,
+        this.roundsOf(task, config, record),
+        'decider_timeout',
+        decider,
+        null,
+        null,
+      );
+      const decisionItemId = this.ctx.repos.taskFixLimits.get(taskKey)?.inboxItemId;
+      return decisionItemId ? { decisionItemId } : null;
+    });
+  }
+
   /** The rounds list of the current count: what the lead reads in its notice and the item carries. */
   private historyOf(
     task: Pick<Task, 'projectKey' | 'key'>,

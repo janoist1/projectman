@@ -3586,6 +3586,7 @@ export const hu = {
       body: 'A(z) {key} kártya {rounds} javítási kör után sem ment át ({parts}). {reason}',
       reasons: {
         no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (Műszaki irányítás és Kódellenőrzés).',
+        decider_timeout: 'Az AI döntő nem döntött határidőn belül.',
         passed_on: '{name} továbbadta neked.{note}',
         again: 'Még egy kör után újra elérte a határt.',
         extra_exhausted: 'A 3 extra kör elfogyott, és újra elérte a határt.',
@@ -4273,6 +4274,7 @@ export const hu = {
       replan: '{name} pontosabb tervet ír, utána megy tovább.',
       people: {
         no_ai_decider: 'Nincs AI vezető fejlesztő, ezért {decides} róla.',
+        decider_timeout: 'Az AI döntő nem döntött határidőn belül, ezért {decides} róla.',
         passed_on: 'A vezető fejlesztő továbbadta, ezért {decides} róla.',
         again: 'Még egy kör után újra elérte a határt, ezért {decides} róla.',
         extra_exhausted: 'A 3 extra kör elfogyott, és újra elérte a határt, ezért {decides} róla.',

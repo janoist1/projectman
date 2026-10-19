@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FixLimitDecisionPayload } from '@projectman/shared';
+import { getLocale } from '@projectman/templates';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
 
 type Config = Parameters<typeof formatFixLimitItem>[0];
@@ -69,6 +70,15 @@ const fixLimit: FixLimitDecisionPayload = {
 } as FixLimitDecisionPayload;
 
 describe('formatFixLimitItem', () => {
+  it.each(['hu', 'en'] as const)('formats the decider timeout reason in %s', (language) => {
+    const content = formatFixLimitItem(
+      config(language),
+      { ...fixLimit, reason: 'decider_timeout' },
+      ['another_round'],
+      'owner',
+    );
+    expect(content.body).toContain(getLocale(language).fixLimitItem.reasons.decider_timeout);
+  });
   it('writes the summary, the assessment, every round and every option in the project language', () => {
     const content = formatFixLimitItem(
       config('hu'),

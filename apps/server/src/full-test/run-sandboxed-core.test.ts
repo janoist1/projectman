@@ -53,6 +53,7 @@ describe('process group execution', () => {
         // Like a merge-test launcher: the parent exits on TERM, but the worker ignores it
         // and closes the launcher's pipes, so `close` does not prove the group is gone.
         const worker = `trap '' TERM; echo $$ > ${quoteShellWord(ready)}; while :; do sleep 1; done`;
+        const runStarted = Date.now();
         const pending = run(
           `trap 'exit 0' TERM; /bin/sh -c ${quoteShellWord(worker)} >/dev/null 2>&1 & echo $$; echo $!; wait`,
           { timeoutMs: mode === 'timeout' ? 500 : 5000, killGraceMs: 200, signal: controller.signal },
@@ -66,7 +67,9 @@ describe('process group execution', () => {
         pids = end.output.trim().split('\n').map(Number);
         expect(pids).toContain(workerPid);
         expect(end).toMatchObject({ timedOut: mode === 'timeout', aborted: mode === 'abort' });
-        expect(Date.now() - started).toBeGreaterThanOrEqual(190);
+        expect(Date.now() - (mode === 'timeout' ? runStarted : started)).toBeGreaterThanOrEqual(
+          mode === 'timeout' ? 690 : 190,
+        );
         for (const pid of pids) await expect.poll(() => isGone(pid)).toBe(true);
       } finally {
         controller.abort();

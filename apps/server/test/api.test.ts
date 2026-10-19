@@ -736,4 +736,25 @@ describe('REST API', () => {
       rmSync(dist, { recursive: true, force: true });
     }
   });
+
+  it('serves the service worker, the manifest and the offline page without a long cache (PM-814)', async () => {
+    await h.close();
+    const dist = mkdtempSync(join(tmpdir(), 'pm-web-'));
+    try {
+      writeFileSync(join(dist, 'index.html'), '<!doctype html><title>projectman</title>');
+      writeFileSync(join(dist, 'sw.js'), '// worker');
+      writeFileSync(join(dist, 'manifest.webmanifest'), '{}');
+      writeFileSync(join(dist, 'offline.html'), '<!doctype html>');
+      h = await createAppHarness({ webDistDir: dist });
+      for (const url of ['/sw.js', '/manifest.webmanifest', '/offline.html']) {
+        const res = await h.app.inject({ method: 'GET', url });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['cache-control']).toBe('no-cache');
+      }
+      const manifest = await h.app.inject({ method: 'GET', url: '/manifest.webmanifest' });
+      expect(manifest.headers['content-type']).toContain('manifest+json');
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
 });

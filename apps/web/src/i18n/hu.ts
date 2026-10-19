@@ -599,6 +599,17 @@ export const hu = {
       viewer: 'Megtekintheti a projektet; nem módosíthatja.',
     },
   },
+  // Installable web app. The build reads these for the manifest and the offline page (src/pwa).
+  pwa: {
+    description: 'A csapatod táblája, kérdései és átnézései egy helyen.',
+    offline: {
+      title: 'Nincs kapcsolat',
+      body: 'A {name} most nem éri el a szervert. Ha visszajön a hálózat, magától újratölt.',
+      retry: 'Újra',
+      retrying: 'Próbálom…',
+      stillOffline: 'Még mindig nincs kapcsolat.',
+    },
+  },
   app: {
     name: 'projectman',
     loading: 'Betöltés…',

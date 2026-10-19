@@ -435,11 +435,19 @@ export class MergeTrains {
     const passedAlone: string[] = [];
     for (const member of train.members) {
       if (!(await this.checkpoint(run))) return true;
-      const built = await merger.build(ref, {
-        onto: train.onto,
-        commit: member.commit,
-        message: `Diagnose ${member.taskKey} for train ${train.id}`,
-      });
+      let built: Awaited<ReturnType<typeof merger.build>>;
+      try {
+        built = await merger.build(ref, {
+          onto: train.onto,
+          commit: member.commit,
+          message: `Diagnose ${member.taskKey} for train ${train.id}`,
+        });
+      } catch (err) {
+        if (isEngineLinkLost(err)) throw err;
+        // A git error while building the lone merge leaves the member unknown, not guilty.
+        ctx.logger.warn({ err, mergeId: member.mergeId }, 'could not build the lone merge of a train member');
+        continue;
+      }
       if (!(await this.checkpoint(run))) return true;
       if (!built.ok) continue;
       const mergeId = `${train.id}-${member.mergeId}`;

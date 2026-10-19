@@ -755,6 +755,24 @@ describe('merge train execution', () => {
       ).toBe(true);
     });
 
+    it('treats a member whose lone merge build throws as unknown', async () => {
+      await setup(3, true, filesCommand);
+      script(groupFailed(['a.test.ts']), (card) => (card === 1 ? groupFailed(['a.test.ts']) : passed));
+      const build = merger.build.getMockImplementation()!;
+      let builds = 0;
+      merger.build.mockImplementation(async (ref, input) => {
+        if (String(input.message).startsWith('Diagnose AR-3')) throw new Error('fatal: bad object');
+        builds += 1;
+        return build(ref, input);
+      });
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.state).toBe('failed'));
+      await settled();
+      expect(builds).toBeGreaterThan(0);
+      expect(queuedKeys()).toEqual(['AR-2', 'AR-3']);
+      expect(row('AR-3')?.state).toBe('queued');
+    });
+
     it('halves the group without a filesCommand', async () => {
       await setup(3);
       script(groupFailed(['a.test.ts']), () => groupFailed(['a.test.ts']));

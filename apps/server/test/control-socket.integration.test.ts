@@ -56,6 +56,12 @@ describe.skipIf(!inFullTestSandbox)('the full test sandbox opens Unix sockets fo
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
+  it('has a TMPDIR and a HOME that leave room for a socket path (macOS: 103 bytes, else Node says EINVAL)', () => {
+    // The longest socket path of the two integration files below the real path of TMPDIR.
+    expect(realpathSync(tmpdir()).length + '/pm-ctl-XXXXXX/control.sock'.length).toBeLessThanOrEqual(103);
+    expect(realpathSync(process.env.HOME!).length + '/pm-sock-XXXXXX/x.sock'.length).toBeLessThanOrEqual(103);
+  });
+
   it('refuses to bind a socket below the writable HOME', async () => {
     const home = realpathSync(mkdtempSync(join(process.env.HOME!, 'pm-sock-')));
     dirs.push(home);

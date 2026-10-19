@@ -187,14 +187,26 @@ describe('the output of a full test', () => {
 });
 
 describe('the directory of a full test run', () => {
-  // A Unix socket path must stay below macOS's 104 bytes: the sandbox's TMPDIR holds srt's socket.
-  const socketPathOf = (runDir: string) => path.join(runPaths(runDir).tmp, 'srt-mux-9999999-99.sock');
+  // A Unix socket path must stay below macOS's 104 bytes: the sandbox's TMPDIR holds srt's socket and the control
+  // socket tests' (`pm-ctl-XXXXXX/control.sock`), the latter below the resolved path (`/var` gains `/private`).
+  const socketPathOf = (runDir: string) => path.join(runPaths(runDir).tmp, 'pm-ctl-XXXXXX', 'control.sock');
+  const resolvedSocketPathOf = (runDir: string) =>
+    socketPathOf(runDir).replace(/^\/(var|tmp|etc)\//, '/private/$1/');
 
   it('is short, under the temporary directory, named by the end of the run id', () => {
-    const tmp = '/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T';
+    const tmp = '/tmp/projectman';
     const dir = runDirOf(tmp, '/private/tmp', 'ftr_mgabc12345ef01234567');
     expect(dir).toBe(`${tmp}/pmft-01234567`);
-    expect(socketPathOf(dir).length).toBeLessThanOrEqual(103);
+    expect(resolvedSocketPathOf(dir).length).toBeLessThanOrEqual(103);
+  });
+
+  it('moves to the short root when the system temporary directory leaves no room once resolved', () => {
+    // The real `os.tmpdir()` of macOS: `/private` is added when a test resolves it, which made every
+    // socket of the control socket tests fail with EINVAL in the first merge check (PM-754).
+    const system = '/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T';
+    const dir = runDirOf(system, '/private/tmp', 'ftr_mgabc12345ef01234567');
+    expect(dir).toBe('/private/tmp/pmft-01234567');
+    expect(resolvedSocketPathOf(dir).length).toBeLessThanOrEqual(103);
   });
 
   it('moves to the short root when the temporary directory is too deep for the socket', () => {

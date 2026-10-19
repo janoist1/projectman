@@ -16,15 +16,17 @@ export function quoteShellWord(value: string): string {
 
 /**
  * The longest Unix socket path the sandbox can open, a little below macOS's limit (104 bytes with the
- * terminating NUL), and the longest socket name `srt` makes in the sandbox's TMPDIR
- * (`srt-mux-<pid>-<n>.sock`, a pid of up to 7 digits).
+ * terminating NUL; Node refuses a longer one with EINVAL before it asks the system), and the room kept for
+ * a socket below the sandbox's TMPDIR: `srt` makes `srt-mux-<pid>-<n>.sock` there (23 bytes at most), the
+ * control socket tests make `pm-ctl-<6>/control.sock` below the real path of TMPDIR (26 bytes), and a root
+ * such as `/var/folders/…` gains the 8 bytes of `/private` when resolved (PM-754), so 40 bytes cover them.
  */
 const SOCKET_PATH_MAX = 100;
-const SOCKET_NAME_MAX = 'srt-mux-9999999-99.sock'.length;
+const SOCKET_NAME_MAX = 40;
 
 /**
  * The directory of a run: `<root>/pmft-<end of the run id>`, short, because the sandbox's TMPDIR below it
- * holds a Unix socket and a long path makes the sandbox fail ("listen EINVAL"). The root is `tmpRoot`;
+ * holds Unix sockets and a long path makes them fail ("listen EINVAL"). The root is `tmpRoot`;
  * when the socket path would be too long there (a deep temporary directory), it is the short
  * system-wide `shortRoot`.
  */

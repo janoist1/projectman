@@ -2401,6 +2401,11 @@ workers follow the machine's size.
   The builder must be separate from EC2; ARM never builds on EC2. Actual two-platform native binary
   and disposable cloud smoke evidence, 1 GiB RAM/20 GiB disk capacity and digest-specific cutover
   approval belong to PM-675. A manifest is integrity metadata, not a signature of origin.
+  PM-723: `smoke.sh` probes the engine door with four anonymous requests (GET link, GET download,
+  GET upload, POST upload with an empty binary body), sending only the Cloudflare Access headers;
+  none may answer 2xx, and an unreachable probe fails. It needs bash and curl on the machine that
+  runs it and calls the hub URL; the engine has nothing new to do. `http/errors.ts` answers unknown
+  `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
   PM-750's entry "Admin release preparation" runs that builder
   from its own clean checkout and smokes each image by its image ID before the receipt exists.
   PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,

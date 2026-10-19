@@ -243,8 +243,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   and a review base pinned with it (`review_copy` placement), per round: a round starts when the
   task enters a stage or its assignee writes to the reviewer (the owner's answer on PM-138), and a
   resume continues the same round; a reviewer in a turn when its round ends gets the waiting
-  messages after it idles and restarts on the new commit. The handed-over work is the assignee's
-  workspace branch (another developer's later copy may be stale), else the last other one. Only committed work travels; the server fetches by explicit
+  messages after it idles and restarts on the new commit.
+  A non-assignee designer without implementation duties also uses a review copy once another
+  member has a work branch on the card, in any stage (PM-828); before that, planning keeps its
+  writable workspace. Each design-review start checks the current developer tip.
+  The handed-over work is the assignee's workspace branch (another developer's later copy may
+  be stale), else the last other one. Only committed work travels; the server fetches by explicit
   path. A workspace serves one task session at a time, for the life of its process group, idle or
   not (the reservation in `member_workspaces`): every start (admission, a person's resume, a
   message wake-up) checks it, a session of another task gives way only when it idles on a task it

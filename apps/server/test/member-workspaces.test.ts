@@ -10,6 +10,9 @@ import { aiActor, newId } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { createDomainContext, createEventBus } from '../src/core/base';
+import { MemberWorkspaces } from '../src/runtime/sessions/workspaces';
+import { createMemberWorkspaceManager } from '../src/worktree';
 
 /*
  * PM-138: durable member workspaces with the real git-backed manager and the fake runner. The
@@ -373,6 +376,39 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     await expect(ensure('dev-1', 'AR-1')).rejects.toMatchObject({ code: 'workspace_branch_missing' });
   });
 
+  it('selects design review only for a non-implementing designer inspecting another member branch (PM-828)', async () => {
+    await setup();
+    const config = await h.domain.projects.config('AR');
+    const designer: AiMemberConfig = {
+      ...(config.team.members.find((m) => m.handle === 'dev-2') as AiMemberConfig),
+      role: 'designer',
+    };
+    const workspaces = new MemberWorkspaces({
+      ctx: createDomainContext({
+        repos: h.repos,
+        bus: createEventBus(),
+        logger: h.log.logger,
+        now: () => new Date(),
+      }),
+      manager: createMemberWorkspaceManager({ rootDir: h.workspacesDir, logger: h.log.logger }),
+      isRunning: () => false,
+      stop: async () => undefined,
+      processExists: () => false,
+    });
+    const unstarted = h.domain.tasks.get('AR', 'AR-1');
+    expect(workspaces.kindFor(config, designer, unstarted)).toBe('work');
+    await startTask('AR-1', 'dev-1');
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    expect(workspaces.kindFor(config, designer, task)).toBe('review');
+    expect(workspaces.kindFor(config, designer, { ...task, stageId: 'code_review' })).toBe('review');
+    expect(workspaces.kindFor(config, designer, { ...task, assignee: designer.handle })).toBe('work');
+    config.team.roleOverrides = {
+      ...config.team.roleOverrides,
+      designer: { duties: ['ux_design', 'implementation'], instructions: '' },
+    };
+    expect(workspaces.kindFor(config, designer, task)).toBe('work');
+  });
+
   it.each(['stopped', 'idle', 'working'] as const)(
     'starts a %s designer from the current developer commit on a message in development (PM-828)',
     async (state) => {
@@ -424,6 +460,12 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
       });
       expect(await git(designer, 'rev-parse', 'HEAD')).toBe(current);
       expect(await git(designer, 'rev-parse', 'refs/heads/AR-1-login-page')).toBe(initial);
+      expect(
+        await h.domain.sessions.sourceHead(
+          await h.domain.projects.config('AR'),
+          h.domain.tasks.get('AR', 'AR-1'),
+        ),
+      ).toMatchObject({ commit: current, path: dev });
       expect(await readFile(path.join(designer, 'screen.txt'), 'utf8')).toBe('ready for design review\n');
 
       // A rewritten developer tip must reach the next round too.

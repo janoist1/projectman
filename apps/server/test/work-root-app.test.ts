@@ -37,6 +37,7 @@ describe('work root of the server', () => {
 
     await h.relaunch({ workRoot: root });
 
-    for (const dir of ['worktrees', 'workspaces', 'tmp']) expect(existsSync(join(root, dir))).toBe(true);
+    for (const dir of ['worktrees', 'workspaces']) expect(existsSync(join(root, dir))).toBe(true);
+    expect(existsSync(join(root, 'tmp'))).toBe(false);
   });
 });

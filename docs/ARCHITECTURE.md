@@ -243,8 +243,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   and a review base pinned with it (`review_copy` placement), per round: a round starts when the
   task enters a stage or its assignee writes to the reviewer (the owner's answer on PM-138), and a
   resume continues the same round; a reviewer in a turn when its round ends gets the waiting
-  messages after it idles and restarts on the new commit. The handed-over work is the assignee's
-  workspace branch (another developer's later copy may be stale), else the last other one. Only committed work travels; the server fetches by explicit
+  messages after it idles and restarts on the new commit.
+  A non-assignee designer without implementation duties also uses a review copy once another
+  member has a work branch on the card, in any stage (PM-828); before that, planning keeps its
+  writable workspace. Each design-review start checks the current developer tip.
+  The handed-over work is the assignee's workspace branch (another developer's later copy may
+  be stale), else the last other one. Only committed work travels; the server fetches by explicit
   path. A workspace serves one task session at a time, for the life of its process group, idle or
   not (the reservation in `member_workspaces`): every start (admission, a person's resume, a
   message wake-up) checks it, a session of another task gives way only when it idles on a task it
@@ -3118,6 +3122,16 @@ assumption or remote-engine RPC.
   `workspace_source_missing` (`details.reason: engine_update_required`). **Does this work on a remote
   engine?** Yes: the workspace, the repository and the transfer are all on the engine; only the
   request and the `{path, ref}` answer cross the link.
+  **Design review before stage hand-over (PM-828):** a member with `ux_design` and without
+  `implementation` duties, who is not the assignee, uses a review copy whenever another member
+  has a branch-bearing work binding on the card, in any stage. Planning without such a binding
+  keeps its writable workspace. A developer's action message starts a new round on the current
+  developer tip through the same immutable snapshot transfer, including after a rebase. A manual
+  design-review resume also starts a new round when the developer tip changed. A running
+  planning session is marked for restart too; its current turn finishes before the review starts.
+  Its local branches remain intact. `REVIEW_DUTIES`, stage hand-over pins and the RPC contracts
+  stay unchanged. The design review runs on the engine beside the other member workspaces;
+  no path is read on the hub and no new machine assumption is introduced.
   **A fresh base at every start (PM-740):** a member workspace has no remote, so its default
   branch goes stale unless the server fetches it. `MemberWorkspaces.prepare` calls
   `MemberWorkspaceManager.fetchBase` (RPC `workspace.fetchBase`, unchanged) once per session

@@ -516,7 +516,7 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
  * The member's own durable workspace (PM-138): which branch or which handed-over commit it holds
  * for this task, so that a resumed session knows it too (the system prompt is rebuilt on resume).
  */
-function workspaceSection({ sessionPolicy: policy, task, member }: ContextPackInput): string {
+function workspaceSection({ project, sessionPolicy: policy, task, member }: ContextPackInput): string {
   if (isGemini(member)) return '';
   const placement = policy?.placement;
   // The commit handed over with the task's current review or test stage (PM-183).
@@ -545,6 +545,11 @@ function workspaceSection({ sessionPolicy: policy, task, member }: ContextPackIn
           ]
         : []),
       'You keep this commit while the round lasts. A new round with the latest commit starts when the task enters a stage or its developer asks you for a re-review; you are restarted on it then.',
+      ...(roleBundle(project, member.role).duties.includes('ux_design')
+        ? [
+            'Your review checkout, including `.demo/`, is read-only. Put temporary review files only in directories explicitly listed as writable in your session policy or sandbox; if none are writable, report through the team tools without creating files.',
+          ]
+        : []),
       ...(pinMoves ? [pinMoves] : []),
     ].join('\n');
   }

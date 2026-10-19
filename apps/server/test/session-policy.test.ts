@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS } from '@projectman/shared';
+import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS, roleSessionAccess } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
 import { testConfig, testTemplate } from './helpers/test-template';
 import { aiRoleDefaults } from '@projectman/templates';
@@ -20,6 +20,15 @@ import {
 import type { SessionFolderAccess } from '../src/runtime/sessions';
 
 describe('role session policy', () => {
+  it('allows design review copies without turning an implementing designer into a reviewer (PM-828)', () => {
+    const config = testConfig();
+    expect(roleSessionAccess(config, 'designer')).toMatchObject({ worktree: true, reviewCopy: true });
+    config.team.roleOverrides = {
+      ...config.team.roleOverrides,
+      designer: { duties: ['ux_design', 'implementation'], instructions: '' },
+    };
+    expect(roleSessionAccess(config, 'designer')).toMatchObject({ worktree: true, reviewCopy: false });
+  });
   it('allows only the pinned base merge and routine commits in a nominated merge-fix session', () => {
     const base = 'a'.repeat(40);
     const task = {

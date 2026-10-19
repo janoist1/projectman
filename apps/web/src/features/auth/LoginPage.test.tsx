@@ -250,7 +250,7 @@ describe('LoginPage with the e-mail code login', () => {
     expect(second).not.toBe(first);
     expect((screen.getByLabelText(t('auth.emailLogin.codeLabel')) as HTMLInputElement).value).toBe('');
     await typeCode(second);
-    await screen.findByText(t('team.title'), undefined, { timeout: 2000 });
+    await screen.findByText(t('team.title'));
   });
 
   it('refuses a code of the wrong shape without asking the server', async () => {

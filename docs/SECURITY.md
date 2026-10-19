@@ -1011,6 +1011,12 @@ the account boundary.
   the letter run in a queued background step, so the answer's time does not tell either. Only the
   client-address and the global limits can refuse a request (`429`, `Retry-After`), never because of an
   address. Redemption answers one `email_code_invalid` for a wrong, expired, used or never-sent code.
+  Invalid redemptions, including an unknown invitation token, perform the same address/code HMACs,
+  fixed-size `timingSafeEqual` comparison and `failAttempt` update (PM-703). Without a live code,
+  the update increments one reserved dummy row initialized at service startup, so it is a real
+  database write. Its non-HMAC address key cannot be selected by an address lookup, its id is
+  excluded from redemption, and it is marked used with exhausted attempts. Its far-future expiry
+  retains it during pruning; it creates no send events or per-address code rows.
 - **The code.** Six digits from `crypto.randomInt`, valid 10 minutes, single-use, stored as an
   HMAC; one live code per address (a new one voids the old). Five wrong tries void it. Redemption of
   one address runs under a lock, so of parallel requests exactly one wins. A missing name for a new
@@ -1018,7 +1024,10 @@ the account boundary.
 - **Limits** (durable, counted from the database, so a restart does not reset them): one code per
   address per minute, 5 per hour, 10 per day; 20 requests per client address per hour; 200 letters per
   day in all; 30 redemptions per client address per hour. The client address is the trusted
-  `PROJECTMAN_CLIENT_IP_HEADER` value; without it all clients share one address.
+  `PROJECTMAN_CLIENT_IP_HEADER` value; without it all clients share one address. This service's
+  request and redemption limits group IPv6 addresses by canonical /64 (PM-703); IPv4, including
+  mapped IPv4, retains the full address. Old full-IPv6-address events age out within one hour;
+  no migration is needed. Other services' in-memory limiters keep their existing keys.
 - **Storage and logs.** Addresses, IPs and codes are kept only as HMAC-SHA-256 with a key derived from
   the `secret` file; the events are pruned after a day. Logs carry fixed codes and counts only: never
   an address, a code, an IP or a provider error text.

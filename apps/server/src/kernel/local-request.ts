@@ -52,6 +52,27 @@ export function clientAddress(
   return new URL(`http://[${lower}]`).hostname.slice(1, -1);
 }
 
+/** A durable rate-limit key: one canonical /64 per IPv6 network, the full address for IPv4. */
+export function ipRateLimitKey(ip: string): string {
+  if (isIP(ip) !== 6) return ip;
+  const canonical = new URL(`http://[${ip.split('%')[0]}]`).hostname.slice(1, -1);
+  const [left, right] = canonical.split('::');
+  const leading = left ? left.split(':') : [];
+  const trailing = right ? right.split(':') : [];
+  const words =
+    right === undefined
+      ? leading
+      : [...leading, ...Array<string>(8 - leading.length - trailing.length).fill('0'), ...trailing];
+  // Connection addresses can still be mapped IPv4, without passing through a trusted header.
+  if (words.slice(0, 5).every((word) => word === '0') && words[5] === 'ffff') {
+    const high = Number.parseInt(words[6]!, 16);
+    const low = Number.parseInt(words[7]!, 16);
+    return [high >>> 8, high & 255, low >>> 8, low & 255].join('.');
+  }
+  const network = [...words.slice(0, 4), '0', '0', '0', '0'].join(':');
+  return `${new URL(`http://[${network}]`).hostname.slice(1, -1)}/64`;
+}
+
 /** HTTPS is terminated only by a loopback reverse proxy; never trust forwarded hosts. */
 export function requestProtocol(request: FastifyRequest): 'http' | 'https' {
   return (request.socket && request.protocol === 'https') ||

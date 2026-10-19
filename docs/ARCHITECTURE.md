@@ -1933,7 +1933,10 @@ workers follow the machine's size.
   `secret` file, so a copied database alone cannot be tested against guessed addresses. All limits count
   durable rows, so a restart does not reset them. **Machine assumptions:** the client address comes from
   `PROJECTMAN_CLIENT_IP_HEADER` (a trusted loopback proxy sets it; without it every client counts as
-  `127.0.0.1` and shares the IP limits), the `secret` file in the home, and the SQLite database. **Does this
+  `127.0.0.1` and shares the IP limits). For this service, `kernel/local-request.ts`'s `ipRateLimitKey`
+  groups IPv6 addresses by canonical /64 and keeps IPv4 addresses whole, including mapped IPv4 (PM-703);
+  other limiters retain their existing keys. The `secret` file in the home and the SQLite database
+  are also local assumptions. **Does this
   work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
   and no engine protocol or payload changes.
 
@@ -3282,8 +3285,20 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt`. Its sandbox
-  (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
+  it is unavailable without macOS/`srt`.
+  Timeout and cancellation retain the detached process group's cleanup scope through the TERM
+  grace period, then send SIGKILL to the negative group id even if the launcher has already
+  closed its output pipes (PM-829, `full-test/run-sandboxed-core.ts`). The engine owns these
+  POSIX signals and waits for escalation before returning the result or releasing the heavy lock;
+  remote engines use the same engine-local cleanup, with no new data crossing `full_test.run/cancel`.
+  The group leader is an inline plain-Node watchdog (`full-test/process-group-guard.ts`), outside
+  the sandbox. It starts `nice srt ...` without detaching again. An engine-owned stdin pipe stays
+  open for the run; EOF on engine death (including SIGKILL or restart) triggers group SIGTERM
+  and then SIGKILL after the grace period, independently of engine finalizers. The watchdog
+  ignores SIGTERM itself so it can kill TERM-resistant workers even after the launcher exits.
+  Normal command exit codes and signals are relayed to the engine. This assumes POSIX groups
+  and pipe EOF on process death; all watchdog and sandbox processes stay on the executing engine.
+  Its sandbox (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `full_test.run/cancel` (PM-313), plan where the pinned commit and dependencies are tested, equivalent
   isolation and resource queuing there, and transport of the attributed verdict/cancellation.

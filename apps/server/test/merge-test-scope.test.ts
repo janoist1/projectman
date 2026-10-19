@@ -12,6 +12,7 @@ describe('merge test scope', () => {
   });
   it.each([
     'packages/templates/src/x.ts',
+    'apps/feedback-widget/src/a.ts',
     'packages/shared/package.json',
     'packages/shared/src/vitest.config.ts',
     'scripts/a.ts',
@@ -47,10 +48,6 @@ describe('merge test scope', () => {
       kind: 'workspaces',
       workspaces: ['packages/shared'],
       sharedChanged: [],
-    });
-    expect(mergeTestScope(['apps/feedback-widget/src/a.ts'])).toEqual({
-      kind: 'workspaces',
-      workspaces: ['apps/feedback-widget'],
     });
   });
   it.each(['apps/server', 'apps/web'] as const)('selects only %s', (ws) => {

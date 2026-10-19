@@ -4,6 +4,7 @@ import type { MergeTestFile } from './impact';
 
 const ROOT = 'packages/shared/src/';
 const CONSUMERS = ['apps/server', 'apps/web', 'apps/feedback-widget', 'packages/templates'] as const;
+const CONSUMER_ROOTS = [...CONSUMERS, 'scripts'] as const;
 type Consumer = (typeof CONSUMERS)[number];
 export type SharedImpact =
   { fallback: string } | { exports: string[]; consumers: Record<Consumer, string[]> };
@@ -183,7 +184,10 @@ export function sharedImpact(input: {
       'packages/templates': [],
     };
     for (const file of [...input.before, ...input.after]) {
-      const workspace = CONSUMERS.find((ws) => file.path.startsWith(`${ws}/`));
+      const root = CONSUMER_ROOTS.find((path) => file.path.startsWith(`${path}/`));
+      // Script behavior is covered by server tests. Their imports outside the server tree
+      // remain uncertain in serverTestImpact, so those tests are kept in its safety baseline.
+      const workspace = root === 'scripts' ? 'apps/server' : root;
       if (!workspace || !SOURCE.test(file.path)) continue;
       const imports = sourceImports(file.source);
       if (imports.specifiers.some((s) => s.startsWith('@projectman/shared/')))

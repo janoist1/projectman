@@ -34,6 +34,23 @@ describe('shared export impact', () => {
       },
     });
   });
+  it('assigns script consumers from both revisions to the server test workspace', () => {
+    const before = [
+      ...tree,
+      consumer('scripts/live/watch.ts', "import { A } from '@projectman/shared';"),
+      consumer('scripts/projectman/events.ts', "import { B } from '@projectman/shared';"),
+    ];
+    const after = [
+      ...tree,
+      consumer('scripts/release/adapters.ts', "export { A } from '@projectman/shared';"),
+    ];
+    expect(impact(before, after)).toMatchObject({
+      exports: ['A'],
+      consumers: {
+        'apps/server': ['apps/server/src/a.ts', 'scripts/live/watch.ts', 'scripts/release/adapters.ts'],
+      },
+    });
+  });
   it('follows transitive dependencies in both revisions, including cycles and deleted consumers', () => {
     const before = [...tree, shared('internal.ts', "import './a';\nexport const internal = 1;")].map((f) =>
       f.path.endsWith('/a.ts') && f.path.startsWith('packages/')
@@ -190,10 +207,14 @@ describe('shared export impact', () => {
   });
   it('selects fewer than all server tests for a small leaf in the real HEAD tree', () => {
     const cwd = fileURLToPath(new URL('../../..', import.meta.url));
-    const listing = execFileSync('git', ['ls-tree', '-r', '-z', 'HEAD', '--', 'packages', 'apps'], {
-      cwd,
-      encoding: 'utf8',
-    });
+    const listing = execFileSync(
+      'git',
+      ['ls-tree', '-r', '-z', 'HEAD', '--', 'packages', 'apps', 'scripts'],
+      {
+        cwd,
+        encoding: 'utf8',
+      },
+    );
     const entries = listing
       .split('\0')
       .filter(Boolean)
@@ -234,5 +255,31 @@ describe('shared export impact', () => {
     expect(selected.fallback).toBeUndefined();
     expect(selected.tests.length).toBeGreaterThan(0);
     expect(selected.tests.length).toBeLessThan(server.filter((f) => isServerTest(f.path)).length);
+    for (const [changed, scripts, tests] of [
+      [
+        'packages/shared/src/domain/release.ts',
+        ['scripts/live/watch.ts', 'scripts/release/adapters.ts'],
+        ['apps/server/test/live-watch.test.ts', 'apps/server/test/release-adapters.test.ts'],
+      ],
+      [
+        'packages/shared/src/domain/project-change.ts',
+        ['scripts/projectman/events.ts'],
+        ['apps/server/test/projectman-events.test.ts'],
+      ],
+    ] as const) {
+      const changedImpact = sharedImpact({ changed: [changed], before: files, after: files });
+      expect(changedImpact).not.toHaveProperty('fallback');
+      if ('fallback' in changedImpact) continue;
+      expect(changedImpact.consumers['apps/server']).toEqual(expect.arrayContaining([...scripts]));
+      const scriptTests = serverTestImpact({
+        changed: [],
+        seeds: changedImpact.consumers['apps/server'],
+        before: server,
+        after: server,
+        modules: MODULES,
+      });
+      expect(scriptTests.fallback).toBeUndefined();
+      expect(scriptTests.tests).toEqual(expect.arrayContaining([...tests]));
+    }
   });
 });

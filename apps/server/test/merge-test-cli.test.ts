@@ -167,16 +167,70 @@ describe('merge test runner', () => {
     expect(await run([])).toBe(0);
     expect(npmCalls()).toEqual([...sharedChecks, ['test', '-w', 'packages/shared', '--if-present']]);
   });
-  it('keeps own web and widget changes and shared consumers from either revision', async () => {
+  it('selects server tests for an export consumed only by scripts', async () => {
+    const log = output();
+    const scriptTree = [
+      ...sharedTree.filter(([path]) => path !== 'apps/server/src/logging/shared.ts'),
+      ['scripts/live/watch.ts', "import { Value } from '@projectman/shared';"],
+      [
+        'apps/server/test/scripts-only.test.ts',
+        "import '../../../scripts/live/watch'; import '../src/logging';",
+      ],
+    ];
+    mockTrees(['packages/shared/src/leaf.ts'], scriptTree);
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toEqual([
+      ...sharedChecks,
+      ['test', '-w', 'packages/shared', '--if-present'],
+      [
+        'test',
+        '-w',
+        'apps/server',
+        '--if-present',
+        '--',
+        resolve('apps/server/test/golden-path-example.test.ts'),
+        resolve('apps/server/test/scripts-only.test.ts'),
+      ],
+    ]);
+    expect(
+      gitCalls()
+        .filter((args) => args?.[0] === 'ls-tree')
+        .map((args) => args?.slice(3)),
+    ).toEqual(
+      ['HEAD^1', 'HEAD'].map((revision) => [
+        revision,
+        '--',
+        'packages/shared',
+        'packages/templates',
+        'apps/feedback-widget',
+        'apps/server',
+        'apps/web',
+        'scripts',
+      ]),
+    );
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: none');
+  });
+  it('keeps own web changes and widget consumers from either revision', async () => {
     output();
-    const before = [...sharedTree, ['apps/web/src/old.ts', "export { Value } from '@projectman/shared';"]];
-    mockTrees(['packages/shared/src/leaf.ts', 'apps/feedback-widget/src/a.ts'], before, sharedTree);
+    const before = [
+      ...sharedTree,
+      ['apps/web/src/old.ts', "export { Value } from '@projectman/shared';"],
+      ['apps/feedback-widget/src/a.ts', "import { Value } from '@projectman/shared';"],
+    ];
+    mockTrees(['packages/shared/src/leaf.ts', 'apps/web/src/local.ts'], before, sharedTree);
     expect(await run([])).toBe(0);
     expect(
       npmCalls()
         .filter((args) => args[0] === 'test')
         .map((args) => args[2]),
     ).toEqual(['packages/shared', 'apps/feedback-widget', 'apps/server', 'apps/web']);
+  });
+  it('keeps the full run for own widget changes mixed with shared changes', async () => {
+    const log = output();
+    mockTrees(['packages/shared/src/leaf.ts', 'apps/feedback-widget/src/a.ts'], sharedTree);
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toHaveLength(10);
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: apps/feedback-widget/src/a.ts');
   });
   it('runs own server changes even without a shared server consumer', async () => {
     output();

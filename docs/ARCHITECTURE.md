@@ -1542,16 +1542,18 @@ workers follow the machine's size.
   to the full server workspace. Web changes retain full web checks; documentation-only changes skip.
   **Shared export impact (PM-843).** `packages/shared/src` changes run shared's own tests and use
   `scripts/merge-test/shared-impact.ts` to follow named exports from its barrel, relative shared
-  dependencies and named consumers in both git trees. The affected server files seed the existing
-  module/test selection; web and widget consumers run their whole workspace. Shared changes always
-  typecheck every workspace. A shared test or other non-source file selects only shared's tests.
+  dependencies and named consumers in both git trees, including `scripts/`. The affected server files
+  and script consumers seed the existing server module/test selection: tests importing scripts
+  outside the server tree stay in its uncertain baseline. Web and widget consumers run their whole
+  workspace. Shared changes always typecheck every workspace. A shared test or other non-source file
+  selects only shared's tests.
   Unsupported exports/barrels, duplicate export names, uncertain or escaping shared dependencies,
   shared subpath imports, analysis errors or affected template consumers require all tests.
   Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
   The architecture checker and shared export analysis share trivia recognition: regex literals at
   proven expression starts cannot create import/export tokens or hide the following real import.
-  Scripts, other packages, configuration, contracts, architecture guards or unknown paths require all
-  workspaces; `--all` forces them. Scope, selected modules, test count and fallback reason are logged
+  Changes to scripts, the widget, other packages, configuration, contracts, architecture guards or
+  unknown paths require all workspaces; `--all` forces them. Scope, selected modules, test count and fallback reason are logged
   before and after execution. The executor holds
   the machine's lock, so the nested root scripts do not queue again.
   **Rerun and marker lines (PM-842).** `scripts/merge-test/steps.ts` runs the steps one by one (the

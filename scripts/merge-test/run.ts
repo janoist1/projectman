@@ -175,7 +175,8 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
           scope.kind === 'workspaces' &&
           (scope.sharedChanged !== undefined || scope.workspaces.includes('apps/server'))
         ) {
-          const roots = scope.sharedChanged === undefined ? ['apps/server'] : [...MERGE_TEST_WORKSPACES];
+          const roots =
+            scope.sharedChanged === undefined ? ['apps/server'] : [...MERGE_TEST_WORKSPACES, 'scripts'];
           const readTree = (revision: string): MergeTestFile[] => {
             const entries = git(['ls-tree', '-r', '-z', revision, '--', ...roots])
               .split('\0')

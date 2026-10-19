@@ -23,6 +23,7 @@ import { testConfig } from '../../../test/helpers/test-template';
 import type { EngineEvent } from '../protocol';
 import { EngineCallError } from '../rpc';
 import { createCloudRemote } from './index';
+import { createRemoteRunner } from './runner';
 import type { CloudDomain, CloudRemote } from './index';
 import { createFakeCloud, helloOf, silentLogger } from './test-support';
 import type { FakeCloud, FakeEngine } from './test-support';
@@ -699,6 +700,83 @@ describe('cloud mode remote parts', () => {
       });
       await remote.runner.start(spec({ sessionId: 's2', provider: 'nanogpt', mcpUrl: 'http://x/mcp/t2' }));
       expect(none).toMatchObject({ linkCode: 'secret_not_allowed' });
+    });
+
+    describe('status', () => {
+      const reported = (over: Record<string, unknown> = {}) => ({
+        provider: 'nanogpt' as const,
+        loggedIn: true,
+        method: 'api_key' as const,
+        checkedAt: '2026-10-19T10:00:00.000Z',
+        ...over,
+      });
+      const noKeyStatus = reported({ loggedIn: false, problem: 'no_key' });
+
+      it('is ready when the cloud holds the key, though the engine reported it missing', async () => {
+        const engine = await online();
+        engine.answer('provider.status', async () => noKeyStatus);
+        const status = await remote.runner.providerStatus!('nanogpt', { refresh: true });
+        expect(status).toMatchObject({ loggedIn: true });
+        expect(status).not.toHaveProperty('problem');
+        expect(JSON.stringify(status)).not.toContain('key-from-store');
+      });
+
+      it('is a missing key when the cloud holds none, though the engine reported it ready', async () => {
+        const engine = await online();
+        engine.answer('provider.status', async () => reported());
+        nanogptKey = null;
+        await expect(remote.runner.providerStatus!('nanogpt', { refresh: true })).resolves.toMatchObject({
+          loggedIn: false,
+          problem: 'no_key',
+        });
+      });
+
+      it('follows a saved or deleted key at the next read, from the cached engine answer', async () => {
+        const engine = await online();
+        const asked = vi.fn(async () => reported());
+        engine.answer('provider.status', asked);
+        await expect(remote.runner.providerStatus!('nanogpt')).resolves.toMatchObject({ loggedIn: true });
+        nanogptKey = null;
+        await expect(remote.runner.providerStatus!('nanogpt')).resolves.toMatchObject({
+          loggedIn: false,
+          problem: 'no_key',
+        });
+        nanogptKey = 'key-from-store';
+        await expect(remote.runner.providerStatus!('nanogpt')).resolves.toMatchObject({ loggedIn: true });
+        expect(asked).toHaveBeenCalledTimes(1);
+      });
+
+      it('counts a failing key store as no key', async () => {
+        const engine = await online();
+        engine.answer('provider.status', async () => reported());
+        const failing = createRemoteRunner({
+          hub: remote.hub,
+          recordedEngine: () => null,
+          logger: silentLogger(),
+          nanogptKeySet: async () => {
+            throw new Error('the key store is down');
+          },
+        });
+        await expect(failing.providerStatus!('nanogpt', { refresh: true })).resolves.toMatchObject({
+          loggedIn: false,
+          problem: 'no_key',
+        });
+      });
+
+      it('leaves another provider and an engine that is not connected as they are', async () => {
+        const engine = await online();
+        engine.answer('provider.status', async (params) =>
+          reported({ provider: params.provider, loggedIn: false, problem: 'no_key' }),
+        );
+        await expect(remote.runner.providerStatus!('codex', { refresh: true })).resolves.toMatchObject({
+          provider: 'codex',
+          loggedIn: false,
+          problem: 'no_key',
+        });
+        await expect(
+          remote.runner.providerStatus!('nanogpt', { engineId: 'eng_gone' as never }),
+        ).resolves.toMatchObject({ loggedIn: null, detail: 'The engine is not connected' });
+      });
     });
   });
 

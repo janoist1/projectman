@@ -84,6 +84,24 @@ describe('integrator todo REST and durable lifecycle', () => {
       .prepare("SELECT count(*) AS n FROM project_change_events WHERE kind = 'inbox' AND entity_id = ?")
       .get(id) as { n: number };
 
+  it('addresses a system obligation todo to the integrator through the real credential adapter', async () => {
+    const result = await h.app.projectman.domain.inbox.openIntegratorTodo({
+      projectKey: 'AR',
+      taskKey: null,
+      askedBy: 'system',
+      question: 'The project manager has not started a card',
+      todo: step,
+      obligation: { id: 'obl_start', kind: 'start', responsible: 'pm', openedAt: START },
+    });
+    expect(result).toMatchObject({ recipient: 'integrator', recipientRefusal: null });
+    expect(questionPayloadOf(current(result.itemId))).toMatchObject({
+      recipient: 'integrator',
+      obligation: { kind: 'start' },
+      screening: { outcome: 'todo', todo: { recipient: 'integrator' } },
+    });
+    expect(h.app.projectman.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+  });
+
   it('opens for the integrator with the actual opening clock, hides human counts and journals the change', async () => {
     const item = asked();
     now = new Date(now.getTime() + 120_000);

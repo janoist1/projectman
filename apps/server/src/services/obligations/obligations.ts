@@ -186,6 +186,16 @@ export class ObligationsService {
       const task = this.tasks.find(projectKey, row.taskKey);
       if (task) tasks.set(task.key, task);
     }
+    // Old start offers may belong to collectors whose parts have already closed. Read those parts even
+    // before the start round has a view (or while its frame is paused), so their rows and todos end now.
+    const startKeys = [...new Set(live.filter((row) => row.kind === 'start').map((row) => row.taskKey))];
+    if (startKeys.length > 0)
+      for (const part of this.tasks.readSchedulingTasks(projectKey, {
+        kind: 'children',
+        parentKeys: startKeys,
+        includeClosed: true,
+      }))
+        tasks.set(part.key, part);
     const waits = this.taskWaits.of(config, [...tasks.values()].filter(isOpenTask), null, isObligationTodo);
     const view: ProjectView = { config, tasks, waits, live };
     // What each kind says is open now; a kind that cannot be read leaves its rows alone.

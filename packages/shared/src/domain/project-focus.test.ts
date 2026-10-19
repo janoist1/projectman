@@ -267,13 +267,13 @@ describe('the start class and the pull (PM-427)', () => {
       expect(pulled(tasks, focus)).toEqual([child.key]);
     });
 
-    it('allows a collector whose subtasks are all done or cancelled', () => {
+    it('leaves a collector whose subtasks are all done or cancelled', () => {
       const tasks = [
         card('AC-1', { priority: 'urgent' }),
         card('AC-2', { parentKey: 'AC-1', status: 'done' }),
         card('AC-3', { parentKey: 'AC-1', status: 'cancelled' }),
       ];
-      expect(pulled(tasks)).toEqual(['AC-1']);
+      expect(pulled(tasks)).toEqual([]);
     });
 
     it.each(['waiting', 'blocked'] as const)('leaves a collector whose subtask is %s', (status) => {

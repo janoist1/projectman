@@ -3826,7 +3826,7 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 - **Pull (PM-436).** At the end of every `retryDeferred` round (so on every event that retries the deferred starts) the
   `FocusPull` (`admission/focus-pull.ts`) gives a free developer a ready (Indulhat) card from the queue stage before
   the work stage (`pullSourceStage`): `pullCandidates` takes the urgent cards (board order), then the focus cards by
-  place. A candidate is an active card, not a theme or a collector with open subtasks, with no assignee,
+  place. A candidate is an active card, not a theme or a collector with any subtasks (closed ones included, PM-818), with no assignee,
   no open prerequisite, no start block
   (`startBlock`, so no `waiting-answer`) and nothing more asked by the gates on the way: a card that would need
   `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`pickDeveloper`: a
@@ -3837,9 +3837,9 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   card and starts it like a deferred start (`startLocked` in the system's name, `automatic`, `StartTaskOptions.pulled`
   into the stage change), so the Start button and a pull on the same card make one start; a failure after the
   assignment falls back to the usual `work_start` retry. Refusals are logged at debug level and write no timeline.
-  Automatic work starts also leave themes and collectors with open subtasks unassigned (PM-586), using
+  Automatic work starts also leave themes and collectors with any subtasks unassigned (PM-586, PM-818), using
   `canAutomaticallyStartTask` (shared) before choosing a developer and again before assignment. A deferred
-  work start is dropped on retry when its card gains an open subtask. Explicit manual starts remain available.
+  work start is dropped on retry when its card gains a subtask. Explicit manual starts remain available.
   A new round starts at once on a focus change (`ProjectFocusService.onChange`), on a priority set to `urgent` (the
   internal `task_priority_changed` event) and on a card entering the queue stage, besides the freeing of a developer.
 - **Targeted reads (PM-770).** The retry, the pull and the startup recovery do not read a project's whole card list.
@@ -3851,7 +3851,7 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   open card) and `closed-worktrees` (closed cards past a closing time, paged by number). The pure rules stay in
   `packages/shared` (`pullCandidates`, `startableCards`, `openPrerequisites`, `startClass`, `canAutomaticallyStartTask`,
   `startBlock`, `stageAdvance`, `mergeReadiness`, `cardMerger`) and run over these rows; SQL only narrows the set they
-  see, it copies none of them. `startContext` (`core/tasks/scheduling-context.ts`) adds the open subtasks and
+  see, it copies none of them. `startContext` (`core/tasks/scheduling-context.ts`) adds all subtasks (with `includeClosed: true`) and
   prerequisite targets the rules look at to the candidates, and `prerequisiteCards` reads just the cards a card's
   `prerequisite` links name. `FocusPull` looks for a free developer first: with none, no card is read. Migration 78
   adds the partial indexes `tasks_scheduling_pull`, `tasks_scheduling_open` and `tasks_scheduling_closed`. The

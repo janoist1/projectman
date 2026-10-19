@@ -366,12 +366,12 @@ export function isTheme(task: Pick<Task, 'kind'>): boolean {
   return task.kind === 'theme';
 }
 
-/** Automatic work starts skip themes and cards with open subtasks (PM-586). */
+/** Automatic work starts skip themes and collecting cards, including those whose parts are closed (PM-818). */
 export function canAutomaticallyStartTask(
   task: Pick<Task, 'key' | 'kind'>,
   tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
 ): boolean {
-  return !isTheme(task) && !tasks.some((child) => child.parentKey === task.key && isOpenTask(child));
+  return !isTheme(task) && !tasks.some((child) => child.parentKey === task.key);
 }
 
 /** Sequence number of a task key ("AR-21" -> 21). */

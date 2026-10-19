@@ -139,6 +139,46 @@ describe('the start offer to the project manager', () => {
   });
 
   describe('a collector', () => {
+    it.each(['done', 'cancelled'] as const)('never offers a collector with only %s parts', async (status) => {
+      await harness();
+      // An imported collector can remain open behind its merge gate after its parts close (PM-797).
+      const collector = await idea('Collector', { importedAt: clock.toISOString() });
+      const part = await idea('Closed part', { parentKey: collector });
+      h.repos.tasks.update(task(part).id, { status, stageId: 'done' });
+      h.repos.tasks.update(task(collector).id, { stageId: 'ready' });
+      await settle();
+      expect(task(collector).status).toBe('active');
+      expect(startRows(collector)).toEqual([]);
+      expect(offers()).toEqual([]);
+      minutes(61);
+      await sweep();
+      expect(reminders()).toEqual([]);
+      expect(todos()).toEqual([]);
+    });
+
+    it('cancels an old collector offer and closes its todo even while the start round is paused', async () => {
+      await harness((c) => {
+        c.team.limits.obligationMinutes = 5;
+      });
+      const collector = await create('Previously offered collector');
+      await settle();
+      const row = startRows(collector)[0]!;
+      minutes(6);
+      await sweep();
+      minutes(6);
+      await sweep();
+      expect(todos()[0]?.state).toBe('open');
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, { userId: null, source: 'system' });
+      const part = await idea('Closed part', { parentKey: collector });
+      h.repos.tasks.update(task(part).id, { status: 'cancelled', stageId: 'done' });
+      await settle();
+      await sweep();
+      expect(stateOf(row.id)).toBe('cancelled');
+      expect(startRows(collector)).toEqual([]);
+      expect(todos()[0]).toMatchObject({ state: 'cancelled', resolution: { rule: 'obligation_closed' } });
+      expect(reminders()).toHaveLength(1);
+    });
+
     const prerequisite = (key: string, on: string) =>
       h.domain.tasks.update(
         'AR',

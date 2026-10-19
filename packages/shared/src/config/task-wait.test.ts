@@ -157,6 +157,23 @@ it('shows an intentional ready hold with its own start time, leaving ordinary re
   expect(wait(task)).not.toHaveProperty('hold');
 });
 
+it('waits for the member asked to start a startable card (PM-804), and a hold wins', () => {
+  const task = card({ stageId: 'ready', assignee: null, labels: ['scope-ok'] });
+  const startOffer = { to: 'pm', since: NOW };
+  expect(wait({ ...task, startOffer })).toMatchObject({
+    reason: 'ready',
+    since: NOW,
+    toStageId: 'dev',
+    next: [{ handle: 'pm' }],
+  });
+  const readyHold = { reason: 'focus_order' as const, since: NOW };
+  expect(wait({ ...task, startOffer, readyHold })).toMatchObject({
+    reason: 'ready',
+    hold: readyHold,
+    next: [],
+  });
+});
+
 it('ignores legacy refinement completion notices while retaining actionable alerts', () => {
   const notice = item({
     kind: 'alert',

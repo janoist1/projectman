@@ -8,7 +8,15 @@ import { TaskKey } from './task';
  * deadline of N minutes. At the first deadline the responsible gets one reminder; at the second one the
  * step becomes an integrator todo. The system never does the step, decides, or sets a label itself.
  */
-export const ObligationKind = z.enum(['merge', 'fix_limit', 'refinement_turn', 'review_step', 'work']);
+export const ObligationKind = z.enum([
+  'merge',
+  'fix_limit',
+  'refinement_turn',
+  'review_step',
+  'work',
+  /** The offer to start a ready card (PM-804): its responsible is asked to move it to development. */
+  'start',
+]);
 export type ObligationKind = z.infer<typeof ObligationKind>;
 
 /** `handed_over`: the integrator todo is open; the row can still close, but never reminds again. */

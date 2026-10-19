@@ -29,6 +29,11 @@ describe('describeTaskWait and taskWaitShort (PM-460)', () => {
     );
     expect(taskWaitShort(held)).toBe('ready, waits (senior_busy)');
   });
+  it('names the member asked to start a startable card (PM-804)', () => {
+    const offered = wait('ready', { next: [{ handle: 'pm', kind: 'ai' }], toStageId: 'dev' });
+    expect(describeTaskWait(offered)).toBe('ready; pm was asked to start it (next: dev).');
+    expect(taskWaitShort(offered)).toBe('ready, to be started by pm');
+  });
   it('word every reason, naming the members by handle', () => {
     for (const reason of TaskWaitReason.options) {
       expect(describeTaskWait(wait(reason)), reason).toMatch(/\S/);

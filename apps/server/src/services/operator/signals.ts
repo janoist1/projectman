@@ -184,6 +184,7 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
+    startHandled?: (task: Task) => boolean;
   }) {
     this.deps = privateDeps;
   }
@@ -196,6 +197,8 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
+    /** The start round already acts on the ready card: it holds it on purpose or asked a member to start it (PM-804). */
+    startHandled?: (task: Task) => boolean;
   };
 
   /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
@@ -900,7 +903,7 @@ export class OperatorSignals {
         if (free)
           ready.push(
             ...startableCards({ config, tasks: cards, fromStageId: stage.id, toStageId: next.id }).filter(
-              (task) => waits.get(task.key)?.reason === 'ready',
+              (task) => waits.get(task.key)?.reason === 'ready' && !this.deps.startHandled?.(task),
             ),
           );
       }

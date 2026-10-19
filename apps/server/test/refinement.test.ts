@@ -17,8 +17,11 @@ describe('Refinement line', () => {
   afterEach(() => h?.cleanup());
 
   const setup =
-    (opts: { refine?: boolean; plan?: boolean; waiting?: boolean } = {}) =>
+    (opts: { refine?: boolean; plan?: boolean; waiting?: boolean; pmAtWork?: boolean } = {}) =>
     (config: ProjectConfig) => {
+      // The start offer (PM-804) goes only to a project manager who is not on leave.
+      const manager = config.team.members.find((member) => member.handle === 'pm');
+      if (opts.pmAtWork && manager?.kind === 'ai') manager.onLeave = false;
       if (opts.waiting)
         config.pipeline.labels.push({
           id: 'waiting-answer',
@@ -213,7 +216,7 @@ describe('Refinement line', () => {
   });
 
   it('removes the label and moves the card without an acknowledgement alert when the chain ends', async () => {
-    await prepare();
+    await prepare({ pmAtWork: true });
     await label({ add: ['refine'] });
     await vi.waitFor(() => expect(members()).toEqual(['ana']));
     await label({ add: ['scope-ok'] }, aiActor('ana'));
@@ -266,14 +269,9 @@ describe('Refinement line', () => {
       await flush();
       expect(alerts('done')).toEqual([]);
       const messages = h.domain.messages.list('AR', { taskKey: 'AR-1' });
-      if (route === 'timeline') expect(messages).toEqual([]);
-      else
-        expect(messages).toEqual([
-          expect.objectContaining({
-            to: [route === 'human' ? 'owner' : 'operator'],
-            kind: route === 'human' ? 'info' : 'action',
-          }),
-        ]);
+      // The start offer (PM-804) goes to an AI member only: a human card mover moves the card unprompted.
+      if (route !== 'operator') expect(messages).toEqual([]);
+      else expect(messages).toEqual([expect.objectContaining({ to: ['operator'], kind: 'action' })]);
       await h.domain.refinement.changed(task());
       expect(h.domain.messages.list('AR', { taskKey: 'AR-1' })).toHaveLength(messages.length);
     },
@@ -290,7 +288,7 @@ describe('Refinement line', () => {
     await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
     await label({ add: ['refine'] });
     await vi.waitFor(() =>
-      expect(h.runner.started.some((start) => start.initialMessage?.includes('AR-1 is worked out'))).toBe(
+      expect(h.runner.started.some((start) => start.initialMessage?.includes('Can start now: AR-1'))).toBe(
         true,
       ),
     );
@@ -318,7 +316,7 @@ describe('Refinement line', () => {
     expect(h.runner.started).toEqual([]);
     await h.domain.messaging.send('AR', 'owner', { to: ['operator'], text: 'Review the ready cards' });
     await vi.waitFor(() =>
-      expect(h.runner.started.some((start) => start.initialMessage?.includes('AR-1 is worked out'))).toBe(
+      expect(h.runner.started.some((start) => start.initialMessage?.includes('Can start now: AR-1'))).toBe(
         true,
       ),
     );
@@ -330,14 +328,14 @@ describe('Refinement line', () => {
   });
 
   it('finishes refinement and records the failure when the notification cannot be sent', async () => {
-    await prepare({}, ['scope-ok']);
+    await prepare({ pmAtWork: true }, ['scope-ok']);
     vi.spyOn(h.domain.messaging, 'send').mockRejectedValue(new Error('Recipient unavailable'));
     await label({ add: ['refine'] });
     await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
     await vi.waitFor(() =>
       expect(h.log.warnings).toContainEqual([
-        expect.objectContaining({ taskKey: 'AR-1', recipient: 'pm' }),
-        'refinement completion notice failed',
+        expect.objectContaining({ taskKey: 'AR-1' }),
+        'could not send the start offer',
       ]),
     );
     expect(task().stageId).toBe('ready');

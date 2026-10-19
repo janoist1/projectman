@@ -114,9 +114,13 @@ describe('project manager reply relay', () => {
         relayed: { sessionId: session.id, inReplyTo: message.id },
         receipts: [{ handle: 'owner', kind: 'human', deliveredAt: now.toISOString(), readAt: null }],
       });
-      expect(h.domain.timeline.latest('AR', task.key, 'team_message')?.data).toMatchObject({
-        messageId: relays()[0]!.id,
-      });
+      // The card also gets the start offer to the pm (PM-804): look for the relay among the card's messages.
+      expect(
+        h.domain.timeline
+          .list('AR', { taskKey: task.key })
+          .filter((entry) => entry.type === 'team_message')
+          .map((entry) => (entry.data as { messageId?: string }).messageId),
+      ).toContain(relays()[0]!.id);
       expect(h.repos.messages.countUnread('AR', 'owner')).toBe(1);
       expect(h.runner.started).toHaveLength(1);
     },

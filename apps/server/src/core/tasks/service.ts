@@ -19,6 +19,7 @@ import type {
   Session,
   Task,
   TaskReadyHold,
+  TaskStartOffer,
   WorkOutage,
   TaskPriority,
   TaskDetail,
@@ -164,6 +165,8 @@ export class TaskService implements TaskSchedulingReader {
     startWaiting: StartWaitingReader;
     outageOf?: (task: Task) => WorkOutage | undefined;
     readyHold?: (task: Task) => TaskReadyHold | undefined;
+    /** The open offer to start the ready card (PM-804), read from its `start` obligation. */
+    startOffer?: (task: Task) => TaskStartOffer | undefined;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
     notifyHandOn: (config: ProjectConfig, task: Task, handOn: NonNullable<Task['handOn']>) => Promise<void>;

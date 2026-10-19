@@ -294,7 +294,8 @@ describe('loop watch', () => {
       await vi.waitFor(() => expect(loop()).toBeNull());
       await switchAi(true);
       await settle();
-      expect(h.runner.started).toEqual([]);
+      // The scheduler hears only of the other, startable card (PM-804), not of the ended loop.
+      expect(firstInputs().filter((input) => !input.includes('Can start now: AR-2'))).toEqual([]);
       expect(items()).toEqual([]);
     });
   });

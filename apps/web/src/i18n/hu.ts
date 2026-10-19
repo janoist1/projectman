@@ -1680,6 +1680,7 @@ export const hu = {
       /** The short row text per reason; {name} etc. are filled by the code. */
       short: {
         prerequisite: '{keys}',
+        startOffer: 'elindítja (Fejlesztésbe mozgatja)',
         inbox: {
           question: 'válaszol egy kérdésre',
           permission: 'engedélyt ad',
@@ -1729,6 +1730,7 @@ export const hu = {
         capacity: 'Most egy másik munkán dolgozik. Amint végez, ez a kártya következik.',
         readyHold:
           'A kártya indítható, de most szándékosan vár. Magától sorra kerül, amint a feltétel megszűnik.',
+        startOffer: 'A kártya indítható, és van hozzá szabad fejlesztő. A rendszer szólt, hogy indítsa el.',
         prerequisite: 'Egy előfeltétel még nincs lezárva: {keys}.',
         handOn: '{owner} végzett ebben a lépésben: {step}.',
         handOnNoOwner: 'A munka ebben a lépésben kész: {step}.',
@@ -1752,6 +1754,7 @@ export const hu = {
         inbox: 'Egy nyitott tétel vár rá: {kind}.',
       },
       todo: {
+        startOffer: 'Mozgasd a kártyát a Fejlesztésbe; a fejlesztőt a rendszer választja.',
         auto: 'Semmit: magától sorra kerül. Ha sürgős, a Csapat oldalon látod, mi foglalja.',
         capacity: 'Semmit. {hint}',
         nothing: 'Semmit: magától halad.',
@@ -4341,6 +4344,7 @@ export const hu = {
       refinement_turn: 'kidolgozási kör',
       review_step: 'átnézési lépés',
       work: 'munka',
+      start: 'indítás',
       step: 'lépés',
     },
     refinement: {

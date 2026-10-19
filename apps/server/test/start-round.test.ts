@@ -47,6 +47,8 @@ describe('intentional ready waits', () => {
       focus: h.domain.projectFocus,
       seniorWaits: h.domain.seniorWaits,
       admission: h.domain.admission,
+      messaging: h.domain.messaging,
+      waits: h.domain.taskWaits,
     });
     expect(round.holdOf(card)).toBeUndefined();
     const first = round.run();

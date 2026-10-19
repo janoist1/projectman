@@ -241,6 +241,8 @@ function obligationStep(kind: string | null): string {
       return 'review step';
     case 'work':
       return 'work';
+    case 'start':
+      return 'start';
     default:
       return 'step';
   }

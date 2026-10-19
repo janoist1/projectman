@@ -35,6 +35,7 @@ import type {
   ObligationFixLimit,
   ObligationRefinement,
   ObligationSessions,
+  ObligationStartOffers,
 } from './ports';
 import { obligationSources } from './sources';
 import type { DerivedObligation, ObligationSource, ProjectView } from './sources';
@@ -64,6 +65,7 @@ export interface ObligationsDeps {
   admission: ObligationAdmission;
   refinement: ObligationRefinement;
   fixLimit: ObligationFixLimit;
+  startOffers: ObligationStartOffers;
 }
 
 const keyOf = (kind: string, taskKey: string, responsible: string, subject: string): string =>
@@ -116,6 +118,7 @@ export class ObligationsService {
       sessions: deps.sessions,
       refinement: deps.refinement,
       fixLimit: deps.fixLimit,
+      startOffers: deps.startOffers,
       fixLimits: deps.ctx.repos.taskFixLimits,
       roundsOf: (projectKey, taskKey) => deps.tasks.find(projectKey, taskKey)?.fixLimit?.rounds ?? 0,
       mergeState: (mergeId) => deps.ctx.repos.taskMerges.get(mergeId)?.state ?? null,
@@ -271,6 +274,8 @@ export class ObligationsService {
       // Read again inside the card lock: a round before this one may have moved the row on.
       const row = repo.get(listed.id);
       if (!row || (row.state !== 'open' && row.state !== 'handed_over') || unreadable.has(row.kind)) continue;
+      // A row opened by `open` after this sweep began (the start round, PM-804) was not derived: the next sweep sees it.
+      if (row.openedAt > at) continue;
       const still = derived.get(rowKey(row));
       const source = this.sourceOf(row.kind);
       if (!still && source.keepsHandedOver?.(row, view)) {

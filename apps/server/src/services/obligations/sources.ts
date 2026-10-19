@@ -1,4 +1,13 @@
-import { isOpenTask, memberOf, stageIndex, stageOf, stageOwners, stepResult } from '@projectman/shared';
+import {
+  developmentStage,
+  isOpenTask,
+  memberOf,
+  pullSourceStage,
+  stageIndex,
+  stageOf,
+  stageOwners,
+  stepResult,
+} from '@projectman/shared';
 import type {
   Obligation,
   ObligationKind,
@@ -8,7 +17,12 @@ import type {
   TaskWait,
 } from '@projectman/shared';
 import type { Repositories } from '../../db';
-import type { ObligationFixLimit, ObligationRefinement, ObligationSessions } from './ports';
+import type {
+  ObligationFixLimit,
+  ObligationRefinement,
+  ObligationSessions,
+  ObligationStartOffers,
+} from './ports';
 
 /** What the sources read: the project's cards, their waits (without the tracking's own todos) and the live rows. */
 export interface ProjectView {
@@ -62,6 +76,7 @@ export interface SourceDeps {
   sessions: ObligationSessions;
   refinement: ObligationRefinement;
   fixLimit: ObligationFixLimit;
+  startOffers: ObligationStartOffers;
   fixLimits: Repositories['taskFixLimits'];
   roundsOf(projectKey: string, taskKey: string): number;
   /** The state of a merge by its id: how it ended, null when there is no such merge. */
@@ -396,6 +411,75 @@ function fixLimitSource(deps: SourceDeps): ObligationSource {
   };
 }
 
+/**
+ * The offer to start a ready card (PM-804): the start round opens the row with `open` when it asks the
+ * card mover to start the card, and says through `startOffers` whether the offer still stands. The row ends
+ * with the card's move into development or an assignee (fulfilled), or when the card does not stand in the
+ * queue any more or the round no longer offers it (cancelled).
+ */
+function startSource(deps: SourceDeps): ObligationSource {
+  const targets = (project: ProjectView) => {
+    const { config } = project;
+    return {
+      toStageId: developmentStage(config)?.id ?? 'the development stage',
+      backStageId: config.pipeline.stages[0]?.id ?? 'the first stage',
+    };
+  };
+  return {
+    kind: 'start',
+    derivesWhilePaused: true,
+    derive(project) {
+      const queue = pullSourceStage(project.config);
+      if (!queue) return null;
+      const found: DerivedObligation[] = [];
+      for (const row of project.live) {
+        if (row.kind !== 'start') continue;
+        const task = project.tasks.get(row.taskKey);
+        if (!task || !isOpenTask(task) || task.assignee || task.stageId !== queue.id) continue;
+        const state = deps.startOffers.stateOf(row.projectKey, row.taskKey);
+        if (state === 'ended') continue;
+        found.push({
+          taskKey: row.taskKey,
+          responsible: row.responsible,
+          subject: row.subject,
+          since: row.openedAt,
+          held: state === 'paused',
+        });
+      }
+      return found;
+    },
+    closedAs: (row, project) => {
+      const task = project.tasks.get(row.taskKey);
+      if (!task || task.status === 'cancelled') return 'cancelled';
+      if (task.assignee) return 'fulfilled';
+      const development = developmentStage(project.config);
+      const pipeline = project.config.pipeline;
+      return development && stageIndex(pipeline, task.stageId) >= stageIndex(pipeline, development.id)
+        ? 'fulfilled'
+        : 'cancelled';
+    },
+    wakeText: (row, minutes, waited, project) => {
+      const { toStageId, backStageId } = targets(project);
+      return (
+        `projectman reminder: ${row.taskKey} has waited ${ago(waited)} to be started by you. ` +
+        `Move it to ${toStageId} with update_task (stage_id ${toStageId}), ` +
+        `or open an integrator todo to move it back to ${backStageId} if the owner holds it. ` +
+        `If nothing happens in ${ago(minutes)}, the step goes to the integrator.`
+      );
+    },
+    todo: (row, _minutes, waited, project) => {
+      const { toStageId, backStageId } = targets(project);
+      return todoOf(
+        row,
+        waited,
+        `started ${row.taskKey}`,
+        `${row.taskKey}, stage ${stageOf(project.config, project.tasks.get(row.taskKey)?.stageId ?? '')?.name ?? 'the queue'}`,
+        `move ${row.taskKey} to ${toStageId}, or, if the owner holds it, back to ${backStageId}`,
+      );
+    },
+  };
+}
+
 /** The open steps tracked by the common obligation clock. */
 export function obligationSources(deps: SourceDeps): ObligationSource[] {
   return [
@@ -404,5 +488,6 @@ export function obligationSources(deps: SourceDeps): ObligationSource[] {
     reviewSource(deps),
     workSource(deps),
     fixLimitSource(deps),
+    startSource(deps),
   ];
 }

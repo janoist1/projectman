@@ -263,6 +263,10 @@ export const TaskHandOn = z.object({
 });
 export type TaskHandOn = z.infer<typeof TaskHandOn>;
 
+/** The system asked `to` to start the ready card (PM-804); read from the open `start` obligation. */
+export const TaskStartOffer = z.object({ to: MemberHandle, since: z.string() });
+export type TaskStartOffer = z.infer<typeof TaskStartOffer>;
+
 export const Task = z.object({
   handOn: TaskHandOn.optional(),
   /** Absent: `task`. */
@@ -280,6 +284,8 @@ export const Task = z.object({
   startWaiting: TaskStartWaiting.optional(),
   /** Computed on reads; never stored. */
   readyHold: TaskReadyHold.optional(),
+  /** Computed on reads; never stored. Hidden from clients. */
+  startOffer: TaskStartOffer.optional(),
   outage: WorkOutage.optional(),
   reviewPin: TaskReviewPin.optional(),
   merge: TaskMergeState.optional(),

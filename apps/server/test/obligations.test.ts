@@ -623,13 +623,15 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
       await flush();
       await sweep();
-      expect(rows(key)).toEqual([]);
+      // The card now stands in the ready queue: the start offer to the pm is its own row (PM-804).
+      expect(rows(key).filter((row) => row.kind === 'refinement_turn')).toEqual([]);
       expect(h.repos.obligations.find('AR', key, 'refinement_turn', 'ana', subject)).toMatchObject({
         state: 'fulfilled',
       });
       minutes(120);
       await sweep();
-      expect(reminders(key)).toHaveLength(0);
+      // Only the pm's start offer (PM-804) is left to remind; the analyst's turn is over.
+      expect(reminders(key).filter((m) => m.to.includes('ana'))).toHaveLength(0);
     });
 
     it('opens no review step for a card of a queue stage that waits for the analyst’s label', async () => {

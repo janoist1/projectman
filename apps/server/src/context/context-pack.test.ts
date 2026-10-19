@@ -2466,6 +2466,20 @@ describe('expected steps', () => {
     expect(doneSteps(pm)).toContain('ask `owner` with ask_human; do not reorder the work yourself');
     expect(pm).toContain('- `ops`: Ops (human, admin; roles: owner)');
   });
+
+  it('has the project manager treat a start offer as an action, in order, holding what the owner holds (PM-804)', () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    const pm = builder.build(input({ project, handle: 'pm' })).appendSystemPrompt;
+    expect(pm).toContain('A system message that names cards that can start now is an action');
+    expect(pm).toContain(
+      'in the order it gives (urgent, focus place, priority high, normal, low, none, then board order)',
+    );
+    expect(pm).toContain('the system picks the developer, and you need no owner request');
+    expect(pm).toContain('open an integrator todo to move it back to the first stage');
+    const developer = builder.build(input({ project, handle: 'fe-1' })).appendSystemPrompt;
+    expect(developer).not.toContain('names cards that can start now');
+  });
 });
 
 describe('steps by duty', () => {

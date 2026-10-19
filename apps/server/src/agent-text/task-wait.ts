@@ -59,6 +59,8 @@ export function describeTaskWait(wait: TaskWait): string {
         const { reason, seniors } = wait.hold;
         return `ready in its queue, but its start waits on purpose (${reason}${seniors ? `: ${seniors.join(', ')}` : ''}); nothing to do${wait.toStageId ? ` (next: ${wait.toStageId})` : ''}.`;
       }
+      if (wait.next.length > 0)
+        return `ready; ${handles(wait)} was asked to start it${wait.toStageId ? ` (next: ${wait.toStageId})` : ''}.`;
       return `ready in its queue; it can be started${wait.toStageId ? ` (next: ${wait.toStageId})` : ''}.`;
     case 'queued':
       return wait.next.length > 0 ? `queued for ${handles(wait)}.` : 'queued for the owner of its stage.';
@@ -88,6 +90,7 @@ export function taskWaitShort(wait: TaskWait): string {
       return `part left in its first stage; ${handles(wait) || 'its creator'} takes it on`;
     case 'ready':
       if (wait.hold) return `ready, waits (${wait.hold.reason})`;
+      if (wait.next.length > 0) return `ready, to be started by ${handles(wait)}`;
       return 'ready to start';
     case 'nobody':
       return 'nobody can take it on';

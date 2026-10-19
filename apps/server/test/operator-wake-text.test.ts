@@ -197,6 +197,8 @@ describe('level unblock', () => {
 describe('level drive', () => {
   it('includes acknowledged cards and only new cards in wake facts, with the last dismissal', async () => {
     await setup('drive', (config) => {
+      // A person moves the cards: the start round offers them to no AI member (PM-804), so the signal stays.
+      config.team.cardMover = { kind: 'human', handle: 'owner' };
       config.pipeline.stages.splice(1, 0, {
         id: 'ready',
         name: 'Ready',

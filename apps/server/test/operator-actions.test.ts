@@ -17,9 +17,10 @@ import {
   OWNER,
   OWNER_ACTOR,
   restartDomainHarness,
+  snapshotDomainHarness,
   waitForSession,
 } from './helpers/domain-harness';
-import type { DomainHarness } from './helpers/domain-harness';
+import type { DomainHarness, HarnessSnapshot } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
 let h: DomainHarness;
@@ -31,30 +32,51 @@ afterEach(async () => {
   await h?.cleanup();
 });
 
-async function setup(persistent = false, adjust?: (config: ProjectConfig) => void, now?: () => Date) {
-  h = await createDomainHarness({
-    persistent,
-    now,
-    adjust: (config) => {
-      (memberOf(config, 'dev-1') as AiMemberConfig).outboundNetwork = false;
-      config.team.members.push({
-        kind: 'human',
-        handle: 'dana',
-        displayName: 'Dana',
-        access: 'admin',
-        roles: [],
-        email: 'dana@example.test',
-      });
-      config.pipeline.stages.splice(1, 0, {
-        id: 'ready',
-        name: 'Ready',
-        kind: 'queue',
-        owners: ['owner'],
-        columnId: 'todo',
-      });
-      adjust?.(config);
-    },
+function baseAdjust(config: ProjectConfig) {
+  (memberOf(config, 'dev-1') as AiMemberConfig).outboundNetwork = false;
+  config.team.members.push({
+    kind: 'human',
+    handle: 'dana',
+    displayName: 'Dana',
+    access: 'admin',
+    roles: [],
+    email: 'dana@example.test',
   });
+  config.pipeline.stages.splice(1, 0, {
+    id: 'ready',
+    name: 'Ready',
+    kind: 'queue',
+    owners: ['owner'],
+    columnId: 'todo',
+  });
+}
+
+/** The project with `baseAdjust`, built once per file: every test starts from it instead of creating the project. */
+let baseSnapshot: Promise<HarnessSnapshot> | undefined;
+async function seedBase() {
+  return snapshotDomainHarness(await createDomainHarness({ adjust: baseAdjust }));
+}
+
+async function setup(persistent = false, adjust?: (config: ProjectConfig) => void, now?: () => Date) {
+  if (persistent || now) {
+    // The restart tests need the database in a file, and the clock tests a clock from the start.
+    h = await createDomainHarness({
+      persistent,
+      now,
+      adjust: (config) => {
+        baseAdjust(config);
+        adjust?.(config);
+      },
+    });
+  } else {
+    baseSnapshot ??= seedBase();
+    h = await createDomainHarness({ snapshot: await baseSnapshot });
+    if (adjust)
+      await h.domain.projects.update('AR', by, (draft) => {
+        adjust(draft);
+        return 'Adjust test configuration';
+      });
+  }
   await h.domain.messaging.sendReporting(
     'AR',
     'owner',

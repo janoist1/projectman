@@ -18,7 +18,7 @@ import { freePort } from '../../src/runner/test-helpers';
 import { cookieOf, inject, OWNER_LOGIN } from './app-harness';
 import { createFakeRunnerModule, FakeContextBuilder, FakeGithub, FakeMemoryStore } from './fakes';
 import type { FakeRunnerModule } from './fakes';
-import { createSourceHome } from './migration-source';
+import { stoppedSourceHomes } from './migration-source';
 import type { SourceHome } from './migration-source';
 import { testTemplate } from './test-template';
 
@@ -86,10 +86,12 @@ export interface CloudEngineOptions {
   version?: string;
 }
 
+/** The stopped source home every world starts from: built once, put back for each world. */
+const sourceHomes = stoppedSourceHomes();
+
 export async function createCloudEngineWorld(options: CloudEngineOptions = {}): Promise<CloudEngineWorld> {
   const version = options.version ?? CLOUD_VERSION;
-  const src = await createSourceHome();
-  await src.stop();
+  const { src } = await sourceHomes();
   const cloudPort = await freePort();
   const cloudUrl = `http://127.0.0.1:${cloudPort}`;
   const out = join(src.root, 'cloud-package');

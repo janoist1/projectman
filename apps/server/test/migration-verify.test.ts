@@ -8,7 +8,7 @@ import { applyPackage } from '../../../scripts/migrate/apply';
 import { createPackage } from '../../../scripts/migrate/package';
 import { parsePathMapping } from '../../../scripts/migrate/paths';
 import { verifyHome } from '../../../scripts/migrate/verify';
-import { createSourceHome } from './helpers/migration-source';
+import { stoppedSourceHomes } from './helpers/migration-source';
 import type { SourceHome } from './helpers/migration-source';
 
 /**
@@ -21,17 +21,20 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 let src: SourceHome;
 let home: string;
-beforeEach(async () => {
-  src = await createSourceHome();
-  await src.stop();
-  const pkg = join(src.root, 'pkg');
-  home = join(src.root, 'vm', 'data');
-  await createPackage({ home: src.home, out: pkg });
+// The stopped source home with the copy made from it is built once and put back for every test.
+const sourceHomes = stoppedSourceHomes(async (source) => {
+  const pkg = join(source.root, 'pkg');
+  await createPackage({ home: source.home, out: pkg });
   await applyPackage({
     packageDir: pkg,
-    targetHome: home,
-    mappings: [parsePathMapping(`${src.workspace}=${src.workspace}`)],
+    targetHome: join(source.root, 'vm', 'data'),
+    mappings: [parsePathMapping(`${source.workspace}=${source.workspace}`)],
   });
+});
+
+beforeEach(async () => {
+  ({ src } = await sourceHomes());
+  home = join(src.root, 'vm', 'data');
 });
 afterEach(async () => {
   await src.cleanup();

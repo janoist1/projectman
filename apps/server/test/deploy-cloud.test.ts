@@ -192,8 +192,22 @@ else if (tool === 'node') {
   if (command === 'check') process.exit(state.checkError || 0);
 }
 `;
-    for (const tool of ['restic', 'litestream', 'node', 'curl', 'id'])
+    for (const tool of ['restic', 'litestream', 'node'])
       writeFileSync(join(bin, tool), fake, { mode: 0o755 });
+    // The two that are polled or trivial are shell scripts: starting node for each costs most of a run.
+    writeFileSync(
+      join(bin, 'curl'),
+      `#!/bin/sh\necho "curl $*" >> '${join(temp, 'calls')}'\n[ -e '${join(temp, 'server-ready')}' ]\n`,
+      { mode: 0o755 },
+    );
+    writeFileSync(join(bin, 'id'), `#!/bin/sh\necho "id $*" >> '${join(temp, 'calls')}'\necho 10001\n`, {
+      mode: 0o755,
+    });
+    // The entrypoint polls the server once a second; a poll of 50 ms keeps the same loop and the same exits.
+    // Any other sleep (the backup loop's long ones) is left as it is.
+    writeFileSync(join(bin, 'sleep'), '#!/bin/sh\n[ "$1" = 1 ] && set -- 0.05\nexec /bin/sleep "$@"\n', {
+      mode: 0o755,
+    });
   });
   afterEach(() => rmSync(temp, { recursive: true, force: true }));
 

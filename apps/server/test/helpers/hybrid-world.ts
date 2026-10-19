@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { MemberConfig } from '@projectman/shared';
 import type {
   HybridDeployment,
@@ -29,8 +30,8 @@ import type {
 } from '../../../../scripts/release/ports';
 import type { VerifiedPrepared } from '../../../../scripts/release/verify';
 import type { BranchMerger, MergeBaseState } from '../../src/contracts';
-import { createDomainHarness } from './domain-harness';
-import type { DomainHarness } from './domain-harness';
+import { createDomainHarness, snapshotDomainHarness } from './domain-harness';
+import type { DomainHarness, HarnessSnapshot } from './domain-harness';
 
 /**
  * A world for the hybrid coordinator's tests (PM-751): the real deployment service of the cloud (PM-752) behind a
@@ -108,6 +109,11 @@ export class CrashingJournal implements JournalPort {
 
 type Fault = { when: 'before' | 'after'; kind: 'uncertain' | 'unavailable' };
 
+let seeded: Promise<HarnessSnapshot> | undefined;
+/** The worlds not cleaned up yet: the journal's fsync stays off while there is one. */
+let liveWorlds = 0;
+let fsyncSpy: MockInstance<typeof fs.fsyncSync> | undefined;
+
 export class HybridWorld {
   h!: DomainHarness;
   dir = '';
@@ -158,6 +164,7 @@ export class HybridWorld {
     stopThrows: false,
   };
   private nextPid = 5000;
+  private counted = false;
 
   // ---- preparation and publishing
   prepared = new Map<string, 'partial' | 'receipt'>();
@@ -171,13 +178,33 @@ export class HybridWorld {
   private faults = new Map<string, Fault[]>();
   private throws = new Map<string, number>();
 
+  /**
+   * A world starts from the state a first one left (the project, the card and the merge record), once per test
+   * process: building it takes the git commits of creating the project, which the loops over every journal write
+   * would otherwise pay in each of their worlds.
+   */
   static async create(): Promise<HybridWorld> {
+    seeded ??= HybridWorld.seed();
     const world = new HybridWorld();
-    await world.init();
+    await world.init(await seeded);
     return world;
   }
 
-  private async init(): Promise<void> {
+  private static async seed(): Promise<HarnessSnapshot> {
+    const first = new HybridWorld();
+    await first.init();
+    const snapshot = await snapshotDomainHarness(first.h);
+    fs.rmSync(first.dir, { recursive: true, force: true });
+    first.uncount();
+    return snapshot;
+  }
+
+  private async init(snapshot?: HarnessSnapshot): Promise<void> {
+    // The journal makes every write durable with an fsync (a power loss, which these tests do not simulate: a crash is
+    // an exception raised between two writes), and each one waits for the disk for as long as the machine is busy.
+    if (liveWorlds === 0) fsyncSpy = vi.spyOn(fs, 'fsyncSync').mockImplementation(() => undefined);
+    liveWorlds += 1;
+    this.counted = true;
     this.dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'pm751-'));
     this.stateDir = path.join(this.dir, 'state');
     this.releasesDir = path.join(this.dir, 'engine-releases');
@@ -199,6 +226,7 @@ export class HybridWorld {
       ),
     } as unknown as BranchMerger;
     this.h = await createDomainHarness({
+      snapshot,
       merger,
       releaseTarget: TARGET,
       appVersion: PREVIOUS,
@@ -219,6 +247,7 @@ export class HybridWorld {
         );
       },
     });
+    if (snapshot) return;
     await this.h.domain.tasks.create(
       'AR',
       { title: 'Card one', repo: 'web' },
@@ -251,6 +280,14 @@ export class HybridWorld {
   async cleanup(): Promise<void> {
     await this.h?.cleanup();
     if (this.dir) fs.rmSync(this.dir, { recursive: true, force: true });
+    this.uncount();
+  }
+
+  private uncount(): void {
+    if (!this.counted) return;
+    this.counted = false;
+    liveWorlds -= 1;
+    if (liveWorlds === 0) fsyncSpy?.mockRestore();
   }
 
   /** An approved release, as the owner's decision leaves it. */

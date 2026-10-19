@@ -29,7 +29,7 @@ engine (PM-675, PM-731, PM-732, PM-739, PM-740). The owner's order of 2026-10-18
   bug that keeps the finished collecting cards PM-733, PM-735, PM-737 and PM-772 from closing.
 - **B) Finish the super mode (high):** PM-784.
 - **G) Relieve the Mac (normal):** a load of 15–20 drops the engine link; measure what loads it
-  (parallel sessions, vitest workers, Docker) and propose worker and session limits (PM-799,
+  (parallel sessions, vitest workers, Docker) and propose worker and session limits (PM-798,
   related to PM-777).
 
 ## Next

@@ -441,6 +441,27 @@ function sshSummary(result: RunResult): string {
   );
 }
 
+/** The ssh client's own refusal line, `user@host: Permission denied (publickey,...).`, with nothing around it. */
+const SSH_AUTH_REFUSAL = /^[^\s@:]+@[^\s:]+: Permission denied \([a-z,-]*publickey[a-z,-]*\)\.?$/i;
+/** Client-side lines that precede the refusal without any remote command having run. */
+const SSH_CLIENT_NOISE = /^(?:Warning: |Starting session with SessionId|Exiting session with sessionId)/;
+
+/**
+ * Whether stderr is the ssh client's refusal of the key. stderr merges the client's lines with the remote
+ * command's, so for a state-changing command only a stderr made of the refusal line (plus client noise)
+ * counts: a refusal happens before the command starts, so no remote output can precede it, and remote text
+ * that merely resembles it must never read as "the command did not start". A read may be repeated, so it
+ * keeps the looser match.
+ */
+function rejectedByClient(stderr: string, mutating: boolean): boolean {
+  if (!mutating) return /Permission denied \([a-z,-]*publickey/i.test(stderr);
+  const lines = stderr
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !SSH_CLIENT_NOISE.test(line));
+  return lines.length === 1 && SSH_AUTH_REFUSAL.test(lines[0]!);
+}
+
 /**
  * Reads what a client-side ssh result proves. 255 and 124 alone never prove EIC as the cause: they only
  * say the connection or the answer was lost, so the command may or may not have run.
@@ -458,7 +479,7 @@ function classifySsh(result: RunResult, label: string, mutating: boolean): Cloud
       `the machine's SSH host key does not match the key pinned through SSM (${label}): ${detail}`,
       { commandStarted: 'no', retryable: false, exitCode: 2 },
     );
-  if (/Permission denied \([a-z,-]*publickey/i.test(result.stderr)) {
+  if (rejectedByClient(result.stderr, mutating)) {
     const failure = new SshFailure(
       `SSH public-key authentication was rejected (${label}, status ${result.code}): ${detail}`,
       { commandStarted: 'no', authRejected: true },

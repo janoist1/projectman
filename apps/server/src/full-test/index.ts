@@ -9,7 +9,15 @@ import type { HeavyLock } from './heavy-lock';
 import { failedFiles, failureReport, passedOutputTail } from './output';
 import { runSandboxed, srtCli } from './run-sandboxed';
 import type { SandboxedEnd } from './run-sandboxed';
-import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHORT_ROOT } from './sandbox';
+import {
+  canonicalRoot,
+  FULL_TEST_GIT_CONFIG,
+  fullTestEnv,
+  runDirOf,
+  runPaths,
+  srtSettings,
+  SHORT_ROOT,
+} from './sandbox';
 import type { RunPaths } from './sandbox';
 import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
 export { assertNpmCiCheckout } from './npm-ci';
@@ -24,6 +32,7 @@ export { runSandboxed, srtCli } from './run-sandboxed';
 export type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
 export { createScreenshotExecutor, screenshotEnv, screenshotSettings } from './screenshots';
 export {
+  canonicalRoot,
   closedStdin,
   fullTestEnv,
   installerSettings,
@@ -172,7 +181,13 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
   /** One run, with the machine's lock held (or without the queue). */
   async function runLocked(spec: FullTestSpec, signal: AbortSignal): Promise<FullTestResult> {
     const started = Date.now();
-    const paths = runPaths(runDirOf(tmpRoot, SHORT_ROOT, spec.runId));
+    let paths: RunPaths;
+    try {
+      paths = runPaths(runDirOf(canonicalRoot(tmpRoot), canonicalRoot(SHORT_ROOT), spec.runId));
+    } catch (err) {
+      logger.warn({ err, runId: spec.runId }, 'no run directory root leaves room for the sandbox sockets');
+      return failure('sandbox_unavailable', started);
+    }
     const remaining = () => {
       if (signal.aborted) throw new DependencyPreparationError('', 'killed');
       const ms = spec.timeoutMs - (Date.now() - started);

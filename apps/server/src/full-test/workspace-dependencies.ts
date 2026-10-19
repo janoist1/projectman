@@ -27,6 +27,7 @@ import { npmDependencyKey } from './npm-dependency-key';
 import { runSandboxed, srtCli } from './run-sandboxed';
 import type { SandboxedRun } from './run-sandboxed';
 import {
+  canonicalRoot,
   FULL_TEST_GIT_CONFIG,
   fullTestEnv,
   installerSettings,
@@ -35,6 +36,7 @@ import {
   runPaths,
   SHORT_ROOT,
 } from './sandbox';
+import type { RunPaths } from './sandbox';
 
 export const WORKSPACE_DEPENDENCY_RETRY_MS = 600_000;
 let sandboxRuntime: Promise<typeof import('@anthropic-ai/sandbox-runtime')> | undefined;
@@ -106,9 +108,8 @@ export function createWorkspaceDependencyInstaller(
     const store = path.join(options.home, 'workspace-deps');
     const markerDir = path.join(store, hash([request.project, request.member, request.repo]));
     const marker = path.join(markerDir, 'ready.json');
-    const paths = runPaths(
-      runDirOf(options.tmpDir ?? os.tmpdir(), SHORT_ROOT, randomBytes(16).toString('hex')),
-    );
+    // Set when the run directory is prepared (`sandboxFiles`); nothing reads it before that.
+    let paths!: RunPaths;
     let madeRunDir = false;
     let deadline = Date.now() + timeoutMs;
     const remaining = () => {
@@ -139,6 +140,17 @@ export function createWorkspaceDependencyInstaller(
           } catch {
             throw new WorkspaceDependencyError('sandbox_unavailable', key);
           }
+        }
+        try {
+          paths = runPaths(
+            runDirOf(
+              canonicalRoot(options.tmpDir ?? os.tmpdir()),
+              canonicalRoot(SHORT_ROOT),
+              randomBytes(16).toString('hex'),
+            ),
+          );
+        } catch {
+          throw new WorkspaceDependencyError('sandbox_unavailable', key);
         }
         await mkdir(paths.runDir, { mode: 0o700 });
         madeRunDir = true;

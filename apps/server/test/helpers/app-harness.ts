@@ -23,6 +23,8 @@ import {
   FakeWorktreeManager,
 } from './fakes';
 import type { FakeMcp, FakeRunner, FakeRunnerModule } from './fakes';
+import { seedCustomizationRepository } from './customization-seed';
+import { seedDatabaseFile } from './database-seed';
 import { testTemplate } from './test-template';
 
 export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password: 'correct horse battery' };
@@ -125,6 +127,8 @@ export async function createAppHarness(
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'pm-app-')));
   const workspace = join(home, 'workspace');
   mkdirSync(workspace);
+  await seedCustomizationRepository(join(home, 'customization'));
+  seedDatabaseFile(join(home, 'db.sqlite'));
   const runnerModule = createFakeRunnerModule();
   const mcp = createFakeMcp();
   const github = new FakeGithub();

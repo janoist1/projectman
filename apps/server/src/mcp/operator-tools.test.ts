@@ -109,6 +109,30 @@ describe('Operator MCP tools', () => {
     ])
       expect(tool.inputSchema.safeParse(input).success).toBe(false);
   });
+  it('open_integrator_todo forwards the todo fields and tells who got it', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'open_integrator_todo')!;
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({
+      task_key: 'AR-1',
+      question: ' The merge stands still ',
+      what: 'Merge AR-1',
+      where: 'The repo',
+      expected: 'AR-1 in Done',
+    });
+    expect(toolOutputText(await tool.run({ ctx: devContext, args, handler }))).toBe(
+      'Integrator todo inb_todo_1 opened for integrator.',
+    );
+    expect(handler.calls[0]).toMatchObject({
+      method: 'openIntegratorTodo',
+      args: {
+        taskKey: 'AR-1',
+        question: 'The merge stands still',
+        what: 'Merge AR-1',
+        where: 'The repo',
+        expected: 'AR-1 in Done',
+      },
+    });
+  });
   it.each(['send_message', 'start_member'])(
     '%s describes and forwards the parallel-work confirmation',
     async (name) => {

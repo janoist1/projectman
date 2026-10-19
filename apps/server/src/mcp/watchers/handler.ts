@@ -13,11 +13,18 @@ export class WatcherTools implements WatcherToolsHandler {
 
   async decideFixLimit(
     ctx: ToolContext,
-    args: { taskKey: string; decision: FixLimitDecision; reason: string },
+    args: { taskKey: string; decision: FixLimitDecision; reason: string; assessment?: unknown },
   ) {
     try {
       await this.calls.caller(ctx, 'decide_fix_limit');
-      return await this.fixLimit.decide(ctx.member, ctx.projectKey, args.taskKey, args.decision, args.reason);
+      return await this.fixLimit.decide(
+        ctx.member,
+        ctx.projectKey,
+        args.taskKey,
+        args.decision,
+        args.reason,
+        args.assessment,
+      );
     } catch (err) {
       throw toToolError(err);
     }

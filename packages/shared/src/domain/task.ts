@@ -224,11 +224,23 @@ export const TaskFixLimit = z.object({
   changeRequests: z.number().int().nonnegative(),
   designChangeRequests: z.number().int().nonnegative(),
   sendBacks: z.number().int().nonnegative(),
+  /** The failed full tests inside `sendBacks` (PM-714). */
+  testsFailed: z.number().int().nonnegative().optional(),
+  /** The extra rounds given since the count began, also above the limit people allowed (PM-714). */
+  extraRounds: z.number().int().nonnegative().optional(),
+  remainingExtraRounds: z.number().int().nonnegative().optional(),
+  /** `MAX_FIX_EXTRA_ROUNDS` of `domain/fix-limit`, which this file cannot import. */
+  extraRoundLimit: z.literal(3).optional(),
   /** `lead` and `replan`: the AI member who decides. */
   decider: MemberHandle.nullable(),
   /** `owner`: the people who decide. */
   deciders: z.array(MemberHandle),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'decider_timeout']).nullable(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted', 'decider_timeout']).nullable(),
+  /**
+   * `owner`: who the decision item is addressed to now (PM-714): the integrator first, the owners after a
+   * hand-over or the 24 hour timeout, or when no integrator was available. Absent: the owners (older holds).
+   */
+  recipient: z.enum(['owner', 'integrator']).optional(),
   heldAt: z.string(),
 });
 export type TaskFixLimit = z.infer<typeof TaskFixLimit>;

@@ -37,6 +37,7 @@ export const TEAM_TOOL_NAMES = [
   'screen_question',
   'combine_questions',
   'dismiss_signal',
+  'open_integrator_todo',
   'request_structural_review',
   'triage_loop',
   'start_task',
@@ -130,9 +131,13 @@ export interface ExternalToolRun<Args> {
   handler: ExternalToolsHandler;
 }
 
-/** An answer that is data: it is returned as text and as the structured content of the tool result. */
+/**
+ * An answer that is data: it is returned as text and as the structured content of the tool result. The text
+ * is the JSON unless the tool gives a readable one (`text`; PM-714: the full body of an item, line breaks and all).
+ */
 export interface ExternalStructured {
   structured: Record<string, unknown>;
+  text?: string;
 }
 
 /** read: a read-only key may call it too; write: only the super and legacy keys. */

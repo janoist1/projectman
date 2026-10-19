@@ -479,11 +479,42 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Decide how a card at its fix round limit goes on",
     },
-    "description": "A system message told you that a card reached the limit of fix rounds and its implementer is held back: read the card and its timeline first, then decide. "continue" lets it have one more round (when you were asked for a more exact plan: the card starts a new count with your plan); "replan" (the lead only) asks another technical direction holder for a more exact plan first; "to_owner" gives the decision to the people. The reason is required (one or two sentences, no secrets): it is shown to the people and told to the implementer. Only the member the message named may decide, and only while the card is held.",
+    "description": "A system message told you that a card reached the limit of fix rounds and its implementer is held back: read the card and its timeline first, then decide. "continue" lets it have one more round (when you were asked for a more exact plan: the card starts a new count with your plan); "replan" (the lead only) asks another technical direction holder for a more exact plan first; "to_owner" gives the decision to the people (the integrator first, when one is available) and REQUIRES an assessment: recurrence (one sentence: does the same fault come back), current_state (where the work stands now) and recommendation (option_id replan, reassign or another_round, an outcome that can be carried out, and its reason). Without it the call is refused and nothing changes. The lead may give at most three extra rounds ("continue") within one count; after that the people decide at every limit. The reason is required (one or two sentences, no secrets): it is shown to the people and told to the implementer. Only the member the message named may decide, and only while the card is held.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
+        "assessment": {
+          "properties": {
+            "current_state": {
+              "type": "string",
+            },
+            "recommendation": {
+              "properties": {
+                "option_id": {
+                  "type": "string",
+                },
+                "reason": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "option_id",
+                "reason",
+              ],
+              "type": "object",
+            },
+            "recurrence": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "recurrence",
+            "current_state",
+            "recommendation",
+          ],
+          "type": "object",
+        },
         "decision": {
           "enum": [
             "continue",
@@ -1321,6 +1352,54 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "merge_task",
     "title": "Merge a task",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Open a todo for the integrator",
+    },
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. When a stalled, silent, outage or nobody signal needs someone to act, open a todo in the integrator's queue instead of asking the owners: what to do, where, and what is expected. The integrator's answer (done, or cannot do it) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "expected": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "question": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "task_key": {
+          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+          "type": "string",
+        },
+        "what": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "where": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "question",
+        "what",
+        "where",
+        "expected",
+      ],
+      "type": "object",
+    },
+    "name": "open_integrator_todo",
+    "title": "Open a todo for the integrator",
   },
   {
     "annotations": {

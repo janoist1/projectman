@@ -41,17 +41,12 @@ export interface ObligationSource {
   closedAs(row: Obligation, project: ProjectView): 'fulfilled' | 'cancelled';
   /** The one reminder to the responsible (English; `waited` minutes since the step began, `minutes` is N). */
   wakeText(row: Obligation, minutes: number, waited: number): string;
-  /** Transfer a decision before opening its pointer todo; null means it already ended. */
+  /** Transfer a decision instead of opening a todo; null means it already ended. */
   handOver?(row: Obligation): Promise<{ decisionItemId: string } | null>;
   /** Whether the transferred step still waits for its new responsible. */
   keepsHandedOver?(row: Obligation, project: ProjectView): boolean;
   /** The integrator todo, after the second deadline. */
-  todo(
-    row: Obligation,
-    minutes: number,
-    waited: number,
-    decisionItemId?: string,
-  ): { question: string; todo: QuestionTodo };
+  todo?(row: Obligation, minutes: number, waited: number): { question: string; todo: QuestionTodo };
 }
 
 export interface SourceDeps {
@@ -199,6 +194,10 @@ function reviewSource(deps: SourceDeps): ObligationSource {
       for (const task of project.tasks.values()) {
         const wait = project.waits.get(task.key);
         if (!isOpenTask(task) || !wait) continue;
+        // A card in a queue (Ideas, Ready) is nobody's open step: a card put aside waits there on purpose, and
+        // one under refinement is covered by the refinement source.
+        const kind = stageOf(project.config, task.stageId)?.kind;
+        if (kind !== 'step' && kind !== 'release') continue;
         const since = stageEntered(task);
         const subject = `${task.stageId}@${since}`;
         const candidates =
@@ -332,7 +331,7 @@ function fixLimitSource(deps: SourceDeps): ObligationSource {
       return !!ownerHold(row) && !!task && isOpenTask(task);
     },
     async handOver(row) {
-      // Recover an owner hand-over if the process stopped before the pointer todo was stored.
+      // Recover a decision hand-over if the process stopped before the obligation row was stored.
       const owner = ownerHold(row);
       if (owner?.reason === 'decider_timeout' && owner.inboxItemId)
         return { decisionItemId: owner.inboxItemId };
@@ -344,19 +343,8 @@ function fixLimitSource(deps: SourceDeps): ObligationSource {
       const taskRounds = deps.roundsOf(row.projectKey, row.taskKey);
       return (
         `projectman reminder: ${row.taskKey} is held at the fix round limit (round ${taskRounds}) and waits for your decision for ${ago(waited)}. ` +
-        `Call decide_fix_limit for ${row.taskKey}. If nothing happens in ${ago(minutes)}, the decision goes to the owners.`
+        `Call decide_fix_limit for ${row.taskKey}. If nothing happens in ${ago(minutes)}, the decision goes to the integrator, or to the owners when no integrator is available.`
       );
-    },
-    todo(row, _minutes, waited, decisionItemId) {
-      const what = `${row.responsible} did not decide the fix limit of ${row.taskKey} for ${ago(waited)}; the decision is now in the owners' inbox`;
-      return {
-        question: what,
-        todo: {
-          what,
-          where: `${row.taskKey}, inbox decision ${decisionItemId}`,
-          expected: `the owner decides the fix limit of ${row.taskKey}`,
-        },
-      };
     },
   };
 }

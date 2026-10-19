@@ -77,7 +77,7 @@ function resultOf(output: ExternalResult): CallToolResult {
   if (typeof output === 'string') return { content: [{ type: 'text', text: output }] };
   if ('structured' in output)
     return {
-      content: [{ type: 'text', text: JSON.stringify(output.structured) }],
+      content: [{ type: 'text', text: output.text ?? JSON.stringify(output.structured) }],
       structuredContent: output.structured,
     };
   return {

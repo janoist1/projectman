@@ -34,6 +34,7 @@ export { createSuperAdministration } from './facade';
 export type { SuperAdministration } from './facade';
 export { relayOwnerAnswer } from './relay';
 export { resolveIntegratorTodo } from './todo';
+export { listIntegratorInbox, resolveIntegratorFixLimit } from './fix-limit';
 export { createSuperRights } from './rights';
 export type { SuperRights } from './rights';
 

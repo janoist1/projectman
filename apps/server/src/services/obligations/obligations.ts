@@ -3,6 +3,7 @@ import {
   PENDING_INBOX_STATES,
   SYSTEM_SENDER,
   isInformationalAlert,
+  inboxRecipientOf,
   isOpenTask,
   labelDefinition,
   memberOf,
@@ -76,7 +77,7 @@ const minutesBetween = (from: string, to: string): number =>
  * The obligation tracking (PM-806): an open step must not get lost when the AI member responsible for it
  * stops, stalls or misunderstands. Every step has a responsible and a deadline of N minutes
  * (`obligationMinutes`): the first expiry sends the responsible one reminder, the second one gives the
- * step to the integrator as a todo. The system never does the step, decides, or sets a label itself.
+ * step to the integrator as a todo or a decision item. The system never does the step, decides, or sets a label itself.
  *
  * The sweep is level-driven: each kind's source says which steps are open now, a row is written for
  * each (once for ever, per card, kind, responsible and subject), and a row whose step is not open any
@@ -399,7 +400,7 @@ export class ObligationsService {
     }
   }
 
-  /** The second expiry: the integrator todo, once. A todo that a crash left without its row is found, not repeated. */
+  /** The second expiry: a decision hand-over or one todo. A crash never repeats an existing item. */
   private async handOver(row: Obligation, minutes: number, at: string): Promise<void> {
     const source = this.sourceOf(row.kind);
     const decision = await source.handOver?.(row);
@@ -407,16 +408,19 @@ export class ObligationsService {
       this.ctx.repos.obligations.close(row.id, 'fulfilled', at);
       return;
     }
-    const found = this.todoOf(row);
-    let itemId = found?.id ?? null;
-    let recipient = found ? (questionPayloadOf(found)?.recipient ?? 'owner') : null;
+    const decisionItem = decision ? this.ctx.repos.inbox.get(decision.decisionItemId) : null;
+    if (decision && !decisionItem) throw new Error(`missing hand-over decision ${decision.decisionItemId}`);
+    const found = decision ? null : this.todoOf(row);
+    let itemId = decisionItem?.id ?? found?.id ?? null;
+    let recipient = decisionItem
+      ? inboxRecipientOf(decisionItem)
+      : found
+        ? (questionPayloadOf(found)?.recipient ?? 'owner')
+        : null;
     if (!itemId) {
-      const { question, todo } = source.todo(
-        row,
-        minutes,
-        minutesBetween(row.openedAt, at),
-        decision?.decisionItemId,
-      );
+      const content = source.todo?.(row, minutes, minutesBetween(row.openedAt, at));
+      if (!content) throw new Error(`no hand-over todo for ${row.kind}`);
+      const { question, todo } = content;
       const opened = await this.inbox.openIntegratorTodo({
         projectKey: row.projectKey,
         taskKey: row.taskKey,
@@ -451,13 +455,13 @@ export class ObligationsService {
     });
   }
 
-  /** The open todo of the row: by its item id, else by the obligation the item names (a crash lost the id). */
+  /** Only the row's todo, never a decision: by its id or the obligation it names after a crash. */
   private todoOf(row: Obligation): InboxItem | null {
     const inbox = this.ctx.repos.inbox;
     const pending = new Set<string>(PENDING_INBOX_STATES);
     if (row.inboxItemId) {
       const item = inbox.get(row.inboxItemId);
-      if (item && pending.has(item.state)) return item;
+      if (item && pending.has(item.state) && isObligationTodo(item)) return item;
     }
     return (
       inbox

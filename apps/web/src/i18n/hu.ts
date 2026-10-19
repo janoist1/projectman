@@ -881,6 +881,9 @@ export const hu = {
       fix_limit_not_held: 'A kártyát most nem tartja vissza a javítási körök határa.',
       fix_limit_not_decider: 'Erről most nem te döntesz.',
       fix_limit_no_planner: 'Nincs, aki pontosabb tervet készíthetne.',
+      fix_limit_assessment_required:
+        'A továbbadáshoz kell a vélemény: ismétlődik-e a hiba, hol tart a munka, és mit javasol a döntő.',
+      fix_limit_invalid_recommendation: 'A javaslat nem végrehajtható döntés.',
       relation_target_not_found: 'A másik kártya nem található.',
       relation_target_project: 'Kapcsolat csak ugyanannak a projektnek a kártyái között jöhet létre.',
       relation_cycle: 'Ezzel körkörös előfeltétel jönne létre: a kártya közvetve önmagára várna.',
@@ -3586,6 +3589,7 @@ export const hu = {
         decider_timeout: 'Az AI döntő nem döntött határidőn belül.',
         passed_on: '{name} továbbadta neked.{note}',
         again: 'Még egy kör után újra elérte a határt.',
+        extra_exhausted: 'A 3 extra kör elfogyott, és újra elérte a határt.',
       },
       note: ' Indoka: „{note}”',
       consequence: {
@@ -4273,6 +4277,7 @@ export const hu = {
         decider_timeout: 'Az AI döntő nem döntött határidőn belül, ezért {decides} róla.',
         passed_on: 'A vezető fejlesztő továbbadta, ezért {decides} róla.',
         again: 'Még egy kör után újra elérte a határt, ezért {decides} róla.',
+        extra_exhausted: 'A 3 extra kör elfogyott, és újra elérte a határt, ezért {decides} róla.',
       },
     },
     /** The rounds a count is made of; only the ones that are not zero are named. */
@@ -4545,6 +4550,10 @@ export const hu = {
       question_screened_integrator: 'Teendőként az integrátornak adta: {note}',
       question_recipient_escalated:
         'Az integrátornak szóló teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
+      fix_limit_recipient_escalated_timeout:
+        'A javítási körök határáról szóló döntés az integrátortól a tulajdonoshoz került: 24 óráig nem döntött.',
+      fix_limit_recipient_escalated_passed_on:
+        'Az integrátor a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
       obligation_woken:
         'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
       obligation_handed_over:

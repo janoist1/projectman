@@ -179,18 +179,29 @@ export function createInboxRepository(db: Db) {
         id,
       );
     },
-    /** The payload and the assignees of an item still open (a delegated permission question, PM-169). */
+    /**
+     * The payload and the assignees of an item still open (a delegated permission question, PM-169); the body
+     * only when given (a fix limit decision that changes hands, PM-801).
+     */
     updateOpen(
       id: string,
       payload: Record<string, unknown>,
       assignees: string[],
       at: string,
+      body?: string,
     ): InboxItem | null {
-      const changes = db
-        .prepare(
-          "UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'",
-        )
-        .run(toJson(payload), toJson(assignees), at, id).changes;
+      const changes =
+        body === undefined
+          ? db
+              .prepare(
+                "UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+              )
+              .run(toJson(payload), toJson(assignees), at, id).changes
+          : db
+              .prepare(
+                "UPDATE inbox_items SET payload = ?, assignees = ?, body = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+              )
+              .run(toJson(payload), toJson(assignees), body, at, id).changes;
       return changes > 0 ? get(id) : null;
     },
     get,

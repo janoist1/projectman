@@ -1515,6 +1515,7 @@ export function createDomain(opts: DomainOptions) {
         projects,
         tasks,
         inbox,
+        obligations,
         messaging,
         projectState,
         operatorActions,

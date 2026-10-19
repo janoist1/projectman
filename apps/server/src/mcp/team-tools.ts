@@ -149,7 +149,12 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async decideFixLimit(
     ctx: ToolContext,
-    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
+    args: {
+      taskKey: string;
+      decision: 'continue' | 'replan' | 'to_owner';
+      reason: string;
+      assessment?: unknown;
+    },
   ) {
     return this.tools.watchers.decideFixLimit(ctx, args);
   }
@@ -422,6 +427,12 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.tools.operator.dismissSignal(ctx, args);
+  }
+  async openIntegratorTodo(
+    ctx: ToolContext,
+    args: Parameters<OperatorToolsHandler['openIntegratorTodo']>[1],
+  ) {
+    return this.tools.operator.openIntegratorTodo(ctx, args);
   }
   async withdrawQuestion(
     ctx: ToolContext,

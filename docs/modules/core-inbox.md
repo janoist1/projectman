@@ -89,6 +89,17 @@ accepted under the lock before the deadline can finish while the sweep waits. Ha
 it sends no answer and does not release the waiting label. Existing inbox change triggers journal
 opening, handoff and closure. No new machine operation or engine-boundary method is needed.
 
+### Fix limit decisions (PM-801)
+
+A fix-limit decision (`payload.fixLimit`, source `system`, only fix-limit options) can be addressed to the
+integrator by `selectFixLimitRecipient` when the three extra rounds are used up, the lead passed it on, or no AI
+member can decide; any other shape stays with the owners. `isIntegratorInboxItem` covers todos and these
+decisions, so the sweep escalates both at 24 hours (`planIntegratorInboxEscalation`, event
+`fix_limit_recipient_escalated`). The integrator resolves only through `resolveIntegratorFixLimit` (same question
+lock, `integratorExecution()` and owner access checked again): `replan`, `reassign`, `another_round`, or passing
+the same item to the owners with a reason. The text is built by `fix-limit-text.ts` in the project language.
+Hub-side only; no engine-boundary method.
+
 ## Obligation todos (PM-806)
 
 `ObligationsService` (`services/obligations`) hands a step whose responsible did not act to the

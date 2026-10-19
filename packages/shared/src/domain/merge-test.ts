@@ -25,6 +25,19 @@ export function mergeTestMarkerLine(kind: MergeTestMark, path: string): string {
   return `${PREFIX[kind]}${path}`;
 }
 
+/** One word of a shell command, in single quotes: nothing in it is expanded. */
+export function quoteShellWord(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * The command that runs only `files` (PM-844): the configured `filesCommand` prefix and the
+ * repository-relative paths, each shell-quoted.
+ */
+export function mergeTestFilesCommand(filesCommand: string, files: readonly string[]): string {
+  return [filesCommand, ...files.map(quoteShellWord)].join(' ');
+}
+
 /**
  * The paths of the line-anchored marker lines of `kind` (ANSI removed, CRLF accepted), unique, in
  * order, at most `MERGE_TEST_MARKED_FILES_MAX`; lines with an invalid path are skipped.

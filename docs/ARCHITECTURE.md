@@ -1400,6 +1400,21 @@ failure path; the full check and review gates remain required. Original creation
 manifest priority snapshots are restored; candidate, check, failure, block and active
 membership are cleared. Only adjacent diagnostic members of the same parent can group,
 bounded by every member's limit.
+**Blaming a member by a lone run (PM-844).** When the repository's `reviewTest.filesCommand` is set,
+the group check failed with named files (`failedFiles`) and the train has at least two members, the
+train does not halve first: for each member in turn it builds `onto + member`, checks that out
+(`checkoutForCheck`, released after the run) and runs `filesCommand` with the group's failed files,
+each shell-quoted (`mergeTestFilesCommand`, shared), with the train's workers, timeout and heavy lock.
+A member is blamed only if its run failed **and** its failed files intersect the group's: any other
+non-zero exit (a usage error, a failed install, no file named) leaves it unknown. Each blamed member
+takes the individual `check_failed` path (`MergeSteps.fail`: `base` = the train's `onto`, the lone run's
+id and command, the intersecting files, its output tail, the `task_merge_failed` event and
+notification). The others (green or unknown) are requeued with no `diagnostic`, so they keep their
+queue place and may join any train, each with a timeline note. If no member is blamed (an interaction,
+or every lone run was unknown or red elsewhere), the train halves as before. Members keep the step
+`checking`; a restart during the lone runs finds the stored red group check and halves. All of it runs
+through the engine link's `build`, `checkoutForCheck`, `releaseCheck` and the full test executor, so
+nothing machine-dependent is new.
 Each smaller attempt gets a fresh candidate and check on current main; successful prefixes
 therefore participate in the next half's check. Singletons use the individual path and only
 their failed check identifies a blocking card. Success clears diagnostic state; operational

@@ -692,7 +692,8 @@ export class MergeSteps {
     }
   }
 
-  private async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
+  /** The merge fails for good, with the event and the notification; a train blames a member through it too (PM-844). */
+  async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
     const { ctx, timeline } = this.deps;
     ctx.unitOfWork(() => {
       this.save(row, { state: 'failed', step: undefined, failure, block: undefined });

@@ -6,6 +6,7 @@ import type { HeavyLock } from './heavy-lock';
 import type { FullTestExecutorOptions } from './index';
 import { runSandboxed } from './run-sandboxed';
 import {
+  canonicalRoot,
   FULL_TEST_GIT_CONFIG,
   SHORT_ROOT,
   SRT_DEFAULT_TMP,
@@ -119,7 +120,13 @@ export function createScreenshotExecutor(options: FullTestExecutorOptions): Scre
     onStarted: () => void,
   ): Promise<ScreenshotRunEnded> {
     if (signal.aborted) return ended({ aborted: true });
-    const paths = runPaths(runDirOf(tmpRoot, SHORT_ROOT, spec.runId));
+    let paths: RunPaths;
+    try {
+      paths = runPaths(runDirOf(canonicalRoot(tmpRoot), canonicalRoot(SHORT_ROOT), spec.runId));
+    } catch (err) {
+      logger.warn({ err, runId: spec.runId }, 'no run directory root leaves room for the sandbox sockets');
+      return ended({ spawnError: 'could not prepare the run directory' });
+    }
     // Not recursive: a directory or a link someone made at that name beforehand is an error, never
     // reused, and never removed below.
     let created = false;

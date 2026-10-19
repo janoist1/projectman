@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../../scripts/cloud/config';
 import type { CloudContext } from '../../../scripts/cloud/context';
 import type { RunOptions, RunResult } from '../../../scripts/cloud/deps';
@@ -15,6 +15,14 @@ import { candidateMarkerFile, preparedHybridReleaseSchema } from '../../../scrip
 import { defaultSessionTmpRoot, sharedClaudeTmpRoots } from '../src/engine-host';
 import type { SandboxedEnd, SandboxedRun } from '../src/full-test';
 import { CloudWorld } from './helpers/fake-aws';
+
+vi.mock('../src/full-test/sandbox', async (original) => ({
+  ...(await original<typeof import('../src/full-test/sandbox')>()),
+  // No real sandbox sockets here: keep the fixture runs inside the test's own temporary root, which is
+  // too deep for the socket frame of the real `runDirOf`.
+  runDirOf: (root: string, _shortRoot: string, runId: string) =>
+    path.join(root, `pmft-${runId.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`),
+}));
 
 const execFileAsync = promisify(execFile);
 const FAKE_URL = 'https://example.invalid/projectman.git';
@@ -739,6 +747,11 @@ describe('the preparer sandbox', () => {
     expect(install.command).toContain('--registry=https://registry.npmjs.org');
     for (const entry of others) expect(entry.settings.network.allowedDomains).toEqual([]);
     for (const entry of runs) expect(entry.settings.network.allowLocalBinding).toBe(false);
+    // No Unix socket either: the candidate's steps have nothing to serve (PM-847).
+    for (const entry of runs) {
+      expect(entry.settings.network).not.toHaveProperty('allowUnixSockets');
+      expect(entry.settings.network).not.toHaveProperty('allowAllUnixSockets');
+    }
 
     // Writable: the throwaway directory plus the package trees (install) or the server bundle (build) only.
     const runDirOf = (entry: Recorded) => path.dirname(entry.settingsFile);

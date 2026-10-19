@@ -1242,9 +1242,21 @@ commit pinned at the hand-over, run by the server.
 - **Executor.** `src/full-test` (`FullTestExecutor` in `contracts/full-test.ts`) writes the srt settings
   (`fullTestSandbox`: reads the checkout and the configured repository's git directory only, writes its run
   directory `<tmp>/pmft-<end of the run id>/` only: srt's own default temporary directory, `/tmp/claude`, which it
-  opens on its own and the members' sandboxes share, is in `denyWrite`; no network except listening on local ports, `allowPty`; the
-  directory is short, and under `/private/tmp` when `<tmp>` is too deep, because srt's socket in the
-  sandbox's TMPDIR must stay below macOS's 104-byte socket path limit), runs `<command>` there (srt's `-c`, with
+  opens on its own and the members' sandboxes share, is in `denyWrite`; no network except listening on local ports, `allowPty`;
+  Unix sockets only below the run's own `tmp` — `network` is exactly `allowedDomains: []`, `deniedDomains: []`,
+  `allowLocalBinding: true`, `allowUnixSockets: [<run directory>/sandbox/tmp]`, `allowAllUnixSockets: false`
+  (the path prefix of srt 0.0.78's macOS generator; the installer's and the screenshot runs' network profiles
+  get no socket permission). The directory is short and measured in bytes (UTF-8) on the canonical
+  paths: `runDirOf(tmpRoot, shortRoot, runId)` takes roots the caller resolved with `canonicalRoot`
+  (`realpath`: `/var/folders` is `/private/var/folders` on macOS, which a socket path is checked against), and
+  a root is used only when its `tmp` and `home` below the run directory leave at least 40 bytes (the separator
+  included) within 100 bytes (macOS's socket path limit is 104; srt's `srt-mux-<pid>-<n>.sock` is 24 bytes with
+  the separator, the control socket's `control.sock` 13). Otherwise the directory is under `/private/tmp`
+  (`pmft-<end of the run id>`), whose frame is checked the same way; when neither root has room `runDirOf`
+  throws and the run ends as `sandbox_unavailable`, with no wider permission or longer path. This is the
+  code's profile: it says nothing about the running installation, which gets it only with a separately
+  approved engine update; the real socket behavior is proved by the socket integration tests (PM-754) after
+  that), runs `<command>` there (srt's `-c`, with
   its standard input closed by `exec </dev/null;`, because srt hands the command its input through a socket,
   and `script`, so a PTY, fails on a socket; srt also sets the command's `TMPDIR` from `CLAUDE_CODE_TMPDIR`,
   or a `/tmp/claude` that does not exist, so `fullTestEnv` sets it to the run's tmp) with
@@ -1508,6 +1520,10 @@ workers follow the machine's size.
   wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
   moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
   who holds it and who waits, for the PM-300 display.
+- **The run's directory (PM-847).** Whoever holds the lock prepares its run directory
+  (`full-test/sandbox.ts`, `runDirOf` on `canonicalRoot` roots): a byte-measured `pmft-*` directory with room
+  for the sandbox's sockets (see "Server full test before review"), made only once the lock is held; when no
+  root has room, the run ends as `sandbox_unavailable` and releases the lock.
 - **Idle close (PM-569).** An idle session with a live heavy-run holder or waiter stays open,
   and gets its full idle interval after the last sweep that saw the run. Heartbeats must be at most
   30 seconds old and the PID must live. After 120 minutes since `lastActivityAt`, idle closure applies
@@ -3396,7 +3412,13 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt`.
+  it is unavailable without macOS/`srt`. PM-847: the run directory is a byte-measured, canonical path
+  (`canonicalRoot`, `runDirOf`: at least 40 bytes below its `tmp` and `home` within 100; else
+  `/private/tmp/pmft-*`; else `sandbox_unavailable`), and the sandbox may bind and connect Unix sockets
+  below the run's own `sandbox/tmp` only (`allowUnixSockets`, `allowAllUnixSockets: false`); the installer
+  and screenshot profiles have none. The engine that creates the sandbox is the installed one, so this
+  takes effect there only after a separately approved engine update. Remote engine: all of it is the
+  engine's own private run root; the cloud receives only the existing full-test result.
   Timeout and cancellation retain the detached process group's cleanup scope through the TERM
   grace period, then send SIGKILL to the negative group id even if the launcher has already
   closed its output pipes (PM-829, `full-test/run-sandboxed-core.ts`). The engine owns these

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { defaultSessionTmpRoot, sharedClaudeTmpRoots } from '../../apps/server/src/engine-host';
 import {
+  canonicalRoot,
   fullTestEnv,
   installerSettings,
   quoteShellWord,
@@ -140,11 +141,16 @@ async function withSandboxRun<T>(
   body: (steps: SandboxSteps) => Promise<T>,
 ): Promise<T> {
   const { context, options } = run;
-  const runDir = runDirOf(
-    options.tmpDir ?? os.tmpdir(),
-    options.tmpDir ?? SHORT_TMP,
-    randomBytes(8).toString('hex'),
-  );
+  let runDir: string;
+  try {
+    runDir = runDirOf(
+      canonicalRoot(options.tmpDir ?? os.tmpdir()),
+      canonicalRoot(options.tmpDir ?? SHORT_TMP),
+      randomBytes(8).toString('hex'),
+    );
+  } catch {
+    throw refused('the sandbox run directory has no root that leaves room for its sockets');
+  }
   const paths = runPaths(runDir);
   const userHome = options.userHome ?? context.deps.homeDir;
   const spec: FullTestSpec = {
@@ -170,7 +176,10 @@ async function withSandboxRun<T>(
       fs.writeFileSync(file, '', { flag: 'wx', mode: 0o600 });
     const closed = srtSettings(spec, paths);
     // No network at all, not even a local listener: the candidate's steps have nothing to serve or fetch.
-    const offline = { ...closed, network: { ...closed.network, allowLocalBinding: false } };
+    const offline = {
+      ...closed,
+      network: { allowedDomains: [] as string[], deniedDomains: [] as string[], allowLocalBinding: false },
+    };
     const write = (file: string, value: unknown) =>
       fs.writeFileSync(file, JSON.stringify(value, null, 2), { flag: 'wx', mode: 0o600 });
     const buildSettings = path.join(runDir, 'build-settings.json');

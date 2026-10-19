@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 type SandboxSpec = { sandbox: { denyRead: string[]; allowRead: string[] } };
@@ -13,24 +14,47 @@ export const SHORT_ROOT = process.platform === 'darwin' ? '/private/tmp' : '/tmp
 export { quoteShellWord } from '@projectman/shared';
 
 /**
- * The longest Unix socket path the sandbox can open, a little below macOS's limit (104 bytes with the
- * terminating NUL), and the longest socket name `srt` makes in the sandbox's TMPDIR
- * (`srt-mux-<pid>-<n>.sock`, a pid of up to 7 digits).
+ * The longest Unix socket path the sandbox can open, in bytes (UTF-8), a little below macOS's limit
+ * (104 bytes with the terminating NUL).
  */
-const SOCKET_PATH_MAX = 100;
-const SOCKET_NAME_MAX = 'srt-mux-9999999-99.sock'.length;
+export const SOCKET_PATH_MAX = 100;
+/**
+ * The room a run's own `tmp` and `home` must leave for the socket name that goes below them, separator
+ * included: `srt`'s `srt-mux-<pid>-<n>.sock` (a pid of up to 7 digits) and the control socket's
+ * `control.sock` both fit.
+ */
+export const SOCKET_SUFFIX_MIN = 40;
+
+/** `root` with its links resolved (macOS: `/var/folders` is `/private/var/folders`); a root that does not exist stays as it is. */
+export function canonicalRoot(root: string): string {
+  try {
+    return realpathSync(root);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return path.resolve(root);
+    throw err;
+  }
+}
 
 /**
  * The directory of a run: `<root>/pmft-<end of the run id>`, short, because the sandbox's TMPDIR below it
- * holds a Unix socket and a long path makes the sandbox fail ("listen EINVAL"). The root is `tmpRoot`;
- * when the socket path would be too long there (a deep temporary directory), it is the short
- * system-wide `shortRoot`.
+ * holds Unix sockets and a long path makes the sandbox fail ("listen EINVAL"). The roots must be canonical
+ * (`canonicalRoot`): the sandbox opens the socket under the resolved path, so a link would hide extra
+ * bytes. The root is `tmpRoot`; when `SOCKET_SUFFIX_MIN` bytes do not fit below its `tmp` and `home` within
+ * `SOCKET_PATH_MAX` (a deep temporary directory), it is the short system-wide `shortRoot`. It throws when
+ * neither fits: the run is not prepared with a wider permission or a longer path.
  */
 export function runDirOf(tmpRoot: string, shortRoot: string, runId: string): string {
   const name = `pmft-${runId.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`;
-  const socketPath = (root: string) =>
-    path.join(runPaths(path.join(root, name)).tmp, 'x'.repeat(SOCKET_NAME_MAX));
-  return path.join(socketPath(tmpRoot).length <= SOCKET_PATH_MAX ? tmpRoot : shortRoot, name);
+  const fits = (root: string) => {
+    const paths = runPaths(path.join(root, name));
+    return [paths.tmp, paths.home].every(
+      (dir) => Buffer.byteLength(dir, 'utf8') + SOCKET_SUFFIX_MIN <= SOCKET_PATH_MAX,
+    );
+  };
+  const root = [tmpRoot, shortRoot].find(fits);
+  if (root === undefined)
+    throw new Error(`no root leaves ${SOCKET_SUFFIX_MIN} bytes for a socket below the run directory`);
+  return path.join(root, name);
 }
 
 /** The directories of one run: only `sandbox` is writable for the command. */
@@ -59,11 +83,19 @@ export const SRT_DEFAULT_TMP = ['/tmp/claude', '/private/tmp/claude'] as const;
  * - reading: nothing of `spec.sandbox.denyRead`, except `allowRead` and the run's own directory;
  * - writing: only the run's `sandbox` directory (the checkout is read-only; srt's default temporary
  *   directory, which srt would open on its own, is denied);
- * - network: nothing outward, local ports open (decision 24); PTYs allowed (macOS only).
+ * - network: nothing outward, local ports open (decision 24), Unix sockets only below the run's own
+ *   `tmp` (srt 0.0.78 on macOS binds and connects there; no other socket path, and not all of them);
+ *   PTYs allowed (macOS only).
  */
 export function srtSettings(spec: SandboxSpec, paths: RunPaths) {
   return {
-    network: { allowedDomains: [] as string[], deniedDomains: [] as string[], allowLocalBinding: true },
+    network: {
+      allowedDomains: [] as string[],
+      deniedDomains: [] as string[],
+      allowLocalBinding: true,
+      allowUnixSockets: [paths.tmp],
+      allowAllUnixSockets: false,
+    },
     filesystem: {
       denyRead: [...new Set(spec.sandbox.denyRead)],
       allowRead: [...new Set([...spec.sandbox.allowRead, paths.sandbox])],

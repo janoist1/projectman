@@ -10,6 +10,17 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
+/** Reserved padding row: no address HMAC can select it, and it is never redeemable or pruned. */
+const DUMMY_CODE = {
+  addressHash: 'email-login-dummy',
+  id: 'elc_dummy',
+  codeHash: '0'.repeat(64),
+  createdAt: '1970-01-01T00:00:00.000Z',
+  expiresAt: '9999-12-31T23:59:59.999Z',
+  failedAttempts: EMAIL_LOGIN_MAX_FAILED_ATTEMPTS,
+  usedAt: '1970-01-01T00:00:00.000Z',
+};
+
 /** The durable limits of the e-mail login (PM-670); the windows slide, the counts live in the database. */
 export const EMAIL_LOGIN_LIMITS = {
   codeTtlMs: 10 * MINUTE_MS,
@@ -73,6 +84,9 @@ export function createEmailLoginService(deps: {
   const since = (ms: number) => new Date(now().getTime() - ms).toISOString();
   const addressHash = (address: string) => mac(key, 'address', address);
   const ipSubject = (ip: string) => `ip:${mac(key, 'ip', ipRateLimitKey(ip))}`;
+
+  // A missing-row UPDATE is not a real write; initialize one used row for the same failAttempt work.
+  repo.putCode(DUMMY_CODE);
 
   /** Seconds until the oldest event in the window leaves it, at least 1. */
   function retryAfter(kind: EmailLoginEventKind, subject: string | null, windowMs: number): number {
@@ -159,23 +173,26 @@ export function createEmailLoginService(deps: {
       enforce('verify', subject, HOUR_MS, L.verifiesPerIpHour);
       repo.addEvent('verify', subject, now().toISOString());
       const email = 'email' in input ? input.email : directory.inviteEmail(input.inviteToken);
-      if (!email) throw invalidCode();
-      const address = normalizeAddress(email);
+      const address = normalizeAddress(email ?? '');
       const hash = addressHash(address);
       return verifyLock.run(hash, async () => {
         const at = now().toISOString();
-        const stored = repo.code(hash);
-        if (
-          !stored ||
-          stored.usedAt !== null ||
-          stored.expiresAt <= at ||
-          stored.failedAttempts >= EMAIL_LOGIN_MAX_FAILED_ATTEMPTS
-        )
-          throw invalidCode();
-        const expected = Buffer.from(stored.codeHash, 'hex');
-        const given = Buffer.from(mac(key, 'code', `${stored.id}:${input.code}`), 'hex');
-        if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
-          repo.failAttempt(stored.id);
+        const row = repo.code(hash);
+        const stored =
+          email &&
+          row &&
+          row.id !== DUMMY_CODE.id &&
+          row.usedAt === null &&
+          row.expiresAt > at &&
+          row.failedAttempts < EMAIL_LOGIN_MAX_FAILED_ATTEMPTS
+            ? row
+            : null;
+        const checked = stored ?? DUMMY_CODE;
+        const expected = Buffer.from(checked.codeHash, 'hex');
+        const given = Buffer.from(mac(key, 'code', `${checked.id}:${input.code}`), 'hex');
+        const matches = expected.length === given.length && timingSafeEqual(expected, given);
+        if (!matches || !stored) {
+          repo.failAttempt(checked.id);
           throw invalidCode();
         }
         const noAccess = () =>

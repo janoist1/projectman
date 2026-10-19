@@ -1011,6 +1011,12 @@ the account boundary.
   the letter run in a queued background step, so the answer's time does not tell either. Only the
   client-address and the global limits can refuse a request (`429`, `Retry-After`), never because of an
   address. Redemption answers one `email_code_invalid` for a wrong, expired, used or never-sent code.
+  Invalid redemptions, including an unknown invitation token, perform the same address/code HMACs,
+  fixed-size `timingSafeEqual` comparison and `failAttempt` update (PM-703). Without a live code,
+  the update increments one reserved dummy row initialized at service startup, so it is a real
+  database write. Its non-HMAC address key cannot be selected by an address lookup, its id is
+  excluded from redemption, and it is marked used with exhausted attempts. Its far-future expiry
+  retains it during pruning; it creates no send events or per-address code rows.
 - **The code.** Six digits from `crypto.randomInt`, valid 10 minutes, single-use, stored as an
   HMAC; one live code per address (a new one voids the old). Five wrong tries void it. Redemption of
   one address runs under a lock, so of parallel requests exactly one wins. A missing name for a new

@@ -25,7 +25,7 @@ describe('invalid e-mail code verification work (PM-703)', () => {
   let repos: Repositories;
   let service: EmailLoginService;
   const directory = {
-    inviteEmail: vi.fn(() => null),
+    inviteEmail: vi.fn((_token: string): string | null => null),
     standing: vi.fn(async () => ({ eligible: false as const })),
     acceptOpenClientInvites: vi.fn(async () => ({ userId: null, accepted: 0 })),
   };
@@ -134,4 +134,34 @@ describe('invalid e-mail code verification work (PM-703)', () => {
       (repos.db.prepare('SELECT COUNT(*) AS n FROM email_login_codes').get() as { n: number }).n,
     ).toBeLessThanOrEqual(1);
   });
+
+  it.each(['email', 'inviteToken'])(
+    'never redeems the dummy row through %s, even if its comparison matches',
+    async (path) => {
+      const { addressHash } = repos.db
+        .prepare('SELECT address_hash AS addressHash FROM email_login_codes')
+        .get() as { addressHash: string };
+      const dummy = repos.emailLogin.code(addressHash)!;
+      expect(addressHash).not.toMatch(/^[a-f0-9]{64}$/);
+      expect(dummy.usedAt).not.toBeNull();
+      expect(dummy.failedAttempts).toBeGreaterThanOrEqual(5);
+      expect(repos.emailLogin.consume(dummy.id, at)).toBe(false);
+
+      // Even an accidental lookup of the reserved row with reset flags must fail closed.
+      vi.spyOn(repos.emailLogin, 'code').mockReturnValue({
+        ...dummy,
+        usedAt: null,
+        failedAttempts: 0,
+      });
+      if (path === 'inviteToken') directory.inviteEmail.mockReturnValueOnce(email);
+      vi.mocked(timingSafeEqual).mockReturnValueOnce(true);
+      const input = path === 'email' ? { email, code } : { inviteToken: 'client-invite', code };
+      await expect(service.verify(input, '203.0.113.1')).rejects.toMatchObject({
+        code: 'email_code_invalid',
+        status: 400,
+      });
+      expect(directory.standing).not.toHaveBeenCalled();
+      expect(directory.acceptOpenClientInvites).not.toHaveBeenCalled();
+    },
+  );
 });

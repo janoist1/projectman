@@ -1771,6 +1771,11 @@ workers follow the machine's size.
   machine (`load1 <= 2 x CPUs`, `>= 128 MiB` available) and refuses otherwise. **Remote engine:** all
   AWS/EIC/SSM calls stay on the admin machine, the measuring commands run on EC2; the engine gets no
   AWS credential and only measurement metadata crosses the admin–cloud boundary. Related task: PM-748.
+  PM-753 narrows its key-refusal match: stderr merges the ssh client's lines with the remote command's, so
+  for a state-changing command only a stderr that is the client's single `user@host: Permission denied
+(publickey...)` line (plus `Warning:`/SSM session noise) means `commandStarted: 'no'`; any other output
+  that mentions it stays `unknown`, not retryable. Reads keep the loose match. **Remote engine:** unchanged,
+  admin machine only. Related task: PM-753.
   PM-719 adds three fixed-path `host.sh` operations: `trial-reset-inspect`, `trial-reset-archive`
   and read-only `trial-reset-verify`. The last two accept only UUIDv4 and exact SHA-256/none
   arguments, with no payload/path override. An embedded existing Python3 standard-library program

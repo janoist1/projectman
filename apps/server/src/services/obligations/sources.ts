@@ -186,6 +186,10 @@ function reviewSource(deps: SourceDeps): ObligationSource {
       for (const task of project.tasks.values()) {
         const wait = project.waits.get(task.key);
         if (!isOpenTask(task) || !wait) continue;
+        // A card in a queue (Ideas, Ready) is nobody's open step: a card put aside waits there on purpose, and
+        // one under refinement is covered by the refinement source.
+        const kind = stageOf(project.config, task.stageId)?.kind;
+        if (kind !== 'step' && kind !== 'release') continue;
         const since = stageEntered(task);
         const subject = `${task.stageId}@${since}`;
         const candidates =

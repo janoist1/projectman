@@ -530,6 +530,29 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       });
     };
 
+    /**
+     * As `refinery`, but `ready` is a step stage without a gate and `scope-ok`, which only `ana` (AI) sets, is
+     * the gate of the work stage: a card in the queue or in the step lacks it.
+     */
+    const reviewery = (c: ProjectConfig) => {
+      refinery(c);
+      const ready = c.pipeline.stages.find((stage) => stage.id === 'ready')!;
+      ready.kind = 'step';
+      delete ready.gate;
+      c.pipeline.stages.find((stage) => stage.kind === 'work')!.gate = {
+        conditions: [{ type: 'has_label' as const, label: 'scope-ok' }],
+      };
+    };
+    /** The card stands in the step stage `ready` without `scope-ok`: the step waits for an AI label. */
+    const inReviewStep = async () => {
+      const key = await create();
+      await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
+      await flush();
+      await stopSessions();
+      await sweep();
+      return key;
+    };
+
     it('reminds the analyst once, then hands the refinement turn to the integrator once', async () => {
       await harness(refinery);
       const key = await create();
@@ -563,11 +586,8 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     });
 
     it('reminds the reviewer of a step that waits for a label only an AI member sets', async () => {
-      await harness(refinery);
-      const key = await create();
-      await flush();
-      await stopSessions();
-      await sweep();
+      await harness(reviewery);
+      const key = await inReviewStep();
       expect(rows(key)).toMatchObject([{ kind: 'review_step', responsible: 'ana' }]);
       await oneReminderOneTodo(key, 'ana');
       expect(questionPayloadOf(todos()[0]!)).toMatchObject({
@@ -576,11 +596,8 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     });
 
     it('keeps the step of a reviewer while another member works on the card', async () => {
-      await harness(refinery);
-      const key = await create();
-      await flush();
-      await stopSessions();
-      await sweep();
+      await harness(reviewery);
+      const key = await inReviewStep();
       expect(rows(key)).toMatchObject([{ kind: 'review_step', responsible: 'ana' }]);
       await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], taskKey: key, text: 'Have a look.' });
       await flush();
@@ -599,17 +616,27 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     });
 
     it('cancels the row when the label arrives or the card moves on', async () => {
-      await harness(refinery);
-      const key = await create();
-      await flush();
-      await stopSessions();
-      await sweep();
+      await harness(reviewery);
+      const key = await inReviewStep();
       expect(rows(key)).toHaveLength(1);
       await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
       await flush();
       await stopSessions();
       await sweep();
       expect(rows(key).filter((row) => row.kind === 'review_step')).toEqual([]);
+    });
+
+    it('opens no review step for a card that waits in a queue stage for an AI label', async () => {
+      await harness(reviewery);
+      const key = await create();
+      await flush();
+      await stopSessions();
+      await sweep();
+      minutes(120);
+      await sweep();
+      expect(rows(key).filter((row) => row.kind === 'review_step')).toEqual([]);
+      expect(reminders(key)).toHaveLength(0);
+      expect(todos()).toHaveLength(0);
     });
   });
 

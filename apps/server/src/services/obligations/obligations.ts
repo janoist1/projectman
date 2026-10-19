@@ -18,6 +18,7 @@ import type {
   ObligationPauseReason,
   ObligationRef,
   ProjectConfig,
+  QuestionRecipientRefusal,
   Task,
   TimelineEventData,
 } from '@projectman/shared';
@@ -476,6 +477,7 @@ export class ObligationsService {
     if (decision && !decisionItem) throw new Error(`missing hand-over decision ${decision.decisionItemId}`);
     const found = decision ? null : this.todoOf(row);
     let itemId = decisionItem?.id ?? found?.id ?? null;
+    let recipientRefusal: QuestionRecipientRefusal | undefined;
     let recipient = decisionItem
       ? inboxRecipientOf(decisionItem)
       : found
@@ -495,6 +497,7 @@ export class ObligationsService {
       });
       itemId = opened.itemId;
       recipient = opened.recipient;
+      recipientRefusal = opened.recipientRefusal ?? undefined;
     }
     const to = recipient ?? 'owner';
     this.ctx.unitOfWork(() => {
@@ -513,6 +516,7 @@ export class ObligationsService {
           minutes,
           inboxItemId: itemId!,
           recipient: to,
+          ...(recipientRefusal ? { recipientRefusal } : {}),
           ...(decision ? { decisionItemId: decision.decisionItemId } : {}),
         },
       });

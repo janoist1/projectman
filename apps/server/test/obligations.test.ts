@@ -123,6 +123,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     expect(todo.taskKey).toBe(key);
     expect(rows(key)).toMatchObject([{ state: 'handed_over', inboxItemId: todo.id }]);
     expect(events('obligation_handed_over')).toHaveLength(1);
+    expect(events('obligation_handed_over')[0]?.data).not.toHaveProperty('recipientRefusal');
     // The owners' inbox stays empty: the integrator has it.
     expect(ownerCount()).toBe(0);
 
@@ -161,6 +162,10 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     }
     expect(todos()).toHaveLength(1);
     expect(questionPayloadOf(todos()[0]!)).toMatchObject({ recipient: 'owner' });
+    expect(events('obligation_handed_over')[0]?.data).toMatchObject({
+      recipient: 'owner',
+      recipientRefusal: 'integrator_unavailable',
+    });
     expect(ownerCount()).toBe(1);
   });
 

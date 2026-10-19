@@ -15,7 +15,8 @@ export function messageStaleReason(
   facts: StaleFacts,
 ): StaleReason | null {
   if (facts.fromHuman || message.kind === 'info') return null;
-  if (message.subject && facts.subjectClosed) return 'permission_closed';
+  if (message.subject && facts.subjectClosed)
+    return message.subject.type === 'obligation' ? 'obligation_closed' : 'permission_closed';
   if (!message.version) return null;
   if (facts.card && !facts.card.open) return 'card_closed';
   if (facts.card && facts.card.stageId !== message.version.stageId && !facts.recipientOwnsStage)

@@ -74,6 +74,15 @@ describe('message validity and wake-up', () => {
     ).toBe('permission_closed');
   });
 
+  it('marks the reminder of a closed obligation stale (PM-813)', () => {
+    const reminder = {
+      kind: 'action' as const,
+      subject: { type: 'obligation' as const, obligationId: 'obl_1' },
+    };
+    expect(messageStaleReason(reminder, { ...facts, subjectClosed: true })).toBe('obligation_closed');
+    expect(messageStaleReason(reminder, { ...facts, subjectClosed: false })).toBeNull();
+  });
+
   it('an info message starts nothing and needs no stale marker', () => {
     expect(messageStaleReason({ ...action, kind: 'info' }, { ...facts, superseded: true })).toBeNull();
     expect(messageWakes({ kind: 'info' }, wake, null)).toBe(false);

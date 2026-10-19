@@ -13,7 +13,15 @@ import {
   stageOf,
   stageOwners,
 } from '@projectman/shared';
-import type { ProjectConfig, StaleReason, Task, TeamMessage, WakeBlock, WakeFacts } from '@projectman/shared';
+import type {
+  InboxItem,
+  ProjectConfig,
+  StaleReason,
+  Task,
+  TeamMessage,
+  WakeBlock,
+  WakeFacts,
+} from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 
 /** Server facts for the shared message validity rule; no git lookup is needed at delivery. */
@@ -25,7 +33,8 @@ export function staleReasonFor(
 ): StaleReason | null {
   const task = message.taskKey ? ctx.repos.tasks.get(message.taskKey) : null;
   const stage = task ? stageOf(config, task.stageId) : null;
-  const subject = message.subject ? ctx.repos.inbox.get(message.subject.inboxItemId) : null;
+  const permission = message.subject?.type === 'permission' ? message.subject : null;
+  const subject = permission ? ctx.repos.inbox.get(permission.inboxItemId) : null;
   const delegation = subject ? permissionDelegationOf(subject) : null;
   const results = message.taskKey
     ? ctx.repos.timeline
@@ -42,14 +51,32 @@ export function staleReasonFor(
     resultCommits: results
       .filter((e) => e.actor.handle === recipient && e.createdAt > message.createdAt)
       .flatMap((e) => (typeof e.data.resultCommit === 'string' ? [e.data.resultCommit] : [])),
-    subjectClosed:
-      !!message.subject &&
-      (!subject ||
-        subject.state !== 'open' ||
-        !delegation ||
-        permissionDelegationState(config, subject.source, delegation, ctx.now().getTime()) !==
-          'pending_lead'),
+    subjectClosed: subjectClosed(ctx, config, message, subject, delegation),
   });
+}
+
+/** Whether what the message is about is over: a decided permission request, or an obligation that is not live. */
+function subjectClosed(
+  ctx: DomainContext,
+  config: ProjectConfig,
+  message: TeamMessage,
+  subject: InboxItem | null,
+  delegation: ReturnType<typeof permissionDelegationOf>,
+): boolean {
+  if (!message.subject) return false;
+  if (message.subject.type === 'obligation') return !obligationIsLive(ctx, message.subject.obligationId);
+  return (
+    !subject ||
+    subject.state !== 'open' ||
+    !delegation ||
+    permissionDelegationState(config, subject.source, delegation, ctx.now().getTime()) !== 'pending_lead'
+  );
+}
+
+/** An obligation row is live while its step is open or handed over to the integrator (PM-813). */
+export function obligationIsLive(ctx: DomainContext, obligationId: string): boolean {
+  const state = ctx.repos.obligations.get(obligationId)?.state;
+  return state === 'open' || state === 'handed_over';
 }
 
 export function senderResultLabelFor(

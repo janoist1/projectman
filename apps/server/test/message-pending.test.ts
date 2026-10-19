@@ -317,16 +317,35 @@ describe('pending message repository', () => {
         .map(([sql]) => sql)
         .filter((sql) => /SELECT.*|SELECT\s/s.test(sql) && sql.includes('FROM team_message_pending'));
       prepare.mockRestore();
-      expect(queries).toHaveLength(2);
-      for (const sql of queries) {
-        const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('AR', 'a') as Array<{ detail: string }>;
+      // Two read a recipient's queue; two more (PM-813) read the queue by project and by message.
+      expect(queries).toHaveLength(4);
+      const forRecipient = queries.filter((sql) => /project_key = \? AND (p\.)?handle = \?/.test(sql));
+      const byProject = queries.filter((sql) => sql.includes('GROUP BY m.id'));
+      const byMessage = queries.filter((sql) => sql.includes('WHERE message_id = ?'));
+      expect([forRecipient.length, byProject.length, byMessage.length]).toEqual([2, 1, 1]);
+      const planOf = (sql: string, ...params: string[]) =>
+        (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as Array<{ detail: string }>).map(
+          (row) => row.detail,
+        );
+      const scansMessages = (plan: string[]) => plan.some((row) => /SCAN (m|team_messages)\b/.test(row));
+      for (const sql of forRecipient) {
+        const plan = planOf(sql, 'AR', 'a');
         expect(
-          plan.some(
-            (row) => row.detail.includes('SEARCH') && row.detail.includes('team_message_pending_recipient'),
-          ),
+          plan.some((row) => row.includes('SEARCH') && row.includes('team_message_pending_recipient')),
         ).toBe(true);
-        expect(plan.some((row) => /SCAN (m|team_messages)\b/.test(row.detail))).toBe(false);
+        expect(scansMessages(plan)).toBe(false);
       }
+      // The obligation sweep reads every waiting reminder of a project: the project prefix of the
+      // recipient index finds the queue, and each message is looked up by its key.
+      const projectPlan = planOf(byProject[0]!, 'AR');
+      expect(
+        projectPlan.some((row) => row.includes('SEARCH') && row.includes('team_message_pending_recipient')),
+      ).toBe(true);
+      expect(scansMessages(projectPlan)).toBe(false);
+      // The handles of one message come from the primary key (message_id, handle).
+      const messagePlan = planOf(byMessage[0]!, 'pending_1');
+      expect(messagePlan.some((row) => row.includes('SEARCH') && row.includes('message_id=?'))).toBe(true);
+      expect(messagePlan.some((row) => row.includes('SCAN'))).toBe(false);
     } finally {
       db.close();
     }

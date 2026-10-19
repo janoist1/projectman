@@ -73,7 +73,7 @@ describe('integrator fix limit decision', () => {
       .filter((event) => event.type === 'fix_limit_recipient_escalated');
 
   /** AR-1 reaches the limit and the lead passes the decision on, so the item is addressed. */
-  async function passedOn(): Promise<InboxItem> {
+  async function heldAtLimit(): Promise<void> {
     await domain().tasks.create('AR', { title: 'Login page' }, humanActor('owner'));
     await domain().taskStarts.start('AR', 'AR-1', {
       assignee: 'dev-1',
@@ -91,6 +91,10 @@ describe('integrator fix limit decision', () => {
       });
       await settle();
     }
+  }
+
+  async function passedOn(): Promise<InboxItem> {
+    await heldAtLimit();
     await domain().fixLimit.decide('lead', 'AR', 'AR-1', 'to_owner', 'Not my call.', ASSESSMENT);
     return item(record()!.inboxItemId!);
   }
@@ -158,6 +162,55 @@ describe('integrator fix limit decision', () => {
       data: { phase: 'decided', decision: 'reassign' },
     });
   });
+
+  it.each(['another_round', 'replan'])(
+    'hands a timeout directly to the integrator and fulfills after it chooses %s',
+    async (optionId) => {
+      await heldAtLimit();
+      const stop = async () => {
+        for (const session of domain().sessions.list('AR')) await domain().sessions.stop('AR', session.id);
+        await settle();
+      };
+      await stop();
+      await domain().obligations.sweep();
+      now = new Date(now.getTime() + 30 * 60_000);
+      await domain().obligations.sweep();
+      await settle();
+      await stop();
+      now = new Date(now.getTime() + 30 * 60_000);
+      await domain().obligations.sweep();
+      const created = item(record()!.inboxItemId!);
+      const row = repos()
+        .obligations.listLive('AR', 'AR-1')
+        .find((entry) => entry.kind === 'fix_limit')!;
+      expect(row).toMatchObject({ state: 'handed_over', inboxItemId: created.id });
+      expect(created.payload).toMatchObject({
+        recipient: 'integrator',
+        fixLimit: { reason: 'decider_timeout' },
+      });
+      expect(domain().inbox.countOpenFor('AR', 'owner')).toBe(0);
+      expect(
+        domain()
+          .inbox.list('AR', {})
+          .filter((entry) => entry.kind === 'question' && entry.payload.obligation),
+      ).toHaveLength(0);
+      expect(
+        domain()
+          .timeline.list('AR')
+          .find((entry) => entry.type === 'obligation_handed_over' && entry.data.kind === 'fix_limit')?.data,
+      ).toMatchObject({ inboxItemId: created.id, decisionItemId: created.id, recipient: 'integrator' });
+      await domain().obligations.sweep();
+      expect(item(created.id).state).toBe('open');
+      const response = await decide(created.id, optionId);
+      expect(response.statusCode, response.body).toBe(200);
+      await domain().obligations.sweep();
+      expect(repos().obligations.get(row.id)?.state).toBe('fulfilled');
+      expect(item(created.id)).toMatchObject({
+        state: 'resolved',
+        resolution: { optionId, integratorFixLimit: true },
+      });
+    },
+  );
 
   it('replan: another technical direction holder is asked for a more exact plan', async () => {
     const created = await passedOn();

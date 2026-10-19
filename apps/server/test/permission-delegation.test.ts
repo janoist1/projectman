@@ -185,7 +185,7 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       const config = await h.domain.projects.config('AR');
       const message = h.repos.messages
         .list('AR', { member: 'cr' })
-        .find((m) => m.subject?.inboxItemId === item.id)!;
+        .find((m) => m.subject?.type === 'permission' && m.subject.inboxItemId === item.id)!;
       expect(h.domain.messages.wakes(config, message, 'cr')).toBe(false);
       expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(0);
       controller.abort();

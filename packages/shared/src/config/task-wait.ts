@@ -443,6 +443,11 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
         toStageId: nextStageId(config, task),
         hold: task.readyHold,
       });
+    // The system asked a member to start it (PM-804): the wait is theirs, not the queue's.
+    if (task.startOffer)
+      return make(config, 'ready', task.startOffer.since, [task.startOffer.to], {
+        toStageId: nextStageId(config, task),
+      });
     return make(config, 'ready', task.createdAt, [], { toStageId: nextStageId(config, task) });
   }
 

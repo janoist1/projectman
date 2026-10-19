@@ -1146,6 +1146,19 @@ export class MockBackend {
     });
   }
 
+  /** Simulate an expired AI decision without running the server's obligation clock. */
+  timeOutFixLimit(taskKey: string, decider: string): string | null {
+    const task = this.findTask(taskKey);
+    const held = task?.fixLimit;
+    if (!task || !held || (held.phase !== 'lead' && held.phase !== 'replan') || held.decider !== decider)
+      return null;
+    this.holdForPeople(task, this.fixRoundsOf(taskKey), 'decider_timeout', decider, null);
+    return (
+      this.inbox.find((item) => item.taskKey === taskKey && item.state === 'open' && fixLimitDecisionOf(item))
+        ?.id ?? null
+    );
+  }
+
   /** The card goes to the people: one decision item with the buttons that apply. */
   private holdForPeople(
     task: Task,

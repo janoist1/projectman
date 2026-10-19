@@ -361,6 +361,36 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
 
     defineTool({
+      name: 'open_integrator_todo',
+      title: 'Open a todo for the integrator',
+      readOnly: false,
+      description:
+        "Only the selected PM in its internal general conversation; needs no owner request. When a stalled, silent, outage or nobody signal needs someone to act, open a todo in the integrator's queue instead of asking the owners: what to do, where, and what is expected. The integrator's answer (done, or cannot do it) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
+      input: {
+        task_key: TaskKey.optional(),
+        question: z.string().trim().min(1).max(2000),
+        what: z.string().trim().min(1).max(2000),
+        where: z.string().trim().min(1).max(500),
+        expected: z.string().trim().min(1).max(1000),
+      },
+      async run({ ctx, args, handler }) {
+        const result = await handler.openIntegratorTodo(ctx, {
+          ...(args.task_key !== undefined ? { taskKey: args.task_key } : {}),
+          question: args.question,
+          what: args.what,
+          where: args.where,
+          expected: args.expected,
+        });
+        return (
+          `Integrator todo ${result.itemId} opened for ${result.recipient}.` +
+          (result.recipientRefusal
+            ? ` The integrator is not available (${result.recipientRefusal}): the owners got it.`
+            : '')
+        );
+      },
+    }),
+
+    defineTool({
       name: 'start_task',
       title: 'Start work on a task',
       readOnly: false,

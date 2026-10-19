@@ -18,6 +18,7 @@ export { describeRelatedCard, relationLines, relationPhrase } from './relations'
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';
 export { partsLeftText, type PartsLeftText } from './parts-left';
 export { roleLabel } from './role';
+export { collectorNotReadyText, startOfferText, type StartOfferText } from './start-offer';
 export { describeTaskWait, taskWaitShort } from './task-wait';
 export { describeRepo, type TaskRepoInfo } from './repo';
 export { describeTheme, themeCardLines, themeProgressText, themeState } from './theme';

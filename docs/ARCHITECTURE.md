@@ -3746,6 +3746,24 @@ Each kind has a source (`sources.ts`) that derives, from the task waits, the mer
 refinement turn, which steps are open now; the sweep writes one row of `obligations` (migration 88, not
 journaled) per card, kind, responsible and subject, and closes a row whose step ended.
 
+**`review_step` (PM-809).** One entry of a card into a `step` stage (the code review), for each AI owner of the
+stage (`stageOwners`) who may set a label the next stage's gate lacks (`stepResult` in
+`packages/shared/src/config/gates.ts`: the gate labels the member sets, `gate`, and with the other labels of
+their groups, `results`: `code-review-ok` and `code-review-changes`). The subject is `<stageId>@<stageEnteredAt>`
+and the clock starts at the entry. Unlike the other kinds this source derives the step from the stage, not from
+the card's wait (`derivesWhilePaused`): whoever else works on the card or holds it, the step stays open until
+its result is there, and the pause of the sweep stops the clock. A fix round limit on the card (`held`) and the
+other pauses stop it too; the responsible's own working session moves the deadline, an idle session that holds
+the card does not (the reminder goes into that session). A result label added since the entry (any of `results`)
+or a move forward fulfils the row, so a `code-review-changes` ends the step and the same entry opens no new one;
+a move back, a lost stage ownership or a closed card cancels it, and a new entry is a new subject and a new
+clock. A queue stage (Ötletek, Indulhat) has no such step: its cards are the owner's, and a card under
+refinement has its `refinement_turn`; the rows an older build opened for a queue stage end as `cancelled` on
+the first sweep, whatever holds the card. A card in a merge has no review step: the `merge` kind follows it.
+A card imported into the stage (its `task_created` event carries `imported` and the entry time) was not handed
+over, so it has no step until it enters the stage again. Known gap: a second review round on the same entry (after a `code-review-changes` and the developer's fix)
+opens no new row.
+
 The pure clock is `planObligation` in `packages/shared/src/domain/obligation.ts`: the first expiry sends
 one action message from the system to the responsible (`obligation_woken`), the second makes one integrator
 todo (`obligation_handed_over`, `core/inbox` `openIntegratorTodo`). Activity of the responsible moves the

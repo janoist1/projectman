@@ -235,7 +235,7 @@ export const TaskFixLimit = z.object({
   decider: MemberHandle.nullable(),
   /** `owner`: the people who decide. */
   deciders: z.array(MemberHandle),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted']).nullable(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted', 'decider_timeout']).nullable(),
   /**
    * `owner`: who the decision item is addressed to now (PM-714): the integrator first, the owners after a
    * hand-over or the 24 hour timeout, or when no integrator was available. Absent: the owners (older holds).
@@ -263,6 +263,10 @@ export const TaskHandOn = z.object({
 });
 export type TaskHandOn = z.infer<typeof TaskHandOn>;
 
+/** The system asked `to` to start the ready card (PM-804); read from the open `start` obligation. */
+export const TaskStartOffer = z.object({ to: MemberHandle, since: z.string() });
+export type TaskStartOffer = z.infer<typeof TaskStartOffer>;
+
 export const Task = z.object({
   handOn: TaskHandOn.optional(),
   /** Absent: `task`. */
@@ -280,6 +284,8 @@ export const Task = z.object({
   startWaiting: TaskStartWaiting.optional(),
   /** Computed on reads; never stored. */
   readyHold: TaskReadyHold.optional(),
+  /** Computed on reads; never stored. Hidden from clients. */
+  startOffer: TaskStartOffer.optional(),
   outage: WorkOutage.optional(),
   reviewPin: TaskReviewPin.optional(),
   merge: TaskMergeState.optional(),

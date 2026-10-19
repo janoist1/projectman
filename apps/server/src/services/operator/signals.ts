@@ -121,7 +121,7 @@ const MEMBER_WORK_EVENTS: ReadonlySet<TimelineEvent['type']> = new Set([
 const CARD_EVENTS_READ = 300;
 
 const WAKE_NEVER =
-  "On a signal never merge, release, approve, move a card, or set a label or a setting; stalled, silent, outage, nobody and process_cleanup_failed signals always go to the owners. Never stop another member's processes yourself.";
+  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human; a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
   'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
 const WAKE_STRUCTURAL =
@@ -184,6 +184,7 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
+    startHandled?: (task: Task) => boolean;
   }) {
     this.deps = privateDeps;
   }
@@ -196,6 +197,8 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
+    /** The start round already acts on the ready card: it holds it on purpose or asked a member to start it (PM-804). */
+    startHandled?: (task: Task) => boolean;
   };
 
   /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
@@ -900,7 +903,7 @@ export class OperatorSignals {
         if (free)
           ready.push(
             ...startableCards({ config, tasks: cards, fromStageId: stage.id, toStageId: next.id }).filter(
-              (task) => waits.get(task.key)?.reason === 'ready',
+              (task) => waits.get(task.key)?.reason === 'ready' && !this.deps.startHandled?.(task),
             ),
           );
       }

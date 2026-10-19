@@ -1,10 +1,47 @@
 import type { IncomingHttpHeaders } from 'node:http';
+import type { FastifyRequest } from 'fastify';
 import { describe, expect, it } from 'vitest';
-import { clientAddress, isLocalRequest } from './local-request';
+import { clientAddress, isLocalRequest, requestProtocol } from './local-request';
 
 const request = (remoteAddress: string | undefined, headers: IncomingHttpHeaders = {}) => ({
   socket: { remoteAddress } as never,
   headers: { host: '127.0.0.1:4700', ...headers },
+});
+
+describe('requestProtocol', () => {
+  const protocol = (peer: string | undefined, value?: string | string[]) =>
+    requestProtocol({
+      ...request(peer, { 'x-forwarded-proto': value }),
+      protocol: 'http',
+    } as unknown as FastifyRequest);
+
+  it.each(['100.64.0.5', '203.0.113.7', '::ffff:203.0.113.7', undefined])(
+    'ignores forwarded HTTPS from the untrusted peer %s',
+    (peer) => {
+      expect(protocol(peer, 'https')).toBe('http');
+    },
+  );
+
+  it.each(['127.0.0.1', '::1', '::ffff:127.0.0.1'])(
+    'trusts only explicit forwarded HTTPS from the loopback peer %s',
+    (peer) => {
+      expect(protocol(peer, 'https')).toBe('https');
+      expect(protocol(peer)).toBe('http');
+    },
+  );
+
+  it.each<{ value: string | string[] }>([
+    { value: 'https,http' },
+    { value: 'http' },
+    { value: 'HTTPS ' },
+    { value: 'https ' },
+    { value: 'HTTPS' },
+    { value: '' },
+    { value: ['https'] },
+    { value: ['https', 'http'] },
+  ])('rejects the non-exact forwarded protocol $value from loopback', ({ value }) => {
+    expect(protocol('127.0.0.1', value)).toBe('http');
+  });
 });
 
 describe('isLocalRequest', () => {

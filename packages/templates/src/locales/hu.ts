@@ -400,6 +400,7 @@ export const hu: TemplateLocale = {
       no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (Műszaki irányítás és Kódellenőrzés).',
       passed_on: '{name} továbbadta.',
       extra_exhausted: 'A 3 extra kör elfogyott, és újra elérte a határt.',
+      decider_timeout: 'Az AI döntő nem döntött határidőn belül.',
       again: 'Még egy kör után újra elérte a határt.',
     },
     extras: {

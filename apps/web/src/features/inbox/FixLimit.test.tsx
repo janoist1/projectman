@@ -279,6 +279,21 @@ describe('the decision of a held card in the inbox', () => {
     expect(project.backend.findTask('AC-21')?.fixLimit).toBeUndefined();
   });
 
+  it('shows the expired AI decision from the fake backend in the inbox', async () => {
+    const project = mockProject(backendWith({ lead: true }));
+    changeRequests(project.backend, 2);
+    expect(project.backend.timeOutFixLimit('AC-21', 'devops')).toBeNull();
+    const id = project.backend.timeOutFixLimit('AC-21', 'code-review');
+    expect(id).toBeTruthy();
+    expect(project.backend.timeOutFixLimit('AC-21', 'code-review')).toBeNull();
+    expect(project.backend.findTask('AC-21')?.fixLimit).toMatchObject({
+      phase: 'owner',
+      reason: 'decider_timeout',
+    });
+    render(project);
+    expect(await screen.findByText(new RegExp(t('inbox.fixLimit.reasons.decider_timeout')))).toBeTruthy();
+  });
+
   it('shows what each button leads to, and "Még egy kör" lets the card go on', async () => {
     const project = mockProject(backendWith());
     changeRequests(project.backend, 2);

@@ -123,6 +123,13 @@ export function createMessageRepository(db: Db) {
     pending: db.prepare(`SELECT m.* FROM team_message_pending AS p
       JOIN team_messages AS m ON m.id = p.message_id
       WHERE p.project_key = ? AND p.handle = ? ORDER BY p.seq`),
+    pendingObligationReminders: db.prepare(`SELECT m.* FROM team_message_pending AS p
+      JOIN team_messages AS m ON m.id = p.message_id
+      WHERE p.project_key = ? AND CASE WHEN json_valid(m.subject) THEN json_extract(m.subject, '$.type') ELSE NULL END = 'obligation'
+      GROUP BY m.id ORDER BY m.seq`),
+    pendingHandles: db.prepare(
+      'SELECT handle FROM team_message_pending WHERE message_id = ? ORDER BY handle',
+    ),
     pendingCount: db.prepare(`SELECT COUNT(*) AS n FROM team_message_pending
       WHERE project_key = ? AND handle = ?`),
     clearPending: db.prepare('DELETE FROM team_message_pending WHERE message_id = ?'),
@@ -169,7 +176,7 @@ export function createMessageRepository(db: Db) {
       return rows.map(toMessage);
     },
     hasNewerAction(message: TeamMessage, recipient: string): boolean {
-      const subject = message.subject?.inboxItemId ?? null;
+      const subject = message.subject?.type === 'permission' ? message.subject.inboxItemId : null;
       if (message.from === 'system' && subject === null) return false;
       return !!statements.hasNewerAction.get(
         message.projectKey,
@@ -286,6 +293,16 @@ export function createMessageRepository(db: Db) {
     /** Messages to an AI recipient that were not typed into one of its sessions yet, oldest first. */
     pending(projectKey: string, handle: string): TeamMessage[] {
       return (statements.pending.all(projectKey, handle) as MessageRow[]).map(toMessage);
+    },
+    /**
+     * The undelivered reminders of obligations (PM-813) with the handles still waiting for each, oldest first.
+     * Narrow on purpose: the pending queue holds a few rows, and only those with an obligation subject are read.
+     */
+    pendingObligationReminders(projectKey: string): { message: TeamMessage; handles: string[] }[] {
+      return (statements.pendingObligationReminders.all(projectKey) as MessageRow[]).map((row) => ({
+        message: toMessage(row),
+        handles: (statements.pendingHandles.all(row.id) as { handle: string }[]).map((h) => h.handle),
+      }));
     },
     /** The same recipient set without reading or decoding message rows. */
     pendingCount(projectKey: string, handle: string): number {

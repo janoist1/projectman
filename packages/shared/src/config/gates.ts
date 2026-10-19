@@ -232,6 +232,42 @@ export function stageAdvance(
     : { kind: 'move', to };
 }
 
+/** What ends a member's part of a step stage (PM-809). */
+export interface StepResult {
+  /** Labels of the next stage's gate this card must get and the member may set (the authors are left out where `notByAuthor`). */
+  gate: string[];
+  /** `gate` plus the other labels of their groups (`code-review-changes`, `code-review-blocked`): any of them ends the step. */
+  results: string[];
+}
+
+/**
+ * The result of a member's part of the step stage the card stands in; null when the card is not in a
+ * `step` stage, there is no next stage, or the member sets none of the next gate's labels.
+ */
+export function stepResult(
+  config: GateConfig,
+  task: Pick<Task, 'stageId' | 'labels' | 'assignee' | 'links'>,
+  member: string,
+): StepResult | null {
+  const stages = config.pipeline.stages;
+  const from = stages[stageIndex(config.pipeline, task.stageId)];
+  const to = from ? stages[stageIndex(config.pipeline, from.id) + 1] : undefined;
+  if (!from || !to || from.kind !== 'step') return null;
+  const gate: string[] = [];
+  for (const condition of to.gate?.conditions ?? []) {
+    if (condition.type !== 'has_label' || gate.includes(condition.label)) continue;
+    if (condition.when !== undefined && !task.labels.includes(condition.when)) continue;
+    const label = labelDefinition(config, condition.label);
+    if (label && labelSetters(config, label, task).includes(member)) gate.push(condition.label);
+  }
+  if (gate.length === 0) return null;
+  const groups = new Set(gate.map((id) => labelDefinition(config, id)?.group).filter((g) => g !== undefined));
+  const mates = config.pipeline.labels
+    .filter((label) => label.group !== undefined && groups.has(label.group))
+    .map((label) => label.id);
+  return { gate, results: [...new Set([...gate, ...mates])] };
+}
+
 /** Gates of a move from one stage to another; forward moves also respect blocking labels. */
 export function evaluateMove(
   task: GateTask,

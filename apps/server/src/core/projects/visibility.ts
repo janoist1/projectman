@@ -84,6 +84,7 @@ export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key
   // The loop mark (PM-261) and the fix round limit hold (PM-262) are the team's, as the rounds of a card
   // are: a client never sees them. Nor the handoff of the card (PM-342).
   const {
+    startOffer: _startOffer,
     loop: _loop,
     fixLimit: _fixLimit,
     handoff: _handoff,

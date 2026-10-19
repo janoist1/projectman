@@ -131,7 +131,17 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
     case 'handing_off':
       return null;
     case 'ready':
-      if (!wait.hold) return null;
+      if (!wait.hold) {
+        // A startable card the system asked the pm (or the operator) to start (PM-804).
+        if (wait.next.length === 0) return null;
+        return build({
+          head: names,
+          you: meNext,
+          waiting: t('taskStatus.next.short.startOffer'),
+          long: t('taskStatus.next.long.startOffer'),
+          todo: t('taskStatus.next.todo.startOffer'),
+        });
+      }
       return build({
         head: t('taskStatus.next.heads.start'),
         waiting: t(`taskStatus.next.readyHolds.${wait.hold.reason}`),

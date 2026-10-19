@@ -3,6 +3,7 @@ import {
   PENDING_INBOX_STATES,
   SYSTEM_SENDER,
   isInformationalAlert,
+  inboxRecipientOf,
   isOpenTask,
   labelDefinition,
   memberOf,
@@ -18,16 +19,24 @@ import type {
   ObligationRef,
   ProjectConfig,
   Task,
+  TimelineEventData,
 } from '@projectman/shared';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
-import type { Messaging } from '../../core/messages';
+import { staleReasonFor } from '../../core/messages';
+import type { MessageService, Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../kernel';
-import type { ObligationAdmission, ObligationRefinement, ObligationSessions } from './ports';
+import type {
+  ObligationAdmission,
+  ObligationFixLimit,
+  ObligationRefinement,
+  ObligationSessions,
+  ObligationStartOffers,
+} from './ports';
 import { obligationSources } from './sources';
 import type { DerivedObligation, ObligationSource, ProjectView } from './sources';
 
@@ -50,10 +59,13 @@ export interface ObligationsDeps {
   taskWaits: Pick<TaskWaits, 'of'>;
   inbox: Pick<InboxService, 'openIntegratorTodo' | 'closeObligationTodo'>;
   messaging: Pick<Messaging, 'send'>;
+  messages: Pick<MessageService, 'markRecipientDelivered'>;
   timeline: Pick<TimelineService, 'append'>;
   sessions: ObligationSessions;
   admission: ObligationAdmission;
   refinement: ObligationRefinement;
+  fixLimit: ObligationFixLimit;
+  startOffers: ObligationStartOffers;
 }
 
 const keyOf = (kind: string, taskKey: string, responsible: string, subject: string): string =>
@@ -70,7 +82,7 @@ const minutesBetween = (from: string, to: string): number =>
  * The obligation tracking (PM-806): an open step must not get lost when the AI member responsible for it
  * stops, stalls or misunderstands. Every step has a responsible and a deadline of N minutes
  * (`obligationMinutes`): the first expiry sends the responsible one reminder, the second one gives the
- * step to the integrator as a todo. The system never does the step, decides, or sets a label itself.
+ * step to the integrator as a todo or a decision item. The system never does the step, decides, or sets a label itself.
  *
  * The sweep is level-driven: each kind's source says which steps are open now, a row is written for
  * each (once for ever, per card, kind, responsible and subject), and a row whose step is not open any
@@ -84,6 +96,7 @@ export class ObligationsService {
   private readonly taskWaits: ObligationsDeps['taskWaits'];
   private readonly inbox: ObligationsDeps['inbox'];
   private readonly messaging: ObligationsDeps['messaging'];
+  private readonly messages: ObligationsDeps['messages'];
   private readonly timeline: ObligationsDeps['timeline'];
   private readonly sessions: ObligationSessions;
   private readonly admission: ObligationAdmission;
@@ -97,13 +110,33 @@ export class ObligationsService {
     this.taskWaits = deps.taskWaits;
     this.inbox = deps.inbox;
     this.messaging = deps.messaging;
+    this.messages = deps.messages;
     this.timeline = deps.timeline;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
     this.sources = obligationSources({
       sessions: deps.sessions,
       refinement: deps.refinement,
+      fixLimit: deps.fixLimit,
+      startOffers: deps.startOffers,
+      fixLimits: deps.ctx.repos.taskFixLimits,
+      roundsOf: (projectKey, taskKey) => deps.tasks.find(projectKey, taskKey)?.fixLimit?.rounds ?? 0,
       mergeState: (mergeId) => deps.ctx.repos.taskMerges.get(mergeId)?.state ?? null,
+      labelsAddedSince: (projectKey, taskKey, labels, since) =>
+        deps.ctx.repos.timeline
+          .listOfTypes(projectKey, taskKey, ['task_labels_changed'], 200)
+          .some((event) => {
+            const data = event.data as Partial<TimelineEventData['task_labels_changed']>;
+            return (
+              event.createdAt >= since &&
+              Array.isArray(data.added) &&
+              data.added.some((label) => labels.includes(label))
+            );
+          }),
+      importedEntry: (projectKey, taskKey, since) =>
+        deps.ctx.repos.timeline
+          .listOfTypes(projectKey, taskKey, ['task_created'], 1)
+          .some((event) => event.createdAt === since && event.data.imported === true),
     });
   }
 
@@ -179,6 +212,19 @@ export class ObligationsService {
         this.ctx.logger.warn({ err, projectKey, taskKey }, 'could not sweep the obligations of a card');
       }
     }
+    this.discardClosedReminders(projectKey, config);
+  }
+
+  /**
+   * A reminder that waits in a recipient's queue (it could not start: capacity, leave) is dropped once its
+   * step is not open any more (PM-813). It is marked delivered without being typed anywhere, and it started
+   * nothing before either: the delivery treats it as stale. This also clears the queue after a restart.
+   */
+  private discardClosedReminders(projectKey: string, config: ProjectConfig): void {
+    for (const { message, handles } of this.ctx.repos.messages.pendingObligationReminders(projectKey)) {
+      if (staleReasonFor(this.ctx, config, message, handles[0]!) !== 'obligation_closed') continue;
+      for (const handle of handles) this.messages.markRecipientDelivered(message.id, handle);
+    }
   }
 
   /**
@@ -228,15 +274,29 @@ export class ObligationsService {
       // Read again inside the card lock: a round before this one may have moved the row on.
       const row = repo.get(listed.id);
       if (!row || (row.state !== 'open' && row.state !== 'handed_over') || unreadable.has(row.kind)) continue;
+      // A row opened by `open` after this sweep began (the start round, PM-804) was not derived: the next sweep sees it.
+      if (row.openedAt > at) continue;
       const still = derived.get(rowKey(row));
+      const source = this.sourceOf(row.kind);
+      if (!still && source.keepsHandedOver?.(row, view)) {
+        if (row.state === 'open') await this.handOver(row, minutes, at, view);
+        continue;
+      }
+      if (!still && row.state === 'handed_over' && source.keepsHandedOver) {
+        await this.end(row, view, at);
+        continue;
+      }
       // A handed-over row only waits for its step to end.
       if (still && row.state !== 'open') continue;
       // A step that is not open any more is asked about the start too: a refused start is why it may look so.
-      const paused = await this.pauseOf(view, task, row, humanItems.get(taskKey) ?? [], at, !still);
-      // Step 2: a step that is not open any more ends, unless something holds the card.
+      const paused =
+        (await this.pauseOf(view, task, row, humanItems.get(taskKey) ?? [], at, !still)) ??
+        (still?.held ? 'held' : null);
+      // Step 2: a step that is not open any more ends, unless something holds the card (a source that
+      // derives its steps whatever holds the card has none to keep open).
       if (!still) {
-        if (task && isOpenTask(task) && paused) {
-          if (row.state === 'open') await this.plan(row, task, paused, still, minutes, at);
+        if (task && isOpenTask(task) && paused && !this.sourceOf(row.kind).derivesWhilePaused) {
+          if (row.state === 'open') await this.plan(row, task, paused, still, minutes, at, view);
           continue;
         }
         await this.end(row, view, at);
@@ -244,7 +304,7 @@ export class ObligationsService {
       }
       if (row.state !== 'open' || !task) continue;
       // Step 3: the clock of an open row.
-      await this.plan(row, task, paused, still, minutes, at);
+      await this.plan(row, task, paused, still, minutes, at, view);
     }
   }
 
@@ -261,7 +321,9 @@ export class ObligationsService {
     const config = view.config;
     if (task.status === 'blocked' || task.labels.some((id) => labelDefinition(config, id)?.blocks))
       return 'held';
-    if (humanItems.length > 0) return 'inbox';
+    const ownDecisionId =
+      row.kind === 'fix_limit' ? this.ctx.repos.taskFixLimits.get(row.taskKey)?.inboxItemId : null;
+    if (humanItems.some((item) => item.id !== ownDecisionId)) return 'inbox';
     const sessions = this.sessions.ofMember(row.projectKey, row.taskKey, row.responsible);
     const live = sessions.filter((session) => session.running);
     if (live.some((session) => session.state === 'waiting_permission' || session.state === 'waiting_input'))
@@ -283,6 +345,7 @@ export class ObligationsService {
     still: DerivedObligation | undefined,
     minutes: number,
     at: string,
+    view: ProjectView,
   ): Promise<void> {
     const repo = this.ctx.repos.obligations;
     const due = Date.parse(at) >= Date.parse(row.dueAt);
@@ -309,10 +372,10 @@ export class ObligationsService {
         repo.update(row.id, { dueAt: step.dueAt }, at);
         return;
       case 'wake':
-        await this.wake(row, minutes, step.dueAt, at);
+        await this.wake(row, minutes, step.dueAt, at, view);
         return;
       case 'hand_over':
-        await this.handOver(row, minutes, at);
+        await this.handOver(row, minutes, at, view);
         return;
     }
   }
@@ -342,7 +405,13 @@ export class ObligationsService {
   }
 
   /** The one reminder: the row and the event are written first, so a failed send is never repeated. */
-  private async wake(row: Obligation, minutes: number, dueAt: string, at: string): Promise<void> {
+  private async wake(
+    row: Obligation,
+    minutes: number,
+    dueAt: string,
+    at: string,
+    view: ProjectView,
+  ): Promise<void> {
     this.ctx.unitOfWork(() => {
       this.ctx.repos.obligations.update(row.id, { wokenAt: at, dueAt }, at);
       this.timeline.append({
@@ -367,9 +436,15 @@ export class ObligationsService {
         {
           to: [row.responsible],
           taskKey: row.taskKey,
-          text: this.sourceOf(row.kind).wakeText(row, minutes, minutesBetween(row.openedAt, at)),
+          text: this.sourceOf(row.kind).wakeText(row, minutes, minutesBetween(row.openedAt, at), view),
         },
-        { actor: SYSTEM_ACTOR, kind: 'action', ownCard: true },
+        // The subject lets the delivery see that the reminder is out of date once the step is done (PM-813).
+        {
+          actor: SYSTEM_ACTOR,
+          kind: 'action',
+          ownCard: true,
+          subject: { type: 'obligation', obligationId: row.id },
+        },
       );
     } catch (err) {
       this.ctx.logger.warn(
@@ -379,13 +454,27 @@ export class ObligationsService {
     }
   }
 
-  /** The second expiry: the integrator todo, once. A todo that a crash left without its row is found, not repeated. */
-  private async handOver(row: Obligation, minutes: number, at: string): Promise<void> {
-    const found = this.todoOf(row);
-    let itemId = found?.id ?? null;
-    let recipient = found ? (questionPayloadOf(found)?.recipient ?? 'owner') : null;
+  /** The second expiry: a decision hand-over or one todo. A crash never repeats an existing item. */
+  private async handOver(row: Obligation, minutes: number, at: string, view: ProjectView): Promise<void> {
+    const source = this.sourceOf(row.kind);
+    const decision = await source.handOver?.(row);
+    if (source.handOver && !decision) {
+      this.ctx.repos.obligations.close(row.id, 'fulfilled', at);
+      return;
+    }
+    const decisionItem = decision ? this.ctx.repos.inbox.get(decision.decisionItemId) : null;
+    if (decision && !decisionItem) throw new Error(`missing hand-over decision ${decision.decisionItemId}`);
+    const found = decision ? null : this.todoOf(row);
+    let itemId = decisionItem?.id ?? found?.id ?? null;
+    let recipient = decisionItem
+      ? inboxRecipientOf(decisionItem)
+      : found
+        ? (questionPayloadOf(found)?.recipient ?? 'owner')
+        : null;
     if (!itemId) {
-      const { question, todo } = this.sourceOf(row.kind).todo(row, minutes, minutesBetween(row.openedAt, at));
+      const content = source.todo?.(row, minutes, minutesBetween(row.openedAt, at), view);
+      if (!content) throw new Error(`no hand-over todo for ${row.kind}`);
+      const { question, todo } = content;
       const opened = await this.inbox.openIntegratorTodo({
         projectKey: row.projectKey,
         taskKey: row.taskKey,
@@ -414,18 +503,19 @@ export class ObligationsService {
           minutes,
           inboxItemId: itemId!,
           recipient: to,
+          ...(decision ? { decisionItemId: decision.decisionItemId } : {}),
         },
       });
     });
   }
 
-  /** The open todo of the row: by its item id, else by the obligation the item names (a crash lost the id). */
+  /** Only the row's todo, never a decision: by its id or the obligation it names after a crash. */
   private todoOf(row: Obligation): InboxItem | null {
     const inbox = this.ctx.repos.inbox;
     const pending = new Set<string>(PENDING_INBOX_STATES);
     if (row.inboxItemId) {
       const item = inbox.get(row.inboxItemId);
-      if (item && pending.has(item.state)) return item;
+      if (item && pending.has(item.state) && isObligationTodo(item)) return item;
     }
     return (
       inbox

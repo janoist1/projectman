@@ -620,6 +620,7 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     startWaiting: deferredStarts,
     readyHold: (task) => startRound.holdOf(task),
+    startOffer: (task) => startRound.startOfferOf(task),
     outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
     sourceHead: (config, task, opts) => sessions.sourceHead(config, task, opts),
@@ -789,23 +790,6 @@ export function createDomain(opts: DomainOptions) {
     engines,
     messageAttachments,
   });
-  refinement.useNotify(async (task, recipient) => {
-    try {
-      const config = await projects.config(task.projectKey);
-      await messaging.send(
-        task.projectKey,
-        SYSTEM_SENDER,
-        {
-          to: [recipient],
-          taskKey: task.key,
-          text: `${task.key} is worked out and ready for development. Check the card with get_task and start it according to the team's priorities and capacity.`,
-        },
-        { kind: memberOf(config, recipient)?.kind === 'ai' ? 'action' : 'info' },
-      );
-    } catch (err) {
-      opts.logger.warn({ err, taskKey: task.key, recipient }, 'refinement completion notice failed');
-    }
-  });
   sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
   );
@@ -895,8 +879,20 @@ export function createDomain(opts: DomainOptions) {
       starts: workStarts,
     }),
   );
-  const startRound = new StartRound({ ctx, projects, tasks, focus: projectFocus, seniorWaits, admission });
+  const taskWaits = new TaskWaits({ ctx, members });
+  const startRound = new StartRound({
+    ctx,
+    projects,
+    tasks,
+    focus: projectFocus,
+    seniorWaits,
+    admission,
+    messaging,
+    waits: taskWaits,
+  });
   admission.useRound(startRound);
+  // A card worked out is offered for starting by the next round; a collecting card that cannot start says so (PM-804).
+  refinement.useNotify((task, recipient) => startRound.refined(task, recipient));
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   // A card at its fix round limit holds back its assignee's messages and hand-over notice (PM-262); the
   // hold needs the classes it binds to, which are built first.
@@ -1171,8 +1167,7 @@ export function createDomain(opts: DomainOptions) {
         })
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
-  const taskWaits = new TaskWaits({ ctx, members });
-  // The open steps of the AI members (PM-806): a reminder and then an integrator todo, never a decision.
+  // The open steps of AI members: a reminder, then an integrator todo (decisions go to owners).
   const obligations = new ObligationsService({
     ctx,
     projects,
@@ -1180,8 +1175,11 @@ export function createDomain(opts: DomainOptions) {
     taskWaits,
     inbox,
     messaging,
+    messages,
     timeline,
     refinement,
+    fixLimit,
+    startOffers: { stateOf: (projectKey, taskKey) => startRound.offerState(projectKey, taskKey) },
     sessions: {
       ofMember: (projectKey, taskKey, member) =>
         sessions.list(projectKey, { member, taskKey }).map((session) => {
@@ -1214,6 +1212,11 @@ export function createDomain(opts: DomainOptions) {
       },
     },
   });
+  startRound.useObligations({
+    open: (input) => {
+      obligations.open({ ...input, kind: 'start' });
+    },
+  });
   const operatorSignals = new OperatorSignals({
     ctx,
     projects,
@@ -1223,6 +1226,7 @@ export function createDomain(opts: DomainOptions) {
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
     releases,
+    startHandled: (task) => !!startRound.holdOf(task) || !!startRound.startOfferOf(task),
   });
   messaging.registerSignals(operatorSignals);
   const structuralReviews = new StructuralReviews({
@@ -1514,6 +1518,7 @@ export function createDomain(opts: DomainOptions) {
         projects,
         tasks,
         inbox,
+        obligations,
         messaging,
         projectState,
         operatorActions,

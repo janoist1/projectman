@@ -228,6 +228,8 @@ export function formatTeamMessageBatch(
         return 'you already recorded your result for this commit';
       case 'permission_closed':
         return 'the permission request no longer waits for you';
+      case 'obligation_closed':
+        return 'the step it reminds of is done';
       default:
         return '';
     }

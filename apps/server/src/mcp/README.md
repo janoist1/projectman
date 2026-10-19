@@ -193,6 +193,12 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
+- `open_integrator_todo { task_key?, question, what, where, expected }` (PM-808) lets only the selected PM's
+  internal general session open a todo in the integrator's queue itself, with no owner request: the same
+  `InboxService.openIntegratorTodo` the obligation tracking (PM-806) uses, with the PM as the asker, so the
+  integrator's answer (`todo_done`, `todo_cannot`) comes back to it. The owners get it when the integrator
+  is not available (the result says so). A card with an open or handed-over obligation is refused with
+  `obligation_tracked`. Returns text. Handler: `openIntegratorTodo`.
 - `combine_questions { item_ids, question, note }` (PM-695) lets only the selected PM's internal
   general session group 2–10 semantically equivalent screened owner decisions without an owner request.
   Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;

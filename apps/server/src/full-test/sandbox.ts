@@ -128,12 +128,14 @@ export function installerSettings(spec: SandboxSpec, paths: RunPaths, nodeModule
 
 /**
  * The environment of a run: an allow list, nothing else comes from the server's environment, so no
- * `PROJECTMAN_*` (the PTY skip included), token, `SSH_AUTH_SOCK` or billing variable gets in.
+ * `PROJECTMAN_*` (the PTY skip included), token, `SSH_AUTH_SOCK` or billing variable is inherited.
+ * The executor alone supplies the optional disposable passed-step key file.
  */
 export function fullTestEnv(
   paths: RunPaths,
   maxWorkers: number,
   base: NodeJS.ProcessEnv = process.env,
+  passedKeysFile?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
     PATH: base.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin',
@@ -153,6 +155,7 @@ export function fullTestEnv(
     PROJECTMAN_HEAVY_LOCK_HELD: '1',
     PROJECTMAN_FULL_TEST_SANDBOX: '1',
   };
+  if (passedKeysFile) env.PROJECTMAN_MERGE_TEST_PASSED_KEYS = passedKeysFile;
   for (const name of ['LANG', 'LC_ALL'] as const) {
     const value = base[name];
     if (value) env[name] = value;

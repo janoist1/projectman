@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runMergeTest } from '../../../scripts/merge-test/run';
+import { mergeTestStepKey, typecheckStep } from '../../../scripts/merge-test/steps';
 import type { StepRun } from '../../../scripts/merge-test/steps';
 
 vi.mock('node:child_process', () => ({ spawnSync: vi.fn() }));
@@ -19,6 +21,7 @@ const gitCalls = () => spawn.mock.calls.map(([, args]) => args);
 afterEach(() => {
   vi.resetAllMocks();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('merge test runner', () => {
@@ -27,6 +30,7 @@ describe('merge test runner', () => {
   function mockHead(parents: string, changed: string[] = []) {
     spawn.mockImplementation((_command, args) => {
       if (args?.[0] === 'rev-list') return ended(`head ${parents}`);
+      if (args?.[0] === 'rev-parse') return ended('candidate-tree');
       if (args?.[0] === 'diff') return ended(changed.map((file) => `${file}\0`).join(''));
       throw new Error('unexpected command');
     });
@@ -55,6 +59,26 @@ describe('merge test runner', () => {
         (ws) => ['test', '-w', ws, '--if-present'],
       ),
     ]);
+  });
+  it.each([false, true])('reads the passed-key list unless --no-cache is present (%s)', async (noCache) => {
+    const log = output();
+    mockHead('first second');
+    const root = mkdtempSync(resolve(tmpdir(), 'pm-cli-cache-'));
+    const file = resolve(root, 'keys');
+    const step = typecheckStep('packages/shared', true);
+    const key = mergeTestStepKey('candidate-tree', step.args);
+    writeFileSync(file, `${key}\n`);
+    vi.stubEnv('PROJECTMAN_MERGE_TEST_PASSED_KEYS', file);
+    try {
+      expect(await run(['--all', ...(noCache ? ['--no-cache'] : [])])).toBe(0);
+      expect(npm).toHaveBeenCalledTimes(noCache ? 10 : 9);
+      expect(log.mock.calls.some(([line]) => String(line).startsWith('merge-test cached:'))).toBe(!noCache);
+      expect(log.mock.calls).toContainEqual([`merge-test step passed: ${key}`]);
+      expect(log.mock.calls.at(-1)?.[0]).toContain('merge-test scope:');
+      expect(gitCalls()).toContainEqual(['rev-parse', 'HEAD^{tree}']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
   it('lists exactly the workspaces of the repository', async () => {
     const root = fileURLToPath(new URL('../../..', import.meta.url));
@@ -97,6 +121,7 @@ describe('merge test runner', () => {
     let current = tree;
     spawn.mockImplementation((_command, args) => {
       if (args?.[0] === 'rev-list') return ended('head first second');
+      if (args?.[0] === 'rev-parse') return ended('candidate-tree');
       if (args?.[0] === 'diff') return ended(changed.join('\0') + '\0');
       if (args?.[0] === 'ls-tree') {
         current = args[3] === 'HEAD' ? after : tree;
@@ -339,7 +364,7 @@ describe('merge test runner', () => {
       ],
     ]);
     expect(gitCalls().some((args) => args?.[0] === 'ls-tree')).toBe(false);
-    expect(log.mock.calls).toHaveLength(2);
+    expect(log.mock.calls.filter(([line]) => String(line).startsWith('merge-test scope:'))).toHaveLength(2);
     expect(log.mock.calls[0]?.[0]).toContain('merge-test scope: cloud');
     expect(log.mock.calls[0]).toEqual(log.mock.calls.at(-1));
   });
@@ -395,6 +420,7 @@ describe('the rerun of failed test files', () => {
   function mockMerge(changed: string[], rerun: StepRun = done()) {
     spawn.mockImplementation((_command, args) => {
       if (args?.[0] === 'rev-list') return ended('head first second');
+      if (args?.[0] === 'rev-parse') return ended('candidate-tree');
       if (args?.[0] === 'diff') return ended(changed.map((file) => `${file}\0`).join(''));
       throw new Error('unexpected command');
     });
@@ -441,6 +467,7 @@ describe('the rerun of failed test files', () => {
     output();
     spawn.mockImplementation((_command, args) => {
       if (args?.[0] === 'rev-list') return ended('head');
+      if (args?.[0] === 'rev-parse') return ended('candidate-tree');
       throw new Error('unexpected command');
     });
     npm.mockImplementation(async (args) =>
@@ -457,6 +484,7 @@ describe('the --files mode', () => {
   function mockHead(parents: string, changed: string[] = []) {
     spawn.mockImplementation((_command, args) => {
       if (args?.[0] === 'rev-list') return ended(`head ${parents}`);
+      if (args?.[0] === 'rev-parse') return ended('candidate-tree');
       if (args?.[0] === 'diff') return ended(changed.map((file) => `${file}\0`).join(''));
       throw new Error('unexpected command');
     });

@@ -1,8 +1,13 @@
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mergeTestPassedSteps } from '@projectman/shared';
 import {
   filesSteps,
   MERGE_TEST_WORKSPACES,
+  mergeTestStepKey,
   runSteps,
   testStep,
   typecheckStep,
@@ -19,7 +24,7 @@ function setup(runs: StepRun[], changed: ReadonlySet<string> | null = new Set())
   const spawn = vi.fn(async (_args: string[]): Promise<StepRun> => queue.shift() ?? ok());
   const lines: string[] = [];
   const run = (steps: MergeTestStep[]) =>
-    runSteps(steps, { spawn, changed, log: (line) => lines.push(line) });
+    runSteps(steps, { spawn, changed, tree: 'candidate-tree', log: (line) => lines.push(line) });
   return { spawn, lines, run, calls: () => spawn.mock.calls.map(([args]) => args) };
 }
 
@@ -48,14 +53,17 @@ describe('the full run steps', () => {
 });
 
 describe('runSteps', () => {
-  it('runs green steps without markers', async () => {
+  it('marks green steps immediately and repeats their keys at the end', async () => {
     const t = setup([]);
     expect(await t.run([typecheckStep('apps/server'), server])).toBe(0);
     expect(t.calls()).toEqual([
       ['run', 'typecheck', '-w', 'apps/server'],
       ['test', '-w', 'apps/server'],
     ]);
-    expect(t.lines).toEqual([]);
+    const keys = [typecheckStep('apps/server'), server].map(
+      (step) => `merge-test step passed: ${mergeTestStepKey('candidate-tree', step.args)}`,
+    );
+    expect(t.lines).toEqual([...keys, ...keys]);
   });
 
   it('reruns the failed files once; a green rerun makes the step green and the files flaky', async () => {
@@ -194,10 +202,123 @@ describe('runSteps', () => {
       runSteps([server, testStep('apps/web')], {
         spawn,
         changed: new Set(),
+        tree: 'candidate-tree',
         log: (line) => lines.push(line),
       }),
     ).rejects.toThrow('ENOENT');
     expect(markers(lines)).toEqual(['merge-test flaky: apps/server/test/a.test.ts']);
+    expect(mergeTestPassedSteps(lines.join('\n'))).toEqual([mergeTestStepKey('candidate-tree', server.args)]);
+  });
+});
+
+describe('step cache keys', () => {
+  const runtime = { node: 'v22.12.0', platform: 'darwin' as const, arch: 'arm64' as const, maxWorkers: '4' };
+  const args = ['test', '-w', 'apps/server', '--', 'apps/server/test/a.test.ts'];
+
+  it('hashes the versioned tree, normalized args and runtime in the specified order', () => {
+    const expected = createHash('sha256')
+      .update(JSON.stringify({ v: 1, tree: 'tree', args, ...runtime }))
+      .digest('hex');
+    expect(
+      mergeTestStepKey(
+        'tree',
+        ['test', '-w', 'apps/server', '--', '/one/apps/server/test/a.test.ts'],
+        '/one',
+        runtime,
+      ),
+    ).toBe(expected);
+    expect(
+      mergeTestStepKey(
+        'tree',
+        ['test', '-w', 'apps/server', '--', '/two/apps/server/test/a.test.ts'],
+        '/two',
+        runtime,
+      ),
+    ).toBe(expected);
+  });
+
+  it('separates every tree, argument and runtime change', () => {
+    const key = mergeTestStepKey('tree', args, '/repo', runtime);
+    expect(mergeTestStepKey('other-tree', args, '/repo', runtime)).not.toBe(key);
+    expect(mergeTestStepKey('tree', [...args, '--if-present'], '/repo', runtime)).not.toBe(key);
+    for (const change of [
+      { node: 'v24.0.0' },
+      { platform: 'linux' as const },
+      { arch: 'x64' as const },
+      { maxWorkers: '2' },
+    ]) {
+      expect(mergeTestStepKey('tree', args, '/repo', { ...runtime, ...change })).not.toBe(key);
+    }
+  });
+});
+
+describe('passed step reuse', () => {
+  let root: string | undefined;
+  afterEach(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+    root = undefined;
+  });
+
+  async function cachedRun(options: { noCache?: boolean; tree?: string; unreadable?: boolean } = {}) {
+    root = mkdtempSync(resolve(tmpdir(), 'pm-step-'));
+    const key = mergeTestStepKey('tree', server.args);
+    const passedKeysFile = resolve(root, 'passed');
+    if (!options.unreadable) writeFileSync(passedKeysFile, `${key}\ninvalid\n`);
+    const spawn = vi.fn(async () => ok());
+    const lines: string[] = [];
+    const code = await runSteps([server], {
+      tree: options.tree ?? 'tree',
+      passedKeysFile,
+      noCache: options.noCache,
+      changed: new Set(),
+      spawn,
+      log: (line) => lines.push(line),
+    });
+    return { spawn, lines, key, code };
+  }
+
+  it('skips a matching step and reports the cached command and passed key', async () => {
+    const result = await cachedRun();
+    expect(result.code).toBe(0);
+    expect(result.spawn).not.toHaveBeenCalled();
+    expect(result.lines).toContain('merge-test cached: npm test -w apps/server');
+    expect(mergeTestPassedSteps(result.lines.join('\n'))).toEqual([result.key]);
+  });
+
+  it.each([{ noCache: true }, { tree: 'other' }, { unreadable: true }])(
+    'runs instead of reusing with %j',
+    async (options) => {
+      const result = await cachedRun(options);
+      expect(result.code).toBe(0);
+      expect(result.spawn).toHaveBeenCalledOnce();
+      expect(result.lines.some((line) => line.startsWith('merge-test cached:'))).toBe(false);
+      expect(mergeTestPassedSteps(result.lines.join('\n'))).toHaveLength(1);
+    },
+  );
+
+  it.each([bad('crash'), { code: 143, signaled: true, output: '' }])(
+    'retains earlier passed keys without marking a failed or signaled step (%j)',
+    async (end) => {
+      const t = setup([ok(), end]);
+      expect(await t.run([typecheckStep('apps/server'), server])).toBe(end.code);
+      expect(mergeTestPassedSteps(t.lines.join('\n'))).toEqual([
+        mergeTestStepKey('candidate-tree', typecheckStep('apps/server').args),
+      ]);
+    },
+  );
+
+  it('never marks a step whose failed-file rerun also fails', async () => {
+    const t = setup([bad(failLines('test/a.test.ts')), bad(failLines('test/a.test.ts'))]);
+    expect(await t.run([server])).toBe(1);
+    expect(mergeTestPassedSteps(t.lines.join('\n'))).toEqual([]);
+  });
+
+  it('marks the original step when its failed-file rerun passes', async () => {
+    const t = setup([bad(failLines('test/a.test.ts')), ok()]);
+    expect(await t.run([server])).toBe(0);
+    expect(mergeTestPassedSteps(t.lines.join('\n'))).toEqual([
+      mergeTestStepKey('candidate-tree', server.args),
+    ]);
   });
 });
 

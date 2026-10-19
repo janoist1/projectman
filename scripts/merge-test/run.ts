@@ -20,7 +20,8 @@ const CLOUD_TEST_FILTERS = [
   'apps/server/test/merge-test-',
 ];
 
-const USAGE = 'usage: npm run merge-test -- [--all | --files <repository path of a test file>...]';
+const USAGE =
+  'usage: npm run merge-test -- [--no-cache] [--all | --files <repository path of a test file>...]';
 
 export function scopeLine(scope: MergeTestScope): string {
   if (scope.kind === 'shared')
@@ -135,7 +136,8 @@ export interface MergeTestIo {
 }
 
 export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}): Promise<number> {
-  const parsed = parseArgs(argv);
+  const noCache = argv.includes('--no-cache');
+  const parsed = parseArgs(argv.filter((arg) => arg !== '--no-cache'));
   if ('error' in parsed) {
     console.error(parsed.error);
     return 2;
@@ -143,6 +145,7 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
   let steps: MergeTestStep[];
   let line: string;
   let changed: ReadonlySet<string> | null;
+  let tree: string;
   const absent: string[] = [];
   try {
     const git = (args: string[]): string => {
@@ -151,6 +154,7 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
       if (result.status !== 0) throw new Error(result.stderr.trim() || 'git failed');
       return result.stdout;
     };
+    tree = git(['rev-parse', 'HEAD^{tree}']).trim();
     const parents = git(['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(/\s+/).slice(1);
     let diffed: string[] | undefined;
     const firstParentDiff = (): string[] =>
@@ -241,6 +245,9 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
     return await runSteps(steps, {
       spawn: io.npm ?? runNpm,
       changed,
+      tree,
+      noCache,
+      passedKeysFile: process.env.PROJECTMAN_MERGE_TEST_PASSED_KEYS,
       log: (text) => console.log(text),
     });
   } catch (error) {

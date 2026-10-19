@@ -1,5 +1,7 @@
-import { posix, resolve } from 'node:path';
-import { mergeTestMarkerLine } from '@projectman/shared';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
+import { MERGE_TEST_PASSED_STEP_PREFIX, mergeTestMarkerLine } from '@projectman/shared';
 import { stripAnsi, vitestFailedFiles } from '../../apps/server/src/full-test/output';
 
 /** One command of the merge check (not a contract): `kind` tells the rerun rule what it may do. */
@@ -32,7 +34,49 @@ export interface MergeTestDeps {
    * allows no rerun: a file the merge changed is never rerun, as it is the card's own test.
    */
   changed: ReadonlySet<string> | null;
+  /** The complete candidate tree, from `git rev-parse HEAD^{tree}`. */
+  tree: string;
+  passedKeysFile?: string;
+  noCache?: boolean;
   log(line: string): void;
+}
+
+/** Identical commands in different checkouts share a key only for the same full tree and runtime. */
+export function mergeTestStepKey(
+  tree: string,
+  args: readonly string[],
+  root = process.cwd(),
+  runtime = {
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    maxWorkers: process.env.VITEST_MAX_FORKS ?? '',
+  },
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        v: 1,
+        tree,
+        args: args.map((arg) => (isAbsolute(arg) ? relative(root, arg).split(sep).join('/') : arg)),
+        node: runtime.node,
+        platform: runtime.platform,
+        arch: runtime.arch,
+        maxWorkers: runtime.maxWorkers,
+      }),
+    )
+    .digest('hex');
+}
+
+function passedKeys(deps: MergeTestDeps): ReadonlySet<string> {
+  if (!deps.noCache && deps.passedKeysFile) {
+    try {
+      return new Set(readFileSync(deps.passedKeysFile, 'utf8').split(/\r?\n/));
+    } catch {
+      // A missing or unreadable list is a cache miss; every step still runs.
+    }
+  }
+  return new Set();
 }
 
 export function typecheckStep(workspace: string, ifPresent = false): MergeTestStep {
@@ -115,10 +159,25 @@ function rerunFiles(step: MergeTestStep, run: StepRun, deps: MergeTestDeps): str
 export async function runSteps(steps: readonly MergeTestStep[], deps: MergeTestDeps): Promise<number> {
   const failed: string[] = [];
   const flaky: string[] = [];
+  const cached = passedKeys(deps);
+  const passed = new Set<string>();
+  const markPassed = (key: string) => {
+    passed.add(key);
+    deps.log(`${MERGE_TEST_PASSED_STEP_PREFIX}${key}`);
+  };
   try {
     for (const step of steps) {
+      const key = mergeTestStepKey(deps.tree, step.args);
+      if (cached.has(key)) {
+        deps.log(`merge-test cached: npm ${step.args.join(' ')}`);
+        markPassed(key);
+        continue;
+      }
       const first = await deps.spawn(step.args);
-      if (first.code === 0 && !first.signaled) continue;
+      if (first.code === 0 && !first.signaled) {
+        markPassed(key);
+        continue;
+      }
       const files = rerunFiles(step, first, deps);
       if (!files) {
         if (step.kind === 'test' && !first.signaled)
@@ -129,6 +188,7 @@ export async function runSteps(steps: readonly MergeTestStep[], deps: MergeTestD
       const again = await deps.spawn(testStep(step.workspace, files).args);
       if (again.code === 0 && !again.signaled) {
         flaky.push(...files);
+        markPassed(key);
         continue;
       }
       const still = again.signaled ? null : failedRepoFiles(step, again.output);
@@ -137,6 +197,7 @@ export async function runSteps(steps: readonly MergeTestStep[], deps: MergeTestD
     }
     return 0;
   } finally {
+    for (const key of passed) deps.log(`${MERGE_TEST_PASSED_STEP_PREFIX}${key}`);
     for (const file of new Set(failed)) deps.log(mergeTestMarkerLine('failed', file));
     for (const file of new Set(flaky)) deps.log(mergeTestMarkerLine('flaky', file));
   }

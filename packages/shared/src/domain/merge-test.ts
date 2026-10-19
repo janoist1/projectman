@@ -7,6 +7,7 @@ import { isRepoFilePath } from '../config/project-docs';
  */
 export const MERGE_TEST_FAILED_PREFIX = 'merge-test failed: ';
 export const MERGE_TEST_FLAKY_PREFIX = 'merge-test flaky: ';
+export const MERGE_TEST_PASSED_STEP_PREFIX = 'merge-test step passed: ';
 /** The most marked files read from one output. */
 export const MERGE_TEST_MARKED_FILES_MAX = 20;
 
@@ -18,6 +19,19 @@ const PREFIX: Record<MergeTestMark, string> = {
 };
 
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+
+/** The 64-hex keys of the line-anchored passed-step lines (ANSI removed), unique, at most 50. */
+export function mergeTestPassedSteps(output: string): string[] {
+  const keys = new Set<string>();
+  for (const line of output.replace(ANSI, '').split(/\r?\n/)) {
+    if (!line.startsWith(MERGE_TEST_PASSED_STEP_PREFIX)) continue;
+    const key = line.slice(MERGE_TEST_PASSED_STEP_PREFIX.length);
+    if (!/^[a-f0-9]{64}$/i.test(key)) continue;
+    keys.add(key);
+    if (keys.size >= 50) break;
+  }
+  return [...keys];
+}
 
 /** One marker line, without newline. Throws TypeError when `path` is not `isRepoFilePath`. */
 export function mergeTestMarkerLine(kind: MergeTestMark, path: string): string {

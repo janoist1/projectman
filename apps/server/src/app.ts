@@ -149,7 +149,11 @@ export interface AppModules {
    * Makes the executor of the server's full test before review (PM-217). Default: none, so the feature
    * is off; `index.ts` passes the sandboxed one.
    */
-  createFullTestExecutor?: (opts: { logger: FastifyBaseLogger; worktreesRoot?: string }) => FullTestExecutor;
+  createFullTestExecutor?: (opts: {
+    logger: FastifyBaseLogger;
+    worktreesRoot?: string;
+    stepCacheFile?: string;
+  }) => FullTestExecutor;
   /**
    * Makes the executor of the screenshot runs of the Codex members (PM-351), in the same sandbox and the
    * same heavy-run queue as the full test. Default: none, so `take_screenshots` is refused.
@@ -521,6 +525,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         : modules.createFullTestExecutor?.({
             logger: log.child({ module: 'full-test' }),
             worktreesRoot: roots.worktrees,
+            stepCacheFile: join(home, 'cache', 'merge-test-steps.json'),
           }),
       screenshotExecutor: remote
         ? undefined

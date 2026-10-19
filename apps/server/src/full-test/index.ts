@@ -20,6 +20,7 @@ import {
 } from './sandbox';
 import type { RunPaths } from './sandbox';
 import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
+import { prepareStepCache } from './step-cache';
 export { assertNpmCiCheckout } from './npm-ci';
 export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } from './workspace-dependencies';
 export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
@@ -60,6 +61,8 @@ export interface FullTestExecutorOptions {
   heavyLockDir?: string;
   /** Engine-local root of merge checkouts and the dependency store. */
   worktreesRoot?: string;
+  /** Engine-local passed merge-test steps; absent disables the cache. */
+  stepCacheFile?: string;
 }
 
 /**
@@ -81,10 +84,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     timeoutMs: number,
     signal: AbortSignal,
     settings = paths.settings,
+    passedKeysFile?: string,
   ): Promise<SandboxedEnd> =>
     runSandboxed({
       cwd: spec.cwd,
-      env: fullTestEnv(paths, spec.maxWorkers, baseEnv),
+      env: fullTestEnv(paths, spec.maxWorkers, baseEnv, passedKeysFile),
       settings,
       command,
       timeoutMs,
@@ -253,7 +257,22 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
           execute: (command, settings, timeoutMs) =>
             execute(paths, spec, command, timeoutMs, signal, settings),
         });
-      const ended = await execute(paths, spec, spec.command, budget(), signal);
+      const cache = await prepareStepCache(
+        options.stepCacheFile,
+        path.join(paths.sandbox, 'merge-test-passed-keys'),
+        spec.runId,
+        logger,
+      );
+      const ended = await execute(
+        paths,
+        spec,
+        spec.command,
+        budget(),
+        signal,
+        paths.settings,
+        cache?.passedKeysFile,
+      );
+      await cache?.record(ended.output);
       const durationMs = Date.now() - started;
       if (ended.aborted) return failure('killed', started, ended.output);
       if (ended.spawnError) return failure('spawn_failed', started, ended.output);

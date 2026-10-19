@@ -377,12 +377,13 @@ async function main(): Promise<void> {
         : {
             ...config.app.modules,
             nanogptKeyCheck: createNanogptKeyCheck(),
-            createFullTestExecutor: ({ logger, worktreesRoot }) =>
+            createFullTestExecutor: ({ logger, worktreesRoot, stepCacheFile }) =>
               fullTest.createFullTestExecutor({
                 logger,
                 env: process.env,
                 heavyLockDir: config.app.heavyLockDir,
                 worktreesRoot,
+                stepCacheFile,
               }),
             createScreenshotExecutor: ({ logger }) =>
               fullTest.createScreenshotExecutor({

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import type { ChildProcess } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +38,7 @@ function heavy(
   args: string[],
   env: Record<string, string | undefined> = {},
   onStderr?: (text: string) => void,
+  onStart?: (child: ChildProcess) => void,
 ): Promise<Ran> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--import', 'tsx', CLI, ...args], {
@@ -49,6 +51,7 @@ function heavy(
         ...env,
       },
     });
+    onStart?.(child);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => (stdout += String(chunk)));
@@ -107,7 +110,7 @@ describe('the heavy CLI', () => {
   it('exits with 127 for a command that does not exist, and 2 for a bad call', async () => {
     const missing = await heavy(['pm-no-such-command']);
     expect(missing.code).toBe(127);
-    expect(missing.stderr).toContain('cannot run pm-no-such-command');
+    expect(missing.stderr).toContain('cannot start pm-no-such-command');
     const usage = await heavy([]);
     expect(usage.code).toBe(2);
     expect(usage.stderr).toContain('usage: npm run heavy');
@@ -181,5 +184,64 @@ describe('the heavy CLI', () => {
     expect(lines[1]).toMatch(/^heavy: .+/);
     expect(lines[2]).toContain('would overload the machine');
     expect(lines[3]).toContain('do not ask for it to run outside your sandbox');
+  });
+});
+
+/** True while the process lives. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+async function until(condition: () => boolean | Promise<boolean>, what: string, ms = 20_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+describe('an interrupted heavy run (PM-863)', () => {
+  /**
+   * The command is a leader that starts a worker which ignores SIGTERM, like a vitest worker that
+   * outlives its npm. Returns the worker's pid once it is ready.
+   */
+  async function startWithWorker(): Promise<{ heavy: ChildProcess; closed: Promise<void>; worker: number }> {
+    const pidFile = path.join(root, 'worker.pid');
+    const leader = `
+      const { spawn } = require('node:child_process');
+      const { writeFileSync } = require('node:fs');
+      const worker = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)"], { stdio: ['ignore', 'pipe', 'inherit'] });
+      worker.stdout.once('data', () => writeFileSync(${JSON.stringify(pidFile)}, String(worker.pid)));
+      setInterval(() => {}, 1000);`;
+    let started: ChildProcess | undefined;
+    const closed = heavy(node(leader), {}, undefined, (child) => (started = child)).then(() => undefined);
+    await until(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 'the worker to start');
+    return { heavy: started!, closed, worker: Number(readFileSync(pidFile, 'utf8')) };
+  }
+
+  it.each(['SIGTERM', 'SIGINT', 'SIGHUP'] as const)(
+    'stops the command, its workers and the queue entry after %s',
+    async (signal) => {
+      const run = await startWithWorker();
+      expect(alive(run.worker)).toBe(true);
+      expect((await readHeavyQueue(dir)).holder).not.toBeNull();
+      run.heavy.kill(signal);
+      await run.closed;
+      // The lock is let go only after the group is gone.
+      expect(alive(run.worker)).toBe(false);
+      expect((await readHeavyQueue(dir)).holder).toBeNull();
+    },
+  );
+
+  it('stops the command and its workers when the heavy CLI is killed with SIGKILL', async () => {
+    const run = await startWithWorker();
+    run.heavy.kill('SIGKILL');
+    await run.closed;
+    await until(() => !alive(run.worker), 'the worker to stop');
   });
 });

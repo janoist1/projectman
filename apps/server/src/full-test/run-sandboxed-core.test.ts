@@ -1,4 +1,5 @@
 import { getEventListeners } from 'node:events';
+import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,7 +10,13 @@ import { quoteShellWord } from './sandbox';
 
 const run = (
   command: string,
-  options: { timeoutMs?: number; killGraceMs?: number; signal?: AbortSignal; cwd?: string } = {},
+  options: {
+    timeoutMs?: number;
+    killGraceMs?: number;
+    signal?: AbortSignal;
+    cwd?: string;
+    file?: string;
+  } = {},
 ) =>
   runPromise(
     runProcessGroup({
@@ -100,6 +107,84 @@ describe('process group execution', () => {
     expect((await run('true', { cwd: '/missing-projectman-test-directory' })).spawnError).toBeInstanceOf(
       Error,
     );
+  });
+  it('preserves a command signal', async () => {
+    expect(await run('kill -USR1 $$')).toMatchObject({ exitCode: null, signal: 'SIGUSR1' });
+  });
+  it('reports a command spawn error through the guard', async () => {
+    expect((await run('true', { file: '/missing-projectman-test-command' })).spawnError).toBeInstanceOf(
+      Error,
+    );
+  });
+  it('kills the group when its engine is killed without running finalizers', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'pm-engine-death-'));
+    const ready = path.join(dir, 'worker.json');
+    const worker = `
+      const { writeFileSync } = require('node:fs');
+      process.on('SIGTERM', () => {});
+      writeFileSync(${JSON.stringify(ready)}, JSON.stringify({ worker: process.pid, guard: process.ppid }));
+      setInterval(() => {}, 1000);
+    `;
+    // A disposable engine imports the actual runner; SIGKILL bypasses every Effect finalizer.
+    const script = `
+      import { runPromise } from ${JSON.stringify(new URL('../kernel/index.ts', import.meta.url).href)};
+      import { runProcessGroup } from ${JSON.stringify(new URL('./run-sandboxed-core.ts', import.meta.url).href)};
+      await runPromise(runProcessGroup({
+        file: process.execPath, args: ['-e', ${JSON.stringify(worker)}],
+        cwd: process.cwd(), env: {}, timeoutMs: 30000, killGraceMs: 200,
+        signal: new AbortController().signal,
+      }));
+    `;
+    const engine = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let errors = '';
+    engine.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+      errors += chunk;
+    });
+    const exited = new Promise<void>((resolve, reject) => {
+      engine.on('error', reject);
+      engine.on('exit', () => resolve());
+    });
+    let pids: { worker: number; guard: number } | undefined;
+    try {
+      await expect
+        .poll(
+          async () => {
+            try {
+              pids = JSON.parse(await readFile(ready, 'utf8'));
+              return true;
+            } catch {
+              return errors || false;
+            }
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      expect(isGone(pids!.worker)).toBe(false);
+      engine.kill('SIGKILL');
+      await exited;
+      await expect.poll(() => isGone(pids!.worker)).toBe(true);
+      await expect.poll(() => isGone(pids!.guard)).toBe(true);
+      expect(pids!.guard).not.toBe(engine.pid);
+    } finally {
+      engine.kill('SIGKILL');
+      await exited;
+      if (pids) {
+        try {
+          process.kill(-pids.guard, 'SIGKILL');
+        } catch {
+          /* Already gone. */
+        }
+        try {
+          process.kill(pids.worker, 'SIGKILL');
+        } catch {
+          /* Also clean up when checking the unguarded implementation. */
+        }
+      }
+      engine.stderr.destroy();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
   it('kills a background grandchild when the shell exits', async () => {
     // Redirect the pipes so the shell close event does not wait for the grandchild.

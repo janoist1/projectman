@@ -43,11 +43,28 @@ describe('code helpers', () => {
 });
 
 describe('safeNextOrNull', () => {
-  it('keeps only same-app paths', () => {
-    expect(safeNextOrNull('/p/AC')).toBe('/p/AC');
-    expect(safeNextOrNull('//evil.test')).toBeNull();
-    expect(safeNextOrNull('https://evil.test')).toBeNull();
-    expect(safeNextOrNull(null)).toBeNull();
+  it.each(['/', '/p/AC', '/p/AC/tasks?tab=all#task', '/invite/abc'])(
+    'keeps the same-app path %j',
+    (value) => {
+      expect(safeNextOrNull(value)).toBe(value);
+    },
+  );
+
+  it.each([
+    null,
+    '',
+    '//evil.test',
+    'https://evil.test',
+    '/\\evil.test',
+    '/\\\\evil.test',
+    '/\t/evil.test',
+    '/\n/evil.test',
+    '/\r/evil.test',
+    '/p/AC\u0000',
+    '/p/AC\u001f',
+    '/p/AC\u007f',
+  ])('rejects the unsafe next %j', (value) => {
+    expect(safeNextOrNull(value)).toBeNull();
   });
 });
 

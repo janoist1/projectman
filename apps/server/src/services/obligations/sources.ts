@@ -7,7 +7,8 @@ import type {
   Task,
   TaskWait,
 } from '@projectman/shared';
-import type { ObligationRefinement, ObligationSessions } from './ports';
+import type { Repositories } from '../../db';
+import type { ObligationFixLimit, ObligationRefinement, ObligationSessions } from './ports';
 
 /** What the sources read: the project's cards, their waits (without the tracking's own todos) and the live rows. */
 export interface ProjectView {
@@ -44,8 +45,12 @@ export interface ObligationSource {
   closedAs(row: Obligation, project: ProjectView): 'fulfilled' | 'cancelled';
   /** The one reminder to the responsible (English; `waited` minutes since the step began, `minutes` is N). */
   wakeText(row: Obligation, minutes: number, waited: number, project: ProjectView): string;
+  /** Transfer a decision instead of opening a todo; null means it already ended. */
+  handOver?(row: Obligation): Promise<{ decisionItemId: string } | null>;
+  /** Whether the transferred step still waits for its new responsible. */
+  keepsHandedOver?(row: Obligation, project: ProjectView): boolean;
   /** The integrator todo, after the second deadline. */
-  todo(
+  todo?(
     row: Obligation,
     minutes: number,
     waited: number,
@@ -56,6 +61,9 @@ export interface ObligationSource {
 export interface SourceDeps {
   sessions: ObligationSessions;
   refinement: ObligationRefinement;
+  fixLimit: ObligationFixLimit;
+  fixLimits: Repositories['taskFixLimits'];
+  roundsOf(projectKey: string, taskKey: string): number;
   /** The state of a merge by its id: how it ended, null when there is no such merge. */
   mergeState(mergeId: string): string | null;
   /** Whether one of the labels was added to the card at `since` or later (its `task_labels_changed` events). */
@@ -329,7 +337,72 @@ function workSource(deps: SourceDeps): ObligationSource {
   };
 }
 
-/** The four kinds this card tracks (`fix_limit` and the pm path are other cards'). */
+function fixLimitSource(deps: SourceDeps): ObligationSource {
+  const ownerHold = (row: Obligation) => {
+    const held = deps.fixLimits.get(row.taskKey);
+    return held?.holdPhase === 'owner' && row.subject.startsWith(`${held.heldAt}:`) ? held : null;
+  };
+  return {
+    kind: 'fix_limit',
+    derive(project) {
+      return deps.fixLimits.listHeld(project.config.project.key).flatMap((held) => {
+        const task = project.tasks.get(held.taskKey);
+        if (
+          !task ||
+          !isOpenTask(task) ||
+          !held.heldAt ||
+          !held.decider ||
+          (held.holdPhase !== 'lead' && held.holdPhase !== 'replan') ||
+          !isAi(project.config, held.decider)
+        )
+          return [];
+        return [
+          {
+            taskKey: held.taskKey,
+            responsible: held.decider,
+            subject: `${held.heldAt}:${held.holdPhase}`,
+            since: held.heldAt,
+            active: deps.sessions
+              .ofMember(held.projectKey, held.taskKey, held.decider)
+              .some((s) => s.running && s.atWork),
+          },
+        ];
+      });
+    },
+    closedAs: (row, project) =>
+      !project.tasks.has(row.taskKey) || project.tasks.get(row.taskKey)?.status === 'cancelled'
+        ? 'cancelled'
+        : 'fulfilled',
+    keepsHandedOver: (row, project) => {
+      const task = project.tasks.get(row.taskKey);
+      return !!ownerHold(row) && !!task && isOpenTask(task);
+    },
+    async handOver(row) {
+      // Recover a decision hand-over if the process stopped before the obligation row was stored.
+      const owner = ownerHold(row);
+      if (owner?.reason === 'decider_timeout' && owner.inboxItemId)
+        return { decisionItemId: owner.inboxItemId };
+      const held = deps.fixLimits.get(row.taskKey);
+      if (!held || row.subject !== `${held.heldAt}:${held.holdPhase}`) return null;
+      return deps.fixLimit.timeOut(row.projectKey, row.taskKey, row.responsible);
+    },
+    wakeText(row, minutes, waited) {
+      const taskRounds = deps.roundsOf(row.projectKey, row.taskKey);
+      return (
+        `projectman reminder: ${row.taskKey} is held at the fix round limit (round ${taskRounds}) and waits for your decision for ${ago(waited)}. ` +
+        `Call decide_fix_limit for ${row.taskKey}. If nothing happens in ${ago(minutes)}, the decision goes to the integrator, or to the owners when no integrator is available.`
+      );
+    },
+  };
+}
+
+/** The open steps tracked by the common obligation clock. */
 export function obligationSources(deps: SourceDeps): ObligationSource[] {
-  return [mergeSource(deps), refinementSource(deps), reviewSource(deps), workSource(deps)];
+  return [
+    mergeSource(deps),
+    refinementSource(deps),
+    reviewSource(deps),
+    workSource(deps),
+    fixLimitSource(deps),
+  ];
 }

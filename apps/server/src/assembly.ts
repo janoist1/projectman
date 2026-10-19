@@ -1172,7 +1172,7 @@ export function createDomain(opts: DomainOptions) {
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const taskWaits = new TaskWaits({ ctx, members });
-  // The open steps of the AI members (PM-806): a reminder and then an integrator todo, never a decision.
+  // The open steps of AI members: a reminder, then an integrator todo (decisions go to owners).
   const obligations = new ObligationsService({
     ctx,
     projects,
@@ -1182,6 +1182,7 @@ export function createDomain(opts: DomainOptions) {
     messaging,
     timeline,
     refinement,
+    fixLimit,
     sessions: {
       ofMember: (projectKey, taskKey, member) =>
         sessions.list(projectKey, { member, taskKey }).map((session) => {

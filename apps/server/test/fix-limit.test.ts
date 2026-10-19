@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import { SYSTEM_ACTOR, aiActor } from '../src/kernel';
+import { questionPayloadOf } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { planUsage, settle } from './helpers/fakes';
@@ -16,13 +17,14 @@ const TASK = { type: 'task', taskKey: 'AR-1' } as const;
 
 describe('fix round limit', () => {
   let h: DomainHarness;
+  let clock: Date | undefined;
   afterEach(() => h?.cleanup());
 
   const setup =
-    (opts: { lead?: boolean; planner?: boolean } = {}) =>
+    (opts: { lead?: boolean; planner?: boolean; limit?: number; integrator?: boolean } = {}) =>
     (config: ProjectConfig) => {
       config.team.limits.maxConcurrentAi = 10;
-      config.team.limits.maxFixRounds = 2;
+      config.team.limits.maxFixRounds = opts.limit ?? 2;
       if (opts.lead ?? true)
         config.team.members.push({
           kind: 'ai',
@@ -42,7 +44,11 @@ describe('fix round limit', () => {
     };
 
   async function prepare(opts: Parameters<typeof setup>[0] = {}) {
-    h = await createDomainHarness({ adjust: setup(opts) });
+    h = await createDomainHarness({
+      adjust: setup(opts),
+      now: () => clock ?? new Date(),
+      integratorTodoAccess: { available: () => opts.integrator ?? false },
+    });
     h.runner.idleOnStart = true;
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
@@ -108,6 +114,172 @@ describe('fix round limit', () => {
       await round(`Fix after extra ${given + 1}`);
     }
   }
+
+  describe('obligation timeout', () => {
+    afterEach(() => {
+      clock = undefined;
+    });
+    const advance = (minutes: number) => {
+      clock = new Date(clock!.getTime() + minutes * 60_000);
+    };
+    const stop = async () => {
+      for (const session of h.domain.sessions.list('AR')) await h.domain.sessions.stop('AR', session.id);
+      await settle();
+    };
+    const sweep = async () => {
+      await h.domain.obligations.sweep();
+      await settle();
+    };
+    const reminders = () =>
+      h.repos.messages.list('AR').filter((m) => m.body.startsWith('projectman reminder: AR-1 is held'));
+    const todos = () =>
+      h.domain.inbox.list('AR', {}).filter((i) => questionPayloadOf(i)?.obligation?.kind === 'fix_limit');
+    const prepareHold = async (integrator = true) => {
+      clock = new Date('2026-10-19T10:00:00.000Z');
+      await prepare({ limit: 3, integrator });
+      await round('First fix');
+      await round('Second fix');
+      await round('Third fix');
+      await stop();
+      await sweep();
+    };
+
+    it('wakes once and transfers the decision to owners when no integrator is available', async () => {
+      await prepareHold(false);
+      const subject = `${record()!.heldAt}:lead`;
+      advance(30);
+      await sweep();
+      expect(reminders()).toHaveLength(1);
+      expect(reminders()[0]!.body).toContain('round 3');
+      expect(items()).toHaveLength(0);
+      await stop();
+      advance(30);
+      await sweep();
+      expect(items()).toHaveLength(1);
+      const decision = items()[0]!;
+      expect(decision).toMatchObject({
+        kind: 'decision',
+        assignees: ['owner'],
+        payload: { recipient: 'owner', fixLimit: { reason: 'decider_timeout', decider: 'lead' } },
+      });
+      expect(todos()).toHaveLength(0);
+      expect(
+        h.domain.timeline
+          .list('AR')
+          .find((e) => e.type === 'obligation_handed_over' && e.data.kind === 'fix_limit')?.data,
+      ).toMatchObject({ decisionItemId: decision.id, inboxItemId: decision.id, recipient: 'owner' });
+      advance(60);
+      await sweep();
+      await sweep();
+      expect(todos()).toHaveLength(0);
+      expect(h.repos.inbox.get(decision.id)?.state).toBe('open');
+      expect(reminders()).toHaveLength(1);
+      await h.domain.inbox.resolve('AR', decision.id, { optionId: 'another_round' }, OWNER_ACCESS);
+      await settle();
+      await sweep();
+      expect(h.repos.obligations.find('AR', 'AR-1', 'fix_limit', 'lead', subject)?.state).toBe('fulfilled');
+      expect(h.repos.inbox.get(decision.id)).toMatchObject({
+        state: 'resolved',
+        resolution: { optionId: 'another_round' },
+      });
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'lead')).resolves.toBeNull();
+    });
+
+    it.each([false, true])(
+      'does not hand over when the lead decides (after reminder: %s)',
+      async (wakeFirst) => {
+        await prepareHold();
+        if (wakeFirst) {
+          advance(30);
+          await sweep();
+          await stop();
+        }
+        await tool('lead', 'continue');
+        await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'lead')).resolves.toBeNull();
+        advance(60);
+        await sweep();
+        expect(reminders()).toHaveLength(wakeFirst ? 1 : 0);
+        expect(todos()).toHaveLength(0);
+        expect(items()).toHaveLength(0);
+      },
+    );
+
+    it('ignores a different decider and also transfers a planner timeout', async () => {
+      await prepareHold();
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'arch')).resolves.toBeNull();
+      await tool('lead', 'replan');
+      await stop();
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'lead')).resolves.toBeNull();
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'arch')).resolves.toMatchObject({
+        decisionItemId: expect.any(String),
+      });
+      expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'decider_timeout' });
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'arch')).resolves.toBeNull();
+      expect(items()).toHaveLength(1);
+    });
+
+    it('recovers the hand-over after the row update failed, without duplicating the decision', async () => {
+      await prepareHold();
+      advance(30);
+      await sweep();
+      await stop();
+      const update = vi.spyOn(h.repos.obligations, 'update').mockImplementationOnce(() => {
+        throw new Error('Interrupted');
+      });
+      advance(30);
+      await sweep();
+      expect(items()).toHaveLength(1);
+      expect(todos()).toHaveLength(0);
+      await sweep();
+      expect(items()).toHaveLength(1);
+      expect(todos()).toHaveLength(0);
+      expect(
+        h.repos.obligations.listLive('AR', 'AR-1').find((row) => row.kind === 'fix_limit'),
+      ).toMatchObject({ state: 'handed_over', inboxItemId: items()[0]!.id });
+      update.mockRestore();
+    });
+
+    it('fulfills without a todo if the decider wins the race with the timeout', async () => {
+      await prepareHold();
+      const subject = `${record()!.heldAt}:lead`;
+      advance(30);
+      await sweep();
+      await stop();
+      const timeout = vi.spyOn(h.domain.fixLimit, 'timeOut').mockImplementationOnce(async () => {
+        await tool('lead', 'continue');
+        return null;
+      });
+      advance(30);
+      await sweep();
+      expect(timeout).toHaveBeenCalledOnce();
+      expect(h.repos.obligations.find('AR', 'AR-1', 'fix_limit', 'lead', subject)?.state).toBe('fulfilled');
+      expect(todos()).toHaveLength(0);
+      expect(items()).toHaveLength(0);
+      timeout.mockRestore();
+    });
+
+    it('still pauses the decision clock for another human inbox item', async () => {
+      await prepareHold();
+      h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source: 'dev-1',
+        taskKey: 'AR-1',
+        assignees: ['owner'],
+        title: 'Which way?',
+        payload: { question: 'Which way?', requestedRecipient: 'owner', recipient: 'owner' },
+        options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
+      });
+      await sweep();
+      advance(90);
+      await sweep();
+      expect(
+        h.repos.obligations.listLive('AR', 'AR-1').find((r) => r.kind === 'fix_limit')?.pauseReason,
+      ).toBe('inbox');
+      expect(reminders()).toHaveLength(0);
+      expect(todos()).toHaveLength(0);
+    });
+  });
 
   describe('holding a card at the limit', () => {
     it('lets the first round through and holds the second: its notice waits, the lead is told', async () => {

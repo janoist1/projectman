@@ -323,7 +323,7 @@ export const FixLimitDecisionPayload = z.object({
   extraRoundLimit: z.literal(MAX_FIX_EXTRA_ROUNDS).optional(),
   history: z.array(FixRoundHistoryEntry).optional(),
   assessment: FixLimitAssessment.optional(),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted']),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted', 'decider_timeout']),
   decider: MemberHandle.nullable(),
   note: z.string().nullable(),
 });

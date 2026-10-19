@@ -395,6 +395,7 @@ export const en: TemplateLocale = {
       no_ai_decider: 'No AI member can decide it (technical direction and code review).',
       passed_on: '{name} passed it on.',
       extra_exhausted: 'The 3 extra rounds are used up and it reached the limit again.',
+      decider_timeout: 'The AI decider did not decide before the deadline.',
       again: 'It reached the limit again after one more round.',
     },
     extras: {

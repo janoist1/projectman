@@ -235,7 +235,7 @@ export const TaskFixLimit = z.object({
   decider: MemberHandle.nullable(),
   /** `owner`: the people who decide. */
   deciders: z.array(MemberHandle),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted']).nullable(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted', 'decider_timeout']).nullable(),
   /**
    * `owner`: who the decision item is addressed to now (PM-714): the integrator first, the owners after a
    * hand-over or the 24 hour timeout, or when no integrator was available. Absent: the owners (older holds).

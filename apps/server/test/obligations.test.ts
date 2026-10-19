@@ -869,8 +869,11 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         expect(review(key)[0]).toMatchObject({ state: 'open', pauseReason: 'held' });
         minutes(120);
         await sweep();
-        expect(reminders(key)).toHaveLength(0);
-        expect(todos()).toHaveLength(0);
+        // The decider's own `fix_limit` step is woken (PM-807); the review step stays silent.
+        expect(reminders(key).filter((message) => message.to.includes('cr'))).toHaveLength(0);
+        expect(todos().filter((item) => questionPayloadOf(item)?.obligation?.kind === 'review_step')).toEqual(
+          [],
+        );
       });
     });
 

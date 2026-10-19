@@ -71,7 +71,13 @@ export interface FixLimitItemText {
   summary: string;
   /** The counted rounds named in the summary; only the ones that are not zero. */
   parts: { changes: string; design: string; testsFailed: string; sendBacks: string };
-  reasons: { no_ai_decider: string; passed_on: string; extra_exhausted: string; again: string };
+  reasons: {
+    no_ai_decider: string;
+    passed_on: string;
+    extra_exhausted: string;
+    again: string;
+    decider_timeout: string;
+  };
   /** The extra rounds given of the three allowed; `over` when people gave more than that. */
   extras: { left: string; none: string; over: string };
   verdict: { title: string; repeat: string; now: string };

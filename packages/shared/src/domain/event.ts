@@ -487,6 +487,7 @@ export interface TimelineEventData {
     minutes: number;
     inboxItemId: string;
     recipient: QuestionRecipient;
+    decisionItemId?: string;
   };
   /** A pending question of `asker` was closed without an answer by `rule` (PM-556). */
   question_closed: { inboxItemId: string; asker: string; rule: QuestionCloseRule; note: string | null };
@@ -563,7 +564,7 @@ export interface TimelineEventData {
     assessment?: FixLimitAssessment;
     decider?: string | null;
     deciders?: string[];
-    reason?: 'no_ai_decider' | 'passed_on' | 'again' | 'extra_exhausted';
+    reason?: 'no_ai_decider' | 'passed_on' | 'again' | 'extra_exhausted' | 'decider_timeout';
     decision?: 'continue' | 'replan' | 'another_round' | 'reassign';
     by?: string;
     note?: string;

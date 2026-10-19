@@ -113,7 +113,7 @@ export class RefinementSteps {
 
   /** Retire old acknowledgement-only items at startup without altering the timeline. */
   reconcile(projectKey: string): void {
-    for (const item of this.inbox.list(projectKey, { kind: 'alert', state: 'open', limit: 100_000 })) {
+    for (const item of this.inbox.list(projectKey, { kind: 'alert', state: 'open' })) {
       if (isInformationalAlert(item)) this.inbox.cancel(item.id);
     }
   }

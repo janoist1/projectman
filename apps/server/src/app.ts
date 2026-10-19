@@ -51,7 +51,7 @@ import type { Repositories } from './db';
 import { createAttachmentStorage, createMessageAttachmentStorage } from './core/attachments';
 import { createDomain } from './assembly';
 import { createEventBus } from './core/base';
-import { freeBytesOf } from './engine-host';
+import { freeBytesOf, resolveWorkRoots } from './engine-host';
 import { readHeavyRunSessions } from './full-test';
 import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
@@ -149,7 +149,11 @@ export interface AppModules {
    * Makes the executor of the server's full test before review (PM-217). Default: none, so the feature
    * is off; `index.ts` passes the sandboxed one.
    */
-  createFullTestExecutor?: (opts: { logger: FastifyBaseLogger; worktreesRoot?: string }) => FullTestExecutor;
+  createFullTestExecutor?: (opts: {
+    logger: FastifyBaseLogger;
+    worktreesRoot?: string;
+    tmpDir?: string;
+  }) => FullTestExecutor;
   /**
    * Makes the executor of the screenshot runs of the Codex members (PM-351), in the same sandbox and the
    * same heavy-run queue as the full test. Default: none, so `take_screenshots` is refused.
@@ -215,6 +219,11 @@ export interface BuildAppOptions {
   claudeBin?: string;
   /** PM-332: clone node_modules into new task worktrees from an installed checkout (default false; index.ts turns it on). */
   cloneDependencies?: boolean;
+  /**
+   * PM-846: a work volume's root inside the home; `worktrees/`, `workspaces/` and `tmp/` (the full test's run
+   * directories) live below it. Default: `${home}/worktrees` and `${home}/workspaces`, as before.
+   */
+  workRoot?: string;
   /** OpenAI Codex CLI (default "codex"). */
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: the runner's, ~/.codex). */
@@ -344,10 +353,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const attachmentsDir = join(home, 'attachments');
   const feedbackDir = join(home, 'feedback');
   const messageAttachmentsDir = join(home, 'message-attachments');
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  // PM-846: an unmounted or misplaced work volume stops the start; it never falls back to the home quietly.
+  const roots = resolveWorkRoots(home, options.workRoot);
   for (const dir of [
-    home,
     join(home, 'memory'),
-    join(home, 'worktrees'),
+    roots.worktrees,
     attachmentsDir,
     feedbackDir,
     messageAttachmentsDir,
@@ -442,11 +453,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const worktrees =
       modules.worktrees ??
       createWorktreeManager({
-        rootDir: join(home, 'worktrees'),
+        rootDir: roots.worktrees,
         logger: log.child({ module: 'worktree' }),
         cloneDependencies: options.cloneDependencies ?? false,
       });
-    const workspacesDir = join(home, 'workspaces');
+    const workspacesDir = roots.workspaces;
     const memberWorkspaces = options.memberWorkspaces
       ? (modules.memberWorkspaces ??
         createMemberWorkspaceManager({
@@ -513,7 +524,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? undefined
         : modules.createFullTestExecutor?.({
             logger: log.child({ module: 'full-test' }),
-            worktreesRoot: join(home, 'worktrees'),
+            worktreesRoot: roots.worktrees,
+            ...(roots.fullTestTmp ? { tmpDir: roots.fullTestTmp } : {}),
           }),
       screenshotExecutor: remote
         ? undefined
@@ -578,7 +590,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ...(options.emailCodeMailer
         ? { emailCodeMailer: options.emailCodeMailer, emailLoginKey: deriveEmailLoginKey(secret) }
         : {}),
-      worktreesRootDir: join(home, 'worktrees'),
+      worktreesRootDir: roots.worktrees,
       appHome: home,
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,

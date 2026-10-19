@@ -23,7 +23,7 @@ import type {
 } from './contracts';
 import { SESSION_CONFIG_DIR } from './contracts';
 import { createSocketClient } from './administration';
-import { createLocalEngine } from './engine-host';
+import { createLocalEngine, resolveWorkRoots } from './engine-host';
 import {
   createEngineAudit,
   createEngineClient,
@@ -82,7 +82,11 @@ const LOOPBACK = '127.0.0.1';
 export interface EngineAppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   github?: GithubService;
-  createFullTestExecutor?: (deps: { heavyLockDir: string; worktreesRoot?: string }) => FullTestExecutor;
+  createFullTestExecutor?: (deps: {
+    heavyLockDir: string;
+    worktreesRoot?: string;
+    tmpDir?: string;
+  }) => FullTestExecutor;
   createScreenshotExecutor?: (deps: { heavyLockDir: string }) => ScreenshotExecutor;
   createMachineProbe?: (deps: { runningPids: () => number[]; instanceTag: string }) => MachineProbe;
   createSocket?: LinkSocketFactory;
@@ -164,6 +168,8 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
   assertHomeMayStart(home, 'engine'); // a damaged or retired marker stops the engine too (PM-318)
+  // PM-846: an unmounted or misplaced work volume stops the start; it never falls back to the home quietly.
+  const roots = resolveWorkRoots(home, resolved.workRoot);
   // The key and the extra headers are read here once so a wrong mode stops the start, not a later reconnect.
   readSecretFile(resolved.keyFile, 'The engine key');
   if (resolved.linkHeadersFile) readLinkHeaders(resolved.linkHeadersFile);
@@ -320,11 +326,11 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       logger: log.child({ module: 'github' }),
     });
   const worktrees = createWorktreeManager({
-    rootDir: path.join(home, 'worktrees'),
+    rootDir: roots.worktrees,
     logger: log.child({ module: 'worktree' }),
     cloneDependencies: options.cloneDependencies ?? false,
   });
-  const workspacesDir = path.join(home, 'workspaces');
+  const workspacesDir = roots.workspaces;
   let workspaceDependencies: WorkspaceDependencyInstaller | undefined;
   const memberClones = createMemberWorkspaceRegistry();
   const memberWorkspaces = createMemberWorkspaceManager({
@@ -382,12 +388,17 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       worktrees,
       memberWorkspaces,
       fullTestExecutor:
-        modules.createFullTestExecutor?.({ heavyLockDir, worktreesRoot: path.join(home, 'worktrees') }) ??
+        modules.createFullTestExecutor?.({
+          heavyLockDir,
+          worktreesRoot: roots.worktrees,
+          ...(roots.fullTestTmp ? { tmpDir: roots.fullTestTmp } : {}),
+        }) ??
         createFullTestExecutor({
           logger: log.child({ module: 'full-test' }),
           env: agentEnv,
           heavyLockDir,
-          worktreesRoot: path.join(home, 'worktrees'),
+          worktreesRoot: roots.worktrees,
+          ...(roots.fullTestTmp ? { tmpDir: roots.fullTestTmp } : {}),
         }),
       screenshotExecutor:
         modules.createScreenshotExecutor?.({ heavyLockDir }) ??
@@ -396,7 +407,11 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
           env: agentEnv,
           heavyLockDir,
         }),
-      freeDiskBytes: () => freeBytesOf(home),
+      // The work volume fills up apart from the home (PM-846): the smaller of the two guards admission.
+      freeDiskBytes: async () =>
+        roots.workRoot
+          ? Math.min(await freeBytesOf(home), await freeBytesOf(roots.worktrees))
+          : freeBytesOf(home),
       heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
@@ -405,7 +420,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
         resolved.repos.find((entry) => entry.project === projectKey && entry.repo === repo)?.path ?? null,
       appHome: home,
       userHome,
-      worktreesRootDir: path.join(home, 'worktrees'),
+      worktreesRootDir: roots.worktrees,
       workspacesRootDir: workspacesDir,
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
@@ -442,7 +457,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   workspaceDependencies = createWorkspaceDependencyInstaller({
     home,
     heavyLockDir,
-    worktreesRoot: path.join(home, 'worktrees'),
+    worktreesRoot: roots.worktrees,
     denyRead: [
       // Match the merge installer's home-wide denials; lifecycle scripts get only their clone.
       userHome,
@@ -452,7 +467,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       ...(dependencyPaths.sessionTmpRoot ? [path.dirname(dependencyPaths.sessionTmpRoot)] : []),
       ...(dependencyPaths.sessionFoldersRoot ? [path.dirname(dependencyPaths.sessionFoldersRoot)] : []),
       workspacesDir,
-      path.join(home, 'worktrees'),
+      roots.worktrees,
       path.join(home, 'workspace-deps'),
     ],
     setupOf: (project, repo) =>

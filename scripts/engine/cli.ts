@@ -7,6 +7,7 @@
 //   npm run engine -- status
 //   npm run engine -- start
 //   npm run engine -- service install|uninstall|status   (macOS LaunchAgent, PM-318; deploy/mac/com.projectman.engine.plist)
+//   npm run engine -- move-work-root <absolute path>   (PM-846; the engine is stopped; docs/DEPLOY.md "Separate work volume")
 //   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)
 //
 // `start` runs the server in engine mode (PROJECTMAN_MODE=engine) in the foreground; stop it with Ctrl-C

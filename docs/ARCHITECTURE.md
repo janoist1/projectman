@@ -2256,7 +2256,9 @@ workers follow the machine's size.
     **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
-  `scripts/engine/{cli,commands}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
+  `scripts/engine/{cli,commands,move-work-root}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
+  `engine.json` has an optional `workRoot` (PM-846, see "Work volume (PM-846)"); engine mode does not read
+  `PROJECTMAN_WORK_ROOT`.
   Entry points import the named exports of `engine-link/index.ts` (PM-649); the
   implementations above and their machine assumptions remain unchanged.
   `PROJECTMAN_MODE=engine` (`npm run engine -- start`) runs the machine-dependent parts on the Mac
@@ -2416,6 +2418,11 @@ workers follow the machine's size.
   The builder must be separate from EC2; ARM never builds on EC2. Actual two-platform native binary
   and disposable cloud smoke evidence, 1 GiB RAM/20 GiB disk capacity and digest-specific cutover
   approval belong to PM-675. A manifest is integrity metadata, not a signature of origin.
+  PM-723: `smoke.sh` probes the engine door with four anonymous requests (GET link, GET download,
+  GET upload, POST upload with an empty binary body), sending only the Cloudflare Access headers;
+  none may answer 2xx, and an unreachable probe fails. It needs bash and curl on the machine that
+  runs it and calls the hub URL; the engine has nothing new to do. `http/errors.ts` answers unknown
+  `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
   PM-750's entry "Admin release preparation" runs that builder
   from its own clean checkout and smokes each image by its image ID before the receipt exists.
   PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
@@ -2706,7 +2713,10 @@ assumption or remote-engine RPC.
 - **Dependency clones and refreshes** — `worktree/{dependencies,dependency-copy}.ts`, `cloneDependencies`,
   `worktree/worktree-manager.ts`, `ensureForTask` (PM-334, PM-412).
   Copies installed `node_modules` from another checkout with the same lockfile using
-  `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Missing or
+  `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Since PM-846 the
+  probe also chooses the reference: a candidate on another volume (the repository, when the worktrees
+  are on a work volume) is skipped for the next one, and the result is `unsupported` only when every
+  candidate with the same lockfile is on another volume. The first worktree on a new volume is a full install. Missing or
   stale installations are cloned before a task session starts or resumes and before each tool
   via `runner/session.ts`, `RunnerModuleOptions.refreshDependencies`; staleness uses the
   local lockfile and hidden npm lockfile modification times.
@@ -3119,9 +3129,30 @@ assumption or remote-engine RPC.
   engine. Related: "Session output folders", "Hooks and team MCP over loopback", "Native sandbox and
   canonical paths" (the root is in `sensitivePaths`).
   **Module:** `runner`
+- **Work volume (PM-846)** — `engine-host/work-roots.ts` (`resolveWorkRoots`, `WORK_ROOT_MARKER`,
+  `WorkRootError`), `engine-link/engine-config.ts` (`workRoot`), `engine-app.ts`, `app.ts`,
+  `index.ts` (`PROJECTMAN_WORK_ROOT`, single mode only), `scripts/engine/{commands,move-work-root}.ts`
+  (`npm run engine -- move-work-root`). An optional work root puts `worktrees/`, `workspaces/` and the
+  full test's `tmp/` (the `pmft-*` run directories) below one directory, so that a separate APFS volume
+  with `.fseventsd/no_log` takes the file churn that made `fseventsd` grow to 17 GB. Absent: the
+  paths below `PROJECTMAN_HOME`, as before. The start fails closed (`work_root_invalid`): an absolute
+  path, an existing directory, a regular `.projectman-work-root` file in it (an unmounted volume is an empty
+  directory on the system volume) and a real path strictly inside the real home. Inside the home, because the
+  session sandboxes keep the other members' work unreadable by denying the home. The code uses only the real
+  path (Seatbelt compares real paths). Machine assumption: an APFS volume mounted at a path inside the
+  home (fstab/`vifs`), steps in `docs/DEPLOY.md` "Separate work volume on a Mac". The sessions' `$TMPDIR`,
+  the Claude temp directory and `member-caches` stay where they are (Unix socket path limit, PM-339).
+  `move-work-root` runs with the engine stopped: it copies, repairs the git links, checks them, renames
+  the old directories to `*.pre-PM-846` and then writes `engine.json`; no database migration, because the
+  sessions' relocation and the workspace generation start a new conversation with a summary.
+  **Remote engine:** yes. The setting is in that machine's `engine.json` and the volume step runs on the
+  engine's machine; `EnginePaths.worktreesRoot/workspacesRoot` already describe the engine's own paths, so
+  nothing new crosses the server/engine boundary. On Linux there is no `fseventsd`; the marker check is
+  platform independent and a separate disk works the same way.
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `runtime/watchers` (`WorktreeSweep`),
-  `index.ts` (PM-243; PM-311, PM-312; PM-770). The sweep picks its candidates from the server database
+  `index.ts` (PM-243; PM-311, PM-312; PM-770). With a work root (PM-846) the worktree and workspace
+  roots are `<workRoot>/worktrees` and `<workRoot>/workspaces`. The sweep picks its candidates from the server database
   (paged `closed-worktrees` reads, no whole card list); the worktree itself is still found, checked and removed
   on the card's engine. Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
@@ -3200,7 +3231,8 @@ assumption or remote-engine RPC.
   **Module:** `worktree`
 - **Free-disk admission guard** — `runtime/watchers` (`DiskGuard`, engine `freeDiskBytes`),
   `runtime/admission` (`Admission`) (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
-  value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
+  value for `minFreeDiskGb`; a low value defers new sessions. With a work root (PM-846) the engine
+  reports the smaller of the home's and the worktrees volume's free space. It does not measure other
   hosts or even every local worktree volume. **Remote engine (engine mode, PM-314: runs in the engine process):** use `host.free_disk` (PM-313), report capacity for the
   engine's execution/storage volumes and plan admission against those as well as server
   storage; keep unavailable measurements distinct from low capacity.
@@ -3247,7 +3279,10 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   `--discard-cloud-data` states the opposite on purpose.)
   **Module:** `control`
 - **Native sandbox and canonical paths** — `runtime/sessions` (`session policy`),
-  `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
+  `engine-host/{disk,within,work-roots}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
+  (PM-846: a work root is used by its real path and lies inside the real home, so the `denyRead` of the
+  home keeps the other members' worktrees unreadable; the engine limit's session roots name
+  `<workRoot>/worktrees` and `<workRoot>/workspaces`)
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
   engine's `realpath`, `isDirectory`, `isRealDirectory`). `core/inbox` (PM-635)
   uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
@@ -3342,7 +3377,8 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
   **Module:** `runner`
 - **Server full test before review** — `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
-  (`resolveGitDir`: the checkout's real `.git`, asked of the engine),
+  (`resolveGitDir`: the checkout's real `.git`, asked of the engine), PM-846: with a work root the
+  executor gets `tmpDir: <workRoot>/tmp`, so the `pmft-*` run directories are on the work volume,
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;

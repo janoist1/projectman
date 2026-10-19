@@ -247,6 +247,31 @@ describe('engine configuration', () => {
       );
     });
 
+    it('accepts an absolute workRoot (PM-846), refuses a relative one, and loads an old file without it', () => {
+      saveEngineConfig(dir, base());
+      expect(loadEngineConfig(dir).workRoot).toBeUndefined();
+      expect(resolve(base()).workRoot).toBeUndefined();
+      const home = path.join(dir, 'home');
+      mkdirSync(home);
+      saveEngineConfig(home, base({ workRoot: path.join(home, 'work') }));
+      expect(loadEngineConfig(home).workRoot).toBe(path.join(home, 'work'));
+      expect(resolve(base({ workRoot: path.join(home, 'work') }), home).workRoot).toBe(
+        path.join(home, 'work'),
+      );
+      expect(() => resolve(base({ workRoot: 'work' }), home)).toThrowError(
+        'invalid engine.json: workRoot must be an absolute path',
+      );
+    });
+
+    it('refuses a key file inside the work root’s worktrees', () => {
+      const home = path.join(dir, 'home');
+      const root = path.join(home, 'work');
+      mkdirSync(path.join(root, 'worktrees'), { recursive: true });
+      expect(() =>
+        resolve(base({ workRoot: root, keyFile: path.join(root, 'worktrees', 'k') }), home),
+      ).toThrowError(expect.objectContaining({ code: 'secret_in_root' }));
+    });
+
     it('refuses a key file that reaches a workspace through a symbolic link', () => {
       const workspace = path.join(dir, 'work');
       const keys = path.join(dir, 'keys');

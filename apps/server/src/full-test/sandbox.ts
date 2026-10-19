@@ -9,10 +9,8 @@ export const FULL_TEST_GIT_CONFIG =
 /** A short temporary root for when `tmpDir` is too deep for the sandbox's socket (macOS: `/tmp` is a link to this). */
 export const SHORT_ROOT = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
 
-/** One word of a shell command, in single quotes: nothing in it is expanded. */
-export function quoteShellWord(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
+/** One word of a shell command, in single quotes: nothing in it is expanded (the rule lives in shared, PM-844). */
+export { quoteShellWord } from '@projectman/shared';
 
 /**
  * The longest Unix socket path the sandbox can open, a little below macOS's limit (104 bytes with the

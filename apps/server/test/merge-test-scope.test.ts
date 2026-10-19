@@ -11,7 +11,9 @@ describe('merge test scope', () => {
     expect(mergeTestScope(['docs/design/a.ts', 'CLAUDE.md'])).toEqual({ kind: 'none' });
   });
   it.each([
-    'packages/shared/src/x.ts',
+    'packages/templates/src/x.ts',
+    'packages/shared/package.json',
+    'packages/shared/src/vitest.config.ts',
     'scripts/a.ts',
     'package-lock.json',
     'unknown/file',
@@ -31,6 +33,24 @@ describe('merge test scope', () => {
     expect(mergeTestScope(['apps/web/a.ts', 'apps/server/b.ts', 'apps/web/c.ts'])).toEqual({
       kind: 'workspaces',
       workspaces: ['apps/server', 'apps/web'],
+    });
+  });
+  it('records shared sources and always selects its own tests', () => {
+    expect(
+      mergeTestScope(['packages/shared/src/a.ts', 'packages/shared/src/a.ts', 'apps/web/src/a.ts']),
+    ).toEqual({
+      kind: 'workspaces',
+      workspaces: ['apps/web', 'packages/shared'],
+      sharedChanged: ['packages/shared/src/a.ts'],
+    });
+    expect(mergeTestScope(['packages/shared/test/a.test.ts'])).toEqual({
+      kind: 'workspaces',
+      workspaces: ['packages/shared'],
+      sharedChanged: [],
+    });
+    expect(mergeTestScope(['apps/feedback-widget/src/a.ts'])).toEqual({
+      kind: 'workspaces',
+      workspaces: ['apps/feedback-widget'],
     });
   });
   it.each(['apps/server', 'apps/web'] as const)('selects only %s', (ws) => {

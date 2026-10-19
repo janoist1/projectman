@@ -1540,7 +1540,17 @@ workers follow the machine's size.
   Unresolved source dependencies, unmapped sources,
   changed tests/helpers/fixtures, empty selection or ambiguous Vitest substring filters fall back
   to the full server workspace. Web changes retain full web checks; documentation-only changes skip.
-  Shared code, scripts, configuration, contracts, architecture guards or unknown paths require all
+  **Shared export impact (PM-843).** `packages/shared/src` changes run shared's own tests and use
+  `scripts/merge-test/shared-impact.ts` to follow named exports from its barrel, relative shared
+  dependencies and named consumers in both git trees. The affected server files seed the existing
+  module/test selection; web and widget consumers run their whole workspace. Shared changes always
+  typecheck every workspace. A shared test or other non-source file selects only shared's tests.
+  Unsupported exports/barrels, duplicate export names, uncertain or escaping shared dependencies,
+  shared subpath imports, analysis errors or affected template consumers require all tests.
+  Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
+  The architecture checker and shared export analysis share trivia recognition: regex literals at
+  proven expression starts cannot create import/export tokens or hide the following real import.
+  Scripts, other packages, configuration, contracts, architecture guards or unknown paths require all
   workspaces; `--all` forces them. Scope, selected modules, test count and fallback reason are logged
   before and after execution. The executor holds
   the machine's lock, so the nested root scripts do not queue again.
@@ -2089,7 +2099,7 @@ workers follow the machine's size.
   paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
   **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
   dependencies and queue. Only the command and result need to cross the existing full-test boundary.
-  `scripts/merge-test/{run,scope,impact}.ts` (PM-657) selects checks in that detached checkout using
+  `scripts/merge-test/{run,scope,impact,shared-impact}.ts` (PM-657, PM-843) selects checks in that detached checkout using
   argv-based git first-parent diff (`--no-renames -z`) and batched blob reads of both revisions.
   It uses the architecture module map, never evaluates old TypeScript or writes a selection cache,
   and retains the configured worker limits. Cloud-only infrastructure diffs under `scripts/cloud/`,

@@ -57,6 +57,13 @@ export function SignalBox({
           </div>
           <p className={styles.text}>{t('fixLimit.box.text', { parts: fixRoundParts(fixLimit) })}</p>
           <p className={styles.text}>{fixLimitWho(fixLimit, members, myHandle)}</p>
+          {fixLimit.extraRounds !== undefined && (fixLimit.extraRounds > 0 || fixLimit.phase === 'owner') ? (
+            <p className={styles.text}>
+              {t(fixLimit.extraRounds > 3 ? 'fixLimit.box.extrasOver' : 'fixLimit.box.extras', {
+                used: fixLimit.extraRounds,
+              })}
+            </p>
+          ) : null}
         </section>
       ) : null}
       {loop ? (

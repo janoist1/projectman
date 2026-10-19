@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   INTEGRATOR_TODO_TIMEOUT_MS,
-  isIntegratorTodo,
+  isIntegratorInboxItem,
   questionPayloadOf,
-  wasIntegratorTodo,
+  wasIntegratorInboxItem,
 } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { Icon } from '../../components/Icon';
@@ -31,17 +31,23 @@ function waitingAge(openedAt: string, now: number): string {
 }
 
 function timeLeft(item: InboxItem, now: number): string {
-  const ms = Date.parse(questionPayloadOf(item)!.integratorOpenedAt!) + INTEGRATOR_TODO_TIMEOUT_MS - now;
+  const ms = Date.parse(openedAtOf(item)) + INTEGRATOR_TODO_TIMEOUT_MS - now;
   if (ms <= 0) return t('inbox.integrator.soon');
   return ms >= 3_600_000
     ? t('inbox.integrator.hours', { count: Math.ceil(ms / 3_600_000) })
     : t('inbox.integrator.minutes', { count: Math.ceil(ms / 60_000) });
 }
 
+function openedAtOf(item: InboxItem): string {
+  return typeof item.payload.integratorOpenedAt === 'string'
+    ? item.payload.integratorOpenedAt
+    : item.createdAt;
+}
+
 /** Display only: the hub is the sole authority that moves a todo to the owner. */
 export function IntegratorTodoClock({ item }: { item: InboxItem }) {
   const now = useClock();
-  const openedAt = questionPayloadOf(item)?.integratorOpenedAt;
+  const openedAt = openedAtOf(item);
   if (!openedAt) return null;
   const overdue = Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS <= now;
   return (
@@ -69,20 +75,18 @@ export function IntegratorTodos({
 }) {
   const now = useClock();
   const open = items
-    .filter((item) => isIntegratorTodo(item) && (item.state === 'open' || lingering.has(item.id)))
-    .sort(
-      (a, b) =>
-        questionPayloadOf(a)!.integratorOpenedAt!.localeCompare(questionPayloadOf(b)!.integratorOpenedAt!) ||
-        a.id.localeCompare(b.id),
-    );
+    .filter((item) => isIntegratorInboxItem(item) && (item.state === 'open' || lingering.has(item.id)))
+    .sort((a, b) => openedAtOf(a).localeCompare(openedAtOf(b)) || a.id.localeCompare(b.id));
   const today = new Date(now).toDateString();
   const closed = items
     .filter(
       (item) =>
-        wasIntegratorTodo(item) &&
+        wasIntegratorInboxItem(item) &&
         item.state === 'resolved' &&
         !item.resolution?.rule &&
-        ['todo_done', 'todo_cannot'].includes(item.resolution?.optionId ?? '') &&
+        ['todo_done', 'todo_cannot', 'replan', 'reassign', 'another_round'].includes(
+          item.resolution?.optionId ?? '',
+        ) &&
         new Date(item.resolution!.at).toDateString() === today,
     )
     .sort((a, b) => b.resolution!.at.localeCompare(a.resolution!.at) || a.id.localeCompare(b.id))
@@ -90,7 +94,7 @@ export function IntegratorTodos({
   const pending = open.filter((item) => item.state === 'open');
   const oldest = pending[0];
   if (!open.length && !closed.length) return null;
-  const openedAt = oldest ? questionPayloadOf(oldest)!.integratorOpenedAt! : null;
+  const openedAt = oldest ? openedAtOf(oldest) : null;
   const overdue = openedAt && Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS <= now;
   return (
     <details className={styles.group}>
@@ -130,19 +134,23 @@ export function IntegratorTodos({
             <ul className={styles.closed}>
               {closed.map((item) => (
                 <li key={item.id}>
-                  <Icon name={item.resolution!.optionId === 'todo_done' ? 'check' : 'close'} size={16} />
+                  <Icon name={item.resolution!.optionId === 'todo_cannot' ? 'close' : 'check'} size={16} />
                   <div>
                     <strong>
-                      {t(
-                        item.resolution!.integratorTodo
-                          ? item.resolution!.optionId === 'todo_done'
-                            ? 'inbox.integrator.done'
-                            : 'inbox.integrator.cannot'
-                          : item.resolution!.optionId === 'todo_done'
-                            ? 'inbox.integrator.doneByYou'
-                            : 'inbox.integrator.cannotByYou',
-                        { what: questionPayloadOf(item)?.screening?.todo?.what ?? item.title },
-                      )}
+                      {item.kind === 'decision'
+                        ? t(
+                            `inbox.resolutions.${item.resolution!.optionId as 'replan' | 'reassign' | 'another_round'}`,
+                          )
+                        : t(
+                            item.resolution!.integratorTodo
+                              ? item.resolution!.optionId === 'todo_done'
+                                ? 'inbox.integrator.done'
+                                : 'inbox.integrator.cannot'
+                              : item.resolution!.optionId === 'todo_done'
+                                ? 'inbox.integrator.doneByYou'
+                                : 'inbox.integrator.cannotByYou',
+                            { what: questionPayloadOf(item)?.screening?.todo?.what ?? item.title },
+                          )}
                     </strong>
                     <div className={styles.meta}>
                       {[item.taskKey, resolverName(item, members, myHandle)].filter(Boolean).join(' · ')} ·{' '}

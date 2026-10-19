@@ -36,6 +36,37 @@ const human = (handle: string) => ({ handle, kind: 'human' as const });
 const ai = (handle: string) => ({ handle, kind: 'ai' as const });
 
 describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
+  it.each([{ nextActors: [] }, { nextActors: [human('owner')] }])(
+    'names the integrator with current or legacy next actors $nextActors',
+    ({ nextActors }) => {
+      const held: Task = {
+        ...task,
+        fixLimit: {
+          phase: 'owner',
+          recipient: 'integrator',
+          rounds: 6,
+          limit: 6,
+          changeRequests: 6,
+          designChangeRequests: 0,
+          sendBacks: 0,
+          decider: null,
+          deciders: ['owner'],
+          reason: 'extra_exhausted',
+          heldAt: '2026-10-18T12:00:00Z',
+        },
+      };
+      const next = deriveNext(held, wait({ reason: 'fix_limit', next: nextActors }), ctx())!;
+      expect(next).toMatchObject({
+        head: t('involvement.integrator'),
+        you: false,
+        who: [],
+        noWho: t('involvement.integrator'),
+        tone: 'neutral',
+      });
+      expect(next.todo).toBe(t('taskStatus.next.todo.fixLimitOther', { who: t('involvement.integrator') }));
+      expect(next.line).not.toContain(t('taskStatus.next.you'));
+    },
+  );
   it.each([
     'ai_disabled',
     'team_paused',

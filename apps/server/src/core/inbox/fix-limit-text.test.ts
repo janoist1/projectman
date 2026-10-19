@@ -70,6 +70,33 @@ const fixLimit: FixLimitDecisionPayload = {
 } as FixLimitDecisionPayload;
 
 describe('formatFixLimitItem', () => {
+  for (const language of ['hu', 'en'] as const)
+    for (const optionId of ['replan', 'reassign'] as const) {
+      it(`keeps unavailable ${optionId} advice in ${language} without offering the outcome`, () => {
+        const assessment = {
+          ...fixLimit.assessment!,
+          recommendation: { optionId, reason: 'Clarify the scope.' },
+        };
+        const content = formatFixLimitItem(
+          config(language),
+          { ...fixLimit, assessment },
+          ['another_round'],
+          'integrator',
+        );
+        const reference = formatFixLimitItem(
+          config(language),
+          { ...fixLimit, assessment },
+          ['replan', 'reassign', 'another_round'],
+          'integrator',
+        );
+        const heading = reference.body.split('\n').find((line) => line.startsWith(`- ${optionId} — `))!;
+        expect(heading).toContain(assessment.recommendation.reason);
+        expect(content.body.split('\n')).toContain(heading);
+        expect(content.body).toContain(getLocale(language).fixLimitItem.options.unavailable[optionId]);
+        expect(content.options.map((option) => option.id)).toEqual(['another_round']);
+        expect(content.options.every((option) => option.style === 'secondary')).toBe(true);
+      });
+    }
   it.each(['hu', 'en'] as const)('formats the decider timeout reason in %s', (language) => {
     const content = formatFixLimitItem(
       config(language),

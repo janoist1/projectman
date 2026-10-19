@@ -13,8 +13,10 @@ import { inboxItemDomId, optionLabel } from '../../lib/inbox';
 import type { ApprovalHint } from '../../lib/inbox';
 import styles from './Question.module.css';
 
+export type QuestionChoice = InboxOption & { unavailable?: string };
+
 export interface QuestionChoicesProps {
-  choices: readonly InboxOption[];
+  choices: readonly QuestionChoice[];
   /** Id of the option the asking member recommends. */
   recommendedOptionId: string | null;
   /** One sentence: why; shown below the recommended option. */
@@ -22,6 +24,7 @@ export interface QuestionChoicesProps {
   size: ButtonSize;
   variantOf: (option: InboxOption) => ButtonVariant;
   disabled?: boolean;
+  pendingOptionId?: string | null;
   /** Phone layout: full-width 44px buttons. */
   mobile?: boolean;
   onPick: (option: InboxOption) => void;
@@ -40,6 +43,7 @@ export function QuestionChoices({
   size,
   variantOf,
   disabled = false,
+  pendingOptionId,
   mobile = false,
   onPick,
   describedBy,
@@ -55,20 +59,26 @@ export function QuestionChoices({
         const reason = recommended ? recommendationReason : null;
         // The button is named by its label; the badge, the consequence and the reason describe it.
         const describedBy =
-          [recommended ? badgeId : null, option.consequence ? consequenceId : null, reason ? reasonId : null]
+          [
+            recommended ? badgeId : null,
+            option.consequence || option.unavailable ? consequenceId : null,
+            reason ? reasonId : null,
+          ]
             .filter(Boolean)
             .join(' ') || undefined;
         return (
           <li key={option.id} className={clsx(styles.choice, recommended && styles.recommended)}>
             <div className={styles.choiceHead}>
               <Button
-                variant={variantOf(option)}
+                variant={option.unavailable ? 'secondary' : variantOf(option)}
                 size={size}
-                disabled={disabled}
+                disabled={disabled || Boolean(option.unavailable)}
                 aria-describedby={describedBy}
                 onClick={() => onPick(option)}
               >
-                {optionLabel(option)}
+                {disabled && pendingOptionId === option.id
+                  ? t('inbox.fixLimit.sending')
+                  : optionLabel(option)}
               </Button>
               {recommended ? (
                 <Chip id={badgeId} tone="accent" icon="check">
@@ -76,9 +86,12 @@ export function QuestionChoices({
                 </Chip>
               ) : null}
             </div>
-            {option.consequence ? (
-              <p id={consequenceId} className={styles.consequence}>
-                <InlineMarkdown text={option.consequence} />
+            {option.consequence || option.unavailable ? (
+              <p
+                id={consequenceId}
+                className={clsx(styles.consequence, option.unavailable && styles.unavailable)}
+              >
+                <InlineMarkdown text={option.unavailable ?? option.consequence ?? ''} />
               </p>
             ) : null}
             {reason ? (

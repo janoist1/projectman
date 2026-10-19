@@ -9,6 +9,7 @@ export interface FixRoundParts {
   changeRequests: number;
   designChangeRequests: number;
   sendBacks: number;
+  testsFailed?: number;
 }
 
 /** "2 kódátnézés és 1 visszaküldés": what the rounds were; the kinds that did not happen are left out. */
@@ -18,13 +19,19 @@ export function fixRoundParts(counts: FixRoundParts): string {
     counts.designChangeRequests > 0
       ? t('fixLimit.part.design', { count: counts.designChangeRequests })
       : null,
-    counts.sendBacks > 0 ? t('fixLimit.part.sendBacks', { count: counts.sendBacks }) : null,
+    counts.testsFailed ? t('fixLimit.part.testsFailed', { count: counts.testsFailed }) : null,
+    counts.sendBacks - (counts.testsFailed ?? 0) > 0
+      ? t(counts.testsFailed === undefined ? 'fixLimit.part.sendBacks' : 'fixLimit.part.manual', {
+          count: counts.sendBacks - (counts.testsFailed ?? 0),
+        })
+      : null,
   ].filter((part): part is string => part !== null);
   return joinNames(parts.length > 0 ? parts : [t('fixLimit.part.sendBacks', { count: 0 })]);
 }
 
 /** Whether the viewer is among those who decide a held card now. */
 export function decidesFixLimit(limit: TaskFixLimit, myHandle: string | null): boolean {
+  if (limit.recipient === 'integrator') return false;
   if (myHandle === null) return false;
   return limit.phase === 'owner' ? limit.deciders.includes(myHandle) : limit.decider === myHandle;
 }
@@ -33,16 +40,21 @@ export function decidesFixLimit(limit: TaskFixLimit, myHandle: string | null): b
 export function fixLimitStatus(limit: TaskFixLimit, members: MemberIndex, myHandle: string | null): string {
   if (decidesFixLimit(limit, myHandle)) return t('taskStatus.fixLimitYou', { rounds: limit.rounds });
   const who =
-    limit.phase === 'owner'
-      ? joinNames(namesOf(limit.deciders, members, myHandle))
-      : nameOf(limit.decider, members, myHandle);
+    limit.recipient === 'integrator'
+      ? t('involvement.integrator')
+      : limit.phase === 'owner'
+        ? joinNames(namesOf(limit.deciders, members, myHandle))
+        : nameOf(limit.decider, members, myHandle);
   return t('taskStatus.fixLimit', { who, rounds: limit.rounds });
 }
 
 /** Who has the held card and, when it went to the people, why, as a sentence for the drawer's box. */
 export function fixLimitWho(limit: TaskFixLimit, members: MemberIndex, myHandle: string | null): string {
   if (limit.phase === 'owner') {
-    const decides = decidesText(limit.deciders, members, myHandle);
+    const decides =
+      limit.recipient === 'integrator'
+        ? t('fixLimit.box.integrator')
+        : decidesText(limit.deciders, members, myHandle);
     return t(`fixLimit.box.people.${limit.reason ?? 'no_ai_decider'}`, { decides });
   }
   return t(limit.phase === 'lead' ? 'fixLimit.box.lead' : 'fixLimit.box.replan', {

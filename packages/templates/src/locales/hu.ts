@@ -435,8 +435,8 @@ export const hu: TemplateLocale = {
       heading: 'Döntési lehetőségek:',
       recommended: 'javasolt: {reason}',
       unavailable: {
-        replan: 'ma nem elérhető: nincs másik AI-tag, aki pontosíthatná a tervet.',
-        reassign: 'ma nem elérhető: nincs másik AI fejlesztő, aki átvehetné a kártyát.',
+        replan: '(most nem választható: nincs elérhető tervező.)',
+        reassign: '(most nem választható: nincs másik elérhető fejlesztő.)',
       },
       label: { replan: 'Pontosabb terv', reassign: 'Más fejlesztő', another_round: 'Még egy kör' },
       consequence: {

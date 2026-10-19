@@ -4,7 +4,7 @@ import {
   isCoordinatorOnlySignal,
   humanInboxAssignment,
   isIntegratorTodo,
-  planIntegratorTodoEscalation,
+  planIntegratorInboxEscalation,
   ownerHandles,
   superActorOf,
   ownerReservedEffect,
@@ -202,6 +202,11 @@ import {
   countCardRounds,
   countFixRounds,
   fixLimitDecisionOf,
+  fixRoundHistory,
+  remainingFixExtraRounds,
+  MAX_FIX_EXTRA_ROUNDS,
+  FixLimitAssessment,
+  selectFixLimitRecipient,
   fixLimitDeciders,
   fixLimitLead,
   fixLimitPlanner,
@@ -310,6 +315,7 @@ import {
   roleViews,
 } from '@projectman/templates';
 import * as fixtures from './fixtures';
+import { t } from '../i18n/t';
 import { MockEmailLogin } from './email-login';
 import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
@@ -1095,6 +1101,10 @@ export class MockBackend {
       changeRequests: rounds.changeRequests,
       designChangeRequests: rounds.designChangeRequests,
       sendBacks: rounds.sendBacks,
+      testsFailed: rounds.testsFailed,
+      extraRounds: this.fixState(taskKey).extraRounds,
+      remainingExtraRounds: remainingFixExtraRounds(this.fixState(taskKey).extraRounds),
+      extraRoundLimit: MAX_FIX_EXTRA_ROUNDS as 3,
     };
   }
 
@@ -1109,8 +1119,14 @@ export class MockBackend {
     const state = this.fixState(taskKey);
     if (!fixLimitReached(rounds.rounds, maxFixRoundsOf(this.config.team.limits), state.extraRounds)) return;
     const lead = fixLimitLead(this.config, [task.assignee]);
-    if (!lead || state.extraRounds > 0) {
-      this.holdForPeople(task, rounds, lead ? 'again' : 'no_ai_decider', null, null);
+    if (!lead || remainingFixExtraRounds(state.extraRounds) === 0) {
+      this.holdForPeople(
+        task,
+        rounds,
+        remainingFixExtraRounds(state.extraRounds) === 0 ? 'extra_exhausted' : 'no_ai_decider',
+        null,
+        null,
+      );
       return;
     }
     this.updateTask(taskKey, {
@@ -1150,6 +1166,7 @@ export class MockBackend {
     reason: NonNullable<TaskFixLimit['reason']>,
     decider: string | null,
     note: string | null,
+    assessment?: FixLimitAssessment,
   ): void {
     const deciders = fixLimitDeciders(this.config, boundaryOwners(this.config));
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
@@ -1163,7 +1180,7 @@ export class MockBackend {
       ...(others.length > 0 ? [FIX_REASSIGN_OPTION] : []),
       FIX_ANOTHER_ROUND_OPTION,
     ];
-    const data = this.fixLimitData(task.key, rounds);
+    const data = { ...this.fixLimitData(task.key, rounds), ...(assessment ? { assessment } : {}) };
     const passedOn = task.fixLimit !== undefined;
     this.updateTask(task.key, {
       fixLimit: {
@@ -1175,7 +1192,7 @@ export class MockBackend {
         heldAt: task.fixLimit?.heldAt ?? nowIso(),
       },
     });
-    this.upsertInbox({
+    const item: InboxItem = {
       id: mockId('inb'),
       projectKey: fixtures.PROJECT_KEY,
       kind: 'decision',
@@ -1183,14 +1200,38 @@ export class MockBackend {
       source: 'system',
       sessionId: null,
       taskKey: task.key,
-      title: `Fix round limit on ${task.key}: ${rounds.rounds} rounds`,
+      title: t('inbox.fixLimit.subject', { key: task.key }),
       body: null,
-      payload: { fixLimit: { taskKey: task.key, ...data, reason, decider, note } },
+      payload: {
+        fixLimit: {
+          taskKey: task.key,
+          ...data,
+          reason,
+          decider,
+          note,
+          history: fixRoundHistory(
+            this.timeline.filter((event) => event.taskKey === task.key),
+            this.config,
+            this.fixState(task.key).countedFrom,
+          ),
+        },
+      },
       options,
       state: 'open',
       resolution: null,
       createdAt: nowIso(),
-    });
+    };
+    const recipient = selectFixLimitRecipient(
+      item,
+      this.integratorKeys.some((key) => key.mode === 'super' && key.state === 'active'),
+    );
+    item.payload = {
+      ...item.payload,
+      ...recipient,
+      ...(recipient.recipient === 'integrator' ? { integratorOpenedAt: nowIso() } : {}),
+    };
+    this.updateTask(task.key, { fixLimit: { ...task.fixLimit!, recipient: recipient.recipient } });
+    this.upsertInbox(item);
     this.addTimeline(
       task.key,
       decider,
@@ -1230,6 +1271,7 @@ export class MockBackend {
     fresh: boolean,
   ): void {
     const state = this.fixState(task.key);
+    if (!fresh) state.extraRounds += 1;
     this.addTimeline(task.key, by, 'task_fix_limit', {
       phase: 'decided',
       ...this.fixLimitData(task.key, this.fixRoundsOf(task.key)),
@@ -1238,7 +1280,6 @@ export class MockBackend {
       ...(note ? { note } : {}),
     });
     if (fresh) this.fixLimitState.set(task.key, { countedFrom: nowIso(), extraRounds: 0 });
-    else state.extraRounds += 1;
     this.endFixLimit(task.key, 'decided');
   }
 
@@ -1284,7 +1325,13 @@ export class MockBackend {
    * The AI member who decides a held card (the tool `decide_fix_limit`): the lead lets it have one more
    * round, asks for a more exact plan or passes it on; the planner then lets it start anew.
    */
-  decideFixLimit(taskKey: string, decision: 'continue' | 'replan' | 'to_owner', reason: string): void {
+  decideFixLimit(
+    taskKey: string,
+    decision: 'continue' | 'replan' | 'to_owner',
+    reason: string,
+    assessment?: FixLimitAssessment,
+  ): void {
+    if (decision === 'to_owner') assessment = FixLimitAssessment.parse(assessment);
     const task = this.findTask(taskKey);
     const held = task?.fixLimit;
     if (!task || !held || held.phase === 'owner' || !held.decider) return;
@@ -1308,7 +1355,7 @@ export class MockBackend {
       });
       this.updateTask(taskKey, { fixLimit: { ...held, phase: 'replan', decider: planner } });
     } else if (decision === 'to_owner') {
-      this.holdForPeople(task, this.fixRoundsOf(taskKey), 'passed_on', held.decider, reason);
+      this.holdForPeople(task, this.fixRoundsOf(taskKey), 'passed_on', held.decider, reason, assessment);
     }
   }
 
@@ -1662,9 +1709,31 @@ export class MockBackend {
 
   sweepIntegratorTodos(now: string): void {
     for (const item of this.inbox) {
-      const patch = planIntegratorTodoEscalation(item, now, ownerHandles(this.config));
+      const patch = planIntegratorInboxEscalation(item, now, ownerHandles(this.config));
       if (!patch) continue;
       this.upsertInbox({ ...item, ...patch });
+      if (fixLimitDecisionOf(item)) {
+        const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+        if (task?.fixLimit)
+          this.updateTask(task.key, {
+            fixLimit: { ...task.fixLimit, recipient: 'owner', deciders: patch.assignees },
+          });
+        this.addTimeline(
+          item.taskKey,
+          null,
+          'fix_limit_recipient_escalated',
+          {
+            inboxItemId: item.id,
+            from: 'integrator',
+            to: 'owner',
+            reason: 'integrator_timeout',
+            openedAt: item.payload.integratorOpenedAt as string,
+          },
+          null,
+          now,
+        );
+        continue;
+      }
       this.addTimeline(
         item.taskKey,
         null,

@@ -6,7 +6,7 @@ import { setFetchImplementation } from '../../api/client';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { MockBackend } from '../../mocks/backend';
-import { mockProject } from '../../test/mockProject';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from '../board/TaskDrawer';
 import { InboxPage } from './InboxPage';
 
@@ -40,6 +40,48 @@ function backendWith({ lead = false, planner = false } = {}) {
 }
 
 describe('the fix round limit in the fake backend', () => {
+  it('ignores a technical send-back and retains it in decision history beside failed tests', () => {
+    const backend = backendWith();
+    backend.addTimeline('AC-21', null, 'task_stage_changed', {
+      from: 'code_review',
+      to: 'dev',
+      branchMoved: { branch: 'task', pinned: 'aaaaaaaa', head: 'bbbbbbbb' },
+    });
+    expect(backend.findTask('AC-21')?.fixLimit).toBeUndefined();
+    backend.addTimeline('AC-21', null, 'task_stage_changed', {
+      from: 'code_review',
+      to: 'dev',
+      testsFailed: { runId: 'run-test', commit: 'bbbbbbbb' },
+    });
+    changeRequests(backend, 1);
+    expect(backend.findTask('AC-21')?.fixLimit).toMatchObject({ rounds: 2, sendBacks: 1, testsFailed: 1 });
+    expect(fixLimitDecisionOf(fixItems(backend)[0]!)?.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'branch_moved', round: null }),
+        expect.objectContaining({ kind: 'tests_failed', round: 1 }),
+      ]),
+    );
+  });
+
+  it('addresses a new decision to an available integrator using the shared recipient rule', () => {
+    const backend = backendWith();
+    backend.integratorKeys = [
+      {
+        id: 'key-test',
+        mode: 'super',
+        prefix: 'pmi_test',
+        state: 'active',
+        createdAt: new Date().toISOString(),
+        expiresAt: null,
+        lastUsedAt: null,
+        lastUsedChannel: null,
+        revokedAt: null,
+      },
+    ];
+    changeRequests(backend, 2);
+    expect(fixItems(backend)[0]!.payload.recipient).toBe('integrator');
+    expect(backend.findTask('AC-21')?.fixLimit?.recipient).toBe('integrator');
+  });
   it('holds a card at the limit and gives the decision to the lead developer', () => {
     const backend = backendWith({ lead: true });
     changeRequests(backend, 1);
@@ -77,7 +119,7 @@ describe('the fix round limit in the fake backend', () => {
     ]);
   });
 
-  it('lets the lead give one more round, and goes to the owner when the limit is reached again', () => {
+  it('returns to the lead for three extra rounds and then asks a person', () => {
     const backend = backendWith({ lead: true });
     changeRequests(backend, 2);
     backend.decideFixLimit('AC-21', 'continue', 'The last findings are small.');
@@ -93,17 +135,30 @@ describe('the fix round limit in the fake backend', () => {
     // The round it got counts: the card is held again at the next change request.
     changeRequests(backend, 1);
     expect(backend.findTask('AC-21')?.fixLimit).toMatchObject({
-      phase: 'owner',
-      reason: 'again',
+      phase: 'lead',
+      reason: null,
       rounds: 3,
       limit: 3,
+    });
+    for (let i = 0; i < 2; i++) {
+      backend.decideFixLimit('AC-21', 'continue', 'One more.');
+      changeRequests(backend, 1);
+    }
+    expect(backend.findTask('AC-21')?.fixLimit).toMatchObject({
+      phase: 'owner',
+      reason: 'extra_exhausted',
+      extraRounds: 3,
     });
   });
 
   it('passes the card on to the owner when the lead says so, with the reason', () => {
     const backend = backendWith({ lead: true });
     changeRequests(backend, 2);
-    backend.decideFixLimit('AC-21', 'to_owner', 'The plan itself is wrong.');
+    backend.decideFixLimit('AC-21', 'to_owner', 'The plan itself is wrong.', {
+      recurrence: 'Same issue.',
+      currentState: 'Plan missing.',
+      recommendation: { optionId: 'replan', reason: 'Clarify the plan.' },
+    });
     expect(backend.findTask('AC-21')?.fixLimit).toMatchObject({ phase: 'owner', reason: 'passed_on' });
     expect(fixLimitDecisionOf(fixItems(backend)[0]!)).toMatchObject({
       reason: 'passed_on',
@@ -191,6 +246,39 @@ describe('the decision of a held card in the inbox', () => {
       '/p/AC/inbox',
     );
 
+  it('keeps a failed decision open, shows an inline alert and retries only available choices', async () => {
+    const project = mockProject(backendWith());
+    changeRequests(project.backend, 2);
+    const fetch = createMockFetch(project.backend, project.requests);
+    let failed = false;
+    setFetchImplementation(async (path, init) => {
+      if (path.endsWith('/resolve') && !failed) {
+        failed = true;
+        return new Response(JSON.stringify({ error: 'internal_error' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return fetch(path, init);
+    });
+    render(project);
+    const card = (await screen.findByRole('heading', { name: t('inbox.fixLimit.heading') })).closest(
+      'article',
+    )!;
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.another_round') }));
+    expect((await within(card).findByRole('alert')).textContent).toBe(t('inbox.fixLimit.error'));
+    expect(
+      within(card)
+        .getByRole('button', { name: t('inbox.options.replan') })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    const retry = within(card).getByRole('button', { name: t('inbox.options.another_round') });
+    expect(retry.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(retry);
+    expect(await screen.findByText(t('inbox.fixLimit.toast.another_round', { key: 'AC-21' }))).toBeTruthy();
+    expect(project.backend.findTask('AC-21')?.fixLimit).toBeUndefined();
+  });
+
   it('shows the expired AI decision from the fake backend in the inbox', async () => {
     const project = mockProject(backendWith({ lead: true }));
     changeRequests(project.backend, 2);
@@ -221,8 +309,13 @@ describe('the decision of a held card in the inbox', () => {
     expect(card.textContent).toContain(t('fixLimit.part.changes', { count: 2 }));
     expect(within(card).getByText(t('inbox.fixLimit.consequence.reassign'))).toBeTruthy();
     expect(within(card).getByText(t('inbox.fixLimit.consequence.another_round'))).toBeTruthy();
-    // Nobody can write a plan in this team, so there is no such button.
-    expect(within(card).queryByRole('button', { name: t('inbox.options.replan') })).toBeNull();
+    // Keep the unavailable planner's fixed slot with its visible explanation.
+    expect(
+      within(card)
+        .getByRole('button', { name: t('inbox.options.replan') })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(within(card).getByText(t('inbox.fixLimit.unavailable.replan'))).toBeTruthy();
     expect(within(card).getByText(t('inbox.fixLimit.footer'))).toBeTruthy();
 
     fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.another_round') }));

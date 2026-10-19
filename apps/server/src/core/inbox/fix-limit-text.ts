@@ -183,16 +183,15 @@ export function formatFixLimitItem(
       : text.options.consequence[id];
   lines.push('', text.options.heading);
   for (const id of OPTION_ORDER) {
-    const head = `- ${id} — ${label(id)}`;
-    if (!available.includes(id)) {
-      lines.push(`${head}`, `    ${text.options.unavailable[id as 'replan' | 'reassign']}`);
-      continue;
-    }
     const advice =
       id === recommended
         ? ` (${fill(text.options.recommended, { reason: assessment?.recommendation.reason ?? '' })})`
         : '';
-    lines.push(`${head}${advice}`, `    ${consequence(id)}`);
+    const head = `- ${id} — ${label(id)}${advice}`;
+    lines.push(
+      head,
+      `    ${available.includes(id) ? consequence(id) : text.options.unavailable[id as 'replan' | 'reassign']}`,
+    );
   }
   lines.push('', recipient === 'integrator' ? text.footer.integrator : text.footer.owner);
   const options: InboxOption[] = OPTION_ORDER.filter((id) => available.includes(id)).map((id) => ({

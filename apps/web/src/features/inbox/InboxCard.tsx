@@ -4,7 +4,8 @@ import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
 import {
   BoundaryReason,
-  isIntegratorTodo,
+  fixLimitDecisionOf,
+  isIntegratorInboxItem,
   alertPayloadOf,
   handOnRequestOf,
   operatorApprovalOf,
@@ -63,6 +64,8 @@ import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails, showI
 import { generalQuestionSources, QuestionSources, QuestionSourcesLine } from './QuestionSources';
 import { QuestionAttachments } from './QuestionAttachments';
 import { IntegratorTodoClock } from './IntegratorTodos';
+import { FixLimitDetails } from './FixLimitDetails';
+import type { QuestionChoice } from './Question';
 import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
 import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
 import { useFileDrop } from '../board/useFileDrop';
@@ -212,13 +215,35 @@ export function InboxCard({
   // A question the Operator made a todo of (PM-556): the result field is always open, with two buttons.
   const todo = isTodo(item);
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
-  const choices = withConsequences(
+  const fixLimit = fixLimitDecisionOf(item);
+  const availableChoices = withConsequences(
     item,
     item.options.filter((option) => option.id !== FREE_ANSWER_OPTION_ID),
   );
+  const choices: QuestionChoice[] = fixLimit
+    ? ['replan', 'reassign', 'another_round'].map((id) => {
+        const option = availableChoices.find((option) => option.id === id);
+        const recommended = fixLimit.assessment?.recommendation.optionId === id;
+        return option
+          ? { ...option, style: recommended ? 'primary' : 'secondary' }
+          : {
+              id,
+              label: t(`inbox.options.${id as 'replan' | 'reassign' | 'another_round'}`),
+              style: 'secondary',
+              unavailable: t(
+                id === 'replan'
+                  ? 'inbox.fixLimit.unavailable.replan'
+                  : id === 'reassign'
+                    ? 'inbox.fixLimit.unavailable.reassign'
+                    : 'inbox.fixLimit.unavailable.other',
+              ),
+            };
+      })
+    : availableChoices;
   const allowsFreeAnswer =
     item.kind === 'question' && (answerOption !== undefined || item.options.length === 0);
   const [answering, setAnswering] = useState(todo || (allowsFreeAnswer && choices.length === 0));
+  const [pendingOptionId, setPendingOptionId] = useState<string | null>(null);
   const cardRef = useRef<HTMLElement>(null);
   const [leaving, setLeaving] = useState(false);
   const [answer, setAnswer] = useState('');
@@ -370,7 +395,7 @@ export function InboxCard({
   const headRow = (
     <div className={styles.head}>
       <Chip tone="kind">{t(`inbox.kinds.${displayKind}`)}</Chip>
-      {isIntegratorTodo(item) ? (
+      {isIntegratorInboxItem(item) ? (
         <Chip tone="outline" icon="terminal">
           {t('inbox.integrator.chip')}
         </Chip>
@@ -420,7 +445,7 @@ export function InboxCard({
           mobile && styles.mobile,
         )}
         data-kind={displayKind}
-        data-recipient={isIntegratorTodo(item) ? 'integrator' : undefined}
+        data-recipient={isIntegratorInboxItem(item) ? 'integrator' : undefined}
       >
         {headRow}
         {taskRow}
@@ -569,12 +594,12 @@ export function InboxCard({
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={displayKind}
       data-alert={outageAlert ? 'work_outage' : releaseAlert ? 'release_failed' : undefined}
-      data-recipient={isIntegratorTodo(item) ? 'integrator' : undefined}
+      data-recipient={isIntegratorInboxItem(item) ? 'integrator' : undefined}
       data-severity={releaseAlert && isReleaseDown(releaseAlert) ? 'down' : undefined}
     >
       {headRow}
       {taskRow}
-      {question?.integratorEscalatedAt ? (
+      {question?.integratorEscalatedAt || (fixLimit && item.payload.integratorEscalatedAt) ? (
         <p className={styles.integratorMoved}>
           <Icon name="handoff" size={16} />
           {t('inbox.integrator.moved')}
@@ -637,6 +662,7 @@ export function InboxCard({
       {releaseItem ? <ReleaseInboxBody item={item} /> : null}
       {releaseAlert ? <ReleaseAlertBody alert={releaseAlert} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
+      {fixLimit ? <FixLimitDetails limit={fixLimit} members={members} myHandle={myHandle} /> : null}
       {outageAlert ? (
         <OutageAlert alert={outageAlert} members={members} myHandle={myHandle} mobile={mobile} />
       ) : null}
@@ -670,7 +696,7 @@ export function InboxCard({
           </dl>
         </section>
       ) : null}
-      {isIntegratorTodo(item) ? <IntegratorTodoClock item={item} /> : null}
+      {isIntegratorInboxItem(item) ? <IntegratorTodoClock item={item} /> : null}
       {grouped && group.note ? (
         <p className={styles.operatorNote}>
           <span aria-hidden="true">
@@ -735,15 +761,19 @@ export function InboxCard({
         <QuestionChoices
           describedBy={grouped ? `${answerId}-fanout` : undefined}
           choices={choices}
-          recommendedOptionId={extras.recommendedOptionId}
-          recommendationReason={extras.recommendationReason}
+          recommendedOptionId={fixLimit?.assessment?.recommendation.optionId ?? extras.recommendedOptionId}
+          recommendationReason={fixLimit?.assessment?.recommendation.reason ?? extras.recommendationReason}
           size={buttonSize}
           mobile={mobile}
           disabled={answerBlocked}
+          pendingOptionId={fixLimit && pending ? pendingOptionId : null}
           variantOf={(option) =>
             answering ? 'secondary' : option.style === 'danger' ? 'dangerSolid' : variantFor[option.style]
           }
-          onPick={(option) => resolveAnswer({ optionId: option.id })}
+          onPick={(option) => {
+            setPendingOptionId(option.id);
+            resolveAnswer({ optionId: option.id });
+          }}
         />
       ) : null}
       {answering ? (
@@ -821,7 +851,12 @@ export function InboxCard({
         <p className={styles.others}>{t('inbox.loop.footer')}</p>
       ) : null}
       {fixLimitText !== null && !assignedToOthers ? (
-        <p className={styles.others}>{t('inbox.fixLimit.footer')}</p>
+        <>
+          {choices.every((option) => option.unavailable) ? (
+            <p className={styles.others}>{t('inbox.fixLimit.unavailable.none')}</p>
+          ) : null}
+          <p className={styles.others}>{t('inbox.fixLimit.footer')}</p>
+        </>
       ) : null}
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>

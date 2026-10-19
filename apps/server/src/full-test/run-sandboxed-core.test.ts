@@ -1,7 +1,11 @@
 import { getEventListeners } from 'node:events';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runPromise } from '../kernel';
 import { runProcessGroup } from './run-sandboxed-core';
+import { quoteShellWord } from './sandbox';
 
 const run = (
   command: string,
@@ -38,6 +42,45 @@ describe('process group execution', () => {
     expect(end).toMatchObject({ timedOut: true, signal: 'SIGKILL' });
     expect(Date.now() - started).toBeGreaterThanOrEqual(180);
   });
+  it.each(['timeout', 'abort'] as const)(
+    'keeps the grace period and kills the worker after its parent exits on %s',
+    async (mode) => {
+      const dir = await mkdtemp(path.join(os.tmpdir(), 'pm-group-'));
+      const ready = path.join(dir, 'ready');
+      const controller = new AbortController();
+      let pids: number[] = [];
+      try {
+        // Like a merge-test launcher: the parent exits on TERM, but the worker ignores it
+        // and closes the launcher's pipes, so `close` does not prove the group is gone.
+        const worker = `trap '' TERM; echo $$ > ${quoteShellWord(ready)}; while :; do sleep 1; done`;
+        const pending = run(
+          `trap 'exit 0' TERM; /bin/sh -c ${quoteShellWord(worker)} >/dev/null 2>&1 & echo $$; echo $!; wait`,
+          { timeoutMs: mode === 'timeout' ? 500 : 5000, killGraceMs: 200, signal: controller.signal },
+        );
+        await expect.poll(() => readFile(ready, 'utf8')).toMatch(/^\d+\n$/);
+        const workerPid = Number(await readFile(ready, 'utf8'));
+        pids.push(workerPid);
+        const started = Date.now();
+        if (mode === 'abort') controller.abort();
+        const end = await pending;
+        pids = end.output.trim().split('\n').map(Number);
+        expect(pids).toContain(workerPid);
+        expect(end).toMatchObject({ timedOut: mode === 'timeout', aborted: mode === 'abort' });
+        expect(Date.now() - started).toBeGreaterThanOrEqual(190);
+        for (const pid of pids) await expect.poll(() => isGone(pid)).toBe(true);
+      } finally {
+        controller.abort();
+        for (const pid of pids) {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            /* Already gone. */
+          }
+        }
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
   it('handles abort during execution and removes the listener', async () => {
     const controller = new AbortController();
     const pending = run('sleep 30', { signal: controller.signal });
@@ -72,3 +115,13 @@ describe('process group execution', () => {
     expect(() => process.kill(pid, 0)).toThrow();
   });
 });
+
+function isGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+    throw error;
+  }
+}

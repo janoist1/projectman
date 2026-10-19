@@ -19,6 +19,7 @@ export const runProcessGroup = (run: GroupRun): Effect.Effect<SandboxedEnd> =>
       const tail = new OutputTail();
       const exited = Deferred.makeUnsafe<Omit<SandboxedEnd, 'timedOut' | 'aborted' | 'output'>>();
       const stopped = Deferred.makeUnsafe<void>();
+      const escalated = Deferred.makeUnsafe<void>();
       let timedOut = false;
       let aborted = false;
       const child = yield* Effect.sync(() => {
@@ -46,10 +47,11 @@ export const runProcessGroup = (run: GroupRun): Effect.Effect<SandboxedEnd> =>
           /* The group is already gone. */
         }
       };
-      // A child that detached itself may outlive the shell; the group is stopped either way.
+      // Descendants may outlive the shell, even when they have closed its output pipes.
       yield* Effect.addFinalizer(() => Effect.sync(() => killGroup('SIGKILL')));
       const stop = (mark: () => void) =>
         Effect.sync(() => {
+          if (timedOut || aborted) return;
           mark();
           killGroup('SIGTERM');
           Deferred.doneUnsafe(stopped, Effect.void);
@@ -82,9 +84,13 @@ export const runProcessGroup = (run: GroupRun): Effect.Effect<SandboxedEnd> =>
         Deferred.await(stopped).pipe(
           Effect.andThen(Effect.sleep(run.killGraceMs)),
           Effect.andThen(Effect.sync(() => killGroup('SIGKILL'))),
+          Effect.andThen(Deferred.succeed(escalated, undefined)),
         ),
       );
       const end = yield* Deferred.await(exited);
+      // Closing the leader's pipes must not cancel escalation for surviving descendants.
+      // Keep the scope (and its grace-period fiber) alive until the whole group was killed.
+      if (timedOut || aborted) yield* Deferred.await(escalated);
       return { ...end, timedOut, aborted, output: tail.value() };
     }),
   );

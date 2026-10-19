@@ -85,6 +85,50 @@ describe('server test impact', () => {
       'apps/server/test/uncertain.test.ts',
     ]);
   });
+  it('uses a shared-consuming production seed as a changed module', () => {
+    expect(
+      serverTestImpact({
+        changed: [],
+        seeds: ['apps/server/src/a/index.ts'],
+        before: tree,
+        after: tree,
+        modules,
+      }),
+    ).toEqual(impact());
+  });
+  it('selects a test seed directly without selecting its production module', () => {
+    const result = serverTestImpact({
+      changed: [],
+      seeds: ['apps/server/test/independent.test.ts'],
+      before: tree,
+      after: tree,
+      modules,
+    });
+    expect(result.fallback).toBeUndefined();
+    expect(result.modules).toEqual([]);
+    expect(result.tests).toContain('apps/server/test/independent.test.ts');
+    expect(result.tests).not.toContain('apps/server/src/d/index.test.ts');
+  });
+  it('follows shared-consuming helper seeds and retains changed-test fallback', () => {
+    const seeded = serverTestImpact({
+      changed: [],
+      seeds: ['apps/server/test/helpers/a.ts'],
+      before: tree,
+      after: tree,
+      modules,
+    });
+    expect(seeded.fallback).toBeUndefined();
+    expect(seeded.tests).toContain('apps/server/test/external.test.ts');
+    expect(
+      serverTestImpact({
+        changed: ['apps/server/test/independent.test.ts'],
+        seeds: ['apps/server/test/independent.test.ts'],
+        before: tree,
+        after: tree,
+        modules,
+      }).fallback,
+    ).toContain('test, helper or fixture changed');
+  });
   it('preserves old importers after deletion or rename and returns only candidate tests', () => {
     const after = tree
       .filter((f) => !f.path.includes('/a/'))

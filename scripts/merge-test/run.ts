@@ -8,6 +8,7 @@ import type { MergeTestFile } from './impact';
 import { runNpm } from './npm';
 import { mergeTestScope } from './scope';
 import type { MergeTestScope } from './scope';
+import { sharedImpact } from './shared-impact';
 import { filesSteps, MERGE_TEST_WORKSPACES, runSteps, testStep, typecheckStep, workspaceOf } from './steps';
 import type { MergeTestStep, StepRun } from './steps';
 
@@ -22,6 +23,8 @@ const CLOUD_TEST_FILTERS = [
 const USAGE = 'usage: npm run merge-test -- [--all | --files <repository path of a test file>...]';
 
 export function scopeLine(scope: MergeTestScope): string {
+  if (scope.kind === 'shared')
+    return `merge-test scope: shared (exports: ${scope.exports.length}); workspaces: ${scope.workspaces.join(', ')}; typecheck: all; fallback: ${scope.fallback ?? 'none'}; selected tests: ${scope.tests?.join(', ') ?? (scope.workspaces.includes('apps/server') ? 'apps/server/*' : 'none')}`;
   if (scope.kind === 'cloud')
     return `merge-test scope: cloud; workspaces: apps/server; test filters: ${CLOUD_TEST_FILTERS.join(', ')}; fallback: none`;
   if (scope.kind === 'modules')
@@ -54,6 +57,13 @@ export function mergeTestSteps(scope: MergeTestScope): MergeTestStep[] {
     ];
   if (scope.kind === 'cloud')
     return [typecheckStep('apps/server'), testStep('apps/server', CLOUD_TEST_FILTERS)];
+  if (scope.kind === 'shared')
+    return [
+      ...MERGE_TEST_WORKSPACES.map((workspace) => typecheckStep(workspace, true)),
+      ...MERGE_TEST_WORKSPACES.filter((ws) => scope.workspaces.includes(ws)).map((ws) =>
+        testStep(ws, ws === 'apps/server' ? scope.tests : undefined, true),
+      ),
+    ];
   if (scope.kind === 'modules')
     return [
       typecheckStep('apps/server'),
@@ -61,6 +71,47 @@ export function mergeTestSteps(scope: MergeTestScope): MergeTestStep[] {
       ...scope.workspaces.flatMap((ws) => [typecheckStep(ws), testStep(ws)]),
     ];
   return scope.workspaces.flatMap((ws) => [typecheckStep(ws), testStep(ws)]);
+}
+
+function sharedScope(
+  scope: Extract<MergeTestScope, { kind: 'workspaces' }>,
+  changed: readonly string[],
+  before: readonly MergeTestFile[],
+  after: readonly MergeTestFile[],
+): MergeTestScope {
+  // Non-source shared changes need no consumer analysis, but still check every workspace's types.
+  const shared = scope.sharedChanged?.length
+    ? sharedImpact({ changed: scope.sharedChanged, before, after })
+    : {
+        exports: [],
+        consumers: {
+          'apps/server': [],
+          'apps/web': [],
+          'apps/feedback-widget': [],
+          'packages/templates': [],
+        },
+      };
+  if ('fallback' in shared) return { kind: 'all', reason: shared.fallback };
+  if (shared.consumers['packages/templates'].length)
+    return { kind: 'all', reason: 'shared consumer in packages/templates' };
+  const workspaces = MERGE_TEST_WORKSPACES.filter(
+    (ws) => scope.workspaces.includes(ws) || (ws !== 'packages/shared' && shared.consumers[ws].length > 0),
+  );
+  const server = workspaces.includes('apps/server')
+    ? serverTestImpact({
+        changed,
+        seeds: shared.consumers['apps/server'],
+        before: before.filter((file) => file.path.startsWith('apps/server/')),
+        after: after.filter((file) => file.path.startsWith('apps/server/')),
+        modules: MODULES,
+      })
+    : undefined;
+  return {
+    kind: 'shared',
+    exports: shared.exports,
+    workspaces,
+    ...(server?.fallback ? { fallback: server.fallback } : server ? { tests: server.tests } : {}),
+  };
 }
 
 type Parsed = { all: boolean } | { files: string[] } | { error: string };
@@ -120,9 +171,14 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
       else {
         const files = firstParentDiff();
         scope = mergeTestScope(files);
-        if (scope.kind === 'workspaces' && scope.workspaces.includes('apps/server')) {
+        if (
+          scope.kind === 'workspaces' &&
+          (scope.sharedChanged !== undefined || scope.workspaces.includes('apps/server'))
+        ) {
+          const roots =
+            scope.sharedChanged === undefined ? ['apps/server'] : [...MERGE_TEST_WORKSPACES, 'scripts'];
           const readTree = (revision: string): MergeTestFile[] => {
-            const entries = git(['ls-tree', '-r', '-z', revision, '--', 'apps/server'])
+            const entries = git(['ls-tree', '-r', '-z', revision, '--', ...roots])
               .split('\0')
               .filter(Boolean)
               .map((entry) => {
@@ -153,20 +209,21 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
               return { path, source };
             });
           };
-          const impact = serverTestImpact({
-            changed: files,
-            before: readTree('HEAD^1'),
-            after: readTree('HEAD'),
-            modules: MODULES,
-          });
-          scope = impact.fallback
-            ? { ...scope, fallback: impact.fallback }
-            : {
-                kind: 'modules',
-                modules: impact.modules,
-                tests: impact.tests,
-                workspaces: scope.workspaces.filter((ws) => ws !== 'apps/server'),
-              };
+          const before = readTree('HEAD^1');
+          const after = readTree('HEAD');
+          if (scope.sharedChanged !== undefined) {
+            scope = sharedScope(scope, files, before, after);
+          } else {
+            const impact = serverTestImpact({ changed: files, before, after, modules: MODULES });
+            scope = impact.fallback
+              ? { ...scope, fallback: impact.fallback }
+              : {
+                  kind: 'modules',
+                  modules: impact.modules,
+                  tests: impact.tests,
+                  workspaces: scope.workspaces.filter((ws) => ws !== 'apps/server'),
+                };
+          }
         }
       }
       // A file the merge changed is never rerun; with no parent to compare with, none is.

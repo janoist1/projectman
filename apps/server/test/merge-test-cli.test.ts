@@ -93,24 +93,198 @@ describe('merge test runner', () => {
     ['apps/server/src/logging/index.test.ts', "import './index';"],
     ['apps/server/test/golden-path-example.test.ts', ''],
   ];
-  function mockTrees(changed: string[], tree = sourceTree) {
-    const listing = tree.map(([path], i) => `100644 blob oid${i}\t${path}\0`).join('');
-    const batch = Buffer.concat(
-      tree.flatMap(([, source], i) => [
-        Buffer.from(`oid${i} blob ${Buffer.byteLength(source!)}\n`),
-        Buffer.from(source!),
-        Buffer.from('\n'),
-      ]),
-    );
+  function mockTrees(changed: string[], tree = sourceTree, after = tree) {
+    let current = tree;
     spawn.mockImplementation((_command, args) => {
       if (args?.[0] === 'rev-list') return ended('head first second');
       if (args?.[0] === 'diff') return ended(changed.join('\0') + '\0');
-      if (args?.[0] === 'ls-tree') return ended(listing);
-      if (args?.[0] === 'cat-file') return { ...ended(), stdout: batch, stderr: Buffer.alloc(0) };
+      if (args?.[0] === 'ls-tree') {
+        current = args[3] === 'HEAD' ? after : tree;
+        return ended(current.map(([path], i) => `100644 blob oid${i}\t${path}\0`).join(''));
+      }
+      if (args?.[0] === 'cat-file')
+        return {
+          ...ended(),
+          stdout: Buffer.concat(
+            current.flatMap(([, source], i) => [
+              Buffer.from(`oid${i} blob ${Buffer.byteLength(source!)}\n`),
+              Buffer.from(source!),
+              Buffer.from('\n'),
+            ]),
+          ),
+          stderr: Buffer.alloc(0),
+        };
       throw new Error('unexpected command');
     });
     npm.mockResolvedValue(done());
   }
+  const sharedTree = [
+    ...sourceTree,
+    ['packages/shared/src/index.ts', "export * from './leaf';\nexport * from './other';"],
+    ['packages/shared/src/leaf.ts', 'export const Value = 1;'],
+    ['packages/shared/src/other.ts', 'export const Other = 1;'],
+    ['apps/server/src/logging/shared.ts', "import { Value } from '@projectman/shared';"],
+    ['apps/web/src/value.ts', "import { Other } from '@projectman/shared';"],
+  ];
+  const sharedChecks = [
+    'packages/shared',
+    'packages/templates',
+    'apps/feedback-widget',
+    'apps/server',
+    'apps/web',
+  ].map((ws) => ['run', 'typecheck', '-w', ws, '--if-present']);
+  it('runs every type check, shared tests and only affected server tests', async () => {
+    const log = output();
+    mockTrees(['packages/shared/src/leaf.ts'], sharedTree);
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toEqual([
+      ...sharedChecks,
+      ['test', '-w', 'packages/shared', '--if-present'],
+      [
+        'test',
+        '-w',
+        'apps/server',
+        '--if-present',
+        '--',
+        resolve('apps/server/src/logging/index.test.ts'),
+        resolve('apps/server/test/golden-path-example.test.ts'),
+      ],
+    ]);
+    expect(log.mock.calls[0]?.[0]).toBe(
+      'merge-test scope: shared (exports: 1); workspaces: packages/shared, apps/server; typecheck: all; fallback: none; selected tests: apps/server/src/logging/index.test.ts, apps/server/test/golden-path-example.test.ts',
+    );
+    expect(log.mock.calls[0]).toEqual(log.mock.calls.at(-1));
+    expect(
+      gitCalls()
+        .filter((args) => args?.[0] === 'ls-tree')
+        .every((args) => args?.includes('packages/templates')),
+    ).toBe(true);
+  });
+  it('skips server tests without a server consumer or server changes', async () => {
+    output();
+    const files = sharedTree.filter(([path]) => path !== 'apps/server/src/logging/shared.ts');
+    mockTrees(['packages/shared/src/leaf.ts'], files);
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toEqual([...sharedChecks, ['test', '-w', 'packages/shared', '--if-present']]);
+  });
+  it('selects server tests for an export consumed only by scripts', async () => {
+    const log = output();
+    const scriptTree = [
+      ...sharedTree.filter(([path]) => path !== 'apps/server/src/logging/shared.ts'),
+      ['scripts/live/watch.ts', "import { Value } from '@projectman/shared';"],
+      [
+        'apps/server/test/scripts-only.test.ts',
+        "import '../../../scripts/live/watch'; import '../src/logging';",
+      ],
+    ];
+    mockTrees(['packages/shared/src/leaf.ts'], scriptTree);
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toEqual([
+      ...sharedChecks,
+      ['test', '-w', 'packages/shared', '--if-present'],
+      [
+        'test',
+        '-w',
+        'apps/server',
+        '--if-present',
+        '--',
+        resolve('apps/server/test/golden-path-example.test.ts'),
+        resolve('apps/server/test/scripts-only.test.ts'),
+      ],
+    ]);
+    expect(
+      gitCalls()
+        .filter((args) => args?.[0] === 'ls-tree')
+        .map((args) => args?.slice(3)),
+    ).toEqual(
+      ['HEAD^1', 'HEAD'].map((revision) => [
+        revision,
+        '--',
+        'packages/shared',
+        'packages/templates',
+        'apps/feedback-widget',
+        'apps/server',
+        'apps/web',
+        'scripts',
+      ]),
+    );
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: none');
+  });
+  it('keeps own web changes and widget consumers from either revision', async () => {
+    output();
+    const before = [
+      ...sharedTree,
+      ['apps/web/src/old.ts', "export { Value } from '@projectman/shared';"],
+      ['apps/feedback-widget/src/a.ts', "import { Value } from '@projectman/shared';"],
+    ];
+    mockTrees(['packages/shared/src/leaf.ts', 'apps/web/src/local.ts'], before, sharedTree);
+    expect(await run([])).toBe(0);
+    expect(
+      npmCalls()
+        .filter((args) => args[0] === 'test')
+        .map((args) => args[2]),
+    ).toEqual(['packages/shared', 'apps/feedback-widget', 'apps/server', 'apps/web']);
+  });
+  it('keeps the full run for own widget changes mixed with shared changes', async () => {
+    const log = output();
+    mockTrees(['packages/shared/src/leaf.ts', 'apps/feedback-widget/src/a.ts'], sharedTree);
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toHaveLength(10);
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: apps/feedback-widget/src/a.ts');
+  });
+  it('runs own server changes even without a shared server consumer', async () => {
+    output();
+    mockTrees(
+      ['packages/shared/src/leaf.ts', 'apps/server/src/logging/index.ts'],
+      sharedTree.filter(([path]) => path !== 'apps/server/src/logging/shared.ts'),
+    );
+    expect(await run([])).toBe(0);
+    expect(
+      npmCalls()
+        .filter((args) => args[0] === 'test')
+        .map((args) => args[2]),
+    ).toEqual(['packages/shared', 'apps/server']);
+  });
+  it('keeps server fallback local while checking all types for shared changes', async () => {
+    const log = output();
+    mockTrees(['packages/shared/src/leaf.ts', 'apps/server/test/helpers/a.ts'], sharedTree);
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toEqual([
+      ...sharedChecks,
+      ['test', '-w', 'packages/shared', '--if-present'],
+      ['test', '-w', 'apps/server', '--if-present'],
+    ]);
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: test, helper or fixture changed');
+  });
+  it('runs everything when a template consumes an affected export', async () => {
+    const log = output();
+    mockTrees(
+      ['packages/shared/src/leaf.ts'],
+      [...sharedTree, ['packages/templates/src/a.ts', "import { Value } from '@projectman/shared';"]],
+    );
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toHaveLength(10);
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: shared consumer in packages/templates');
+  });
+  it('runs everything with an explicit shared-analysis fallback reason', async () => {
+    const log = output();
+    mockTrees(
+      ['packages/shared/src/leaf.ts'],
+      sharedTree.map(([path, source]) => [
+        path!,
+        path === 'packages/shared/src/leaf.ts' ? 'export default 1;' : source!,
+      ]),
+    );
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toHaveLength(10);
+    expect(log.mock.calls[0]?.[0]).toContain('fallback: unsupported shared export');
+  });
+  it('runs only shared tests for its non-source changes, with all type checks', async () => {
+    output();
+    mockTrees(['packages/shared/test/a.test.ts'], sharedTree);
+    expect(await run([])).toBe(0);
+    expect(npmCalls()).toEqual([...sharedChecks, ['test', '-w', 'packages/shared', '--if-present']]);
+  });
   it('reads both trees as blobs and runs modules followed by the web workspace', async () => {
     const log = output();
     mockTrees(['apps/server/src/logging/index.ts', 'apps/web/src/a.ts']);

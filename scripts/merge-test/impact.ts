@@ -12,11 +12,13 @@ const sorted = (values: Iterable<string>) => [...new Set(values)].sort();
 
 export function serverTestImpact(input: {
   changed: readonly string[];
+  seeds?: readonly string[];
   before: readonly MergeTestFile[];
   after: readonly MergeTestFile[];
   modules: readonly ModuleEntry[];
 }): ServerTestImpact {
   const selected = new Set<string>();
+  const seeded = new Set(input.seeds);
   const reverse = new Map<string, Set<string>>();
   const edges = new Map<string, Set<string>>();
   const uncertain = new Set<string>();
@@ -26,6 +28,17 @@ export function serverTestImpact(input: {
   for (const path of input.changed.filter((p) => p.startsWith('apps/server/'))) {
     if (!path.startsWith(src) || isServerTest(path) || isTestSupport(path))
       return fail(`test, helper or fixture changed: ${path}`);
+    const id = owner(path);
+    if (!id) return fail(`unmapped source: ${path}`);
+    selected.add(id);
+  }
+  for (const path of seeded) {
+    if (isServerTest(path)) continue;
+    if (!path.startsWith(src) || isTestSupport(path)) {
+      // A shared-consuming helper can feed tests without belonging to a source module.
+      uncertain.add(path);
+      continue;
+    }
     const id = owner(path);
     if (!id) return fail(`unmapped source: ${path}`);
     selected.add(id);
@@ -102,6 +115,7 @@ export function serverTestImpact(input: {
       .filter((f) => isServerTest(f.path))
       .filter(
         (f) =>
+          seeded.has(f.path) ||
           f.path.startsWith('apps/server/test/architecture/') ||
           f.path.endsWith('.integration.test.ts') ||
           /^apps\/server\/test\/golden-path-.*\.test\.ts$/.test(f.path) ||

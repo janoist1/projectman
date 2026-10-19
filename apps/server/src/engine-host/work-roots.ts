@@ -3,10 +3,11 @@ import path from 'node:path';
 import { isWithin } from './within';
 
 /**
- * The work roots (PM-846): where the worktrees, the member workspaces and the full test's run directories
- * live. By default they lie directly in the home; a `workRoot` moves them below one root, which a person
+ * The work roots (PM-846): where the worktrees and the member workspaces live. By default they lie directly in the home; a `workRoot` moves them below one root, which a person
  * mounts as a separate volume (on a Mac: an APFS volume with `.fseventsd/no_log`, so the file-event daemon
- * does not log the churn of the checkouts and `node_modules`).
+ * does not log the churn of the checkouts and `node_modules`). The full test's run directories do not move
+ * with them: the full test sandbox denies the home for reading and allows only the run's own directory, so
+ * the run directory must stay outside the home (`os.tmpdir()`), or the run could not read its parents.
  */
 
 /** The file a person puts in the root of the work volume; without it the root is an unmounted mount point. */
@@ -19,8 +20,6 @@ export interface WorkRoots {
   worktrees: string;
   /** `<workRoot>/workspaces`, else `<home>/workspaces`. */
   workspaces: string;
-  /** The full test's run-directory root: `<workRoot>/tmp`, else undefined (`os.tmpdir()`, as before). */
-  fullTestTmp: string | undefined;
 }
 
 export type WorkRootProblem = 'not_absolute' | 'missing' | 'marker_missing' | 'outside_home';
@@ -36,7 +35,7 @@ export class WorkRootError extends Error {
   }
 }
 
-const SUBDIRS = ['worktrees', 'workspaces', 'tmp'] as const;
+const SUBDIRS = ['worktrees', 'workspaces'] as const;
 
 /**
  * Resolves the work roots under `home`. Without a `workRoot` these are today's paths and nothing is
@@ -49,7 +48,6 @@ export function resolveWorkRoots(home: string, workRoot?: string): WorkRoots {
       workRoot: null,
       worktrees: path.join(home, 'worktrees'),
       workspaces: path.join(home, 'workspaces'),
-      fullTestTmp: undefined,
     };
   }
   if (!path.isAbsolute(workRoot))
@@ -83,6 +81,5 @@ export function resolveWorkRoots(home: string, workRoot?: string): WorkRoots {
     workRoot: real,
     worktrees: path.join(real, 'worktrees'),
     workspaces: path.join(real, 'workspaces'),
-    fullTestTmp: path.join(real, 'tmp'),
   };
 }

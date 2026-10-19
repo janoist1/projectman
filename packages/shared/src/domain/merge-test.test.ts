@@ -3,9 +3,23 @@ import {
   MERGE_TEST_FAILED_PREFIX,
   MERGE_TEST_FLAKY_PREFIX,
   MERGE_TEST_MARKED_FILES_MAX,
+  mergeTestFilesCommand,
   mergeTestMarkedFiles,
   mergeTestMarkerLine,
+  quoteShellWord,
 } from './merge-test';
+
+describe('mergeTestFilesCommand', () => {
+  it('appends every file shell-quoted', () => {
+    expect(
+      mergeTestFilesCommand('npm run merge-test -- --files', ['a b.test.ts', "it's.test.ts", '$(x).ts']),
+    ).toBe(`npm run merge-test -- --files 'a b.test.ts' 'it'\\''s.test.ts' '$(x).ts'`);
+  });
+
+  it('quotes a word in single quotes', () => {
+    expect(quoteShellWord("it's")).toBe(`'it'\\''s'`);
+  });
+});
 
 describe('mergeTestMarkerLine', () => {
   it('builds a line per kind', () => {

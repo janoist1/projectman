@@ -1242,9 +1242,21 @@ commit pinned at the hand-over, run by the server.
 - **Executor.** `src/full-test` (`FullTestExecutor` in `contracts/full-test.ts`) writes the srt settings
   (`fullTestSandbox`: reads the checkout and the configured repository's git directory only, writes its run
   directory `<tmp>/pmft-<end of the run id>/` only: srt's own default temporary directory, `/tmp/claude`, which it
-  opens on its own and the members' sandboxes share, is in `denyWrite`; no network except listening on local ports, `allowPty`; the
-  directory is short, and under `/private/tmp` when `<tmp>` is too deep, because srt's socket in the
-  sandbox's TMPDIR must stay below macOS's 104-byte socket path limit), runs `<command>` there (srt's `-c`, with
+  opens on its own and the members' sandboxes share, is in `denyWrite`; no network except listening on local ports, `allowPty`;
+  Unix sockets only below the run's own `tmp` — `network` is exactly `allowedDomains: []`, `deniedDomains: []`,
+  `allowLocalBinding: true`, `allowUnixSockets: [<run directory>/sandbox/tmp]`, `allowAllUnixSockets: false`
+  (the path prefix of srt 0.0.78's macOS generator; the installer's and the screenshot runs' network profiles
+  get no socket permission). The directory is short and measured in bytes (UTF-8) on the canonical
+  paths: `runDirOf(tmpRoot, shortRoot, runId)` takes roots the caller resolved with `canonicalRoot`
+  (`realpath`: `/var/folders` is `/private/var/folders` on macOS, which a socket path is checked against), and
+  a root is used only when its `tmp` and `home` below the run directory leave at least 40 bytes (the separator
+  included) within 100 bytes (macOS's socket path limit is 104; srt's `srt-mux-<pid>-<n>.sock` is 24 bytes with
+  the separator, the control socket's `control.sock` 13). Otherwise the directory is under `/private/tmp`
+  (`pmft-<end of the run id>`), whose frame is checked the same way; when neither root has room `runDirOf`
+  throws and the run ends as `sandbox_unavailable`, with no wider permission or longer path. This is the
+  code's profile: it says nothing about the running installation, which gets it only with a separately
+  approved engine update; the real socket behavior is proved by the socket integration tests (PM-754) after
+  that), runs `<command>` there (srt's `-c`, with
   its standard input closed by `exec </dev/null;`, because srt hands the command its input through a socket,
   and `script`, so a PTY, fails on a socket; srt also sets the command's `TMPDIR` from `CLAUDE_CODE_TMPDIR`,
   or a `/tmp/claude` that does not exist, so `fullTestEnv` sets it to the run's tmp) with
@@ -1400,6 +1412,21 @@ failure path; the full check and review gates remain required. Original creation
 manifest priority snapshots are restored; candidate, check, failure, block and active
 membership are cleared. Only adjacent diagnostic members of the same parent can group,
 bounded by every member's limit.
+**Blaming a member by a lone run (PM-844).** When the repository's `reviewTest.filesCommand` is set,
+the group check failed with named files (`failedFiles`) and the train has at least two members, the
+train does not halve first: for each member in turn it builds `onto + member`, checks that out
+(`checkoutForCheck`, released after the run) and runs `filesCommand` with the group's failed files,
+each shell-quoted (`mergeTestFilesCommand`, shared), with the train's workers, timeout and heavy lock.
+A member is blamed only if its run failed **and** its failed files intersect the group's: any other
+non-zero exit (a usage error, a failed install, no file named) leaves it unknown. Each blamed member
+takes the individual `check_failed` path (`MergeSteps.fail`: `base` = the train's `onto`, the lone run's
+id and command, the intersecting files, its output tail, the `task_merge_failed` event and
+notification). The others (green or unknown) are requeued with no `diagnostic`, so they keep their
+queue place and may join any train, each with a timeline note. If no member is blamed (an interaction,
+or every lone run was unknown or red elsewhere), the train halves as before. Members keep the step
+`checking`; a restart during the lone runs finds the stored red group check and halves. All of it runs
+through the engine link's `build`, `checkoutForCheck`, `releaseCheck` and the full test executor, so
+nothing machine-dependent is new.
 Each smaller attempt gets a fresh candidate and check on current main; successful prefixes
 therefore participate in the next half's check. Singletons use the individual path and only
 their failed check identifies a blocking card. Success clears diagnostic state; operational
@@ -1493,6 +1520,10 @@ workers follow the machine's size.
   wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
   moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
   who holds it and who waits, for the PM-300 display.
+- **The run's directory (PM-847).** Whoever holds the lock prepares its run directory
+  (`full-test/sandbox.ts`, `runDirOf` on `canonicalRoot` roots): a byte-measured `pmft-*` directory with room
+  for the sandbox's sockets (see "Server full test before review"), made only once the lock is held; when no
+  root has room, the run ends as `sandbox_unavailable` and releases the lock.
 - **Idle close (PM-569).** An idle session with a live heavy-run holder or waiter stays open,
   and gets its full idle interval after the last sweep that saw the run. Heartbeats must be at most
   30 seconds old and the PID must live. After 120 minutes since `lastActivityAt`, idle closure applies
@@ -3129,9 +3160,11 @@ assumption or remote-engine RPC.
 - **Work volume (PM-846)** — `engine-host/work-roots.ts` (`resolveWorkRoots`, `WORK_ROOT_MARKER`,
   `WorkRootError`), `engine-link/engine-config.ts` (`workRoot`), `engine-app.ts`, `app.ts`,
   `index.ts` (`PROJECTMAN_WORK_ROOT`, single mode only), `scripts/engine/{commands,move-work-root}.ts`
-  (`npm run engine -- move-work-root`). An optional work root puts `worktrees/`, `workspaces/` and the
-  full test's `tmp/` (the `pmft-*` run directories) below one directory, so that a separate APFS volume
-  with `.fseventsd/no_log` takes the file churn that made `fseventsd` grow to 17 GB. Absent: the
+  (`npm run engine -- move-work-root`). An optional work root puts `worktrees/`, and `workspaces/` below one
+  directory, so that a separate APFS volume with `.fseventsd/no_log` takes the file churn that made
+  `fseventsd` grow to 17 GB. The full test's `pmft-*` run directories stay in `os.tmpdir()` (PM-848): the full
+  test sandbox denies the home for reading and allows only the run's own directory, so a run directory
+  inside the home leaves its parents unreadable. Absent: the
   paths below `PROJECTMAN_HOME`, as before. The start fails closed (`work_root_invalid`): an absolute
   path, an existing directory, a regular `.projectman-work-root` file in it (an unmounted volume is an empty
   directory on the system volume) and a real path strictly inside the real home. Inside the home, because the
@@ -3375,11 +3408,17 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   **Module:** `runner`
 - **Server full test before review** — `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine), PM-846: with a work root the
-  executor gets `tmpDir: <workRoot>/tmp`, so the `pmft-*` run directories are on the work volume,
+  executor gets only `worktreesRoot`; the `pmft-*` run directories stay in `os.tmpdir()`, outside the home (PM-848),
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt`.
+  it is unavailable without macOS/`srt`. PM-847: the run directory is a byte-measured, canonical path
+  (`canonicalRoot`, `runDirOf`: at least 40 bytes below its `tmp` and `home` within 100; else
+  `/private/tmp/pmft-*`; else `sandbox_unavailable`), and the sandbox may bind and connect Unix sockets
+  below the run's own `sandbox/tmp` only (`allowUnixSockets`, `allowAllUnixSockets: false`); the installer
+  and screenshot profiles have none. The engine that creates the sandbox is the installed one, so this
+  takes effect there only after a separately approved engine update. Remote engine: all of it is the
+  engine's own private run root; the cloud receives only the existing full-test result.
   Timeout and cancellation retain the detached process group's cleanup scope through the TERM
   grace period, then send SIGKILL to the negative group id even if the launcher has already
   closed its output pipes (PM-829, `full-test/run-sandboxed-core.ts`). The engine owns these

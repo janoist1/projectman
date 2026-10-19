@@ -2140,6 +2140,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                     "minLength": 1,
                                     "type": "string",
                                   },
+                                  "filesCommand": {
+                                    "maxLength": 500,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
                                   "maxWorkers": {
                                     "default": 2,
                                     "maximum": 8,
@@ -3647,6 +3652,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                   "additionalProperties": false,
                                   "properties": {
                                     "command": {
+                                      "maxLength": 500,
+                                      "minLength": 1,
+                                      "type": "string",
+                                    },
+                                    "filesCommand": {
                                       "maxLength": 500,
                                       "minLength": 1,
                                       "type": "string",
@@ -5240,6 +5250,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                         "additionalProperties": false,
                                         "properties": {
                                           "command": {
+                                            "maxLength": 500,
+                                            "minLength": 1,
+                                            "type": "string",
+                                          },
+                                          "filesCommand": {
                                             "maxLength": 500,
                                             "minLength": 1,
                                             "type": "string",

@@ -651,15 +651,17 @@ by any card: the owner installs it, after the first hybrid release has been rehe
 ## Separate work volume on a Mac (PM-846)
 
 macOS keeps a log of every file change in the `fseventsd` daemon. Task worktrees, member workspaces,
-`node_modules` installs and the full test's `pmft-*` run directories change so many files that the daemon grew to
-17 GB of memory. A separate APFS volume with an empty `.fseventsd/no_log` file is not logged. The engine puts
-`worktrees/`, `workspaces/` and the full test's run directories below one **work root** on that volume.
+`node_modules` installs change so many files that the daemon grew to 17 GB of memory. A separate APFS volume
+with an empty `.fseventsd/no_log` file is not logged. The engine puts `worktrees/` and `workspaces/` below one
+**work root** on that volume.
 
 The volume is **mounted inside the engine home** (`~/.projectman/work`), not under `/Volumes`. The sandboxes keep
 the other members' work unreadable by denying the home; a root outside it would make every checkout readable to
 every session, so the engine refuses to start with one (`work_root_invalid`, reason `outside_home`). Not moved:
 the sessions' `$TMPDIR` (`/private/tmp/projectman-<uid>-tmp`: it holds Unix sockets with a path length limit),
-the Claude temp directory and `member-caches`. Measure first (step 8); a follow-up card handles them if the daemon
+the Claude temp directory, `member-caches` and the full test's `pmft-*` run directories (PM-848: the full test
+sandbox denies the home for reading and allows only the run's own directory, so a run directory inside the home
+would leave its parents unreadable; it stays in `os.tmpdir()`). Measure first (step 8); a follow-up card handles them if the daemon
 still grows.
 
 The owner does these steps once (the commands need `sudo`; replace `disk3` with the container `diskutil list`

@@ -902,13 +902,19 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'obligation_handed_over': {
       const kind = ObligationKind.safeParse(d.kind);
       return normal(
-        t(`timeline.events.${event.type}`, {
-          responsible: nameOf(str(d.responsible), ctx.members, ctx.myHandle),
-          step: kind.success
-            ? t(`timeline.obligationSteps.${kind.data}`)
-            : t('timeline.obligationSteps.step'),
-          minutes: typeof d.minutes === 'number' ? d.minutes : 0,
-        }),
+        t(
+          event.type === 'obligation_handed_over' && str(d.recipientRefusal)
+            ? 'timeline.events.obligation_handed_over_refused'
+            : `timeline.events.${event.type}`,
+          {
+            responsible: nameOf(str(d.responsible), ctx.members, ctx.myHandle),
+            step: kind.success
+              ? t(`timeline.obligationSteps.${kind.data}`)
+              : t('timeline.obligationSteps.step'),
+            minutes: typeof d.minutes === 'number' ? d.minutes : 0,
+            reason: str(d.recipientRefusal),
+          },
+        ),
       );
     }
     case 'question_answered':

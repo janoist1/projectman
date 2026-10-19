@@ -132,6 +132,23 @@ describe('describeEvent', () => {
     ).toBe(
       'gave the open review step (code_review@x) of cr to the integrator as a todo: still no action after the reminder',
     );
+    expect(
+      describeEvent(
+        event(
+          'obligation_handed_over',
+          {
+            ...data,
+            recipient: 'owner',
+            recipientRefusal: 'integrator_unavailable',
+          },
+          undefined,
+          null,
+        ),
+        100,
+      ),
+    ).toBe(
+      'gave the open review step (code_review@x) of cr to the owner as a todo (the integrator is not available: integrator_unavailable): still no action after the reminder',
+    );
     expect(describeEvent(event('obligation_woken', {}, undefined, null), 100)).toBe(
       'reminded the responsible once about the open step (?): no action in ? minutes',
     );

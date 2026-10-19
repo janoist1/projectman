@@ -206,11 +206,12 @@ export class TaskStarts {
     return result;
   }
 
-  /** The shared rule (`canAutomaticallyStartTask`), on this card's own open subtasks read from fresh state (PM-770). */
+  /** The shared rule (`canAutomaticallyStartTask`), on all this card's subtasks read from fresh state (PM-818). */
   private canStartAutomatically(task: Task): boolean {
     const subtasks = this.tasks.readSchedulingTasks(task.projectKey, {
       kind: 'children',
       parentKeys: [task.key],
+      includeClosed: true,
     });
     return canAutomaticallyStartTask(task, subtasks);
   }

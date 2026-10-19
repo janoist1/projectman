@@ -4603,6 +4603,8 @@ export const hu = {
         'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
       obligation_handed_over:
         'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért teendő lett belőle ({minutes} perc).',
+      obligation_handed_over_refused:
+        'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért a tulajdonos kapott teendőt ({minutes} perc). Az integrátornak nem lehetett átadni: {reason}.',
       integrator_todo_done: 'Lezárta a teendőt: megcsinálta.',
       integrator_todo_cannot: 'Lezárta a teendőt: nem csinálta meg. Indoka: „{note}”',
       question_screened_todo_recorded: 'Teendőként továbbengedte neked: {note} Hiányként rögzítette.',

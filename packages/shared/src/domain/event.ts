@@ -488,6 +488,7 @@ export interface TimelineEventData {
     inboxItemId: string;
     recipient: QuestionRecipient;
     decisionItemId?: string;
+    recipientRefusal?: QuestionRecipientRefusal;
   };
   /** A pending question of `asker` was closed without an answer by `rule` (PM-556). */
   question_closed: { inboxItemId: string; asker: string; rule: QuestionCloseRule; note: string | null };

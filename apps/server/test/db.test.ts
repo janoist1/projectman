@@ -505,6 +505,48 @@ describe('database', () => {
     expect(repos.sessions.countResumable()).toBe(3);
   });
 
+  it('finds only the latest source-bearing task session in the requested project (PM-818)', () => {
+    const db = openDatabase(':memory:');
+    const repos = createRepositories(db);
+    const add = (id: string, over: Partial<Session> = {}) =>
+      repos.sessions.insert({
+        id,
+        projectKey: 'AR',
+        member: id,
+        workItem: { type: 'task', taskKey: 'AR-1' },
+        claudeSessionId: id,
+        cwd: '/work',
+        branch: null,
+        transcriptPath: null,
+        state: 'exited',
+        activity: null,
+        startedAt: now,
+        lastActivityAt: now,
+        endedAt: now,
+        ...over,
+      });
+    try {
+      add('ses_without_source');
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')).toBeNull();
+      add('ses_branch', { branch: 'task/AR-1', engineId: 'eng_abcdefghijkl' });
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')?.id).toBe('ses_branch');
+      add('ses_review', { startedAt: '2026-09-30T10:00:00.000Z' });
+      repos.sessions.setReviewedCommit('ses_review', 'reviewed');
+      add('ses_newer_without_source', { startedAt: '2026-10-01T10:00:00.000Z' });
+      add('ses_other_project', {
+        projectKey: 'OTHER',
+        branch: 'other',
+        startedAt: '2026-10-01T10:00:00.000Z',
+      });
+      add('ses_other_task', { workItem: { type: 'task', taskKey: 'AR-2' }, branch: 'other' });
+      add('ses_chat', { workItem: { type: 'general' }, branch: 'other' });
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')?.id).toBe('ses_review');
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-3')).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   it('maps sessions, timeline, messages, inbox and member state', () => {
     const repos = createRepositories(openDatabase(':memory:'));
     const session: Session = {

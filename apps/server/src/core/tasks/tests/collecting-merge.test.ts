@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
 import type { BranchMerger } from '../../../contracts';
+import { LocalEngineDirectory } from '../../../runtime/sessions';
 import { createDomainHarness, OWNER_ACTOR } from '../../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../../test/helpers/domain-harness';
 import { makeLocalOnly } from '../../../../test/helpers/test-template';
@@ -114,6 +115,132 @@ describe.each([
     });
   const stageEvents = () =>
     h!.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((event) => event.type === 'task_stage_changed');
+
+  /** A registered remote engine, with no local engine on the cloud hub. */
+  function cloudEngine() {
+    const remote = 'eng_abcdefghijkl';
+    const original = LocalEngineDirectory.prototype.get;
+    vi.spyOn(LocalEngineDirectory.prototype, 'ids').mockReturnValue([remote]);
+    vi.spyOn(LocalEngineDirectory.prototype, 'engineFor').mockReturnValue(remote);
+    vi.spyOn(LocalEngineDirectory.prototype, 'get').mockImplementation(function (
+      this: LocalEngineDirectory,
+      id,
+    ) {
+      const local = original.call(this, 'local');
+      return id === remote && !offline && local ? { ...local, id: remote } : null;
+    });
+    return remote;
+  }
+
+  function workBinding() {
+    const repo = h!.repos.memberWorkspaces;
+    repo.insert({
+      id: 'ws_old',
+      projectKey: 'AR',
+      member: 'dev-1',
+      repo: 'web',
+      path: '/work/dev-1',
+      generation: 1,
+      createdAt: AT,
+    });
+    repo.saveBinding({
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      member: 'dev-1',
+      workspaceId: 'ws_old',
+      kind: 'work',
+      branch: 'task/AR-1',
+      baseCommit: null,
+      sourcePath: null,
+      sourceRef: null,
+      sourceCommit: null,
+      round: 0,
+      refresh: false,
+      generation: 1,
+      createdAt: AT,
+      updatedAt: AT,
+    });
+  }
+
+  it.each(['update', 'tool'])(
+    'closes an unassigned collector with past assignment but no workspace on a cloud hub by %s (PM-818)',
+    async (via) => {
+      await setup({ assignee: true });
+      await part('done');
+      cloudEngine();
+      const watched = watchEngine();
+      await (via === 'update' ? closeByUpdate() : mcp());
+      expect(card().status).toBe('done');
+      expect(watched.sourceHead).toHaveBeenCalled();
+      expect(watched.find).not.toHaveBeenCalled();
+      expect(watched.head).not.toHaveBeenCalled();
+      expect(merger.prepare).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not treat a work binding with a missing branch as no workspace on a cloud hub (PM-818)', async () => {
+    await setup();
+    await part('done');
+    workBinding();
+    const binding = h!.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')[0]!;
+    h!.repos.memberWorkspaces.saveBinding({ ...binding, branch: null });
+    cloudEngine();
+    await expect(closeByUpdate()).rejects.toMatchObject({
+      code: 'task_not_merged',
+      details: { reason: 'engine_unavailable' },
+    });
+  });
+
+  it('keeps the previous developer engine as the source after unassignment (PM-818)', async () => {
+    await setup();
+    await part('done');
+    workBinding();
+    withWorktreeHead();
+    const remote = cloudEngine();
+    expect(h!.domain.sessions.cardEngineId('AR', card())).toBe(remote);
+    const watched = watchEngine();
+    await expect(closeByUpdate()).rejects.toMatchObject({
+      code: 'task_not_merged',
+      details: { reason: offline ? 'engine_unavailable' : 'not_merged' },
+    });
+    expect(card().status).toBe('active');
+    if (offline) expect(watched.find).not.toHaveBeenCalled();
+    else expect(watched.find).toHaveBeenCalled();
+  });
+
+  it('keeps a registered but disconnected local engine fail closed (PM-818)', async () => {
+    await setup({ assignee: true });
+    await part('done');
+    vi.spyOn(LocalEngineDirectory.prototype, 'get').mockReturnValue(null);
+    await expect(closeByUpdate()).rejects.toMatchObject({
+      code: 'task_not_merged',
+      details: { reason: 'engine_unavailable' },
+    });
+  });
+
+  it('does not discard an old remote task-worktree source without a workspace binding (PM-818)', async () => {
+    await setup();
+    await part('done');
+    withWorktreeHead();
+    const remote = cloudEngine();
+    h!.repos.db
+      .prepare(
+        `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref,
+      claude_session_id, cwd, branch, engine_id, state, started_at, last_activity_at)
+      VALUES ('ses_legacy_remote', 'AR', 'dev-1', 'task', 'AR-1', 'claude-legacy', '/work',
+      'task/AR-1', ?, 'ended', ?, ?)`,
+      )
+      .run(remote, AT, AT);
+    expect(h!.domain.sessions.cardEngineId('AR', card())).toBe(remote);
+    const watched = watchEngine();
+    await expect(closeByUpdate()).rejects.toMatchObject({
+      code: 'task_not_merged',
+      details: { reason: offline ? 'engine_unavailable' : 'not_merged' },
+    });
+    expect(card().status).toBe('active');
+    if (offline) expect(watched.find).not.toHaveBeenCalled();
+    else expect(watched.find).toHaveBeenCalled();
+  });
 
   it('closes by a person’s update without reading the source', async () => {
     await setup();

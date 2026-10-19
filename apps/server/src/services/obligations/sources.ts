@@ -1,4 +1,5 @@
 import {
+  canAutomaticallyStartTask,
   developmentStage,
   isOpenTask,
   memberOf,
@@ -431,11 +432,19 @@ function startSource(deps: SourceDeps): ObligationSource {
     derive(project) {
       const queue = pullSourceStage(project.config);
       if (!queue) return null;
+      const cards = [...project.tasks.values()];
       const found: DerivedObligation[] = [];
       for (const row of project.live) {
         if (row.kind !== 'start') continue;
         const task = project.tasks.get(row.taskKey);
-        if (!task || !isOpenTask(task) || task.assignee || task.stageId !== queue.id) continue;
+        if (
+          !task ||
+          !canAutomaticallyStartTask(task, cards) ||
+          !isOpenTask(task) ||
+          task.assignee ||
+          task.stageId !== queue.id
+        )
+          continue;
         const state = deps.startOffers.stateOf(row.projectKey, row.taskKey);
         if (state === 'ended') continue;
         found.push({

@@ -266,6 +266,25 @@ describe('open-step reminders on the timeline (PM-806)', () => {
   it('calls a step kind this build does not know a step', () => {
     expect(row('obligation_woken', { kind: 'other', responsible: 'dev-1', minutes: 5 })).toContain('lépés');
   });
+
+  it('shows why the obligation todo went to the owner', () => {
+    expect(
+      row('obligation_handed_over', {
+        kind: 'start',
+        responsible: 'dev-1',
+        minutes: 30,
+        recipient: 'owner',
+        recipientRefusal: 'integrator_unavailable',
+      }),
+    ).toBe(
+      t('timeline.events.obligation_handed_over_refused', {
+        responsible: 'dev-1',
+        step: 'indítás',
+        minutes: 30,
+        reason: 'integrator_unavailable',
+      }),
+    );
+  });
 });
 
 describe('card relations on the timeline (PM-192)', () => {

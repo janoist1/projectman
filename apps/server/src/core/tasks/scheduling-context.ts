@@ -14,7 +14,7 @@ export function prerequisiteCards(
 
 /**
  * The rows the shared start rules look at for these cards (PM-770), read for exactly them: the cards, their
- * open subtasks (`canAutomaticallyStartTask`: a card with an open subtask is a collector) and the cards their
+ * subtasks, including closed ones (a collector must not get a start offer), and the cards their
  * `prerequisite` links name, closed ones too (`openPrerequisites` tells which are open). Given to the unchanged
  * shared rules (`pullCandidates`, `startableCards`, `openPrerequisites`) in place of the project's whole list,
  * so no gate or priority rule is repeated here. The result is by number, once each; no cards: no read.
@@ -29,6 +29,7 @@ export function startContext(
   const children = reader.readSchedulingTasks(projectKey, {
     kind: 'children',
     parentKeys: cards.map((card) => card.key),
+    includeClosed: true,
   });
   for (const child of children) known.set(child.key, child);
   const named = [

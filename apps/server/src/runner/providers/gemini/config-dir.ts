@@ -8,6 +8,7 @@ import {
   forwarderCommand,
   permissionHookTimeoutS,
 } from '../../hook-forwarder';
+import { writeHookConfig } from '../../session-config';
 
 export const GEMINI_DENY_FALLBACK = JSON.stringify({
   decision: 'deny',
@@ -86,14 +87,17 @@ export async function prepareGeminiDir(configDir: string | undefined, input: Lau
       throw new Error('Gemini configuration directory must not contain symlinks.');
   }
   const hooks: Record<string, unknown> = {};
-  for (const event of ['PreInvocation', 'PreToolUse', 'PostToolUse', 'Stop']) {
+  for (const event of ['PreInvocation', 'PreToolUse', 'PostToolUse', 'Stop'] as const) {
     const timeout =
       event === 'PreToolUse'
         ? permissionHookTimeoutS(input.permissionTimeoutMs) + DEPENDENCY_GATE_WAIT_S
         : FAST_HOOK_TIMEOUT_S;
+    // The provider folder outlives the session: its commands name this session's private
+    // folder, which holds the event's target file (PM-156).
+    const targetPath = await writeHookConfig(input.sessionConfigDir, input.hookUrl, event);
     const hook = {
       type: 'command',
-      command: forwarderCommand(`${input.hookUrl}/${event}`, process.execPath, {
+      command: forwarderCommand(targetPath, process.execPath, {
         printResponse: true,
         maxTimeS: timeout,
         fallbackOutput: event === 'PreToolUse' ? GEMINI_DENY_FALLBACK : '{}',

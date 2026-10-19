@@ -8,6 +8,7 @@ import type { PermissionDecision, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
 import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
 import { parseCodexLoginStatus } from '../login';
+import { writeHookConfig } from '../../session-config';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
 import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths } from './args';
 import { CodexPlanUsage } from './plan-usage';
@@ -185,7 +186,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     timing: CODEX_TIMING,
     inputTools: CODEX_INPUT_TOOLS,
 
-    async launch({ spec, hookUrl, permissionTimeoutMs, cliPath }) {
+    async launch({ spec, hookUrl, permissionTimeoutMs, cliPath, sessionConfigDir }) {
       if (
         cliPath &&
         codexCliReadRoot(cliPath, codexDeniedPaths({ spec, codexHome: opts.codexHome })).kind === 'misplaced'
@@ -198,7 +199,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
         throw new CodexStartError({ problem: 'mcp_config', ambientConfig: userMcp.unresolved });
       const { args, initialMessageSent } = buildCodexArgs({
         spec,
-        hookUrl,
+        hookConfigPath: await writeHookConfig(sessionConfigDir, hookUrl),
         permissionTimeoutMs,
         realCwd,
         codexHome: opts.codexHome,

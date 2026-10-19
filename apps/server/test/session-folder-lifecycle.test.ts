@@ -61,6 +61,7 @@ describe('the session folder of a session (PM-268)', () => {
     const spec = h!.runner.lastStarted();
     return buildSettings({
       hookUrl: 'http://127.0.0.1/hooks/x',
+      hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
       permissionTimeoutMs: 1000,
       allowedTools: spec.allowedTools,
       deniedTools: spec.deniedTools,

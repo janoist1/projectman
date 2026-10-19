@@ -4,7 +4,7 @@
  * tests. It never calls any API. It speaks the parts of the protocol projectman relies on:
  *
  * FLAGS (same as `claude`): --session-id <uuid> | --resume <uuid>, --append-system-prompt,
- *   --mcp-config <json>, --settings <json|file>, --model, --effort, --permission-mode, -n/--name,
+ *   --mcp-config <json|file>, --settings <json|file>, --model, --effort, --permission-mode, -n/--name,
  *   --agents <json> (checked: a malformed one exits with code 1 before the session starts),
  *   -p/--print with --input-format/--output-format stream-json, --version, --help.
  *   Other flags are accepted and ignored.
@@ -223,11 +223,9 @@ if (process.env.FAKE_CLAUDE_ARGS_FILE) writeArgsFile(process.env.FAKE_CLAUDE_ARG
 async function callTeamTool(tool, args) {
   let url = null;
   for (const raw of opts.mcpConfig) {
-    try {
-      url = JSON.parse(raw)?.mcpServers?.team?.url ?? url;
-    } catch {
-      // not JSON: Claude Code would read a file; the runner always passes JSON
-    }
+    // Inline JSON or the path of a file (the runner passes a file, PM-156), as Claude Code takes both.
+    const config = loadSettings(raw);
+    url = config?.mcpServers?.team?.url ?? url;
   }
   if (typeof url !== 'string') return { text: 'No team MCP server is configured', isError: true };
   try {

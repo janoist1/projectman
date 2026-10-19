@@ -34,6 +34,7 @@ describe('NanoGPT adapter', () => {
         initialMessage: 'TEAM',
       },
       hookUrl: 'http://localhost/hook',
+      sessionConfigDir: await dirs.make(),
       permissionTimeoutMs: 1000,
     };
     return { adapter, input, codexHome };
@@ -53,10 +54,21 @@ describe('NanoGPT adapter', () => {
     expect(launch.cliArgs).toContain('z-ai/glm-5.3-flash-uncensored');
     expect(launch.cliArgs).not.toContain('--oss');
     expect(JSON.stringify(launch.cliArgs)).not.toContain('private-test-sentinel');
+    // The hooks name the private target file, not the hook URL (PM-156).
+    expect(JSON.stringify(launch.cliArgs)).not.toContain('http://localhost/hook');
+    expect(JSON.stringify(launch.cliArgs)).toContain(path.join(h.input.sessionConfigDir, 'hook.curl'));
+    expect(await readFile(path.join(h.input.sessionConfigDir, 'hook.curl'), 'utf8')).toBe(
+      'url = "http://localhost/hook"\n',
+    );
     expect(launch.env).toEqual({ CODEX_HOME: h.codexHome, NANOGPT_API_KEY: 'private-test-sentinel' });
     expect((await stat(h.codexHome)).mode & 0o777).toBe(0o700);
     expect(await h.adapter.planUsage.get()).toBeNull();
-    const resume = await h.adapter.launch({ ...h.input, spec: { ...h.input.spec, resume: true } });
+    // Every start has a private folder of its own.
+    const resume = await h.adapter.launch({
+      ...h.input,
+      sessionConfigDir: await dirs.make(),
+      spec: { ...h.input.spec, resume: true },
+    });
     expect(resume.cliArgs[0]).toBe('resume');
     expect(resume.env).toEqual(launch.env);
     await writeFile(path.join(h.codexHome, 'auth.json'), '{}');

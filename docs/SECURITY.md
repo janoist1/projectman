@@ -955,6 +955,46 @@ hostile input. The boundary:
   outside plan mode; another member's folder asks), and its commands, which run unsandboxed, can
   write there like anywhere else they may. The folder stays hostile input for all of them.
 
+## Team tokens off the command line (PM-156)
+
+Each session has two tokens: the MCP token (`/mcp/<token>`: the team tools as that member) and the
+hook token (`/hooks/<token>`: permission decisions and turn events of that session). A command line
+and the process list (`ps -axww`) are readable by every process of the same user, the session's own
+sandboxed commands included, so neither token may be on one.
+
+- **Where they are now.** `<app home>/run/<session id>.<random>/` (`runner/session-config.ts`): the
+  root is 0700 and checked on every start (a real directory of the server's user, not a symlink);
+  the folder is 0700 and made for each start, a resume included; its files are 0600, created
+  exclusively without following a link. Claude Code gets the paths with `--mcp-config` and `--settings`; the hook commands of Claude
+  (sandboxed), Codex, NanoGPT and Gemini run the forwarder with the path of a target file (`curl
+--config <file>`, or the Node fallback reading the same line), never the URL. The forwarder refuses a relative path; a missing or malformed file posts
+  nothing (Gemini's PreToolUse prints its deny fallback).
+- **Closed to the session.** The root is in `sensitivePaths` (`SESSION_CONFIG_DIR`) and the runner adds
+  it, as configured and as canonical, to the policy's denied paths and to the sandbox's
+  `denyRead`/`denyWrite`; so the file tools (`Read`/`Edit` rules) and the shell cannot read it. A spec
+  without a policy gets the matching `deniedTools` rules. Claude Code and the forwarder read the files
+  outside that sandbox.
+- **When they go.** The runner removes the folder after the process has exited (also when the launch or
+  the spawn fails). At server start a sweep removes the folders whose runner is provably gone: the
+  owner record's pid and start time match no process, no process of the user names the folder or
+  carries the session's `PROJECTMAN_SESSION_ID`. Everything the sweep cannot prove orphaned is kept
+  and logged (the processes cannot be listed, an environment cannot be read, no or an invalid owner
+  record, a name that does not match, a non-directory). It never follows a link and never touches the
+  folder of a running session.
+- **Residual risk.**
+  - Codex and NanoGPT still pass the team MCP URL as a `-c mcp_servers.team=...` argument; it stays
+    visible in `ps` until their MCP configuration moves to a file (PM-812). Their hook commands are
+    token-free.
+  - Gemini's provider folder (`config/mcp_config.json`) holds the MCP URL in a 0600 file that
+    outlives the session; the token is dead once the session is gone, and the hooks file holds none.
+  - A session that is already running when the server is updated keeps its old command line until
+    its next start.
+  - An unsandboxed Claude session keeps its hook URL in `claude-settings.json` (the CLI's own `http`
+    hook): a 0600 file, closed to the file-tool rules, but not hidden from a command that no sandbox
+    confines. Sandboxed sessions use the forwarder only.
+  - A process of the same user outside every sandbox (the owner's own shell) can still read the files.
+    That is the user's own account, not a boundary this change draws.
+
 ## E-mail login of invited clients (PM-670)
 
 A client (a person who holds `client` access and nothing else) can log in with a one-time code sent

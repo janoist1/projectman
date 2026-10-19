@@ -11,6 +11,7 @@ import { inspectCodexMcpServers, inspectAmbientConfig } from '../../ambient-conf
 import { createCodexAdapter } from '../codex';
 import { CodexTranscriptParser } from '../codex/transcript';
 import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths, NANOGPT_CODEX_PROVIDER } from '../codex/args';
+import { writeHookConfig } from '../../session-config';
 import type { ProviderAdapter } from '../types';
 
 const SubscriptionUsage = z.object({
@@ -152,7 +153,10 @@ export function createNanogptAdapter(opts: {
       await mkdir(opts.codexHome, { recursive: true, mode: 0o700 });
       await chmod(opts.codexHome, 0o700);
       const command = buildCodexArgs({
-        ...input,
+        cliPath: input.cliPath,
+        spec: input.spec,
+        hookConfigPath: await writeHookConfig(input.sessionConfigDir, input.hookUrl),
+        permissionTimeoutMs: input.permissionTimeoutMs,
         realCwd,
         codexHome: opts.codexHome,
         provider: NANOGPT_CODEX_PROVIDER,

@@ -22,7 +22,8 @@ import { cliExists, resolveCliPath, runQuietly } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
 import { assertCodexMemberWorkspace, parseCliVersion, inspectCodexSandboxConfig } from './ambient-config';
-import type { ProviderAdapter } from './providers/types';
+import type { Launch, ProviderAdapter } from './providers/types';
+import { createSessionConfigStore, denySessionConfigRoots, type SessionConfigStore } from './session-config';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
 import { NanogptStartError } from './providers/nanogpt';
 import { CodexStartError, defaultCodexHome } from './providers/codex';
@@ -73,6 +74,8 @@ export class SessionManager implements SessionRunner {
   private readonly statuses = new Map<string, { status: ProviderStatus; at: number }>();
   private readonly statusChecks = new Map<string, Promise<ProviderStatus>>();
   private readonly scopes: ProcessScopeDriver;
+  /** The private folders of the sessions' launch files (tokens never reach a command line, PM-156). */
+  private readonly configFiles: SessionConfigStore;
   private readonly recovery: Promise<void>;
 
   constructor(opts: RunnerModuleOptions, adapters: ProviderAdapters = createProviderAdapters(opts)) {
@@ -86,8 +89,20 @@ export class SessionManager implements SessionRunner {
       uid: process.getuid?.() ?? null,
       logger: this.log,
     });
+    this.configFiles = createSessionConfigStore({
+      root: opts.sessionConfigRoot,
+      logger: this.log,
+      instanceTag: opts.instanceTag,
+      processes: opts.scopeProcesses,
+    });
     const recover = async () => {
       for (const event of await this.scopes.recover()) this.emit({ type: 'scope_recovered', ...event });
+      // After the scopes: a session's process that is still left keeps its folder (PM-156).
+      try {
+        await this.configFiles.sweep();
+      } catch (err) {
+        this.log.warn({ err }, 'could not clean up the session configuration folders');
+      }
     };
     this.recovery = recover();
     if (opts.terminal === 'pipe')
@@ -137,20 +152,32 @@ export class SessionManager implements SessionRunner {
     }
 
     const token = randomBytes(24).toString('base64url');
-    const launch = await adapter.launch({
-      ...(provider === 'codex' || provider === 'nanogpt'
-        ? { cliPath: (await resolveCliPath(adapter.bin, env.PATH)) ?? undefined }
-        : {}),
-      spec,
-      hookUrl: hookUrlFor(this.opts.publicBaseUrl, token),
-      permissionTimeoutMs: this.opts.permissionTimeoutMs,
-    });
+    const configRoot = await this.configFiles.prepare();
+    const configDir = await this.configFiles.allocate(spec.sessionId);
+    // The session's file tools and shell never reach the folders that hold its tokens.
+    const launchSpec = denySessionConfigRoots(spec, [...new Set([this.opts.sessionConfigRoot, configRoot])]);
+    let launch: Launch;
+    try {
+      launch = await adapter.launch({
+        ...(provider === 'codex' || provider === 'nanogpt'
+          ? { cliPath: (await resolveCliPath(adapter.bin, env.PATH)) ?? undefined }
+          : {}),
+        spec: launchSpec,
+        hookUrl: hookUrlFor(this.opts.publicBaseUrl, token),
+        sessionConfigDir: configDir.path,
+        permissionTimeoutMs: this.opts.permissionTimeoutMs,
+      });
+    } catch (err) {
+      await configDir.remove();
+      throw err;
+    }
     const session = new AgentSession({
-      spec,
+      spec: launchSpec,
       hookToken: token,
       adapter,
       initialMessageSent: launch.initialMessageSent,
       deps: {
+        cleanupLaunchFiles: () => configDir.remove(),
         ...(launch.conversationRoot ? { transcriptRoot: launch.conversationRoot } : {}),
         logger: this.log,
         processScopes: this.scopes,
@@ -177,6 +204,7 @@ export class SessionManager implements SessionRunner {
       this.sessions.delete(spec.sessionId);
       this.byToken.delete(token);
       session.dispose();
+      await configDir.remove();
       this.emit({ type: 'state', sessionId: spec.sessionId, state: 'failed', activity: null });
       throw err;
     }

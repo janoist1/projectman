@@ -13,10 +13,11 @@ describe('Gemini adapter', () => {
     });
     const spec = geminiSpec(await dirs.make());
     let n = 0;
-    const launch = (policy: typeof spec.policy) =>
+    const launch = async (policy: typeof spec.policy) =>
       adapter.launch({
         spec: { ...spec, policy, sessionId: `ses_gemini_${n++}` },
         hookUrl: 'http://127.0.0.1:4700/hooks/new',
+        sessionConfigDir: await dirs.make(),
         permissionTimeoutMs: 600000,
       });
     const folder = '/instance/folders/ses_gemini.0123456789abcdef';

@@ -534,6 +534,12 @@ export interface RunnerModuleOptions {
    * development instance that has no PTY (a member's sandbox). Default `pty`.
    */
   terminal?: TerminalMode;
+  /**
+   * Where the runner keeps each session's private launch files (PM-156): an absolute path on the
+   * machine the CLIs run on (the app home's `run` folder; tests pass a temporary root). The runner
+   * creates it with mode 0700 and refuses to start a session when it cannot keep it private.
+   */
+  sessionConfigRoot: string;
   /** Path or name of the Claude Code CLI (default "claude"). Tests pass a fake CLI. */
   claudeBin: string;
   /** Base URL the CLI calls for HTTP hooks, e.g. http://127.0.0.1:4700 (the runner adds /hooks/<token>). */

@@ -9,6 +9,7 @@ const broker: PermissionBroker = { decide: async () => ({ behavior: 'deny' }) };
 const base: RunnerModuleOptions = {
   claudeBin: 'claude',
   publicBaseUrl: 'http://127.0.0.1:4700',
+  sessionConfigRoot: '/unused/run',
   broker,
   permissionTimeoutMs: 1000,
   logger: silentLogger(),
@@ -47,6 +48,7 @@ describe('createProviderAdapters', () => {
     await adapters.claude.launch({
       spec,
       hookUrl: 'http://127.0.0.1:4700/hooks/t',
+      sessionConfigDir: await temp.make(),
       permissionTimeoutMs: 1000,
     });
     const config = JSON.parse(await readFile(path.join(configDir, '.claude.json'), 'utf8'));

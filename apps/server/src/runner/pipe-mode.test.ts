@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { ChatItem, SessionState } from '@projectman/shared';
@@ -31,6 +31,7 @@ let app: FastifyInstance;
 let runner: RunnerModule;
 let events: RunnerEvent[];
 let cwd: string;
+let configRoot: string;
 
 const broker: PermissionBroker = {
   decide: () => Promise.resolve({ behavior: 'deny', message: 'no answer configured' }),
@@ -49,6 +50,7 @@ beforeEach(async () => {
   // A dead proxy: the hook forwarders only reach the server because the runner sets no_proxy.
   process.env.http_proxy = 'http://127.0.0.1:9';
   process.env.HTTP_PROXY = 'http://127.0.0.1:9';
+  configRoot = path.join(await dirs.make('run-'), 'run');
   const port = await freePort();
   app = Fastify({ logger: false });
   runner = createRunnerModule({
@@ -56,6 +58,7 @@ beforeEach(async () => {
     codexBin: FAKE_CODEX,
     codexHome: process.env.CODEX_HOME,
     publicBaseUrl: `http://127.0.0.1:${port}`,
+    sessionConfigRoot: configRoot,
     broker,
     permissionTimeoutMs: 10_000,
     logger: silentLogger(),
@@ -225,4 +228,148 @@ describe.each(['claude', 'codex'] as const)('the fake %s CLI without a terminal'
     await runner.runner.shutdown();
     await waitFor(() => !alive(info.pid), { what: 'the process to be gone' });
   });
+});
+
+describe('the private launch files of a Claude Code session (PM-156)', () => {
+  const MCP_CANARY = 'mcp-canary-7d1f09ab';
+  const sandbox = { allowWrite: [], allowedDomains: [], allowLocalBinding: true };
+  const sessionDirs = async () => (await readdir(configRoot).catch(() => [])).sort();
+  const mode = async (file: string) => (await stat(file)).mode & 0o777;
+  const launchSpec = (sandboxed: boolean, extra: Partial<StartSessionSpec> = {}) =>
+    spec('claude', {
+      mcpUrl: `http://127.0.0.1:1/mcp/${MCP_CANARY}`,
+      initialMessage: 'Hello',
+      ...(sandboxed ? { sandbox } : {}),
+      ...extra,
+    });
+  const launchedArgs = async (file: string) => {
+    const raw = await readFile(file, 'utf8');
+    return { raw, argv: JSON.parse(raw).argv as string[] };
+  };
+
+  it.each([false, true])(
+    'keeps the tokens off the command line, in files that go with the session (sandboxed: %s)',
+    { timeout: 30_000 },
+    async (sandboxed) => {
+      const argsFile = path.join(cwd, 'args.json');
+      process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;
+      const s = launchSpec(sandboxed);
+      await runner.runner.start(s);
+      // The turn ends with the Stop hook, which came through the settings the CLI was given.
+      await assistantSaid(s.sessionId, 'Echo: Hello');
+      await waitIdle(s.sessionId);
+
+      const [name, ...others] = await sessionDirs();
+      expect(others).toEqual([]);
+      const dir = path.join(configRoot, name!);
+      expect(name).toMatch(new RegExp(`^${s.sessionId}\\.[0-9a-f]{16}$`));
+      expect(await mode(configRoot)).toBe(0o700);
+      expect(await mode(dir)).toBe(0o700);
+      const files = await readdir(dir);
+      expect(files).toEqual(expect.arrayContaining(['claude-settings.json', 'claude-mcp.json', 'hook.curl']));
+      for (const file of files) expect(await mode(path.join(dir, file))).toBe(0o600);
+
+      const hookToken = /\/hooks\/([^"/]+)/.exec(await readFile(path.join(dir, 'hook.curl'), 'utf8'))?.[1];
+      expect(hookToken).toBeTruthy();
+      expect(await readFile(path.join(dir, 'claude-mcp.json'), 'utf8')).toContain(MCP_CANARY);
+      const settings = await readFile(path.join(dir, 'claude-settings.json'), 'utf8');
+      // Command hooks name the target file only; the CLI's own http hooks keep the URL in this private file.
+      if (sandboxed) {
+        expect(settings).toContain(path.join(dir, 'hook.curl'));
+        expect(settings).not.toContain(hookToken);
+      } else expect(settings).toContain(hookToken);
+
+      const { raw, argv } = await launchedArgs(argsFile);
+      expect(argv[argv.indexOf('--settings') + 1]).toBe(path.join(dir, 'claude-settings.json'));
+      expect(argv[argv.indexOf('--mcp-config') + 1]).toBe(path.join(dir, 'claude-mcp.json'));
+      expect(raw).not.toContain(MCP_CANARY);
+      expect(raw).not.toContain(hookToken);
+      expect(raw).not.toContain('/hooks/');
+      expect(raw).not.toContain('/mcp/');
+
+      await runner.runner.stop(s.sessionId);
+      await waitFor(async () => (await sessionDirs()).length === 0, {
+        what: 'the private folder to be removed',
+      });
+    },
+  );
+
+  it('gives a resumed session new files, and removes them again', { timeout: 30_000 }, async () => {
+    const argsFile = path.join(cwd, 'args.json');
+    process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;
+    const s = launchSpec(false);
+    await runner.runner.start(s);
+    // The conversation exists once the first turn is answered.
+    await assistantSaid(s.sessionId, 'Echo: Hello');
+    await waitIdle(s.sessionId);
+    const [first] = await sessionDirs();
+    await runner.runner.stop(s.sessionId);
+    await waitFor(async () => (await sessionDirs()).length === 0, { what: 'the first folder to be removed' });
+
+    await runner.runner.start({ ...s, resume: true, initialMessage: null });
+    await waitIdle(s.sessionId);
+    const [second, ...others] = await sessionDirs();
+    expect(others).toEqual([]);
+    expect(second).not.toBe(first);
+    const { raw, argv } = await launchedArgs(argsFile);
+    expect(argv).toContain('--resume');
+    expect(argv[argv.indexOf('--settings') + 1]).toBe(path.join(configRoot, second!, 'claude-settings.json'));
+    expect(raw).not.toContain(MCP_CANARY);
+    await runner.runner.shutdown();
+    await waitFor(async () => (await sessionDirs()).length === 0, {
+      what: 'the folder to go with the shutdown',
+    });
+  });
+
+  it('removes the folder when the session cannot be started', { timeout: 30_000 }, async () => {
+    await expect(
+      runner.runner.start(launchSpec(false, { cwd: path.join(cwd, 'missing', 'deeper') })),
+    ).rejects.toThrow();
+    expect(await sessionDirs()).toEqual([]);
+  });
+
+  it(
+    'sweeps the folder of a runner that is gone and leaves the running session alone',
+    { timeout: 30_000 },
+    async () => {
+      await mkdir(configRoot, { mode: 0o700 });
+      const orphan = path.join(configRoot, 'ses_orphan.0123456789abcdef');
+      await mkdir(orphan, { mode: 0o700 });
+      await writeFile(
+        path.join(orphan, 'owner.json'),
+        JSON.stringify({
+          version: 1,
+          sessionId: 'ses_orphan',
+          instanceTag: null,
+          runnerPid: 2_000_000_000,
+          runnerStartedAt: null,
+          createdAt: Date.now() - 60_000,
+        }),
+      );
+      await writeFile(path.join(orphan, 'hook.curl'), 'url = "http://127.0.0.1:1/hooks/old"\n');
+      const port = await freePort();
+      const second = createRunnerModule({
+        claudeBin: FAKE_CLAUDE,
+        codexBin: FAKE_CODEX,
+        codexHome: process.env.CODEX_HOME,
+        publicBaseUrl: `http://127.0.0.1:${port}`,
+        sessionConfigRoot: configRoot,
+        broker,
+        permissionTimeoutMs: 10_000,
+        logger: silentLogger(),
+        claudeConfigPath: process.env.FAKE_CLAUDE_CONFIG_FILE,
+        terminal: 'pipe',
+        scopeProcesses: fixtureScopeProcesses(process.env.FAKE_SCOPE_RECORDS_DIR!),
+      });
+      try {
+        const s = launchSpec(false);
+        await second.runner.start(s);
+        const names = await sessionDirs();
+        expect(names).toHaveLength(1);
+        expect(names[0]).toMatch(new RegExp(`^${s.sessionId}\\.`));
+      } finally {
+        await second.runner.shutdown();
+      }
+    },
+  );
 });

@@ -74,6 +74,7 @@ async function setup(
   runner = createRunnerModule({
     claudeBin: FAKE_CLAUDE,
     publicBaseUrl: `http://127.0.0.1:${port}`,
+    sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
     broker,
     permissionTimeoutMs: options.permissionTimeoutMs ?? 10_000,
     logger: silentLogger(),
@@ -963,6 +964,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     const missingCli = createRunnerModule({
       claudeBin: '/nonexistent/claude',
       publicBaseUrl: 'http://127.0.0.1:1',
+      sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
       broker,
       permissionTimeoutMs: 1000,
       logger: silentLogger(),

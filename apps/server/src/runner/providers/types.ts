@@ -126,6 +126,12 @@ export interface LaunchInput {
   spec: StartSessionSpec;
   /** POST target of the session's hooks, http://127.0.0.1:<port>/hooks/<token>. */
   hookUrl: string;
+  /**
+   * The session's private folder (PM-156, `session-config.ts`): the adapter writes everything that
+   * holds a token there (settings, MCP configuration, the hook forwarder's target) before the CLI
+   * starts. The runner removes it when the session ends.
+   */
+  sessionConfigDir: string;
   permissionTimeoutMs: number;
 }
 

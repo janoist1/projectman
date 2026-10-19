@@ -1180,6 +1180,7 @@ export function createDomain(opts: DomainOptions) {
     taskWaits,
     inbox,
     messaging,
+    messages,
     timeline,
     refinement,
     sessions: {

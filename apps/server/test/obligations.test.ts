@@ -181,6 +181,75 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     expect(todos()).toHaveLength(0);
   });
 
+  describe('a reminder that waits after its step is done (PM-813)', () => {
+    /** A reminder of the row that nobody has taken yet, as one that could not start (capacity, leave) stays. */
+    const waitingReminder = (key: string, obligationId: string, responsible = 'cr') => {
+      const message = {
+        id: `msg_wait_${key}`,
+        projectKey: 'AR',
+        from: 'system',
+        to: [responsible],
+        taskKey: key,
+        body: 'projectman reminder: waits for you',
+        createdAt: clock.toISOString(),
+        deliveredAt: null,
+        kind: 'action' as const,
+        subject: { type: 'obligation' as const, obligationId },
+        receipts: [{ handle: responsible, kind: 'ai' as const, deliveredAt: null, readAt: null }],
+      };
+      h.repos.messages.insert(message);
+      return message;
+    };
+
+    it('carries its obligation in the reminder', async () => {
+      await harness();
+      const key = await create();
+      await requestMerge(key);
+      await sweep();
+      minutes(31);
+      await sweep();
+      expect(reminders(key)[0]!.subject).toEqual({ type: 'obligation', obligationId: rows(key)[0]!.id });
+    });
+
+    it('starts no session for the reminder of a step that is done, and drops it from the queue', async () => {
+      await harness();
+      const key = await create();
+      await requestMerge(key);
+      await sweep();
+      const row = rows(key)[0]!;
+      const message = waitingReminder(key, row.id);
+      const config = await h.domain.projects.config('AR');
+
+      // While the step is open the reminder is valid and stays.
+      expect(h.domain.messages.wakes(config, message, 'cr')).toBe(true);
+      await sweep();
+      expect(h.repos.messages.pending('AR', 'cr').map((m) => m.id)).toContain(message.id);
+
+      minutes(10);
+      finishMerge(key, 'merged');
+      await sweep();
+      expect(h.repos.obligations.get(row.id)).toMatchObject({ state: 'fulfilled' });
+      expect(h.domain.messages.wakes(config, message, 'cr')).toBe(false);
+      expect(h.repos.messages.pending('AR', 'cr').map((m) => m.id)).not.toContain(message.id);
+      expect(h.repos.messages.get(message.id)).toMatchObject({
+        receipts: [{ handle: 'cr', deliveredAt: expect.any(String) }],
+      });
+    });
+
+    it('drops the waiting reminder of a cancelled step too', async () => {
+      await harness();
+      const key = await create();
+      await requestMerge(key);
+      await sweep();
+      const row = rows(key)[0]!;
+      const message = waitingReminder(key, row.id);
+      minutes(5);
+      finishMerge(key, 'cancelled');
+      await sweep();
+      expect(h.repos.messages.pending('AR', 'cr').map((m) => m.id)).not.toContain(message.id);
+    });
+  });
+
   it('cancels the row and closes an open todo when the merge is called off', async () => {
     await harness();
     const key = await create();

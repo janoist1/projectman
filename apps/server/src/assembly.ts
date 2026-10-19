@@ -25,6 +25,7 @@ import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
   createAdministrationExecutor,
+  createOperateExecutor,
   createAdministrationSettler,
   createSuperAdministration,
   createSuperDiagnostics,
@@ -1795,6 +1796,7 @@ export function createDomain(opts: DomainOptions) {
       (member) => member.kind === 'ai' && engines.engineFor(projectKey, member.handle) === engineId,
     );
   };
+  superHandoffs.registerExecutor('operate', createOperateExecutor({ messaging, pauses, sessions }));
   if (administration && opts.integratorCredentials) {
     const administrationDeps = {
       ctx,

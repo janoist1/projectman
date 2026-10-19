@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Actor } from '../domain/event';
-import type { LabelRefusal } from '../domain/label';
+import type { LabelDefinition, LabelRefusal } from '../domain/label';
 import type { Task } from '../domain/task';
 import {
   approvalRefusal,
@@ -95,6 +95,7 @@ function config(fourEyes = false) {
         { id: 'release-ok', name: 'Release ok', setBy: { duties: ['release_approval'], humansOnly: true } },
         { id: 'merged', name: 'Merged', setBy: 'system' },
         { id: 'waiting', name: 'Waiting', setBy: 'anyone' },
+        { id: 'owner-tag', name: 'Owner tag', setBy: { members: ['owner'] } },
         { id: 'lead-ok', name: 'Lead ok', setBy: { members: ['ann', 'dev-1'] } },
         {
           id: 'lead-human-ok',
@@ -416,5 +417,102 @@ describe('gateLabels', () => {
       facts: ['review-ok'],
       forbidden: [],
     });
+  });
+});
+
+describe('the key owner’s authority in super mode (PM-831)', () => {
+  const superActor: Actor = {
+    kind: 'ai',
+    handle: 'operator',
+    via: 'integrator',
+    operatorMode: 'super',
+    credential: { id: 'key_1', prefix: 'pmk_abc' },
+  };
+  const authority = { authorizedBy: 'owner' };
+  const empty = { labels: [] as string[], assignee: null, links: [] };
+  const code = (plan: LabelChangePlan) => (plan.ok ? 'ok' : plan.refusal.code);
+
+  it('lets the key owner’s holding add and remove a label the Operator does not hold', () => {
+    const c = config();
+    expect(code(planLabelChange(c, empty, { add: ['owner-tag'] }, superActor, undefined, authority))).toBe(
+      'ok',
+    );
+    expect(
+      code(
+        planLabelChange(
+          c,
+          { ...empty, labels: ['owner-tag'] },
+          { remove: ['owner-tag'] },
+          superActor,
+          undefined,
+          authority,
+        ),
+      ),
+    ).toBe('ok');
+  });
+
+  it('refuses without the authority, for a non-owner authority and for a step without the super origin', () => {
+    const c = config();
+    const refused = { ok: false, refusal: { code: 'label_not_allowed', reason: 'not_holder' } };
+    expect(planLabelChange(c, empty, { add: ['owner-tag'] }, superActor)).toMatchObject(refused);
+    expect(
+      planLabelChange(c, empty, { add: ['lead-ok'] }, superActor, undefined, { authorizedBy: 'ann' }),
+    ).toMatchObject(refused);
+    expect(
+      planLabelChange(c, empty, { add: ['owner-tag'] }, ai('operator'), undefined, authority),
+    ).toMatchObject(refused);
+    expect(
+      planLabelChange(
+        c,
+        empty,
+        { add: ['owner-tag'] },
+        { kind: 'ai', handle: 'operator', via: 'integrator' },
+        undefined,
+        authority,
+      ),
+    ).toMatchObject(refused);
+  });
+
+  it('keeps the owner-reserved labels refused: gates, four eyes, human-only', () => {
+    const c = config();
+    for (const id of ['release-ok', 'review-ok', 'decided', 'lead-human-ok'])
+      expect(code(planLabelChange(c, empty, { add: [id] }, superActor, undefined, authority)), id).toBe(
+        'owner_approval_required',
+      );
+    expect(
+      planLabelChange(
+        c,
+        { ...empty, labels: ['decided'] },
+        { remove: ['decided'] },
+        superActor,
+        undefined,
+        authority,
+      ),
+    ).toMatchObject({ ok: false, refusal: { code: 'label_not_allowed', reason: 'humans_only' } });
+    expect(
+      planLabelChange(
+        c,
+        { ...empty, labels: ['review-ok'] },
+        { remove: ['review-ok'] },
+        superActor,
+        undefined,
+        authority,
+      ),
+    ).toMatchObject({ ok: false, refusal: { code: 'label_not_allowed', reason: 'not_holder' } });
+  });
+
+  it('refuses a label of the system and keeps the self-review rule for the authorizing owner', () => {
+    const c = config();
+    expect(labelRefusal(c, labelDefinition(c, 'merged'), superActor, empty, authority)).toBe('system_only');
+    const own: LabelDefinition = {
+      id: 'own',
+      name: 'Own',
+      setBy: { members: ['owner'] },
+      notByAuthor: true,
+    };
+    const authored = { ...empty, links: [{ kind: 'pull_request' as const, ref: '9', author: 'owner' }] };
+    expect(labelRefusal(c, own, ai('operator'), empty, authority)).toBeNull();
+    expect(labelRefusal(c, own, ai('operator'), authored, authority)).toBe('self_review');
+    expect(labelRefusal(c, own, ai('operator'), authored)).toBe('not_holder');
   });
 });

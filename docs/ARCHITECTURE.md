@@ -1594,6 +1594,12 @@ workers follow the machine's size.
   commands; the integrator's token, the owner's answer and the question never cross it. After a restart of the hub
   an operation that was running is marked `unknown` and never started again by itself. The executors of the
   command kinds are wired by PM-760 and PM-764; until then execute answers 503 `super_executor_unavailable`.
+  The `operate` executor (PM-831, `services/super-operator/operate.ts`, wired in `assembly.ts`) runs
+  `message_send`, `project_pause`, `project_resume` and `session_stop` as the key's super actor on the same
+  domain services the base Operator uses; the other operations fail with `super_operation_unsupported` (PM-832).
+  It runs on the hub only, so no machine-dependent part changes. A label change in super mode (PM-831) may also
+  use the key owner's holding: `planLabelsOrThrow` takes the owner from the authenticated scope and passes it to
+  `planLabelChange` as `authority`; owner-reserved labels stay refused.
 
 - **Super-mode diagnostics, full test, image build and release preparation (PM-764, Super mode 8/10)** —
   hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the five routes

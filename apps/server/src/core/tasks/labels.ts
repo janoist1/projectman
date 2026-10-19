@@ -1,4 +1,10 @@
-import { expiredLabels, labelDefinition, planLabelChange, timelineNoteExcerpt } from '@projectman/shared';
+import {
+  expiredLabels,
+  hasSuperOrigin,
+  labelDefinition,
+  planLabelChange,
+  timelineNoteExcerpt,
+} from '@projectman/shared';
 import type { Actor, LabelChangeReason, LabelClearTrigger, ProjectConfig, Task } from '@projectman/shared';
 import { isoNow } from '../base';
 import { forbidden, invalid } from '../../kernel';
@@ -36,8 +42,10 @@ export function planLabelsOrThrow(
   actor: Actor,
   comment: string | undefined,
 ): PlannedLabels {
-  assertIntegratorAccess(config, 'write', actor);
-  const plan = planLabelChange(config, task, change, actor, comment);
+  const owner = assertIntegratorAccess(config, 'write', actor);
+  // The key owner's authority comes only from the authenticated scope, and only for a super-mode step (PM-831).
+  const authority = hasSuperOrigin(actor) && owner ? { authorizedBy: owner.handle } : undefined;
+  const plan = planLabelChange(config, task, change, actor, comment, authority);
   if (plan.ok) return plan;
   const refusal = plan.refusal;
   switch (refusal.code) {

@@ -232,7 +232,11 @@ describe('durable super-mode handoff (PM-762)', () => {
 
     it('answers 503 when this installation has no executor for the kind, and leaves the handoff pending', async () => {
       await boot();
-      const handoff = await request(PAUSE);
+      // `operate` has its real executor since PM-831; the administration adapter is not wired in this harness.
+      const handoff = await request({
+        kind: 'administration',
+        request: { kind: 'deploy', releaseId: 'rel_1' },
+      });
       await expect(execute(handoff.id, randomUUID())).rejects.toMatchObject({
         code: 'super_executor_unavailable',
         status: 503,

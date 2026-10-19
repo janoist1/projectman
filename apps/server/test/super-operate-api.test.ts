@@ -7,7 +7,7 @@ import {
   SuperOperationDetail,
   routes,
 } from '@projectman/shared';
-import type { SuperCommand } from '@projectman/shared';
+import type { SuperCommand, Task } from '@projectman/shared';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
@@ -143,5 +143,130 @@ describe('super-mode operation, status and diagnostics routes (PM-764)', () => {
     });
     expect(response.statusCode).toBe(503);
     expect(response.json().error.code).toBe('super_executor_unavailable');
+  });
+});
+
+describe('the wired operate executor in super mode (PM-831)', () => {
+  let app: AppHarness;
+  let cookie: string;
+  let secret: string;
+  let keyPrefix: string;
+  beforeEach(async () => {
+    app = await createAppHarness();
+    cookie = await setupOwner(app.app);
+    await createProject(app, cookie);
+    const created = await app.app.inject({
+      method: 'POST',
+      url: routes.integratorKeys(),
+      headers: { cookie },
+      payload: { mode: 'super' },
+    });
+    const key = CreatedIntegratorAccessKey.parse(created.json());
+    secret = key.secret;
+    keyPrefix = key.key.prefix;
+  });
+  afterEach(async () => app?.close());
+
+  const operate = async (
+    operation: Extract<SuperCommand, { kind: 'operate' }>['operation'],
+    taskKey?: string,
+  ) => {
+    const response = await app.app.inject({
+      method: 'POST',
+      url: routes.superOperations('AR'),
+      headers: { authorization: `Bearer ${secret}` },
+      payload: {
+        requestId: randomUUID(),
+        ...(taskKey ? { taskKey } : {}),
+        command: { kind: 'operate', operation },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(202);
+    return SuperOperateResponse.parse(response.json()).operation;
+  };
+  const operator = {
+    kind: 'ai',
+    handle: 'operator',
+    via: 'integrator',
+    operatorMode: 'super',
+  };
+
+  it('sends a message as the Operator, about a card', async () => {
+    const task = (
+      await inject(app.app, 'POST', routes.tasks('AR'), cookie, { title: 'A card' })
+    ).json<Task>();
+    const operation = await operate(
+      { op: 'message_send', to: ['dev-1'], text: 'Please look at this', taskKey: task.key },
+      task.key,
+    );
+    expect(operation).toMatchObject({ state: 'succeeded', errorCode: null });
+    const [message] = app.app.projectman.domain.messages.list('AR', { taskKey: task.key });
+    expect(message).toMatchObject({
+      from: 'operator',
+      to: ['dev-1'],
+      body: 'Please look at this',
+      actor: { ...operator, credential: { prefix: keyPrefix } },
+    });
+  });
+
+  it('fails an unknown recipient and a card the operation does not name, without sending', async () => {
+    const task = (
+      await inject(app.app, 'POST', routes.tasks('AR'), cookie, { title: 'A card' })
+    ).json<Task>();
+    expect(await operate({ op: 'message_send', to: ['nobody'], text: 'Hello' })).toMatchObject({
+      state: 'failed',
+      errorCode: 'not_found',
+    });
+    expect(
+      await operate({ op: 'message_send', to: ['dev-1'], text: 'Hello', taskKey: 'AR-99' }, task.key),
+    ).toMatchObject({ state: 'failed', errorCode: 'invalid_request' });
+    expect(app.app.projectman.domain.messages.list('AR')).toEqual([]);
+  });
+
+  it('pauses and resumes the project as the Operator with the key’s data', async () => {
+    expect(await operate({ op: 'project_pause' })).toMatchObject({ state: 'succeeded' });
+    expect(await operate({ op: 'project_resume' })).toMatchObject({ state: 'succeeded' });
+    const events = app.app.projectman.domain.timeline
+      .list('AR')
+      .filter((event) => event.type === 'team_paused' || event.type === 'team_resumed');
+    expect(events.map((event) => event.type).sort()).toEqual(['team_paused', 'team_resumed']);
+    for (const event of events)
+      expect(event.actor).toMatchObject({ ...operator, credential: { prefix: keyPrefix } });
+  });
+
+  it('refuses to stop the Operator’s own session and an unknown one', async () => {
+    const now = new Date().toISOString();
+    app.app.projectman.repos.sessions.insert({
+      id: 'ses_operator',
+      projectKey: 'AR',
+      member: 'operator',
+      workItem: { type: 'general' },
+      claudeSessionId: 'claude-ses_operator',
+      cwd: '/tmp/work',
+      branch: null,
+      transcriptPath: null,
+      state: 'exited',
+      activity: null,
+      startedAt: now,
+      lastActivityAt: now,
+      endedAt: now,
+    });
+    expect(await operate({ op: 'session_stop', sessionId: 'ses_operator' })).toMatchObject({
+      state: 'failed',
+      errorCode: 'operator_never',
+    });
+    expect(await operate({ op: 'session_stop', sessionId: 'ses_missing' })).toMatchObject({
+      state: 'failed',
+      errorCode: 'not_found',
+    });
+  });
+
+  it('does not execute a configuration operation yet (PM-832), and changes nothing', async () => {
+    const before = (await app.app.projectman.domain.projects.load('AR')).version;
+    expect(await operate({ op: 'config_revert', version: before })).toMatchObject({
+      state: 'failed',
+      errorCode: 'super_operation_unsupported',
+    });
+    expect((await app.app.projectman.domain.projects.load('AR')).version).toBe(before);
   });
 });

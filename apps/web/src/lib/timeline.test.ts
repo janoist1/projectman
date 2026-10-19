@@ -404,7 +404,7 @@ describe('review pins on the timeline (PM-183)', () => {
         pinned: shortCommit(commitA),
         head: shortCommit(commitB),
       }) +
-        ' ' +
+        '. ' +
         t('fixLimit.events.notCounted'),
     );
   });

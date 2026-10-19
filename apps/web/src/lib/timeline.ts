@@ -547,7 +547,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             pinned: shortCommit(str(moved.pinned)),
             head: shortCommit(str(moved.head)),
           }) +
-            ' ' +
+            '. ' +
             t('fixLimit.events.notCounted'),
         );
       const testsFailed = record(d.testsFailed);

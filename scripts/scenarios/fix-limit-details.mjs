@@ -267,8 +267,8 @@ export default async ({ instance, open, shoot, step }) => {
           actor: { kind: 'system', handle: null },
           type: 'task_stage_changed',
           data: {
-            from: task.stageId,
-            to: task.stageId,
+            from: board.stages.find((stage) => stage.kind === 'step').id,
+            to: board.stages.find((stage) => stage.kind === 'work').id,
             branchMoved: { branch: 'task', pinned: 'aaaaaaaa', head: 'bbbbbbbb' },
           },
           createdAt: at,

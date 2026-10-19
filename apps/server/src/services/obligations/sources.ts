@@ -60,6 +60,8 @@ export interface SourceDeps {
   mergeState(mergeId: string): string | null;
   /** Whether one of the labels was added to the card at `since` or later (its `task_labels_changed` events). */
   labelsAddedSince(projectKey: string, taskKey: string, labels: readonly string[], since: string): boolean;
+  /** Whether the card was imported into its stage at `since` (its `task_created` event): it was not handed over. */
+  importedEntry(projectKey: string, taskKey: string, since: string): boolean;
 }
 
 const isAi = (config: ProjectConfig, handle: string): boolean => memberOf(config, handle)?.kind === 'ai';
@@ -214,6 +216,9 @@ function reviewSource(deps: SourceDeps): ObligationSource {
           const result = stepResult(config, task, owner);
           if (!result || result.gate.every((label) => task.labels.includes(label))) continue;
           if (deps.labelsAddedSince(task.projectKey, task.key, result.results, since)) continue;
+          // An imported card stands in the stage since its import: it was not handed over, so no work starts
+          // on it by itself (the Operator's idle signal follows it). Entering the stage again is a hand-over.
+          if (deps.importedEntry(task.projectKey, task.key, since)) continue;
           found.push({
             taskKey: task.key,
             responsible: owner,
@@ -241,6 +246,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
       // In the stage again: another entry than the row's is another step.
       const since = row.subject.slice(row.subject.indexOf('@') + 1);
       if (stageEntered(task) !== since) return 'cancelled';
+      if (deps.importedEntry(task.projectKey, task.key, since)) return 'cancelled';
       const result = stepResult(config, task, row.responsible);
       if (!result) return 'cancelled';
       const done =

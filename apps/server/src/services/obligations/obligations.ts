@@ -116,6 +116,10 @@ export class ObligationsService {
               data.added.some((label) => labels.includes(label))
             );
           }),
+      importedEntry: (projectKey, taskKey, since) =>
+        deps.ctx.repos.timeline
+          .listOfTypes(projectKey, taskKey, ['task_created'], 1)
+          .some((event) => event.createdAt === since && event.data.imported === true),
     });
   }
 

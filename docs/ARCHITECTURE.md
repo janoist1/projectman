@@ -3760,7 +3760,8 @@ a move back, a lost stage ownership or a closed card cancels it, and a new entry
 clock. A queue stage (Ötletek, Indulhat) has no such step: its cards are the owner's, and a card under
 refinement has its `refinement_turn`; the rows an older build opened for a queue stage end as `cancelled` on
 the first sweep, whatever holds the card. A card in a merge has no review step: the `merge` kind follows it.
-Known gap: a second review round on the same entry (after a `code-review-changes` and the developer's fix)
+A card imported into the stage (its `task_created` event carries `imported` and the entry time) was not handed
+over, so it has no step until it enters the stage again. Known gap: a second review round on the same entry (after a `code-review-changes` and the developer's fix)
 opens no new row.
 
 The pure clock is `planObligation` in `packages/shared/src/domain/obligation.ts`: the first expiry sends

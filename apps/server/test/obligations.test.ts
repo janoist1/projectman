@@ -781,6 +781,30 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       });
     });
 
+    it('opens no step for a card imported into the stage, and opens one when the card enters it again', async () => {
+      await harness();
+      const task = await h.domain.tasks.create(
+        'AR',
+        { title: 'Imported review', stageId: 'code_review', importedAt: '2026-01-01T09:00:00.000Z' },
+        OWNER_ACTOR,
+      );
+      await flush();
+      await stopSessions();
+      await sweep();
+      minutes(120);
+      await sweep();
+      expect(review(task.key)).toEqual([]);
+      expect(reminders(task.key)).toHaveLength(0);
+      expect(todos()).toHaveLength(0);
+      await movedBack(task.key);
+      minutes(1);
+      await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
+      await flush();
+      await stopSessions();
+      await sweep();
+      expect(review(task.key)).toMatchObject([{ responsible: 'cr' }]);
+    });
+
     describe('pauses', () => {
       it('stands still while a question of a person or waiting-answer stands on the card', async () => {
         const key = await inReview();

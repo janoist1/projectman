@@ -169,7 +169,7 @@ function npmWords(tokens) {
 /**
  * The category of a process by its own command, or null when it takes its parent's. `categories` of PM-798:
  * ai-session, ai-mcp, ai-hook, vitest, typecheck, build, npm-install, projectman, fs-index, desktop, browser,
- * docker, git, probe, other.
+ * docker, git, editor, probe, other.
  */
 export function classifyOwn(args) {
   const a = args.toLowerCase();
@@ -200,19 +200,34 @@ export function classifyOwn(args) {
   }
   if (exeLower === 'git' || exeLower.startsWith('git-')) return { cat: 'git', sub: 'git' };
   if (/\(vitest( \d+)?\)/.test(a)) return { cat: 'vitest', sub: 'worker' };
-  if (/\/vitest\/|vitest\.m?js|\/vite-node\/|tinypool/.test(a)) {
+  // `vitest run` is started as `node <repo>/node_modules/.bin/vitest run` (the shebang script), not only as vitest.mjs.
+  if (
+    exeLower === 'vitest' ||
+    /\/vitest\/|\/vitest(\.m?js)?(\s|$)|vitest\.m?js|\/vite-node\/|tinypool/.test(a)
+  ) {
     return { cat: 'vitest', sub: /tinypool|\/workers\/|processchild|--child/.test(a) ? 'worker' : 'runner' };
   }
+  // An editor's language server lives long and mostly idles: it is no type check run.
   if (
-    /^(tsc|tsgo|tsserver|vue-tsc)$/.test(exeLower) ||
-    /(^|\/)(tsc|tsgo|tsserver)(\.js)?$/.test(script) ||
+    exeLower === 'tsserver' ||
+    /(^|\/)tsserver(\.js)?$/.test(script) ||
+    /typescript\/lib\/tsserver/.test(a)
+  ) {
+    return { cat: 'editor', sub: 'tsserver' };
+  }
+  if (
+    /^(tsc|tsgo|vue-tsc)$/.test(exeLower) ||
+    /(^|\/)(tsc|tsgo)(\.js)?$/.test(script) ||
     /\/typescript\/(lib|bin)\/tsc|@typescript\/native-preview/.test(a)
   ) {
     return { cat: 'typecheck', sub: 'tsc' };
   }
+  // The long-lived esbuild service of tsx, vite and vitest is no build run: it takes its parent's category.
+  if (/esbuild/.test(a) && /--service\b/.test(a)) return null;
   if (
     /^(esbuild|rollup|tsup|webpack)$/.test(exeLower) ||
-    /node_modules\/vite\/bin\/vite\.js|\/esbuild(\/|\b)/.test(a)
+    /(vite\/bin\/vite\.js|\/\.bin\/vite)\s+build\b/.test(a) ||
+    /\/esbuild(\s|$)/.test(a)
   ) {
     return { cat: 'build', sub: 'vite-esbuild' };
   }
@@ -268,8 +283,6 @@ export function classifyTree(procs, { holderPid = null, probePid = null } = {}) 
       inQueue: pid === holderPid || (parent?.inQueue ?? false),
       own: own !== null,
     };
-    // A process inside a probe (ps) counts to the probe; inherit keeps the category of unknown children only.
-    if (!own && parent?.cat === 'probe') entry.cat = 'probe';
     result.set(pid, entry);
     return entry;
   };

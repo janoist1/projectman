@@ -200,6 +200,67 @@ describe('load probe: categories', () => {
     });
   });
 
+  it('recognises the real vitest and vite command lines of this repository', () => {
+    const runner = 'node /r/node_modules/.bin/vitest run --configLoader runner';
+    expect(classifyOwn(runner)).toEqual({ cat: 'vitest', sub: 'runner' });
+    expect(classifyOwn('node /r/node_modules/.bin/vite build')).toEqual({
+      cat: 'build',
+      sub: 'vite-esbuild',
+    });
+    expect(classifyOwn('node /r/node_modules/.bin/vite')).toBeNull();
+    expect(classifyOwn('sh -c vitest run')).toBeNull();
+    expect(
+      classifyOwn('/r/node_modules/@esbuild/darwin-arm64/bin/esbuild --service=0.25.0 --ping'),
+    ).toBeNull();
+    expect(classifyOwn('/r/node_modules/@esbuild/darwin-arm64/bin/esbuild src/a.ts --bundle')).toEqual({
+      cat: 'build',
+      sub: 'vite-esbuild',
+    });
+    expect(
+      classifyOwn('node /r/node_modules/typescript/lib/tsserver.js --useInferredProjectPerProjectRoot'),
+    ).toEqual({
+      cat: 'editor',
+      sub: 'tsserver',
+    });
+  });
+
+  it('counts one vitest run with its workers, and ignores idle services as heavy runs', () => {
+    const procs = [
+      { pid: 1, ppid: 0, args: '/sbin/launchd' },
+      { pid: 100, ppid: 1, args: 'node scripts/heavy/cli.ts npm run merge-test' },
+      { pid: 101, ppid: 100, args: 'npm run test -w apps/server' },
+      { pid: 102, ppid: 101, args: 'sh -c vitest run --configLoader runner' },
+      { pid: 103, ppid: 102, args: 'node /r/node_modules/.bin/vitest run --configLoader runner' },
+      {
+        pid: 104,
+        ppid: 103,
+        args: '/r/node_modules/@esbuild/darwin-arm64/bin/esbuild --service=0.25.0 --ping',
+      },
+      { pid: 111, ppid: 103, args: 'node (vitest 1)' },
+      { pid: 112, ppid: 103, args: 'node (vitest 2)' },
+      { pid: 113, ppid: 103, args: 'node (vitest 3)' },
+      { pid: 114, ppid: 103, args: 'node (vitest 4)' },
+      { pid: 200, ppid: 1, args: 'node --import tsx /r/scripts/engine/cli.ts start' },
+      {
+        pid: 201,
+        ppid: 200,
+        args: '/r/node_modules/@esbuild/darwin-arm64/bin/esbuild --service=0.25.0 --ping',
+      },
+      { pid: 300, ppid: 1, args: 'node /ide/typescript/lib/tsserver.js' },
+    ];
+    const classes = classifyTree(procs, { holderPid: 100 });
+    const runs = findRuns(
+      procs.map((p) => ({ ...p, cpuSeconds: 0, rssKb: 100, etimeSeconds: 5 })),
+      classes,
+      () => 10,
+    );
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ kind: 'vitest', pid: 103, workers: 4, inQueue: true });
+    expect(classes.get(104)).toMatchObject({ cat: 'vitest' });
+    expect(classes.get(201)).toMatchObject({ cat: 'projectman' });
+    expect(classes.get(300)).toMatchObject({ cat: 'editor' });
+  });
+
   it('gives an unknown child the category of its session and tells queue state', () => {
     const procs = [
       { pid: 1, ppid: 0, args: '/sbin/launchd' },

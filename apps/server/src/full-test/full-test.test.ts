@@ -9,6 +9,7 @@ import {
   OutputTail,
   OUTPUT_LIMIT_BYTES,
   OUTPUT_TAIL_CHARS,
+  passedOutputTail,
   stripAnsi,
 } from './output';
 import { closedStdin, fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
@@ -27,6 +28,26 @@ describe('the output of a full test', () => {
       'FAIL: not a vitest line is still a name-less colon',
     ].join('\n');
     expect(failedFiles(output)).toEqual(['test/b.test.ts', 'test/c.test.ts']);
+  });
+
+  it('prefers the merge-test failed marker lines to vitest FAIL lines', () => {
+    const output = [
+      ' FAIL  test/a.test.ts > x',
+      ' FAIL  test/b.test.ts > x',
+      'merge-test failed: apps/server/test/b.test.ts',
+      'merge-test failed: apps/server/test/b.test.ts',
+      'merge-test failed: /etc/passwd',
+      'merge-test flaky: apps/web/src/c.test.ts',
+    ].join('\n');
+    expect(failedFiles(output)).toEqual(['apps/server/test/b.test.ts']);
+    expect(failedFiles('merge-test flaky: apps/web/src/c.test.ts')).toEqual([]);
+  });
+
+  it('reports the flaky marker lines of a passed run, else nothing', () => {
+    const output =
+      '\u001b[2mmerge-test flaky: a/x.test.ts\u001b[0m\r\nnoise\nmerge-test flaky: a/y.test.ts\nmerge-test failed: a/z.test.ts\n';
+    expect(passedOutputTail(output)).toBe('merge-test flaky: a/x.test.ts\nmerge-test flaky: a/y.test.ts\n');
+    expect(passedOutputTail('all green\n')).toBe('');
   });
 
   it('names no file for a failure that is not a test, and at most 20', () => {

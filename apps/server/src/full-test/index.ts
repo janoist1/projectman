@@ -6,7 +6,7 @@ import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import type { HeavyLock } from './heavy-lock';
-import { failedFiles, failureReport } from './output';
+import { failedFiles, failureReport, passedOutputTail } from './output';
 import { runSandboxed, srtCli } from './run-sandboxed';
 import type { SandboxedEnd } from './run-sandboxed';
 import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHORT_ROOT } from './sandbox';
@@ -245,7 +245,13 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       if (ended.timedOut) return failure('timeout', started, ended.output);
       if (ended.signal) return failure('killed', started, ended.output);
       if (ended.exitCode === 0)
-        return { outcome: 'passed', exitCode: 0, durationMs, failedFiles: [], outputTail: '' };
+        return {
+          outcome: 'passed',
+          exitCode: 0,
+          durationMs,
+          failedFiles: [],
+          outputTail: passedOutputTail(ended.output),
+        };
       return {
         outcome: 'failed',
         exitCode: ended.exitCode,

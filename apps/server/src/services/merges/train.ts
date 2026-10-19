@@ -17,6 +17,7 @@ import { prerequisiteCards } from '../../core/tasks';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import type { MergeDeps, MergeRun } from './deps';
+import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import type { MergeSteps } from './steps';
 import { selectMergeTrain } from './train-selection';
 import type { MergeTrainCandidate } from './train-selection';
@@ -766,6 +767,23 @@ export class MergeTrains {
             'check_error',
             `The group check could not run (${result.reason ?? result.outcome}): ${result.outputTail.slice(-8000)}`,
           );
+        const flaky = flakyCheckFiles(result);
+        if (flaky.length > 0) {
+          ctx.unitOfWork(() => {
+            for (const row of this.rows(train))
+              this.deps.timeline.append({
+                projectKey: row.projectKey,
+                taskKey: row.taskKey,
+                actor: SYSTEM_ACTOR,
+                type: 'task_note',
+                data: { text: flakyCheckNote(runId, flaky), mentions: [] },
+              });
+          });
+          ctx.logger.info(
+            { runId, taskKeys: this.rows(train).map((row) => row.taskKey), flakyFiles: flaky },
+            'merge check passed with flaky test files',
+          );
+        }
         const publish = await this.lock(this.rows(train), async () => {
           for (const row of this.rows(train)) if (!(await this.valid(row, train))) return false;
           if (!(await this.pullRequests(train)) || run.signal?.aborted || this.hooks.stopped()) return false;

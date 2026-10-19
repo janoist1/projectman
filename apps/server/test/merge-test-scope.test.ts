@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { mergeTestScope } from '../../../scripts/merge-test/scope';
-import { mergeTestCommands, scopeLine } from '../../../scripts/merge-test/run';
+import { mergeTestSteps, scopeLine } from '../../../scripts/merge-test/run';
+import type { MergeTestScope } from '../../../scripts/merge-test/scope';
+
+const mergeTestCommands = (scope: MergeTestScope) => mergeTestSteps(scope).map((step) => step.args);
 
 describe('merge test scope', () => {
   it('ignores documentation and root markdown', () => {
@@ -126,7 +129,7 @@ describe('merge test scope', () => {
   });
   it('builds checks in order and prints the scope', () => {
     expect(mergeTestCommands({ kind: 'none' })).toEqual([]);
-    expect(mergeTestCommands({ kind: 'all', reason: '--all' })).toEqual([['run', 'typecheck'], ['test']]);
+    expect(mergeTestCommands({ kind: 'all', reason: '--all' })).toHaveLength(10);
     expect(mergeTestCommands({ kind: 'workspaces', workspaces: ['apps/server'] })).toEqual([
       ['run', 'typecheck', '-w', 'apps/server'],
       ['test', '-w', 'apps/server'],

@@ -71,6 +71,9 @@ import { createCloudRemote, createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './
 import type { EngineLinks } from './engine-link';
 import { EngineRegistry } from './runtime/sessions';
 
+/** Web build files that must always be revalidated: the service worker, the manifest and the offline page. */
+const REVALIDATED_WEB_FILES = ['/sw.js', '/manifest.webmanifest', '/offline.html'];
+
 /** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
 export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
 export type LoopbackHost = (typeof LOOPBACK_HOSTS)[number];
@@ -645,7 +648,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);
-    if (webDistDir) await app.register(fastifyStatic, { root: webDistDir, index: ['index.html'] });
+    if (webDistDir)
+      await app.register(fastifyStatic, {
+        root: webDistDir,
+        index: ['index.html'],
+        setHeaders: (reply, path) => {
+          // The installable app's service worker, manifest and offline page are never held back by a
+          // cache: a browser must see a new release's worker at the next open (PM-814).
+          if (REVALIDATED_WEB_FILES.some((file) => path.endsWith(file)))
+            reply.header('cache-control', 'no-cache');
+        },
+      });
 
     const shutdownPauseMs = options.shutdownPauseMs ?? APP_DEFAULTS.shutdownPauseMs;
     app.decorate('projectman', {

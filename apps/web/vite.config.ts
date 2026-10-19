@@ -1,10 +1,11 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { pwaPlugin } from './vite-plugin-pwa';
 
 const serverUrl = process.env.PROJECTMAN_SERVER_URL ?? 'http://127.0.0.1:4700';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), pwaPlugin()],
   // A throwaway development instance (scripts/lib/instance.mjs) keeps it outside the checkout.
   cacheDir: process.env.PROJECTMAN_VITE_CACHE_DIR,
   server: {

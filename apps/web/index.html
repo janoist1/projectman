@@ -6,13 +6,29 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#F5F4EF" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#141412" media="(prefers-color-scheme: dark)" />
+    <style>
+      /* Before the stylesheet loads: no white flash in the installed app's launch. */
+      html {
+        background: #f5f4ef;
+      }
+      @media (prefers-color-scheme: dark) {
+        html {
+          background: #141412;
+        }
+      }
+    </style>
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="{{appName}}" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
     />
-    <title>projectman</title>
+    <title>{{appName}}</title>
   </head>
   <body>
     <div id="root"></div>

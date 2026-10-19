@@ -14,7 +14,15 @@ import {
 } from '../../apps/server/src/engine-link/engine-config';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import { assertHomeMayStart } from '../../apps/server/src/instance';
-import { installService, reportService, uninstallService } from './service';
+import { defaultExec, moveWorkRoot } from './move-work-root';
+import type { Exec } from './move-work-root';
+import {
+  installedServiceFor,
+  installService,
+  reportService,
+  serviceState,
+  uninstallService,
+} from './service';
 import type { ServiceOptions } from './service';
 
 /**
@@ -39,6 +47,10 @@ export interface EngineCliIo {
   tmpdir?: string;
   /** What `service install|uninstall|status` needs of the machine (launchd); absent where there is none. */
   launchd?: Omit<ServiceOptions, 'home' | 'pathEnv' | 'out'>;
+  /** Runs `ditto`, `cp` and `git` for `move-work-root` (default: `execFile`); tests wrap or fail it. */
+  exec?: Exec;
+  /** The platform `move-work-root` copies for (default: this one). */
+  platform?: NodeJS.Platform;
 }
 
 const USAGE = `usage:
@@ -49,6 +61,7 @@ const USAGE = `usage:
   npm run engine -- status
   npm run engine -- start
   npm run engine -- service install|uninstall|status   (macOS LaunchAgent: the engine starts at login and restarts)
+  npm run engine -- move-work-root <absolute path>   (the engine is stopped; copies worktrees/ and workspaces/ to the work volume)
   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)`;
 
 interface Parsed {
@@ -262,8 +275,32 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         }
         return reportService(options) ? 0 : 1;
       }
+      case 'move-work-root': {
+        if (sub === undefined || rest.length > 0) throw new UsageError('move-work-root <absolute path>');
+        const config = loadEngineConfig(home);
+        const launchd = io.launchd;
+        return await moveWorkRoot({
+          home,
+          config,
+          target: sub,
+          exec: io.exec ?? defaultExec,
+          platform: io.platform ?? process.platform,
+          out: io.out,
+          validate: (next) => void resolveEngineConfig(next, home, resolveOptions),
+          engineRunning: () => {
+            const status = readEngineStatus(files.status);
+            if (status && io.isRunning(status.pid)) return true;
+            if (!launchd || launchd.platform !== 'darwin' || !installedServiceFor(home, launchd.agentsDir))
+              return false;
+            return serviceState({ ...launchd, home, pathEnv: io.env.PATH ?? '', out: () => undefined })
+              .running;
+          },
+        });
+      }
       default:
-        throw new UsageError('commands: init, project set, repo add, repo remove, status, start, service');
+        throw new UsageError(
+          'commands: init, project set, repo add, repo remove, status, start, service, move-work-root',
+        );
     }
   } catch (error) {
     if (error instanceof UsageError) {

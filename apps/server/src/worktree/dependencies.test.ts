@@ -559,6 +559,48 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     expect(await exists(path.join(target, 'node_modules'))).toBe(false);
   });
 
+  it('passes over a reference on another volume and takes the next one on the target volume', async () => {
+    const second = path.join(base, 'second');
+    await git('-C', reference, 'worktree', 'add', '--quiet', '-b', 'second', second);
+    await install(reference);
+    await install(second);
+    await put(second, 'node_modules/marker', 'second');
+    const probe = vi.fn(async (candidate: string) => {
+      if (candidate === reference) throw new Error('the checkouts are on different volumes');
+    });
+
+    const done = await clone({ candidates: [reference, second], probe }).result;
+
+    expect(done).toMatchObject({ status: 'cloned', reference: second });
+    expect(probe.mock.calls.map((call) => call[0])).toEqual([reference, second]);
+    expect(await readFile(path.join(target, 'node_modules/marker'), 'utf8')).toBe('second');
+  });
+
+  it('skips as unsupported when every matching reference is on another volume', async () => {
+    const second = path.join(base, 'second');
+    await git('-C', reference, 'worktree', 'add', '--quiet', '-b', 'second', second);
+    await install(reference);
+    await install(second);
+    const probe = vi.fn(async () => {
+      throw new Error('the checkouts are on different volumes');
+    });
+
+    expect(await clone({ candidates: [reference, second], probe }).result).toEqual({
+      status: 'skipped',
+      reason: 'unsupported',
+    });
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips as no_reference, without probing, when no candidate has the lockfile', async () => {
+    await install(reference);
+    await put(reference, 'package-lock.json', '{"name":"app","lockfileVersion":3,"changed":1}\n');
+    const probe = vi.fn(async () => undefined);
+
+    expect(await clone({ probe }).result).toEqual({ status: 'skipped', reason: 'no_reference' });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
   it('removes everything when the reference was installed again during the clone', async () => {
     await install(reference);
     const copyTree = async (src: string, dest: string) => {

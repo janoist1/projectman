@@ -61,6 +61,10 @@ import {
  *   TimeoutStopSec must exceed it by about 20 seconds.
  *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
  *   installed checkout with the same lockfile (PM-332, APFS clones on macOS); any other value stops the server.
+ *   PROJECTMAN_WORK_ROOT (unset): PM-846, docs/DEPLOY.md: the absolute path of a work volume mounted inside
+ *   the home; the worktrees, the member workspaces and the full test's run directories then live below it
+ *   (single mode only; an engine reads `workRoot` of its engine.json). The start stops when it is not
+ *   there, has no `.projectman-work-root` file or lies outside the home.
  *   PROJECTMAN_MODE (single): `cloud` enables the engine registry and authenticated engine link (PM-313).
  *   In cloud mode the sessions, worktrees, gh, full test and screenshots run on the connected engine
  *   (PM-315); the server keeps no machine of its own. `engine` starts the engine process on the
@@ -251,6 +255,7 @@ async function configFromEnv(
       publicBaseUrl: loopbackBaseUrl(host, port),
       clientIpHeader,
       cloneDependencies: cloneDependencies !== 'off',
+      ...(env.PROJECTMAN_WORK_ROOT?.trim() ? { workRoot: env.PROJECTMAN_WORK_ROOT.trim() } : {}),
       claudeBin: env.CLAUDE_BIN,
       codexBin: env.CODEX_BIN,
       geminiBin: env.AGY_BIN,
@@ -372,12 +377,13 @@ async function main(): Promise<void> {
         : {
             ...config.app.modules,
             nanogptKeyCheck: createNanogptKeyCheck(),
-            createFullTestExecutor: ({ logger, worktreesRoot }) =>
+            createFullTestExecutor: ({ logger, worktreesRoot, tmpDir }) =>
               fullTest.createFullTestExecutor({
                 logger,
                 env: process.env,
                 heavyLockDir: config.app.heavyLockDir,
                 worktreesRoot,
+                ...(tmpDir ? { tmpDir } : {}),
               }),
             createScreenshotExecutor: ({ logger }) =>
               fullTest.createScreenshotExecutor({

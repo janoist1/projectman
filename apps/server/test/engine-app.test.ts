@@ -125,6 +125,22 @@ describe('engine process', () => {
     );
   };
 
+  const modulesOf = (): NonNullable<EngineAppOptions['modules']> => ({
+    createRunnerModule: (opts) => fake.create(opts),
+    github: new FakeGithub(),
+    createFullTestExecutor: () => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never,
+    createScreenshotExecutor: () => ({ run: async () => ({}) }) as never,
+    createMachineProbe: () =>
+      ({
+        machine: async () => ({}),
+        processes: async () => [],
+        envValues: async () => new Map(),
+        signal: () => 'gone',
+      }) as never,
+    statusDelayMs: 5,
+    random: () => 0,
+  });
+
   const build = async (overrides: Partial<EngineAppOptions> = {}): Promise<EngineApp> => {
     const built = await buildEngineApp({
       home,
@@ -139,22 +155,7 @@ describe('engine process', () => {
       relayWaitMs: 200,
       shutdownPauseMs: 5000,
       logger: { level: 'debug', stream: { write: (line: string) => void logLines.push(line) } },
-      modules: {
-        createRunnerModule: (opts) => fake.create(opts),
-        github: new FakeGithub(),
-        createFullTestExecutor: () =>
-          ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never,
-        createScreenshotExecutor: () => ({ run: async () => ({}) }) as never,
-        createMachineProbe: () =>
-          ({
-            machine: async () => ({}),
-            processes: async () => [],
-            envValues: async () => new Map(),
-            signal: () => 'gone',
-          }) as never,
-        statusDelayMs: 5,
-        random: () => 0,
-      },
+      modules: modulesOf(),
       ...overrides,
     });
     engine = built;
@@ -255,6 +256,65 @@ describe('engine process', () => {
       } finally {
         factory.mockRestore();
       }
+    });
+
+    describe('work root (PM-846)', () => {
+      const setWorkRoot = (root: string) => {
+        saveEngineConfig(home, { ...loadEngineConfig(home), workRoot: root });
+      };
+      const mountWorkRoot = (marker = true) => {
+        const root = path.join(home, 'work');
+        mkdirSync(root, { recursive: true });
+        if (marker) writeFileSync(path.join(root, '.projectman-work-root'), '');
+        return root;
+      };
+
+      it('keeps today’s paths and gives the full test no tmp root without one', async () => {
+        const full = vi.fn(() => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never);
+        await startEngine({ modules: { ...modulesOf(), createFullTestExecutor: full } });
+        await cloud.connected();
+        expect(cloud.hellos[0]!.paths).toMatchObject({
+          worktreesRoot: path.join(home, 'worktrees'),
+          workspacesRoot: path.join(home, 'workspaces'),
+        });
+        expect(full).toHaveBeenCalledWith({
+          heavyLockDir: path.join(base, 'heavy'),
+          worktreesRoot: path.join(home, 'worktrees'),
+        });
+      });
+
+      it('puts the worktrees, the workspaces and the full test’s tmp below the work root', async () => {
+        const root = mountWorkRoot();
+        setWorkRoot(root);
+        const full = vi.fn(() => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never);
+        await startEngine({ modules: { ...modulesOf(), createFullTestExecutor: full } });
+        await cloud.connected();
+        expect(cloud.hellos[0]!.paths).toMatchObject({
+          worktreesRoot: path.join(root, 'worktrees'),
+          workspacesRoot: path.join(root, 'workspaces'),
+        });
+        expect(full).toHaveBeenCalledWith({
+          heavyLockDir: path.join(base, 'heavy'),
+          worktreesRoot: path.join(root, 'worktrees'),
+          tmpDir: path.join(root, 'tmp'),
+        });
+      });
+
+      it('does not start when the volume is not mounted (no marker), and creates nothing', async () => {
+        const root = mountWorkRoot(false);
+        setWorkRoot(root);
+        await expect(build()).rejects.toMatchObject({ code: 'work_root_invalid', reason: 'marker_missing' });
+        expect(existsSync(path.join(root, 'worktrees'))).toBe(false);
+        expect(existsSync(path.join(home, 'worktrees'))).toBe(false);
+      });
+
+      it('does not start with a work root outside the home', async () => {
+        const root = path.join(base, 'volume');
+        mkdirSync(root);
+        writeFileSync(path.join(root, '.projectman-work-root'), '');
+        setWorkRoot(root);
+        await expect(build()).rejects.toMatchObject({ code: 'work_root_invalid', reason: 'outside_home' });
+      });
     });
 
     it('connects with the machine key and tells the cloud what it serves', async () => {

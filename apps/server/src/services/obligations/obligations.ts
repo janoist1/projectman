@@ -18,6 +18,7 @@ import type {
   ObligationRef,
   ProjectConfig,
   Task,
+  TimelineEventData,
 } from '@projectman/shared';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
@@ -104,6 +105,17 @@ export class ObligationsService {
       sessions: deps.sessions,
       refinement: deps.refinement,
       mergeState: (mergeId) => deps.ctx.repos.taskMerges.get(mergeId)?.state ?? null,
+      labelsAddedSince: (projectKey, taskKey, labels, since) =>
+        deps.ctx.repos.timeline
+          .listOfTypes(projectKey, taskKey, ['task_labels_changed'], 200)
+          .some((event) => {
+            const data = event.data as Partial<TimelineEventData['task_labels_changed']>;
+            return (
+              event.createdAt >= since &&
+              Array.isArray(data.added) &&
+              data.added.some((label) => labels.includes(label))
+            );
+          }),
     });
   }
 
@@ -232,11 +244,14 @@ export class ObligationsService {
       // A handed-over row only waits for its step to end.
       if (still && row.state !== 'open') continue;
       // A step that is not open any more is asked about the start too: a refused start is why it may look so.
-      const paused = await this.pauseOf(view, task, row, humanItems.get(taskKey) ?? [], at, !still);
-      // Step 2: a step that is not open any more ends, unless something holds the card.
+      const paused =
+        (await this.pauseOf(view, task, row, humanItems.get(taskKey) ?? [], at, !still)) ??
+        (still?.held ? 'held' : null);
+      // Step 2: a step that is not open any more ends, unless something holds the card (a source that
+      // derives its steps whatever holds the card has none to keep open).
       if (!still) {
-        if (task && isOpenTask(task) && paused) {
-          if (row.state === 'open') await this.plan(row, task, paused, still, minutes, at);
+        if (task && isOpenTask(task) && paused && !this.sourceOf(row.kind).derivesWhilePaused) {
+          if (row.state === 'open') await this.plan(row, task, paused, still, minutes, at, view);
           continue;
         }
         await this.end(row, view, at);
@@ -244,7 +259,7 @@ export class ObligationsService {
       }
       if (row.state !== 'open' || !task) continue;
       // Step 3: the clock of an open row.
-      await this.plan(row, task, paused, still, minutes, at);
+      await this.plan(row, task, paused, still, minutes, at, view);
     }
   }
 
@@ -283,6 +298,7 @@ export class ObligationsService {
     still: DerivedObligation | undefined,
     minutes: number,
     at: string,
+    view: ProjectView,
   ): Promise<void> {
     const repo = this.ctx.repos.obligations;
     const due = Date.parse(at) >= Date.parse(row.dueAt);
@@ -309,10 +325,10 @@ export class ObligationsService {
         repo.update(row.id, { dueAt: step.dueAt }, at);
         return;
       case 'wake':
-        await this.wake(row, minutes, step.dueAt, at);
+        await this.wake(row, minutes, step.dueAt, at, view);
         return;
       case 'hand_over':
-        await this.handOver(row, minutes, at);
+        await this.handOver(row, minutes, at, view);
         return;
     }
   }
@@ -342,7 +358,13 @@ export class ObligationsService {
   }
 
   /** The one reminder: the row and the event are written first, so a failed send is never repeated. */
-  private async wake(row: Obligation, minutes: number, dueAt: string, at: string): Promise<void> {
+  private async wake(
+    row: Obligation,
+    minutes: number,
+    dueAt: string,
+    at: string,
+    view: ProjectView,
+  ): Promise<void> {
     this.ctx.unitOfWork(() => {
       this.ctx.repos.obligations.update(row.id, { wokenAt: at, dueAt }, at);
       this.timeline.append({
@@ -367,7 +389,7 @@ export class ObligationsService {
         {
           to: [row.responsible],
           taskKey: row.taskKey,
-          text: this.sourceOf(row.kind).wakeText(row, minutes, minutesBetween(row.openedAt, at)),
+          text: this.sourceOf(row.kind).wakeText(row, minutes, minutesBetween(row.openedAt, at), view),
         },
         { actor: SYSTEM_ACTOR, kind: 'action', ownCard: true },
       );
@@ -380,12 +402,17 @@ export class ObligationsService {
   }
 
   /** The second expiry: the integrator todo, once. A todo that a crash left without its row is found, not repeated. */
-  private async handOver(row: Obligation, minutes: number, at: string): Promise<void> {
+  private async handOver(row: Obligation, minutes: number, at: string, view: ProjectView): Promise<void> {
     const found = this.todoOf(row);
     let itemId = found?.id ?? null;
     let recipient = found ? (questionPayloadOf(found)?.recipient ?? 'owner') : null;
     if (!itemId) {
-      const { question, todo } = this.sourceOf(row.kind).todo(row, minutes, minutesBetween(row.openedAt, at));
+      const { question, todo } = this.sourceOf(row.kind).todo(
+        row,
+        minutes,
+        minutesBetween(row.openedAt, at),
+        view,
+      );
       const opened = await this.inbox.openIntegratorTodo({
         projectKey: row.projectKey,
         taskKey: row.taskKey,

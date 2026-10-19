@@ -1,4 +1,4 @@
-import { isOpenTask, memberOf, stageIndex, stageOf } from '@projectman/shared';
+import { isOpenTask, memberOf, stageIndex, stageOf, stageOwners, stepResult } from '@projectman/shared';
 import type {
   Obligation,
   ObligationKind,
@@ -26,6 +26,8 @@ export interface DerivedObligation {
   since: string;
   /** The responsible, or the system, is working the step now: the deadline moves on (`planObligation` step 6). */
   active?: boolean;
+  /** The card waits for a decision the source knows of (a fix round limit): the clock stands still as for a held card. */
+  held?: boolean;
 }
 
 /**
@@ -34,14 +36,21 @@ export interface DerivedObligation {
  */
 export interface ObligationSource {
   kind: ObligationKind;
+  /** The source derives its steps whatever holds the card: a step it does not derive has ended, paused or not. */
+  derivesWhilePaused?: boolean;
   /** The open steps of the project, or null when they cannot be read now (the rows then stay as they are). */
   derive(project: ProjectView): ReadonlyArray<DerivedObligation> | null;
   /** How a row that is not derived any more ended. */
   closedAs(row: Obligation, project: ProjectView): 'fulfilled' | 'cancelled';
   /** The one reminder to the responsible (English; `waited` minutes since the step began, `minutes` is N). */
-  wakeText(row: Obligation, minutes: number, waited: number): string;
+  wakeText(row: Obligation, minutes: number, waited: number, project: ProjectView): string;
   /** The integrator todo, after the second deadline. */
-  todo(row: Obligation, minutes: number, waited: number): { question: string; todo: QuestionTodo };
+  todo(
+    row: Obligation,
+    minutes: number,
+    waited: number,
+    project: ProjectView,
+  ): { question: string; todo: QuestionTodo };
 }
 
 export interface SourceDeps {
@@ -49,6 +58,8 @@ export interface SourceDeps {
   refinement: ObligationRefinement;
   /** The state of a merge by its id: how it ended, null when there is no such merge. */
   mergeState(mergeId: string): string | null;
+  /** Whether one of the labels was added to the card at `since` or later (its `task_labels_changed` events). */
+  labelsAddedSince(projectKey: string, taskKey: string, labels: readonly string[], since: string): boolean;
 }
 
 const isAi = (config: ProjectConfig, handle: string): boolean => memberOf(config, handle)?.kind === 'ai';
@@ -178,60 +189,94 @@ function refinementSource(deps: SourceDeps): ObligationSource {
 const labelOf = (row: Obligation): string =>
   row.subject.replace(/^turn:/, '').split('@')[0] || 'the next label';
 
+/**
+ * The step stage of an AI member (PM-809): one entry of a card into a `step` stage, for each AI owner of
+ * the stage who may set a label the next stage's gate lacks. The step is derived from the stage, not from
+ * the card's wait: whoever else works on the card or holds it, the step stays open until its result is
+ * there (the pause of the sweep stops the clock). A queue stage has no such step: its cards are the
+ * owner's, and a card being refined has its refinement turn.
+ */
 function reviewSource(deps: SourceDeps): ObligationSource {
   return {
     kind: 'review_step',
+    derivesWhilePaused: true,
     derive(project) {
       const found: DerivedObligation[] = [];
+      const { config } = project;
       for (const task of project.tasks.values()) {
-        const wait = project.waits.get(task.key);
-        if (!isOpenTask(task) || !wait) continue;
+        if (!isOpenTask(task) || task.kind === 'theme') continue;
+        const stage = stageOf(config, task.stageId);
+        // A card in a merge is the merge's: the `merge` kind follows it.
+        if (stage?.kind !== 'step' || task.merge) continue;
         const since = stageEntered(task);
-        const subject = `${task.stageId}@${since}`;
-        const candidates =
-          wait.reason === 'labels_missing'
-            ? wait.next.filter((entry) => entry.kind === 'ai').map((entry) => entry.handle)
-            : wait.reason === 'working'
-              ? // Someone else working on the card does not close the step of a responsible who is not at work.
-                [
-                  ...new Set([
-                    ...wait.next.map((entry) => entry.handle),
-                    ...project.live
-                      .filter((row) => row.kind === 'review_step' && row.taskKey === task.key)
-                      .map((row) => row.responsible),
-                  ]),
-                ]
-              : [];
-        for (const responsible of candidates) {
-          if (!isAi(project.config, responsible)) continue;
-          const candidate = { taskKey: task.key, responsible, subject };
-          if (wait.reason === 'working' && !hasLive(project, 'review_step', candidate)) continue;
-          const atWork = deps.sessions
-            .ofMember(task.projectKey, task.key, responsible)
-            .some((session) => session.running && session.atWork);
-          found.push({ ...candidate, since, active: atWork });
+        for (const owner of stageOwners(config, stage)) {
+          if (!isAi(config, owner)) continue;
+          const result = stepResult(config, task, owner);
+          if (!result || result.gate.every((label) => task.labels.includes(label))) continue;
+          if (deps.labelsAddedSince(task.projectKey, task.key, result.results, since)) continue;
+          found.push({
+            taskKey: task.key,
+            responsible: owner,
+            subject: `${stage.id}@${since}`,
+            since,
+            active: deps.sessions
+              .ofMember(task.projectKey, task.key, owner)
+              .some((session) => session.running && session.atWork),
+            held: !!task.fixLimit,
+          });
         }
       }
       return found;
     },
-    closedAs: closedByMove,
-    wakeText: (row, minutes, waited) =>
-      `projectman reminder: the ${stageNameOf(row)} step of ${row.taskKey} has waited ${ago(waited)} for you. ` +
-      `Do the review and set the result label with update_task, or say with the reason why you cannot. ` +
+    closedAs: (row, project) => {
+      const task = project.tasks.get(row.taskKey);
+      const { config } = project;
+      const stage = stageOf(config, stageIdOf(row));
+      if (!task || task.status === 'cancelled' || stage?.kind !== 'step') return 'cancelled';
+      if (!stageOwners(config, stage).includes(row.responsible)) return 'cancelled';
+      const subjectIndex = stageIndex(config.pipeline, stage.id);
+      const nowIndex = stageIndex(config.pipeline, task.stageId);
+      if (nowIndex > subjectIndex) return 'fulfilled';
+      if (nowIndex < subjectIndex) return 'cancelled';
+      // In the stage again: another entry than the row's is another step.
+      const since = row.subject.slice(row.subject.indexOf('@') + 1);
+      if (stageEntered(task) !== since) return 'cancelled';
+      const result = stepResult(config, task, row.responsible);
+      if (!result) return 'cancelled';
+      const done =
+        result.gate.some((label) => task.labels.includes(label)) ||
+        deps.labelsAddedSince(task.projectKey, task.key, result.results, since);
+      return done ? 'fulfilled' : 'cancelled';
+    },
+    wakeText: (row, minutes, waited, project) =>
+      `projectman reminder: the ${stageNameOf(row, project)} step of ${row.taskKey} has waited ${ago(waited)} for you. ` +
+      `Do it and set its result label with update_task (${resultsOf(row, project)}), or say with the reason why you cannot. ` +
       `If nothing happens in ${ago(minutes)}, the step goes to the integrator.${askHuman}`,
-    todo: (row, _minutes, waited) =>
+    todo: (row, _minutes, waited, project) =>
       todoOf(
         row,
         waited,
-        `finished the ${stageNameOf(row)} step of ${row.taskKey}`,
-        `${row.taskKey}, stage ${stageNameOf(row)}`,
-        `the result label of the ${stageNameOf(row)} step is set on ${row.taskKey}`,
+        `finished the ${stageNameOf(row, project)} step of ${row.taskKey}`,
+        `${row.taskKey}, stage ${stageNameOf(row, project)}`,
+        `a result label (${resultsOf(row, project)}) is set on ${row.taskKey}, or ${row.taskKey} moves on`,
       ),
   };
 }
 
 /** The stage a stage-bound row is about (the subject is `<stageId>@<time>`). */
-const stageNameOf = (row: Obligation): string => row.subject.split('@')[0] || 'current';
+const stageIdOf = (row: Obligation): string => row.subject.split('@')[0] || 'current';
+
+/** The name of the stage a row is about, or its id when the stage is gone. */
+const stageNameOf = (row: Obligation, project: ProjectView): string =>
+  stageOf(project.config, stageIdOf(row))?.name ?? stageIdOf(row);
+
+/** The labels that end a review step for its responsible, as text (`a, b or c`). */
+function resultsOf(row: Obligation, project: ProjectView): string {
+  const task = project.tasks.get(row.taskKey);
+  const labels = task ? (stepResult(project.config, task, row.responsible)?.results ?? []) : [];
+  if (labels.length === 0) return 'the result label';
+  return labels.length === 1 ? labels[0]! : `${labels.slice(0, -1).join(', ')} or ${labels.at(-1)}`;
+}
 
 function workSource(deps: SourceDeps): ObligationSource {
   return {
@@ -272,7 +317,7 @@ function workSource(deps: SourceDeps): ObligationSource {
         row,
         waited,
         `continued the work on ${row.taskKey}`,
-        `${row.taskKey}, stage ${stageNameOf(row)}`,
+        `${row.taskKey}, stage ${stageIdOf(row)}`,
         `${row.taskKey} is worked on again or handed over`,
       ),
   };

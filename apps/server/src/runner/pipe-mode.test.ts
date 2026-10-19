@@ -12,6 +12,7 @@ import { createRunnerModule } from './index';
 import {
   FAKE_CLAUDE,
   FAKE_CODEX,
+  claudeLoadedFile,
   fixtureScopeProcesses,
   freePort,
   silentLogger,
@@ -253,6 +254,7 @@ describe('the private launch files of a Claude Code session (PM-156)', () => {
     async (sandboxed) => {
       const argsFile = path.join(cwd, 'args.json');
       process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;
+      process.env.FAKE_CLAUDE_LOADED_FILE = claudeLoadedFile(argsFile);
       const s = launchSpec(sandboxed);
       await runner.runner.start(s);
       // The turn ends with the Stop hook, which came through the settings the CLI was given.
@@ -282,6 +284,10 @@ describe('the private launch files of a Claude Code session (PM-156)', () => {
       const { raw, argv } = await launchedArgs(argsFile);
       expect(argv[argv.indexOf('--settings') + 1]).toBe(path.join(dir, 'claude-settings.json'));
       expect(argv[argv.indexOf('--mcp-config') + 1]).toBe(path.join(dir, 'claude-mcp.json'));
+      // What the CLI read from the files: the fake writes it to a file of its own (the integration tests use it).
+      const loaded = JSON.parse(await readFile(claudeLoadedFile(argsFile), 'utf8'));
+      expect(JSON.stringify(loaded.mcpConfig)).toContain(MCP_CANARY);
+      expect(loaded.settings.hooks.Stop).toBeDefined();
       expect(raw).not.toContain(MCP_CANARY);
       expect(raw).not.toContain(hookToken);
       expect(raw).not.toContain('/hooks/');

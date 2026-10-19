@@ -101,12 +101,22 @@
  *
  * DIAGNOSTICS: FAKE_CLAUDE_ARGS_FILE, when set, receives {argv, cwd, env} at start-up (env
  * without values of variables whose name contains KEY, TOKEN or SECRET, which are "<set>").
+ * FAKE_CLAUDE_LOADED_FILE, when set, receives {settings, mcpConfig: [...]}: the parsed content of
+ * --settings and of each --mcp-config, whether given inline or as a file.
  *
  * The terminal input, dialogs, command hooks and exit sequence shared with fake-codex live in
  * fake-tui.mjs.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -217,6 +227,21 @@ function parseArgs(argv) {
 
 const opts = parseArgs(process.argv.slice(2));
 
+// The runner passes --settings and --mcp-config as private files that are gone once the session
+// ends (PM-156); a test reads what the CLI loaded from here. Written before the args file, so a test
+// that waits for the args file finds this one too.
+if (process.env.FAKE_CLAUDE_LOADED_FILE) {
+  const tmp = `${process.env.FAKE_CLAUDE_LOADED_FILE}.${process.pid}.tmp`;
+  writeFileSync(
+    tmp,
+    JSON.stringify(
+      { settings: loadSettings(opts.settings), mcpConfig: opts.mcpConfig.map(loadSettings) },
+      null,
+      2,
+    ),
+  );
+  renameSync(tmp, process.env.FAKE_CLAUDE_LOADED_FILE);
+}
 if (process.env.FAKE_CLAUDE_ARGS_FILE) writeArgsFile(process.env.FAKE_CLAUDE_ARGS_FILE);
 
 /** One tools/call on the "team" server of --mcp-config (stateless streamable HTTP, JSON answers). */

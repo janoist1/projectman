@@ -403,7 +403,9 @@ describe('review pins on the timeline (PM-183)', () => {
         to: 'review',
         pinned: shortCommit(commitA),
         head: shortCommit(commitB),
-      }),
+      }) +
+        ' ' +
+        t('fixLimit.events.notCounted'),
     );
   });
 
@@ -559,6 +561,31 @@ describe('fix round limit timeline rows (PM-262)', () => {
     data: { rounds: 3, limit: 3, changeRequests: 2, designChangeRequests: 1, sendBacks: 0, ...data },
   });
   const text = (data: Record<string, unknown>) => describeEvent(fixLimit(data), context).text;
+
+  it('renders grants, assessments and the failed test subtotal from additive fields', () => {
+    expect(text({ phase: 'decided', decision: 'another_round', extraRounds: 4, note: 'Small fix.' })).toBe(
+      t('fixLimit.events.decidedExtra', { i: 4, note: t('fixLimit.events.note', { note: 'Small fix.' }) }),
+    );
+    const assessment = {
+      recurrence: 'Same issue.',
+      currentState: 'Almost ready.',
+      recommendation: { optionId: 'replan', reason: 'Clarify scope.' },
+    };
+    expect(text({ phase: 'passed_on', deciders: ['owner'], assessment })).toContain(
+      t('fixLimit.events.assessment', {
+        recurrence: assessment.recurrence,
+        currentState: assessment.currentState,
+        decision: t('fixLimit.decisions.replan'),
+        reason: assessment.recommendation.reason,
+      }),
+    );
+    expect(text({ phase: 'reached', sendBacks: 2, testsFailed: 1 })).toContain(
+      t('fixLimit.part.testsFailed', { count: 1 }),
+    );
+    expect(text({ phase: 'reached', sendBacks: 2, testsFailed: 1 })).toContain(
+      t('fixLimit.part.manual', { count: 1 }),
+    );
+  });
 
   it('says what the rounds were and who decides, the lead or the people', () => {
     // Only the kinds of round that happened are named, and the limit only when it is not the rounds.

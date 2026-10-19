@@ -1,5 +1,6 @@
 import {
   BoundaryAuditReason,
+  FixLimitAssessment,
   BoundaryState,
   ReleaseFailure,
   ReleaseState,
@@ -257,11 +258,15 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
   switch (d.phase) {
     case 'passed_on':
       // The row's header names who did it, so the text does not.
-      return t('fixLimit.events.passed_on', {
-        decides: decidesText(strings(d.deciders), ctx.members, ctx.myHandle),
-        note: withNote,
-      });
+      return (
+        t('fixLimit.events.passed_on', {
+          decides: decidesText(strings(d.deciders), ctx.members, ctx.myHandle),
+          note: withNote,
+        }) + assessmentText(d.assessment)
+      );
     case 'decided': {
+      if (d.decision === 'another_round' && typeof d.extraRounds === 'number')
+        return t('fixLimit.events.decidedExtra', { i: d.extraRounds, note: withNote });
       const decision = (FIX_LIMIT_DECISIONS as readonly string[]).includes(str(d.decision))
         ? t(`fixLimit.decisions.${str(d.decision) as (typeof FIX_LIMIT_DECISIONS)[number]}`)
         : str(d.decision);
@@ -287,6 +292,7 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
         changeRequests: Number(d.changeRequests) || 0,
         designChangeRequests: Number(d.designChangeRequests) || 0,
         sendBacks: Number(d.sendBacks) || 0,
+        testsFailed: typeof d.testsFailed === 'number' ? d.testsFailed : undefined,
       });
       // The limit is named only when it is not the number of rounds itself.
       return rounds === limit
@@ -294,6 +300,18 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
         : t('fixLimit.events.reachedLimit', { rounds, limit, parts, who });
     }
   }
+}
+
+function assessmentText(value: unknown): string {
+  const assessment = FixLimitAssessment.safeParse(value);
+  if (!assessment.success) return '';
+  const { recurrence, currentState, recommendation } = assessment.data;
+  return t('fixLimit.events.assessment', {
+    recurrence,
+    currentState,
+    decision: t(`fixLimit.decisions.${recommendation.optionId}`),
+    reason: recommendation.reason,
+  });
 }
 
 /** Attributed, translated text of a timeline event. Free text (notes, messages) stays as written. */
@@ -528,7 +546,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             ...names,
             pinned: shortCommit(str(moved.pinned)),
             head: shortCommit(str(moved.head)),
-          }),
+          }) +
+            ' ' +
+            t('fixLimit.events.notCounted'),
         );
       const testsFailed = record(d.testsFailed);
       if (testsFailed)

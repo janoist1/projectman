@@ -384,7 +384,7 @@ export function fixLimitDecisionText(
     parts: fixRoundParts(limit),
     reason:
       limit.reason === 'passed_on'
-        ? t('inbox.fixLimit.reasons.passed_on', {
+        ? t(limit.assessment ? 'inbox.fixLimit.reasons.passedOnShort' : 'inbox.fixLimit.reasons.passed_on', {
             name: nameOf(limit.decider, members, myHandle),
             note: note ? t('inbox.fixLimit.note', { note }) : '',
           })
@@ -428,7 +428,13 @@ export function withConsequences(item: InboxItem, options: readonly InboxOption[
   if (!group) return [...options];
   return options.map((option) =>
     group.ids.includes(option.id)
-      ? { ...option, consequence: tDynamic(`inbox.${group.scope}.consequence.${option.id}`, '') }
+      ? {
+          ...option,
+          consequence: tDynamic(
+            `inbox.${group.scope}.consequence.${option.id === 'another_round' && (fixLimitDecisionOf(item)?.extraRounds ?? 0) >= 3 ? 'another_round_over' : option.id}`,
+            '',
+          ),
+        }
       : option,
   );
 }
@@ -788,7 +794,7 @@ export function resolutionMark(item: InboxItem): ResolutionMark {
  * does not keep a plain decision released and closed later, so that case stays in the trail.
  */
 export function isRecentDecision(item: InboxItem): boolean {
-  if (item.resolution?.integratorTodo) return false;
+  if (item.resolution?.integratorTodo || item.resolution?.integratorFixLimit) return false;
   if (item.state === 'open' || item.state === 'screening') return false;
   const rule = item.resolution?.rule;
   if (rule === 'operator_answered' || rule === 'operator_forwarded') return false;
@@ -927,7 +933,8 @@ export function closedReasonOf(item: InboxItem): string | null {
  */
 export function closedBySomeoneElse(item: InboxItem, myHandle: string | null): boolean {
   if (item.state === 'open' || item.state === 'screening') return false;
-  if (isClosedWithoutAnswer(item) || item.resolution?.integratorTodo) return true;
+  if (isClosedWithoutAnswer(item) || item.resolution?.integratorTodo || item.resolution?.integratorFixLimit)
+    return true;
   return item.resolution?.by !== undefined && item.resolution.by !== myHandle;
 }
 

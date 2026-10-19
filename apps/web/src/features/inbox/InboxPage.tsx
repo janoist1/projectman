@@ -4,13 +4,14 @@ import type { MouseEvent, ReactNode } from 'react';
 import { Outlet, useLocation, useMatch } from 'react-router';
 import {
   InboxKind,
+  fixLimitDecisionOf,
   handOnRequestOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   questionPayloadOf,
   isLinkedQuestion,
-  isIntegratorTodo,
-  wasIntegratorTodo,
+  isIntegratorInboxItem,
+  wasIntegratorInboxItem,
 } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
@@ -145,7 +146,7 @@ function RecentRow({
           ) : (
             formatAgo(item.createdAt)
           )}
-          {wasIntegratorTodo(item) ? ` · ${t('inbox.integrator.wasForIntegrator')}` : null}
+          {wasIntegratorInboxItem(item) ? ` · ${t('inbox.integrator.wasForIntegrator')}` : null}
           {group?.sources && item.state === 'resolved'
             ? ` · ${t('inbox.group.answeredCount', { count: group.answeredCount ?? group.sources.filter((s) => s.state === 'live').length })}`
             : null}
@@ -300,7 +301,8 @@ export function InboxPage() {
       (items ?? [])
         .filter(
           (item) =>
-            item.state === 'open' && (isAssignedTo(item, myHandle) || (isOwner && isIntegratorTodo(item))),
+            item.state === 'open' &&
+            (isAssignedTo(item, myHandle) || (isOwner && isIntegratorInboxItem(item))),
         )
         .map((item) => item.id),
     );
@@ -386,12 +388,13 @@ export function InboxPage() {
   // Keep an edited integrator card mounted in the render that first observes its external closure.
   const displayedLingering = new Map(lingering);
   for (const item of items ?? []) {
-    if (isIntegratorTodo(item) && shownOpen.current.has(item.id) && closedBySomeoneElse(item, myHandle))
+    if (isIntegratorInboxItem(item) && shownOpen.current.has(item.id) && closedBySomeoneElse(item, myHandle))
       displayedLingering.set(item.id, lingering.get(item.id) ?? 'closed');
   }
   // A question that closed while open keeps its place as a notice, whatever the filter.
   const gone = (items ?? []).filter(
-    (item) => lingering.has(item.id) && !isIntegratorTodo(item) && !filtered.some((f) => f.id === item.id),
+    (item) =>
+      lingering.has(item.id) && !isIntegratorInboxItem(item) && !filtered.some((f) => f.id === item.id),
   );
   const visible = gone.length > 0 ? newestFirst([...filtered, ...gone]) : filtered;
   const todoCount = visible.filter((item) => displayKindOf(item) === 'todo').length;
@@ -438,10 +441,12 @@ export function InboxPage() {
           : // A refused release decision (the integrator's key is no approval) says why on its card.
             item.kind === 'release' && resolve.isError && resolve.variables?.item.id === item.id
             ? errorMessage(resolve.error)
-            : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
-              displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
-              ? errorMessage(resolveFailedFor(item))
-              : null
+            : fixLimitDecisionOf(item) && resolveFailedFor(item) && !lingering.has(item.id)
+              ? t('inbox.fixLimit.error')
+              : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
+                displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
+                ? errorMessage(resolveFailedFor(item))
+                : null
       }
       stale={
         // A stale Operator approval says so on its card, not in a toast.
@@ -473,6 +478,7 @@ export function InboxPage() {
               if (
                 target.kind !== 'hand_on' &&
                 target.kind !== 'release' &&
+                !fixLimitDecisionOf(target) &&
                 displayKindOf(target) !== 'todo' &&
                 !isStaleError(error)
               )

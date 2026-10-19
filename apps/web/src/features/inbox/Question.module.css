@@ -56,6 +56,10 @@
   color: var(--c-ink);
 }
 
+.unavailable {
+  color: var(--c-ink-3);
+}
+
 .reason {
   font-size: var(--text-sm);
   font-weight: 600;

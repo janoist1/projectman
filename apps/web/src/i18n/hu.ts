@@ -3581,12 +3581,43 @@ export const hu = {
     },
     /** A card held at its fix round limit (PM-262): a decision for the people. */
     fixLimit: {
+      sending: 'Küldés…',
+      error: 'Nem sikerült elküldeni a döntést. Próbáld újra.',
+      extras: 'Extra kör: {used} kiadva a 3-ból, {left} maradt.',
+      extrasNone: 'Extra kör: 3 kiadva a 3-ból, nem maradt több.',
+      extrasOver: 'Extra kör: {used} kiadva, több a 3-as határnál; nem maradt több.',
+      verdict: { title: '{name} véleménye', repeat: 'Ismétlődik?', now: 'Hol tart most?' },
+      unavailable: {
+        replan: 'Most nem választható: nincs elérhető tervező.',
+        reassign: 'Most nem választható: nincs másik elérhető fejlesztő.',
+        other: 'Most nem választható.',
+        none: 'Most egyik lépés sem választható; a tétel nyitva marad.',
+      },
+      rounds: {
+        summary: 'Körök ({count})',
+        label: 'Körök időrendben',
+        technicalCount: '{count} technikai újraátadás nem számít',
+        earlier: 'Korábbi {count} sor',
+        notCounted: 'nem számít körnek',
+        kind: {
+          code_review: 'Kódátnézés · {name}',
+          design_review: 'UI/UX átnézés · {name}',
+          tests_failed: 'Bukott teljes teszt: {command}',
+          tests_failed_commit: 'Bukott teljes teszt ({commit})',
+          send_back: 'Visszaküldte · {name}',
+          send_back_no_note: 'Visszaküldte · {name} (megjegyzés nélkül)',
+          technical: 'Technikai újraátadás: az ág elmozdult ({old} → {new})',
+          grant: 'Még egy kör ({i}/3) · {name}',
+          grantOver: 'Még egy kör ({i}., a határon túl) · {name}',
+        },
+      },
       heading: 'Megállt egy kártya a javítási körök határánál',
       subject: 'Javítási körök határa: {key}',
       body: 'A(z) {key} kártya {rounds} javítási kör után sem ment át ({parts}). {reason}',
       reasons: {
         no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (Műszaki irányítás és Kódellenőrzés).',
         passed_on: '{name} továbbadta neked.{note}',
+        passedOnShort: '{name} továbbadta.',
         again: 'Még egy kör után újra elérte a határt.',
         extra_exhausted: 'A 3 extra kör elfogyott, és újra elérte a határt.',
       },
@@ -3597,6 +3628,8 @@ export const hu = {
         reassign:
           'A kártyát egy másik fejlesztő kapja, friss munkamenettel; a számlálás újrakezdődik. Az eddigi fejlesztő munkamenete leáll.',
         another_round: 'A fejlesztő megkapja a várakozó üzeneteket, és eggyel több kört kap.',
+        another_round_over:
+          'A fejlesztő megkapja a várakozó üzeneteket, és eggyel több kört kap. Ha újra eléri a határt, megint emberi döntés kell.',
       },
       footer: 'Ha közben másképp folytatódik a kártya (más fejlesztő, lezárás), ez a tétel magától lezárul.',
       toast: {
@@ -4266,6 +4299,9 @@ export const hu = {
   /** A card held at its fix round limit (PM-262): the lead developer, then the people decide. */
   fixLimit: {
     box: {
+      integrator: 'az Integrátor dönt',
+      extras: 'Extra kör: {used} kiadva a 3-ból.',
+      extrasOver: 'Extra kör: {used} kiadva, több a 3-as határnál.',
       title: 'Megállt a javítási körök határánál',
       count: '{rounds} / {limit}',
       text: '{parts} után nem megy vissza magától a fejlesztőhöz.',
@@ -4283,6 +4319,8 @@ export const hu = {
       changes: '{count} kódátnézés',
       design: '{count} UI/UX átnézés',
       sendBacks: '{count} visszaküldés',
+      manual: '{count} kézi visszaküldés',
+      testsFailed: '{count} bukott teljes teszt',
     },
     decisions: {
       continue: 'még egy kör',
@@ -4303,6 +4341,9 @@ export const hu = {
       people: '{decides}',
       passed_on: 'Továbbadta a döntést: {decides}.{note}',
       decided: 'Döntött: {decision}.{note}',
+      decidedExtra: 'Döntött: még egy kör ({i}/3 extra kör).{note}',
+      assessment: ' Ismétlődik: {recurrence} Most: {currentState} Javasolja: {decision}. {reason}',
+      notCounted: 'Nem számít javítási körnek.',
       ended: 'A javítási körök határa nem tartja vissza többé: {reason}.',
       note: ' Indoka: „{note}”',
     },

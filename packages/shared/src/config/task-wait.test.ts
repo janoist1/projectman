@@ -408,6 +408,60 @@ describe('every reason', () => {
     });
   });
 
+  it('fix_limit: keeps integrator decisions out of the owner actor list and restores owner takeover', () => {
+    const fixLimit = hold({
+      phase: 'owner',
+      recipient: 'integrator',
+      decider: null,
+      deciders: ['owner', 'kata'],
+      reason: 'extra_exhausted',
+    });
+    const decision = item({
+      id: 'inb_integrator_fix',
+      kind: 'decision',
+      source: 'system',
+      payload: {
+        recipient: 'integrator',
+        integratorOpenedAt: NOW,
+        fixLimit: {
+          taskKey: 'AC-1',
+          rounds: 3,
+          limit: 3,
+          changeRequests: 3,
+          designChangeRequests: 0,
+          sendBacks: 0,
+          reason: 'extra_exhausted',
+          decider: null,
+          note: null,
+        },
+      },
+      options: [{ id: 'another_round', label: 'Continue', style: 'secondary' }],
+    });
+    for (const viewer of [null, 'owner'])
+      for (const openItems of [[], [decision]]) {
+        expect(wait(card({ fixLimit }), { viewer, openItems })).toMatchObject({
+          reason: 'fix_limit',
+          next: [],
+          inboxItemId: openItems.length ? decision.id : null,
+        });
+      }
+    const owned = card({ fixLimit: { ...fixLimit, recipient: 'owner' } });
+    const transferred = {
+      ...decision,
+      payload: { ...decision.payload, recipient: 'owner', integratorEscalatedAt: NOW },
+    };
+    expect(handles(wait(owned, { openItems: [transferred], viewer: 'owner' }))).toEqual(['owner', 'kata']);
+    expect(handles(wait(owned))).toEqual(['owner', 'kata']);
+    expect(
+      handles(wait(card({ fixLimit: { ...fixLimit, recipient: undefined } }), { viewer: 'owner' })),
+    ).toEqual(['owner', 'kata']);
+    for (const phase of ['lead', 'replan'] as const) {
+      expect(
+        handles(wait(card({ fixLimit: { ...fixLimit, phase, decider: 'lead' } }), { viewer: 'owner' })),
+      ).toEqual(['lead']);
+    }
+  });
+
   it('working: somebody works on it now, in the order given', () => {
     const result = wait(card(), {
       workers: [

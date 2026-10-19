@@ -239,6 +239,7 @@ function itemWait(
 function fixLimitDeciders(task: Pick<Task, 'fixLimit'>): string[] {
   const limit = task.fixLimit;
   if (!limit) return [];
+  if (limit.phase === 'owner' && limit.recipient === 'integrator') return [];
   return limit.phase === 'owner' ? limit.deciders : limit.decider ? [limit.decider] : [];
 }
 

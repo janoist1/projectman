@@ -289,6 +289,81 @@ describe.skipIf(process.platform !== 'darwin' || process.env.PROJECTMAN_FULL_TES
     );
 
     it(
+      'kills a fake merge-test and its TERM-resistant worker on timeout and cancellation',
+      { timeout: 120_000 },
+      async () => {
+        // Exercise the real srt launch chain, not just a shell in the outer process group.
+        writeFileSync(
+          join(checkout, 'merge-worker.mjs'),
+          `
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+process.on('SIGTERM', () => {});
+console.log('worker=' + process.pid);
+writeFileSync(join(process.env.TMPDIR, 'worker-ready'), String(process.pid));
+setInterval(() => {}, 1000);
+`,
+        );
+        writeFileSync(
+          join(checkout, 'fake-merge-test.mjs'),
+          `
+import { spawn } from 'node:child_process';
+console.log('parent=' + process.pid);
+spawn(process.execPath, ['merge-worker.mjs'], { stdio: ['ignore', 'inherit', 'inherit'] });
+setInterval(() => {}, 1000);
+`,
+        );
+        for (const mode of ['timeout', 'abort']) {
+          const controller = new AbortController();
+          const runId = runIdOf(mode);
+          const pending = executor().run(
+            spec(runId, 'node fake-merge-test.mjs', mode === 'timeout' ? 5000 : 60_000),
+            controller.signal,
+          );
+          let pids: number[] = [];
+          try {
+            if (mode === 'abort') {
+              const ready = join(runPaths(runDirOf(tmpDir, '/private/tmp', runId)).tmp, 'worker-ready');
+              await expect.poll(() => existsSync(ready), { timeout: 30_000 }).toBe(true);
+              controller.abort();
+            }
+            const result = await pending;
+            pids = [...result.outputTail.matchAll(/(?:parent|worker)=(\d+)/g)].map((m) => Number(m[1]));
+            expect(result).toMatchObject({
+              outcome: 'error',
+              reason: mode === 'timeout' ? 'timeout' : 'killed',
+            });
+            expect(pids).toHaveLength(2);
+            for (const pid of pids) {
+              await expect
+                .poll(() => {
+                  try {
+                    process.kill(pid, 0);
+                    return false;
+                  } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+                    throw error;
+                  }
+                })
+                .toBe(true);
+            }
+          } finally {
+            controller.abort();
+            await pending;
+            for (const pid of pids) {
+              try {
+                process.kill(pid, 'SIGKILL');
+              } catch {
+                /* Already gone. */
+              }
+            }
+          }
+        }
+        expect(readdirSync(tmpDir)).toEqual([]);
+      },
+    );
+
+    it(
       'tells a failing command from one that could not run, and stops a run',
       { timeout: 180_000 },
       async () => {

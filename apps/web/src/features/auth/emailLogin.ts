@@ -15,7 +15,13 @@ export function isLoginCode(value: string): boolean {
 
 /** A same-app path from the `next` parameter, else null. Only same-app paths are accepted as a return target. */
 export function safeNextOrNull(value: string | null): string | null {
-  return value && value.startsWith('/') && !value.startsWith('//') ? value : null;
+  return value &&
+    value.startsWith('/') &&
+    !value.startsWith('//') &&
+    !value.startsWith('/\\') &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+    ? value
+    : null;
 }
 
 /**

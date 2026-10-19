@@ -201,7 +201,8 @@ describe('project change journal (database)', () => {
         },
       });
       expect(page.events.map((event) => event.entityId)).toEqual(['evt-gap']);
-      expect(Date.now() - started).toBeLessThan(1000);
+      // Far below the 10 s wait, whatever the load.
+      expect(Date.now() - started).toBeLessThan(5000);
     });
 
     it('checks the reader again when its key expires, without waiting for the safety poll', async () => {
@@ -223,7 +224,7 @@ describe('project change journal (database)', () => {
           },
         }),
       ).rejects.toThrow('expired');
-      expect(Date.now() - started).toBeLessThan(500);
+      expect(Date.now() - started).toBeLessThan(5000);
     });
 
     it('ends the wait with the server stopping, and leaves no waiter behind', async () => {

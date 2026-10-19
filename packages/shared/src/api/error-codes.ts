@@ -334,6 +334,8 @@ export const ERROR_CODES = [
   'super_operation_expired',
   // No executor is registered for the command in this installation (503).
   'super_executor_unavailable',
+  // The operate operation is not executed in super mode yet (422, PM-831).
+  'super_operation_unsupported',
   // The answer cannot be relayed for the owner (403).
   'super_relay_refused',
   // History search (PM-786).

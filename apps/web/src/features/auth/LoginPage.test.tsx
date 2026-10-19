@@ -250,7 +250,7 @@ describe('LoginPage with the e-mail code login', () => {
     expect(second).not.toBe(first);
     expect((screen.getByLabelText(t('auth.emailLogin.codeLabel')) as HTMLInputElement).value).toBe('');
     await typeCode(second);
-    await screen.findByText(t('team.title'), undefined, { timeout: 2000 });
+    await screen.findByText(t('team.title'));
   });
 
   it('refuses a code of the wrong shape without asking the server', async () => {
@@ -380,12 +380,15 @@ describe('LoginPage with the e-mail code login', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/p/AC/tasks'));
   });
 
-  it('ignores an outside next', async () => {
-    existingClient(backend);
-    renderLogin(backend, `/login?next=${encodeURIComponent('//evil.test')}`);
-    await sendCode();
-    await typeCode(backend.emailLogin.lastCodeTo(address)!);
-    await screen.findByText(t('team.title'));
-    expect(screen.getByTestId('where').textContent).toBe('/p/AC');
-  });
+  it.each(['//evil.test', '/\\evil.test', '/\\\\evil.test', '/\t/evil.test', '/\n/evil.test'])(
+    'ignores the unsafe next %j and lands in the client project',
+    async (next) => {
+      existingClient(backend);
+      renderLogin(backend, `/login?next=${encodeURIComponent(next)}`);
+      await sendCode();
+      await typeCode(backend.emailLogin.lastCodeTo(address)!);
+      await screen.findByText(t('team.title'));
+      expect(screen.getByTestId('where').textContent).toBe('/p/AC');
+    },
+  );
 });

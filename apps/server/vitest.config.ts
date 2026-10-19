@@ -45,6 +45,8 @@ if (skip) {
 
 export default defineConfig({
   test: {
+    // `vi.waitFor` waits 15 s instead of 1 s unless a test says otherwise (see the file).
+    setupFiles: ['test/setup/wait-for-timeout.ts'],
     exclude: [...configDefaults.exclude, ...(skip ? PTY_TESTS : [])],
     // Many tests start git or other child processes and write files; a test that takes under a
     // second alone (config-store "never reads a project while a save rewrites its files": 0.7 s)

@@ -3721,6 +3721,19 @@ describe('member workspaces (PM-138)', () => {
     expect(sessionPolicy.filesystem.protectedPaths).toEqual([]);
   });
 
+  it('tells a design reviewer where temporary files may be written (PM-828)', () => {
+    const project = buildLocalOnlyProject('.');
+    addMember(project, 'ux', 'designer');
+    const task = makeTask();
+    const prompt = builder.build(
+      input({ project, handle: 'ux', task, sessionPolicy: reviewPolicy(project, task) }),
+    ).appendSystemPrompt;
+    const round = section(prompt, '# Review round');
+    expect(round).toContain('Your review checkout, including `.demo/`, is read-only.');
+    expect(round).toContain('directories explicitly listed as writable in your session policy or sandbox');
+    expect(round).toContain('if none are writable, report through the team tools without creating files');
+  });
+
   it('tells a reviewer the round, the pinned commit and the review base', () => {
     const project = buildLocalOnlyProject('.');
     const task = makeTask();

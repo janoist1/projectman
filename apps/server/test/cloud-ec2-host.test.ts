@@ -693,6 +693,47 @@ describe('load and authentication faults (PM-748)', () => {
       },
     );
 
+    it.each([
+      [
+        'after remote output',
+        'removed volume data\nubuntu@i-0123456789abcdef0: Permission denied (publickey).\n',
+      ],
+      ['inside a remote message', 'git: remote said Permission denied (publickey) for the registry\n'],
+    ])(
+      'does not read a remote stderr that mentions a key refusal (%s) as a retryable auth failure',
+      async (_name, stderr) => {
+        world.sshFaults.push({ kind: 'start', result: { code: 255, stdout: '', stderr }, execute: true });
+        const error = await failure(() =>
+          withEc2Host(context(), (host) => host.call('start', [SHA_NEW, 'new'])),
+        );
+        expect(error.code).toBe('cloud_ssh_unavailable');
+        expect(error.commandStarted).toBe('unknown');
+        expect(error.retryable).toBe(false);
+        expect(attempts('start')).toBe(1);
+        assertClean();
+      },
+    );
+
+    it('still reads the ssh client refusal of a state change as a command that never started', async () => {
+      world.sshFaults.push({
+        kind: 'start',
+        result: {
+          code: 255,
+          stdout: '',
+          stderr:
+            "Warning: Permanently added 'i-0123456789abcdef0' (ED25519) to the list of known hosts.\n" +
+            'ubuntu@i-0123456789abcdef0: Permission denied (publickey).\n',
+        },
+      });
+      const error = await failure(() =>
+        withEc2Host(context(), (host) => host.call('start', [SHA_NEW, 'new'])),
+      );
+      expect(error.message).toContain('public-key authentication was rejected');
+      expect(error.commandStarted).toBe('no');
+      expect(error.retryable).toBe(true);
+      assertClean();
+    });
+
     it('calls a lost receive-image stream once and reports an unknown start', async () => {
       const file = path.join(world.home, 'image.tar');
       fs.writeFileSync(file, 'archive');

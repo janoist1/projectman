@@ -243,8 +243,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   and a review base pinned with it (`review_copy` placement), per round: a round starts when the
   task enters a stage or its assignee writes to the reviewer (the owner's answer on PM-138), and a
   resume continues the same round; a reviewer in a turn when its round ends gets the waiting
-  messages after it idles and restarts on the new commit. The handed-over work is the assignee's
-  workspace branch (another developer's later copy may be stale), else the last other one. Only committed work travels; the server fetches by explicit
+  messages after it idles and restarts on the new commit.
+  A non-assignee designer without implementation duties also uses a review copy once another
+  member has a work branch on the card, in any stage (PM-828); before that, planning keeps its
+  writable workspace. Each design-review start checks the current developer tip.
+  The handed-over work is the assignee's workspace branch (another developer's later copy may
+  be stale), else the last other one. Only committed work travels; the server fetches by explicit
   path. A workspace serves one task session at a time, for the life of its process group, idle or
   not (the reservation in `member_workspaces`): every start (admission, a person's resume, a
   message wake-up) checks it, a session of another task gives way only when it idles on a task it
@@ -1594,6 +1598,12 @@ workers follow the machine's size.
   commands; the integrator's token, the owner's answer and the question never cross it. After a restart of the hub
   an operation that was running is marked `unknown` and never started again by itself. The executors of the
   command kinds are wired by PM-760 and PM-764; until then execute answers 503 `super_executor_unavailable`.
+  The `operate` executor (PM-831, `services/super-operator/operate.ts`, wired in `assembly.ts`) runs
+  `message_send`, `project_pause`, `project_resume` and `session_stop` as the key's super actor on the same
+  domain services the base Operator uses; the other operations fail with `super_operation_unsupported` (PM-832).
+  It runs on the hub only, so no machine-dependent part changes. A label change in super mode (PM-831) may also
+  use the key owner's holding: `planLabelsOrThrow` takes the owner from the authenticated scope and passes it to
+  `planLabelChange` as `authority`; owner-reserved labels stay refused.
 
 - **Super-mode diagnostics, full test, image build and release preparation (PM-764, Super mode 8/10)** —
   hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the five routes
@@ -1761,6 +1771,11 @@ workers follow the machine's size.
   machine (`load1 <= 2 x CPUs`, `>= 128 MiB` available) and refuses otherwise. **Remote engine:** all
   AWS/EIC/SSM calls stay on the admin machine, the measuring commands run on EC2; the engine gets no
   AWS credential and only measurement metadata crosses the admin–cloud boundary. Related task: PM-748.
+  PM-753 narrows its key-refusal match: stderr merges the ssh client's lines with the remote command's, so
+  for a state-changing command only a stderr that is the client's single `user@host: Permission denied
+(publickey...)` line (plus `Warning:`/SSM session noise) means `commandStarted: 'no'`; any other output
+  that mentions it stays `unknown`, not retryable. Reads keep the loose match. **Remote engine:** unchanged,
+  admin machine only. Related task: PM-753.
   PM-719 adds three fixed-path `host.sh` operations: `trial-reset-inspect`, `trial-reset-archive`
   and read-only `trial-reset-verify`. The last two accept only UUIDv4 and exact SHA-256/none
   arguments, with no payload/path override. An embedded existing Python3 standard-library program
@@ -1933,7 +1948,10 @@ workers follow the machine's size.
   `secret` file, so a copied database alone cannot be tested against guessed addresses. All limits count
   durable rows, so a restart does not reset them. **Machine assumptions:** the client address comes from
   `PROJECTMAN_CLIENT_IP_HEADER` (a trusted loopback proxy sets it; without it every client counts as
-  `127.0.0.1` and shares the IP limits), the `secret` file in the home, and the SQLite database. **Does this
+  `127.0.0.1` and shares the IP limits). For this service, `kernel/local-request.ts`'s `ipRateLimitKey`
+  groups IPv6 addresses by canonical /64 and keeps IPv4 addresses whole, including mapped IPv4 (PM-703);
+  other limiters retain their existing keys. The `secret` file in the home and the SQLite database
+  are also local assumptions. **Does this
   work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
   and no engine protocol or payload changes.
 
@@ -3109,6 +3127,16 @@ assumption or remote-engine RPC.
   `workspace_source_missing` (`details.reason: engine_update_required`). **Does this work on a remote
   engine?** Yes: the workspace, the repository and the transfer are all on the engine; only the
   request and the `{path, ref}` answer cross the link.
+  **Design review before stage hand-over (PM-828):** a member with `ux_design` and without
+  `implementation` duties, who is not the assignee, uses a review copy whenever another member
+  has a branch-bearing work binding on the card, in any stage. Planning without such a binding
+  keeps its writable workspace. A developer's action message starts a new round on the current
+  developer tip through the same immutable snapshot transfer, including after a rebase. A manual
+  design-review resume also starts a new round when the developer tip changed. A running
+  planning session is marked for restart too; its current turn finishes before the review starts.
+  Its local branches remain intact. `REVIEW_DUTIES`, stage hand-over pins and the RPC contracts
+  stay unchanged. The design review runs on the engine beside the other member workspaces;
+  no path is read on the hub and no new machine assumption is introduced.
   **A fresh base at every start (PM-740):** a member workspace has no remote, so its default
   branch goes stale unless the server fetches it. `MemberWorkspaces.prepare` calls
   `MemberWorkspaceManager.fetchBase` (RPC `workspace.fetchBase`, unchanged) once per session
@@ -3286,15 +3314,28 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt`. PM-754: the run may bind and connect Unix sockets below its own
+  it is unavailable without macOS/`srt`.
+  Timeout and cancellation retain the detached process group's cleanup scope through the TERM
+  grace period, then send SIGKILL to the negative group id even if the launcher has already
+  closed its output pipes (PM-829, `full-test/run-sandboxed-core.ts`). The engine owns these
+  POSIX signals and waits for escalation before returning the result or releasing the heavy lock;
+  remote engines use the same engine-local cleanup, with no new data crossing `full_test.run/cancel`.
+  The group leader is an inline plain-Node watchdog (`full-test/process-group-guard.ts`), outside
+  the sandbox. It starts `nice srt ...` without detaching again. An engine-owned stdin pipe stays
+  open for the run; EOF on engine death (including SIGKILL or restart) triggers group SIGTERM
+  and then SIGKILL after the grace period, independently of engine finalizers. The watchdog
+  ignores SIGTERM itself so it can kill TERM-resistant workers even after the launcher exits.
+  Normal command exit codes and signals are relayed to the engine. This assumes POSIX groups
+  and pipe EOF on process death; all watchdog and sandbox processes stay on the executing engine.
+  PM-754: the run may bind and connect Unix sockets below its own
   `sandbox/tmp` only (`srtSettings`: `allowUnixSockets: [paths.tmp]`, `allowAllUnixSockets: false`; the macOS
   generator of srt 0.0.78 makes that a `network-bind`/`network-outbound` subpath rule), so the control socket
   integration tests (`control-relay` and `control-socket`, `*.integration.test.ts`) run in the merge check and
   prove the real socket boundary. The installer and screenshot settings do not get it; Linux has no equivalent
   guarantee and no fallback. `npm run merge-test` exits 2 for any scope that runs the server's tests when
   `PROJECTMAN_SKIP_PTY_TESTS=1` is set (the members' sandbox signal, which `fullTestEnv` never passes), and its
-  cloud scope names the two integration files. Its sandbox
-  (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
+  cloud scope names the two integration files.
+  Its sandbox (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `full_test.run/cancel` (PM-313), plan where the pinned commit and dependencies are tested, equivalent
   isolation and resource queuing there, and transport of the attributed verdict/cancellation.

@@ -298,7 +298,7 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
       const slow = scenario(`
   log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
   await new Promise(() => {});`);
-      const expired = await run(slow, ['--out', join(temp(), 'out'), '--timeout', '25', '--seed', 'none'], {
+      const expired = await run(slow, ['--out', join(temp(), 'out'), '--timeout', '12', '--seed', 'none'], {
         limitMs: 60_000,
       });
       expect(expired.status, why(expired)).toBe(1);

@@ -59,8 +59,12 @@ describe('heavy-run sessions', () => {
   });
 });
 
-/** Short timings: a heartbeat every 40 ms, a holder or a waiter is stale after 400 ms. */
-const FAST = { heartbeatMs: 40, staleMs: 400, pollMs: 20 };
+/**
+ * Short timings: a heartbeat every 40 ms, a holder or a waiter is stale after 1.5 s. The margin is
+ * wide because a test process starved by a parallel run can miss many beats, and a live holder must
+ * never look stale.
+ */
+const FAST = { heartbeatMs: 40, staleMs: 1500, pollMs: 20 };
 
 let root: string;
 let dir: string;
@@ -172,7 +176,7 @@ describe('the default folder', () => {
 describe('the heavy-run lock', () => {
   it('is taken at once when nobody holds it, and shows its holder', async () => {
     const lock = await acquire('first', { sessionId: 'ses_1' });
-    expect(lock.waitedMs).toBeLessThan(1000);
+    expect(lock.waitedMs).toBeLessThan(FAST.staleMs);
     const queue = await readHeavyQueue(dir);
     expect(queue.holder).toMatchObject({ label: 'first', pid: process.pid, sessionId: 'ses_1' });
     expect(queue.holder?.since).toBeTruthy();
@@ -215,12 +219,12 @@ describe('the heavy-run lock', () => {
     writeTicket('0000000000001-1-aaaaaaaa', {}, 5000); // its process lives, its heartbeat stopped
     writeTicket('0000000000002-2-bbbbbbbb', { pid: await deadPid() }); // fresh, but its process is gone
     const lock = await acquire('me');
-    expect(lock.waitedMs).toBeLessThan(2000);
+    expect(lock.waitedMs).toBeLessThan(5000);
     expect(ticketFiles().filter((name) => name.startsWith('00000000000'))).toEqual([]);
   });
 
   it('keeps a live waiter that queued earlier ahead, even when the lock is free', async () => {
-    writeTicket('0000000000001-1-aaaaaaaa', {}); // alive for the next 400 ms
+    writeTicket('0000000000001-1-aaaaaaaa', {}); // alive for the next 1.5 s
     await expect(acquire('late', { maxWaitMs: 250 })).rejects.toMatchObject({
       code: 'heavy_lock_timeout',
     });
@@ -267,8 +271,8 @@ describe('the heavy-run lock', () => {
 
   it('never breaks the lock of a live holder, however long it runs', async () => {
     const first = await acquire('long run');
-    // Well past staleMs (400 ms): the heartbeat keeps it fresh.
-    await expect(acquire('impatient', { maxWaitMs: 1200 })).rejects.toMatchObject({
+    // Well past staleMs (1.5 s): the heartbeat keeps it fresh.
+    await expect(acquire('impatient', { maxWaitMs: 3000 })).rejects.toMatchObject({
       name: 'HeavyLockError',
       code: 'heavy_lock_timeout',
     });

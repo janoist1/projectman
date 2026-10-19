@@ -9,7 +9,9 @@ import { claudeBuiltinTools } from './policy';
 import { claudeToolRules, directoryRulePaths } from '../../../contracts';
 
 /**
- * Command line and inline settings for an interactive Claude Code session.
+ * Command line and settings for an interactive Claude Code session. The settings and the MCP
+ * configuration are JSON files in the session's private folder (session-config.ts, PM-156): they
+ * hold the tokens, which therefore never reach the command line.
  *
  * Hooks: every event is an HTTP hook posting to /hooks/<token>, except SessionStart, which
  * Claude Code only supports as a command (or MCP tool) hook. For SessionStart the forwarder
@@ -60,7 +62,13 @@ const DECIDING_EVENTS: ReadonlySet<string> = new Set([
 const SESSION_END_TIMEOUT_S = 3;
 
 export interface HookSettingsInput {
+  /**
+   * POST target of the hooks. It holds the session's token: it goes into the settings file (a
+   * private file, PM-156) for the direct HTTP hooks, and never into a command's text.
+   */
   hookUrl: string;
+  /** The private file the forwarder commands read their target from (`writeHookConfig`). */
+  hookConfigPath: string;
   allowedTools: string[];
   deniedTools?: string[];
   policy?: StartSessionSpec['policy'];
@@ -266,7 +274,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     sandbox
       ? {
           type: 'command',
-          command: forwarderCommand(input.hookUrl, input.nodePath, {
+          command: forwarderCommand(input.hookConfigPath, input.nodePath, {
             printResponse: decides,
             maxTimeS: timeout,
           }),
@@ -279,7 +287,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
         hooks: [
           {
             type: 'command',
-            command: forwarderCommand(input.hookUrl, input.nodePath),
+            command: forwarderCommand(input.hookConfigPath, input.nodePath),
             timeout: FAST_HOOK_TIMEOUT_S,
           },
         ],
@@ -350,13 +358,22 @@ export function buildAgents(subagents: StartSessionSpec['subagents']): Record<st
   return agents;
 }
 
-/** Full argument list for `claude` (interactive). */
-export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings): string[] {
+/** The private files (PM-156) the command line names: the settings and the MCP configuration. */
+export interface ClaudeConfigFiles {
+  settingsPath: string;
+  mcpConfigPath: string;
+}
+
+/**
+ * Full argument list for `claude` (interactive). The settings and the MCP configuration hold the
+ * session's tokens, so only the paths of their files go on the command line (PM-156).
+ */
+export function buildClaudeArgs(spec: StartSessionSpec, files: ClaudeConfigFiles): string[] {
   const args: string[] = [];
   if (spec.resume) args.push('--resume', spec.claudeSessionId);
   else args.push('--session-id', spec.claudeSessionId);
   if (spec.appendSystemPrompt) args.push('--append-system-prompt', spec.appendSystemPrompt);
-  args.push('--mcp-config', JSON.stringify(buildMcpConfig(spec.mcpUrl)));
+  args.push('--mcp-config', files.mcpConfigPath);
   // Every session reaches only the team server of its own `--mcp-config` (PM-208): the strict flag
   // leaves out the owner's claude.ai connectors (Gmail, Drive, Calendar, ClickUp...) and the
   // `.mcp.json` of user and project, and `--no-chrome` keeps Claude in Chrome (the owner's logged-in
@@ -365,7 +382,7 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   // Only the built-in tools the role needs (PM-221), the same on a new and on a resumed session. One
   // comma-separated value: the flag is variadic, so it must be followed by another flag, never a value.
   args.push('--tools', claudeBuiltinTools(spec.policy).join(','));
-  args.push('--settings', JSON.stringify(settings));
+  args.push('--settings', files.settingsPath);
   if (spec.subagents?.length) args.push('--agents', JSON.stringify(buildAgents(spec.subagents)));
   const directories = spec.policy?.teamToolsOnly
     ? []

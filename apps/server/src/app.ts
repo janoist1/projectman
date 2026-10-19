@@ -45,6 +45,7 @@ import type {
   TerminalMode,
   WorktreeManager,
 } from './contracts';
+import { SESSION_CONFIG_DIR } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createAttachmentStorage, createMessageAttachmentStorage } from './core/attachments';
@@ -548,6 +549,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               env: options.agentEnv,
               terminal: options.terminal,
               publicBaseUrl,
+              sessionConfigRoot: join(home, SESSION_CONFIG_DIR),
               instanceTag,
               scopeProcesses: {
                 processes: () => scopeProbe?.processes() ?? Promise.resolve(null),

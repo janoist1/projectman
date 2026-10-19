@@ -6,6 +6,13 @@ export const HYBRID_ARCHIVE_DIR = 'pre-hybrid';
 /** Where `hybrid back` stages the downloaded cloud data inside the home, in a random folder per run. */
 export const HYBRID_STAGING_DIR = '.hybrid-back';
 
+/**
+ * The folder below the app home where the runner keeps each session's private launch files (PM-156):
+ * the CLI's settings, its MCP configuration and the hook forwarder's target, which hold the session's
+ * tokens. The whole folder is closed to the sessions' commands and file tools.
+ */
+export const SESSION_CONFIG_DIR = 'run';
+
 /** The network rule of a member whose outbound network is on (PM-355): every host except the denied ones. */
 export const OPEN_OUTBOUND_DOMAINS = ['*'];
 
@@ -74,6 +81,8 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     'message-attachments',
     'github-publish',
     'spool',
+    // The private launch files of the running sessions: their tokens (PM-156).
+    SESSION_CONFIG_DIR,
     // The release watcher's journal, lock and database backups (PM-493): the backups hold all data.
     'release',
     // The administration supervisor's state, journal and socket on a machine that has the app home (PM-763).

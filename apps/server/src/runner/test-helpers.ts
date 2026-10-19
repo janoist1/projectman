@@ -1,4 +1,5 @@
 /** Helpers for the runner tests (not used by production code). */
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import os from 'node:os';
@@ -61,6 +62,32 @@ export const FAKE_GEMINI = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../test/fixtures/fake-gemini.mjs',
 );
+
+/**
+ * Where the fake claude writes what it loaded from `--settings` and `--mcp-config` when given the
+ * args file `argsFile`: set `FAKE_CLAUDE_LOADED_FILE` to this beside `FAKE_CLAUDE_ARGS_FILE`.
+ */
+export function claudeLoadedFile(argsFile: string): string {
+  return `${argsFile}.loaded`;
+}
+
+/**
+ * The argv in the fake claude's args file, with the file paths after `--settings` and `--mcp-config`
+ * (private launch files that are gone once the session ends, PM-156) replaced by the JSON it
+ * loaded from them. Needs `FAKE_CLAUDE_LOADED_FILE` set to `claudeLoadedFile(argsFile)`.
+ */
+export function inlineLoadedClaudeConfig(argv: string[], argsFile: string): string[] {
+  const loaded = JSON.parse(readFileSync(claudeLoadedFile(argsFile), 'utf8')) as {
+    settings: unknown;
+    mcpConfig: unknown[];
+  };
+  let mcp = 0;
+  return argv.map((arg, i) => {
+    if (argv[i - 1] === '--settings') return JSON.stringify(loaded.settings);
+    if (argv[i - 1] === '--mcp-config') return JSON.stringify(loaded.mcpConfig[mcp++]);
+    return arg;
+  });
+}
 
 /** A logger that drops everything. */
 export function silentLogger(): FastifyBaseLogger {

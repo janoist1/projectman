@@ -128,8 +128,8 @@ export interface CodexArgsInput {
   disabledMcpServers?: readonly string[];
   provider?: CodexModelProvider;
   spec: StartSessionSpec;
-  /** POST target of the hooks. */
-  hookUrl: string;
+  /** The private file holding the hooks' POST target (`writeHookConfig`, PM-156). */
+  hookConfigPath: string;
   permissionTimeoutMs: number;
   /** The session's directory, resolved (Codex looks its trust up by the resolved path). */
   realCwd: string;
@@ -300,7 +300,7 @@ export function codexPermissionProfile(input: {
 
 /** Full argument list for `codex` (interactive TUI). */
 export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
-  const { spec, hookUrl } = input;
+  const { spec, hookConfigPath } = input;
   if (spec.policy?.enforcement === 'strict')
     throw new Error('Strict Codex sandbox enforcement is not available yet; refusing to start.');
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
@@ -363,7 +363,7 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       : event === 'PreToolUse'
         ? TOOL_PREPARE_HOOK_TIMEOUT_S
         : FAST_HOOK_TIMEOUT_S;
-    const command = forwarderCommand(hookUrl, input.nodePath, {
+    const command = forwarderCommand(hookConfigPath, input.nodePath, {
       printResponse: decides,
       maxTimeS: timeoutS,
     });

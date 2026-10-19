@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { routes } from '@projectman/shared';
 import type { AgentProvider, Task, TaskDetail } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
-import { waitFor } from '../src/runner/test-helpers';
+import { claudeLoadedFile, inlineLoadedClaudeConfig, waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';
 import { pngBytes, uploadFile } from './helpers/attachments';
@@ -39,7 +39,13 @@ it.each(PROVIDERS)(
     const { app, home } = h;
     const argsFile = join(home, `${provider}-args.json`);
     vi.stubEnv(provider === 'codex' ? 'FAKE_CODEX_ARGS_FILE' : 'FAKE_CLAUDE_ARGS_FILE', argsFile);
-    const started = (): Started => JSON.parse(readFileSync(argsFile, 'utf8'));
+    vi.stubEnv('FAKE_CLAUDE_LOADED_FILE', claudeLoadedFile(argsFile));
+    // Claude Code is given the private launch files, which are gone once the session ends (PM-156):
+    // its argv here carries the JSON it loaded from them.
+    const started = (): Started => {
+      const run: Started = JSON.parse(readFileSync(argsFile, 'utf8'));
+      return provider === 'claude' ? { ...run, argv: inlineLoadedClaudeConfig(run.argv, argsFile) } : run;
+    };
     const cookie = await setupOwner(app);
     await createProject(h, cookie);
     const { domain } = app.projectman;

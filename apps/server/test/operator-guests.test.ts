@@ -436,13 +436,20 @@ describe('a guest conversation has the team tools alone (PM-475)', () => {
     const render = (spec: typeof guest) => {
       const settings = buildSettings({
         hookUrl: 'http://127.0.0.1:1/hook',
+        hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
         allowedTools: spec.allowedTools,
         deniedTools: spec.deniedTools,
         policy: spec.policy,
         permissionTimeoutMs: 1000,
         sandbox: spec.sandbox,
       });
-      return { settings, args: buildClaudeArgs(spec, settings) };
+      return {
+        settings,
+        args: buildClaudeArgs(spec, {
+          settingsPath: '/run/ses_1.0123456789abcdef/claude-settings.json',
+          mcpConfigPath: '/run/ses_1.0123456789abcdef/claude-mcp.json',
+        }),
+      };
     };
     const { settings, args } = render(guest);
     expect(guest.policy).toMatchObject({ teamToolsOnly: true });

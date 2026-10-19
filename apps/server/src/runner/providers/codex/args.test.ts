@@ -30,7 +30,7 @@ const spec: StartSessionSpec = {
 
 const input = {
   spec,
-  hookUrl: 'http://127.0.0.1:4700/hooks/secret',
+  hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
   permissionTimeoutMs: 40_000,
   realCwd: '/Users/anna/.projectman/worktrees/AR/AR-1',
   nodePath: '/usr/local/bin/node',
@@ -363,18 +363,19 @@ describe('buildCodexArgs', () => {
     const c = overrides(buildCodexArgs(input).args);
     const permission = c.get('hooks.PermissionRequest')!;
     expect(permission).toContain('timeout=70}');
-    expect(permission).toContain("curl -q --noproxy '*' -sSf -m 70");
+    expect(permission).toContain("curl -q --config '/run/ses_1.0123456789abcdef/hook.curl' --noproxy '*' -sSf -m 70");
     expect(permission).not.toContain('-o /dev/null');
     const stop = c.get('hooks.Stop')!;
     expect(stop).toContain('timeout=10}');
     expect(stop).toContain('-o /dev/null');
-    expect(stop).toContain("'http://127.0.0.1:4700/hooks/secret'");
+    expect(stop).toContain("--config '/run/ses_1.0123456789abcdef/hook.curl'");
+    expect(stop).not.toContain('/hooks/');
   });
 
   it('allows dependency preparation before a tool in the CLI and its forwarder', () => {
     const hook = overrides(buildCodexArgs(input).args).get('hooks.PreToolUse')!;
     expect(hook).toContain('timeout=120}');
-    expect(hook).toContain("curl -q --noproxy '*' -sS -m 120");
+    expect(hook).toContain("--noproxy '*' -sS -m 120");
     expect(hook).toContain('Number(process.argv[2])*1000');
   });
 

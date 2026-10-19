@@ -47,14 +47,32 @@ describe('Codex launch workspace check (PM-357)', () => {
       allowedTools: [],
       provider: 'codex',
     };
-    const input = { spec, hookUrl: 'http://127.0.0.1:1/hooks/test', permissionTimeoutMs: 1000 };
+    const sessionConfigDir = await dirs.make();
+    const input = {
+      spec,
+      hookUrl: 'http://127.0.0.1:1/hooks/test',
+      sessionConfigDir,
+      permissionTimeoutMs: 1000,
+    };
     await expect(adapter.launch(input)).rejects.toMatchObject({ code: 'workspace_codex_config' });
     expect(args).not.toHaveBeenCalled();
     await writeFile(file, 'model = "gpt-test"');
     const launch = await adapter.launch(input);
     expect(args).toHaveBeenCalledOnce();
+    // The hooks name the private file that holds the target, never its URL (PM-156).
+    const hookConfigPath = path.join(sessionConfigDir, 'hook.curl');
+    expect(readFileSync(hookConfigPath, 'utf8')).toBe('url = "http://127.0.0.1:1/hooks/test"\n');
+    expect(launch.cliArgs.join('\n')).not.toContain('/hooks/test');
+    expect(launch.cliArgs.join('\n')).toContain(hookConfigPath);
     expect(launch.cliArgs).toEqual(
-      codexArgs.buildCodexArgs({ ...input, realCwd: cwd, codexHome: home, disabledMcpServers: [] }).args,
+      codexArgs.buildCodexArgs({
+        spec,
+        hookConfigPath,
+        permissionTimeoutMs: 1000,
+        realCwd: cwd,
+        codexHome: home,
+        disabledMcpServers: [],
+      }).args,
     );
   });
 });

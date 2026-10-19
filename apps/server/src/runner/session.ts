@@ -91,6 +91,8 @@ export interface SessionDeps {
   emit(event: RunnerEvent): void;
   /** Called after scope cleanup and final reads, immediately before the exit event. */
   onExited(session: AgentSession): void;
+  /** Removes the files the launch wrote for the session (PM-156); runs once the process has exited. */
+  cleanupLaunchFiles?(): Promise<void>;
   /** The CLI lost its login mid-session (before the session is stopped). */
   onAuthError?(session: AgentSession, message: string): void;
   /** Starts the process (default: node-pty). */
@@ -1371,6 +1373,12 @@ export class AgentSession {
     };
     if (this.scope) this.cleanup ??= this.scope.close('exit', { force: false });
     const [cleanup] = await Promise.all([this.cleanup, finalRead()]);
+    // The private launch files (PM-156) go once the process and its scope are done with them.
+    try {
+      await this.deps.cleanupLaunchFiles?.();
+    } catch {
+      this.log.warn({ sessionId: this.id }, 'could not remove the private launch files of the session');
+    }
 
     const failed =
       this.rateLimitFailure !== null || (!this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0));

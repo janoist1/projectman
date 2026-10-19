@@ -21,6 +21,7 @@ import type {
   ScreenshotExecutor,
   WorkspaceDependencyInstaller,
 } from './contracts';
+import { SESSION_CONFIG_DIR } from './contracts';
 import { createSocketClient } from './administration';
 import { createLocalEngine } from './engine-host';
 import {
@@ -355,6 +356,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     env: agentEnv,
     terminal: options.terminal,
     publicBaseUrl: baseUrl,
+    sessionConfigRoot: path.join(home, SESSION_CONFIG_DIR),
     instanceTag,
     broker,
     scopeProcesses: {

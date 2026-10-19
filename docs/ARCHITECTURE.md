@@ -3048,6 +3048,23 @@ assumption or remote-engine RPC.
   the relay runs the request through the cloud's own `/mcp/<token>` route and answers 404 for a token whose
   session runs on another engine.
   **Module:** `runner`
+- **Private session launch configuration (PM-156)** — `runner/session-config.ts`, `runner/runner.ts`,
+  `runner/hook-forwarder.ts`, `runner/session.ts`, `runner/providers/{claude,codex,nanogpt,gemini}`,
+  `contracts/sandbox.ts` (`SESSION_CONFIG_DIR`), `app.ts`, `engine-app.ts`. The MCP and hook tokens are
+  not on a command line: the runner writes them to `<app home>/run/<session id>.<random>/` (the folder
+  0700, files 0600, one folder per start, removed when the session's process has exited, orphans swept
+  at start-up) and gives the CLI the file paths (`--settings`, `--mcp-config`) or the forwarder the
+  path of its target file. **Machine assumption:** POSIX file modes and ownership on the disk of the
+  machine that runs the CLI, and the machine's process list (`ScopeProcessSource`) for the sweep; the
+  sandbox rules keep the session's own commands and file tools out of the root.
+  **Remote engine (engine mode):** the folder, the files and the sweep live on the engine that spawns
+  the CLI: `engine-app.ts` passes `<engine home>/run` as `sessionConfigRoot`, and the sandbox rules name
+  the engine's own paths, so nothing crosses the server/engine boundary and the cloud never sees a file.
+  The cloud's runner (`engine-link/remote`) creates no real runner and needs no root.
+  **Cloud mode (PM-315):** unchanged; the token still arrives with the start command and is written on the
+  engine. Related: "Session output folders", "Hooks and team MCP over loopback", "Native sandbox and
+  canonical paths" (the root is in `sensitivePaths`).
+  **Module:** `runner`
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `runtime/watchers` (`WorktreeSweep`),
   `index.ts` (PM-243; PM-311, PM-312; PM-770). The sweep picks its candidates from the server database

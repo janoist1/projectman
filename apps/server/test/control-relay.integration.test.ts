@@ -15,6 +15,7 @@ import {
 import type { ControlRelease, ControlSocket } from '../src/control';
 import { DomainError } from '../src/kernel';
 import { recordingLog as quietLog, ScriptedPause } from './helpers/control';
+import { socketPathThatFits } from './helpers/socket-path';
 
 // The admin channel's client and relay over a real Unix socket (PM-749). Named "integration" because the agent
 // sandbox cannot bind one; the full test sandbox runs it, with Unix sockets open below its TMPDIR only
@@ -31,15 +32,18 @@ describe('the control client and relay on a socket', () => {
   const socketPath = () => {
     const home = realpathSync(mkdtempSync(join(tmpdir(), 'pm-rel-')));
     dirs.push(home);
-    return join(home, CONTROL_SOCKET_NAME);
+    return socketPathThatFits(join(home, CONTROL_SOCKET_NAME));
   };
 
   /** A socket server that answers each connection the way `behave` says; it counts the requests it got. */
   async function fake(behave: (connection: net.Socket, request: string) => void) {
     const path = socketPath();
     const requests: string[] = [];
+    const connections = new Set<net.Socket>();
     const server = net.createServer((connection) => {
       let text = '';
+      connections.add(connection);
+      connection.on('close', () => connections.delete(connection));
       connection.on('error', () => undefined);
       connection.on('data', (chunk) => {
         text += chunk.toString('utf8');
@@ -48,8 +52,23 @@ describe('the control client and relay on a socket', () => {
         behave(connection, text.trim());
       });
     });
-    await new Promise<void>((resolve) => server.listen(path, resolve));
-    closers.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    // The close is registered first, so a failed listen is cleaned up too; the error rejects at once with
+    // its own code, not as a timeout of the test.
+    closers.push(
+      () =>
+        new Promise<void>((resolve) => {
+          for (const connection of connections) connection.destroy();
+          if (!server.listening) return resolve();
+          server.close(() => resolve());
+        }),
+    );
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(path, () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
     return { path, requests };
   }
 

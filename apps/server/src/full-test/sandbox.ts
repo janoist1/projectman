@@ -16,25 +16,29 @@ export function quoteShellWord(value: string): string {
 
 /**
  * The longest Unix socket path the sandbox can open, a little below macOS's limit (104 bytes with the
- * terminating NUL; Node refuses a longer one with EINVAL before it asks the system), and the room kept for
- * a socket below the sandbox's TMPDIR: `srt` makes `srt-mux-<pid>-<n>.sock` there (23 bytes at most), the
- * control socket tests make `pm-ctl-<6>/control.sock` below the real path of TMPDIR (26 bytes), and a root
- * such as `/var/folders/…` gains the 8 bytes of `/private` when resolved (PM-754), so 40 bytes cover them.
+ * terminating NUL; Node refuses a longer one with EINVAL before it asks the system), counted in bytes, and
+ * the room kept for a socket below the sandbox's TMPDIR, separator included: `srt` makes
+ * `srt-mux-<pid>-<n>.sock` there (24 bytes at most), the control socket tests make
+ * `pm-ctl-<6>/control.sock` (27) and, below the HOME beside it, `pm-sock-<6>/x.sock` (23) (PM-754).
  */
 const SOCKET_PATH_MAX = 100;
-const SOCKET_NAME_MAX = 40;
+const SOCKET_ROOM = 40;
 
 /**
  * The directory of a run: `<root>/pmft-<end of the run id>`, short, because the sandbox's TMPDIR below it
- * holds Unix sockets and a long path makes them fail ("listen EINVAL"). The root is `tmpRoot`;
- * when the socket path would be too long there (a deep temporary directory), it is the short
- * system-wide `shortRoot`.
+ * holds Unix sockets and a long path makes them fail ("listen EINVAL"). The root is `tmpRoot`, which must be
+ * its real path (a test resolves links such as macOS's `/var` before it binds; the caller resolves it); when
+ * the socket path would be too long there (a deep temporary directory), it is the short system-wide
+ * `shortRoot`, which has to leave the room too (else this throws: no run directory fits).
  */
 export function runDirOf(tmpRoot: string, shortRoot: string, runId: string): string {
   const name = `pmft-${runId.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`;
-  const socketPath = (root: string) =>
-    path.join(runPaths(path.join(root, name)).tmp, 'x'.repeat(SOCKET_NAME_MAX));
-  return path.join(socketPath(tmpRoot).length <= SOCKET_PATH_MAX ? tmpRoot : shortRoot, name);
+  const fits = (root: string) =>
+    Buffer.byteLength(path.join(runPaths(path.join(root, name)).tmp, 'x'.repeat(SOCKET_ROOM)), 'utf8') <=
+    SOCKET_PATH_MAX;
+  if (fits(tmpRoot)) return path.join(tmpRoot, name);
+  if (fits(shortRoot)) return path.join(shortRoot, name);
+  throw new Error('no run directory leaves room for a Unix socket path');
 }
 
 /** The directories of one run: only `sandbox` is writable for the command. */

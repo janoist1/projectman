@@ -18,6 +18,7 @@ import { startControlSocket } from '../src/control';
 import type { ControlSocket } from '../src/control';
 import { createAppHarness } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { socketPathThatFits } from './helpers/socket-path';
 import {
   pausedSession as session,
   pauseStatus as status,
@@ -34,6 +35,7 @@ const inFullTestSandbox = process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1';
 
 /** The error code of binding a Unix socket at `path` (null when it worked; the socket is closed again). */
 async function bindError(path: string): Promise<string | null> {
+  socketPathThatFits(path);
   const server = net.createServer();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -54,12 +56,6 @@ describe.skipIf(!inFullTestSandbox)('the full test sandbox opens Unix sockets fo
   const dirs: string[] = [];
   afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('has a TMPDIR and a HOME that leave room for a socket path (macOS: 103 bytes, else Node says EINVAL)', () => {
-    // The longest socket path of the two integration files below the real path of TMPDIR.
-    expect(realpathSync(tmpdir()).length + '/pm-ctl-XXXXXX/control.sock'.length).toBeLessThanOrEqual(103);
-    expect(realpathSync(process.env.HOME!).length + '/pm-sock-XXXXXX/x.sock'.length).toBeLessThanOrEqual(103);
   });
 
   it('refuses to bind a socket below the writable HOME', async () => {
@@ -97,7 +93,7 @@ describe('the control socket file', () => {
   async function open(pause = new ScriptedPause(), log = quietLog()) {
     const home = realpathSync(mkdtempSync(join(tmpdir(), 'pm-ctl-')));
     dirs.push(home);
-    const path = join(home, CONTROL_SOCKET_NAME);
+    const path = socketPathThatFits(join(home, CONTROL_SOCKET_NAME));
     const socket = await startControlSocket({ path, pause, log });
     sockets.push(socket);
     return { home, path, socket, log };
@@ -164,7 +160,7 @@ describe('the control socket file', () => {
 
   it('closes with the app', async () => {
     h = await createAppHarness({ app: { controlSocket: true } });
-    const path = join(h.home, CONTROL_SOCKET_NAME);
+    const path = socketPathThatFits(join(h.home, CONTROL_SOCKET_NAME));
     expect(existsSync(path)).toBe(true);
     const closing = h;
     h = undefined;

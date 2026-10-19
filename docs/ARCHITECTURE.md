@@ -3331,7 +3331,10 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `sandbox/tmp` only (`srtSettings`: `allowUnixSockets: [paths.tmp]`, `allowAllUnixSockets: false`; the macOS
   generator of srt 0.0.78 makes that a `network-bind`/`network-outbound` subpath rule), so the control socket
   integration tests (`control-relay` and `control-socket`, `*.integration.test.ts`) run in the merge check and
-  prove the real socket boundary. The installer and screenshot settings do not get it; Linux has no equivalent
+  prove the real socket boundary. The run directory is chosen on the real path of the temporary root and counted
+  in bytes (`runDirOf`): it keeps 40 bytes for a socket below `sandbox/tmp` within macOS's 103, else it moves to
+  `/private/tmp`, else the run is `sandbox_unavailable` (Node refuses a longer socket path with EINVAL).
+  The installer and screenshot settings do not get it; Linux has no equivalent
   guarantee and no fallback. `npm run merge-test` exits 2 for any scope that runs the server's tests when
   `PROJECTMAN_SKIP_PTY_TESTS=1` is set (the members' sandbox signal, which `fullTestEnv` never passes), and its
   cloud scope names the two integration files.

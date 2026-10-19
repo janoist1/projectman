@@ -187,33 +187,54 @@ describe('the output of a full test', () => {
 });
 
 describe('the directory of a full test run', () => {
-  // A Unix socket path must stay below macOS's 104 bytes: the sandbox's TMPDIR holds srt's socket and the control
-  // socket tests' (`pm-ctl-XXXXXX/control.sock`), the latter below the resolved path (`/var` gains `/private`).
-  const socketPathOf = (runDir: string) => path.join(runPaths(runDir).tmp, 'pm-ctl-XXXXXX', 'control.sock');
-  const resolvedSocketPathOf = (runDir: string) =>
-    socketPathOf(runDir).replace(/^\/(var|tmp|etc)\//, '/private/$1/');
+  // A Unix socket path must stay below macOS's 104 bytes (Node says EINVAL to a longer one): the sandbox's TMPDIR
+  // holds srt's socket and the sockets of the control socket tests, which bind below the real path of TMPDIR and
+  // of HOME. `runDirOf` takes the real path of the root (the executor resolves it: macOS's `/var` is a link).
+  const longest = (runDir: string) => {
+    const { tmp, home } = runPaths(runDir);
+    return [
+      path.join(tmp, 'srt-mux-9999999-99.sock'),
+      path.join(tmp, 'pm-ctl-XXXXXX', 'control.sock'),
+      path.join(tmp, 'pm-rel-XXXXXX', 'control.sock'),
+      path.join(tmp, 'pm-link-XXXXXX', 'link', 'x.sock'),
+      path.join(home, 'pm-sock-XXXXXX', 'x.sock'),
+    ].map((socket) => Buffer.byteLength(socket, 'utf8'));
+  };
 
   it('is short, under the temporary directory, named by the end of the run id', () => {
     const tmp = '/tmp/projectman';
     const dir = runDirOf(tmp, '/private/tmp', 'ftr_mgabc12345ef01234567');
     expect(dir).toBe(`${tmp}/pmft-01234567`);
-    expect(resolvedSocketPathOf(dir).length).toBeLessThanOrEqual(103);
+    expect(Math.max(...longest(dir))).toBeLessThanOrEqual(103);
   });
 
-  it('moves to the short root when the system temporary directory leaves no room once resolved', () => {
-    // The real `os.tmpdir()` of macOS: `/private` is added when a test resolves it, which made every
-    // socket of the control socket tests fail with EINVAL in the first merge check (PM-754).
-    const system = '/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T';
+  it('moves to the short root when the resolved system temporary directory leaves no room', () => {
+    // The real `os.tmpdir()` of macOS, resolved: every socket of the control socket tests was too long for
+    // Node (EINVAL) in the first merge check (PM-754).
+    const system = '/private/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T';
     const dir = runDirOf(system, '/private/tmp', 'ftr_mgabc12345ef01234567');
     expect(dir).toBe('/private/tmp/pmft-01234567');
-    expect(resolvedSocketPathOf(dir).length).toBeLessThanOrEqual(103);
+    expect(Math.max(...longest(dir))).toBeLessThanOrEqual(103);
   });
 
   it('moves to the short root when the temporary directory is too deep for the socket', () => {
     const deep = `/private/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T/pm-full-test-eusHub/runs`;
     const dir = runDirOf(deep, '/private/tmp', 'ftr_mgabc12345ef01234567');
     expect(dir).toBe('/private/tmp/pmft-01234567');
-    expect(socketPathOf(dir).length).toBeLessThanOrEqual(103);
+    expect(Math.max(...longest(dir))).toBeLessThanOrEqual(103);
+  });
+
+  it('counts bytes, not characters, of a root with multibyte characters', () => {
+    // 23 characters of 2 bytes each: short by characters, too long by bytes.
+    const root = `/tmp/${'é'.repeat(15)}`;
+    expect(runDirOf(root, '/private/tmp', 'ftr_1')).toBe(path.join(root, 'pmft-ftr1'));
+    const wide = `/tmp/${'é'.repeat(18)}`;
+    expect(runDirOf(wide, '/private/tmp', 'ftr_1')).toBe('/private/tmp/pmft-ftr1');
+  });
+
+  it('refuses a short root that leaves no room either', () => {
+    const tooLong = `/private/tmp/${'a'.repeat(60)}`;
+    expect(() => runDirOf(tooLong, tooLong, 'ftr_1')).toThrow(/no run directory/);
   });
 });
 

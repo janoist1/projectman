@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
@@ -172,7 +172,15 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
   /** One run, with the machine's lock held (or without the queue). */
   async function runLocked(spec: FullTestSpec, signal: AbortSignal): Promise<FullTestResult> {
     const started = Date.now();
-    const paths = runPaths(runDirOf(tmpRoot, SHORT_ROOT, spec.runId));
+    let paths: RunPaths;
+    try {
+      // The real path of the root: the control socket tests bind below the resolved path of TMPDIR (macOS's
+      // `/var` is a link to `/private/var`), so the room for a socket path is counted on it (PM-754).
+      paths = runPaths(runDirOf(await realpath(tmpRoot), SHORT_ROOT, spec.runId));
+    } catch (err) {
+      logger.warn({ err, runId: spec.runId }, 'could not choose the full test run directory');
+      return failure('sandbox_unavailable', started);
+    }
     const remaining = () => {
       if (signal.aborted) throw new DependencyPreparationError('', 'killed');
       const ms = spec.timeoutMs - (Date.now() - started);

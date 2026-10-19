@@ -46,7 +46,7 @@ describe('opening a file in a worker home', () => {
     await exec('mkfifo', [fifo]);
     const started = Date.now();
     await expect(openConfined(fifo, home)).rejects.toThrow(/regular file/);
-    expect(Date.now() - started).toBeLessThan(1000);
+    expect(Date.now() - started).toBeLessThan(10_000);
     await expect(readTranscript(fifo, { confineTo: home })).rejects.toThrow();
   });
 

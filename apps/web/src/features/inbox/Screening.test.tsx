@@ -268,7 +268,7 @@ describe('a question that closes while it is open (PM-561)', () => {
     fireEvent.click(
       within(notice as HTMLElement).getByRole('button', { name: t('inbox.closedWhileOpen.dismiss') }),
     );
-    await waitFor(() => expect(cardsWith('inb_todo')).toHaveLength(0), { timeout: 2000 });
+    await waitFor(() => expect(cardsWith('inb_todo')).toHaveLength(0));
   });
 
   it('moves the focus to the title of another card after "Rendben"', async () => {
@@ -289,7 +289,7 @@ describe('a question that closes while it is open (PM-561)', () => {
     fireEvent.click(
       within(notice as HTMLElement).getByRole('button', { name: t('inbox.closedWhileOpen.dismiss') }),
     );
-    await waitFor(() => expect(cardsWith('inb_todo')).toHaveLength(0), { timeout: 2000 });
+    await waitFor(() => expect(cardsWith('inb_todo')).toHaveLength(0));
     await waitFor(() => expect(document.activeElement?.hasAttribute('data-inbox-title')).toBe(true));
     expect(document.activeElement?.closest('article')?.textContent).toContain('Kérdés inb_other');
   });

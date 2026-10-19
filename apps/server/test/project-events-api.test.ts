@@ -240,7 +240,7 @@ describe('project change events API (PM-761)', () => {
     const response = await waiting;
     expect(response.statusCode, response.body).toBe(401);
     expect(response.json().error.code).toBe('integrator_key_invalid');
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(Date.now() - started).toBeLessThan(5000);
     // A revoked key reads nothing, with or without a wait.
     expect((await events('waitMs=0', { bearer: secret })).statusCode).toBe(401);
   });

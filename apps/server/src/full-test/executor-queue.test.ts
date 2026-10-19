@@ -57,7 +57,8 @@ describe('the full test executor in the heavy-run queue', () => {
     expect(Date.now() - waitStarted).toBeGreaterThanOrEqual(600);
     // `started` (the duration, and with it the timeout, 100 ms here) begins when the lock is held.
     expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
-    expect(result.durationMs).toBeLessThan(400);
+    // Independent of the load: the time spent leaves out at least 600 ms of waiting.
+    expect(result.durationMs).toBeLessThanOrEqual(Date.now() - waitStarted - 600);
     expect((await readHeavyQueue(dir)).holder).toBeNull();
   });
 

@@ -61,11 +61,20 @@ export const SRT_DEFAULT_TMP = ['/tmp/claude', '/private/tmp/claude'] as const;
  * - reading: nothing of `spec.sandbox.denyRead`, except `allowRead` and the run's own directory;
  * - writing: only the run's `sandbox` directory (the checkout is read-only; srt's default temporary
  *   directory, which srt would open on its own, is denied);
- * - network: nothing outward, local ports open (decision 24); PTYs allowed (macOS only).
+ * - network: nothing outward, local ports open (decision 24); PTYs allowed (macOS only). Unix sockets may be
+ *   bound and connected only below the run's own `tmp` directory (PM-754: the macOS generator of srt 0.0.78
+ *   makes each `allowUnixSockets` entry a `network-bind` and `network-outbound` subpath rule), so the control
+ *   socket integration tests prove the real socket boundary; no other path and no global socket permission.
  */
 export function srtSettings(spec: SandboxSpec, paths: RunPaths) {
   return {
-    network: { allowedDomains: [] as string[], deniedDomains: [] as string[], allowLocalBinding: true },
+    network: {
+      allowedDomains: [] as string[],
+      deniedDomains: [] as string[],
+      allowLocalBinding: true,
+      allowUnixSockets: [paths.tmp],
+      allowAllUnixSockets: false,
+    },
     filesystem: {
       denyRead: [...new Set(spec.sandbox.denyRead)],
       allowRead: [...new Set([...spec.sandbox.allowRead, paths.sandbox])],

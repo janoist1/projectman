@@ -1,4 +1,14 @@
-import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import net from 'node:net';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -16,11 +26,58 @@ import {
 } from './helpers/control';
 
 // The socket file itself. Named "integration" because the agent sandbox cannot bind a Unix socket, like
-// it cannot open a pseudo-terminal: the config leaves these files out there (PROJECTMAN_SKIP_PTY_TESTS)
-// and the integrating session runs them. The protocol is tested in control.test.ts.
+// it cannot open a pseudo-terminal: the config leaves these files out there (PROJECTMAN_SKIP_PTY_TESTS).
+// The full test sandbox runs them (PM-754): it allows Unix sockets below its own TMPDIR only, which the
+// negative cases below prove. The protocol is tested in control.test.ts.
 
-// The full test sandbox cannot bind these Unix sockets; deployment checks run them outside it.
-describe.skipIf(process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1')('the control socket file', () => {
+const inFullTestSandbox = process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1';
+
+/** The error code of binding a Unix socket at `path` (null when it worked; the socket is closed again). */
+async function bindError(path: string): Promise<string | null> {
+  const server = net.createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(path, resolve);
+    });
+    return null;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code ?? String(error);
+  } finally {
+    if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+// Only inside the full test sandbox: its writable HOME is outside its TMPDIR, so the socket permission is
+// the only thing that decides. Artificial paths of the run itself; nothing else is touched.
+describe.skipIf(!inFullTestSandbox)('the full test sandbox opens Unix sockets for its TMPDIR only', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('refuses to bind a socket below the writable HOME', async () => {
+    const home = realpathSync(mkdtempSync(join(process.env.HOME!, 'pm-sock-')));
+    dirs.push(home);
+    expect(['EPERM', 'EACCES']).toContain(await bindError(join(home, 'x.sock')));
+  });
+
+  it('refuses to bind through a symlink from TMPDIR to such a directory', async () => {
+    const home = realpathSync(mkdtempSync(join(process.env.HOME!, 'pm-sock-')));
+    const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'pm-link-')));
+    dirs.push(home, tmp);
+    symlinkSync(home, join(tmp, 'link'));
+    expect(['EPERM', 'EACCES']).toContain(await bindError(join(tmp, 'link', 'x.sock')));
+  });
+
+  it('binds a socket below TMPDIR', async () => {
+    const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'pm-ok-')));
+    dirs.push(tmp);
+    expect(await bindError(join(tmp, 'x.sock'))).toBeNull();
+  });
+});
+
+describe('the control socket file', () => {
   const dirs: string[] = [];
   const sockets: ControlSocket[] = [];
   let h: AppHarness | undefined;
@@ -44,6 +101,7 @@ describe.skipIf(process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1')('the control s
     const pause = new ScriptedPause();
     pause.current = status([session({ point: 'idle', waitingFor: null })]);
     const { path } = await open(pause);
+    expect(statSync(path).isSocket()).toBe(true);
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(await sendControlRequest(path, { op: 'status' })).toEqual({ ok: true, pause: pause.current });
   });

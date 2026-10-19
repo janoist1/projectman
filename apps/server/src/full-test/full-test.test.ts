@@ -11,7 +11,15 @@ import {
   OUTPUT_TAIL_CHARS,
   stripAnsi,
 } from './output';
-import { closedStdin, fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
+import {
+  closedStdin,
+  fullTestEnv,
+  installerSettings,
+  niceSrtCommand,
+  runDirOf,
+  runPaths,
+  srtSettings,
+} from './sandbox';
 
 describe('the output of a full test', () => {
   it('removes ANSI sequences', () => {
@@ -210,7 +218,14 @@ describe('the sandbox of a full test run', () => {
 
   it('writes only its own sandbox directory, reads the checkout and nothing outward', () => {
     expect(srtSettings(spec, paths)).toEqual({
-      network: { allowedDomains: [], deniedDomains: [], allowLocalBinding: true },
+      network: {
+        allowedDomains: [],
+        deniedDomains: [],
+        allowLocalBinding: true,
+        // PM-754: Unix sockets only below the run's own tmp directory, never globally.
+        allowUnixSockets: ['/tmp/projectman-full-test-ftr_1/sandbox/tmp'],
+        allowAllUnixSockets: false,
+      },
       filesystem: {
         denyRead: ['/Users/anna', '/Users/anna/.ssh'],
         allowRead: ['/work/checkout', '/tmp/projectman-full-test-ftr_1/sandbox'],
@@ -221,6 +236,18 @@ describe('the sandbox of a full test run', () => {
     });
     // The settings file is in the run directory's root: not writable for the command.
     expect(paths.settings).toBe('/tmp/projectman-full-test-ftr_1/settings.json');
+  });
+
+  it('opens Unix sockets for the run’s own tmp directory only, and the installer for none (PM-754)', () => {
+    const network = srtSettings(spec, paths).network;
+    expect(network.allowUnixSockets).toEqual([paths.tmp]);
+    expect(network.allowAllUnixSockets).toBe(false);
+    // Nothing shared: not /tmp, the checkout, the app home or another run.
+    for (const shared of ['/tmp', '/private/tmp', '/work/checkout', '/Users/anna'])
+      expect(network.allowUnixSockets).not.toContain(shared);
+    const installer = installerSettings(spec, paths, ['/work/checkout/node_modules']).network;
+    expect(installer).not.toHaveProperty('allowUnixSockets');
+    expect(installer).not.toHaveProperty('allowAllUnixSockets');
   });
 
   it('takes nothing but an allow list from the server environment', () => {

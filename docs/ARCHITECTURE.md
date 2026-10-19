@@ -3109,6 +3109,16 @@ assumption or remote-engine RPC.
   `workspace_source_missing` (`details.reason: engine_update_required`). **Does this work on a remote
   engine?** Yes: the workspace, the repository and the transfer are all on the engine; only the
   request and the `{path, ref}` answer cross the link.
+  **Design review before stage hand-over (PM-828):** a member with `ux_design` and without
+  `implementation` duties, who is not the assignee, uses a review copy whenever another member
+  has a branch-bearing work binding on the card, in any stage. Planning without such a binding
+  keeps its writable workspace. A developer's action message starts a new round on the current
+  developer tip through the same immutable snapshot transfer, including after a rebase. A manual
+  design-review resume also starts a new round when the developer tip changed. A running
+  planning session is marked for restart too; its current turn finishes before the review starts.
+  Its local branches remain intact. `REVIEW_DUTIES`, stage hand-over pins and the RPC contracts
+  stay unchanged. The design review runs on the engine beside the other member workspaces;
+  no path is read on the hub and no new machine assumption is introduced.
   **A fresh base at every start (PM-740):** a member workspace has no remote, so its default
   branch goes stale unless the server fetches it. `MemberWorkspaces.prepare` calls
   `MemberWorkspaceManager.fetchBase` (RPC `workspace.fetchBase`, unchanged) once per session

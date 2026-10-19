@@ -4,6 +4,8 @@ import {
   isOpenTask,
   isWorkingOnTask,
   roleSessionAccess,
+  memberDuties,
+  memberOf,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
@@ -92,12 +94,14 @@ export class MemberWorkspaces {
   /**
    * How the member works on the task in its workspace: `work` (the task's branch) for a role that
    * changes files, unless it is a reviewer or tester of a later stage who is not the assignee;
-   * `review` for review and testing duties; null for roles that only read, or without a repository.
+   * `review` also for a designer without implementation duties inspecting another member's work;
+   * null for roles that only read, or without a repository.
    */
   kindFor(config: ProjectConfig, member: AiMemberConfig, task: Task): 'work' | 'review' | null {
     if (!effectiveRepo(config, task)) return null;
     const access = roleSessionAccess(config, member.role);
     if (access.worktree) {
+      if (this.isDesignReview(config, member, task)) return 'review';
       const stage = stageOf(config, task.stageId);
       const reviewing =
         access.reviewCopy &&
@@ -108,6 +112,16 @@ export class MemberWorkspaces {
       return reviewing ? 'review' : 'work';
     }
     return access.reviewCopy ? 'review' : null;
+  }
+
+  private isDesignReview(config: ProjectConfig, member: AiMemberConfig, task: Task): boolean {
+    const duties = memberDuties(config, member);
+    return (
+      task.assignee !== member.handle &&
+      duties.includes('ux_design') &&
+      !duties.includes('implementation') &&
+      this.workOf(config.project.key, task.key, member.handle) !== null
+    );
   }
 
   /** Admission: refuses with `workspace_busy` while another task's live session holds the workspace. */
@@ -260,12 +274,22 @@ export class MemberWorkspaces {
     if (session.workItem.type !== 'task' || !this.isWorkspacePath(session.cwd)) return false;
     return this.ctx.repos.memberWorkspaces
       .bindingsOfTask(session.projectKey, session.workItem.taskKey)
-      .some((b) => b.member === session.member && b.kind === 'review' && b.refresh);
+      .some((b) => b.member === session.member && b.refresh);
   }
 
   /** A new review round is due: for every reviewer of the task, or for one member. */
-  requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
+  requestReviewRound(projectKey: string, taskKey: string, member?: string, config?: ProjectConfig): void {
     this.ctx.repos.memberWorkspaces.requestReviewRound(projectKey, taskKey, member);
+    // A designer may still be running in the writable workspace used for planning. Mark it
+    // for a restart too; prepare will move it to a review copy after the current turn finishes.
+    const task = this.ctx.repos.tasks.get(taskKey);
+    if (!config || !task || task.projectKey !== projectKey) return;
+    for (const binding of this.ctx.repos.memberWorkspaces.bindingsOfTask(projectKey, taskKey)) {
+      if (binding.kind !== 'work' || (member && binding.member !== member)) continue;
+      const reviewer = memberOf(config, binding.member);
+      if (reviewer?.kind === 'ai' && this.kindFor(config, reviewer, task) === 'review')
+        this.ctx.repos.memberWorkspaces.saveBinding({ ...binding, refresh: true });
+    }
   }
 
   /**
@@ -449,9 +473,17 @@ export class MemberWorkspaces {
     previous: TaskWorkspaceBinding | null,
     base: FetchedBase,
   ) {
+    const member = memberOf(config, key.member);
+    // Design review can start in the work stage, before any stage hand-over pin exists.
+    // Every actual start inspects the current developer tip, including a manual resume.
+    const designSource =
+      member?.kind === 'ai' && this.isDesignReview(config, member, task)
+        ? await this.reviewSource(config, key, task)
+        : null;
     const sameRound =
       previous?.kind === 'review' &&
       !previous.refresh &&
+      (!designSource || designSource.commit === previous.sourceCommit) &&
       previous.sourcePath !== null &&
       previous.sourceRef !== null &&
       previous.sourceCommit !== null;
@@ -471,10 +503,11 @@ export class MemberWorkspaces {
     } else {
       // A new round: the handed-over branch's commit now, and the default branch fetched for this start.
       // A card with no branch yet (one being worked out) is read on the fetched default branch.
-      const selected = (await this.reviewSource(config, key, task)) ?? {
-        source: { path: record.path, ref: `${BASE_TRACKING_REF_PREFIX}${base.branch}` },
-        commit: base.commit,
-      };
+      const selected = designSource ??
+        (await this.reviewSource(config, key, task)) ?? {
+          source: { path: record.path, ref: `${BASE_TRACKING_REF_PREFIX}${base.branch}` },
+          commit: base.commit,
+        };
       const { source, commit } = selected;
       checkout = await this.manager.checkoutReview(key, source, commit);
       binding = {

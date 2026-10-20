@@ -13,7 +13,7 @@ import { isLoopbackHostname } from '../kernel';
 export interface FeedbackPublicAddress {
   /** `https://jelolo.example.com`, without a trailing slash. */
   origin: string;
-  /** The lowercase `Host` header value of requests to it, with the port when it is not the scheme's default. */
+  /** The lowercase host name of requests to it, without any port (the guard ignores the port in `Host`). */
   host: string;
   /** A loopback address (development): there is no public entrance to guard. */
   loopback: boolean;
@@ -58,9 +58,18 @@ export function isPublicFeedbackPath(rawUrl: string): boolean {
   return WIDGET_PATH.test(queryAt === -1 ? rawUrl : rawUrl.slice(0, queryAt));
 }
 
-/** The `Host` header as the guard compares it: lowercase, and without the root label's dot. */
+/**
+ * The `Host` header as the guard compares it: the host name only, lowercase, without the port and
+ * without the root label's dot. The port is left out on purpose: `Host: name:443` still reaches the
+ * public name (Cloudflare's hostname rule does not look at it), so it must not slip past the guard.
+ * An IPv6 literal keeps its brackets.
+ */
 function hostOf(header: string | undefined): string {
-  return (header ?? '').toLowerCase().replace(/\.(?=:\d+$|$)/, '');
+  const value = (header ?? '').trim().toLowerCase();
+  const name = value.startsWith('[')
+    ? value.slice(0, value.indexOf(']') + 1 || undefined)
+    : value.split(':')[0]!;
+  return name.replace(/\.+$/, '');
 }
 
 /**

@@ -447,7 +447,11 @@ export class MergeTrains {
       .catch((err: unknown) =>
         ctx.logger.warn({ err, trainId: train.id }, 'could not release a merge train checkout'),
       );
-    const blamed: { member: MergeTrainRecord['members'][number]; failure: MergeFailure }[] = [];
+    const blamed: {
+      member: MergeTrainRecord['members'][number];
+      failure: MergeFailure;
+      url?: string;
+    }[] = [];
     const passedAlone: string[] = [];
     for (const member of train.members) {
       if (!(await this.checkpoint(run))) return true;
@@ -526,6 +530,7 @@ export class MergeTrains {
       if (result.outcome === 'failed' && files.length > 0)
         blamed.push({
           member,
+          ...(result.externalUrl ? { url: result.externalUrl } : {}),
           failure: {
             reason: 'check_failed',
             base: train.onto,
@@ -544,10 +549,12 @@ export class MergeTrains {
     }
     if (blamed.length === 0) return false;
     const names = blamed.map(({ member }) => member.taskKey).join(', ');
-    for (const { member, failure } of blamed) {
+    for (const { member, failure, url } of blamed) {
       const row = ctx.repos.taskMerges.get(member.mergeId);
       if (!row || row.state !== 'running' || row.trainId !== train.id) continue;
-      this.steps.save(row, { check: { command, runId: failure.runId, status: 'failed' } });
+      this.steps.save(row, {
+        check: { command, runId: failure.runId, status: 'failed', runner, ...(url ? { url } : {}) },
+      });
       await this.steps.fail(row, config, failure);
     }
     await this.requeue(train, {
@@ -905,7 +912,13 @@ export class MergeTrains {
         if (!(await this.checkpoint(run))) return;
         if (result.outcome === 'error' && result.reason === 'engine_offline')
           throw new EngineLinkLostError('the merge check lost the card engine', true);
-        const check = { command: train.reviewTest.command, runId, status: result.outcome };
+        const check = {
+          command: train.reviewTest.command,
+          runId,
+          status: result.outcome,
+          runner,
+          ...(result.externalUrl ? { url: result.externalUrl } : {}),
+        };
         ctx.unitOfWork(() => {
           this.save(train, { check });
           this.patchMembers(train, { check });

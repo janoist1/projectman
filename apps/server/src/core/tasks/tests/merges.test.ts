@@ -1289,6 +1289,17 @@ describe('member initiated merge', () => {
       ]);
     });
 
+    it('keeps the runner and the run page on the failed merge for the card (PM-918)', async () => {
+      const url = 'https://github.com/acme/web/actions/runs/8';
+      await setup({
+        executor: fakeExecutor({ ...passed, outcome: 'failed', externalUrl: url }),
+        adjust: viaGithub('acme/web'),
+      });
+      await start();
+      await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+      expect(row()?.check).toMatchObject({ status: 'failed', runner: 'github_actions', url });
+    });
+
     it('blocks as check_unavailable when the configuration no longer names the github owner/name', async () => {
       const executor = fakeExecutor();
       await setup({ executor, adjust: viaGithub('acme/web') });

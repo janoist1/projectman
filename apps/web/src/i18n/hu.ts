@@ -2301,6 +2301,13 @@ export const hu = {
           done: 'Előre került: a futó beolvasztás után ez következik.',
         },
       },
+      checkPlace: {
+        label: 'Az ellenőrzés helye: {place}',
+        engine: 'Mac',
+        github_actions: 'GitHub Actions',
+        open: 'A futás megnyitása a GitHubon',
+        openFailed: 'A hiba a GitHub-futásban',
+      },
       running: {
         title: 'Beolvasztás a {base} ágba',
         you: 'Te indítottad.',

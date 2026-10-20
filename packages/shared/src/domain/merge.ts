@@ -34,6 +34,10 @@ export const MergeCheck = z.object({
   status: z.enum(['passed', 'failed', 'error']),
   runId: z.string().optional(),
   reused: z.boolean().optional(),
+  /** Where the check ran (PM-918); absent on older rows and on a reused earlier run. */
+  runner: MergeCheckRunner.optional(),
+  /** The GitHub Actions run page of the check (PM-918); absent on the engine. */
+  url: z.string().optional(),
 });
 export type MergeCheck = z.infer<typeof MergeCheck>;
 export const MergeState = z.enum(['requested', 'queued', 'running', 'failed', 'blocked', 'fixing']);

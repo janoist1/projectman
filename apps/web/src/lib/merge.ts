@@ -1,4 +1,10 @@
-import type { MergeBlockReason, ProjectConfig, Task, TaskMergeState } from '@projectman/shared';
+import type {
+  MergeBlockReason,
+  MergeCheckRunner,
+  ProjectConfig,
+  Task,
+  TaskMergeState,
+} from '@projectman/shared';
 import { cardMerger, effectiveRepo, mergeTargetOf } from '@projectman/shared';
 import { isApiError } from '../api/client';
 import { t, tDynamic } from '../i18n/t';
@@ -34,6 +40,21 @@ export function mergeOnGithub(config: RepoFacts, repo: string): boolean {
 /** The check the merge runs: the repository's review test, else what the merge itself recorded. */
 export function mergeCheckCommand(config: RepoFacts, merge: TaskMergeState): string | null {
   return merge.check?.command ?? mergeRepo(config, merge.repo)?.reviewTest?.command ?? null;
+}
+
+/**
+ * Where the merge's check runs and the page of its run (PM-918): what the merge recorded, else the
+ * repository's configured runner. Null when there is no check or the check reused an earlier run.
+ */
+export function mergeCheckPlace(
+  config: RepoFacts,
+  merge: TaskMergeState,
+): { runner: MergeCheckRunner; url: string | null } | null {
+  if (merge.check?.reused || !mergeCheckCommand(config, merge)) return null;
+  const reviewTest = mergeRepo(config, merge.repo)?.reviewTest;
+  // Only a web address is linked: the run page comes from the engine.
+  const url = merge.check?.url && /^https?:\/\//i.test(merge.check.url) ? merge.check.url : null;
+  return { runner: merge.check?.runner ?? reviewTest?.runner ?? 'engine', url };
 }
 
 /** The viewer is the member asked to merge the card. */

@@ -12,6 +12,8 @@ coverage/
 .data/
 .projectman/
 .demo/
+# the local embedding model of the history search, fetched by `npm run prepare:history-model` (PM-767)
+apps/server/models/history/
 
 # agent worktrees created by Claude Code
 .claude/worktrees/

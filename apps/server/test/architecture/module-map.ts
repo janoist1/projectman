@@ -309,6 +309,13 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     sealed: true,
   },
   {
+    id: 'history-semantic',
+    layer: 'engine',
+    target: 'history-semantic',
+    pass: 'none',
+    sealed: true,
+  },
+  {
     id: 'api',
     layer: 'connector',
     target: 'api',

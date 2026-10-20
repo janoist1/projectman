@@ -108,12 +108,12 @@ describe.skipIf(!ENABLED)('history index at ten times the data', () => {
       now: () => new Date(),
     });
     await service.init();
-    const time = (viewer: HistoryViewer, query: string, rounds = 15) => {
+    const time = async (viewer: HistoryViewer, query: string, rounds = 15) => {
       const times: number[] = [];
       let found = 0;
       for (let i = 0; i < rounds; i++) {
         const begin = performance.now();
-        found = service.search('AR', viewer, { query, limit: 20 }).matches.length;
+        found = (await service.search('AR', viewer, { query, limit: 20 })).matches.length;
         times.push(performance.now() - begin);
       }
       return { median: Math.round(median(times)), max: Math.round(Math.max(...times)), found };
@@ -123,12 +123,12 @@ describe.skipIf(!ENABLED)('history index at ten times the data', () => {
       documents,
       backfillMs: Math.round(backfillMs),
       backfillSteps: steps,
-      selectiveOwner: time(owner, 'topic42'),
-      selectiveClient: time(as('acme'), 'topic42'),
-      commonOwner: time(owner, 'common'),
-      commonClient: time(as('acme'), 'common'),
-      prefixDeveloper: time(as('dev'), 'topi kind3'),
-      twoWords: time(owner, 'card topic7'),
+      selectiveOwner: await time(owner, 'topic42'),
+      selectiveClient: await time(as('acme'), 'topic42'),
+      commonOwner: await time(owner, 'common'),
+      commonClient: await time(as('acme'), 'common'),
+      prefixDeveloper: await time(as('dev'), 'topi kind3'),
+      twoWords: await time(owner, 'card topic7'),
     };
     console.info(`HISTORY TIMING ${JSON.stringify(report)}`);
     await service.stop();

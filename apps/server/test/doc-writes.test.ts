@@ -302,8 +302,8 @@ describe('write_project_docs (PM-495)', () => {
       author: 'operator',
       requestedBy: 'owner',
     });
-    await vi.waitFor(() => {
-      const copy = h.domain.history.search(
+    await vi.waitFor(async () => {
+      const copy = await h.domain.history.search(
         'AR',
         { handle: 'owner', access: 'owner' },
         { query: 'Third', sourceTypes: ['document'] },

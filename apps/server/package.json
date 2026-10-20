@@ -7,6 +7,7 @@
     "dev": "PROJECTMAN_HOME=\"${PROJECTMAN_HOME:-$HOME/.projectman-dev}\" tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "node scripts/build.mjs",
+    "prepare:history-model": "node scripts/prepare-history-model.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --configLoader runner"
   },
@@ -17,6 +18,7 @@
     "@fastify/multipart": "^10.1.2",
     "@fastify/static": "^10.1.5",
     "@fastify/websocket": "^11.3.1",
+    "@huggingface/transformers": "4.3.1",
     "@lydell/node-pty": "^1.2.0-beta.15",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "@node-rs/argon2": "^2.2.1",
@@ -28,6 +30,7 @@
     "effect": "4.0.4",
     "fastify": "^5.12.5",
     "sharp": "^0.35.5",
+    "sqlite-vec": "0.1.9",
     "web-push": "^3.6.7",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"

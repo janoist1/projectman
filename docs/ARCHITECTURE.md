@@ -1769,6 +1769,23 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Local history embeddings (PM-767)** — `apps/server/src/history-semantic/**` (module `history-semantic`, engine
+  layer, sealed), `db/history-semantic.ts` and migration 95, `services/history/service.ts` (the search phases),
+  `apps/server/scripts/prepare-history-model.mjs` with `models/history-model.json` (the pinned model, fetched once
+  and hash-checked at build time, never at run time). The semantic part of `search_history` is a worker thread of
+  the server process: it owns the Xenova/multilingual-e5-small q8 model (`@huggingface/transformers`, ONNX Runtime
+  with one thread) and the `sqlite-vec` extension, and has its own WAL connection of the database file
+  (`openAuxiliaryDatabase`). The vectors are derived data in plain tables (`history_semantic_*`, in the journal's
+  unjournaled list), rebuilt from `history_documents`; the search is an exact brute-force cosine scan, no
+  `vec0` table. **Machine assumptions:** a database file path that a second connection of the same process can open
+  (no `:memory:`); about 350 MiB of native memory beside the heap (2 GB machine target); the model files next to
+  the bundle (`dist/models/history`) with a build that has the native binaries for the platform; no network at
+  run time (`allowRemoteModels=false`). A standby copy never starts it. **Remote engine:** nothing runs on the
+  engine. The history, its index and the search belong to the server/hub that holds the database, so the worker
+  runs there (the cloud image carries the model, `deploy/cloud/Dockerfile`); no embedding, text or vector crosses
+  the server/engine boundary. A failure of the worker, the model or the extension only leaves the word search
+  (statuses in the private search log, never in a tool reply).
+
 - **Web push sender (PM-815, PM-827)** — `apps/server/src/services/web-push`, the
   `contracts/web-push.ts` transport and the personal `web_push_*` tables run on the server/hub.
   The P-256 installation key is atomically created under `PROJECTMAN_HOME/secrets/web-push.json`

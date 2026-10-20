@@ -100,6 +100,30 @@ export const HistoryReference = z.discriminatedUnion('tool', [
 ]);
 export type HistoryReference = z.infer<typeof HistoryReference>;
 
+/** How a hit got on the list (PM-767): by its words, by its meaning, or by both. */
+export const HISTORY_MATCH_TYPES = ['text', 'semantic', 'both'] as const;
+export const HistoryMatchType = z.enum(HISTORY_MATCH_TYPES);
+export type HistoryMatchType = z.infer<typeof HistoryMatchType>;
+
+/**
+ * How the semantic part of one search ended (PM-767), as the private search log keeps it. Never in a tool
+ * reply: `not_run` is a search that did not ask the meaning (or an old record), `used` one that ran, and every
+ * other value is the reason the search answered by its words only.
+ */
+export const HISTORY_SEMANTIC_STATUSES = [
+  'not_run',
+  'used',
+  'disabled',
+  'loading',
+  'backfill',
+  'unavailable',
+  'busy',
+  'timeout',
+  'resource_limit',
+  'error',
+] as const;
+export type HistorySemanticStatus = (typeof HISTORY_SEMANTIC_STATUSES)[number];
+
 /** A hit never carries a relevance score, a count of hidden matches or an index identifier. */
 export const HistoryHit = z.object({
   sourceId: z.string(),
@@ -109,6 +133,8 @@ export const HistoryHit = z.object({
   at: z.string(),
   excerpt: z.string(),
   reference: HistoryReference,
+  /** A reply of an older build has none: it was a text match. The current server always sends it. */
+  matchType: HistoryMatchType.default('text'),
   document: z
     .object({ repo: z.string(), path: HistoryDocPath, commit: z.string(), line: z.number().int().min(1) })
     .optional(),

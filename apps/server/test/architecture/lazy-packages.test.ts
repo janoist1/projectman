@@ -11,6 +11,8 @@ const LAZY_PACKAGES = [
   '@anthropic-ai/sandbox-runtime',
   '@aws-sdk/client-sesv2',
   'sharp',
+  '@huggingface/transformers',
+  'sqlite-vec',
 ];
 
 /** Parse TypeScript without executing it; erased type imports do not load a package. */

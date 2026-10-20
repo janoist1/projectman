@@ -326,6 +326,12 @@ modules:
     summary: A szerver és a motor közötti RPC, szállítás és távoli adapterek.
     paths:
       - apps/server/src/engine-link/
+  - id: history-semantic
+    area: engine
+    name: Előzmény-beágyazás
+    summary: Helyi beágyazó munkaszál az előzmények jelentés szerinti kereséséhez.
+    paths:
+      - apps/server/src/history-semantic/
 
   # Server: connector
   - id: api
@@ -710,5 +716,6 @@ ignore:
   - projectman.structure.yaml
   - apps/server/package.json
   - apps/server/tsconfig.json
+  - apps/server/models/history-model.json
   - apps/server/vitest.config.ts
   - apps/server/src/shutdown.test.ts

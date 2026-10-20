@@ -24,9 +24,9 @@ describe('the private history search statistics through the Operator', () => {
     clock = new Date('2026-10-18T10:00:00.000Z');
     h = await historyHarness({ now: () => clock });
     // Some searches to read statistics about; one of them finds nothing.
-    h.domain.history.search('AR', as('dev-1'), { query: 'zebra stripes' });
+    await h.domain.history.search('AR', as('dev-1'), { query: 'zebra stripes' });
     clock = new Date(clock.getTime() + 1000);
-    h.domain.history.search('AR', as('admin'), { query: 'giraffe necks' });
+    await h.domain.history.search('AR', as('admin'), { query: 'giraffe necks' });
   });
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -259,7 +259,7 @@ describe('the private history search statistics through the Operator', () => {
     it('keeps them out of the history, the diagnostics, the timeline and the bus', async () => {
       const events: unknown[] = [];
       h.domain.bus.subscribe((event) => events.push(event));
-      h.domain.history.search('AR', as('dev-1'), { query: 'platypus beak' });
+      await h.domain.history.search('AR', as('dev-1'), { query: 'platypus beak' });
       await say('owner');
       const stats = await tools().getHistorySearchStats(toolOf('owner'), {});
       expect(JSON.stringify(stats)).toContain('platypus beak');
@@ -269,7 +269,7 @@ describe('the private history search statistics through the Operator', () => {
       const diagnostics = await tools().getOperatorDiagnostics(toolOf('owner'), { taskKey: task.key });
       const timeline = h.repos.db.prepare('SELECT * FROM timeline_events').all();
       const messages = h.repos.db.prepare('SELECT * FROM team_messages').all();
-      const found = h.domain.history.search('AR', OWNER, { query: 'platypus' });
+      const found = await h.domain.history.search('AR', OWNER, { query: 'platypus' });
       const everything = JSON.stringify({ events, diagnostics, timeline, messages, found, log: h.log });
       for (const phrase of ['platypus', 'zebra stripes', 'giraffe necks'])
         expect(everything, phrase).not.toContain(phrase);

@@ -68,8 +68,8 @@ describe('history document copy through the domain', () => {
   it('searches and reads synchronized copies, preserves indexing time, removes missing files and keeps database sources fresh offline', async () => {
     const engine = fakeMerger();
     h = await historyHarness({ merger: engine.merger });
-    await vi.waitFor(() => expect(search().matches).toHaveLength(2));
-    const first = search();
+    await vi.waitFor(async () => expect((await search()).matches).toHaveLength(2));
+    const first = await search();
     for (const hit of first.matches) {
       expect(hit.document).toMatchObject({ repo: 'web', commit: 'a'.repeat(40), line: 3 });
       expect(
@@ -80,7 +80,7 @@ describe('history document copy through the domain', () => {
         }).text,
       ).toMatch(/^Alpaca (decision|lesson)$/);
     }
-    expect(h.domain.history.search('AR', as('acme'), { query: 'alpaca' })).toMatchObject({
+    expect(await h.domain.history.search('AR', as('acme'), { query: 'alpaca' })).toMatchObject({
       matches: [],
       documents: [],
     });
@@ -89,38 +89,38 @@ describe('history document copy through the domain', () => {
     const second = 'b'.repeat(40);
     engine.set(second, '# Decisions\n\nAlpaca decision', '# Lessons\n\nAlpaca lesson');
     publish('branch-commit', second);
-    await vi.waitFor(() => expect(search().documents.every((s) => s.commit === second)).toBe(true));
+    await vi.waitFor(async () =>
+      expect((await search()).documents.every((s) => s.commit === second)).toBe(true),
+    );
     expect(engine.readFile.mock.calls.map(([, input]) => input.at)).toEqual([
       { commit: second },
       { commit: second },
     ]);
-    expect(search().documents.map((s) => s.indexedAt)).toEqual(indexed);
+    expect((await search()).documents.map((s) => s.indexedAt)).toEqual(indexed);
     const third = 'c'.repeat(40);
     engine.set(third, null, '# Lessons\n\nAlpaca lesson');
     publish(third);
-    await vi.waitFor(() => expect(search().matches).toHaveLength(1));
-    expect(search().documents.find((s) => s.path === 'docs/DECISIONS.md')?.status).toBe('missing');
+    await vi.waitFor(async () => expect((await search()).matches).toHaveLength(1));
+    expect((await search()).documents.find((s) => s.path === 'docs/DECISIONS.md')?.status).toBe('missing');
     await h.domain.tasks.create('AR', { title: 'Alpaca database source' }, OWNER_ACTOR);
     engine.setOffline();
     publish('d'.repeat(40));
-    await vi.waitFor(() =>
-      expect(search().documents.find((s) => s.path === 'docs/LESSONS.md')?.status).toBe('stale'),
+    await vi.waitFor(async () =>
+      expect((await search()).documents.find((s) => s.path === 'docs/LESSONS.md')?.status).toBe('stale'),
     );
-    expect(
-      search()
-        .matches.map((m) => m.sourceType)
-        .sort(),
-    ).toEqual(['document', 'task']);
+    expect((await search()).matches.map((m) => m.sourceType).sort()).toEqual(['document', 'task']);
   });
 
   it('retains the last searchable snapshot across an offline restart', async () => {
     const engine = fakeMerger();
     h = await historyHarness({ merger: engine.merger, persistent: true });
-    await vi.waitFor(() => expect(search().matches).toHaveLength(2));
-    const commits = search().documents.map((s) => s.commit);
+    await vi.waitFor(async () => expect((await search()).matches).toHaveLength(2));
+    const commits = (await search()).documents.map((s) => s.commit);
     h = await restartDomainHarness(h, { merger: null });
-    await vi.waitFor(() => expect(search().documents.every((s) => s.status === 'stale')).toBe(true));
-    expect(search().matches).toHaveLength(2);
-    expect(search().documents.map((s) => s.commit)).toEqual(commits);
+    await vi.waitFor(async () =>
+      expect((await search()).documents.every((s) => s.status === 'stale')).toBe(true),
+    );
+    expect((await search()).matches).toHaveLength(2);
+    expect((await search()).documents.map((s) => s.commit)).toEqual(commits);
   });
 });

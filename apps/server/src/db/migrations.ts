@@ -2000,4 +2000,59 @@ migrations.push({
   // PM-888: an `operation` step names the super operation the Operator started on the shared path.
   sql: 'ALTER TABLE operator_steps ADD COLUMN operation_id TEXT NULL;',
 });
+migrations.push({
+  version: 97,
+  name: 'semantic history search',
+  // PM-767: a derived vector index beside the full-text one. Plain tables: the sqlite-vec extension is loaded
+  // only by the embedding worker's own connection, so this migration, the source writes and the full-text search
+  // work without it. A vector is 384 float32 values (1536 bytes) of one chunk of one source's text;
+  // `content_hash` and `index_key` say which text and which model generation it was made from, and a vector of
+  // another text or generation is never a hit. `history_semantic_dirty` is this index's own queue (the full-text
+  // indexer acknowledges `history_dirty`; the two never acknowledge each other's rows).
+  sql: `CREATE TABLE history_semantic_sources (
+      source_id TEXT PRIMARY KEY REFERENCES history_documents(source_id) ON DELETE CASCADE,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      index_key TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      next_char INTEGER NOT NULL DEFAULT 0 CHECK (next_char >= 0),
+      complete INTEGER NOT NULL DEFAULT 0 CHECK (complete IN (0, 1))
+    );
+    CREATE INDEX history_semantic_sources_scan ON history_semantic_sources(project_key, index_key, complete, source_id);
+    CREATE TABLE history_semantic_chunks (
+      id INTEGER PRIMARY KEY,
+      source_id TEXT NOT NULL REFERENCES history_semantic_sources(source_id) ON DELETE CASCADE,
+      chunk_no INTEGER NOT NULL CHECK (chunk_no >= 0),
+      start_char INTEGER NOT NULL CHECK (start_char >= 0),
+      end_char INTEGER NOT NULL CHECK (end_char > start_char),
+      from_line INTEGER NOT NULL CHECK (from_line >= 1),
+      to_line INTEGER NOT NULL CHECK (to_line >= from_line),
+      embedding BLOB NOT NULL CHECK (length(embedding) = 1536),
+      UNIQUE (source_id, chunk_no)
+    );
+    CREATE TABLE history_semantic_dirty (
+      source_id TEXT PRIMARY KEY REFERENCES history_documents(source_id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+      next_attempt_at TEXT
+    );
+    CREATE INDEX history_semantic_dirty_due ON history_semantic_dirty(next_attempt_at, source_id);
+    CREATE TABLE history_semantic_state (
+      project_key TEXT PRIMARY KEY REFERENCES projects(key) ON DELETE CASCADE,
+      index_key TEXT NOT NULL,
+      last_source_id TEXT NOT NULL DEFAULT '',
+      complete INTEGER NOT NULL DEFAULT 0 CHECK (complete IN (0, 1))
+    );
+    CREATE TRIGGER history_semantic_dirty_ai AFTER INSERT ON history_documents BEGIN
+      INSERT INTO history_semantic_dirty (source_id) VALUES (new.source_id)
+      ON CONFLICT (source_id) DO UPDATE SET revision = revision + 1, attempts = 0, next_attempt_at = NULL;
+    END;
+    CREATE TRIGGER history_semantic_dirty_au AFTER UPDATE OF title, body, commit_sha ON history_documents BEGIN
+      INSERT INTO history_semantic_dirty (source_id) VALUES (new.source_id)
+      ON CONFLICT (source_id) DO UPDATE SET revision = revision + 1, attempts = 0, next_attempt_at = NULL;
+    END;
+    ALTER TABLE history_searches ADD COLUMN semantic_status TEXT NOT NULL DEFAULT 'not_run'
+      CHECK (semantic_status IN ('not_run', 'used', 'disabled', 'loading', 'backfill', 'unavailable', 'busy', 'timeout', 'resource_limit', 'error'));
+    ALTER TABLE history_searches ADD COLUMN semantic_duration_ms INTEGER
+      CHECK (semantic_duration_ms IS NULL OR semantic_duration_ms >= 0);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

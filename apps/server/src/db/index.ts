@@ -43,6 +43,17 @@ export type {
   HistoryIndexStateRow,
   HistoryRepository,
 } from './history';
+export { createHistorySemanticRepository, historyContentHash, historyFullText } from './history-semantic';
+export type {
+  HistorySemanticBackfillState,
+  HistorySemanticChunkWrite,
+  HistorySemanticDirtyRow,
+  HistorySemanticDocument,
+  HistorySemanticRepository,
+  HistorySemanticScanQuery,
+  HistorySemanticScanRow,
+  HistorySemanticSourceState,
+} from './history-semantic';
 import { createHistorySearchRepository } from './history-searches';
 export type {
   HistorySearchCursorKey,
@@ -99,7 +110,7 @@ import { createTimelineRepository } from './timeline';
 import { createTokenUsageRepository } from './token-usage';
 import { createAuthSessionRepository, createUserRepository } from './users';
 
-export { openDatabase, migrate, schemaVersion } from './database';
+export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion } from './database';
 export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord, AttachmentState, StoredAttachment } from './attachments';

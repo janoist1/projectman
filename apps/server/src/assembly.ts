@@ -213,6 +213,8 @@ import { ObligationsService } from './services/obligations';
 import { ProviderKeys } from './runtime/usage';
 
 export interface DomainOptions {
+  /** The history's local embedding (PM-767); absent: the history search uses the words only. */
+  historySemantic?: import('./contracts').HistorySemanticPort;
   webPush?: { enabled?: boolean; subject?: string };
   webPushTransport?: PushTransport;
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
@@ -1527,6 +1529,7 @@ export function createDomain(opts: DomainOptions) {
     bus,
     logger: opts.logger.child({ module: 'history' }),
     now,
+    ...(opts.historySemantic ? { semantic: opts.historySemantic } : {}),
   });
   const humanQuestions = new HumanQuestions({
     ctx,
@@ -2353,6 +2356,8 @@ export function createDomain(opts: DomainOptions) {
       // The history index holds every database source before the server reports itself ready (PM-786).
       await history.init();
       await historyDocuments.init();
+      // The embedding starts without being waited for: until it is ready the searches use the words only (PM-767).
+      opts.historySemantic?.start();
       // Super-mode configuration commits whose result a crash lost (PM-757): settled from their commit trailers.
       await projects.settleSuperAudit().catch((error: unknown) => {
         opts.logger.warn({ err: error }, 'settling the super-mode audit failed');
@@ -2598,6 +2603,7 @@ export function createDomain(opts: DomainOptions) {
       await emailLogin?.stop();
       await historyDocumentsStopped;
       await history.stop();
+      await opts.historySemantic?.stop();
       await Promise.all([sweepsStopped, background.stop()]);
       await delivery.close();
       pauses.dispose();

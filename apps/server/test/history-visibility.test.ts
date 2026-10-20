@@ -62,8 +62,8 @@ describe('history search and read visibility', () => {
     return item;
   }
 
-  const tagsOf = (viewer: HistoryViewer) =>
-    h.domain.history.search('AR', viewer, { query: 'zebra', limit: 50 }).matches.map(keyOf).sort();
+  const tagsOf = async (viewer: HistoryViewer) =>
+    (await h.domain.history.search('AR', viewer, { query: 'zebra', limit: 50 })).matches.map(keyOf).sort();
 
   beforeEach(async () => {
     h = await historyHarness();
@@ -104,8 +104,8 @@ describe('history search and read visibility', () => {
     });
     h.domain.history.flush();
     ids = {};
-    for (const match of h.domain.history.search('AR', OWNER, { query: 'zebra', limit: 50 }).matches)
-      ids[keyOf(match)] = match.sourceId;
+    const everyMatch = await h.domain.history.search('AR', OWNER, { query: 'zebra', limit: 50 });
+    for (const match of everyMatch.matches) ids[keyOf(match)] = match.sourceId;
   });
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -159,8 +159,8 @@ describe('history search and read visibility', () => {
     expect(Object.keys(ids)).not.toContain('tagq3');
   });
 
-  it.each(matrix)('searches exactly what %s may read', (handle, expected) => {
-    expect(tagsOf(as(handle))).toEqual([...expected].sort());
+  it.each(matrix)('searches exactly what %s may read', async (handle, expected) => {
+    expect(await tagsOf(as(handle))).toEqual([...expected].sort());
   });
 
   it.each(matrix)(
@@ -177,26 +177,28 @@ describe('history search and read visibility', () => {
     },
   );
 
-  it('hides the Operator knowledge approval and its copy from the integrator, even for the owner', () => {
+  it('hides the Operator knowledge approval and its copy from the integrator, even for the owner', async () => {
     const via: HistoryViewer = { ...OWNER, via: 'integrator' };
     const hidden = ['tagq4', 'tagq4-answer', 'tagm9'];
-    expect(tagsOf(via)).toEqual(everything.filter((tag) => !hidden.includes(tag)).sort());
+    expect(await tagsOf(via)).toEqual(everything.filter((tag) => !hidden.includes(tag)).sort());
     expect(() => h.domain.history.read('AR', via, { sourceId: ids.tagq4! })).toThrowError(
       expect.objectContaining({ status: 404 }),
     );
   });
 
-  it('takes the access from the current roster, not from the caller', () => {
+  it('takes the access from the current roster, not from the caller', async () => {
     const claimed: HistoryViewer = { handle: 'acme', access: 'owner' };
-    expect(tagsOf(claimed)).toEqual(['tagm2', 'tagm6', 'tagq2', 'tagt2']);
+    expect(await tagsOf(claimed)).toEqual(['tagm2', 'tagm6', 'tagq2', 'tagt2']);
   });
 
   it('refuses a non-member, a removed member and another project the same way', async () => {
     const refused = expect.objectContaining({ status: 403, code: 'insufficient_access' });
-    expect(() => h.domain.history.search('AR', as('stranger'), { query: 'zebra' })).toThrowError(refused);
+    await expect(h.domain.history.search('AR', as('stranger'), { query: 'zebra' })).rejects.toThrowError(
+      refused,
+    );
     expect(() => h.domain.history.read('AR', as('stranger'), { sourceId: ids.tagt2! })).toThrowError(refused);
-    expect(() => h.domain.history.search('NOPE', OWNER, { query: 'zebra' })).toThrowError(refused);
-    expect(tagsOf(as('beta'))).toEqual(['tagt2']);
+    await expect(h.domain.history.search('NOPE', OWNER, { query: 'zebra' })).rejects.toThrowError(refused);
+    expect(await tagsOf(as('beta'))).toEqual(['tagt2']);
     await h.domain.projects.update(
       'AR',
       { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
@@ -205,20 +207,20 @@ describe('history search and read visibility', () => {
         return 'Remove a fictional member';
       },
     );
-    expect(() => h.domain.history.search('AR', as('beta'), { query: 'zebra' })).toThrowError(refused);
+    await expect(h.domain.history.search('AR', as('beta'), { query: 'zebra' })).rejects.toThrowError(refused);
     expect(() => h.domain.history.read('AR', as('beta'), { sourceId: ids.tagt2! })).toThrowError(refused);
   });
 
   it('follows a change of the card visibility on the very next call, without any reindexing', async () => {
-    expect(tagsOf(as('acme'))).toContain('tagt2');
+    expect(await tagsOf(as('acme'))).toContain('tagt2');
     await h.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
     // Nothing is flushed here: the access is decided from the card as it is now.
-    expect(tagsOf(as('acme'))).toEqual(['tagm2']);
+    expect(await tagsOf(as('acme'))).toEqual(['tagm2']);
     expect(() => h.domain.history.read('AR', as('acme'), { sourceId: ids.tagt2! })).toThrowError(
       expect.objectContaining({ status: 404 }),
     );
     await h.domain.tasks.update('AR', 'AR-1', { visibility: 'shared' }, OWNER_ACTOR);
-    expect(tagsOf(as('acme'))).toEqual(['tagm2', 'tagm5', 'tagt1']);
+    expect(await tagsOf(as('acme'))).toEqual(['tagm2', 'tagm5', 'tagt1']);
   });
 
   it('shows a client a grouped question as its original, never the combined one', async () => {
@@ -231,18 +233,18 @@ describe('history search and read visibility', () => {
       },
     });
     h.domain.history.flush();
-    const found = h.domain.history.search('AR', as('acme'), { query: 'combined' });
+    const found = await h.domain.history.search('AR', as('acme'), { query: 'combined' });
     expect(found.matches).toEqual([]);
-    const own = h.domain.history.search('AR', as('acme'), { query: 'original' });
+    const own = await h.domain.history.search('AR', as('acme'), { query: 'original' });
     expect(own.matches).toHaveLength(1);
     const read = h.domain.history.read('AR', as('acme'), { sourceId: own.matches[0]!.sourceId });
     expect(read.text).not.toContain('combined');
     expect(group.id).toBeTruthy();
   });
 
-  it('keeps a hit out of a viewer who is not allowed to read it, however much better it ranks', () => {
+  it('keeps a hit out of a viewer who is not allowed to read it, however much better it ranks', async () => {
     // The client searching for a word of an internal card gets nothing, not an empty "hidden" marker.
-    const result = h.domain.history.search('AR', as('acme'), { query: 'tagt1' });
+    const result = await h.domain.history.search('AR', as('acme'), { query: 'tagt1' });
     expect(result).toEqual({ projectKey: 'AR', matches: [], hasMore: false, documents: [] });
   });
 });

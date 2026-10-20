@@ -13,6 +13,7 @@ import type {
   EngineDirectory,
   BranchMerger,
   FullTestExecutor,
+  HistorySemanticPort,
   ScreenshotExecutor,
   MemberWorkspaceManager,
 } from '../../src/contracts';
@@ -124,6 +125,8 @@ export async function createDomainHarness(
     /** The free disk bytes (PM-243); absent: not measured, so no start is refused for disk space. */
     freeDiskBytes?: () => Promise<number | null>;
     heavyRunSessions?: () => Promise<string[]>;
+    /** The history's embedding (PM-767), usually a fake port; absent, the history search uses the words only. */
+    historySemantic?: HistorySemanticPort;
     /** How long a closed card's worktree stays (default 3 days). */
     closedWorktreeKeepMs?: number;
     /** The server's full test before review (PM-217); absent, the feature is off. */
@@ -226,6 +229,7 @@ export async function createDomainHarness(
   const runningVersion = { value: opts.appVersion ?? 'dev' };
   const auth = new AuthService({ repos, now: opts.now });
   const domain: Domain = createDomain({
+    ...(opts.historySemantic ? { historySemantic: opts.historySemantic } : {}),
     integratorCredentials: auth,
     operatorGrants: auth.operatorGrantGate,
     ...(opts.engines

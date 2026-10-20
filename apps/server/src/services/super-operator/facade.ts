@@ -6,7 +6,12 @@ import type {
   SuperOperateRequest,
   SuperOperationDetail,
 } from '@projectman/shared';
-import type { AdministrationPort, AdministrationStatus, DiagnosticLogEntry } from '../../contracts';
+import type {
+  AdministrationPort,
+  AdministrationStatus,
+  DiagnosticLogEntry,
+  OperatorGrantGate,
+} from '../../contracts';
 import type { ProjectAccess } from '../../core/members';
 import { DomainError, forbidden, unavailable } from '../../kernel';
 import type { SuperHandoffService } from './handoffs';
@@ -38,6 +43,8 @@ export function createSuperAdministration(deps: {
   handoffs: SuperHandoffService;
   /** Null: this instance has no administration adapter; the reads that need it are `administration_unavailable`. */
   administration: AdministrationPort | null;
+  /** The owner's grant for machine operations: the status and log reads need it (PM-881). */
+  grants: OperatorGrantGate;
   diagnostics: SuperDiagnostics;
   engineLinked(projectKey: string, engineId: EngineId): boolean;
 }): SuperAdministration {
@@ -53,10 +60,14 @@ export function createSuperAdministration(deps: {
   };
   return {
     async status(projectKey, target) {
-      return bind(projectKey, target).status(target);
+      const port = bind(projectKey, target);
+      deps.grants.assertActive();
+      return port.status(target);
     },
     async logs(projectKey, target, limit) {
-      return bind(projectKey, target).logs(target, { limit });
+      const port = bind(projectKey, target);
+      deps.grants.assertActive();
+      return port.logs(target, { limit });
     },
     operate: (projectKey, input, access) => deps.handoffs.operate(projectKey, input, access),
     async operation(projectKey, operationId) {

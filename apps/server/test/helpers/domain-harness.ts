@@ -227,6 +227,7 @@ export async function createDomainHarness(
   const auth = new AuthService({ repos, now: opts.now });
   const domain: Domain = createDomain({
     integratorCredentials: auth,
+    operatorGrants: auth.operatorGrantGate,
     ...(opts.engines
       ? { engines: opts.engines }
       : opts.merger !== undefined

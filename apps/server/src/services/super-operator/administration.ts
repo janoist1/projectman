@@ -1,6 +1,11 @@
 import { memberOf } from '@projectman/shared';
 import type { EngineId, Release, SuperCommand, Task } from '@projectman/shared';
-import type { AdministrationJob, AdministrationPort, AdministrationResult } from '../../contracts';
+import type {
+  AdministrationJob,
+  AdministrationPort,
+  AdministrationResult,
+  OperatorGrantGate,
+} from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import type { TimelineService } from '../../core/timeline';
@@ -13,6 +18,8 @@ type AdministrationRequest = Extract<SuperCommand, { kind: 'administration' }>['
 /** What the hub executor needs besides the administration port; the composition supplies each one. */
 export interface SuperAdministrationDeps {
   ctx: DomainContext;
+  /** The owner's grant for machine operations; checked before every submit. */
+  grants: OperatorGrantGate;
   administration: AdministrationPort;
   rights: SuperRights;
   projects: Pick<ProjectService, 'config'>;
@@ -55,6 +62,9 @@ export function createAdministrationExecutor(deps: SuperAdministrationDeps): Sup
         'only the integrator in super mode runs an administration job',
       );
     const projectKey = operation.projectKey;
+    // The owner's switch: no grant, no machine operation, however valid the key is (PM-881). The executor runs on
+    // every start and on the continuation after the owner's yes, so both stop at once when the grant is gone.
+    deps.grants.assertActive();
     await authorize(deps, scope.principal, projectKey, operation.taskKey, request);
     try {
       await deps.administration.submit({

@@ -348,6 +348,7 @@ describe('history index', () => {
         'history_searches',
         'operator_signal_arms',
         'obligations',
+        'operator_grants',
         'merge_check_run_tasks',
         'merge_check_runs',
       ])

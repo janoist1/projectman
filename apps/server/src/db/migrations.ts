@@ -1,4 +1,9 @@
-import { V83_CHANGE_TRIGGER_TABLES, changeTriggerSql, changeTriggersSql } from './change-triggers';
+import {
+  V83_CHANGE_TRIGGER_TABLES,
+  V92_CHANGE_TRIGGER_TABLES,
+  changeTriggerSql,
+  changeTriggersSql,
+} from './change-triggers';
 import { PENDING_MESSAGE_RECIPIENTS } from './message-pending';
 
 /**
@@ -1905,5 +1910,38 @@ migrations.push({
     CREATE INDEX task_loops_task_key ON task_loops(task_key, ended_at);
     CREATE INDEX timeline_project_type ON timeline_events(project_key, type, seq);
     CREATE INDEX sessions_state ON sessions(state);`,
+});
+migrations.push({
+  version: 92,
+  name: 'merge check runs',
+  // PM-876: every merge check (a card's merge, a train's group check, a member's diagnosis) with the time and
+  // worker count the hub passed and the step measurements the engine reported (`report_json`, null: unknown).
+  // The task rows hold the cards of a run in train order and are written in the run's transaction.
+  sql: `CREATE TABLE merge_check_runs (
+      id           TEXT PRIMARY KEY,
+      project_key  TEXT NOT NULL REFERENCES projects(key),
+      repo         TEXT NOT NULL,
+      kind         TEXT NOT NULL CHECK (kind IN ('merge','train','diagnose')),
+      train_id     TEXT,
+      commit_sha   TEXT NOT NULL,
+      base         TEXT,
+      status       TEXT NOT NULL CHECK (status IN ('running','passed','failed','error','cancelled')),
+      reason       TEXT,
+      max_workers  INTEGER NOT NULL,
+      requested_at TEXT NOT NULL,
+      started_at   TEXT,
+      finished_at  TEXT,
+      duration_ms  INTEGER,
+      report_json  TEXT
+    );
+    CREATE INDEX merge_check_runs_project ON merge_check_runs(project_key, requested_at);
+    CREATE TABLE merge_check_run_tasks (
+      run_id   TEXT NOT NULL REFERENCES merge_check_runs(id) ON DELETE CASCADE,
+      task_key TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      PRIMARY KEY (run_id, task_key)
+    );
+    CREATE INDEX merge_check_run_tasks_task ON merge_check_run_tasks(task_key);
+    ${V92_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

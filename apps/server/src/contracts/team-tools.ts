@@ -16,6 +16,8 @@ import type {
   HistorySourceRead,
   HistoryStatsInput,
   MemberHandle,
+  MergeCheckRun,
+  MergeCheckRunKind,
   OperatorDiagnostics,
   MessageAttachmentRef,
   MessageKind,
@@ -247,6 +249,8 @@ export interface TaskToolDetail extends TaskDetail {
   cardWorkers?: CardWorker[];
   /** The card's questions (PM-249), as the brief lists them (`QUESTION_LIMIT`). */
   cardQuestions?: CardQuestion[];
+  /** The card's latest merge checks, newest first (PM-876); absent when it has none. */
+  mergeChecks?: MergeCheckRun[];
 }
 
 /** A page of a task's readable attachments, oldest first. */
@@ -522,6 +526,29 @@ export interface MergeToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; reason: string },
   ): Promise<{ task: Task; moved: boolean }>;
+  /**
+   * list_merge_checks (PM-876): the project's recorded merge checks, newest first, with the time, workers and
+   * step timings the engine measured. Only the runs whose cards the caller may see.
+   */
+  listMergeChecks(ctx: ToolContext, args: ListMergeChecksInput): Promise<MergeCheckList>;
+}
+
+/** The arguments of list_merge_checks; the defaults (any outcome, merges and trains, 30 runs) are the tool's. */
+export interface ListMergeChecksInput {
+  taskKey?: string;
+  outcome?: 'passed' | 'not_passed' | 'any';
+  /** `checks` is the merge and the train check; `diagnose` is the train's per-card diagnosis. */
+  kind?: MergeCheckRunKind | 'checks' | 'any';
+  /** ISO 8601 with a time zone: the runs requested from `since` (inclusive) up to `until` (exclusive). */
+  since?: string;
+  until?: string;
+  limit?: number;
+}
+
+export interface MergeCheckList {
+  runs: MergeCheckRun[];
+  /** More runs match than `runs` holds: ask again with `until` set to the oldest `requestedAt`. */
+  hasMore: boolean;
 }
 
 /** The tools of services/feedback (PM-608). */

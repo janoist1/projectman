@@ -19,8 +19,10 @@ import type {
   ProjectDocToolsHandler,
   HistoryToolsHandler,
   AttachmentPage,
+  ListMergeChecksInput,
   ListTasksInput,
   LocatedAttachmentForTool,
+  MergeCheckList,
   MessageAttachmentReading,
   ProposedRelease,
   ReleaseCheckResult,
@@ -309,6 +311,10 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; reason: string },
   ): Promise<{ task: Task; moved: boolean }> {
     return this.tools.merges.prioritizeMerge(ctx, args);
+  }
+
+  async listMergeChecks(ctx: ToolContext, args: ListMergeChecksInput): Promise<MergeCheckList> {
+    return this.tools.merges.listMergeChecks(ctx, args);
   }
 
   async proposeRelease(

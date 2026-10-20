@@ -19,18 +19,33 @@ const ok = (output = ''): StepRun => ({ code: 0, signaled: false, output });
 const bad = (output: string, code = 1): StepRun => ({ code, signaled: false, output });
 const failLines = (...files: string[]) => files.map((file) => ` FAIL  ${file} > suite > test`).join('\n');
 
-function setup(runs: StepRun[], changed: ReadonlySet<string> | null = new Set()) {
+function setup(runs: StepRun[], changed: ReadonlySet<string> | null = new Set(), now?: () => number) {
   const queue = [...runs];
   const spawn = vi.fn(async (_args: string[]): Promise<StepRun> => queue.shift() ?? ok());
   const lines: string[] = [];
   const run = (steps: MergeTestStep[]) =>
-    runSteps(steps, { spawn, changed, tree: 'candidate-tree', log: (line) => lines.push(line) });
+    runSteps(steps, { spawn, changed, tree: 'candidate-tree', now, log: (line) => lines.push(line) });
   return { spawn, lines, run, calls: () => spawn.mock.calls.map(([args]) => args) };
 }
+
+/** A clock that reads the given instants in order. */
+const clockOf = (instants: number[]) => {
+  const queue = [...instants];
+  return () => queue.shift() ?? 0;
+};
 
 const server = testStep('apps/server');
 const markers = (lines: string[]) =>
   lines.filter((line) => line.startsWith('merge-test failed') || line.startsWith('merge-test flaky'));
+const TIMING = 'merge-test timing: ';
+const withoutTimings = (lines: string[]) => lines.filter((line) => !line.startsWith(TIMING));
+/** The step timings the run printed, each once (the run prints them again at its end). */
+const timings = (lines: string[]) => {
+  const all = lines
+    .filter((line) => line.startsWith(TIMING))
+    .map((line) => JSON.parse(line.slice(TIMING.length)));
+  return all.slice(0, all.length / 2);
+};
 
 describe('the full run steps', () => {
   it('splits the workspaces: every type check, then every test', () => {
@@ -63,7 +78,61 @@ describe('runSteps', () => {
     const keys = [typecheckStep('apps/server'), server].map(
       (step) => `merge-test step passed: ${mergeTestStepKey('candidate-tree', step.args)}`,
     );
-    expect(t.lines).toEqual([...keys, ...keys]);
+    expect(withoutTimings(t.lines)).toEqual([...keys, ...keys]);
+  });
+
+  it('times each step: passed, cached (not a zero), failed, and a rerun with its own time', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'merge-test-timing-'));
+    try {
+      const cachedStep = typecheckStep('apps/web');
+      const cachedKey = mergeTestStepKey('candidate-tree', cachedStep.args);
+      const passedKeysFile = resolve(dir, 'passed.txt');
+      writeFileSync(passedKeysFile, `${cachedKey}\n`);
+      const lines: string[] = [];
+      const queue = [ok(), bad(failLines('test/a.test.ts')), ok()];
+      const spawn = vi.fn(async (): Promise<StepRun> => queue.shift() ?? ok());
+      const code = await runSteps([typecheckStep('apps/server'), cachedStep, server], {
+        spawn,
+        changed: new Set(),
+        tree: 'candidate-tree',
+        passedKeysFile,
+        now: clockOf([0, 41_200, 41_200, 300_000, 300_000, 312_000]),
+        log: (line) => lines.push(line),
+      });
+      expect(code).toBe(0);
+      expect(timings(lines)).toEqual([
+        { index: 0, kind: 'typecheck', workspace: 'apps/server', result: 'passed', durationMs: 41_200 },
+        { index: 1, kind: 'typecheck', workspace: 'apps/web', result: 'cached', durationMs: null },
+        {
+          index: 2,
+          kind: 'test',
+          workspace: 'apps/server',
+          result: 'rerun_passed',
+          durationMs: 258_800,
+          rerunMs: 12_000,
+        },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('times a failed step and the steps before it, and a failed rerun', async () => {
+    const stops = setup([ok(), bad('boom')], new Set(), clockOf([0, 1000, 1000, 2500]));
+    expect(await stops.run([typecheckStep('apps/server'), typecheckStep('apps/web')])).toBe(1);
+    expect(timings(stops.lines).map((step) => [step.result, step.durationMs])).toEqual([
+      ['passed', 1000],
+      ['failed', 1500],
+    ]);
+    const rerun = setup(
+      [bad(failLines('test/a.test.ts')), bad(failLines('test/a.test.ts'))],
+      new Set(),
+      clockOf([0, 5000, 5000, 7000]),
+    );
+    expect(await rerun.run([server])).toBe(1);
+    expect(timings(rerun.lines)).toEqual([
+      expect.objectContaining({ result: 'rerun_failed', durationMs: 5000, rerunMs: 2000 }),
+    ]);
   });
 
   it('reruns the failed files once; a green rerun makes the step green and the files flaky', async () => {

@@ -1645,7 +1645,11 @@ workers follow the machine's size.
   run's 600 s target. Compare sandbox capabilities and exclusions as well as worker
   count before comparing timings. Successful checks currently retain flaky markers
   only (`full-test/output.ts`, `passedOutputTail`), so historical failure notes are
-  not a representative sample of twenty successful merges. At this cutoff, only
+  not a representative sample of twenty successful merges. The complete check duration
+  is stored in `full_test_runs.duration_ms`, linked by the merge's `check.runId`, but
+  no member API/MCP or operator diagnostic exposes it; per-step timings and the run's
+  worker count are not retained. Requested-to-merged timeline intervals include queue
+  time and provide only an upper bound. At this cutoff, only
   the final prerequisite merge includes all five optimizations. The last explicit
   worker-setting record is the owner's PM-798 answer (2026-10-19 11:38 UTC):
   `reviewTest.maxWorkers` was reduced to two. Historical merge timings without a

@@ -730,8 +730,8 @@ export class MemberProfiles {
       config.pipeline.stages.filter((s) => stageApprovers(config, s).includes(handle)).map((s) => s.id),
     );
     const openInbox = this.inbox
-      .list(projectKey)
-      .filter((i) => i.state === 'open' && i.assignees.includes(handle));
+      .list(projectKey, { state: 'open' })
+      .filter((i) => i.assignees.includes(handle));
     const awaitingKeys = new Set(openInbox.map((i) => i.taskKey));
     const visibleTasks = visibleTasksOf(viewer, this.tasks.list(projectKey));
     const capacityHolders =

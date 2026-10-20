@@ -27,6 +27,7 @@ export interface InboxFilter {
   state?: InboxState | readonly InboxState[];
   kind?: InboxKind;
   taskKey?: string;
+  /** The newest N matching items (still returned oldest first). Without it nothing is cut off. */
   limit?: number;
 }
 
@@ -260,10 +261,12 @@ export function createInboxRepository(db: Db) {
           ? [filter.state]
           : [...filter.state]
         : [];
+      const limited = filter.limit !== undefined;
       const signature = [
         states.length > 0 && `state${states.length}`,
         filter.kind && 'kind',
         filter.taskKey && 'task',
+        limited && 'limit',
       ].join(',');
       let statement = lists.get(signature);
       if (!statement) {
@@ -271,16 +274,18 @@ export function createInboxRepository(db: Db) {
         if (states.length > 0) sql += ` AND state IN (${states.map((_, i) => `@state${i}`).join(', ')})`;
         if (filter.kind) sql += ' AND kind = @kind';
         if (filter.taskKey) sql += ' AND task_key = @taskKey';
-        statement = db.prepare(`${sql} ORDER BY seq DESC LIMIT @limit`);
+        statement = db.prepare(`${sql} ORDER BY seq ${limited ? 'DESC LIMIT @limit' : 'ASC'}`);
         lists.set(signature, statement);
       }
-      const params: Record<string, string | number> = { projectKey, limit: filter.limit ?? 500 };
+      const params: Record<string, string | number> = { projectKey };
+      if (limited) params.limit = filter.limit as number;
       states.forEach((state, i) => {
         params[`state${i}`] = state;
       });
       if (filter.kind) params.kind = filter.kind;
       if (filter.taskKey) params.taskKey = filter.taskKey;
-      return (statement.all(params) as InboxRow[]).reverse().map(toItem);
+      const rows = statement.all(params) as InboxRow[];
+      return (limited ? rows.reverse() : rows).map(toItem);
     },
     /**
      * Questions answered after `after` and by no rule (PM-496), the earliest answer first. Unless

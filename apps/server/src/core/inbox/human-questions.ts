@@ -296,7 +296,7 @@ export class HumanQuestions implements HumanQuestionsPort {
     if (outcome !== 'answered' && outcome !== 'forwarded' && outcome !== 'moot')
       throw refuse('reask_not_allowed: the Operator did not answer, forward or close that question.');
     const asked = this.inbox
-      .list(projectKey, { kind: 'question', limit: 100_000 })
+      .list(projectKey, { kind: 'question' })
       .some((item) => questionPayloadOf(item)?.unscreened?.previousItemId === reaskOf);
     if (asked) throw refuse('reask_not_allowed: that question was already asked again.');
     return { reason, previousItemId: reaskOf };

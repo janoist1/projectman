@@ -158,6 +158,20 @@ describe('createGithubActionsClient', () => {
     await expect(actions.jobLog(REPO, 11, new AbortController().signal)).resolves.toBe(
       '2026-10-20T10:00:00Z hello\n',
     );
+    const [call] = await fake.calls();
+    expect(call?.argv).toContain('--allow-escape-sequences');
+  });
+
+  it('asks for the job log again without the escape flag when an older gh does not know it', async () => {
+    const actions = await client({
+      [`GET repos/${REPO}/actions/jobs/11/logs`]: [
+        { stderr: 'unknown flag: --allow-escape-sequences', exitCode: 1 },
+        { stdout: 'plain log\n' },
+      ],
+    });
+    await expect(actions.jobLog(REPO, 11, new AbortController().signal)).resolves.toBe('plain log\n');
+    const calls = await fake.calls();
+    expect(calls.map((call) => call.argv.includes('--allow-escape-sequences'))).toEqual([true, false]);
   });
 
   it('refuses an answer that is not the documented JSON', async () => {

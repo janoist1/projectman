@@ -123,14 +123,15 @@ export function testStep(workspace: string, files?: readonly string[], ifPresent
 /**
  * The steps one shard runs: the type checks are dealt round-robin by their order among the type checks,
  * and every test step runs on every shard with vitest's own `--shard` (a shard may hold no file of a
- * workspace, which `--passWithNoTests` allows). Each step keeps its place in the whole list.
+ * workspace, which `--passWithNoTests` allows: every workspace's `test` script carries that flag itself,
+ * and vitest refuses it twice). Each step keeps its place in the whole list.
  */
 export function shardSteps(steps: readonly MergeTestStep[], shard: MergeTestShard): MergeTestStep[] {
   let typechecks = 0;
   return steps.flatMap((step, index) => {
     if (step.kind === 'typecheck')
       return typechecks++ % shard.count === shard.index - 1 ? [{ ...step, index }] : [];
-    const flags = [`--shard=${shard.index}/${shard.count}`, '--passWithNoTests'];
+    const flags = [`--shard=${shard.index}/${shard.count}`];
     return [{ ...step, index, args: [...step.args, ...(step.args.includes('--') ? [] : ['--']), ...flags] }];
   });
 }

@@ -110,6 +110,7 @@ function assertId(id: number, what: string): void {
 
 /** gh answers cancelling a finished run with HTTP 409. */
 const ALREADY_COMPLETED = /HTTP 409/;
+const UNKNOWN_ESCAPE_FLAG = /unknown flag:?\s+--allow-escape-sequences/i;
 
 /**
  * GitHub Actions through `gh api` (PM-900): the machine's own `gh` login, started without a shell with
@@ -174,7 +175,17 @@ export function createGithubActionsClient(
     async jobLog(repo, jobId, signal) {
       assertTarget(repo);
       assertId(jobId, 'job');
-      return run(['api', `repos/${repo}/actions/jobs/${jobId}/logs`], { signal });
+      const endpoint = `repos/${repo}/actions/jobs/${jobId}/logs`;
+      // A newer gh refuses a response with terminal escape sequences (a job log has colours) unless told
+      // to allow them; an older gh does not know the flag, so it is retried without.
+      try {
+        return await run(['api', '--allow-escape-sequences', endpoint], { signal });
+      } catch (err) {
+        if (err instanceof GithubError && UNKNOWN_ESCAPE_FLAG.test(`${err.message}\n${err.stderr}`)) {
+          return run(['api', endpoint], { signal });
+        }
+        throw err;
+      }
     },
 
     async cancelRun(repo, runId, signal) {

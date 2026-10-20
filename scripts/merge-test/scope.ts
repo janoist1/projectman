@@ -43,17 +43,17 @@ export function mergeTestScope(changed: readonly string[]): MergeTestScope {
   for (const file of files) {
     if (
       (file.startsWith('packages/') && !file.startsWith('packages/shared/')) ||
-      file.startsWith('scripts/') ||
+      file.startsWith('scripts/merge-test/') ||
+      file.startsWith('scripts/full-test/') ||
+      (file.startsWith('scripts/') && !/\.[cm]?[jt]sx?$/.test(file)) ||
       file.startsWith('apps/server/test/architecture/') ||
-      file.startsWith('apps/server/src/contracts/') ||
-      file.startsWith('apps/server/src/config/') ||
       isFullRunConfig(file)
     )
       return { kind: 'all', reason: file };
     if (file.startsWith('packages/shared/')) {
       workspaces.add('packages/shared');
       if (file.startsWith('packages/shared/src/')) sharedChanged.push(file);
-    } else if (file.startsWith('apps/server/')) workspaces.add('apps/server');
+    } else if (file.startsWith('apps/server/') || file.startsWith('scripts/')) workspaces.add('apps/server');
     else if (file.startsWith('apps/web/')) workspaces.add('apps/web');
     else return { kind: 'all', reason: file };
   }

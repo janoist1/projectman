@@ -15,15 +15,16 @@ describe('merge test scope', () => {
     'apps/feedback-widget/src/a.ts',
     'packages/shared/package.json',
     'packages/shared/src/vitest.config.ts',
-    'scripts/a.ts',
+    'scripts/a.sh',
+    'scripts/readme.md',
+    'scripts/merge-test/impact.ts',
+    'scripts/full-test/cli.ts',
     'package-lock.json',
     'unknown/file',
     'apps/server/package.json',
     'apps/web/tsconfig.app.json',
     'apps/server/vitest.config.ts',
     'apps/server/test/architecture/modules/core-base.ts',
-    'apps/server/src/contracts/tasks.ts',
-    'apps/server/src/config/migrations.ts',
   ])('runs everything for %s', (file) => {
     expect(mergeTestScope(['docs/a.md', 'apps/server/src/a.ts', file])).toEqual({
       kind: 'all',
@@ -35,6 +36,15 @@ describe('merge test scope', () => {
       kind: 'workspaces',
       workspaces: ['apps/server', 'apps/web'],
     });
+  });
+  it.each([
+    'apps/server/src/contracts/tasks.ts',
+    'apps/server/src/config/migrations.ts',
+    'scripts/live/config-check.ts',
+    'scripts/example.cjs',
+    'scripts/example.mtsx',
+  ])('uses the server graph for %s', (path) => {
+    expect(mergeTestScope([path])).toEqual({ kind: 'workspaces', workspaces: ['apps/server'] });
   });
   it('records shared sources and always selects its own tests', () => {
     expect(
@@ -54,7 +64,7 @@ describe('merge test scope', () => {
     expect(mergeTestScope([`${ws}/src/a.ts`, 'docs/a.md'])).toEqual({ kind: 'workspaces', workspaces: [ws] });
   });
   it('keeps the first full-scope reason', () => {
-    expect(mergeTestScope(['scripts/a.ts', 'package.json'])).toEqual({ kind: 'all', reason: 'scripts/a.ts' });
+    expect(mergeTestScope(['scripts/a.sh', 'package.json'])).toEqual({ kind: 'all', reason: 'scripts/a.sh' });
   });
   describe('cloud infrastructure', () => {
     const cloud = { kind: 'cloud' } as const;

@@ -146,6 +146,39 @@ describe('reserved mutation effects (PM-759)', () => {
       'security',
     ],
     [
+      'human owner turned into an AI member under the same handle',
+      (c: ProjectConfig) =>
+        c.team.members.splice(0, 1, {
+          kind: 'ai',
+          handle: 'owner',
+          displayName: 'Owner',
+          role: 'developer',
+          sponsor: 'ann',
+        } as ProjectConfig['team']['members'][number]),
+      'security',
+    ],
+    [
+      'AI approver switched off',
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === 'dev-1')!;
+        if (m.kind === 'ai') m.approver = 'none';
+      },
+      'security',
+    ],
+    [
+      'AI outbound network setting',
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === 'dev-1')!;
+        if (m.kind === 'ai') m.outboundNetwork = false;
+      },
+      'security',
+    ],
+    [
+      'boundary delegation switched on',
+      (c: ProjectConfig) => (c.team.boundary = { enabled: true, leadTimeoutSeconds: 120 }),
+      'security',
+    ],
+    [
       'new owner member',
       (c: ProjectConfig) =>
         c.team.members.push({

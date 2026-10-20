@@ -3,6 +3,7 @@ import type { AgentProvider, HumanAccess } from '../domain/member';
 import type { TaskKey, Visibility } from '../domain/task';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
+import { boundaryDelegationChanged, permissionsChanged } from './owner-only';
 
 /**
  * What stays the owner's in super mode (owner decision of 2026-10-20, PM-862 K3): deleting a member, key,
@@ -58,6 +59,8 @@ export type SuperMutationCommand =
       id: string;
     }
   | { kind: 'access_change'; handle: string; before: HumanAccess | null; after: HumanAccess }
+  /** An AI member's permission mode, approver or outbound network setting. */
+  | { kind: 'permission_change'; handle: string }
   | { kind: 'focus_change'; before: TaskKey[]; after: TaskKey[] }
   | { kind: 'runtime_start'; providers: AgentProvider[] }
   | { kind: 'administration'; command: SuperAdministrationCommand }
@@ -88,6 +91,34 @@ const routines = new Set<SuperRoutineMutation>([
 
 const DELETION_RESOURCES = new Set<string>(['member', 'repo', 'project', 'credential']);
 
+/**
+ * The owner's own login and security settings changed: a human's access level, login e-mail or a human turned
+ * into another kind of member, a new owner, the Operator waiver, the AI members' permission settings and the
+ * boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
+ */
+function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
+    return true;
+  if (permissionsChanged(previous, next) || boundaryDelegationChanged(previous, next)) return true;
+  // A human who is no longer a human under the same handle loses the login and the access level.
+  if (
+    previous.team.members.some(
+      (before) =>
+        before.kind === 'human' &&
+        next.team.members.some((member) => member.handle === before.handle && member.kind !== 'human'),
+    )
+  )
+    return true;
+  const login = (email: string | undefined) => (email ?? '').trim().toLowerCase();
+  return next.team.members.some((member) => {
+    if (member.kind !== 'human') return false;
+    const before = previous.team.members.find((m) => m.handle === member.handle);
+    if (before?.kind !== 'human') return member.access === 'owner';
+    // The e-mail is the member's login binding: rebinding it changes who can sign in as them.
+    return before.access !== member.access || login(before.email) !== login(member.email);
+  });
+}
+
 /** Server-generated authorization projection, never an executable command or a client exemption. */
 export function ownerReservedEffect(
   previous: ProjectConfig | null,
@@ -97,6 +128,7 @@ export function ownerReservedEffect(
     case 'remove':
       return DELETION_RESOURCES.has(command.resource) ? 'deletion' : null;
     case 'access_change':
+    case 'permission_change':
       return 'security';
     case 'task_visibility':
     case 'focus_change':
@@ -123,18 +155,7 @@ export function ownerReservedEffect(
         removed(previous.project.repos, next.project.repos, (r) => r.name)
       )
         return 'deletion';
-      if (
-        (previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false) ||
-        next.team.members.some((member) => {
-          if (member.kind !== 'human') return false;
-          const before = previous.team.members.find((m) => m.handle === member.handle);
-          if (before?.kind !== 'human') return member.access === 'owner';
-          // The email is the member's login binding: rebinding it changes who can sign in as them.
-          const login = (email: string | undefined) => (email ?? '').trim().toLowerCase();
-          return before.access !== member.access || login(before.email) !== login(member.email);
-        })
-      )
-        return 'security';
+      if (securityChanged(previous, next)) return 'security';
       const paid = next.team.members.filter(
         (m): m is AiMemberConfig => m.kind === 'ai' && m.provider === 'nanogpt',
       );

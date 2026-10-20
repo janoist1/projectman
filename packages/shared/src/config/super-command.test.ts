@@ -94,6 +94,22 @@ describe('super command classification (PM-762)', () => {
     expect(effects(invite('developer'))).toEqual([]);
   });
 
+  it('names security for an AI permission setting, together with the cost of a paid member', () => {
+    expect(effects({ kind: 'member_update', handle: 'dev-1', request: { approver: 'none' } })).toEqual([
+      'security',
+    ]);
+    expect(effects({ kind: 'member_update', handle: 'dev-1', request: { outboundNetwork: false } })).toEqual([
+      'security',
+    ]);
+    expect(
+      effects({
+        kind: 'member_update',
+        handle: 'dev-2',
+        request: { permissionMode: 'default', effort: 'high' },
+      }),
+    ).toEqual(['security', 'cost']);
+  });
+
   it('refuses what it cannot project, instead of treating it as harmless', () => {
     expect(() => effects({ kind: 'member_update', handle: 'ghost', request: { displayName: 'X' } })).toThrow(
       SuperCommandUnclassifiable,

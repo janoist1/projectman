@@ -36,6 +36,8 @@ function runtime(provider: AgentProvider | undefined): SuperMutationCommand {
   return { kind: 'runtime_start', providers: [effective] };
 }
 
+const PERMISSION_KEYS = ['permissionMode', 'approver', 'outboundNetwork'] as const;
+
 function memberUpdate(
   context: SuperCommandContext,
   handle: string,
@@ -44,15 +46,19 @@ function memberUpdate(
   const member = context.config.team.members.find((candidate) => candidate.handle === handle);
   if (!member) throw new SuperCommandUnclassifiable('unknown member');
   const before = member.kind === 'human' ? member.access : null;
+  const mutations: SuperMutationCommand[] = [];
   if ('access' in changes && changes.access !== undefined && changes.access !== before)
-    return [{ kind: 'access_change', handle, before, after: changes.access as HumanAccess }];
+    mutations.push({ kind: 'access_change', handle, before, after: changes.access as HumanAccess });
+  // The owner kept the AI members' permission settings (PM-862 inventory row 33).
+  if (PERMISSION_KEYS.some((key) => changes[key] !== undefined))
+    mutations.push({ kind: 'permission_change', handle });
   // A role change (changes.roles) is routine: it reaches the generic member update below.
   const effective = changes.provider ?? (member.kind === 'ai' ? member.provider : undefined);
   const keys = Object.keys(changes).filter((key) => changes[key] !== undefined);
   // Only sending a paid member on leave costs nothing; every other change to it may.
   const onlyLeave = keys.length === 1 && changes.onLeave === true;
-  if (effective === 'nanogpt' && !onlyLeave) return [runtime('nanogpt')];
-  return [{ kind: 'routine', operation: 'member_update' }];
+  if (effective === 'nanogpt' && !onlyLeave) mutations.push(runtime('nanogpt'));
+  return mutations.length ? mutations : [{ kind: 'routine', operation: 'member_update' }];
 }
 
 /** Exhaustive on purpose: a new administration command does not classify until someone decides its effect. */

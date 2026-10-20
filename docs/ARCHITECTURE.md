@@ -1242,9 +1242,21 @@ commit pinned at the hand-over, run by the server.
 - **Executor.** `src/full-test` (`FullTestExecutor` in `contracts/full-test.ts`) writes the srt settings
   (`fullTestSandbox`: reads the checkout and the configured repository's git directory only, writes its run
   directory `<tmp>/pmft-<end of the run id>/` only: srt's own default temporary directory, `/tmp/claude`, which it
-  opens on its own and the members' sandboxes share, is in `denyWrite`; no network except listening on local ports, `allowPty`; the
-  directory is short, and under `/private/tmp` when `<tmp>` is too deep, because srt's socket in the
-  sandbox's TMPDIR must stay below macOS's 104-byte socket path limit), runs `<command>` there (srt's `-c`, with
+  opens on its own and the members' sandboxes share, is in `denyWrite`; no network except listening on local ports, `allowPty`;
+  Unix sockets only below the run's own `tmp` — `network` is exactly `allowedDomains: []`, `deniedDomains: []`,
+  `allowLocalBinding: true`, `allowUnixSockets: [<run directory>/sandbox/tmp]`, `allowAllUnixSockets: false`
+  (the path prefix of srt 0.0.78's macOS generator; the installer's and the screenshot runs' network profiles
+  get no socket permission). The directory is short and measured in bytes (UTF-8) on the canonical
+  paths: `runDirOf(tmpRoot, shortRoot, runId)` takes roots the caller resolved with `canonicalRoot`
+  (`realpath`: `/var/folders` is `/private/var/folders` on macOS, which a socket path is checked against), and
+  a root is used only when its `tmp` and `home` below the run directory leave at least 40 bytes (the separator
+  included) within 100 bytes (macOS's socket path limit is 104; srt's `srt-mux-<pid>-<n>.sock` is 24 bytes with
+  the separator, the control socket's `control.sock` 13). Otherwise the directory is under `/private/tmp`
+  (`pmft-<end of the run id>`), whose frame is checked the same way; when neither root has room `runDirOf`
+  throws and the run ends as `sandbox_unavailable`, with no wider permission or longer path. This is the
+  code's profile: it says nothing about the running installation, which gets it only with a separately
+  approved engine update; the real socket behavior is proved by the socket integration tests (PM-754) after
+  that), runs `<command>` there (srt's `-c`, with
   its standard input closed by `exec </dev/null;`, because srt hands the command its input through a socket,
   and `script`, so a PTY, fails on a socket; srt also sets the command's `TMPDIR` from `CLAUDE_CODE_TMPDIR`,
   or a `/tmp/claude` that does not exist, so `fullTestEnv` sets it to the run's tmp) with
@@ -1400,6 +1412,21 @@ failure path; the full check and review gates remain required. Original creation
 manifest priority snapshots are restored; candidate, check, failure, block and active
 membership are cleared. Only adjacent diagnostic members of the same parent can group,
 bounded by every member's limit.
+**Blaming a member by a lone run (PM-844).** When the repository's `reviewTest.filesCommand` is set,
+the group check failed with named files (`failedFiles`) and the train has at least two members, the
+train does not halve first: for each member in turn it builds `onto + member`, checks that out
+(`checkoutForCheck`, released after the run) and runs `filesCommand` with the group's failed files,
+each shell-quoted (`mergeTestFilesCommand`, shared), with the train's workers, timeout and heavy lock.
+A member is blamed only if its run failed **and** its failed files intersect the group's: any other
+non-zero exit (a usage error, a failed install, no file named) leaves it unknown. Each blamed member
+takes the individual `check_failed` path (`MergeSteps.fail`: `base` = the train's `onto`, the lone run's
+id and command, the intersecting files, its output tail, the `task_merge_failed` event and
+notification). The others (green or unknown) are requeued with no `diagnostic`, so they keep their
+queue place and may join any train, each with a timeline note. If no member is blamed (an interaction,
+or every lone run was unknown or red elsewhere), the train halves as before. Members keep the step
+`checking`; a restart during the lone runs finds the stored red group check and halves. All of it runs
+through the engine link's `build`, `checkoutForCheck`, `releaseCheck` and the full test executor, so
+nothing machine-dependent is new.
 Each smaller attempt gets a fresh candidate and check on current main; successful prefixes
 therefore participate in the next half's check. Singletons use the individual path and only
 their failed check identifies a blocking card. Success clears diagnostic state; operational
@@ -1493,6 +1520,10 @@ workers follow the machine's size.
   wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
   moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
   who holds it and who waits, for the PM-300 display.
+- **The run's directory (PM-847).** Whoever holds the lock prepares its run directory
+  (`full-test/sandbox.ts`, `runDirOf` on `canonicalRoot` roots): a byte-measured `pmft-*` directory with room
+  for the sandbox's sockets (see "Server full test before review"), made only once the lock is held; when no
+  root has room, the run ends as `sandbox_unavailable` and releases the lock.
 - **Idle close (PM-569).** An idle session with a live heavy-run holder or waiter stays open,
   and gets its full idle interval after the last sweep that saw the run. Heartbeats must be at most
   30 seconds old and the PID must live. After 120 minutes since `lastActivityAt`, idle closure applies
@@ -1500,8 +1531,12 @@ workers follow the machine's size.
   commands are covered; grace is in memory and does not survive a server restart.
 - **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
-  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
-  signal is passed on to the command. An unusable queue folder (`heavy_lock_unavailable`) stops the
+  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75.
+  The command runs under `scripts/lib/child-guard.mjs` (PM-863) as the leader of its own process group
+  (its stdin is `/dev/null`): SIGINT, SIGTERM and SIGHUP to the CLI, and the CLI's death even by SIGKILL
+  (the guard's stdin is a pipe from the CLI), stop the whole group (SIGTERM, SIGKILL after 5 s), and any
+  member left when the leader exits is killed. The lock is released only after the guard has gone, so
+  no vitest worker outlives an interrupted run or overlaps the next one. An unusable queue folder (`heavy_lock_unavailable`) stops the
   command with exit status 78 and a four-line message; it does not run without the queue (decision 33,
   PM-346). `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
   without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
@@ -1529,21 +1564,94 @@ workers follow the machine's size.
   one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
   still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
+- **Two server test projects (PM-865).** `apps/server/vitest.config.ts` has two `test.projects`, both
+  `extends: true`. `isolated` is plain vitest, a fresh module graph per file in a `forks` process. `pooled` runs
+  the files `pooledTests` (`apps/server/test/isolation.ts`) picks in the `threads` pool with `isolate: false`:
+  the files of a worker share its modules, process and globals, so the server's modules load once per worker,
+  not once per file. The choice is a machine rule, not a list kept by hand: a file is `isolated` when it, or a
+  test-side file it imports (under `test/`, `*test-helpers*`, fixtures), holds a pattern of
+  `ISOLATION_REQUIRED` (module mocks, `vi.resetModules`, `process.chdir`/`on`/`exitCode`/`env` writes, globals set
+  by hand, spies on `process`, fake timers nobody gives back) or is named in `ALWAYS_ISOLATED` (with a reason),
+  or is a PTY test. `test/isolation.test.ts` covers each pattern. `pooled` puts `vi.stubEnv` and
+  `vi.stubGlobal` back after each file (`test/setup/unstub-after-file.ts`; not after each test, which would end a
+  `beforeAll` stub early). Vitest decides whether a worker is recycled from the root
+  `poolOptions.<pool>.isolate`, never from a project's, so the root sets it for `threads` only. The pool's
+  `minThreads` equals its `maxThreads`: with fewer, tinypool ends an idle worker thread without isolation and the run
+  fails with "Terminating worker thread". The two pools would run at the same time, so `pooled` has
+  `sequence.groupOrder: 1`. `VITEST_MAX_FORKS` caps the threads too (`VITEST_MAX_THREADS` first). A failed file
+  is named `FAIL  |pooled| …` or `|isolated| …`; `merge-test` and `full-test/output.ts` read both.
 - **The server's merge check** runs the repository's `npm run merge-test` in the full test sandbox
   before the default branch moves (PM-386, PM-490, PM-657). The first-parent diff and the union of
   both git trees' import graphs select changed server modules and their transitive dependents.
   A module check runs one server typecheck and one Vitest invocation with explicit test paths:
   adjacent tests, external tests reached through helpers, uncertain test dependencies, architecture
   tests, integration tests and golden paths.
-  Tests reaching process creation, runtime code loaders or filesystem access through source/helper
-  imports remain in the uncertain baseline: runtime entrypoints need not appear in static imports.
-  Unresolved source dependencies, unmapped sources,
-  changed tests/helpers/fixtures, empty selection or ambiguous Vitest substring filters fall back
-  to the full server workspace. Web changes retain full web checks; documentation-only changes skip.
-  Shared code, scripts, configuration, contracts, architecture guards or unknown paths require all
-  workspaces; `--all` forces them. Scope, selected modules, test count and fallback reason are logged
-  before and after execution. The executor holds
+  **Server and script impact (PM-864).** Server contracts and config use their source modules;
+  script code uses the server workspace. Both server and script files are read from each git tree.
+  Changed tests select themselves, deleted tests have no effect, and snapshots select their owning
+  test (an unmapped snapshot falls back). Changed helpers and scripts select tests reaching them in
+  either tree; a script dependency also proves a source dependency. Server markdown is ignored.
+  Fixtures, test setup and other non-code changes fall back to the full server workspace, as do
+  nonliteral/unresolved production imports, unmapped sources, empty selection and ambiguous Vitest
+  substring filters. Web changes retain full web checks; documentation-only changes skip tests.
+  Files importing `child_process`, `worker_threads`, `vm`, `module` or `@lydell/node-pty` stay uncertain
+  unless audited in `scripts/merge-test/runtime-entries.ts`: its `RUNTIME_ENTRIES` map adds explicit
+  repository entrypoint edges, and `[]` means only external programs/packages. Unknown launchers
+  and missing historical entrypoints keep every reaching test. Filesystem imports alone do not
+  imply runtime code loading. The runtime-entry guard always runs alongside architecture guards
+  and rejects missing keys/targets or keys without a runtime import; reviewers verify the entries
+  against the launcher's code. Integration tests, golden paths and tests without a source dependency
+  also always run.
+  **Shared export impact (PM-843).** `packages/shared/src` changes run shared's own tests and use
+  `scripts/merge-test/shared-impact.ts` to follow named exports from its barrel, relative shared
+  dependencies and named consumers in both git trees, including `scripts/`. The affected server files
+  and script consumers seed the server module/test graph. Web and widget consumers run their whole
+  workspace. Shared changes always typecheck every workspace. A shared test or other non-source file
+  selects only shared's tests.
+  Unsupported exports/barrels, duplicate export names, uncertain or escaping shared dependencies,
+  shared subpath imports, analysis errors or affected template consumers require all tests.
+  Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
+  The architecture checker and shared export analysis share trivia recognition: regex literals at
+  proven expression starts cannot create import/export tokens or hide the following real import.
+  Changes to `scripts/merge-test/**`, `scripts/full-test/**`, non-code scripts, the widget, other
+  packages, manifests/lockfiles, TypeScript/Vitest configuration, architecture guards or unknown
+  paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
+  `merge-test step: npm <args>` without executing checks or checking out the commit (default `HEAD`).
+  It compares against the commit's first parent; a non-merge commit retains the full-run scope.
+  Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds
   the machine's lock, so the nested root scripts do not queue again.
+  **Rerun and marker lines (PM-842).** `scripts/merge-test/steps.ts` runs the steps one by one (the
+  full run is split by workspace: every type check, then every test, so a failed file belongs to a
+  workspace). A failed `test` step reruns once, with only its failed files, when it ended with an
+  exit code, 1-5 files can be read from vitest's `FAIL` lines, there is no "Unhandled Errors"
+  block and the merge (`HEAD^1..HEAD`) did not change any of those files (a card's own tests are
+  never rerun). A green rerun makes the step green and prints `merge-test flaky: <path>` per file; any
+  other failure prints `merge-test failed: <path>`. The marker lines come last, before the closing
+  `merge-test scope:` line; the rule (`mergeTestMarkerLine`, `mergeTestMarkedFiles`) is in
+  `packages/shared/src/domain/merge-test.ts`. `npm run merge-test -- --files <path>...` runs only
+  those test files (grouped by workspace, no type check, same rerun rule; a path absent from the
+  checkout prints `merge-test skipped (absent): <path>` and is left out). The executor
+  (`full-test/output.ts`) reads the markers: `failedFiles` prefers the `failed` lines, and a passed
+  run's `outputTail` holds the `flaky` lines. The server adds a system `task_note` to the card of a
+  single merge, and to every member of a train, when its check passed with flaky files, and logs
+  `merge check passed with flaky test files`; the merge goes on. The engine link is unchanged: the
+  lines travel in the existing `failedFiles` and `outputTail` fields.
+  **Passed-step cache (PM-845, PM-841).** Each step hashes
+  `JSON.stringify({ v: 1, tree, args, node, platform, arch, maxWorkers })` with SHA-256: the complete
+  `HEAD^{tree}`, npm arguments with absolute paths made repository-relative, Node version, OS,
+  architecture and `VITEST_MAX_FORKS` (or an empty string). Only identical inputs reuse a step.
+  The engine-owned executor reads `<app home>/cache/merge-test-steps.json`, drops entries older than
+  14 days and writes a disposable `sandbox/merge-test-passed-keys` list, exposed by
+  `PROJECTMAN_MERGE_TEST_PASSED_KEYS`. A hit prints `merge-test cached: <command>` and skips npm;
+  `--no-cache` bypasses reads. Passed steps print `merge-test step passed: <64-hex key>` immediately
+  and again before the closing scope line. Only an original invocation with exit code 0 produces a
+  passed-step key; a green failed-file rerun stays flaky and is never cached, so retries retain its
+  diagnostic and apply their own changed-file rerun condition. The shared `mergeTestPassedSteps`
+  parser accepts at most 50 unique, line-anchored keys, after ANSI removal. After any command outcome, including timeout or
+  cancellation, the executor merges those keys with fresh timestamps and the run id, retains the
+  newest 500 entries and publishes the version-1 JSON by temporary file and rename. Cache failures
+  are warnings and never change the test verdict. The sandbox never writes the persistent cache;
+  markers have the same candidate-code trust boundary as the script and its exit code.
 
 ## Machine-dependent parts (PM-341)
 
@@ -2073,14 +2181,18 @@ workers follow the machine's size.
   paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
   **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
   dependencies and queue. Only the command and result need to cross the existing full-test boundary.
-  `scripts/merge-test/{run,scope,impact}.ts` (PM-657) selects checks in that detached checkout using
+  `scripts/merge-test/{run,scope,impact,shared-impact,runtime-entries}.ts` (PM-657, PM-843, PM-864) selects checks in that detached checkout using
   argv-based git first-parent diff (`--no-renames -z`) and batched blob reads of both revisions.
   It uses the architecture module map, never evaluates old TypeScript or writes a selection cache,
-  and retains the configured worker limits. Cloud-only infrastructure diffs under `scripts/cloud/`,
+  and retains the configured worker limits. Server contracts/config, changed tests/snapshots, helpers
+  and script code use the server/script graph. The audited `RUNTIME_ENTRIES` table supplies runtime
+  edges; unknown launchers stay uncertain, filesystem imports alone do not. Fixtures, setup and
+  non-code support changes retain full server checks. `--dry-run [<commit>]` reads the named merge's
+  trees without a checkout and only prints the scope and commands. Cloud-only infrastructure diffs under `scripts/cloud/`,
   `deploy/aws/` and `deploy/cloud/` (PM-734), optionally with direct cloud/deploy/release test-family
   changes, run server typecheck and the cloud, deploy, release, architecture and merge-test test
-  prefixes. Manifest, lockfile, TypeScript/Vitest configuration and mixed code changes retain full
-  checks; test-only diffs retain existing selection. **Remote engine:** selection runs on the engine with
+  prefixes. Manifest, lockfile, TypeScript/Vitest configuration, selector/executor scripts and non-code
+  scripts retain full checks; test-only diffs select the changed tests. **Remote engine:** selection runs on the engine with
   its two git trees; no engine files or new selection API cross the server/engine boundary.
   **Module:** `scripts`
 
@@ -2093,6 +2205,7 @@ workers follow the machine's size.
   (Effect, PM-617).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
   connectivity comes from the server's engine registry. No new engine code is needed.
+  For NanoGPT the cloud's key store decides whether the key is there (PM-736).
   A remote engine that has not connected since server startup gets the same 120-second
   grace as a disconnected link; existing alerts stay open until recovery is confirmed.
   Reconnection releases waiting work even if publishing the outage update fails.
@@ -2224,7 +2337,9 @@ workers follow the machine's size.
     **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
-  `scripts/engine/{cli,commands}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
+  `scripts/engine/{cli,commands,move-work-root}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
+  `engine.json` has an optional `workRoot` (PM-846, see "Work volume (PM-846)"); engine mode does not read
+  `PROJECTMAN_WORK_ROOT`.
   Entry points import the named exports of `engine-link/index.ts` (PM-649); the
   implementations above and their machine assumptions remain unchanged.
   `PROJECTMAN_MODE=engine` (`npm run engine -- start`) runs the machine-dependent parts on the Mac
@@ -2384,6 +2499,11 @@ workers follow the machine's size.
   The builder must be separate from EC2; ARM never builds on EC2. Actual two-platform native binary
   and disposable cloud smoke evidence, 1 GiB RAM/20 GiB disk capacity and digest-specific cutover
   approval belong to PM-675. A manifest is integrity metadata, not a signature of origin.
+  PM-723: `smoke.sh` probes the engine door with four anonymous requests (GET link, GET download,
+  GET upload, POST upload with an empty binary body), sending only the Cloudflare Access headers;
+  none may answer 2xx, and an unreachable probe fails. It needs bash and curl on the machine that
+  runs it and calls the hub URL; the engine has nothing new to do. `http/errors.ts` answers unknown
+  `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
   PM-750's entry "Admin release preparation" runs that builder
   from its own clean checkout and smokes each image by its image ID before the receipt exists.
   PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
@@ -2554,7 +2674,11 @@ workers follow the machine's size.
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs. The current server and
   CLI share a machine and filesystem. A remote engine performs local version and auth-file
-  checks and returns readiness status. It never persists or returns the delivered key,
+  checks and returns readiness status; it never asks for the key outside a start
+  (`nanogptKeyInCloud`). The cloud adds whether it holds the key to the status it returns
+  (`withNanogptKeyFact` in `engine-link/remote/runner.ts`, from its own key store, PM-736); only
+  that fact is derived, never the key, and no engine method changes. The key goes out only to a
+  starting session. A remote engine never persists or returns the delivered key,
   including in its spool; a replaced key affects only subsequent launches and resumes.
   Codex rollout `task_complete` (including an empty failed response) and `turn_aborted`
   events end the runner's turn even without a Stop hook; a later `task_started` supersedes
@@ -2610,6 +2734,10 @@ workers follow the machine's size.
   A command's actual working directory must stay in the session placement/writable roots;
   denied relative paths are resolved there. Read-only placements cannot use the unsandboxed
   shell-rule exception: commands pass through the inbox's existing read-only rules instead.
+  The pre-tool hook uses the session policy's placement when newer agy versions omit `Cwd`
+  (PM-874). It maps `read_file`, `write_file` and `edit_file` with `Path` as well as the
+  older file tool names to the same permission checks (`runner/providers/gemini/hooks.ts`).
+  This normalization runs on the engine using its session policy; no new boundary data is needed.
   This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
   **Remote engine (engine mode, PM-314: runs in the engine process):** the binary, login/keychain, private directories, PTY, forwarder and
   transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
@@ -2670,7 +2798,10 @@ assumption or remote-engine RPC.
 - **Dependency clones and refreshes** — `worktree/{dependencies,dependency-copy}.ts`, `cloneDependencies`,
   `worktree/worktree-manager.ts`, `ensureForTask` (PM-334, PM-412).
   Copies installed `node_modules` from another checkout with the same lockfile using
-  `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Missing or
+  `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Since PM-846 the
+  probe also chooses the reference: a candidate on another volume (the repository, when the worktrees
+  are on a work volume) is skipped for the next one, and the result is `unsupported` only when every
+  candidate with the same lockfile is on another volume. The first worktree on a new volume is a full install. Missing or
   stale installations are cloned before a task session starts or resumes and before each tool
   via `runner/session.ts`, `RunnerModuleOptions.refreshDependencies`; staleness uses the
   local lockfile and hidden npm lockfile modification times.
@@ -3083,9 +3214,32 @@ assumption or remote-engine RPC.
   engine. Related: "Session output folders", "Hooks and team MCP over loopback", "Native sandbox and
   canonical paths" (the root is in `sensitivePaths`).
   **Module:** `runner`
+- **Work volume (PM-846)** — `engine-host/work-roots.ts` (`resolveWorkRoots`, `WORK_ROOT_MARKER`,
+  `WorkRootError`), `engine-link/engine-config.ts` (`workRoot`), `engine-app.ts`, `app.ts`,
+  `index.ts` (`PROJECTMAN_WORK_ROOT`, single mode only), `scripts/engine/{commands,move-work-root}.ts`
+  (`npm run engine -- move-work-root`). An optional work root puts `worktrees/`, and `workspaces/` below one
+  directory, so that a separate APFS volume with `.fseventsd/no_log` takes the file churn that made
+  `fseventsd` grow to 17 GB. The full test's `pmft-*` run directories stay in `os.tmpdir()` (PM-848): the full
+  test sandbox denies the home for reading and allows only the run's own directory, so a run directory
+  inside the home leaves its parents unreadable. Absent: the
+  paths below `PROJECTMAN_HOME`, as before. The start fails closed (`work_root_invalid`): an absolute
+  path, an existing directory, a regular `.projectman-work-root` file in it (an unmounted volume is an empty
+  directory on the system volume) and a real path strictly inside the real home. Inside the home, because the
+  session sandboxes keep the other members' work unreadable by denying the home. The code uses only the real
+  path (Seatbelt compares real paths). Machine assumption: an APFS volume mounted at a path inside the
+  home (fstab/`vifs`), steps in `docs/DEPLOY.md` "Separate work volume on a Mac". The sessions' `$TMPDIR`,
+  the Claude temp directory and `member-caches` stay where they are (Unix socket path limit, PM-339).
+  `move-work-root` runs with the engine stopped: it copies, repairs the git links, checks them, renames
+  the old directories to `*.pre-PM-846` and then writes `engine.json`; no database migration, because the
+  sessions' relocation and the workspace generation start a new conversation with a summary.
+  **Remote engine:** yes. The setting is in that machine's `engine.json` and the volume step runs on the
+  engine's machine; `EnginePaths.worktreesRoot/workspacesRoot` already describe the engine's own paths, so
+  nothing new crosses the server/engine boundary. On Linux there is no `fseventsd`; the marker check is
+  platform independent and a separate disk works the same way.
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `runtime/watchers` (`WorktreeSweep`),
-  `index.ts` (PM-243; PM-311, PM-312; PM-770). The sweep picks its candidates from the server database
+  `index.ts` (PM-243; PM-311, PM-312; PM-770). With a work root (PM-846) the worktree and workspace
+  roots are `<workRoot>/worktrees` and `<workRoot>/workspaces`. The sweep picks its candidates from the server database
   (paged `closed-worktrees` reads, no whole card list); the worktree itself is still found, checked and removed
   on the card's engine. Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
@@ -3164,7 +3318,8 @@ assumption or remote-engine RPC.
   **Module:** `worktree`
 - **Free-disk admission guard** — `runtime/watchers` (`DiskGuard`, engine `freeDiskBytes`),
   `runtime/admission` (`Admission`) (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
-  value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
+  value for `minFreeDiskGb`; a low value defers new sessions. With a work root (PM-846) the engine
+  reports the smaller of the home's and the worktrees volume's free space. It does not measure other
   hosts or even every local worktree volume. **Remote engine (engine mode, PM-314: runs in the engine process):** use `host.free_disk` (PM-313), report capacity for the
   engine's execution/storage volumes and plan admission against those as well as server
   storage; keep unavailable measurements distinct from low capacity.
@@ -3215,7 +3370,10 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `--discard-cloud-data` states the opposite on purpose.)
   **Module:** `control`
 - **Native sandbox and canonical paths** — `runtime/sessions` (`session policy`),
-  `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
+  `engine-host/{disk,within,work-roots}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
+  (PM-846: a work root is used by its real path and lies inside the real home, so the `denyRead` of the
+  home keeps the other members' worktrees unreadable; the engine limit's session roots name
+  `<workRoot>/worktrees` and `<workRoot>/workspaces`)
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
   engine's `realpath`, `isDirectory`, `isRealDirectory`). `core/inbox` (PM-635)
   uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
@@ -3310,11 +3468,18 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
   **Module:** `runner`
 - **Server full test before review** — `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
-  (`resolveGitDir`: the checkout's real `.git`, asked of the engine),
+  (`resolveGitDir`: the checkout's real `.git`, asked of the engine), PM-846: with a work root the
+  executor gets only `worktreesRoot`; the `pmft-*` run directories stay in `os.tmpdir()`, outside the home (PM-848),
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt`.
+  it is unavailable without macOS/`srt`. PM-847: the run directory is a byte-measured, canonical path
+  (`canonicalRoot`, `runDirOf`: at least 40 bytes below its `tmp` and `home` within 100; else
+  `/private/tmp/pmft-*`; else `sandbox_unavailable`), and the sandbox may bind and connect Unix sockets
+  below the run's own `sandbox/tmp` only (`allowUnixSockets`, `allowAllUnixSockets: false`); the installer
+  and screenshot profiles have none. The engine that creates the sandbox is the installed one, so this
+  takes effect there only after a separately approved engine update. Remote engine: all of it is the
+  engine's own private run root; the cloud receives only the existing full-test result.
   Timeout and cancellation retain the detached process group's cleanup scope through the TERM
   grace period, then send SIGKILL to the negative group id even if the launcher has already
   closed its output pipes (PM-829, `full-test/run-sandboxed-core.ts`). The engine owns these
@@ -3327,17 +3492,11 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   ignores SIGTERM itself so it can kill TERM-resistant workers even after the launcher exits.
   Normal command exit codes and signals are relayed to the engine. This assumes POSIX groups
   and pipe EOF on process death; all watchdog and sandbox processes stay on the executing engine.
-  PM-754: the run may bind and connect Unix sockets below its own
-  `sandbox/tmp` only (`srtSettings`: `allowUnixSockets: [paths.tmp]`, `allowAllUnixSockets: false`; the macOS
-  generator of srt 0.0.78 makes that a `network-bind`/`network-outbound` subpath rule), so the control socket
-  integration tests (`control-relay` and `control-socket`, `*.integration.test.ts`) run in the merge check and
-  prove the real socket boundary. The run directory is chosen on the real path of the temporary root and counted
-  in bytes (`runDirOf`): it keeps 40 bytes for a socket below `sandbox/tmp` within macOS's 103, else it moves to
-  `/private/tmp`, else the run is `sandbox_unavailable` (Node refuses a longer socket path with EINVAL).
-  The installer and screenshot settings do not get it; Linux has no equivalent
-  guarantee and no fallback. `npm run merge-test` exits 2 for any scope that runs the server's tests when
-  `PROJECTMAN_SKIP_PTY_TESTS=1` is set (the members' sandbox signal, which `fullTestEnv` never passes), and its
-  cloud scope names the two integration files.
+  PM-754: with that permission the control socket integration tests (`control-relay` and `control-socket`,
+  `*.integration.test.ts`, test paths checked in bytes by `test/helpers/socket-path.ts`) run in the merge check and
+  prove the real socket boundary; Linux has no equivalent guarantee and no fallback. `npm run merge-test` exits 2
+  for any scope that runs the server's tests when `PROJECTMAN_SKIP_PTY_TESTS=1` is set (the members' sandbox signal,
+  which `fullTestEnv` never passes), and its cloud scope names the two integration files.
   Its sandbox (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `full_test.run/cancel` (PM-313), plan where the pinned commit and dependencies are tested, equivalent
@@ -3389,6 +3548,16 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `engine-link/remote/host.ts` maps older-engine `invalid_params` to the preparation error without retrying
   a weakened request. No Linux sandbox support is added.
   **Module:** `services/full-tests`
+- **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
+  `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
+  The executor stores passed command keys in the engine-local
+  `<app home>/cache/merge-test-steps.json`, outside the sandbox, and exposes only a disposable key list
+  in the run's sandbox directory. It assumes a writable app home on the executing machine;
+  an unavailable or invalid cache only disables reuse. The cache stays in app home even with a
+  separate work root. **Remote engine:** the remote engine uses its own home and performs the same
+  reads, expiry, bounded merge and atomic writes; no cache data crosses the server/engine boundary.
+  `FullTestSpec`, `FullTestResult` and engine-link schemas are unchanged.
+  **Module:** `full-test`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without

@@ -65,14 +65,27 @@ fi
 # The engine door (the link and the file transfers, all under /engine) must refuse a caller without a
 # machine key (never a 2xx). The service token passes Access on the /engine application only when
 # that application covers the whole /engine path.
-for door in /engine/link /engine/files/downloads/smoke-test /engine/files/uploads/smoke-test; do
-  door_code="$(curl -sS --max-time 15 ${headers[@]+"${headers[@]}"} -o /dev/null -w '%{http_code}' "$base$door" || true)"
+#
+# The upload door is a POST route (PM-723): a GET to it only reaches the not-found answer, so it is probed
+# with both methods; the POST carries an empty binary body and no key.
+probe_door() {
+  local method="$1" door="$2" door_code
+  if [ "$method" = POST ]; then
+    door_code="$(curl -sS --max-time 15 ${headers[@]+"${headers[@]}"} -X POST -H 'Content-Type: application/octet-stream' --data-binary '' -o /dev/null -w '%{http_code}' "$base$door" || true)"
+  else
+    door_code="$(curl -sS --max-time 15 ${headers[@]+"${headers[@]}"} -o /dev/null -w '%{http_code}' "$base$door" || true)"
+  fi
   case "$door_code" in
-    2??) fail "$door answered $door_code without a machine key" ;;
-    000) fail "$door is not reachable" ;;
-    *) echo "ok: $door refuses an anonymous caller ($door_code)" ;;
+    2??) fail "$method $door answered $door_code without a machine key" ;;
+    [345]??) echo "ok: $method $door refuses an anonymous caller ($door_code)" ;;
+    000) fail "$method $door is not reachable" ;;
+    *) fail "$method $door answered ${door_code:-no status} (expected a refusal)" ;;
   esac
-done
+}
+probe_door GET /engine/link
+probe_door GET /engine/files/downloads/smoke-test
+probe_door GET /engine/files/uploads/smoke-test
+probe_door POST /engine/files/uploads/smoke-test
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2

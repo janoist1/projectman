@@ -109,6 +109,20 @@ folder to the YAML as well (`structure-map.test.ts` checks it).
   Server test helpers live in `apps/server/test/helpers/` (domain harness, app harness with
   the fake CLIs, login and request helpers); reuse them instead of copying setup. Web UI
   tests run against the in-memory fake backend; assert on requests and rendered output.
+  - **One test per behavior.** One branch or edge case is one test. A variant gets its own
+    case (use `it.each` when needed) only if it reaches a different branch or boundary.
+  - **Do not test wording verbatim.** Do not assert prompt or UI sentences one by one. The
+    snapshots in `apps/server/src/context/__snapshots__` guard the full prompt; an individual
+    test only checks that a conditional part or a required key (label id, tool name, the
+    presence of one rule) appears or is absent for the given input. In UI tests, text may be
+    used to find an element.
+  - **Integration tests only at the boundary.** Real git, filesystem, process, port or
+    browser only where the boundary itself is the risk; logic is covered by unit tests and
+    is not covered a second time by an integration test.
+  - **A card's tests are the card's behavior.** Add tests only for new or changed behavior,
+    and one regression test for a bug fix. Prefer extending an existing test over a new file.
+  - **Review.** Code review checks this too: a substantial amount of per-variant duplication
+    and verbatim wording tests are changes to fix.
 
 ## Commands
 

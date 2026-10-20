@@ -690,6 +690,40 @@ describe('database', () => {
     expect(repos.memberState.get('AR', 'dev-1')).toMatchObject({ status: 'working', activity: 'x' });
   });
 
+  it('lists inbox items without a limit in full, oldest first, and with a limit the newest N', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    const now = new Date().toISOString();
+    const total = 520;
+    for (let n = 1; n <= total; n++) {
+      repos.inbox.insert({
+        id: `inb_${String(n).padStart(4, '0')}`,
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        sessionId: null,
+        taskKey: 'AR-1',
+        title: `Question ${n}`,
+        body: null,
+        payload: {},
+        options: [],
+        state: 'open',
+        resolution: null,
+        createdAt: now,
+      });
+    }
+    const ids = (items: InboxItem[]) => items.map((i) => i.id);
+    const all = Array.from({ length: total }, (_, i) => `inb_${String(i + 1).padStart(4, '0')}`);
+
+    // The limited and the unlimited query of the same filter must not share a prepared statement.
+    const filter = { kind: 'question', state: 'open', taskKey: 'AR-1' } as const;
+    expect(ids(repos.inbox.list('AR', { ...filter, limit: 3 }))).toEqual(all.slice(-3));
+    expect(ids(repos.inbox.list('AR', filter))).toEqual(all);
+    expect(ids(repos.inbox.list('AR', { ...filter, limit: 3 }))).toEqual(all.slice(-3));
+    expect(ids(repos.inbox.list('AR'))).toEqual(all);
+    expect(ids(repos.inbox.list('AR', { limit: 500 }))).toEqual(all.slice(-500));
+  });
+
   it('stores users and auth sessions with case-insensitive email lookup', () => {
     const repos = createRepositories(openDatabase(':memory:'));
     expect(repos.users.count()).toBe(0);

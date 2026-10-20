@@ -1,4 +1,4 @@
-import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
@@ -6,12 +6,21 @@ import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import type { HeavyLock } from './heavy-lock';
-import { failedFiles, failureReport } from './output';
+import { failedFiles, failureReport, passedOutputTail } from './output';
 import { runSandboxed, srtCli } from './run-sandboxed';
 import type { SandboxedEnd } from './run-sandboxed';
-import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHORT_ROOT } from './sandbox';
+import {
+  canonicalRoot,
+  FULL_TEST_GIT_CONFIG,
+  fullTestEnv,
+  runDirOf,
+  runPaths,
+  srtSettings,
+  SHORT_ROOT,
+} from './sandbox';
 import type { RunPaths } from './sandbox';
 import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
+import { prepareStepCache } from './step-cache';
 export { assertNpmCiCheckout } from './npm-ci';
 export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } from './workspace-dependencies';
 export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
@@ -24,6 +33,7 @@ export { runSandboxed, srtCli } from './run-sandboxed';
 export type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
 export { createScreenshotExecutor, screenshotEnv, screenshotSettings } from './screenshots';
 export {
+  canonicalRoot,
   closedStdin,
   fullTestEnv,
   installerSettings,
@@ -51,6 +61,8 @@ export interface FullTestExecutorOptions {
   heavyLockDir?: string;
   /** Engine-local root of merge checkouts and the dependency store. */
   worktreesRoot?: string;
+  /** Engine-local passed merge-test steps; absent disables the cache. */
+  stepCacheFile?: string;
 }
 
 /**
@@ -72,10 +84,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     timeoutMs: number,
     signal: AbortSignal,
     settings = paths.settings,
+    passedKeysFile?: string,
   ): Promise<SandboxedEnd> =>
     runSandboxed({
       cwd: spec.cwd,
-      env: fullTestEnv(paths, spec.maxWorkers, baseEnv),
+      env: fullTestEnv(paths, spec.maxWorkers, baseEnv, passedKeysFile),
       settings,
       command,
       timeoutMs,
@@ -174,11 +187,9 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     const started = Date.now();
     let paths: RunPaths;
     try {
-      // The real path of the root: the control socket tests bind below the resolved path of TMPDIR (macOS's
-      // `/var` is a link to `/private/var`), so the room for a socket path is counted on it (PM-754).
-      paths = runPaths(runDirOf(await realpath(tmpRoot), SHORT_ROOT, spec.runId));
+      paths = runPaths(runDirOf(canonicalRoot(tmpRoot), canonicalRoot(SHORT_ROOT), spec.runId));
     } catch (err) {
-      logger.warn({ err, runId: spec.runId }, 'could not choose the full test run directory');
+      logger.warn({ err, runId: spec.runId }, 'no run directory root leaves room for the sandbox sockets');
       return failure('sandbox_unavailable', started);
     }
     const remaining = () => {
@@ -246,14 +257,35 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
           execute: (command, settings, timeoutMs) =>
             execute(paths, spec, command, timeoutMs, signal, settings),
         });
-      const ended = await execute(paths, spec, spec.command, budget(), signal);
+      const cache = await prepareStepCache(
+        options.stepCacheFile,
+        path.join(paths.sandbox, 'merge-test-passed-keys'),
+        spec.runId,
+        logger,
+      );
+      const ended = await execute(
+        paths,
+        spec,
+        spec.command,
+        budget(),
+        signal,
+        paths.settings,
+        cache?.passedKeysFile,
+      );
+      await cache?.record(ended.output);
       const durationMs = Date.now() - started;
       if (ended.aborted) return failure('killed', started, ended.output);
       if (ended.spawnError) return failure('spawn_failed', started, ended.output);
       if (ended.timedOut) return failure('timeout', started, ended.output);
       if (ended.signal) return failure('killed', started, ended.output);
       if (ended.exitCode === 0)
-        return { outcome: 'passed', exitCode: 0, durationMs, failedFiles: [], outputTail: '' };
+        return {
+          outcome: 'passed',
+          exitCode: 0,
+          durationMs,
+          failedFiles: [],
+          outputTail: passedOutputTail(ended.output),
+        };
       return {
         outcome: 'failed',
         exitCode: ended.exitCode,

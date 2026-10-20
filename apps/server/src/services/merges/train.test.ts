@@ -84,7 +84,7 @@ describe('merge train execution', () => {
   let remoteCheck: CloudRemote | undefined;
   const row = (key: string) => h.repos.taskMerges.open('AR', key);
   const settled = () => vi.waitFor(() => expect(h.domain.merges.busy('AR', 'web')).toBe(false));
-  async function setup(count = 2, remote = true) {
+  async function setup(count = 2, remote = true, filesCommand?: string) {
     merger = fakeMerger(remote);
     executor = {
       available: vi.fn(async () => ({ ok: true as const })),
@@ -103,7 +103,7 @@ describe('merge train execution', () => {
         config.team.limits.maxConcurrentAi = 20;
         config.team.merger = { kind: 'developer' };
         config.project.repos[0]!.requireMerge = true;
-        config.project.repos[0]!.reviewTest = reviewTest;
+        config.project.repos[0]!.reviewTest = filesCommand ? { ...reviewTest, filesCommand } : reviewTest;
         config.pipeline.stages = config.pipeline.stages.filter((s) => s.id !== 'merge' && s.id !== 'release');
         config.pipeline.stages.find((s) => s.id === 'done')!.gate = {
           conditions: [{ type: 'has_label', label: 'code-review-ok' }],
@@ -448,6 +448,27 @@ describe('merge train execution', () => {
     expect(runIds.size).toBe(count);
   });
 
+  it('notes the flaky test files of a passed group check on every member, and merges them', async () => {
+    await setup(3);
+    vi.mocked(executor.run).mockResolvedValue({
+      ...passed,
+      outputTail: 'merge-test flaky: apps/server/test/a.test.ts\n',
+    });
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+    await settled();
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    for (const key of ['AR-1', 'AR-2', 'AR-3']) {
+      const notes = h.domain.timeline
+        .list('AR', { taskKey: key })
+        .filter((e) => e.type === 'task_note' && String(e.data.text).includes('flaky'));
+      expect(notes, key).toHaveLength(1);
+      expect(notes[0]!.data.text).toMatch(
+        /^Merge check \S+ passed after rerunning these test files once \(flaky\): apps\/server\/test\/a\.test\.ts$/,
+      );
+    }
+  });
+
   it('reports a persistent source conflict through the individual conflict path', async () => {
     await setup();
     const build = merger.build.getMockImplementation()!;
@@ -604,6 +625,199 @@ describe('merge train execution', () => {
     expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeUndefined();
     expect(executor.run).toHaveBeenCalledTimes(3);
     expect(merger.push).toHaveBeenCalledTimes(1);
+  });
+
+  describe('blaming a member by its lone run of the failed files (PM-844)', () => {
+    const filesCommand = 'npm run merge-test -- --files';
+    const groupFailed = (failedFiles: string[]): FullTestResult => ({
+      ...passed,
+      outcome: 'failed',
+      exitCode: 1,
+      failedFiles,
+      outputTail: 'Group failure',
+    });
+    /** The group check fails; each lone run answers by the member (1-based card number) its candidate holds. */
+    function script(group: FullTestResult, lone: (card: number) => FullTestResult) {
+      let groups = 0;
+      vi.mocked(executor.run).mockImplementation(async (spec, _signal, started) => {
+        started?.();
+        if (spec.command === reviewTest.command) {
+          if (groups++ > 0) return passed;
+          peerBusy = true;
+          return group;
+        }
+        const mergeCommit = merger.checkoutForCheck.mock.calls.at(-1)![1].mergeCommit;
+        const card = Number.parseInt(merger.parents.get(mergeCommit)![1]!, 16);
+        return lone(card);
+      });
+    }
+    const queuedKeys = () => h.repos.taskMerges.list('queued').map((r) => r.taskKey);
+    const loneCalls = () =>
+      vi.mocked(executor.run).mock.calls.filter(([spec]) => spec.command !== reviewTest.command);
+
+    it('fails only the member that fails the files alone and requeues the others without a limit', async () => {
+      await setup(3, true, filesCommand);
+      const files = ['a.test.ts', "b'c.test.ts"];
+      script(groupFailed(files), (card) =>
+        card === 2 ? { ...groupFailed([...files, 'extra.test.ts']), outputTail: 'Broken alone' } : passed,
+      );
+      const order = queuedKeys();
+      pump();
+      await vi.waitFor(() => expect(row('AR-2')?.state).toBe('failed'));
+      await settled();
+      expect(order).toEqual(['AR-1', 'AR-2', 'AR-3']);
+      const command = `${filesCommand} 'a.test.ts' 'b'\\''c.test.ts'`;
+      expect(loneCalls().map(([spec]) => spec.command)).toEqual([command, command, command]);
+      for (const [spec] of loneCalls())
+        expect(spec).toMatchObject({ maxWorkers: 2, timeoutMs: 600_000, requireHeavyLock: true });
+      const failed = row('AR-2')!;
+      expect(failed.failure).toMatchObject({
+        reason: 'check_failed',
+        base: sha(0),
+        command,
+        files,
+        outputTail: 'Broken alone',
+      });
+      expect(failed.failure?.runId).toBe(loneCalls()[1]![0].runId);
+      const events = h.domain.timeline
+        .list('AR', { taskKey: 'AR-2' })
+        .filter((e) => e.type === 'task_merge_failed');
+      expect(events).toHaveLength(1);
+      expect(events[0]!.data).toMatchObject({ runId: failed.failure!.runId, files, mergeId: failed.id });
+      expect(queuedKeys()).toEqual(['AR-1', 'AR-3']);
+      for (const key of ['AR-1', 'AR-3']) {
+        const requeued = row(key)!;
+        expect(requeued).toMatchObject({ state: 'queued', step: 'queued' });
+        expect(requeued.diagnostic).toBeUndefined();
+        expect(requeued.trainId).toBeUndefined();
+        expect(
+          h.domain.timeline
+            .list('AR', { taskKey: key })
+            .some((e) => e.type === 'task_note' && String(e.data.text).includes('passed them alone')),
+        ).toBe(true);
+      }
+      expect(h.repos.db.prepare("SELECT id FROM merge_trains WHERE state = 'failed'").all()).toHaveLength(1);
+      expect(merger.releaseCheck).toHaveBeenCalledTimes(1 + 3 + 1);
+      // The requeued cards merge in a later train on their own.
+      pump();
+      await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+      await settled();
+      expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
+      expect(row('AR-2')?.state).toBe('failed');
+    });
+
+    it('blames every member that fails alone', async () => {
+      await setup(3, true, filesCommand);
+      script(groupFailed(['a.test.ts']), (card) => (card === 3 ? passed : groupFailed(['a.test.ts'])));
+      pump();
+      await vi.waitFor(() => expect(row('AR-2')?.state).toBe('failed'));
+      await settled();
+      expect(row('AR-1')?.state).toBe('failed');
+      expect(row('AR-3')?.state).toBe('queued');
+      expect(row('AR-3')?.diagnostic).toBeUndefined();
+    });
+
+    it.each([
+      ['passes', () => passed],
+      ['fails with no failed file', () => groupFailed([])],
+      ['fails other files only', () => groupFailed(['other.test.ts'])],
+      ['cannot run', (): FullTestResult => ({ ...passed, outcome: 'error', reason: 'timeout' })],
+    ] as const)('halves the group when no member alone blames itself (%s)', async (_name, lone) => {
+      await setup(3, true, filesCommand);
+      script(groupFailed(['a.test.ts']), lone);
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.diagnostic).toBeDefined());
+      await settled();
+      expect(loneCalls()).toHaveLength(3);
+      for (const key of ['AR-1', 'AR-2', 'AR-3']) {
+        expect(row(key)).toMatchObject({ state: 'queued', diagnostic: { maxCards: 2 } });
+        expect(row(key)?.failure).toBeUndefined();
+      }
+    });
+
+    it('treats a member whose lone run throws as unknown', async () => {
+      await setup(3, true, filesCommand);
+      script(groupFailed(['a.test.ts']), (card) => (card === 1 ? groupFailed(['a.test.ts']) : passed));
+      const ar3 = row('AR-3')!.id;
+      merger.checkoutForCheck.mockImplementation(async (_ref, input) => {
+        if (input.mergeId.endsWith(`-${ar3}`)) throw new Error('No space left');
+        return { path: '/fake/check', gitDir: '/fake/git' };
+      });
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.state).toBe('failed'));
+      await settled();
+      expect(queuedKeys()).toEqual(['AR-2', 'AR-3']);
+      expect(row('AR-3')?.diagnostic).toBeUndefined();
+      expect(
+        h.domain.timeline
+          .list('AR', { taskKey: 'AR-3' })
+          .some((e) => e.type === 'task_note' && String(e.data.text).includes('could not be told apart')),
+      ).toBe(true);
+    });
+
+    it('treats a member whose lone merge build throws as unknown', async () => {
+      await setup(3, true, filesCommand);
+      script(groupFailed(['a.test.ts']), (card) => (card === 1 ? groupFailed(['a.test.ts']) : passed));
+      const build = merger.build.getMockImplementation()!;
+      let builds = 0;
+      merger.build.mockImplementation(async (ref, input) => {
+        if (String(input.message).startsWith('Diagnose AR-3')) throw new Error('fatal: bad object');
+        builds += 1;
+        return build(ref, input);
+      });
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.state).toBe('failed'));
+      await settled();
+      expect(builds).toBeGreaterThan(0);
+      expect(queuedKeys()).toEqual(['AR-2', 'AR-3']);
+      expect(row('AR-3')?.state).toBe('queued');
+    });
+
+    it('halves the group without a filesCommand', async () => {
+      await setup(3);
+      script(groupFailed(['a.test.ts']), () => groupFailed(['a.test.ts']));
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.diagnostic).toBeDefined());
+      await settled();
+      expect(executor.run).toHaveBeenCalledTimes(1);
+      expect(row('AR-1')?.diagnostic?.maxCards).toBe(2);
+    });
+
+    it('halves the group when the group check names no failed file', async () => {
+      await setup(3, true, filesCommand);
+      script(groupFailed([]), () => groupFailed(['a.test.ts']));
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.diagnostic).toBeDefined());
+      await settled();
+      expect(executor.run).toHaveBeenCalledTimes(1);
+      expect(row('AR-1')?.diagnostic?.maxCards).toBe(2);
+    });
+
+    it('invalidates the train when it is stopped during the lone runs', async () => {
+      await setup(3, true, filesCommand);
+      script(groupFailed(['a.test.ts']), () => passed);
+      vi.mocked(executor.run).mockImplementationOnce(async () => {
+        peerBusy = true;
+        return groupFailed(['a.test.ts']);
+      });
+      vi.mocked(executor.run).mockImplementationOnce(async (_spec, signal) => {
+        await new Promise<void>((resolve) =>
+          signal.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        return groupFailed(['a.test.ts']);
+      });
+      pump();
+      await vi.waitFor(() => expect(executor.run).toHaveBeenCalledTimes(2));
+      await h.domain.merges.stop();
+      expect(executor.run).toHaveBeenCalledTimes(2);
+      expect(h.repos.mergeTrains.listRunning()).toEqual([]);
+      for (const key of ['AR-1', 'AR-2', 'AR-3']) {
+        expect(row(key)).toMatchObject({ state: 'queued', step: 'queued' });
+        expect(row(key)?.diagnostic).toBeUndefined();
+        expect(row(key)?.failure).toBeUndefined();
+      }
+      expect(h.repos.db.prepare("SELECT id FROM merge_trains WHERE state = 'failed'").all()).toEqual([]);
+    });
   });
 
   it('restores priority, yields to documents, and keeps diagnostic limits across restart and explicit retry', async () => {

@@ -793,4 +793,84 @@ describe('REST API', () => {
       rmSync(dist, { recursive: true, force: true });
     }
   });
+
+  it('answers 404 JSON, never the web app, to unknown paths under the server namespaces (PM-723)', async () => {
+    await h.close();
+    const dist = mkdtempSync(join(tmpdir(), 'pm-web-'));
+    try {
+      writeFileSync(join(dist, 'index.html'), '<!doctype html><title>projectman</title>');
+      h = await createAppHarness({ webDistDir: dist });
+      const notFound = { error: { code: 'not_found', message: 'route not found' } };
+      for (const url of [
+        '/engine',
+        '/engine/',
+        '/engine/unknown',
+        '/engine/files/uploads/smoke-test',
+        '/engine/files/uploads/smoke-test?x=1',
+        '/engine?x=1',
+      ]) {
+        const get = await h.app.inject({ method: 'GET', url });
+        expect(get.statusCode, url).toBe(404);
+        expect(get.headers['content-type'], url).toContain('application/json');
+        expect(get.json(), url).toEqual(notFound);
+        const head = await h.app.inject({ method: 'HEAD', url });
+        expect(head.statusCode, url).toBe(404);
+        expect(head.headers['content-type'], url).toContain('application/json');
+        expect(head.body, url).toBe('');
+      }
+      const cookie = await setupOwner(h.app);
+      const api = await inject(h.app, 'GET', '/api/unknown', cookie);
+      expect(api.statusCode).toBe(404);
+      for (const url of ['/hooks/unknown/deeper', '/mcp/unknown/deeper']) {
+        const res = await h.app.inject({ method: 'GET', url });
+        expect(res.statusCode, url).toBe(404);
+        expect(res.body, url).not.toContain('<title>');
+      }
+      const anonymous = await h.app.inject({ method: 'GET', url: '/api/unknown' });
+      expect(anonymous.statusCode).toBe(401);
+      expect(anonymous.json()).toEqual({ error: { code: 'unauthorized', message: 'login required' } });
+      for (const url of ['/', '/board/AR', '/engineered']) {
+        const res = await h.app.inject({ method: 'GET', url });
+        expect(res.statusCode, url).toBe(200);
+        expect(res.body, url).toContain('<title>projectman</title>');
+      }
+      const head = await h.app.inject({ method: 'HEAD', url: '/board/AR' });
+      expect(head.statusCode).toBe(200);
+      expect(head.headers['content-type']).toContain('text/html');
+      expect(head.body).toBe('');
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+
+  it('answers 404 to an unknown engine path when the web app is not built (PM-723)', async () => {
+    const res = await h.app.inject({ method: 'GET', url: '/engine/unknown' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: { code: 'not_found', message: 'route not found' } });
+  });
+
+  it('cloud app: the upload GET is 404 and the upload POST is refused without a machine key (PM-723)', async () => {
+    await h.close();
+    const dist = mkdtempSync(join(tmpdir(), 'pm-web-'));
+    try {
+      writeFileSync(join(dist, 'index.html'), '<!doctype html><title>projectman</title>');
+      h = await createAppHarness({
+        webDistDir: dist,
+        app: { engineMode: 'cloud', appVersion: 'test-version', claudeTmpRoots: [] },
+      });
+      const get = await h.app.inject({ method: 'GET', url: '/engine/files/uploads/smoke-test' });
+      expect(get.statusCode).toBe(404);
+      expect(get.body).not.toContain('<title>');
+      const post = await h.app.inject({
+        method: 'POST',
+        url: '/engine/files/uploads/smoke-test',
+        headers: { 'content-type': 'application/octet-stream' },
+        payload: Buffer.alloc(0),
+      });
+      expect(post.statusCode).toBe(401);
+      expect(post.json()).toEqual({ error: { code: 'unauthorized', message: 'Invalid engine key' } });
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
 });

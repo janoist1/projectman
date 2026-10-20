@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createConfigStore } from '../../src/config';
 
-interface SeedEntry {
+export interface SeedEntry {
   path: string;
   mode: number;
   /** Absent for a directory. */
@@ -34,13 +34,31 @@ function collect(root: string, relative: string, into: SeedEntry[]): void {
   }
 }
 
+/** Every directory and file below `root`, with the bytes, ready to be written again by `writeEntries`. */
+export function readEntries(root: string): SeedEntry[] {
+  const entries: SeedEntry[] = [];
+  collect(root, '', entries);
+  return entries;
+}
+
+export function writeEntries(rootDir: string, entries: readonly SeedEntry[]): void {
+  mkdirSync(rootDir, { recursive: true });
+  for (const entry of entries) {
+    const target = join(rootDir, entry.path);
+    if (entry.data === undefined) {
+      mkdirSync(target, { recursive: true });
+    } else {
+      writeFileSync(target, entry.data);
+      chmodSync(target, entry.mode);
+    }
+  }
+}
+
 async function buildSnapshot(): Promise<SeedEntry[]> {
   const root = mkdtempSync(join(tmpdir(), 'pm-seed-'));
   try {
     await createConfigStore({ rootDir: root }).init();
-    const entries: SeedEntry[] = [];
-    collect(root, '', entries);
-    return entries;
+    return readEntries(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -54,15 +72,5 @@ async function buildSnapshot(): Promise<SeedEntry[]> {
  */
 export async function seedCustomizationRepository(rootDir: string): Promise<void> {
   snapshot ??= buildSnapshot();
-  const entries = await snapshot;
-  mkdirSync(rootDir, { recursive: true });
-  for (const entry of entries) {
-    const target = join(rootDir, entry.path);
-    if (entry.data === undefined) {
-      mkdirSync(target, { recursive: true });
-    } else {
-      writeFileSync(target, entry.data);
-      chmodSync(target, entry.mode);
-    }
-  }
+  writeEntries(rootDir, await snapshot);
 }

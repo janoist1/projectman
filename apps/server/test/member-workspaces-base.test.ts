@@ -9,6 +9,7 @@ import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { createGitSeed } from './helpers/git-seed';
 
 /*
  * PM-740: every session preparation starts from a fresh default branch (one fetch each), and a
@@ -33,6 +34,7 @@ async function commitFile(repo: string, file: string, content: string): Promise<
 }
 
 let configDir: string;
+let seed: ReturnType<typeof createGitSeed>;
 beforeAll(async () => {
   configDir = await mkdtemp(path.join(tmpdir(), 'pm-gitconfig-'));
   const file = path.join(configDir, 'gitconfig');
@@ -42,6 +44,10 @@ beforeAll(async () => {
   );
   vi.stubEnv('GIT_CONFIG_GLOBAL', file);
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  seed = createGitSeed(path.join(configDir, 'seed'), {
+    '.gitignore': 'node_modules/\n',
+    'README.md': 'hello\n',
+  });
 });
 afterAll(async () => {
   vi.unstubAllEnvs();
@@ -73,10 +79,8 @@ describe('a fresh base at every session start (PM-740)', { timeout: 60_000 }, ()
         },
       }),
     });
-    await git(h.workspace, 'init', '--quiet', '-b', 'main');
-    await writeFile(path.join(h.workspace, '.gitignore'), 'node_modules/\n');
-    await git(h.workspace, 'add', '.gitignore');
-    initial = await commitFile(h.workspace, 'README.md', 'hello\n');
+    seed.copyTo(h.workspace);
+    initial = seed.commit;
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.tasks.create('AR', { title: 'Signup page' }, OWNER_ACTOR);
   }

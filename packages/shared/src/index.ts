@@ -35,6 +35,7 @@ export * from './domain/obligation';
 export * from './domain/full-test';
 export * from './domain/merge';
 export * from './domain/merge-input';
+export * from './domain/merge-test';
 export * from './domain/release';
 export * from './domain/work-map';
 export * from './domain/boundary';

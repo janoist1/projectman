@@ -691,7 +691,7 @@ export class InboxService {
    */
   screenedQuestions(projectKey: string, since: string): ScreenedQuestionsResponse {
     const screened = this.ctx.repos.inbox
-      .list(projectKey, { kind: 'question', limit: 100_000 })
+      .list(projectKey, { kind: 'question' })
       .filter((item) => {
         const group = this.ctx.repos.inbox.groupOf(item.id);
         return !group || group.primaryItemId === item.id;
@@ -1778,7 +1778,7 @@ export class InboxService {
   reassignRemovedHuman(projectKey: string, handle: string, owners: string[]): void {
     // A question the Operator still screens (PM-556) has its assignees too: it goes to them when released.
     for (const item of this.ctx.repos.inbox
-      .list(projectKey, { state: PENDING_INBOX_STATES, limit: 100_000 })
+      .list(projectKey, { state: PENDING_INBOX_STATES })
       .filter((i) => i.assignees.includes(handle))) {
       const remaining = item.assignees.filter((h) => h !== handle);
       const updated = this.ctx.repos.inbox.updateAssignees(

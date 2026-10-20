@@ -13,6 +13,7 @@ import { flush } from './helpers/fakes';
 import { createDomainContext, createEventBus } from '../src/core/base';
 import { MemberWorkspaces } from '../src/runtime/sessions/workspaces';
 import { createMemberWorkspaceManager } from '../src/worktree';
+import { createGitSeed } from './helpers/git-seed';
 
 /*
  * PM-138: durable member workspaces with the real git-backed manager and the fake runner. The
@@ -42,6 +43,7 @@ const exists = (p: string) =>
   );
 
 let configDir: string;
+let seed: ReturnType<typeof createGitSeed>;
 beforeAll(async () => {
   configDir = await mkdtemp(path.join(tmpdir(), 'pm-gitconfig-'));
   const file = path.join(configDir, 'gitconfig');
@@ -51,6 +53,10 @@ beforeAll(async () => {
   );
   vi.stubEnv('GIT_CONFIG_GLOBAL', file);
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  seed = createGitSeed(path.join(configDir, 'seed'), {
+    '.gitignore': 'node_modules/\n',
+    'README.md': 'hello\n',
+  });
 });
 afterAll(async () => {
   vi.unstubAllEnvs();
@@ -69,10 +75,8 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
 
   async function setup(opts: Parameters<typeof createDomainHarness>[0] = {}) {
     h = await createDomainHarness({ memberWorkspaces: true, persistent: true, adjust: twoTasks, ...opts });
-    await git(h.workspace, 'init', '--quiet', '-b', 'main');
-    await writeFile(path.join(h.workspace, '.gitignore'), 'node_modules/\n');
-    await git(h.workspace, 'add', '.gitignore');
-    initial = await commitFile(h.workspace, 'README.md', 'hello\n');
+    seed.copyTo(h.workspace);
+    initial = seed.commit;
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.tasks.create('AR', { title: 'Signup page' }, OWNER_ACTOR);
   }

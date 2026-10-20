@@ -30,5 +30,7 @@ export {
   sharedClaudeTmpRoots,
 } from './session-roots';
 export { isWithin, realpathOfNearest } from './within';
+export { resolveWorkRoots, WORK_ROOT_MARKER, WorkRootError } from './work-roots';
+export type { WorkRoots } from './work-roots';
 export { openWorkspaceFile } from './workspace-file';
 export type { WorkspaceFileHooks } from './workspace-file';

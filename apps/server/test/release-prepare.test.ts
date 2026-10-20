@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../../scripts/cloud/config';
 import type { CloudContext } from '../../../scripts/cloud/context';
 import type { RunOptions, RunResult } from '../../../scripts/cloud/deps';
@@ -15,6 +15,14 @@ import { candidateMarkerFile, preparedHybridReleaseSchema } from '../../../scrip
 import { defaultSessionTmpRoot, sharedClaudeTmpRoots } from '../src/engine-host';
 import type { SandboxedEnd, SandboxedRun } from '../src/full-test';
 import { CloudWorld } from './helpers/fake-aws';
+
+vi.mock('../src/full-test/sandbox', async (original) => ({
+  ...(await original<typeof import('../src/full-test/sandbox')>()),
+  // No real sandbox sockets here: keep the fixture runs inside the test's own temporary root, which is
+  // too deep for the socket frame of the real `runDirOf`.
+  runDirOf: (root: string, _shortRoot: string, runId: string) =>
+    path.join(root, `pmft-${runId.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`),
+}));
 
 const execFileAsync = promisify(execFile);
 const FAKE_URL = 'https://example.invalid/projectman.git';
@@ -76,6 +84,44 @@ interface Recorded {
   cwd: string;
 }
 
+let remoteTemplate: { dir: string; commit: string; newer: string } | undefined;
+
+/** The release repository: the release commit, and a newer one that main moved ahead to. */
+function buildRemote(): NonNullable<typeof remoteTemplate> {
+  const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'pm-release-remote-'));
+  process.once('exit', () => fs.rmSync(base, { recursive: true, force: true }));
+  const dir = path.join(base, 'remote');
+  fs.mkdirSync(dir);
+  git(dir, 'init', '--quiet', '-b', 'main');
+  git(dir, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+  const write = (file: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    fs.writeFileSync(path.join(dir, file), text);
+  };
+  write('.gitignore', 'node_modules/\napps/server/dist/\n');
+  write('package.json', JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*'] }));
+  write(
+    'package-lock.json',
+    JSON.stringify({
+      lockfileVersion: 3,
+      packages: { '': { name: 'root' }, 'apps/server': { name: '@projectman/server' } },
+    }),
+  );
+  write(
+    'apps/server/package.json',
+    JSON.stringify({ name: '@projectman/server', scripts: { build: 'true' } }),
+  );
+  write('deploy/cloud/Dockerfile', 'FROM scratch\n');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '--quiet', '-m', 'release commit');
+  const commit = git(dir, 'rev-parse', 'HEAD').trim();
+  write('later.txt', 'main moved ahead\n');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '--quiet', '-m', 'main moved ahead');
+  const newer = git(dir, 'rev-parse', 'HEAD').trim();
+  return { dir, commit, newer };
+}
+
 class ReleaseWorld {
   readonly cloud = new CloudWorld();
   readonly home = this.cloud.home;
@@ -109,35 +155,12 @@ class ReleaseWorld {
     this.cloud.writeConfig({ repository: { url: FAKE_URL } });
   }
 
+  /** The remote is the same in every world: it is made once and copied, with its commits (no path is in it). */
   private makeRemote(): void {
-    fs.mkdirSync(this.remote, { recursive: true });
-    git(this.remote, 'init', '--quiet', '-b', 'main');
-    git(this.remote, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
-    const write = (file: string, text: string) => {
-      fs.mkdirSync(path.dirname(path.join(this.remote, file)), { recursive: true });
-      fs.writeFileSync(path.join(this.remote, file), text);
-    };
-    write('.gitignore', 'node_modules/\napps/server/dist/\n');
-    write('package.json', JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*'] }));
-    write(
-      'package-lock.json',
-      JSON.stringify({
-        lockfileVersion: 3,
-        packages: { '': { name: 'root' }, 'apps/server': { name: '@projectman/server' } },
-      }),
-    );
-    write(
-      'apps/server/package.json',
-      JSON.stringify({ name: '@projectman/server', scripts: { build: 'true' } }),
-    );
-    write('deploy/cloud/Dockerfile', 'FROM scratch\n');
-    git(this.remote, 'add', '-A');
-    git(this.remote, 'commit', '--quiet', '-m', 'release commit');
-    this.commit = git(this.remote, 'rev-parse', 'HEAD').trim();
-    write('later.txt', 'main moved ahead\n');
-    git(this.remote, 'add', '-A');
-    git(this.remote, 'commit', '--quiet', '-m', 'main moved ahead');
-    this.newer = git(this.remote, 'rev-parse', 'HEAD').trim();
+    remoteTemplate ??= buildRemote();
+    fs.cpSync(remoteTemplate.dir, this.remote, { recursive: true, preserveTimestamps: true });
+    this.commit = remoteTemplate.commit;
+    this.newer = remoteTemplate.newer;
   }
 
   cleanup(): void {
@@ -739,6 +762,11 @@ describe('the preparer sandbox', () => {
     expect(install.command).toContain('--registry=https://registry.npmjs.org');
     for (const entry of others) expect(entry.settings.network.allowedDomains).toEqual([]);
     for (const entry of runs) expect(entry.settings.network.allowLocalBinding).toBe(false);
+    // No Unix socket either: the candidate's steps have nothing to serve (PM-847).
+    for (const entry of runs) {
+      expect(entry.settings.network).not.toHaveProperty('allowUnixSockets');
+      expect(entry.settings.network).not.toHaveProperty('allowAllUnixSockets');
+    }
 
     // Writable: the throwaway directory plus the package trees (install) or the server bundle (build) only.
     const runDirOf = (entry: Recorded) => path.dirname(entry.settingsFile);

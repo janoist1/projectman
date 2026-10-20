@@ -192,8 +192,22 @@ else if (tool === 'node') {
   if (command === 'check') process.exit(state.checkError || 0);
 }
 `;
-    for (const tool of ['restic', 'litestream', 'node', 'curl', 'id'])
+    for (const tool of ['restic', 'litestream', 'node'])
       writeFileSync(join(bin, tool), fake, { mode: 0o755 });
+    // The two that are polled or trivial are shell scripts: starting node for each costs most of a run.
+    writeFileSync(
+      join(bin, 'curl'),
+      `#!/bin/sh\necho "curl $*" >> '${join(temp, 'calls')}'\n[ -e '${join(temp, 'server-ready')}' ]\n`,
+      { mode: 0o755 },
+    );
+    writeFileSync(join(bin, 'id'), `#!/bin/sh\necho "id $*" >> '${join(temp, 'calls')}'\necho 10001\n`, {
+      mode: 0o755,
+    });
+    // The entrypoint polls the server once a second; a poll of 50 ms keeps the same loop and the same exits.
+    // Any other sleep (the backup loop's long ones) is left as it is.
+    writeFileSync(join(bin, 'sleep'), '#!/bin/sh\n[ "$1" = 1 ] && set -- 0.05\nexec /bin/sleep "$@"\n', {
+      mode: 0o755,
+    });
   });
   afterEach(() => rmSync(temp, { recursive: true, force: true }));
 
@@ -311,6 +325,97 @@ describe('deploy/cloud shell scripts', () => {
       expect(result.status).toBe(0);
     });
   }
+
+  describe('smoke.sh engine door probes (PM-723)', () => {
+    let temp: string;
+    beforeEach(() => {
+      temp = mkdtempSync(join(tmpdir(), 'pm-smoke-'));
+      const bin = join(temp, 'bin');
+      mkdirSync(bin);
+      // A fake curl: logs "METHOD path", answers the status from the "answers" file ("METHOD path code").
+      writeFileSync(
+        join(bin, 'curl'),
+        [
+          '#!/usr/bin/env bash',
+          'method=GET; url=""; fmt=""',
+          'while [ $# -gt 0 ]; do',
+          '  case "$1" in',
+          '    -X) method="$2"; shift ;;',
+          '    -w) fmt="$2"; shift ;;',
+          '    -o|-H|--max-time|--data-binary) shift ;;',
+          '    -*) ;;',
+          '    *) url="$1" ;;',
+          '  esac',
+          '  shift',
+          'done',
+          'path="/${url#*://*/}"',
+          'echo "$method $path" >> "$FAKE_CURL_DIR/calls"',
+          'code=$(awk -v k="$method $path" \'index($0, k " ") == 1 { print $NF }\' "$FAKE_CURL_DIR/answers")',
+          '[ -n "$code" ] || { printf 000; exit 7; }',
+          'if [ "$path" = /api/setup ]; then printf \'{"needsSetup":false,"publicBoard":false}\\n%s\' "$code"; exit 0; fi',
+          'printf \'%s\' "$code"',
+          '',
+        ].join('\n'),
+      );
+      chmodSync(join(bin, 'curl'), 0o755);
+    });
+    afterEach(() => rmSync(temp, { recursive: true, force: true }));
+
+    const DOORS = {
+      linkGet: 'GET /engine/link',
+      downloadGet: 'GET /engine/files/downloads/smoke-test',
+      uploadGet: 'GET /engine/files/uploads/smoke-test',
+      uploadPost: 'POST /engine/files/uploads/smoke-test',
+    };
+    function smoke(answers: Record<string, string | null>) {
+      const lines = ['GET /api/setup 200'];
+      for (const [key, code] of Object.entries(answers))
+        if (code !== null) lines.push(`${DOORS[key as keyof typeof DOORS]} ${code}`);
+      writeFileSync(join(temp, 'answers'), `${lines.join('\n')}\n`);
+      const result = spawnSync('bash', [join(cloudDir, 'smoke.sh'), 'https://board.example.com'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: {
+          PATH: `${join(temp, 'bin')}:${process.env.PATH}`,
+          FAKE_CURL_DIR: temp,
+          CF_ACCESS_CLIENT_ID: 'test-id.access',
+          CF_ACCESS_CLIENT_SECRET: 'test-secret',
+        },
+      });
+      const calls = readFileSync(join(temp, 'calls'), 'utf8').trim().split('\n');
+      return { result, calls };
+    }
+    const refused = { linkGet: '401', downloadGet: '401', uploadGet: '404', uploadPost: '401' };
+
+    it('probes the upload door with a GET and with a POST, and passes when every probe is refused', () => {
+      const { result, calls } = smoke(refused);
+      expect(result.status).toBe(0);
+      expect(calls).toEqual(
+        expect.arrayContaining([DOORS.linkGet, DOORS.downloadGet, DOORS.uploadGet, DOORS.uploadPost]),
+      );
+      expect(result.stdout).toContain(
+        'POST /engine/files/uploads/smoke-test refuses an anonymous caller (401)',
+      );
+    });
+
+    it('fails when only the upload POST answers 2xx', () => {
+      const { result } = smoke({ ...refused, uploadPost: '200' });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('POST /engine/files/uploads/smoke-test answered 200');
+    });
+
+    it('fails when the upload GET answers 200 (the web app fallback)', () => {
+      const { result } = smoke({ ...refused, uploadGet: '200' });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('GET /engine/files/uploads/smoke-test answered 200');
+    });
+
+    it('fails when an engine probe cannot be reached', () => {
+      const { result } = smoke({ ...refused, uploadPost: null });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('POST /engine/files/uploads/smoke-test is not reachable');
+    });
+  });
 
   it('the entrypoint starts as root only to drop to an unprivileged user, and keeps it dropped', () => {
     expect(entrypoint).toMatch(

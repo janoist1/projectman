@@ -1,3 +1,5 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fullTestSandbox } from '../runtime/sessions';
@@ -9,9 +11,11 @@ import {
   OutputTail,
   OUTPUT_LIMIT_BYTES,
   OUTPUT_TAIL_CHARS,
+  passedOutputTail,
   stripAnsi,
 } from './output';
 import {
+  canonicalRoot,
   closedStdin,
   fullTestEnv,
   installerSettings,
@@ -35,6 +39,26 @@ describe('the output of a full test', () => {
       'FAIL: not a vitest line is still a name-less colon',
     ].join('\n');
     expect(failedFiles(output)).toEqual(['test/b.test.ts', 'test/c.test.ts']);
+  });
+
+  it('prefers the merge-test failed marker lines to vitest FAIL lines', () => {
+    const output = [
+      ' FAIL  test/a.test.ts > x',
+      ' FAIL  test/b.test.ts > x',
+      'merge-test failed: apps/server/test/b.test.ts',
+      'merge-test failed: apps/server/test/b.test.ts',
+      'merge-test failed: /etc/passwd',
+      'merge-test flaky: apps/web/src/c.test.ts',
+    ].join('\n');
+    expect(failedFiles(output)).toEqual(['apps/server/test/b.test.ts']);
+    expect(failedFiles('merge-test flaky: apps/web/src/c.test.ts')).toEqual([]);
+  });
+
+  it('reports the flaky marker lines of a passed run, else nothing', () => {
+    const output =
+      '\u001b[2mmerge-test flaky: a/x.test.ts\u001b[0m\r\nnoise\nmerge-test flaky: a/y.test.ts\nmerge-test failed: a/z.test.ts\n';
+    expect(passedOutputTail(output)).toBe('merge-test flaky: a/x.test.ts\nmerge-test flaky: a/y.test.ts\n');
+    expect(passedOutputTail('all green\n')).toBe('');
   });
 
   it('names no file for a failure that is not a test, and at most 20', () => {
@@ -187,54 +211,78 @@ describe('the output of a full test', () => {
 });
 
 describe('the directory of a full test run', () => {
-  // A Unix socket path must stay below macOS's 104 bytes (Node says EINVAL to a longer one): the sandbox's TMPDIR
-  // holds srt's socket and the sockets of the control socket tests, which bind below the real path of TMPDIR and
-  // of HOME. `runDirOf` takes the real path of the root (the executor resolves it: macOS's `/var` is a link).
-  const longest = (runDir: string) => {
-    const { tmp, home } = runPaths(runDir);
-    return [
-      path.join(tmp, 'srt-mux-9999999-99.sock'),
-      path.join(tmp, 'pm-ctl-XXXXXX', 'control.sock'),
-      path.join(tmp, 'pm-rel-XXXXXX', 'control.sock'),
-      path.join(tmp, 'pm-link-XXXXXX', 'link', 'x.sock'),
-      path.join(home, 'pm-sock-XXXXXX', 'x.sock'),
-    ].map((socket) => Buffer.byteLength(socket, 'utf8'));
+  const RUN_ID = 'ftr_mgabc12345ef01234567';
+  // A Unix socket path must stay within 100 bytes (macOS's limit is 104): the sandbox's TMPDIR holds
+  // srt's socket, and its HOME the control socket. The longest names that go below them:
+  const SRT_SOCKET = 'srt-mux-9999999-99.sock';
+  const CONTROL_SOCKET = 'control.sock';
+  const bytes = (value: string) => Buffer.byteLength(value, 'utf8');
+  const socketPathsOf = (runDir: string) => {
+    const paths = runPaths(runDir);
+    return [path.join(paths.tmp, SRT_SOCKET), path.join(paths.home, CONTROL_SOCKET)];
+  };
+  const expectRoomFor = (runDir: string) => {
+    const paths = runPaths(runDir);
+    for (const socketPath of socketPathsOf(runDir)) expect(bytes(socketPath)).toBeLessThanOrEqual(100);
+    // The frame itself: at least 40 bytes below both, the separator included.
+    for (const dir of [paths.tmp, paths.home]) expect(bytes(dir) + 40).toBeLessThanOrEqual(100);
   };
 
   it('is short, under the temporary directory, named by the end of the run id', () => {
-    const tmp = '/tmp/projectman';
-    const dir = runDirOf(tmp, '/private/tmp', 'ftr_mgabc12345ef01234567');
+    const tmp = '/private/tmp';
+    const dir = runDirOf(tmp, '/private/tmp', RUN_ID);
     expect(dir).toBe(`${tmp}/pmft-01234567`);
-    expect(Math.max(...longest(dir))).toBeLessThanOrEqual(103);
-  });
-
-  it('moves to the short root when the resolved system temporary directory leaves no room', () => {
-    // The real `os.tmpdir()` of macOS, resolved: every socket of the control socket tests was too long for
-    // Node (EINVAL) in the first merge check (PM-754).
-    const system = '/private/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T';
-    const dir = runDirOf(system, '/private/tmp', 'ftr_mgabc12345ef01234567');
-    expect(dir).toBe('/private/tmp/pmft-01234567');
-    expect(Math.max(...longest(dir))).toBeLessThanOrEqual(103);
+    expectRoomFor(dir);
   });
 
   it('moves to the short root when the temporary directory is too deep for the socket', () => {
     const deep = `/private/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T/pm-full-test-eusHub/runs`;
-    const dir = runDirOf(deep, '/private/tmp', 'ftr_mgabc12345ef01234567');
+    const dir = runDirOf(deep, '/private/tmp', RUN_ID);
     expect(dir).toBe('/private/tmp/pmft-01234567');
-    expect(Math.max(...longest(dir))).toBeLessThanOrEqual(103);
+    expectRoomFor(dir);
   });
 
-  it('counts bytes, not characters, of a root with multibyte characters', () => {
-    // 23 characters of 2 bytes each: short by characters, too long by bytes.
-    const root = `/tmp/${'é'.repeat(15)}`;
-    expect(runDirOf(root, '/private/tmp', 'ftr_1')).toBe(path.join(root, 'pmft-ftr1'));
-    const wide = `/tmp/${'é'.repeat(18)}`;
-    expect(runDirOf(wide, '/private/tmp', 'ftr_1')).toBe('/private/tmp/pmft-ftr1');
+  it('counts the extra bytes of the canonical path: /var/folders resolves to /private/var/folders', () => {
+    // 26 bytes as the link, 34 as the real path: the link would fit, the real path leaves 39 bytes.
+    const link = '/var/folders/ab/cdefghij/T';
+    const real = '/private/var/folders/ab/cdefghij/T';
+    expect(runDirOf(link, '/private/tmp', RUN_ID)).toBe(`${link}/pmft-01234567`);
+    expect(runDirOf(real, '/private/tmp', RUN_ID)).toBe('/private/tmp/pmft-01234567');
+    // The edge: one byte less in the root and the 40 bytes are there.
+    const edge = '/private/var/folders/ab/cdefghi/T';
+    expect(runDirOf(edge, '/private/tmp', RUN_ID)).toBe(`${edge}/pmft-01234567`);
+    expectRoomFor(`${edge}/pmft-01234567`);
   });
 
-  it('refuses a short root that leaves no room either', () => {
-    const tooLong = `/private/tmp/${'a'.repeat(60)}`;
-    expect(() => runDirOf(tooLong, tooLong, 'ftr_1')).toThrow(/no run directory/);
+  it('measures bytes, not characters', () => {
+    // 18 characters but 35 bytes: the root leaves 38 bytes, not the 40 the frame needs.
+    const multibyte = `/${'é'.repeat(17)}`;
+    expect(multibyte.length).toBe(18);
+    expect(bytes(multibyte)).toBe(35);
+    expect(runDirOf(multibyte, '/private/tmp', RUN_ID)).toBe('/private/tmp/pmft-01234567');
+    // The same number of bytes in ASCII is the same decision.
+    expect(runDirOf(`/${'e'.repeat(34)}`, '/private/tmp', RUN_ID)).toBe('/private/tmp/pmft-01234567');
+    expect(runDirOf(`/${'e'.repeat(32)}`, '/private/tmp', RUN_ID)).toBe(`/${'e'.repeat(32)}/pmft-01234567`);
+  });
+
+  it('checks the frame of the short root too, and throws when no root has room', () => {
+    const deep = `/private/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T/pm-full-test-eusHub/runs`;
+    expect(() => runDirOf(deep, deep, RUN_ID)).toThrow(/no root leaves 40 bytes/);
+    expect(() => runDirOf(deep, `/${'é'.repeat(20)}`, RUN_ID)).toThrow(/no root leaves 40 bytes/);
+    // A suitable short root is used even though it is not `/private/tmp`.
+    expect(runDirOf(deep, '/tmp', RUN_ID)).toBe('/tmp/pmft-01234567');
+  });
+
+  it('resolves links of an existing root, and leaves a missing one where it is', () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), 'pm-canonical-'));
+    try {
+      mkdirSync(path.join(base, 'real'));
+      symlinkSync(path.join(base, 'real'), path.join(base, 'link'));
+      expect(canonicalRoot(path.join(base, 'link'))).toBe(realpathSync(path.join(base, 'real')));
+      expect(canonicalRoot(path.join(base, 'missing'))).toBe(path.join(base, 'missing'));
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 
@@ -255,7 +303,6 @@ describe('the sandbox of a full test run', () => {
         allowedDomains: [],
         deniedDomains: [],
         allowLocalBinding: true,
-        // PM-754: Unix sockets only below the run's own tmp directory, never globally.
         allowUnixSockets: ['/tmp/projectman-full-test-ftr_1/sandbox/tmp'],
         allowAllUnixSockets: false,
       },
@@ -271,16 +318,22 @@ describe('the sandbox of a full test run', () => {
     expect(paths.settings).toBe('/tmp/projectman-full-test-ftr_1/settings.json');
   });
 
-  it('opens Unix sockets for the run’s own tmp directory only, and the installer for none (PM-754)', () => {
-    const network = srtSettings(spec, paths).network;
+  it('opens Unix sockets only below the run own tmp, never all of them', () => {
+    const { network } = srtSettings(spec, paths);
     expect(network.allowUnixSockets).toEqual([paths.tmp]);
     expect(network.allowAllUnixSockets).toBe(false);
-    // Nothing shared: not /tmp, the checkout, the app home or another run.
-    for (const shared of ['/tmp', '/private/tmp', '/work/checkout', '/Users/anna'])
-      expect(network.allowUnixSockets).not.toContain(shared);
-    const installer = installerSettings(spec, paths, ['/work/checkout/node_modules']).network;
-    expect(installer).not.toHaveProperty('allowUnixSockets');
-    expect(installer).not.toHaveProperty('allowAllUnixSockets');
+    // Not the sandbox root, the run directory (the settings are there) or the home.
+    for (const other of [paths.sandbox, paths.runDir, paths.home, '/tmp', '/private/tmp'])
+      expect(network.allowUnixSockets).not.toContain(other);
+  });
+
+  it('gives the installer no socket permission and keeps its two hosts', () => {
+    const { network } = installerSettings(spec, paths, ['/work/checkout/node_modules']);
+    expect(network).toEqual({
+      allowedDomains: ['registry.npmjs.org', 'nodejs.org'],
+      deniedDomains: [],
+      allowLocalBinding: false,
+    });
   });
 
   it('takes nothing but an allow list from the server environment', () => {

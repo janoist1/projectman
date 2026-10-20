@@ -831,6 +831,38 @@ describe('member initiated merge', () => {
       }
     });
 
+    it('notes the test files a passed merge check reran once, and merges', async () => {
+      await setup({
+        executor: fakeExecutor({
+          ...passed,
+          outputTail:
+            'merge-test flaky: apps/server/test/a.test.ts\nmerge-test flaky: apps/web/src/b.test.ts\n',
+        }),
+        adjust: withCheck,
+      });
+      await start();
+      await merged();
+      const notes = h!.domain.timeline
+        .list('AR', { taskKey: 'AR-1' })
+        .filter((event) => event.type === 'task_note' && String(event.data.text).includes('flaky'));
+      expect(notes).toHaveLength(1);
+      expect(notes[0]).toMatchObject({ actor: { kind: 'system' } });
+      expect(notes[0]!.data.text).toMatch(
+        /^Merge check \S+ passed after rerunning these test files once \(flaky\): apps\/server\/test\/a\.test\.ts, apps\/web\/src\/b\.test\.ts$/,
+      );
+    });
+
+    it('adds no note when a passed merge check reran nothing', async () => {
+      await setup({ executor: fakeExecutor(), adjust: withCheck });
+      await start();
+      await merged();
+      expect(
+        h!.domain.timeline
+          .list('AR', { taskKey: 'AR-1' })
+          .filter((event) => event.type === 'task_note' && String(event.data.text).includes('flaky')),
+      ).toHaveLength(0);
+    });
+
     it('does not wait another fifteen minutes when the executor already waited', async () => {
       await setup({
         executor: fakeExecutor({ ...passed, outcome: 'error', reason: 'engine_offline' }),

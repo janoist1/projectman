@@ -38,6 +38,8 @@ export const EngineConfig = z.strictObject({
   keyFile: z.string().optional(),
   /** A JSON object of extra link headers (e.g. Cloudflare Access service token); must be 0600. */
   linkHeadersFile: z.string().optional(),
+  /** PM-846: a work volume's root inside the engine home; worktrees/, workspaces/ and tmp/ live below it. Absent: today's paths. */
+  workRoot: z.string().min(1).optional(),
   projects: z.array(z.strictObject({ project: ProjectKey, workspacePath: z.string().min(1) })),
   repos: z.array(
     z.strictObject({
@@ -282,6 +284,8 @@ export function resolveEngineConfig(
   options: { tmpdir?: string } = {},
 ): ResolvedEngineConfig {
   cloudOrigin(config.cloudUrl);
+  if (config.workRoot !== undefined && !path.isAbsolute(config.workRoot))
+    throw new EngineConfigError('config_invalid', 'invalid engine.json: workRoot must be an absolute path');
   assertHomeNotInUse(home);
   const projects = config.projects.map((entry) => ({
     project: entry.project,
@@ -321,6 +325,12 @@ export function resolveEngineConfig(
     path.join(realHome, 'worktrees'),
     path.join(realHome, 'workspaces'),
     path.join(realHome, 'member-caches'),
+    ...(config.workRoot
+      ? [
+          path.join(realOrAbsolute(config.workRoot, 'The work root'), 'worktrees'),
+          path.join(realOrAbsolute(config.workRoot, 'The work root'), 'workspaces'),
+        ]
+      : []),
   ];
   for (const [what, target] of [
     ['The engine key file', keyFile],

@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 type SandboxSpec = { sandbox: { denyRead: string[]; allowRead: string[] } };
@@ -9,36 +10,51 @@ export const FULL_TEST_GIT_CONFIG =
 /** A short temporary root for when `tmpDir` is too deep for the sandbox's socket (macOS: `/tmp` is a link to this). */
 export const SHORT_ROOT = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
 
-/** One word of a shell command, in single quotes: nothing in it is expanded. */
-export function quoteShellWord(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+/** One word of a shell command, in single quotes: nothing in it is expanded (the rule lives in shared, PM-844). */
+export { quoteShellWord } from '@projectman/shared';
+
+/**
+ * The longest Unix socket path the sandbox can open, in bytes (UTF-8), a little below macOS's limit
+ * (104 bytes with the terminating NUL).
+ */
+export const SOCKET_PATH_MAX = 100;
+/**
+ * The room a run's own `tmp` and `home` must leave for the socket name that goes below them, separator
+ * included: `srt`'s `srt-mux-<pid>-<n>.sock` (a pid of up to 7 digits) and the control socket's
+ * `control.sock` both fit.
+ */
+export const SOCKET_SUFFIX_MIN = 40;
+
+/** `root` with its links resolved (macOS: `/var/folders` is `/private/var/folders`); a root that does not exist stays as it is. */
+export function canonicalRoot(root: string): string {
+  try {
+    return realpathSync(root);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return path.resolve(root);
+    throw err;
+  }
 }
 
 /**
- * The longest Unix socket path the sandbox can open, a little below macOS's limit (104 bytes with the
- * terminating NUL; Node refuses a longer one with EINVAL before it asks the system), counted in bytes, and
- * the room kept for a socket below the sandbox's TMPDIR, separator included: `srt` makes
- * `srt-mux-<pid>-<n>.sock` there (24 bytes at most), the control socket tests make
- * `pm-ctl-<6>/control.sock` (27) and, below the HOME beside it, `pm-sock-<6>/x.sock` (23) (PM-754).
- */
-const SOCKET_PATH_MAX = 100;
-const SOCKET_ROOM = 40;
-
-/**
  * The directory of a run: `<root>/pmft-<end of the run id>`, short, because the sandbox's TMPDIR below it
- * holds Unix sockets and a long path makes them fail ("listen EINVAL"). The root is `tmpRoot`, which must be
- * its real path (a test resolves links such as macOS's `/var` before it binds; the caller resolves it); when
- * the socket path would be too long there (a deep temporary directory), it is the short system-wide
- * `shortRoot`, which has to leave the room too (else this throws: no run directory fits).
+ * holds Unix sockets and a long path makes the sandbox fail ("listen EINVAL"). The roots must be canonical
+ * (`canonicalRoot`): the sandbox opens the socket under the resolved path, so a link would hide extra
+ * bytes. The root is `tmpRoot`; when `SOCKET_SUFFIX_MIN` bytes do not fit below its `tmp` and `home` within
+ * `SOCKET_PATH_MAX` (a deep temporary directory), it is the short system-wide `shortRoot`. It throws when
+ * neither fits: the run is not prepared with a wider permission or a longer path.
  */
 export function runDirOf(tmpRoot: string, shortRoot: string, runId: string): string {
   const name = `pmft-${runId.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`;
-  const fits = (root: string) =>
-    Buffer.byteLength(path.join(runPaths(path.join(root, name)).tmp, 'x'.repeat(SOCKET_ROOM)), 'utf8') <=
-    SOCKET_PATH_MAX;
-  if (fits(tmpRoot)) return path.join(tmpRoot, name);
-  if (fits(shortRoot)) return path.join(shortRoot, name);
-  throw new Error('no run directory leaves room for a Unix socket path');
+  const fits = (root: string) => {
+    const paths = runPaths(path.join(root, name));
+    return [paths.tmp, paths.home].every(
+      (dir) => Buffer.byteLength(dir, 'utf8') + SOCKET_SUFFIX_MIN <= SOCKET_PATH_MAX,
+    );
+  };
+  const root = [tmpRoot, shortRoot].find(fits);
+  if (root === undefined)
+    throw new Error(`no root leaves ${SOCKET_SUFFIX_MIN} bytes for a socket below the run directory`);
+  return path.join(root, name);
 }
 
 /** The directories of one run: only `sandbox` is writable for the command. */
@@ -67,10 +83,9 @@ export const SRT_DEFAULT_TMP = ['/tmp/claude', '/private/tmp/claude'] as const;
  * - reading: nothing of `spec.sandbox.denyRead`, except `allowRead` and the run's own directory;
  * - writing: only the run's `sandbox` directory (the checkout is read-only; srt's default temporary
  *   directory, which srt would open on its own, is denied);
- * - network: nothing outward, local ports open (decision 24); PTYs allowed (macOS only). Unix sockets may be
- *   bound and connected only below the run's own `tmp` directory (PM-754: the macOS generator of srt 0.0.78
- *   makes each `allowUnixSockets` entry a `network-bind` and `network-outbound` subpath rule), so the control
- *   socket integration tests prove the real socket boundary; no other path and no global socket permission.
+ * - network: nothing outward, local ports open (decision 24), Unix sockets only below the run's own
+ *   `tmp` (srt 0.0.78 on macOS binds and connects there; no other socket path, and not all of them);
+ *   PTYs allowed (macOS only).
  */
 export function srtSettings(spec: SandboxSpec, paths: RunPaths) {
   return {
@@ -113,12 +128,14 @@ export function installerSettings(spec: SandboxSpec, paths: RunPaths, nodeModule
 
 /**
  * The environment of a run: an allow list, nothing else comes from the server's environment, so no
- * `PROJECTMAN_*` (the PTY skip included), token, `SSH_AUTH_SOCK` or billing variable gets in.
+ * `PROJECTMAN_*` (the PTY skip included), token, `SSH_AUTH_SOCK` or billing variable is inherited.
+ * The executor alone supplies the optional disposable passed-step key file.
  */
 export function fullTestEnv(
   paths: RunPaths,
   maxWorkers: number,
   base: NodeJS.ProcessEnv = process.env,
+  passedKeysFile?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
     PATH: base.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin',
@@ -138,6 +155,7 @@ export function fullTestEnv(
     PROJECTMAN_HEAVY_LOCK_HELD: '1',
     PROJECTMAN_FULL_TEST_SANDBOX: '1',
   };
+  if (passedKeysFile) env.PROJECTMAN_MERGE_TEST_PASSED_KEYS = passedKeysFile;
   for (const name of ['LANG', 'LC_ALL'] as const) {
     const value = base[name];
     if (value) env[name] = value;

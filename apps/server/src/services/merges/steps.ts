@@ -20,6 +20,7 @@ import { conflict } from '../../kernel';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import type { MergeDeps, MergeRun } from './deps';
+import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import { notifyMerge } from './notify';
 import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
 
@@ -552,6 +553,20 @@ export class MergeSteps {
               `the merge check could not run${result.reason ? ` (${result.reason})` : ''}`,
               result.outputTail.slice(0, 8000),
             );
+          const flaky = flakyCheckFiles(result);
+          if (flaky.length > 0) {
+            this.deps.timeline.append({
+              projectKey: row.projectKey,
+              taskKey: row.taskKey,
+              actor: SYSTEM_ACTOR,
+              type: 'task_note',
+              data: { text: flakyCheckNote(runId, flaky), mentions: [] },
+            });
+            ctx.logger.info(
+              { runId, taskKeys: [row.taskKey], flakyFiles: flaky },
+              'merge check passed with flaky test files',
+            );
+          }
         }
       }
       if (!this.continue(running)) return;
@@ -677,7 +692,8 @@ export class MergeSteps {
     }
   }
 
-  private async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
+  /** The merge fails for good, with the event and the notification; a train blames a member through it too (PM-844). */
+  async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
     const { ctx, timeline } = this.deps;
     ctx.unitOfWork(() => {
       this.save(row, { state: 'failed', step: undefined, failure, block: undefined });

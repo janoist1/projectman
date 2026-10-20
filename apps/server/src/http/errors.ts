@@ -43,11 +43,12 @@ export function toApiError(error: unknown): { status: number; body: ApiError } {
   return { status: 500, body: apiError('internal_error', 'internal server error') };
 }
 
-const SERVER_PREFIXES = ['/api', '/ws', '/hooks', '/mcp', '/feedback'];
+const SERVER_PREFIXES = ['/api', '/ws', '/hooks', '/mcp', '/feedback', '/engine'];
 
 /**
  * Consistent ApiError responses for every error and unknown route. With `spaIndex`,
- * unknown GET paths outside the server prefixes return the web app's index.html.
+ * unknown GET and HEAD paths outside the server prefixes (including `/engine`, the cloud
+ * engine door) return the web app's index.html.
  */
 export function registerErrorHandling(app: FastifyInstance, opts: { spaIndex: boolean }): void {
   app.setErrorHandler((error, request, reply) => {
@@ -62,6 +63,7 @@ export function registerErrorHandling(app: FastifyInstance, opts: { spaIndex: bo
     if (opts.spaIndex && !serverRoute && (request.method === 'GET' || request.method === 'HEAD')) {
       return reply.type('text/html').sendFile('index.html');
     }
+    if (request.method === 'HEAD') return reply.code(404).type('application/json; charset=utf-8').send();
     return reply.code(404).send(apiError('not_found', 'route not found'));
   });
 }

@@ -648,6 +648,77 @@ by any card: the owner installs it, after the first hybrid release has been rehe
 - **An engine that does not stop**: the coordinator waits 60 seconds and stops with a fixed code. It does not kill
   the process; find out why it does not exit.
 
+## Separate work volume on a Mac (PM-846)
+
+macOS keeps a log of every file change in the `fseventsd` daemon. Task worktrees, member workspaces,
+`node_modules` installs change so many files that the daemon grew to 17 GB of memory. A separate APFS volume
+with an empty `.fseventsd/no_log` file is not logged. The engine puts `worktrees/` and `workspaces/` below one
+**work root** on that volume.
+
+The volume is **mounted inside the engine home** (`~/.projectman/work`), not under `/Volumes`. The sandboxes keep
+the other members' work unreadable by denying the home; a root outside it would make every checkout readable to
+every session, so the engine refuses to start with one (`work_root_invalid`, reason `outside_home`). Not moved:
+the sessions' `$TMPDIR` (`/private/tmp/projectman-<uid>-tmp`: it holds Unix sockets with a path length limit),
+the Claude temp directory, `member-caches` and the full test's `pmft-*` run directories (PM-848: the full test
+sandbox denies the home for reading and allows only the run's own directory, so a run directory inside the home
+would leave its parents unreadable; it stays in `os.tmpdir()`). Measure first (step 8); a follow-up card handles them if the daemon
+still grows.
+
+The owner does these steps once (the commands need `sudo`; replace `disk3` with the container `diskutil list`
+shows for the Data volume, and `<user>` with the account):
+
+1. `diskutil list`: find the APFS container that holds "Macintosh HD - Data".
+2. `sudo diskutil apfs addVolume disk3 APFS projectman-work -nomount`. The volume shares the container's free
+   space; no size is needed.
+3. Mount it inside the home, and make the mount survive a restart:
+   `mkdir -p ~/.projectman/work`, `diskutil info projectman-work` (note the Volume UUID), `sudo vifs` and add
+   `UUID=<uuid> /Users/<user>/.projectman/work apfs rw,nobrowse`. Then
+   `sudo diskutil mount -mountPoint ~/.projectman/work projectman-work`,
+   `sudo diskutil enableOwnership ~/.projectman/work`,
+   `sudo chown <user>:staff ~/.projectman/work && chmod 700 ~/.projectman/work`.
+4. Switch the file log off: `sudo mkdir ~/.projectman/work/.fseventsd && sudo touch ~/.projectman/work/.fseventsd/no_log`,
+   then unmount and mount the volume again so that `fseventsd` reads it.
+5. Keep Spotlight and Time Machine away: `sudo mdutil -i off ~/.projectman/work`,
+   `sudo tmutil addexclusion ~/.projectman/work`.
+6. Mark the volume as the work root: `touch ~/.projectman/work/.projectman-work-root`. The engine starts only when
+   this file is a regular file in the root, so an unmounted volume (an empty directory on the system volume) stops
+   it instead of silently filling the system volume.
+7. Move the existing directories. Pause the team (see "Pausing the team for an update"), stop the engine
+   (`npm run engine -- service uninstall`; `move-work-root` also refuses while the status file names a live process or the
+   service runs), then:
+
+   ```sh
+   npm run engine -- move-work-root ~/.projectman/work
+   npm run engine -- service install        # or: npm run engine -- start
+   ```
+
+   The command copies `worktrees/` and `workspaces/` (`ditto`; it does not move, the old directories are the way
+   back), runs `git worktree repair` in every copied worktree, checks with `git worktree list` in every registered
+   repository that none still points at the old place, renames the old directories to `worktrees.pre-PM-846` and
+   `workspaces.pre-PM-846`, and only then writes `workRoot` into `engine.json`. It refuses a root that is already
+   set, a non-empty target, an engine that runs, and a volume with less than 1.1 times the data free. If it fails
+   half-way, `engine.json` and the old directories are untouched; delete what it copied below the work root and
+   run it again. After the start the running sessions go on in a new conversation with a summary (their files, commits
+   and uncommitted changes stay). Delete `~/.projectman/{worktrees,workspaces}.pre-PM-846` when the team works.
+
+   The first worktree on the new volume installs its dependencies in full: a `node_modules` clone
+   (`cp -c`) works only inside one volume, and the repository is on another one. The next ones clone from it.
+
+8. Measure: `ps -o rss= -p $(pgrep fseventsd)` once a day for three days. It should not grow at the earlier
+   pace (about 6 GB a day).
+9. Encryption is the owner's choice at step 2. Without `-passphrase` the volume is not locked at login. If client
+   secrets (`.env`) may lie in the checkouts, create it with `-passphrase`: the mount then happens only after login,
+   and the engine does not start (`work_root_invalid`) until the volume is mounted.
+
+By hand, without the command (the single-mode server, or a failed run): copy with
+`ditto ~/.projectman/worktrees ~/.projectman/work/worktrees` (and `workspaces`), run
+`git -C <each worktree> worktree repair`, rename the old directories, and set `workRoot` in `engine.json`
+(engine mode) or `PROJECTMAN_WORK_ROOT=<path>` (single mode). To go back, remove `workRoot`, rename the
+`.pre-PM-846` directories back and run `git worktree repair` in each worktree.
+
+On a remote engine the same steps run on the engine's machine and `workRoot` is in that machine's `engine.json`;
+nothing new crosses the server and engine boundary.
+
 ## Cloud deployment of the hybrid mode (PM-317)
 
 The EC2 cutover from the owner's Mac, including stopping both live LaunchAgents,

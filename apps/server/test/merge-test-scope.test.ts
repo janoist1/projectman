@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { mergeTestScope } from '../../../scripts/merge-test/scope';
-import { mergeTestCommands, scopeLine } from '../../../scripts/merge-test/run';
+import { mergeTestSteps, scopeLine } from '../../../scripts/merge-test/run';
+import type { MergeTestScope } from '../../../scripts/merge-test/scope';
+
+const mergeTestCommands = (scope: MergeTestScope) => mergeTestSteps(scope).map((step) => step.args);
 
 describe('merge test scope', () => {
   it('ignores documentation and root markdown', () => {
@@ -8,16 +11,20 @@ describe('merge test scope', () => {
     expect(mergeTestScope(['docs/design/a.ts', 'CLAUDE.md'])).toEqual({ kind: 'none' });
   });
   it.each([
-    'packages/shared/src/x.ts',
-    'scripts/a.ts',
+    'packages/templates/src/x.ts',
+    'apps/feedback-widget/src/a.ts',
+    'packages/shared/package.json',
+    'packages/shared/src/vitest.config.ts',
+    'scripts/a.sh',
+    'scripts/readme.md',
+    'scripts/merge-test/impact.ts',
+    'scripts/full-test/cli.ts',
     'package-lock.json',
     'unknown/file',
     'apps/server/package.json',
     'apps/web/tsconfig.app.json',
     'apps/server/vitest.config.ts',
     'apps/server/test/architecture/modules/core-base.ts',
-    'apps/server/src/contracts/tasks.ts',
-    'apps/server/src/config/migrations.ts',
   ])('runs everything for %s', (file) => {
     expect(mergeTestScope(['docs/a.md', 'apps/server/src/a.ts', file])).toEqual({
       kind: 'all',
@@ -30,11 +37,34 @@ describe('merge test scope', () => {
       workspaces: ['apps/server', 'apps/web'],
     });
   });
+  it.each([
+    'apps/server/src/contracts/tasks.ts',
+    'apps/server/src/config/migrations.ts',
+    'scripts/live/config-check.ts',
+    'scripts/example.cjs',
+    'scripts/example.mtsx',
+  ])('uses the server graph for %s', (path) => {
+    expect(mergeTestScope([path])).toEqual({ kind: 'workspaces', workspaces: ['apps/server'] });
+  });
+  it('records shared sources and always selects its own tests', () => {
+    expect(
+      mergeTestScope(['packages/shared/src/a.ts', 'packages/shared/src/a.ts', 'apps/web/src/a.ts']),
+    ).toEqual({
+      kind: 'workspaces',
+      workspaces: ['apps/web', 'packages/shared'],
+      sharedChanged: ['packages/shared/src/a.ts'],
+    });
+    expect(mergeTestScope(['packages/shared/test/a.test.ts'])).toEqual({
+      kind: 'workspaces',
+      workspaces: ['packages/shared'],
+      sharedChanged: [],
+    });
+  });
   it.each(['apps/server', 'apps/web'] as const)('selects only %s', (ws) => {
     expect(mergeTestScope([`${ws}/src/a.ts`, 'docs/a.md'])).toEqual({ kind: 'workspaces', workspaces: [ws] });
   });
   it('keeps the first full-scope reason', () => {
-    expect(mergeTestScope(['scripts/a.ts', 'package.json'])).toEqual({ kind: 'all', reason: 'scripts/a.ts' });
+    expect(mergeTestScope(['scripts/a.sh', 'package.json'])).toEqual({ kind: 'all', reason: 'scripts/a.sh' });
   });
   describe('cloud infrastructure', () => {
     const cloud = { kind: 'cloud' } as const;
@@ -129,7 +159,7 @@ describe('merge test scope', () => {
   });
   it('builds checks in order and prints the scope', () => {
     expect(mergeTestCommands({ kind: 'none' })).toEqual([]);
-    expect(mergeTestCommands({ kind: 'all', reason: '--all' })).toEqual([['run', 'typecheck'], ['test']]);
+    expect(mergeTestCommands({ kind: 'all', reason: '--all' })).toHaveLength(10);
     expect(mergeTestCommands({ kind: 'workspaces', workspaces: ['apps/server'] })).toEqual([
       ['run', 'typecheck', '-w', 'apps/server'],
       ['test', '-w', 'apps/server'],

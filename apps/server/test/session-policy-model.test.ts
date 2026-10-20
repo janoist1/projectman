@@ -357,6 +357,26 @@ describe('provider-neutral session policy', () => {
     expect(withDir.allowWrite).not.toContain('/pm/m/AR/dev/gitconfig');
   });
 
+  it('keeps the app home closed and opens only its own worktree when the worktrees lie on a work volume below the home (PM-846)', () => {
+    const appHome = '/fictional/user/.projectman';
+    const own = `${appHome}/work/worktrees/AR/AR-1-web`;
+    const sandbox = sessionSandbox(
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: { kind: 'task_worktree', path: own, gitDir: sharedGit },
+        permissionMode: 'acceptEdits',
+      }),
+      { userHome: '/fictional/user', appHome, defaultBranch: 'main' },
+    )!;
+    // The user's home is denied and contains the app home, so the work volume below it is denied with it.
+    expect(sandbox.denyRead).toContain('/fictional/user');
+    expect(sandbox.allowRead).toContain(own);
+    for (const open of [`${appHome}/work`, `${appHome}/work/worktrees`, `${appHome}/work/workspaces`, appHome])
+      expect(sandbox.allowRead).not.toContain(open);
+  });
+
   it("lets the engine's limit pass a worktree sandbox, which reads the user's files and writes none of them (PM-731)", async () => {
     const base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'policy-limit-')));
     try {

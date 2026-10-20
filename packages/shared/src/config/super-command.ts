@@ -1,9 +1,11 @@
 import type { AdministrationCommand } from '../api/administration';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AgentProvider, HumanAccess } from '../domain/member';
+import type { Visibility } from '../domain/task';
+import { operatorOf } from './operator-member';
 import { applyConfigPatch, prepareOperatorConfigPatch } from './edit';
 import type { ProjectConfig } from './schema';
-import { ownerReservedEffect } from './super-mutation';
+import { ownerReservedEffect, superConfigMutations } from './super-mutation';
 import type { OwnerReservedEffect, SuperMutationCommand } from './super-mutation';
 
 /**
@@ -26,6 +28,7 @@ export interface SuperCommandContext {
   configVersion: string;
   /** The configuration a stored version holds; null when the version is unknown. */
   configAt?: (version: string) => ProjectConfig | null;
+  taskVisibility?: (taskKey: string) => Visibility | null;
 }
 
 const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'gemini', 'nanogpt'];
@@ -49,10 +52,17 @@ function memberUpdate(
   const mutations: SuperMutationCommand[] = [];
   if ('access' in changes && changes.access !== undefined && changes.access !== before)
     mutations.push({ kind: 'access_change', handle, before, after: changes.access as HumanAccess });
-  // The owner kept the AI members' permission settings (PM-862 inventory row 33).
-  if (PERMISSION_KEYS.some((key) => changes[key] !== undefined))
+  const next = structuredClone(context.config);
+  const changed = next.team.members.find((m) => m.handle === handle)!;
+  if (changed.kind === 'human' && Array.isArray(changes.roles)) changed.roles = changes.roles as string[];
+  if (changed.kind === 'ai' && typeof changes.role === 'string') changed.role = changes.role;
+  if (
+    PERMISSION_KEYS.some((key) => changes[key] !== undefined) ||
+    superConfigMutations(context.config, next).some((mutation) => mutation.kind === 'permission_change') ||
+    (operatorOf(context.config)?.handle === handle &&
+      Object.values(changes).some((value) => value !== undefined))
+  )
     mutations.push({ kind: 'permission_change', handle });
-  // A role change (changes.roles) is routine: it reaches the generic member update below.
   const effective = changes.provider ?? (member.kind === 'ai' ? member.provider : undefined);
   const keys = Object.keys(changes).filter((key) => changes[key] !== undefined);
   // Only sending a paid member on leave costs nothing; every other change to it may.
@@ -88,20 +98,18 @@ export function superCommandMutations(
       const operation = command.operation;
       switch (operation.op) {
         case 'config_patch':
-          return [
-            {
-              kind: 'config_change',
-              next: applyConfigPatch(
-                context.config,
-                prepareOperatorConfigPatch(context.config, context.configVersion, operation.patch),
-              ),
-            },
-          ];
+          return superConfigMutations(
+            context.config,
+            applyConfigPatch(
+              context.config,
+              prepareOperatorConfigPatch(context.config, context.configVersion, operation.patch),
+            ),
+          );
         case 'config_revert': {
           const target = context.configAt?.(operation.version) ?? null;
           if (!target)
             throw new SuperCommandUnclassifiable('the configuration version to revert to is unknown');
-          return [{ kind: 'config_change', next: target }];
+          return superConfigMutations(context.config, target);
         }
         case 'member_update':
           return memberUpdate(context, operation.handle, operation.changes);
@@ -141,6 +149,40 @@ export function superCommandMutations(
       return [{ kind: 'routine', operation: 'merge_start' }];
     case 'merge_order':
       return [{ kind: 'routine', operation: 'merge_order' }];
+    case 'task_create':
+      return [
+        { kind: 'routine', operation: 'task_create' },
+        ...(command.request.visibility !== undefined
+          ? [
+              {
+                kind: 'task_visibility' as const,
+                taskKey: null,
+                before: 'internal' as const,
+                after: command.request.visibility,
+              },
+            ]
+          : []),
+      ];
+    case 'task_update': {
+      const mutations: SuperMutationCommand[] = [{ kind: 'routine', operation: 'task_write' }];
+      const before = context.taskVisibility?.(command.taskKey) ?? null;
+      if (command.request.visibility !== undefined && command.request.visibility !== before)
+        mutations.push({
+          kind: 'task_visibility',
+          taskKey: command.taskKey,
+          before,
+          after: command.request.visibility,
+        });
+      return mutations;
+    }
+    case 'task_labels':
+    case 'task_start':
+    case 'inbox_resolve':
+      return [{ kind: 'routine', operation: command.kind }];
+    case 'task_cancel':
+      return [{ kind: 'routine', operation: 'task_write' }];
+    case 'credential_revoke':
+      return [{ kind: 'remove', resource: 'credential', id: command.keyId }];
     case 'administration':
       return [administrationMutation(command.request)];
     default:

@@ -177,7 +177,7 @@ describe('super-mode handoff routes (PM-762)', () => {
       { kind: 'ai', handle: 'operator' },
       {
         reason: 'A fictional reason',
-        command: { kind: 'member_update', handle: 'dev-1', request: { displayName: 'Fictional name' } },
+        command: { kind: 'inbox_resolve', itemId: 'inbox_fixture', request: { optionId: 'done' } },
         requestId: randomUUID(),
       },
     );

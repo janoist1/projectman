@@ -7,7 +7,7 @@ import {
   SuperOperationDetail,
   routes,
 } from '@projectman/shared';
-import type { SuperCommand, Task } from '@projectman/shared';
+import type { SuperCommand, SuperOperation, Task, ProjectConfig } from '@projectman/shared';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
@@ -167,22 +167,41 @@ describe('the wired operate executor in super mode (PM-831)', () => {
   });
   afterEach(async () => app?.close());
 
-  const operate = async (
-    operation: Extract<SuperCommand, { kind: 'operate' }>['operation'],
-    taskKey?: string,
-  ) => {
+  const submit = async (command: SuperCommand, requestId = randomUUID(), taskKey?: string) => {
     const response = await app.app.inject({
       method: 'POST',
       url: routes.superOperations('AR'),
       headers: { authorization: `Bearer ${secret}` },
       payload: {
-        requestId: randomUUID(),
+        requestId,
         ...(taskKey ? { taskKey } : {}),
-        command: { kind: 'operate', operation },
+        command,
       },
     });
     expect(response.statusCode, response.body).toBe(202);
     return SuperOperateResponse.parse(response.json()).operation;
+  };
+  const operate = (operation: Extract<SuperCommand, { kind: 'operate' }>['operation'], taskKey?: string) =>
+    submit({ kind: 'operate', operation }, randomUUID(), taskKey);
+  const decide = async (
+    operation: SuperOperation,
+    optionId: 'yes' | 'no',
+    headers: Record<string, string> = { cookie },
+  ) => {
+    const response = await app.app.inject({
+      method: 'POST',
+      url: routes.resolveInbox('AR', operation.ownerQuestionId!),
+      headers,
+      payload: { optionId },
+    });
+    return response;
+  };
+  const config = () => app.app.projectman.domain.projects.config('AR');
+  const edit = async (change: (draft: ProjectConfig) => void) => {
+    const draft = structuredClone(await config());
+    change(draft);
+    const response = await inject(app.app, 'PUT', routes.config('AR'), cookie, draft);
+    expect(response.statusCode, response.body).toBe(200);
   };
   const operator = {
     kind: 'ai',
@@ -261,12 +280,336 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     });
   });
 
-  it('does not execute a configuration operation yet (PM-832), and changes nothing', async () => {
+  it('executes a config revert through the shared configuration path', async () => {
     const before = (await app.app.projectman.domain.projects.load('AR')).version;
     expect(await operate({ op: 'config_revert', version: before })).toMatchObject({
-      state: 'failed',
-      errorCode: 'super_operation_unsupported',
+      state: 'succeeded',
+      errorCode: null,
     });
     expect((await app.app.projectman.domain.projects.load('AR')).version).toBe(before);
+  });
+
+  it('creates a labeled card once, binds the result key and records the Operator', async () => {
+    const command: SuperCommand = {
+      kind: 'task_create',
+      request: { title: 'A refined card', labels: ['refine'] },
+    };
+    const requestId = randomUUID();
+    const [first, concurrent] = await Promise.all([submit(command, requestId), submit(command, requestId)]);
+    expect(concurrent.id).toBe(first.id);
+    expect(first).toMatchObject({ state: 'succeeded', taskKey: 'AR-1' });
+    expect(await submit(command, requestId)).toEqual(first);
+    expect(app.app.projectman.domain.tasks.list('AR')).toHaveLength(1);
+    expect(app.app.projectman.domain.tasks.get('AR', first.taskKey!).labels).toContain('refine');
+    const events = app.app.projectman.domain.timeline.list('AR', { taskKey: first.taskKey! });
+    expect(events.find((event) => event.type === 'task_created')?.actor).toMatchObject(operator);
+    expect(events.find((event) => event.type === 'super_operation_changed')?.actor).toMatchObject(operator);
+    const conflict = await app.app.inject({
+      method: 'POST',
+      url: routes.superOperations('AR'),
+      headers: { authorization: `Bearer ${secret}` },
+      payload: { requestId, command: { ...command, request: { title: 'Different card' } } },
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().error.code).toBe('super_request_conflict');
+  });
+
+  it('updates a card and shares it without a question, with an idempotent retry', async () => {
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    const command: SuperCommand = {
+      kind: 'task_update',
+      taskKey: created.taskKey!,
+      request: { title: 'Shared card', visibility: 'shared' },
+    };
+    const requestId = randomUUID();
+    const operation = await submit(command, requestId);
+    expect(operation.state).toBe('succeeded');
+    expect(await submit(command, requestId)).toEqual(operation);
+    expect(app.app.projectman.domain.tasks.get('AR', created.taskKey!)).toMatchObject({
+      title: 'Shared card',
+      visibility: 'shared',
+    });
+    const event = app.app.projectman.domain.timeline
+      .list('AR', { taskKey: created.taskKey! })
+      .find((event) => event.type === 'task_updated');
+    expect(event?.actor).toMatchObject(operator);
+  });
+
+  it('sets a scope label and an approval label on the owner’s delegated authority', async () => {
+    await edit((draft) =>
+      draft.pipeline.labels.push({
+        id: 'scope-ok',
+        name: 'Scope ready',
+        setBy: { members: ['owner'], humansOnly: true },
+      }),
+    );
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    const operation = await submit({
+      kind: 'task_labels',
+      taskKey: created.taskKey!,
+      request: { add: ['scope-ok', 'merge-ok'] },
+    });
+    expect(operation.state).toBe('succeeded');
+    expect(app.app.projectman.domain.tasks.get('AR', created.taskKey!).labels).toEqual([
+      'scope-ok',
+      'merge-ok',
+    ]);
+    const event = app.app.projectman.domain.timeline
+      .list('AR', { taskKey: created.taskKey! })
+      .find((event) => event.type === 'task_labels_changed');
+    expect(event?.actor).toMatchObject(operator);
+  });
+
+  it('starts a card as the Operator through task admission', async () => {
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    expect(
+      await submit({ kind: 'task_start', taskKey: created.taskKey!, request: { assignee: 'dev-1' } }),
+    ).toMatchObject({ state: 'succeeded' });
+    expect(app.app.projectman.domain.tasks.get('AR', created.taskKey!)).toMatchObject({
+      assignee: 'dev-1',
+      stageId: 'development',
+    });
+    const event = app.app.projectman.domain.timeline
+      .list('AR', { taskKey: created.taskKey! })
+      .find((event) => event.type === 'task_assigned');
+    expect(event?.actor).toMatchObject(operator);
+  });
+
+  it('cancels a card as the Operator without an owner question', async () => {
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    expect(await submit({ kind: 'task_cancel', taskKey: created.taskKey!, request: {} })).toMatchObject({
+      state: 'succeeded',
+    });
+    expect(app.app.projectman.domain.tasks.get('AR', created.taskKey!).status).toBe('cancelled');
+    const event = app.app.projectman.domain.timeline
+      .list('AR', { taskKey: created.taskKey! })
+      .find((event) => event.type === 'task_updated' && event.data.action === 'cancelled');
+    expect(event?.actor).toMatchObject(operator);
+  });
+
+  it('patches routine configuration immediately with super commit provenance', async () => {
+    expect(
+      await operate({
+        op: 'config_patch',
+        patch: {
+          repoReviewTest: [
+            { repo: 'web', reviewTest: { command: 'npm test', maxWorkers: 2, timeoutMinutes: 10 } },
+          ],
+        },
+      }),
+    ).toMatchObject({ state: 'succeeded', errorCode: null });
+    expect((await config()).project.repos[0]?.reviewTest?.maxWorkers).toBe(2);
+    const event = app.app.projectman.domain.timeline
+      .list('AR')
+      .filter((event) => event.type === 'config_changed')
+      .at(-1);
+    expect(event?.actor).toMatchObject(operator);
+    const history = await app.app.projectman.domain.projects.history('AR', 1);
+    expect(history[0]?.actor).toMatchObject(operator);
+  });
+
+  it('updates another member without an approval and hires a subscription member', async () => {
+    expect(
+      await submit({ kind: 'member_update', handle: 'dev-1', request: { displayName: 'Updated developer' } }),
+    ).toMatchObject({ state: 'succeeded' });
+    expect((await config()).team.members.find((m) => m.handle === 'dev-1')?.displayName).toBe(
+      'Updated developer',
+    );
+    expect(
+      await operate({ op: 'member_hire', request: { role: 'developer', handle: 'new-dev' } }),
+    ).toMatchObject({ state: 'succeeded' });
+    const event = app.app.projectman.domain.timeline
+      .list('AR')
+      .find((event) => event.type === 'member_hired');
+    expect(event?.actor).toMatchObject(operator);
+  });
+
+  it('creates a routine invitation with the live principal’s user', async () => {
+    expect(
+      await submit({
+        kind: 'invite_create',
+        request: { email: 'invited@example.com', access: 'developer', roles: ['developer'] },
+      }),
+    ).toMatchObject({ state: 'succeeded' });
+    const invitations = app.app.projectman.domain.invitations.list('AR');
+    expect(invitations).toHaveLength(1);
+    expect(invitations[0]?.invitedBy).toBe(
+      app.app.projectman.repos.users.findByEmail('owner@example.com')?.id,
+    );
+  });
+
+  const reserved: { name: string; command: SuperCommand; verify: (config: ProjectConfig) => void }[] = [
+    {
+      name: 'member retirement',
+      command: { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-2' } },
+      verify: (config) => expect(config.team.members.some((m) => m.handle === 'dev-2')).toBe(false),
+    },
+    {
+      name: 'human access',
+      command: { kind: 'member_update', handle: 'access-target', request: { access: 'admin' } },
+      verify: (config) =>
+        expect(config.team.members.find((m) => m.handle === 'access-target')).toMatchObject({
+          access: 'admin',
+        }),
+    },
+    {
+      name: 'paid member',
+      command: {
+        kind: 'operate',
+        operation: {
+          op: 'member_hire',
+          request: { role: 'developer', provider: 'nanogpt', handle: 'paid-dev' },
+        },
+      },
+      verify: (config) =>
+        expect(config.team.members.find((m) => m.handle === 'paid-dev')).toMatchObject({
+          provider: 'nanogpt',
+        }),
+    },
+    {
+      name: 'boundary role assignment',
+      command: {
+        kind: 'operate',
+        operation: { op: 'member_update', handle: 'dev-1', changes: { role: 'lead_developer' } },
+      },
+      verify: (config) =>
+        expect(config.team.members.find((m) => m.handle === 'dev-1')).toMatchObject({
+          role: 'lead_developer',
+        }),
+    },
+    {
+      name: 'Operator model',
+      command: { kind: 'member_update', handle: 'operator', request: { model: 'sonnet' } },
+      verify: (config) =>
+        expect(config.team.members.find((m) => m.handle === 'operator')).toMatchObject({ model: 'sonnet' }),
+    },
+  ];
+
+  it.each(reserved)('waits for the owner and resumes $name once', async ({ command, verify }) => {
+    if (command.kind === 'member_update' && command.handle === 'access-target')
+      await addHumanAndLogin(app.app, { handle: 'access-target', access: 'developer' });
+    const before = await config();
+    const requestId = randomUUID();
+    const waiting = await submit(command, requestId);
+    expect(waiting).toMatchObject({ state: 'waiting_owner' });
+    expect(await config()).toEqual(before);
+    expect(await submit(command, requestId)).toEqual(waiting);
+    const delegated = await decide(waiting, 'yes', { authorization: `Bearer ${secret}` });
+    expect(delegated.statusCode).toBe(403);
+    const decision = await decide(waiting, 'yes');
+    expect(decision.statusCode, decision.body).toBe(200);
+    const resumed = await submit(command, requestId);
+    expect(resumed).toMatchObject({ id: waiting.id, state: 'succeeded', errorCode: null });
+    verify(await config());
+  });
+
+  it('revokes another credential only after the owner’s own yes', async () => {
+    const key = CreatedIntegratorAccessKey.parse(
+      (await inject(app.app, 'POST', routes.integratorKeys(), cookie, { mode: 'read' })).json(),
+    );
+    const command: SuperCommand = { kind: 'credential_revoke', keyId: key.key.id };
+    const requestId = randomUUID();
+    const waiting = await submit(command, requestId);
+    expect(waiting.state).toBe('waiting_owner');
+    const read = () =>
+      app.app.inject({
+        method: 'GET',
+        url: routes.tasks('AR'),
+        headers: { authorization: `Bearer ${key.secret}` },
+      });
+    expect((await read()).statusCode).toBe(200);
+    expect((await decide(waiting, 'yes')).statusCode).toBe(200);
+    expect((await submit(command, requestId)).state).toBe('succeeded');
+    expect((await read()).statusCode).toBe(401);
+    expect((await submit(command, requestId)).state).toBe('succeeded');
+  });
+
+  it('cancels a reserved command after no and never executes it on retry', async () => {
+    const command: SuperCommand = { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-2' } };
+    const requestId = randomUUID();
+    const waiting = await submit(command, requestId);
+    expect((await decide(waiting, 'no')).statusCode).toBe(200);
+    expect((await submit(command, requestId)).state).toBe('cancelled');
+    expect((await config()).team.members.some((m) => m.handle === 'dev-2')).toBe(true);
+  });
+
+  it('asks before a revert removes a repository and attributes the commit to the Operator', async () => {
+    const target = (await app.app.projectman.domain.projects.load('AR')).version;
+    await edit((draft) =>
+      draft.project.repos.push({ name: 'extra', path: '.', defaultBranch: 'main', requireMerge: false }),
+    );
+    const command: SuperCommand = { kind: 'operate', operation: { op: 'config_revert', version: target } };
+    const requestId = randomUUID();
+    const waiting = await submit(command, requestId);
+    expect(waiting.state).toBe('waiting_owner');
+    expect((await config()).project.repos).toHaveLength(2);
+    expect((await decide(waiting, 'yes')).statusCode).toBe(200);
+    expect((await submit(command, requestId)).state).toBe('succeeded');
+    expect((await config()).project.repos).toHaveLength(1);
+    expect((await app.app.projectman.domain.projects.history('AR', 1))[0]?.actor).toMatchObject(operator);
+  });
+
+  it('refuses direct self modification outside an owner-approved operation', async () => {
+    const before = (await config()).team.members.find((m) => m.handle === 'operator');
+    const response = await app.app.inject({
+      method: 'PATCH',
+      url: routes.member('AR', 'operator'),
+      headers: { authorization: `Bearer ${secret}` },
+      payload: { model: 'sonnet' },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe('owner_approval_required');
+    expect((await config()).team.members.find((m) => m.handle === 'operator')).toEqual(before);
+  });
+
+  it('waits for a boundary duty config patch instead of failing in the executor', async () => {
+    const command: SuperCommand = {
+      kind: 'operate',
+      operation: {
+        op: 'config_patch',
+        patch: {
+          roleOverrides: {
+            developer: { duties: ['implementation', 'boundary_authorization'], instructions: '' },
+          },
+        },
+      },
+    };
+    const requestId = randomUUID();
+    const waiting = await submit(command, requestId);
+    expect(waiting.state).toBe('waiting_owner');
+    expect((await decide(waiting, 'yes')).statusCode).toBe(200);
+    expect((await submit(command, requestId)).state).toBe('succeeded');
+    expect((await config()).team.roleOverrides?.developer?.duties).toContain('boundary_authorization');
+  });
+
+  it.each<SuperCommand>([
+    { kind: 'member_update', handle: 'operator', request: { instructions: 'Rewrite myself' } },
+    {
+      kind: 'operate',
+      operation: {
+        op: 'config_patch',
+        patch: {
+          roleOverrides: { ai_operator: { duties: ['project_operation'], instructions: 'Rewrite my role' } },
+        },
+      },
+    },
+    { kind: 'operate', operation: { op: 'member_retire', handle: 'operator' } },
+    {
+      kind: 'operate',
+      operation: { op: 'member_hire', request: { role: 'ai_operator', handle: 'another-operator' } },
+    },
+  ])('refuses a fixed Operator change before creating an owner question: %j', async (command) => {
+    const before = await config();
+    const questions = app.app.projectman.repos.inbox.listOpen('question').length;
+    const response = await app.app.inject({
+      method: 'POST',
+      url: routes.superOperations('AR'),
+      headers: { authorization: `Bearer ${secret}` },
+      payload: { requestId: randomUUID(), command },
+    });
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json().error.code).toBe('operator_fixed');
+    expect(app.app.projectman.repos.inbox.listOpen('question')).toHaveLength(questions);
+    expect(await config()).toEqual(before);
   });
 });

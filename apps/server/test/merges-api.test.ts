@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { routes } from '@projectman/shared';
+import { CreatedIntegratorAccessKey, SuperOperateResponse, routes } from '@projectman/shared';
+import { randomUUID } from 'node:crypto';
 import { sharedClaudeTmpRoots } from '../src/engine-host';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -37,98 +38,132 @@ describe('member merge API', () => {
       expect(response.json()).toMatchObject({ error: { code: 'invalid_request' } });
     },
   );
-  it('lets the human merger create a fix checkout and submit its committed resolution', async () => {
-    const { domain, repos } = h.app.projectman;
-    const loaded = await domain.projects.load('AR');
-    await domain.projects.patch(
-      'AR',
-      {
-        baseVersion: loaded.version,
-        merger: { kind: 'member', handle: 'owner' },
-        repoMerge: [{ repo: 'web', requireMerge: true }],
-      },
-      { actor: { kind: 'human', handle: 'owner' }, author: { name: 'Owner', email: 'owner@test.invalid' } },
-    );
-    vi.spyOn(domain.autoAdvance, 'check').mockResolvedValue(undefined);
-    await domain.taskStarts.start('AR', 'AR-1', {
-      assignee: 'dev-1',
-      actor: { kind: 'human', handle: 'owner' },
-      author: { name: 'Owner', email: 'owner@test.invalid' },
-    });
-    const tree = h.worktrees.existing.get('AR/AR-1/web')!;
-    h.worktrees.heads.set(tree.path, {
-      path: tree.path,
-      branch: tree.branch,
-      commit: 'approved',
-      dirty: false,
-      changes: 0,
-      committedAt: null,
-    });
-    repos.taskHandovers.save({
-      projectKey: 'AR',
-      taskKey: 'AR-1',
-      commit: 'approved',
-      branch: tree.branch,
-      stageId: 'code_review',
-      at: new Date().toISOString(),
-    });
-    repos.tasks.update(domain.tasks.get('AR', 'AR-1').id, {
-      stageId: 'merge',
-      labels: ['code-review-ok', 'merge-ok', 'release-ok', 'pr-merged'],
-    });
-    merger.prepare.mockResolvedValue({
-      local: 'base',
-      remote: null,
-      relation: 'same',
-      contains: { local: false, remote: null },
-      checkout: null,
-    });
-    merger.build
-      .mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] })
-      .mockResolvedValue({ ok: true, mergeCommit: 'merged', changed: ['a.ts'] });
-    merger.isAncestor.mockResolvedValue(true);
-    merger.advance.mockResolvedValue({ ok: true });
-    const started = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie);
-    expect(started.statusCode, started.body).toBe(200);
-    await vi.waitFor(() => expect(domain.tasks.get('AR', 'AR-1').merge?.state).toBe('failed'));
-    const other = await addHumanAndLogin(h.app, { handle: 'other' });
-    const refused = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), other, { fixConflict: true });
-    expect(refused.statusCode).toBe(409);
-    expect(refused.json()).toMatchObject({
-      error: { code: 'merge_fix_not_allowed', details: { reason: 'not_merger' } },
-    });
-    const fixing = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie, { fixConflict: true });
-    expect(fixing.statusCode).toBe(200);
-    const fixTree = [...h.worktrees.fixes.values()][0]!;
-    expect(fixing.json().task.merge).toMatchObject({
-      state: 'fixing',
-      fix: { by: 'owner', path: fixTree.path },
-    });
-    h.worktrees.heads.get(fixTree.path)!.dirty = true;
-    const dirty = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie, {
-      resolution: 'Fix imports',
-    });
-    expect(dirty.statusCode).toBe(409);
-    expect(dirty.json()).toMatchObject({
-      error: { code: 'merge_fix_invalid', details: { reason: 'uncommitted' } },
-    });
-    h.worktrees.heads.get(fixTree.path)!.dirty = false;
-    h.worktrees.heads.get(fixTree.path)!.commit = 'resolved';
-    const queued = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie, {
-      resolution: '  Fix imports  ',
-    });
-    expect(queued.statusCode).toBe(200);
-    expect(queued.json().task.merge.state).toBe('queued');
-    await vi.waitFor(() =>
-      expect(domain.tasks.get('AR', 'AR-1').merged?.resolution).toEqual({
-        note: 'Fix imports',
-        commit: 'resolved',
-      }),
-    );
-    expect(
-      domain.timeline.list('AR', { taskKey: 'AR-1' }).find((event) => event.type === 'task_merged')?.data,
-    ).toMatchObject({ resolution: { note: 'Fix imports', commit: 'resolved' } });
-  });
+  it.each(['owner', 'super'] as const)(
+    'starts a merge as %s and keeps conflict fixes with the merger',
+    async (mode) => {
+      const { domain, repos } = h.app.projectman;
+      const loaded = await domain.projects.load('AR');
+      await domain.projects.patch(
+        'AR',
+        {
+          baseVersion: loaded.version,
+          merger: { kind: 'member', handle: 'owner' },
+          repoMerge: [{ repo: 'web', requireMerge: true }],
+        },
+        { actor: { kind: 'human', handle: 'owner' }, author: { name: 'Owner', email: 'owner@test.invalid' } },
+      );
+      vi.spyOn(domain.autoAdvance, 'check').mockResolvedValue(undefined);
+      await domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: { kind: 'human', handle: 'owner' },
+        author: { name: 'Owner', email: 'owner@test.invalid' },
+      });
+      const tree = h.worktrees.existing.get('AR/AR-1/web')!;
+      h.worktrees.heads.set(tree.path, {
+        path: tree.path,
+        branch: tree.branch,
+        commit: 'approved',
+        dirty: false,
+        changes: 0,
+        committedAt: null,
+      });
+      repos.taskHandovers.save({
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        commit: 'approved',
+        branch: tree.branch,
+        stageId: 'code_review',
+        at: new Date().toISOString(),
+      });
+      repos.tasks.update(domain.tasks.get('AR', 'AR-1').id, {
+        stageId: 'merge',
+        labels: ['code-review-ok', 'merge-ok', 'release-ok', 'pr-merged'],
+      });
+      merger.prepare.mockResolvedValue({
+        local: 'base',
+        remote: null,
+        relation: 'same',
+        contains: { local: false, remote: null },
+        checkout: null,
+      });
+      merger.build
+        .mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] })
+        .mockResolvedValue({ ok: true, mergeCommit: 'merged', changed: ['a.ts'] });
+      merger.isAncestor.mockResolvedValue(true);
+      merger.advance.mockResolvedValue({ ok: true });
+      let superHeaders: Record<string, string> | undefined;
+      if (mode === 'super') {
+        const key = CreatedIntegratorAccessKey.parse(
+          (await inject(h.app, 'POST', routes.integratorKeys(), cookie, { mode: 'super' })).json(),
+        );
+        superHeaders = { authorization: `Bearer ${key.secret}` };
+        const started = await h.app.inject({
+          method: 'POST',
+          url: routes.superOperations('AR'),
+          headers: superHeaders,
+          payload: { requestId: randomUUID(), command: { kind: 'merge', taskKey: 'AR-1', request: {} } },
+        });
+        expect(started.statusCode, started.body).toBe(202);
+        expect(SuperOperateResponse.parse(started.json()).operation.state).toBe('succeeded');
+        expect(repos.taskMerges.open('AR', 'AR-1')?.startedBy).toBe('operator');
+      } else {
+        const started = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie);
+        expect(started.statusCode, started.body).toBe(200);
+      }
+      await vi.waitFor(() => expect(domain.tasks.get('AR', 'AR-1').merge?.state).toBe('failed'));
+      if (superHeaders) {
+        const refused = await h.app.inject({
+          method: 'POST',
+          url: routes.taskMerge('AR', 'AR-1'),
+          headers: superHeaders,
+          payload: { fixConflict: true },
+        });
+        expect(refused.statusCode).toBe(409);
+        expect(refused.json().error.code).toBe('merge_fix_not_allowed');
+      }
+      const other = await addHumanAndLogin(h.app, { handle: 'other' });
+      const refused = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), other, {
+        fixConflict: true,
+      });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json()).toMatchObject({
+        error: { code: 'merge_fix_not_allowed', details: { reason: 'not_merger' } },
+      });
+      const fixing = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie, {
+        fixConflict: true,
+      });
+      expect(fixing.statusCode).toBe(200);
+      const fixTree = [...h.worktrees.fixes.values()][0]!;
+      expect(fixing.json().task.merge).toMatchObject({
+        state: 'fixing',
+        fix: { by: 'owner', path: fixTree.path },
+      });
+      h.worktrees.heads.get(fixTree.path)!.dirty = true;
+      const dirty = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie, {
+        resolution: 'Fix imports',
+      });
+      expect(dirty.statusCode).toBe(409);
+      expect(dirty.json()).toMatchObject({
+        error: { code: 'merge_fix_invalid', details: { reason: 'uncommitted' } },
+      });
+      h.worktrees.heads.get(fixTree.path)!.dirty = false;
+      h.worktrees.heads.get(fixTree.path)!.commit = 'resolved';
+      const queued = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie, {
+        resolution: '  Fix imports  ',
+      });
+      expect(queued.statusCode).toBe(200);
+      expect(queued.json().task.merge.state).toBe('queued');
+      await vi.waitFor(() =>
+        expect(domain.tasks.get('AR', 'AR-1').merged?.resolution).toEqual({
+          note: 'Fix imports',
+          commit: 'resolved',
+        }),
+      );
+      expect(
+        domain.timeline.list('AR', { taskKey: 'AR-1' }).find((event) => event.type === 'task_merged')?.data,
+      ).toMatchObject({ resolution: { note: 'Fix imports', commit: 'resolved' } });
+    },
+  );
   it('refuses a caller who is not the merger and refuses read-only members', async () => {
     const response = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie);
     expect(response.statusCode).toBe(403);

@@ -484,6 +484,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt }));
     const domain = createDomain({
       integratorCredentials: auth,
+      revokeIntegratorAccessKey: (userId, keyId) => auth.revokeIntegratorAccessKey(userId, keyId),
       operatorGrants: auth.operatorGrantGate,
       integratorTodoAccess: {
         available: (config) =>

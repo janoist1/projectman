@@ -1,8 +1,11 @@
 import type { Actor, Session, SessionStop, TeamMessage } from '@projectman/shared';
-import { DomainError, assertIntegratorAccess, forbidden, integratorExecution, invalid } from '../../kernel';
+import { prepareOperatorConfigPatch } from '@projectman/shared';
+import { assertIntegratorAccess, forbidden, integratorExecution, invalid } from '../../kernel';
 import type { SuperCommandExecutor } from './handoffs';
+import { superJobIdentity } from './commands';
+import type { SuperCommandDeps } from './commands';
 
-/** Who pauses or resumes: the key owner's request, recorded as the Operator with the key's data. */
+/** Who pauses or resumes: the live principal's request, recorded as the bound Operator. */
 interface OperatePauseRequester {
   userId: string;
   source: 'app';
@@ -15,7 +18,7 @@ interface OperatePauseRequester {
  * (Messaging in core/messages, PauseService in runtime/sessions, the session orchestrator), seen through the
  * calls this executor makes; the composition supplies them.
  */
-export interface OperateExecutorDeps {
+export interface OperateExecutorDeps extends Pick<SuperCommandDeps, 'projects' | 'members' | 'user'> {
   messaging: {
     send(
       projectKey: string,
@@ -38,7 +41,7 @@ export interface OperateExecutorDeps {
  * The executor of the `operate` command kind in super mode (PM-831). It runs the Operator's operations as the
  * key's super actor, on the authority of the key (its owner is checked again at the domain entry), without the
  * one-click approval of the base Operator: the owner-reserved effects were already classified before the
- * executor runs. Operations that change the configuration or the members are not executed yet (PM-832).
+ * executor runs. Configuration and member writes use the same author provenance as REST.
  */
 export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandExecutor {
   return async (job) => {
@@ -72,7 +75,7 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
           userId: scope.principal.userId,
           source: 'app' as const,
           via: 'integrator' as const,
-          credential: { id: scope.principal.keyId, prefix: scope.principal.prefix },
+          credential: { ...superActor.credential },
         };
         const target = { scope: 'project' as const, projectKey };
         if (op.op === 'project_pause') await deps.pauses.pause(target, requester);
@@ -87,15 +90,27 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
         return;
       }
       case 'config_patch':
-      case 'config_revert':
-      case 'member_update':
-      case 'member_hire':
-      case 'member_retire':
-        throw new DomainError(
-          'super_operation_unsupported',
-          'this operation is not executed in super mode yet',
-          { status: 422 },
+        await deps.projects.patch(
+          projectKey,
+          prepareOperatorConfigPatch(job.config, job.configVersion, op.patch),
+          superJobIdentity(job, deps),
         );
+        return;
+      case 'config_revert':
+        await deps.projects.revert(projectKey, op.version, superJobIdentity(job, deps));
+        return;
+      case 'member_update':
+        await deps.members.update(projectKey, op.handle, op.changes, superJobIdentity(job, deps));
+        return;
+      case 'member_hire':
+        await deps.members.hire(projectKey, op.request, {
+          ...superJobIdentity(job, deps),
+          sponsor: await deps.members.sponsorFor(job.access),
+        });
+        return;
+      case 'member_retire':
+        await deps.members.retire(projectKey, op.handle, {}, superJobIdentity(job, deps));
+        return;
     }
   };
 }

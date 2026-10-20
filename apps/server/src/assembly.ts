@@ -28,6 +28,7 @@ import { createStructureService } from './services/structure';
 import {
   createAdministrationExecutor,
   createOperateExecutor,
+  createCommandExecutor,
   createAdministrationSettler,
   createSuperAdministration,
   createSuperDiagnostics,
@@ -210,6 +211,7 @@ export interface DomainOptions {
   webPush?: { enabled?: boolean; subject?: string };
   webPushTransport?: PushTransport;
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
+  revokeIntegratorAccessKey?: (userId: string, keyId: string) => unknown;
   /** The owner's grant every machine operation passes (PM-881); absent: no machine operation runs. */
   operatorGrants?: import('./contracts').OperatorGrantGate;
   integratorTodoAccess?: IntegratorTodoAccess;
@@ -1495,7 +1497,14 @@ export function createDomain(opts: DomainOptions) {
     },
   });
   const sessionEngine = (sessionId: string) => engines.get(sessions.engineOf(sessionId)) ?? undefined;
-  const superHandoffs = createSuperHandoffService({ ctx, projects, inbox, timeline, audit: superAudit });
+  const superHandoffs = createSuperHandoffService({
+    ctx,
+    projects,
+    members,
+    inbox,
+    timeline,
+    audit: superAudit,
+  });
   const toolCaller = new ToolCaller({
     ctx,
     projects,
@@ -1822,7 +1831,34 @@ export function createDomain(opts: DomainOptions) {
       (member) => member.kind === 'ai' && engines.engineFor(projectKey, member.handle) === engineId,
     );
   };
-  superHandoffs.registerExecutor('operate', createOperateExecutor({ messaging, pauses, sessions }));
+  const commandDeps = {
+    tasks,
+    members,
+    projects,
+    invitations,
+    starts: taskStarts,
+    merges,
+    user: (id: string) => ctx.repos.users.get(id),
+    revokeCredential: opts.revokeIntegratorAccessKey,
+  };
+  const commandExecutor = createCommandExecutor(commandDeps);
+  for (const kind of [
+    'task_create',
+    'task_update',
+    'task_labels',
+    'task_start',
+    'task_cancel',
+    'merge',
+    'merge_order',
+    'member_update',
+    'invite_create',
+    'credential_revoke',
+  ] as const)
+    superHandoffs.registerExecutor(kind, commandExecutor);
+  superHandoffs.registerExecutor(
+    'operate',
+    createOperateExecutor({ ...commandDeps, messaging, pauses, sessions }),
+  );
   // Without a gate no machine operation runs: the fallback refuses like a missing grant.
   const operatorGrants: import('./contracts').OperatorGrantGate = opts.operatorGrants ?? {
     active: () => null,

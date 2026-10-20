@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { prepareOperatorConfigPatch, roleBundle, routes, superActorOf } from '@projectman/shared';
+import {
+  prepareOperatorConfigPatch,
+  roleBundle,
+  routes,
+  superActorOf,
+  SuperOperateResponse,
+} from '@projectman/shared';
 import type { Actor } from '@projectman/shared';
 import type { IntegratorExecutionContext } from '../src/contracts';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
@@ -222,27 +229,41 @@ describe('credential REST and domain access (PM-759)', () => {
     },
   );
 
-  it.each(['own', 'legacy', 'super', 'read'] as const)(
+  it.each(['own', 'legacy', 'super', 'read', 'super-command'] as const)(
     '%s orders the repository merge queue',
     async (mode) => {
       const { repos } = h.app.projectman;
       await queuedTasks(2);
       const before = repos.taskMerges.queueOrder('AR', 'web');
-      const { headers } = await credential(mode);
+      const { headers } = await credential(mode === 'super-command' ? 'super' : mode);
       const taskKeys = [...before.taskKeys].reverse();
+      const order = { repo: 'web', expectedRevision: before.revision, taskKeys, reason: 'Credential order' };
       const response = await h.app.inject({
-        method: 'PUT',
-        url: routes.mergeQueueOrder('AR'),
+        method: mode === 'super-command' ? 'POST' : 'PUT',
+        url: mode === 'super-command' ? routes.superOperations('AR') : routes.mergeQueueOrder('AR'),
         headers,
-        payload: { repo: 'web', expectedRevision: before.revision, taskKeys, reason: 'Credential order' },
+        payload:
+          mode === 'super-command'
+            ? { requestId: randomUUID(), command: { kind: 'merge_order', ...order } }
+            : order,
       });
-      expect(response.statusCode, response.body).toBe(mode === 'read' ? 403 : 200);
+      expect(response.statusCode, response.body).toBe(
+        mode === 'read' ? 403 : mode === 'super-command' ? 202 : 200,
+      );
       if (mode === 'read') {
         expect(response.json().error.code).toBe('integrator_read_only');
         expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual(before);
       } else {
-        expect(response.json()).toEqual({ revision: before.revision + 1, taskKeys });
-        expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual(response.json());
+        if (mode === 'super-command') {
+          expect(SuperOperateResponse.parse(response.json()).operation.state).toBe('succeeded');
+          const events = h.app.projectman.domain.timeline
+            .list('AR')
+            .filter((event) => event.type === 'task_merge_prioritized');
+          expect(events).not.toHaveLength(0);
+          for (const event of events)
+            expect(event.actor).toMatchObject({ kind: 'ai', handle: 'operator', operatorMode: 'super' });
+        } else expect(response.json()).toEqual({ revision: before.revision + 1, taskKeys });
+        expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual({ revision: before.revision + 1, taskKeys });
       }
     },
   );

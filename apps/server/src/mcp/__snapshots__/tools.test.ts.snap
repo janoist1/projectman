@@ -6338,6 +6338,481 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               ],
               "type": "object",
             },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "task_create",
+                  "type": "string",
+                },
+                "request": {
+                  "properties": {
+                    "description": {
+                      "type": "string",
+                    },
+                    "developerLevel": {
+                      "properties": {
+                        "level": {
+                          "enum": [
+                            "senior",
+                            "any",
+                          ],
+                          "type": "string",
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "maxLength": 300,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "level",
+                      ],
+                      "type": "object",
+                    },
+                    "importedAt": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "kind": {
+                      "enum": [
+                        "task",
+                        "theme",
+                      ],
+                      "type": "string",
+                    },
+                    "labels": {
+                      "items": {
+                        "type": "string",
+                      },
+                      "type": "array",
+                    },
+                    "parentKey": {
+                      "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                      "type": "string",
+                    },
+                    "relations": {
+                      "items": {
+                        "properties": {
+                          "key": {
+                            "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                            "type": "string",
+                          },
+                          "kind": {
+                            "enum": [
+                              "part_of",
+                              "prerequisite",
+                              "related",
+                              "duplicate_of",
+                            ],
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "kind",
+                          "key",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "repo": {
+                      "type": [
+                        "string",
+                        "null",
+                      ],
+                    },
+                    "stageId": {
+                      "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                      "type": "string",
+                    },
+                    "themeKey": {
+                      "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                      "type": "string",
+                    },
+                    "title": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "visibility": {
+                      "enum": [
+                        "internal",
+                        "shared",
+                      ],
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "title",
+                  ],
+                  "type": "object",
+                },
+              },
+              "required": [
+                "kind",
+                "request",
+              ],
+              "type": "object",
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "task_update",
+                  "type": "string",
+                },
+                "request": {
+                  "properties": {
+                    "assignee": {
+                      "anyOf": [
+                        {
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "description": {
+                      "type": "string",
+                    },
+                    "despitePrerequisites": {
+                      "type": "boolean",
+                    },
+                    "developerLevel": {
+                      "properties": {
+                        "level": {
+                          "enum": [
+                            "senior",
+                            "any",
+                          ],
+                          "type": "string",
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "maxLength": 300,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "level",
+                      ],
+                      "type": "object",
+                    },
+                    "labels": {
+                      "items": {
+                        "type": "string",
+                      },
+                      "type": "array",
+                    },
+                    "parentKey": {
+                      "anyOf": [
+                        {
+                          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "priority": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "urgent",
+                            "high",
+                            "normal",
+                            "low",
+                          ],
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "relations": {
+                      "properties": {
+                        "add": {
+                          "items": {
+                            "properties": {
+                              "key": {
+                                "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                                "type": "string",
+                              },
+                              "kind": {
+                                "enum": [
+                                  "part_of",
+                                  "prerequisite",
+                                  "related",
+                                  "duplicate_of",
+                                ],
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "kind",
+                              "key",
+                            ],
+                            "type": "object",
+                          },
+                          "type": "array",
+                        },
+                        "remove": {
+                          "items": {
+                            "properties": {
+                              "key": {
+                                "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                                "type": "string",
+                              },
+                              "kind": {
+                                "enum": [
+                                  "part_of",
+                                  "has_part",
+                                  "prerequisite",
+                                  "prerequisite_of",
+                                  "related",
+                                  "duplicate_of",
+                                  "duplicated_by",
+                                ],
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "kind",
+                              "key",
+                            ],
+                            "type": "object",
+                          },
+                          "type": "array",
+                        },
+                      },
+                      "type": "object",
+                    },
+                    "repo": {
+                      "type": [
+                        "string",
+                        "null",
+                      ],
+                    },
+                    "stageId": {
+                      "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                      "type": "string",
+                    },
+                    "themeKey": {
+                      "anyOf": [
+                        {
+                          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "title": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "visibility": {
+                      "enum": [
+                        "internal",
+                        "shared",
+                      ],
+                      "type": "string",
+                    },
+                  },
+                  "type": "object",
+                },
+                "taskKey": {
+                  "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "kind",
+                "taskKey",
+                "request",
+              ],
+              "type": "object",
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "task_labels",
+                  "type": "string",
+                },
+                "request": {
+                  "properties": {
+                    "add": {
+                      "items": {
+                        "maxLength": 40,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "type": "array",
+                    },
+                    "comment": {
+                      "maxLength": 10000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "remove": {
+                      "items": {
+                        "maxLength": 40,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "type": "array",
+                    },
+                  },
+                  "type": "object",
+                },
+                "taskKey": {
+                  "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "kind",
+                "taskKey",
+                "request",
+              ],
+              "type": "object",
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "task_start",
+                  "type": "string",
+                },
+                "request": {
+                  "properties": {
+                    "assignee": {
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                      "type": "string",
+                    },
+                    "despitePrerequisites": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
+                "taskKey": {
+                  "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "kind",
+                "taskKey",
+                "request",
+              ],
+              "type": "object",
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "task_cancel",
+                  "type": "string",
+                },
+                "request": {
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                    },
+                  },
+                  "type": "object",
+                },
+                "taskKey": {
+                  "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "kind",
+                "taskKey",
+                "request",
+              ],
+              "type": "object",
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "itemId": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "kind": {
+                  "const": "inbox_resolve",
+                  "type": "string",
+                },
+                "request": {
+                  "properties": {
+                    "attachmentIds": {
+                      "items": {
+                        "pattern": "^msa_[a-z0-9]{10,32}$",
+                        "type": "string",
+                      },
+                      "maxItems": 10,
+                      "type": "array",
+                    },
+                    "note": {
+                      "type": "string",
+                    },
+                    "optionId": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "optionId",
+                  ],
+                  "type": "object",
+                },
+              },
+              "required": [
+                "kind",
+                "itemId",
+                "request",
+              ],
+              "type": "object",
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "keyId": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "kind": {
+                  "const": "credential_revoke",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "kind",
+                "keyId",
+              ],
+              "type": "object",
+            },
           ],
         },
         "expected_config_version": {

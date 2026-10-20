@@ -5,6 +5,12 @@ import { MemberHandle } from '../domain/member';
 import { TaskKey } from '../domain/task';
 import {
   CreateInviteRequest,
+  CreateTaskRequest,
+  UpdateTaskRequest,
+  ChangeTaskLabelsRequest,
+  CancelTaskRequest,
+  StartTaskRequest,
+  ResolveInboxRequest,
   OperatorOperation,
   OrderMergeQueueRequest,
   StartMergeRequest,
@@ -25,6 +31,17 @@ export const SuperCommand = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('merge'), taskKey: TaskKey, request: StartMergeRequest }),
   z.strictObject({ kind: z.literal('merge_order'), ...OrderMergeQueueRequest.shape }),
   z.strictObject({ kind: z.literal('administration'), request: AdministrationCommandSchema }),
+  z.strictObject({ kind: z.literal('task_create'), request: CreateTaskRequest }),
+  z.strictObject({ kind: z.literal('task_update'), taskKey: TaskKey, request: UpdateTaskRequest }),
+  z.strictObject({ kind: z.literal('task_labels'), taskKey: TaskKey, request: ChangeTaskLabelsRequest }),
+  z.strictObject({ kind: z.literal('task_start'), taskKey: TaskKey, request: StartTaskRequest }),
+  z.strictObject({ kind: z.literal('task_cancel'), taskKey: TaskKey, request: CancelTaskRequest }),
+  z.strictObject({
+    kind: z.literal('inbox_resolve'),
+    itemId: z.string().min(1),
+    request: ResolveInboxRequest,
+  }),
+  z.strictObject({ kind: z.literal('credential_revoke'), keyId: z.string().min(1) }),
 ]);
 export type SuperCommand = z.infer<typeof SuperCommand>;
 

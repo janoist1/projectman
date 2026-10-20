@@ -102,6 +102,7 @@ export interface SuperHandoffPatch {
 
 export interface SuperOperationPatch {
   state: SuperState;
+  taskKey?: string;
   ownerQuestionId?: string | null;
   expiresAt?: string | null;
   errorCode?: string | null;
@@ -165,6 +166,7 @@ export function createSuperHandoffRepository(db: Db) {
     casOperation: db.prepare(
       `UPDATE super_operations
          SET state = ?,
+             task_key = CASE WHEN ? AND task_key IS NULL THEN ? ELSE task_key END,
              owner_question_id = CASE WHEN ? THEN ? ELSE owner_question_id END,
              expires_at = CASE WHEN ? THEN ? ELSE expires_at END,
              error_code = CASE WHEN ? THEN ? ELSE error_code END,
@@ -277,6 +279,8 @@ export function createSuperHandoffRepository(db: Db) {
       return (
         st.casOperation.run(
           patch.state,
+          flag(patch.taskKey),
+          patch.taskKey ?? null,
           flag(patch.ownerQuestionId),
           patch.ownerQuestionId ?? null,
           flag(patch.expiresAt),

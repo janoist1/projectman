@@ -190,6 +190,13 @@ export const hu = {
     detailError: 'Nem sikerült betölteni a művelet részleteit.',
     commands: {
       operate: 'Operátor-művelet',
+      task_create: 'Kártya létrehozása',
+      task_update: 'Kártya módosítása',
+      task_labels: 'Címkék módosítása',
+      task_start: 'Kártya indítása',
+      task_cancel: 'Kártya visszavonása',
+      inbox_resolve: 'Teendő lezárása',
+      credential_revoke: 'Kulcs visszavonása',
       member_update: 'Tag módosítása',
       invite_create: 'Meghívás',
       merge: 'Beolvasztás',

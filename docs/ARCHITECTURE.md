@@ -1620,6 +1620,56 @@ workers follow the machine's size.
   It compares against the commit's first parent; a non-merge commit retains the full-run scope.
   Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds
   the machine's lock, so the nested root scripts do not queue again.
+  **Timing measurement (PM-866, 2026-10-20, Mac, main `fab09438`).** The four-worker
+  baseline recorded on PM-865 was 421.5–430.6 s for the server (534 files, 12,316 tests;
+  collect 272.3–275.4 s summed across workers, tests 1,321.9–1,344.7 s). Its initial
+  pooled measurements were 330.2–343.0 s with the same file/test counts and collect
+  34.0–35.0 s. These are server timings, not end-to-end merge timings.
+  The final diagnostic server run took 876.44 s (collect 72.55 s, tests 2,311.30 s
+  summed across workers), with 561 files and 12,527 registered tests (423 failed,
+  19 pending). Filtering PTY files out of the JSON leaves 538 files and 12,420 tests:
+  counts did not decrease, but successful coverage and comparable timing are unverified.
+  Replaying the last forty first-parent merges selects 15 module scopes, 20 full scopes,
+  one cloud scope, one shared scope, two workspace scopes and one skipped check. Using
+  the diagnostic file times gives a median estimate of 809.43 s and nearest-rank p90
+  of 816.47 s, including a historical measured web allowance of 226.14 s (PM-828,
+  2026-10-19 16:33 UTC; workers unknown) and 10/1/2 s for shared/templates/widget.
+  The fresh web attempt did not load with the default config loader; its corrected
+  runner-loader attempt was cancelled while queued. These estimates are not comparable
+  four-worker measurements and must not be used to claim the target is met or missed.
+  The final PM-866 measurement and forty-merge replay are recorded on PM-866 and PM-849.
+  The Codex sandbox allows the configuration's PTY probe but refuses local listeners
+  (`listen EPERM: operation not permitted 127.0.0.1`), so automatic PTY exclusion does
+  not activate and many tests fail before exercising their behavior, or time out.
+  Such a run cannot certify either the typical merge's 300 s target or the complete
+  run's 600 s target. Compare sandbox capabilities and exclusions as well as worker
+  count before comparing timings. Successful checks currently retain flaky markers
+  only (`full-test/output.ts`, `passedOutputTail`), so historical failure notes are
+  not a representative sample of twenty successful merges. At this cutoff, only
+  the final prerequisite merge includes all five optimizations. The last explicit
+  worker-setting record is the owner's PM-798 answer (2026-10-19 11:38 UTC):
+  `reviewTest.maxWorkers` was reduced to two. Historical merge timings without a
+  per-run worker record must not be compared directly with the four-worker target.
+  PM-876 tracks the missing comparable evidence and the owner's structural options;
+  no worker setting or pre-merge gate was changed by this measurement.
+  To repeat the measurement on the engine Mac, use a writable temporary directory
+  (`<tmp>` below), the same checkout and sandbox as the baseline, and these commands:
+
+  ```sh
+  VITEST_MAX_FORKS=4 VITEST_MAX_THREADS=4 TMPDIR=<tmp> npm run heavy -- npx vitest run --root apps/server --configLoader runner --reporter=default --reporter=json --outputFile.json=<tmp>/after.json
+  npm run merge-test -- --dry-run <commit>
+  VITEST_MAX_FORKS=4 VITEST_MAX_THREADS=4 TMPDIR=<tmp> npm run heavy -- npx vitest run --root apps/web --configLoader runner --reporter=default --reporter=json --outputFile.json=<tmp>/web.json
+  ```
+
+  Obtain the replay's commit list with `git log <cutoff> --first-parent --merges -40 --format=%H`;
+  run the second command once per commit, using the current selection implementation
+  against each historical first-parent diff. Match selected server files to the server
+  JSON's `testResults` by repository path. Estimate each merge as the sum of selected
+  file durations divided by four, plus the measured web duration when selected and
+  shared/templates/widget allowances of 10/1/2 s when selected. Report median and p90
+  separately from observed wall time, and list missing timings (including excluded PTY
+  tests) rather than silently pricing them at zero. Also retain the default reporter's
+  collect/test totals: the JSON reporter's per-file durations do not include collect time.
   **Rerun and marker lines (PM-842).** `scripts/merge-test/steps.ts` runs the steps one by one (the
   full run is split by workspace: every type check, then every test, so a failed file belongs to a
   workspace). A failed `test` step reruns once, with only its failed files, when it ended with an

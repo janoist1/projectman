@@ -16,16 +16,24 @@ npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout 
 npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout
 ```
 
-Docker and an already configured Buildx `docker-container` driver must support linux/amd64 and
-linux/arm64 through native builders or emulation. The command does not create a builder, fetch,
-switch branches or publish. Two sequential, single-platform Docker exports use the same SHA and
+By default only the target machine's platform is built (PM-916): linux/arm64 for an EC2 config with
+`architecture: "arm64"`, linux/amd64 otherwise, the same rule `deploy` uses to pick its archive.
+`--all-platforms` builds both. Emulated builds (amd64 on an ARM Mac or arm64 on x86) are slow and
+can fail inside QEMU, so build the other platform only when a machine needs it.
+
+Docker and an already configured Buildx `docker-container` driver must support the requested
+platform(s) through native builders or emulation. The command does not create a builder, fetch,
+switch branches or publish. Sequential, single-platform Docker exports use the same SHA and
 tracked source context, then load/inspect verifies config digest, Linux architecture, revision
-LABEL and PROJECTMAN_VERSION. The bundle becomes valid only when both exports pass and its
+LABEL and PROJECTMAN_VERSION. The bundle becomes valid only when every requested export passes and its
 strict `manifest.json` is atomically published. Dry-run only checks/plans and creates no output.
 See the [Buildx build reference](https://docs.docker.com/reference/cli/docker/buildx/build/) and
 [Docker exporter documentation](https://docs.docker.com/build/exporters/oci-docker/).
 
-Keep `manifest.json`, `linux-amd64.tar` and `linux-arm64.tar` together. Output must be a new
+Keep `manifest.json` and the archives it lists (`linux-amd64.tar`, `linux-arm64.tar`) together. A
+manifest holds one or two images; older two-image bundles stay valid, and `deploy` refuses a bundle
+without the target platform's image (`image bundle has no <platform> image`). Code from before
+PM-916 does not read a one-image bundle: the same checkout builds and uses a bundle. Output must be a new
 directory outside the repository with no symlink components, NUL/newline or comma in its path.
 The manifest records sourceSha and each archive's SHA-256, bytes and image config ID. It is
 integrity metadata, not a signature: the owner approves the specific builder output and digests.
@@ -44,7 +52,7 @@ ARM refuses a legacy record without its digest/platform. Old amd64 records and d
 an imageBundle retain the existing host-build path. Rollback does not undo DB migrations: keep
 the existing point-in-time recovery gate. No image import prunes current/previous images.
 
-Real two-platform builds and disposable runtime smoke (Node/better-sqlite3, cloudflared,
+Real builds of the target platform and disposable runtime smoke (Node/better-sqlite3, cloudflared,
 litestream, restic and cloud server), plus 1 GiB RAM and import disk headroom checks, are PM-675
 release artifact evidence. This implementation does not provision resources or authorize cutover.
 

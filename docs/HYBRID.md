@@ -1,7 +1,7 @@
 # Hybrid mode in the cloud (PM-317)
 
 For the ARM EC2 target, [AWS.md](AWS.md#prebuilt-arm-and-amd64-images-pm-718) describes the
-PM-718 two-platform bundle. Build it on a separate administration/builder machine at the same
+PM-718 image bundle (only the arm64 image since PM-916; `--all-platforms` adds amd64). Build it on a separate administration/builder machine at the same
 accepted full SHA as the Mac engine. EC2 imports only its native platform archive over SSH/SSM
 and starts the verified immutable image ID; it never builds on ARM. AWS/registry credentials
 do not cross to the engine. Seed's PM-717 integrity gate still precedes import and first start.

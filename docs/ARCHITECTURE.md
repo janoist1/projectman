@@ -2710,7 +2710,9 @@ workers follow the machine's size.
   plan may conditionally delete the trial objects. Round two uses a new stopped-source package;
   no backup process or seed/start is invoked by reset. This adds no engine-side dependency.
   PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
-  driver and native builders/emulation exports separate linux/amd64 and linux/arm64 Docker archives
+  driver and native builders/emulation exports separate single-platform Docker archives (PM-916:
+  by default only the target machine's platform, `targetPlatform(config)`; `--all-platforms` both;
+  the manifest holds one or two images, old two-image bundles stay valid)
   at one clean HEAD SHA, using a tracked-source-only context and the existing .dockerignore. The
   revision LABEL and PROJECTMAN_VERSION retain that full SHA. A strict, atomically published bundle
   manifest pins archive hashes/sizes and config digests after import/inspect verification. Output
@@ -4013,10 +4015,11 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
 - **Admin release preparation (PM-750)** —
   `scripts/release/{prepare,config,checkout,smoke,engine,receipt}.ts`,
   `apps/server/test/release-prepare.test.ts`. `prepareHybridRelease(context, {releaseId, commit,
-outputDir, engineReleasesDir})` builds, from one exact commit, the linux/amd64 and linux/arm64
-  image bundle (the existing `runImageBuild`, unchanged manifest) from its own clean admin checkout
-  of `repository.url` (the full object id is checked after the fetch), smokes each image by its
-  image ID, and prepares an engine candidate checkout at `<engineReleasesDir>/<releaseId>-<sha>`.
+outputDir, engineReleasesDir})` builds, from one exact commit, the linux/arm64
+  image bundle (the existing `runImageBuild` with `HYBRID_PLATFORM`; PM-916 dropped the unused,
+  QEMU-emulated amd64 image, so the receipt holds one smoke, old two-smoke receipts stay valid) from
+  its own clean admin checkout of `repository.url` (the full object id is checked after the fetch),
+  smokes the image by its image ID, and prepares an engine candidate checkout at `<engineReleasesDir>/<releaseId>-<sha>`.
   The smoke runs a disposable container with `--network none`, no mount, no port, a fixed
   entrypoint and a fixture home with a standby marker, no storage, mail or Access credential: native
   better-sqlite3 with a temporary database, the `cloudflared`/`litestream`/`restic` versions and the
@@ -4031,14 +4034,14 @@ outputDir, engineReleasesDir})` builds, from one exact commit, the linux/amd64 a
   refusing, timed-out or interrupted sandbox ends the preparation; nothing runs on the host instead.
   The machine's heavy-run queue is held for the whole run (an unusable queue is a failure). The
   receipt `<outputDir>/preparation.json` (directory 0700, file 0600, strict zod, never overwritten)
-  is written last, after the manifest hash, both archives, the image IDs, the candidate's HEAD and
+  is written last, after the manifest hash, the archive, the image ID, the candidate's HEAD and
   clean state and the lockfile hash were verified again; a finished candidate carries a sibling
   `<candidate>.candidate.json` marker, and only a directory that matches it is reused.
   Foreign or partial directories are refused and never overwritten. A failed run leaves its
   `outputDir` (with `build-source`) as it was; a rerun needs a new `outputDir`, because an existing one
   is refused.
-  **Assumptions:** an admin Mac with Docker and a pre-existing docker-container Buildx builder for both
-  platforms (as PM-718), Node and the Sandbox Runtime of the full test, `git` and https access to the
+  **Assumptions:** an admin Mac with Docker and a pre-existing docker-container Buildx builder for
+  linux/arm64 (native on an ARM Mac; as PM-718), Node and the Sandbox Runtime of the full test, `git` and https access to the
   configured repository, and `outputDir`/`engineReleasesDir` on a local disk of the user, outside the
   source checkout and the engine home. It writes no cloud resource, no engine home, no LaunchAgent and
   no registry; the receipt is neither an approval nor a signature of origin.
@@ -4046,7 +4049,7 @@ outputDir, engineReleasesDir})` builds, from one exact commit, the linux/amd64 a
   never the engine or EC2) and needs nothing from the engine. The candidate checkout is the engine's
   own code, so it must be prepared on the engine's machine, as the user who runs it: a remote engine
   needs `engineReleasesDir` on its disk and its own Sandbox Runtime and Node, and the receipt (a path
-  and hashes) crosses to the coordinator as data only, not the checkout. The real two-platform
+  and hashes) crosses to the coordinator as data only, not the checkout. The real arm64
   Docker evidence comes from an approved admin trial; the fakes in the test do not replace it.
   **Module:** `scripts`
 

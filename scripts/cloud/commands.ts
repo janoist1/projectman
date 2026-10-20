@@ -22,15 +22,15 @@ import {
 } from './machine';
 import { Report } from './report';
 import { runReleaseControl } from './release-control';
-import { runImageBuild, selectedImage, sourceShaSchema } from './images';
+import { platformSchema, runImageBuild, selectedImage, sourceShaSchema, targetPlatform } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 import { runTrialResetApply, runTrialResetPlan } from './trial-reset';
 
 export const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
-  image-build --ref <SHA40> --out <new directory> [--dry-run]
-                                     build and verify amd64 and arm64 archives on the admin builder
+  image-build --ref <SHA40> --out <new directory> [--all-platforms] [--dry-run]
+                                     build and verify the target machine's image archive (--all-platforms: amd64 and arm64) on the admin builder
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
   aws [--dry-run] [--rotate-keys]    create the EC2 or Lightsail machine, the S3 buckets, the IAM users and their keys
   deploy [--ref <tag|sha>] [--dry-run]
@@ -81,7 +81,8 @@ type Flag =
   | 'rotate-integrator-token'
   | 'feedback'
   | 'update'
-  | 'back';
+  | 'back'
+  | 'all-platforms';
 type ValueOption =
   'ref' | 'lines' | 'from' | 'to' | 'login-json' | 'out' | 'rollback-event' | 'plan' | 'confirm-sha256';
 
@@ -172,12 +173,18 @@ export const COMMANDS: Record<string, CommandSpec> = {
       ),
   },
   'image-build': {
-    summary: 'build the two-platform image bundle',
-    flags: ['dry-run'],
+    summary: 'build the image bundle',
+    flags: ['dry-run', 'all-platforms'],
     values: ['ref', 'out'],
     required: ['ref', 'out'],
     run: (context, invocation) =>
-      runImageBuild(context, invocation.values.ref!, invocation.values.out!, invocation.dryRun),
+      runImageBuild(
+        context,
+        invocation.values.ref!,
+        invocation.values.out!,
+        invocation.dryRun,
+        invocation.flags.has('all-platforms') ? platformSchema.options : [targetPlatform(context.config)],
+      ),
   },
   'ses plan': { summary: 'preview SES provisioning', flags: [], run: runSesPlan },
   'ses configure': {

@@ -20,14 +20,15 @@ import {
 } from './receipt';
 import type { PreparedHybridRelease, SmokeEvidence } from './receipt';
 import { assertImageLoaded, smokeImage } from './smoke';
+import { HYBRID_PLATFORM } from './verify';
 
 export type { PrepareOptions, PrepareReleaseInput } from './config';
 export type { PreparedHybridRelease } from './receipt';
 
 /**
- * Prepares one release for the hybrid switch (PM-750): from one exact commit, a verified linux/amd64 and
- * linux/arm64 image bundle (each image proven by a runtime smoke) and a ready engine checkout beside the running
- * one. It changes no cloud resource, no running engine, no engine home and no LaunchAgent. The receipt
+ * Prepares one release for the hybrid switch (PM-750): from one exact commit, a verified linux/arm64 image bundle
+ * (the image proven by a runtime smoke; PM-916 dropped the unused emulated amd64 image) and a ready engine
+ * checkout beside the running one. It changes no cloud resource, no running engine, no engine home and no LaunchAgent. The receipt
  * (`<outputDir>/preparation.json`) is written last, only when every check passed; it is neither an approval nor a
  * signature, and the coordinator checks it again right before it switches anything.
  */
@@ -132,10 +133,11 @@ async function prepare(
   context.report.step('ok', 'release-checkout', buildSource);
   const lockfileAtBuild = hashRegularFile(path.join(buildSource, 'package-lock.json'));
 
-  // 2. Both platforms, tracked source only, on the admin builder (no registry, no EC2, no builder provisioning).
+  // 2. The hybrid machine's platform only (no emulated amd64 build), tracked source only, on the admin builder
+  // (no registry, no EC2, no builder provisioning).
   running(signal);
   const builderContext: CloudContext = { ...context, deps: { ...context.deps, repoRoot: buildSource } };
-  await runImageBuild(builderContext, commit, imagesDir, false);
+  await runImageBuild(builderContext, commit, imagesDir, false, [HYBRID_PLATFORM]);
   const bundle = readBundle(imagesDir, commit);
   context.report.step('ok', 'release-images', `manifest sha256=${bundle.manifestSha256}`);
 

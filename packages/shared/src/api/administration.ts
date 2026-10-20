@@ -65,6 +65,9 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const BOOT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 
+/** The owner must see the same text that executes: reject hidden formatting and C1 controls (PM-887). */
+const OwnerCommandText = z.string().regex(/^[^\0\u0080-\u009f\p{Cf}]*$/u);
+
 export const AdministrationOperationId = z.string().regex(SAFE_ID);
 export const AdministrationBootId = z.string().regex(BOOT_ID);
 export const AdministrationCommitSchema = z.string().regex(COMMIT);
@@ -105,19 +108,9 @@ export const AdministrationCommandSchema: z.ZodType<AdministrationCommand> = z.d
   z.strictObject({
     kind: z.literal('owner_command'),
     target: AdministrationTargetSchema,
-    command: z
-      .string()
-      .min(1)
-      .max(2000)
-      .refine((value) => !value.includes('\0')),
-    cwd: z
-      .string()
-      .min(1)
-      .max(500)
-      .startsWith('/')
-      .refine((value) => !value.includes('\0'))
-      .optional(),
+    command: OwnerCommandText.min(1).max(2000),
+    cwd: OwnerCommandText.min(1).max(500).startsWith('/').optional(),
     timeoutSeconds: z.number().int().min(1).max(600).default(120),
-    reason: z.string().min(1).max(500),
+    reason: OwnerCommandText.min(1).max(500),
   }),
 ]);

@@ -55,7 +55,7 @@ function capture() {
         points.push(point);
         encodedBytes += size;
       }
-      return { text: points.join(''), truncated: truncated || cut || safe !== raw };
+      return { text: points.join(''), truncated: truncated || cut };
     },
   };
 }

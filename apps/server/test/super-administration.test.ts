@@ -191,7 +191,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
     const command = admin({
       kind: 'owner_command',
       target: { kind: 'hub' },
-      command: 'pwd',
+      command: 'printf "%s\\n" "*tmp* **bold** `id` [ls](https://example.test)";\nprintf "```\\n"',
       cwd: '/fixture/work',
       timeoutSeconds: 45,
       reason: 'Inspect fixture',
@@ -207,7 +207,9 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       expect(submitted).toEqual([]);
       const question = h.domain.inbox.get('AR', waiting.ownerQuestionId!);
       const details = (question.payload as { details: string }).details;
-      expect(JSON.parse(details.slice(details.indexOf('\n') + 1))).toEqual(
+      const blocks = [...details.matchAll(/^```json\n([\s\S]*?)\n```$/gm)];
+      expect(blocks).toHaveLength(1);
+      expect(JSON.parse(blocks[0]![1]!)).toEqual(
         (command as Extract<SuperCommand, { kind: 'administration' }>).request,
       );
       expect(question.payload).toMatchObject({ responsePurpose: 'owner_decision' });

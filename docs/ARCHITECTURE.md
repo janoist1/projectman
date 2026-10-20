@@ -1793,11 +1793,13 @@ workers follow the machine's size.
   “no host shell” principle: only the owner's own login may approve each individual command, through a fresh
   `waiting_owner` super operation classified as `security`; a grant, waiver or previous yes never substitutes.
   The owner question includes the exact command, cwd (default: the supervisor user's home), target, timeout
-  and reason. `OperatorGrantGate` is also checked before submission; revoking it does not terminate a running
+  and reason in a JSON code block; these text fields reject Unicode format characters and C1 controls.
+  `OperatorGrantGate` is also checked before submission; revoking it does not terminate a running
   command. The environment inherits the supervisor's variables except the shared `BILLING_ENV_VARS`
   (`packages/shared/src/config/billing-env.ts`), including Codex OAuth overrides. The timeout is 1–600 seconds
   (default 120); timeout or supervisor shutdown sends TERM to the dedicated process group and KILL 10 seconds
-  later. Each output stream is bounded to 64 KiB including JSON escaping; raw collection is bounded too.
+  later; descendants that create a new session or daemonize can escape group termination. Each output stream
+  is bounded to 64 KiB including JSON escaping; raw collection is bounded too.
   Terminal escapes (CSI/OSC) and C0 controls except newline/tab, plus DEL, are removed before `redact.ts`,
   then output is cut at code-point boundaries to fit the encoded budget before entering the durable result;
   the command stays in the Operator's attributed super operation with its request id. The existing operation-id

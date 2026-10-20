@@ -1214,6 +1214,10 @@ network, SSM or shell, only one Unix socket.
   Operator's attributed operation and the redacted output in its result. **Linux:** the systemd restrictions
   remain: read-only system/home, writes only to state/socket directories, Unix sockets only, no privilege
   escalation and private temporary files. A restriction appears as the command's exit code and stderr.
+  Process-group termination cannot reach descendants that create a new session or daemonize. Redaction is
+  best-effort: arbitrary secrets and short fragments at the raw buffer boundary may survive; the owner question
+  notes that output reaches the Operator and its model provider. The command, cwd and reason reject Unicode
+  format characters and C1 controls; the exact request is shown in a JSON code block to preserve shell syntax.
   **macOS:** launchd runs the command with the owner's OS-user permissions. A remote target always runs on its
   own supervisor machine, through the existing engine link.
 - **A live socket is never taken over.** A starting supervisor removes a leftover socket file only after a

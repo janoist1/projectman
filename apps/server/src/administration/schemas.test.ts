@@ -14,6 +14,13 @@ describe('owner command on the wire', () => {
   it('defaults the timeout to 120 seconds', () => {
     expect(AdministrationCommandSchema.parse(command)).toMatchObject({ timeoutSeconds: 120 });
   });
+  it.each([
+    { command: 'printf safe\u202eunsafe' },
+    { cwd: '/fixture/\u200bhidden' },
+    { reason: 'Inspect\u0085fixture' },
+  ])('refuses hidden formatting and C1 controls in owner approval fields: %j', (fields) => {
+    expect(AdministrationCommandSchema.safeParse({ ...command, ...fields }).success).toBe(false);
+  });
   it('checks the JSON-encoded output budget, including escaping and quotes', () => {
     const result = {
       kind: 'owner_command',

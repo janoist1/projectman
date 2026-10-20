@@ -55,6 +55,14 @@ describe('owner command process boundary', () => {
     await pending;
   });
 
+  it('removes terminal formatting without marking short output as truncated', async () => {
+    const f = fixture();
+    const pending = f.run(COMMAND, f.abort.signal);
+    f.child.stdout.write('\x1b[32mfixture\x1b[0m\n');
+    f.child.emit('close', 0, null);
+    expect(await pending).toMatchObject({ stdout: 'fixture\n', truncated: false });
+  });
+
   it('redacts secrets split across chunks and bounds both streams in bytes', async () => {
     const f = fixture();
     const pending = f.run(COMMAND, f.abort.signal);

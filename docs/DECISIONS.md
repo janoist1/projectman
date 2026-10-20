@@ -410,3 +410,19 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     hajtani az operátor, amit amúgy nem tudna, pl a gépemhez hozzáfér. ha a felhőbe költözne az
     engine is, akkor is lenne ez a funkció, mert … megemelt jogosítványokat lehetne
     biztosítani.”
+    _Refined by decision 55._
+55. **The Operator can do everything; super reaches outside.** Decided by the owner on
+    2026-10-20 (PM-875); refines decision 54. Inside the app the Operator can do everything the
+    owner can, except the most critical actions (deleting members, keys, the project or a
+    repository; the owner's own login and security settings; paid cost, as answered on PM-862).
+    When the owner is away, it runs the system autonomously in the owner's name. Super is an
+    extra layer on top: with permission and instruction it reaches outside its place to the
+    owner's machine, its resources and the owner's rights, for example the owner's command
+    line, like Claude Desktop. The in-app rights do not depend on super. PM-862 and PM-871–873
+    were merged into PM-875 for this. The owner's words: „az Operátor szinte mindenható. ez a
+    lényege. a cél, hogy az Operátoron keresztül mindent tudjak csinálni, illetve ha épp nem
+    vagyok jelen, akkor az Op autonóm módon tudja vinni a rendszert a nevemben, csak a
+    legkritikusabb dolgokat nem csinálhatja.” and „az operátor mindent tudjon ! a super egy
+    extra réteg azért, hogy az operátor ki tudjon nyúlni a helyéről és az én gépem erőforrásait
+    és akár engedéllyel és utasítással az én jogaimmal is élhessen, pl használhassa a
+    parancssoromat, mint a claude desktop !”

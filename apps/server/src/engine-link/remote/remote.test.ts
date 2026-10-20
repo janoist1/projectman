@@ -246,6 +246,8 @@ describe('cloud mode remote parts', () => {
           });
         expect(result).toMatchObject({ outcome: 'error', reason: 'spawn_failed' });
         expect(result.outputTail).toContain(code);
+        // The engine's reason reaches the hub, not only the code (PM-915).
+        expect(result.outputTail).toContain('fixture failure');
         expect(onLinkWait).not.toHaveBeenCalled();
         expect(engine.requests.map((request) => request.method)).toEqual(['full_test.run']);
       },

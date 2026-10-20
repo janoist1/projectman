@@ -161,7 +161,10 @@ export function createEngineRpc(options: {
       try {
         const value = await handler(params.data, { id: frame.id });
         const result = schema.result.safeParse(value);
-        if (!result.success) return failure('internal', 'Invalid method result');
+        if (!result.success) {
+          options.onFailed?.({ method: frame.method, category: 'invalid_result' });
+          return failure('internal', 'Invalid method result');
+        }
         return { t: 'res', id: frame.id, ok: true, result: result.data };
       } catch (error) {
         // Unrecognised exceptions are never reflected, since they can contain credentials or paths.

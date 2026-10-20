@@ -6385,6 +6385,91 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                       ],
                       "type": "object",
                     },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "command": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "pattern": "^[^\\0\\u0080-\\u009f\\p{Cf}]*$",
+                          "type": "string",
+                        },
+                        "cwd": {
+                          "allOf": [
+                            {
+                              "pattern": "^[^\\0\\u0080-\\u009f\\p{Cf}]*$",
+                              "type": "string",
+                            },
+                            {
+                              "pattern": "^\\/.*",
+                              "type": "string",
+                            },
+                          ],
+                          "format": "starts_with",
+                          "maxLength": 500,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "kind": {
+                          "const": "owner_command",
+                          "type": "string",
+                        },
+                        "reason": {
+                          "maxLength": 500,
+                          "minLength": 1,
+                          "pattern": "^[^\\0\\u0080-\\u009f\\p{Cf}]*$",
+                          "type": "string",
+                        },
+                        "target": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "const": "hub",
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "kind",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "pattern": "^(local|eng_[a-z0-9]{12})$",
+                                  "type": "string",
+                                },
+                                "kind": {
+                                  "const": "engine",
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "kind",
+                                "id",
+                              ],
+                              "type": "object",
+                            },
+                          ],
+                        },
+                        "timeoutSeconds": {
+                          "default": 120,
+                          "maximum": 600,
+                          "minimum": 1,
+                          "type": "integer",
+                        },
+                      },
+                      "required": [
+                        "kind",
+                        "target",
+                        "command",
+                        "reason",
+                      ],
+                      "type": "object",
+                    },
                   ],
                 },
               },

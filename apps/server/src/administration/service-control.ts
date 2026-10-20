@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { execCommand } from '../exec';
 import { AdministrationSetupError } from './secure-fs';
 import type { SupervisorConfig } from './schemas';
 
@@ -42,28 +42,20 @@ export const LAUNCHCTL = '/bin/launchctl';
 export const PS = '/bin/ps';
 export const SYSTEMCTL = '/usr/bin/systemctl';
 
-/** The real runner: `execFile` with an absolute binary, a minimal environment and a bounded output. */
-export const runCommand: RunCommand = (file, args, { timeoutMs, maxBytes }) =>
-  new Promise((resolve, reject) => {
-    execFile(
-      file,
-      [...args],
-      {
-        env: { ...MINIMAL_ENV },
-        timeout: timeoutMs,
-        maxBuffer: maxBytes ?? MAX_OUTPUT_BYTES,
-        encoding: 'utf8',
-        shell: false,
-      },
-      (error, stdout) => {
-        if (!error) return resolve({ exitCode: 0, stdout });
-        const code = (error as NodeJS.ErrnoException & { code?: unknown }).code;
-        if (typeof code === 'number')
-          return resolve({ exitCode: code, stdout: typeof stdout === 'string' ? stdout : '' });
-        reject(new Error('the service manager command could not run'));
-      },
-    );
-  });
+/** The real runner: the shared exec helper with an absolute binary, a minimal environment and a bounded output. */
+export const runCommand: RunCommand = async (file, args, { timeoutMs, maxBytes }) => {
+  try {
+    const { exitCode, stdout } = await execCommand(file, args, {
+      env: { ...MINIMAL_ENV },
+      timeoutMs,
+      maxOutputBytes: maxBytes ?? MAX_OUTPUT_BYTES,
+      okExitCodes: 'any',
+    });
+    return { exitCode, stdout };
+  } catch {
+    throw new Error('the service manager command could not run');
+  }
+};
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 32);
 

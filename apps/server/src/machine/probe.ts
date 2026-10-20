@@ -1,7 +1,7 @@
-import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import type { MachineProbe, MachineSnapshot, ProcessRecord } from '../contracts';
+import { execCommand } from '../exec';
 import {
   diffPsEnvironment,
   parseEnvironFile,
@@ -33,23 +33,14 @@ const ENV_CHUNK = 100;
 function realSystem(): ProbeSystem {
   return {
     platform: process.platform,
-    exec: (file, args) =>
-      new Promise((resolve, reject) => {
-        execFile(
-          file,
-          args,
-          {
-            timeout: COMMAND_TIMEOUT_MS,
-            maxBuffer: 64 * 1024 * 1024,
-            encoding: 'utf8',
-            env: { ...process.env, LC_ALL: 'C' },
-          },
-          (error, stdout) => {
-            if (error) reject(Object.assign(error, { stdout }));
-            else resolve(stdout);
-          },
-        );
-      }),
+    exec: async (file, args) =>
+      (
+        await execCommand(file, args, {
+          env: { ...process.env, LC_ALL: 'C' },
+          timeoutMs: COMMAND_TIMEOUT_MS,
+          maxOutputBytes: 64 * 1024 * 1024,
+        })
+      ).stdout,
     readFile: (path) => readFile(path, 'utf8'),
     cpus: () => os.cpus(),
     totalmem: () => os.totalmem(),

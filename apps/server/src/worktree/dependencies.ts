@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { lstat, readdir, readFile, rename, rm, stat, statfs, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { DependencySkip, DependencyRefreshResult } from '../contracts';
+import { execCommand, ExecCommandError } from '../exec';
 import { copyWithinBudget } from './copy-budget';
 import { tryGit } from './git';
 import { canonical, createKeyedLock } from './paths';
@@ -385,16 +385,12 @@ async function defaultProbe(reference: string, target: string): Promise<void> {
 }
 
 /** `-R` keeps symbolic links as links, so a workspace link stays relative and points at the copy's own package. */
-function defaultCopyTree(src: string, dest: string, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) return reject(new Error('dependency copying aborted'));
-    const child = execFile('cp', ['-c', '-R', src, dest], { windowsHide: true }, (error, _stdout, stderr) => {
-      signal.removeEventListener('abort', stop);
-      if (error) reject(new Error(`cp -c -R failed: ${stderr.trim() || error.message}`));
-      else resolve();
-    });
-    // Kill manually: execFile's signal option rejects before the child has stopped.
-    const stop = () => child.kill();
-    signal.addEventListener('abort', stop, { once: true });
-  });
+async function defaultCopyTree(src: string, dest: string, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) throw new Error('dependency copying aborted');
+  try {
+    await execCommand('cp', ['-c', '-R', src, dest], { env: { ...process.env }, cancelSignal: signal });
+  } catch (error) {
+    if (!(error instanceof ExecCommandError)) throw error;
+    throw new Error(`cp -c -R failed: ${error.stderr.trim() || error.message}`);
+  }
 }

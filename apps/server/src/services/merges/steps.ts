@@ -545,7 +545,15 @@ export class MergeSteps {
           if (!this.continue(running)) return;
           if (result.outcome === 'error' && result.reason === 'engine_offline')
             throw new EngineLinkLostError('the merge check lost the card engine', true);
-          this.save(row, { check: { command: repo.reviewTest.command, runId, status: result.outcome } });
+          this.save(row, {
+            check: {
+              command: repo.reviewTest.command,
+              runId,
+              status: result.outcome,
+              runner,
+              ...(result.externalUrl ? { url: result.externalUrl } : {}),
+            },
+          });
           if (result.outcome === 'failed')
             return this.fail(row, config, {
               reason: 'check_failed',

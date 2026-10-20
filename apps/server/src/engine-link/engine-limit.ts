@@ -459,6 +459,19 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         )
       )
         refuse('command_not_allowed', 'The test command is not the one configured on this engine');
+      if (spec.githubActions) {
+        // The merge check as a GitHub Actions workflow (PM-900) runs no command here: `cwd` is a label, not a
+        // path, and the engine pushes the one commit to the one branch the owner named for this repository.
+        const check = spec.githubActions;
+        const entry = await mergeBase(check.ref, check.base);
+        mergeIdOf(check.mergeId);
+        commitIds(check.commit);
+        if (entry.fullTestCommand !== spec.command)
+          refuse('command_not_allowed', 'The test command is not configured for this repository');
+        if (spec.cwd !== `github-actions:${check.repo}` || spec.npmCi || spec.requireHeavyLock)
+          refuse('invalid_params', 'A GitHub Actions merge check carries no checkout, installation or lock');
+        return params;
+      }
       inside(spec.cwd, 'The test directory');
       if (spec.npmCi) {
         const entry = mergeRepo(spec.npmCi.ref);

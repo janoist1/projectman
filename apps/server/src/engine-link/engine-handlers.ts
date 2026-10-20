@@ -86,7 +86,7 @@ export interface EngineHandlerDeps {
   fullTest?: FullTestExecutor;
   screenshots?: ScreenshotExecutor;
   now?: () => number;
-  logger?: Pick<FastifyBaseLogger, 'info'>;
+  logger?: Pick<FastifyBaseLogger, 'info' | 'warn'>;
   /** The engine's own loopback address (`http://127.0.0.1:<port>`) the CLIs reach hooks and team tools at. */
   mcpBase: string;
   emit: (event: EngineEvent) => void;
@@ -661,6 +661,8 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
         } catch (error) {
           const code: EngineErrorCode = error instanceof EngineCallError ? error.linkCode : 'internal';
           audit.record({ ...entry, outcome: REFUSAL_CODES.has(code) ? 'refused' : 'error', code });
+          // The hub sees only the code (and, for a refusal, its message): the cause stays in this log (PM-915).
+          deps.logger?.warn({ err: error, method: name, code }, 'engine link: a request ended with an error');
           throw error;
         }
       });

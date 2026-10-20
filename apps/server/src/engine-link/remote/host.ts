@@ -353,9 +353,12 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           };
         if (linkDown(err)) return errorResult('engine_offline');
         // A refusal or a failed handler is not a link loss: merge callers must not restart it.
+        // The engine's own words (a refusal's reason) travel with the code: they hold no secret.
         return errorResult(
           'spawn_failed',
-          `engine ${id} could not execute the full test request${err instanceof EngineCallError ? ` (${err.linkCode})` : ''}`,
+          `engine ${id} could not execute the full test request${
+            err instanceof EngineCallError ? ` (${err.linkCode}): ${err.message.slice(0, 500)}` : ''
+          }`,
         );
       } finally {
         fullStarted.delete(spec.runId);

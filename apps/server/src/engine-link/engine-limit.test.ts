@@ -909,6 +909,47 @@ describe('engine local limit', () => {
       );
     });
 
+    it('passes a GitHub Actions merge check on without a checkout path, and refuses a wrong one (PM-915)', async () => {
+      const ref = { projectKey: 'PM', repo: 'projectman' };
+      const githubActions = {
+        ref,
+        mergeId: newId('merge'),
+        repo: 'owner/projectman',
+        base: 'main',
+        commit: 'a'.repeat(40),
+        workflow: 'merge-check.yml',
+      };
+      const check = (overrides: Record<string, unknown> = {}) =>
+        fullTest({ cwd: 'github-actions:owner/projectman', githubActions, ...overrides });
+      const limit = make({
+        repos: [
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
+        ],
+      });
+      await expect(limit.check('full_test.run', check() as never)).resolves.toBeDefined();
+      await refused(
+        limit,
+        'full_test.run',
+        check({ githubActions: { ...githubActions, base: 'dev' } }),
+        'merge_not_allowed',
+      );
+      await refused(
+        limit,
+        'full_test.run',
+        check({ githubActions: { ...githubActions, commit: 'main' } }),
+        'invalid_params',
+      );
+      await refused(limit, 'full_test.run', check({ cwd: repo }), 'invalid_params');
+      await refused(limit, 'full_test.run', check({ requireHeavyLock: true }), 'invalid_params');
+    });
+
     it('keeps the engine’s key and configuration out of the test and screenshot sandboxes', async () => {
       const limit = make({ linkHeadersFile: path.join(base, 'keys', 'headers.json') });
       type Denials = { spec: { sandbox: { denyRead: string[]; denyWrite?: string[] } } };

@@ -64,6 +64,7 @@ function fullTestHarness(
   const checkoutForCheck = vi.fn(async () => ({ path: checkCwd, gitDir: '/fictional/git' }));
   const releaseCheck = vi.fn(async () => {});
   const info = vi.fn();
+  const warn = vi.fn();
   const service = createEngineHandlers({
     limit: { check: async (_method: string, params: unknown) => params } as never,
     audit: { record: () => undefined } as never,
@@ -85,7 +86,7 @@ function fullTestHarness(
     terminals: new Set(),
     exportDir: '/nonexistent',
     now: options.now,
-    logger: { info },
+    logger: { info, warn },
   });
   service.register({
     handle: (method: string, handler: never) => {
@@ -95,7 +96,7 @@ function fullTestHarness(
   } as unknown as EngineRpc);
   const call = <M extends EngineMethod>(method: M, params: MethodParams<M>) =>
     registered.get(method)!(params, { id: 'request' }) as Promise<MethodResult<M>>;
-  return { call, service, checkoutForCheck, releaseCheck, info };
+  return { call, service, checkoutForCheck, releaseCheck, info, warn };
 }
 
 describe('engine handlers', () => {
@@ -357,11 +358,16 @@ describe('engine handlers', () => {
       'preserves executor errors for attach (synchronous throw: %s)',
       async (synchronous) => {
         const error = new Error('Executor failed');
-        const { call } = fullTestHarness(() => {
+        const { call, warn } = fullTestHarness(() => {
           if (synchronous) throw error;
           return Promise.reject(error);
         });
         await expect(call('full_test.run', { spec: fullSpec('failed') })).rejects.toBe(error);
+        // The cause is logged on the engine, since the hub sees only a code (PM-915).
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({ err: error, method: 'full_test.run' }),
+          expect.any(String),
+        );
         for (let i = 0; i < 2; i++)
           await expect(call('full_test.attach', { runId: 'failed' })).rejects.toBe(error);
         await call('full_test.cancel', { runId: 'failed' });

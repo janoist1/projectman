@@ -33,10 +33,11 @@ function migratedFile(): Buffer {
 
 /**
  * `openDatabase(':memory:')` without running the migrations again (about 45 ms of SQL each time):
- * the database starts from a copy of one that is migrated already.
+ * the database starts from a copy of one that is migrated already (or from `bytes`, a serialized
+ * database of the caller's own).
  */
-export function openMigratedMemoryDatabase(): Db {
-  const db = new Database(migratedMemory());
+export function openMigratedMemoryDatabase(bytes: Buffer = migratedMemory()): Db {
+  const db = new Database(bytes);
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   return db;

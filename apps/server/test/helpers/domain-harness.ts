@@ -36,7 +36,8 @@ import {
   FakeWorktreeManager,
   planUsage,
 } from './fakes';
-import { seedCustomizationRepository } from './customization-seed';
+import { readEntries, seedCustomizationRepository, writeEntries } from './customization-seed';
+import type { SeedEntry } from './customization-seed';
 import { openMigratedMemoryDatabase, seedDatabaseFile } from './database-seed';
 import { testTemplate } from './test-template';
 
@@ -58,6 +59,15 @@ export async function waitForSession(
     if (!session) throw new Error(`Waiting for session in ${projectKey}: ${JSON.stringify(filters)}`);
     return session;
   });
+}
+
+/**
+ * What a stopped harness left: its in-memory database and customization repository, to start any
+ * number of new harnesses from (`snapshot` option, `snapshotDomainHarness`).
+ */
+export interface HarnessSnapshot {
+  database: Buffer;
+  customization: SeedEntry[];
 }
 
 /**
@@ -87,6 +97,14 @@ export async function createDomainHarness(
      * the domain starts over what that one left, as after a restart. See `restartDomainHarness`.
      */
     directory?: string;
+    /**
+     * Starts over the state a stopped harness left (`snapshotDomainHarness`) in a directory of its
+     * own, with the in-memory database: the project is neither created nor adjusted again, which
+     * saves the git commits of doing so. Take it with the same options as this harness gets. The
+     * project's configured workspace path stays the one of the harness the snapshot was taken from
+     * (gone by then): use it for tests that do not read the workspace through the configuration.
+     */
+    snapshot?: HarnessSnapshot;
     /** Wraps the real attachment storage (fault injection); default: the storage as it is. */
     attachmentStorage?: (inner: AttachmentStorage) => AttachmentStorage;
     /**
@@ -149,16 +167,25 @@ export async function createDomainHarness(
     engineAttachments?: EngineAttachments;
   } = {},
 ) {
+  const { snapshot } = opts;
+  if (snapshot && (opts.directory !== undefined || opts.persistent))
+    throw new Error('A snapshot starts an in-memory harness in a directory of its own');
   const restarted = opts.directory !== undefined;
   const dir = opts.directory ?? mkdtempSync(join(tmpdir(), 'pm-domain-'));
   const workspace = join(dir, 'workspace');
   if (!restarted) {
     mkdirSync(workspace);
-    await seedCustomizationRepository(join(dir, 'customization'));
-    if (opts.persistent) seedDatabaseFile(join(dir, 'db.sqlite'));
+    if (snapshot) {
+      writeEntries(join(dir, 'customization'), snapshot.customization);
+    } else {
+      await seedCustomizationRepository(join(dir, 'customization'));
+      if (opts.persistent) seedDatabaseFile(join(dir, 'db.sqlite'));
+    }
   }
   const repos = createRepositories(
-    restarted || opts.persistent ? openDatabase(join(dir, 'db.sqlite')) : openMigratedMemoryDatabase(),
+    restarted || opts.persistent
+      ? openDatabase(join(dir, 'db.sqlite'))
+      : openMigratedMemoryDatabase(snapshot?.database),
   );
   const configStore = (opts.configStore ?? ((inner) => inner))(
     createConfigStore({ rootDir: join(dir, 'customization') }),
@@ -297,13 +324,13 @@ export async function createDomainHarness(
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,
   });
   await domain.start();
-  if (!restarted) {
+  if (!restarted && !snapshot) {
     await domain.projects.create(
       { key: 'AR', name: 'acme', workspacePath: workspace, templateId: 'test' },
       OWNER,
     );
   }
-  if (opts.adjust && !restarted) {
+  if (opts.adjust && !restarted && !snapshot) {
     await domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       opts.adjust!(draft);
       return 'Adjust test configuration';
@@ -356,6 +383,23 @@ function assertNoErrors(log: { errors: unknown[] }): void {
   if (log.errors.length > 0) {
     throw new Error(`errors were logged: ${JSON.stringify(log.errors, errorReplacer, 2)}`);
   }
+}
+
+/**
+ * Stops the harness and keeps what it left (its database and customization repository) for
+ * `createDomainHarness({ snapshot })`; the harness itself is gone afterwards. Set up the state
+ * once, snapshot it, and start a harness from it for every test or loop round instead.
+ */
+export async function snapshotDomainHarness(harness: DomainHarness): Promise<HarnessSnapshot> {
+  await harness.domain.stop();
+  const snapshot = {
+    database: harness.repos.db.serialize(),
+    customization: readEntries(join(harness.dir, 'customization')),
+  };
+  harness.repos.db.close();
+  rmSync(harness.dir, { recursive: true, force: true });
+  assertNoErrors(harness.log);
+  return snapshot;
 }
 
 /**

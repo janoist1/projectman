@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { routes } from '@projectman/shared';
@@ -210,6 +210,55 @@ export async function createSourceHome(): Promise<SourceHome> {
       await harness.close();
       rmSync(root, { recursive: true, force: true });
     },
+  };
+}
+
+const copyTree = (from: string, to: string): void =>
+  cpSync(from, to, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
+
+/**
+ * Stopped source homes from a copy: the first call builds one (`createSourceHome`, stopped, then
+ * `prepare`: whatever every test of the file starts with, such as a package) and keeps a copy of its
+ * two directories; each further call puts the copy back at the same paths, which is what the
+ * absolute paths in the repositories and the database need, and returns the same `SourceHome`. A
+ * test cleans up before the next one restores, as `afterEach` does; a home still there (two at
+ * once) gets a source home of its own, built the slow way. Building one takes about 25 git
+ * processes and a started app; a restore is a copy of a few hundred small files.
+ */
+export function stoppedSourceHomes<T = undefined>(
+  prepare: (src: SourceHome) => Promise<T> = async () => undefined as T,
+): () => Promise<{ src: SourceHome; prepared: T }> {
+  interface Template {
+    src: SourceHome;
+    prepared: T;
+    store: string;
+  }
+  let template: Promise<Template> | undefined;
+  const build = async (): Promise<Template> => {
+    const src = await createSourceHome();
+    await src.stop();
+    const prepared = await prepare(src);
+    const store = realpathSync(mkdtempSync(join(tmpdir(), 'pm-move-store-')));
+    copyTree(src.root, join(store, 'root'));
+    copyTree(src.home, join(store, 'home'));
+    process.once('exit', () => rmSync(store, { recursive: true, force: true }));
+    return { src, prepared, store };
+  };
+  return async () => {
+    if (!template) {
+      template = build();
+      const { src, prepared } = await template;
+      return { src, prepared };
+    }
+    const { src, prepared, store } = await template;
+    if (existsSync(src.root) || existsSync(src.home)) {
+      const own = await createSourceHome();
+      await own.stop();
+      return { src: own, prepared: await prepare(own) };
+    }
+    copyTree(join(store, 'root'), src.root);
+    copyTree(join(store, 'home'), src.home);
+    return { src, prepared };
   };
 }
 

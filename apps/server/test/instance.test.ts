@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { InstanceApiError, startInstance } from '../../../scripts/lib/instance.mjs';
 import type { Instance } from '../../../scripts/lib/instance.mjs';
 
@@ -24,6 +24,17 @@ async function start(options: Parameters<typeof startInstance>[0] = {}): Promise
 
 afterEach(async () => {
   await Promise.all(running.splice(0).map((instance) => instance.stop()));
+});
+
+// Starting a server runs the whole source through tsx, which is most of a test's time. The tests that only
+// use a demo instance (they invite their own accounts and open their own sessions) share one.
+let shared: Promise<Instance> | undefined;
+function demoInstance(): Promise<Instance> {
+  return (shared ??= startInstance({ web: false }));
+}
+
+afterAll(async () => {
+  if (shared) await (await shared.catch(() => undefined))?.stop();
 });
 
 async function answers(url: string): Promise<boolean> {
@@ -93,7 +104,7 @@ describe('startInstance', () => {
   it(
     'logs a non-admin account in with an invitation',
     async () => {
-      const instance = await start();
+      const instance = await demoInstance();
       const client = await instance.invite({
         project: 'AC',
         email: 'Client@Acme.test',
@@ -119,7 +130,7 @@ describe('startInstance', () => {
   it(
     'gives a browser login as a storageState: the session cookie only, no password',
     async () => {
-      const instance = await start();
+      const instance = await demoInstance();
       const client = await instance.invite({
         project: 'AC',
         email: 'cookie@acme.test',
@@ -144,7 +155,7 @@ describe('startInstance', () => {
   it(
     'shows the fake lead’s ask_human question in the inbox',
     async () => {
-      const instance = await start();
+      const instance = await demoInstance();
       const members = await instance.api('/api/projects/AC/members');
       const developer = members.find(
         (member: { kind: string; role: string }) => member.kind === 'ai' && member.role === 'developer',

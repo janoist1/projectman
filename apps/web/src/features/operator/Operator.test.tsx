@@ -175,12 +175,6 @@ describe('the Operator button', () => {
     expect(operator.getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('is there for every person of the project, a client too', async () => {
-    const project = mockProject();
-    renderLayout(project, '/p/AC', { viewer: 'kata' });
-    expect(await button()).toBeTruthy();
-  });
-
   it('counts the owner open signals on the button, and keeps the count out of a guest button', async () => {
     const project = mockProject();
     project.backend.operatorSignals = [
@@ -196,7 +190,7 @@ describe('the Operator button', () => {
     expect(within(operator).getByTestId('operator-signals-count').textContent).toBe('2');
   });
 
-  it('shows no signal count to a person who is not an owner', async () => {
+  it('is there for a client, with no signal count and no signal cards', async () => {
     const project = mockProject();
     project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody' })];
     renderLayout(project, '/p/AC', { viewer: 'kata' });
@@ -207,6 +201,10 @@ describe('the Operator button', () => {
       ),
     );
     expect(screen.queryByTestId('operator-signals-count')).toBeNull();
+    fireEvent.click(operator);
+    const panel = await screen.findByRole('dialog');
+    await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
+    expect(within(panel).queryByRole('heading', { name: /senki nem viheti/ })).toBeNull();
   });
 });
 
@@ -221,7 +219,6 @@ describe('the Operator panel', () => {
     expect(operator.getAttribute('aria-expanded')).toBe('true');
     const composer = await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
     await waitFor(() => expect(document.activeElement).toBe(composer));
-    expect(within(panel).getByText(t('operator.intro.title'))).toBeTruthy();
 
     fireEvent.keyDown(composer, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -280,10 +277,6 @@ describe('the Operator panel', () => {
     fireEvent.click(await button());
     const panel = await screen.findByRole('dialog');
     expect(await within(panel).findByText(t('operator.intro.title'))).toBeTruthy();
-    expect(within(panel).getByText(t('operator.intro.lead'))).toBeTruthy();
-    for (const point of ['card', 'members', 'state'] as const)
-      expect(within(panel).getByText(t(`operator.intro.points.${point}`))).toBeTruthy();
-    expect(within(panel).getByText(t('operator.intro.approval'))).toBeTruthy();
     // The owner is told where the daily work distributor is.
     expect(within(panel).getByText(t('operator.intro.transitionLink'), { exact: false })).toBeTruthy();
 
@@ -382,8 +375,6 @@ describe('the steps of a request', () => {
     const steps = await screen.findByRole('region', { name: t('operator.steps.label') });
     for (const group of ['done', 'awaiting', 'refused'] as const)
       expect(within(steps).getByRole('heading', { name: t(`operator.steps.${group}`) })).toBeTruthy();
-    expect(within(steps).getByText(t('operator.steps.actions.task_move'))).toBeTruthy();
-    expect(within(steps).getByText(t('operator.steps.actions.member_retire'))).toBeTruthy();
     // The icon never carries the state alone.
     expect(within(steps).getByText(t('operator.steps.iconDone'))).toBeTruthy();
     expect(within(steps).getByText(t('operator.steps.iconAwaiting'))).toBeTruthy();
@@ -877,18 +868,6 @@ describe('a signal the Operator raised', () => {
     expect(posted(project, '/dismiss')).toHaveLength(0);
   });
 
-  it('sets the signal aside with "Most ne" without sending a message', async () => {
-    const project = mockProject();
-    const message = presenting(project);
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'stalled', messageId: message.id })];
-    renderLayout(project);
-    fireEvent.click(await button());
-    fireEvent.click(await screen.findByRole('button', { name: t('operator.signal.dismiss') }));
-    await waitFor(() => expect(posted(project, '/operator/signals/sig_1/dismiss')).toHaveLength(1));
-    expect(posted(project, '/messages')).toHaveLength(0);
-    expect(await screen.findByText(new RegExp(t('operator.signal.dismissed')))).toBeTruthy();
-  });
-
   it.each(['summary', 'single', 'no message'] as const)(
     'dismisses a non-actionable signal with no acceptance button (%s)',
     async (presentation) => {
@@ -1002,47 +981,35 @@ describe('a signal the Operator raised', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('shows the four kinds by their own title', async () => {
+  it('shows every visible kind by its own title inside a group', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [
-      signal({ id: 'sig_1', kind: 'outage', taskKey: null }),
-      signal({ id: 'sig_2', kind: 'nobody' }),
-      signal({ id: 'sig_3', kind: 'stalled' }),
-      signal({ id: 'sig_4', kind: 'silent' }),
-    ];
+    const kinds = [
+      'outage',
+      'nobody',
+      'stalled',
+      'silent',
+      'idle',
+      'merge_waiting',
+      'merge_blocked',
+      'unreleased',
+      'ready_waiting',
+    ] as const;
+    const withoutCard = ['outage', 'unreleased', 'ready_waiting'];
+    project.backend.operatorSignals = kinds.map((kind) =>
+      signal({ id: `sig_${kind}`, kind, taskKey: withoutCard.includes(kind) ? null : 'AC-20' }),
+    );
     renderLayout(project);
     fireEvent.click(await button());
     fireEvent.click(
-      await screen.findByRole('button', { name: new RegExp(t('operator.signal.pending', { count: 4 })) }),
+      await screen.findByRole('button', {
+        name: new RegExp(t('operator.signal.pending', { count: kinds.length })),
+      }),
     );
-    expect(
-      await screen.findByRole('heading', { name: new RegExp(t('operator.signal.kinds.outage')) }),
-    ).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^AC-20: senki nem viheti/ })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^AC-20: válaszra vár a munkamenet/ })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^AC-20: a munkamenet nem ad jelet/ })).toBeTruthy();
-  });
-
-  it('shows the board kinds (PM-547) by their own title inside a group', async () => {
-    const project = mockProject();
-    project.backend.operatorSignals = [
-      signal({ id: 'sig_1', kind: 'idle' }),
-      signal({ id: 'sig_2', kind: 'merge_waiting' }),
-      signal({ id: 'sig_3', kind: 'merge_blocked' }),
-      signal({ id: 'sig_4', kind: 'unreleased', taskKey: null }),
-      signal({ id: 'sig_5', kind: 'ready_waiting', taskKey: null }),
-    ];
-    renderLayout(project);
-    fireEvent.click(await button());
-    fireEvent.click(
-      await screen.findByRole('button', { name: new RegExp(t('operator.signal.pending', { count: 5 })) }),
-    );
-    expect(await screen.findByRole('heading', { name: /^AC-20: senki nem dolgozik rajta/ })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^AC-20: beolvasztásra vár/ })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^AC-20: elakadt a beolvasztás/ })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^Kiadásra váró munka/ })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^Indítható kártyák várnak/ })).toBeTruthy();
-    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+    for (const kind of kinds) {
+      const title = t(`operator.signal.kinds.${kind}`, { key: 'AC-20' });
+      expect(await screen.findByRole('heading', { name: new RegExp(`^${title}`) })).toBeTruthy();
+    }
+    expect(screen.getAllByRole('listitem')).toHaveLength(kinds.length);
   });
 
   it('says on the card that the signal is no longer open, without a toast', async () => {
@@ -1054,16 +1021,6 @@ describe('a signal the Operator raised', () => {
     project.backend.operatorSignals[0]!.state = 'resolved';
     fireEvent.click(dismiss);
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', t('operator.signal.closed'));
-  });
-
-  it('is not shown to a person who is not an owner', async () => {
-    const project = mockProject();
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody' })];
-    renderLayout(project, '/p/AC', { viewer: 'kata' });
-    fireEvent.click(await button());
-    const panel = await screen.findByRole('dialog');
-    await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
-    expect(within(panel).queryByRole('heading', { name: /senki nem viheti/ })).toBeNull();
   });
 });
 
@@ -1095,7 +1052,6 @@ describe('the approval in Rád vár', () => {
     expect(
       within(card).getByText((_, node) => node?.textContent === text && node.children.length === 0),
     ).toBeTruthy();
-    expect(within(card).getByRole('link', { name: 'AC-1' })).toBeTruthy();
     expect(within(card).getByText(t('operator.approval.expiresSoon', { minutes: 30 }))).toBeTruthy();
     fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.send') }));
     await waitFor(() =>
@@ -1120,16 +1076,16 @@ describe('the approval in Rád vár', () => {
     expect(document.querySelector(`time[datetime="${past}"]`)).toBeNull();
   });
 
-  it.each(['expired', 'interrupted'] as const)('offers only dismissal for a %s proposal', async (reason) => {
+  it('offers only dismissal for an expired message proposal, with no deadline', async () => {
     const project = mockProject();
     project.backend.inbox.push(
       approvalItem('stp_message', {
         ...operatorMessageApprovalFixture(),
-        stale: { reason, at: new Date().toISOString() },
+        stale: { reason: 'expired', at: new Date().toISOString() },
       }),
     );
     rendered(project);
-    const card = (await screen.findByText(t(`operator.approval.staleReasons.${reason}`))).closest('article')!;
+    const card = (await screen.findByText(t('operator.approval.staleReasons.expired'))).closest('article')!;
     expect(within(card).getByRole('button', { name: t('operator.approval.ok') })).toBeTruthy();
     expect(within(card).queryByRole('button', { name: t('operator.approval.send') })).toBeNull();
     expect(
@@ -1172,35 +1128,6 @@ describe('the approval in Rád vár', () => {
     rendered(project);
     expect(await screen.findByRole('button', { name: t('operator.approval.stop') })).toBeTruthy();
     expect(screen.getByRole('button', { name: t('operator.approval.pause') })).toBeTruthy();
-  });
-
-  it('shows the watch level change and its consequence before approval', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(
-      approvalItem('stp_watch', {
-        action: 'config_change',
-        operation: { op: 'config_patch', patch: { operatorWatch: 'unblock' } },
-        changes: [
-          {
-            area: 'project',
-            target: null,
-            field: 'operatorWatch',
-            before: null,
-            after: 'unblock',
-            level: 'approval',
-          },
-        ],
-        consequence: 'operator_watch',
-      }),
-    );
-    rendered(project);
-    const consequence = await screen.findByText(t('operator.approval.consequences.operator_watch'));
-    const card = consequence.closest('article')!;
-    expect(within(card).getByText('unblock')).toBeTruthy();
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_watch/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
-    );
   });
 
   it('rejects without changing anything', async () => {

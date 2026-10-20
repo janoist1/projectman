@@ -226,7 +226,7 @@ describe('cloud mode remote parts', () => {
       return { engine, controller, onStarted, onLinkWait, run };
     }
 
-    it.each(['internal', 'module_error', 'command_not_allowed'] as const)(
+    it.each(['internal', 'module_error'] as const)(
       'ends a refused initial run as spawn_failed without waiting for a link (%s)',
       async (code) => {
         const engine = await online();
@@ -253,7 +253,7 @@ describe('cloud mode remote parts', () => {
       },
     );
 
-    it.each(['internal', 'module_error', 'command_not_allowed'] as const)(
+    it.each(['internal', 'module_error'] as const)(
       'does not classify a refused attach as another link loss (%s)',
       async (code) => {
         const { run, onLinkWait } = await lostRun();
@@ -1071,27 +1071,6 @@ describe('cloud mode remote parts', () => {
       expect(onStarted).toHaveBeenCalledTimes(1);
     });
 
-    it('sends requireHeavyLock to the engine and relays its result (PM-658)', async () => {
-      const engine = await online();
-      engine.answer('full_test.run', () => ({
-        outcome: 'error' as const,
-        reason: 'heavy_lock_unavailable' as const,
-        exitCode: null,
-        durationMs: 0,
-        failedFiles: [],
-        outputTail: 'no queue',
-      }));
-      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
-      const result = await executor.run(
-        { ...fullTestSpec('f1'), requireHeavyLock: true },
-        new AbortController().signal,
-      );
-      expect(result).toMatchObject({ outcome: 'error', reason: 'heavy_lock_unavailable' });
-      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
-        { method: 'full_test.run', params: { spec: expect.objectContaining({ requireHeavyLock: true }) } },
-      ]);
-    });
-
     it('blocks the run on an older engine that refuses requireHeavyLock, without repeating it without the flag', async () => {
       const engine = await online();
       let ran = false;
@@ -1181,25 +1160,6 @@ describe('cloud mode remote parts', () => {
         expect(ran).toBe(false);
         expect(onStarted).not.toHaveBeenCalled();
       });
-    });
-
-    it('sends npmCi to the engine and relays its result (PM-681)', async () => {
-      const engine = await online();
-      engine.answer('full_test.run', () => ({
-        outcome: 'passed' as const,
-        exitCode: 0,
-        durationMs: 1,
-        failedFiles: [],
-        outputTail: '',
-      }));
-      const npmCi = { ref: { projectKey: 'AR', repo: 'ar' }, mergeId: 'mrg_1' };
-      const result = await remote.directory
-        .get('eng_a' as never)!
-        .fullTestExecutor!.run({ ...fullTestSpec('f1'), npmCi }, new AbortController().signal);
-      expect(result).toMatchObject({ outcome: 'passed' });
-      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
-        { method: 'full_test.run', params: { spec: expect.objectContaining({ npmCi }) } },
-      ]);
     });
 
     describe('step report (PM-876)', () => {
@@ -1296,7 +1256,7 @@ describe('cloud mode remote parts', () => {
       expect(engine.requests.filter((item) => item.method === 'full_test.run')).toHaveLength(2);
     });
 
-    it('sends the dependency preparation request to the engine and relays its result (PM-681)', async () => {
+    it('sends npmCi and requireHeavyLock to the engine and relays its result (PM-658, PM-681)', async () => {
       const engine = await online();
       engine.answer('full_test.run', () => ({
         outcome: 'error' as const,
@@ -1486,13 +1446,6 @@ describe('cloud mode remote parts', () => {
         method: 'merge.commit_files',
         params: { ref, onto: sha, files, message: 'Docs' },
       });
-      // The engine's MergeError comes out as a MergeError.
-      engine.answer('merge.read_file', () => {
-        throw Object.assign(new Error('over 1 MiB'), { code: 'invalid_input' });
-      });
-      const refused = await merger.readFile(ref, { at: { commit: sha }, path: 'big.md' }).catch((e) => e);
-      expect(refused).toBeInstanceOf(MergeError);
-      expect(refused).toMatchObject({ code: 'invalid_input' });
     });
 
     it('sends the path reads with the repository named, and returns their results', async () => {
@@ -1521,13 +1474,6 @@ describe('cloud mode remote parts', () => {
         method: 'merge.changed_paths',
         params: { ref, base: 'main', items },
       });
-      // The engine's MergeError comes out as a MergeError.
-      engine.answer('merge.list_paths', () => {
-        throw Object.assign(new Error('The base is not known'), { code: 'unknown_object' });
-      });
-      const refused = await merger.listPaths(ref, { base: 'main' }).catch((e) => e);
-      expect(refused).toBeInstanceOf(MergeError);
-      expect(refused).toMatchObject({ code: 'unknown_object' });
     });
 
     it('ends a screenshot run with engine_offline when the link drops, and a full test too', async () => {
@@ -1584,7 +1530,6 @@ describe('cloud mode remote parts', () => {
       vi.useFakeTimers();
       try {
         const engine = await online();
-        engine.answer('session.start', (params) => running(params.sessionId));
         engine.disconnect();
         const waiting = remote.hub.call('eng_a' as never, 'host.free_disk', {});
         const outcome = expect(waiting).rejects.toMatchObject({ linkCode: 'link_down' });

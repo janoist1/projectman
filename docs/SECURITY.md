@@ -1422,7 +1422,7 @@ their session, origin and limit rules are in "The feedback tool's public API".
 2. **The server's host guard is the second lock** (`src/http/feedback-host-guard.ts`, registered
    as the first `onRequest` hook, before the auth hook). It is on when
    `PROJECTMAN_FEEDBACK_PUBLIC_URL` is set to a non-loopback address. For a request whose `Host`
-   (lower-case, with its port, without a trailing dot) is that address, anything outside the
+   (lower-case, without any port and without a trailing dot) names that address's host, anything outside the
    list gets the same 404 an unknown server route gets, so a wrong or missing tunnel rule does
    not expose `/api`, `/ws`, `/hooks`, `/mcp` or the web app there. A websocket upgrade is
    refused and its socket closed.

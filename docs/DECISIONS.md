@@ -379,3 +379,34 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     A container is a deployment option under `deploy/`; the projectman core does not depend on
     Docker. The public entrance from the Mac (PM-200, `docs/DEPLOY.md`) is dropped; Fly.io stays
     only as an alternative.
+52. **Outwardly there is one actor, the Operator.** Decided by the owner on 2026-10-19 (PM-824,
+    PM-782, PM-818): „kifelé egyetlen szereplő van, az »Operátor«. A super mód csak egy belső
+    állapot: épp az integrátor (Claude Code) vezeti-e az Operátort a saját kulcsával.” What says
+    „Integrátor” in the UI, the integrator to-do list, the PM's messages and the prompts says
+    „Operátor”. The integrator's to-do becomes an Operator to-do: the integrator does it when
+    connected (super mode), the Operator AI otherwise, and it reaches the owner only when
+    neither can do it. On to-dos for the Operator, „Nem tudom megcsinálni” becomes „Operátori
+    segítség kérése” (the owner's idea). Refined by decision 54.
+53. **General or PM-specific.** Decided by the owner on 2026-10-20 (PM-850). The PM project
+    develops projectman, but it is only one project among many. What is about how the PM team
+    works in this repository (test style, merge test, repository rules, PM's settings) is
+    PM-specific: it goes into the repository (CLAUDE.md, docs) and PM's project settings. What
+    is about how projectman works for any project is general: it goes into the product code
+    and the templates and prompts. The two must not mix: a PM-specific rule never goes into the
+    templates that apply to every project. Every card and rule is checked for which side it
+    belongs to; a card that mixes them is split or flagged. Example: the „one test per
+    behaviour” rule of PM-850 goes into PM only: „természetesen csak a PM-re! most a PM-mel
+    fejlesztjük a PM-et, de ez ne keveredjen bele – ismerjük fel, hogy mi általános/projekt és
+    mi PM specifikus.”
+54. **One Operator; super is an elevated permission.** Decided by the owner on 2026-10-20
+    (PM-875); refines decision 52. The super and the non-super Operator are one and the same:
+    the Operator inside the app, woken by the system, working its queue (everything that went
+    to the integrator so far) while it has items. Super is not a separate actor but an
+    elevated permission the owner grants and can revoke, for operations the closed environment
+    does not allow (for example access to the owner's machine, deploy, restart, diagnostics),
+    typed and logged, also with an engine in the cloud. Claude Code on the Mac is only a client
+    of the same Operator, not part of the process. The owner's words: „egybe kéne vonni a super
+    és nem super operátort. viszont a super azért kell, hogy olyan műveleteket is végre tudjon
+    hajtani az operátor, amit amúgy nem tudna, pl a gépemhez hozzáfér. ha a felhőbe költözne az
+    engine is, akkor is lenne ez a funkció, mert … megemelt jogosítványokat lehetne
+    biztosítani.”

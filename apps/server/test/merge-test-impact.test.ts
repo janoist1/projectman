@@ -60,6 +60,9 @@ describe('server test impact', () => {
     expect(result.fallback).toBeUndefined();
     expect(result.modules).toContain('logging');
     expect(result.tests.length).toBeGreaterThan(0);
+    // The real Unix socket boundary of the admin channel is in every module selection (PM-754).
+    expect(result.tests).toContain('apps/server/test/control-relay.integration.test.ts');
+    expect(result.tests).toContain('apps/server/test/control-socket.integration.test.ts');
     for (const changed of ['apps/server/src/index.ts', 'apps/server/src/db/migrations.ts']) {
       const entryImpact = serverTestImpact({
         changed: [changed],

@@ -573,8 +573,12 @@ release_control() {
   board_running || refuse "the board is not running; there is no control socket to reach"
   local status=0
   # One byte over the limit is enough for the client to see that the request is too long.
+  # The relay starts with an empty environment (PM-754): `/usr/bin/env -i` clears what `docker exec` inherits from
+  # the container before Node starts, so NODE_OPTIONS, NODE_PATH and every secret of the board stay out. Only
+  # PATH and LANG are set; the socket path is an argument. There is no fallback to the inherited environment.
   head -c $((16 * 1024 + 1)) | docker exec -i -u "$DATA_UID:$DATA_GID" "$CONTAINER" \
-    node /app/apps/server/dist/control/cli.js /data/control.sock || status=$?
+    /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+    /usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock || status=$?
   case "$status" in
     0) ;;
     2) refuse "the control relay refused the request" ;;

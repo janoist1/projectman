@@ -64,11 +64,65 @@ describe('host.sh release-control', () => {
       '-u',
       '10001:10001',
       'projectman-cloud',
-      'node',
+      '/usr/bin/env',
+      '-i',
+      'PATH=/usr/local/bin:/usr/bin:/bin',
+      'LANG=C.UTF-8',
+      '/usr/local/bin/node',
       '/app/apps/server/dist/control/cli.js',
       '/data/control.sock',
     ]);
     expect(result.received?.toString()).toBe(line);
+  });
+
+  it('starts the client with exactly two environment values, whatever the caller or the container holds (PM-754)', () => {
+    const marker = path.join(directory, 'marker-ran');
+    const markerModule = path.join(directory, 'marker.js');
+    fs.writeFileSync(markerModule, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran');\n`);
+    const modules = path.join(directory, 'node-path');
+    fs.mkdirSync(modules);
+    const fixture = path.join(directory, 'cli-fixture.js');
+    fs.writeFileSync(
+      fixture,
+      `process.stdin.resume();
+process.stdin.on('end', () => process.stdout.write(JSON.stringify({ env: process.env, argv: process.argv.slice(2) }) + '\\n'));
+`,
+    );
+    const program = `${script}
+board_running() { return 0; }
+# What docker would run in the container: the packaged env -i section, with only the two fixed files replaced.
+docker() {
+  local command=("\${@:6}") index
+  for index in "\${!command[@]}"; do
+    case "\${command[$index]}" in
+      /usr/local/bin/node) command[$index]=${JSON.stringify(process.execPath)} ;;
+      /app/apps/server/dist/control/cli.js) command[$index]=${JSON.stringify(fixture)} ;;
+    esac
+  done
+  "\${command[@]}"
+}
+release_control
+`;
+    const result = spawnSync('bash', ['-c', program, 'host.sh'], {
+      input: '{"op":"status"}\n',
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        SYNTHETIC_SECRET_MARKER: 'not-a-real-secret',
+        PROJECTMAN_SYNTHETIC: '1',
+        AWS_SYNTHETIC_MARKER: '1',
+        HOME: directory,
+        NODE_OPTIONS: `--require ${markerModule}`,
+        NODE_PATH: modules,
+      },
+    });
+    expect(result.status).toBe(0);
+    const seen = JSON.parse(result.stdout) as { env: Record<string, string>; argv: string[] };
+    expect(seen.argv).toEqual(['/data/control.sock']);
+    // macOS itself adds __CF_USER_TEXT_ENCODING when it starts a system binary; the Linux container does not.
+    const { __CF_USER_TEXT_ENCODING: _platform, ...inherited } = seen.env;
+    expect(inherited).toEqual({ PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8' });
+    expect(fs.existsSync(marker)).toBe(false);
   });
 
   it('opens no tty, port, mount or environment of the input', () => {

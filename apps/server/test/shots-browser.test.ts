@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { browserStatus, createScenarioApi, launchBrowser } from '../../../scripts/lib/browser.mjs';
 import type { ScenarioApi } from '../../../scripts/lib/browser.mjs';
@@ -42,7 +42,8 @@ function temp(): string {
   return dir;
 }
 
-afterEach(() => {
+// After the whole file, not after each test: the CLI tests run concurrently and must not remove each other's directories.
+afterAll(() => {
   for (const dir of temporary.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -180,12 +181,12 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
   let wsHandler: ((socket: any) => void) | undefined;
   let sharedInstance: Instance;
   let colleague: Account;
-  let seededSessionId: string;
   const cleanups: (() => Promise<void>)[] = [];
 
+  // One browser and one instance for the tests that only read it (the first and the last test below).
   beforeAll(async () => {
     [browser, sharedInstance] = await Promise.all([launchBrowser(), startInstance({ machine: calmMachine })]);
-    [seededSessionId, colleague] = await Promise.all([
+    await Promise.all([
       (async () => {
         const developer = (await sharedInstance.api('/api/projects/AC/members')).find(
           (member: { kind: string; role: string }) => member.kind === 'ai' && member.role === 'developer',
@@ -196,7 +197,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
         await sharedInstance.say('AC', id, 'CALLS please');
         await sharedInstance.waitIdle('AC', id);
         await sharedInstance.setFakeCalls([]);
-        return id;
       })(),
       (async () => {
         colleague = await sharedInstance.invite({
@@ -210,7 +210,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
         const page = await api.open({ as: colleague, path: '/p/AC/tasks/AC-1/timeline' });
         await page.waitForURL(/\/p\/AC\/tasks\/AC-1\/timeline$/, { timeout: 15_000 }).catch(() => {});
         for (const cleanup of cleanups.splice(0)) await cleanup();
-        return colleague;
       })(),
     ]);
   }, SLOW);
@@ -275,29 +274,9 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
         };
       },
     };
-    const instance: Instance = {
-      ...sharedInstance,
-      get serverUrl() {
-        return sharedInstance.serverUrl;
-      },
-      get webUrl() {
-        return sharedInstance.webUrl;
-      },
-      startSession: async (project, taskKey, assignee) =>
-        project === 'AC' && taskKey === 'AC-1'
-          ? seededSessionId
-          : sharedInstance.startSession(project, taskKey, assignee),
-      waitIdle: async (project, sessionId, timeoutMs) =>
-        sessionId === seededSessionId ? undefined : sharedInstance.waitIdle(project, sessionId, timeoutMs),
-      setFakeCalls: async () => {},
-      say: async (project, sessionId, text) =>
-        sessionId === seededSessionId ? undefined : sharedInstance.say(project, sessionId, text),
-      invite: async (input) =>
-        input.email.toLowerCase() === colleague.email ? colleague : sharedInstance.invite(input),
-    };
     const api: ScenarioApi = createScenarioApi({
       browser: testBrowser,
-      instance,
+      instance: sharedInstance,
       out,
       print: (line) => lines.push(line),
     });
@@ -329,41 +308,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
   );
 
   it(
-    'exits 1 after a failed step, with an error image, and leaves nothing running',
-    async () => {
-      const out = join(temp(), 'out');
-      const { api } = sharedScenario(out);
-      await expect(
-        api.step('open the board', async () => {
-          const page = await api.open({ path: '/p/AC' });
-          await page.locator('#does-not-exist').click({ timeout: 1000 });
-        }),
-      ).rejects.toThrow('Step 1 "open the board" failed');
-      expect(existsSync(join(out, 'error-1.png'))).toBe(true);
-    },
-    SLOW,
-  );
-
-  it(
-    'runs the sample scenario of the documentation: a non-admin sees the card, two images',
-    async () => {
-      const out = join(temp(), 'out');
-      const { api, lines } = sharedScenario(out);
-      const sample = fileURLToPath(
-        new URL('../../../scripts/scenarios/card-with-question.mjs', import.meta.url),
-      );
-      const { default: runSample } = (await import(pathToFileURL(sample).href)) as {
-        default: (api: ScenarioApi) => Promise<void>;
-      };
-      await runSample(api);
-      expect(lines.join('\n')).toContain('signed in as dana@acme.test: [{"key":"AC","access":"developer"}]');
-      for (const width of [1512, 390])
-        expect(pngSize(join(out, `card-question-${width}.png`)).width).toBe(width);
-    },
-    SLOW,
-  );
-
-  it(
     'logs in again for another account in the same browser and back',
     async () => {
       const out = join(temp(), 'out');
@@ -385,7 +329,49 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
     SLOW,
   );
 
-  it(
+  // The tests below start the real CLI, each with an instance and a browser of its own (they check the exit
+  // code, the output and what is left running), so they run concurrently with each other.
+  it.concurrent(
+    'exits 1 after a failed step, with an error image, and leaves nothing running',
+    async () => {
+      const out = join(temp(), 'out');
+      const file = scenario(`
+  log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
+  await step('open the board', async () => {
+    const page = await open({ path: '/p/AC' });
+    await page.locator('#does-not-exist').click({ timeout: 1000 });
+  });`);
+      const result = await run(file, ['--out', out, '--timeout', '80', '--machine', calmMachineFile], {
+        limitMs: 100_000,
+      });
+      expect(result.status, why(result)).toBe(1);
+      expect(result.stderr).toContain('Step 1 "open the board" failed');
+      expect(existsSync(join(out, 'error-1.png'))).toBe(true);
+      await expectNothingLeft(result);
+    },
+    SLOW,
+  );
+
+  it.concurrent(
+    'runs the sample scenario of the documentation: a non-admin sees the card, two images',
+    async () => {
+      const out = join(temp(), 'out');
+      const sample = fileURLToPath(
+        new URL('../../../scripts/scenarios/card-with-question.mjs', import.meta.url),
+      );
+      const result = await run(sample, ['--out', out, '--timeout', '80', '--machine', calmMachineFile], {
+        limitMs: 100_000,
+      });
+      expect(result.status, why(result)).toBe(0);
+      expect(result.stdout).toContain('signed in as dana@acme.test: [{"key":"AC","access":"developer"}]');
+      for (const width of [1512, 390])
+        expect(pngSize(join(out, `card-question-${width}.png`)).width).toBe(width);
+      await expectNothingLeft(result);
+    },
+    SLOW,
+  );
+
+  it.concurrent(
     'stops everything at the timeout, on SIGINT and on SIGTERM: exit code 1, no data folder left',
     async () => {
       // Separate `--seed none` instances: this test kills the shots CLI and checks that its instance directory and processes are gone.

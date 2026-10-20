@@ -6,7 +6,7 @@ projectman **reads** GitHub pull requests with the owner's login. A member's mer
 approved merge commit to the default branch through the engine's git login (PM-452).
 
 ```
-projectman server ── execFile (no shell) ──▶ gh CLI ──▶ GitHub API
+projectman server ── shared command helper (no shell) ──▶ gh CLI ──▶ GitHub API
    src/services/github            owner's `gh auth login`         (read-only calls)
       │
       └─ watch(): polls the PRs linked to tasks ─▶ domain updates task links and gates
@@ -121,7 +121,7 @@ Callers can turn `not_found` into a friendly "no such PR" message; the others me
 
 ## Safety
 
-- `gh` is started with `execFile` (no shell). Repo names, PR numbers and branch names are
+- `gh` is started with the shared command helper (no shell). Repo names, PR numbers and branch names are
   validated first and passed as `--flag=value`, so no value can act as another flag.
 - The reading service runs only `gh auth status`, `gh pr view` and `gh pr list`: nothing on GitHub
   changes through it, and it never holds the publishing token (a second object with its own

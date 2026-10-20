@@ -627,6 +627,7 @@ construction order; the factories return the existing classes without changing b
 | `contracts`                                       | Shared server interfaces and engine ports.                                  |
 | `db`                                              | SQLite storage, repositories and migrations.                                |
 | `config`                                          | Project configuration loading, validation and migrations.                   |
+| `exec`                                            | One-shot external commands with exact environments and bounded termination. |
 | `logging`                                         | Structured server and engine logging and file rotation.                     |
 | `instance`                                        | Installation identity and activation state.                                 |
 | `kernel`                                          | Common errors, utilities, background work, sweeps and merge locks.          |
@@ -1768,6 +1769,17 @@ workers follow the machine's size.
   markers have the same candidate-code trust boundary as the script and its exit code.
 
 ## Machine-dependent parts (PM-341)
+
+- **One-shot external commands (PM-903)** — `apps/server/src/exec/` runs short commands through
+  execa without a shell, preserving the supplied environment and final newlines. Timeouts,
+  cancellation and output limits send SIGTERM, followed by SIGKILL after a fixed 5-second grace
+  period. It waits for the child to exit; it does not create process groups or replace session
+  and test process guards, and does not add parent-exit cleanup. **Machine assumptions:** POSIX
+  signals and executables available on the supplied `PATH`. **Remote engine:** supported; the
+  helper runs wherever its caller lives: worktree and merge git on the engine, configuration git
+  and gh on the server. Later slices use it for engine probes, copies and trust, server version
+  checks, supervisor service control and host scripts (PM-911, PM-912). No new data crosses the
+  server/engine boundary; the change on each host is SIGKILL escalation after the grace period.
 
 - **Local history embeddings (PM-767)** — `apps/server/src/history-semantic/**` (module `history-semantic`, engine
   layer, sealed), `db/history-semantic.ts` and migration 95, `services/history/service.ts` (the search phases),

@@ -2592,7 +2592,7 @@ workers follow the machine's size.
   or bypass fixed Operator invariants. The shared structured mutation projection (`ownerReservedEffect`,
   `packages/shared/src/config/super-mutation.ts`) reserves three effect classes for the owner (PM-870, the
   owner's decision of 2026-10-20): `deletion` (a member, repository, project or key removed), `security` (an
-  access level or a new owner member, the Operator approval waiver, the owner's own login and the keys) and
+  access level or a new owner member, a human member's login e-mail, the Operator approval waiver and the keys) and
   `cost` (the consumption-billed NanoGPT runtime); until PM-762 supplies an exact owner grant, these fail
   closed. Everything else (deploy and publishing, focus, repository and workspace paths, the other
   deletions, approval labels the key owner holds, decisions) the Operator does in its own name with the

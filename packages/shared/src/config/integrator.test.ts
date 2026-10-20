@@ -138,6 +138,14 @@ describe('reserved mutation effects (PM-759)', () => {
       'security',
     ],
     [
+      'login email rebinding',
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === 'ann')!;
+        if (m.kind === 'human') m.email = 'ann@elsewhere.example.com';
+      },
+      'security',
+    ],
+    [
       'new owner member',
       (c: ProjectConfig) =>
         c.team.members.push({

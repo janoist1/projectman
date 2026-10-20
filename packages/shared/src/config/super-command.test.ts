@@ -66,28 +66,38 @@ describe('super command classification (PM-762)', () => {
     expect(effects(operate({ op: 'member_retire', handle: 'dev-1' }))).toEqual(['deletion']);
   });
 
-  it('names cost for a paid runtime and publication for a deploy', () => {
+  it('names cost for a paid runtime and nothing for a deploy', () => {
     expect(effects({ kind: 'member_update', handle: 'dev-2', request: { effort: 'high' } })).toEqual([
       'cost',
     ]);
     // Only sending the paid member on leave costs nothing.
     expect(effects({ kind: 'member_update', handle: 'dev-2', request: { onLeave: true } })).toEqual([]);
-    expect(effects({ kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_1' } })).toEqual([
-      'publication',
+    expect(effects({ kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_1' } })).toEqual([]);
+  });
+
+  it('names security for an access change or an owner invitation, and nothing for a role change', () => {
+    expect(
+      superCommandMutations(
+        { kind: 'member_update', handle: 'dev-1', request: { access: 'admin' } },
+        context(),
+      ),
+    ).toEqual([{ kind: 'access_change', handle: 'dev-1', before: null, after: 'admin' }]);
+    expect(effects({ kind: 'member_update', handle: 'owner', request: { access: 'admin' } })).toEqual([
+      'security',
     ]);
+    // The same access again is no change.
+    expect(effects({ kind: 'member_update', handle: 'owner', request: { access: 'owner' } })).toEqual([]);
+    expect(effects({ kind: 'member_update', handle: 'owner', request: { roles: ['operator'] } })).toEqual([]);
+    const invite = (access: string) =>
+      ({ kind: 'invite_create', request: { email: 'new@example.com', access } }) as SuperCommand;
+    expect(effects(invite('owner'))).toEqual(['security']);
+    expect(effects(invite('developer'))).toEqual([]);
   });
 
   it('refuses what it cannot project, instead of treating it as harmless', () => {
     expect(() => effects({ kind: 'member_update', handle: 'ghost', request: { displayName: 'X' } })).toThrow(
       SuperCommandUnclassifiable,
     );
-    // An access change is the owner`s own business, never a handoff.
-    expect(() => effects({ kind: 'member_update', handle: 'dev-1', request: { access: 'admin' } })).toThrow(
-      SuperCommandUnclassifiable,
-    );
-    expect(() =>
-      effects({ kind: 'member_update', handle: 'dev-1', request: { roles: ['operator'] } }),
-    ).toThrow(SuperCommandUnclassifiable);
     expect(() => effects({ kind: 'nothing' } as unknown as SuperCommand)).toThrow(SuperCommandUnclassifiable);
     expect(() => effects(operate({ op: 'nothing' }))).toThrow(SuperCommandUnclassifiable);
     expect(() => effects(operate({ op: 'config_revert', version: 'unknown' }))).toThrow(

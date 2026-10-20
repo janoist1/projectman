@@ -1,6 +1,6 @@
 import type { AdministrationCommand } from '../api/administration';
 import type { SuperCommand } from '../api/super-handoff';
-import type { AgentProvider } from '../domain/member';
+import type { AgentProvider, HumanAccess } from '../domain/member';
 import { applyConfigPatch, prepareOperatorConfigPatch } from './edit';
 import type { ProjectConfig } from './schema';
 import { ownerReservedEffect } from './super-mutation';
@@ -8,7 +8,7 @@ import type { OwnerReservedEffect, SuperMutationCommand } from './super-mutation
 
 /**
  * The server-side classification of a handoff command (PM-762): which owner-reserved effect it would have
- * (cost, deletion, publication, direction), by projecting it onto the closed `SuperMutationCommand` list
+ * (deletion, security, cost), by projecting it onto the closed `SuperMutationCommand` list
  * that PM-759 already classifies. The categories are not configurable, and what cannot be classified is
  * refused, never run (fail closed).
  */
@@ -43,10 +43,10 @@ function memberUpdate(
 ): SuperMutationCommand[] {
   const member = context.config.team.members.find((candidate) => candidate.handle === handle);
   if (!member) throw new SuperCommandUnclassifiable('unknown member');
-  if ('access' in changes && changes.access !== undefined)
-    throw new SuperCommandUnclassifiable('a member access change is not a handoff command');
-  if ('roles' in changes && changes.roles !== undefined)
-    throw new SuperCommandUnclassifiable('a member role change is not a handoff command');
+  const before = member.kind === 'human' ? member.access : null;
+  if ('access' in changes && changes.access !== undefined && changes.access !== before)
+    return [{ kind: 'access_change', handle, before, after: changes.access as HumanAccess }];
+  // A role change (changes.roles) is routine: it reaches the generic member update below.
   const effective = changes.provider ?? (member.kind === 'ai' ? member.provider : undefined);
   const keys = Object.keys(changes).filter((key) => changes[key] !== undefined);
   // Only sending a paid member on leave costs nothing; every other change to it may.
@@ -117,8 +117,20 @@ export function superCommandMutations(
     }
     case 'member_update':
       return memberUpdate(context, command.handle, command.request);
-    case 'invite_create':
-      return [{ kind: 'routine', operation: 'invite_create' }];
+    case 'invite_create': {
+      // The invite schema leaves `owner` out today; a later widening must not slip past the security class.
+      const access = command.request.access as HumanAccess;
+      return access === 'owner'
+        ? [
+            {
+              kind: 'access_change',
+              handle: command.request.memberHandle ?? command.request.email,
+              before: null,
+              after: access,
+            },
+          ]
+        : [{ kind: 'routine', operation: 'invite_create' }];
+    }
     case 'merge':
       return [{ kind: 'routine', operation: 'merge_start' }];
     case 'merge_order':

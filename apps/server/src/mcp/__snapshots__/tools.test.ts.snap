@@ -105,7 +105,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "response_purpose": {
-          "description": "information: a plain factual question whose answer is no decision (for example "what is the port?"); the integrator working for the owner may relay the answer. owner_decision (default): a choice, an approval or anything with cost, deletion or publication; only the owner’s own login answers it.",
+          "description": "information: a plain factual question whose answer is no decision (for example "what is the port?"); the integrator working for the owner may relay the answer. owner_decision (default): a choice, an approval or anything with cost, deletion or security; only the owner’s own login answers it.",
           "enum": [
             "information",
             "owner_decision",
@@ -4513,7 +4513,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Hand a command to the super mode",
     },
-    "description": "Only the Operator, in its own general conversation during an open owner message or answer. Hand ONE command to the owner’s super-mode integrator when the owner asked for something operate cannot do or must not do alone (a reserved effect such as cost, deletion, publication or direction). It stores a durable handoff and returns it; it executes nothing and approves nothing. The integrator, working with the owner’s own login, executes it later; an effect reserved for the owner then waits for the owner’s own yes. command is {kind: operate, operation} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request}. Give a fresh request_id (UUID) per handoff and reuse it only to repeat the same call; the same request_id with other content is refused (super_request_conflict). expected_config_version pins the project configuration the owner saw; if it changed, the integrator refuses the handoff as stale. reason is what the owner reads (1–2000 characters, project language).",
+    "description": "Only the Operator, in its own general conversation during an open owner message or answer. Hand ONE command to the owner’s super-mode integrator when the owner asked for something operate cannot do or must not do alone (a reserved effect such as cost, deletion or security). It stores a durable handoff and returns it; it executes nothing and approves nothing. The integrator, working with the owner’s own login, executes it later; an effect reserved for the owner then waits for the owner’s own yes. command is {kind: operate, operation} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request}. Give a fresh request_id (UUID) per handoff and reuse it only to repeat the same call; the same request_id with other content is refused (super_request_conflict). expected_config_version pins the project configuration the owner saw; if it changed, the integrator refuses the handoff as stale. reason is what the owner reads (1–2000 characters, project language).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

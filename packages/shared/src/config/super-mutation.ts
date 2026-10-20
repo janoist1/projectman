@@ -1,12 +1,20 @@
 import type { Actor } from '../domain/event';
-import type { AgentProvider } from '../domain/member';
+import type { AgentProvider, HumanAccess } from '../domain/member';
 import type { TaskKey, Visibility } from '../domain/task';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
 
-export type OwnerReservedEffect = 'cost' | 'deletion' | 'publication' | 'direction';
+/**
+ * What stays the owner's in super mode (owner decision of 2026-10-20, PM-862 K3): deleting a member, key,
+ * project or repository; their own login and the security settings; the paid cost. Everything else the
+ * Operator may do with the super key, in its own name.
+ */
+export type OwnerReservedEffect = 'deletion' | 'security' | 'cost';
 export type SuperRoutineMutation =
   | 'task_write'
+  | 'task_create'
+  | 'task_start'
+  | 'inbox_resolve'
   | 'task_labels'
   | 'task_move'
   | 'message_send'
@@ -23,7 +31,7 @@ export type SuperRoutineMutation =
   | 'release_prepare'
   | 'release_propose'
   | 'member_update';
-/** The protected administration adapter's commands (PM-763); only `deploy` is owner-reserved (publication). */
+/** The protected administration adapter's commands (PM-763); none is owner-reserved any more. */
 export const SUPER_ADMINISTRATION_COMMANDS = ['restart', 'full_test', 'image_build', 'deploy'] as const;
 export type SuperAdministrationCommand = (typeof SUPER_ADMINISTRATION_COMMANDS)[number];
 export type SuperMutationCommand =
@@ -45,9 +53,11 @@ export type SuperMutationCommand =
         | 'attachment'
         | 'message_attachment'
         | 'task'
-        | 'project';
+        | 'project'
+        | 'credential';
       id: string;
     }
+  | { kind: 'access_change'; handle: string; before: HumanAccess | null; after: HumanAccess }
   | { kind: 'focus_change'; before: TaskKey[]; after: TaskKey[] }
   | { kind: 'runtime_start'; providers: AgentProvider[] }
   | { kind: 'administration'; command: SuperAdministrationCommand }
@@ -55,6 +65,9 @@ export type SuperMutationCommand =
 
 const routines = new Set<SuperRoutineMutation>([
   'task_write',
+  'task_create',
+  'task_start',
+  'inbox_resolve',
   'task_labels',
   'task_move',
   'message_send',
@@ -73,6 +86,8 @@ const routines = new Set<SuperRoutineMutation>([
   'member_update',
 ]);
 
+const DELETION_RESOURCES = new Set<string>(['member', 'repo', 'project', 'credential']);
+
 /** Server-generated authorization projection, never an executable command or a client exemption. */
 export function ownerReservedEffect(
   previous: ProjectConfig | null,
@@ -80,11 +95,12 @@ export function ownerReservedEffect(
 ): OwnerReservedEffect | null {
   switch (command.kind) {
     case 'remove':
-      return 'deletion';
+      return DELETION_RESOURCES.has(command.resource) ? 'deletion' : null;
+    case 'access_change':
+      return 'security';
     case 'task_visibility':
-      return command.after === 'shared' && command.before !== 'shared' ? 'publication' : null;
     case 'focus_change':
-      return canonical(command.before) !== canonical(command.after) ? 'direction' : null;
+      return null;
     case 'runtime_start':
       if (command.providers.some((provider) => !['claude', 'codex', 'gemini', 'nanogpt'].includes(provider)))
         throw new Error('unknown runtime provider');
@@ -94,7 +110,7 @@ export function ownerReservedEffect(
       return null;
     case 'administration':
       if (!SUPER_ADMINISTRATION_COMMANDS.includes(command.command)) throw new Error('unknown super mutation');
-      return command.command === 'deploy' ? 'publication' : null;
+      return null;
     case 'config_change': {
       if (!previous) throw new Error('a configuration mutation needs its previous snapshot');
       const next = command.next;
@@ -102,37 +118,21 @@ export function ownerReservedEffect(
         const kept = new Set(after.map(id));
         return before.some((value) => !kept.has(id(value)));
       };
-      const feedbackBefore = previous.project.feedback?.surfaces ?? [];
-      const feedbackAfter = next.project.feedback?.surfaces ?? [];
       if (
         removed(previous.team.members, next.team.members, (m) => m.handle) ||
-        removed(previous.project.repos, next.project.repos, (r) => r.name) ||
-        removed(previous.team.roles, next.team.roles, (r) => r.id) ||
-        removed(previous.pipeline.labels, next.pipeline.labels, (l) => l.id) ||
-        removed(previous.pipeline.stages, next.pipeline.stages, (s) => s.id) ||
-        removed(previous.pipeline.columns, next.pipeline.columns, (c) => c.id) ||
-        removed(feedbackBefore, feedbackAfter, (s) => s.id) ||
-        Object.keys(previous.team.roleOverrides ?? {}).some(
-          (id) => !Object.hasOwn(next.team.roleOverrides ?? {}, id),
-        ) ||
-        previous.pipeline.stages.some((stage) => {
-          const after = next.pipeline.stages.find((s) => s.id === stage.id);
-          return (
-            after &&
-            removed(stage.gate?.conditions ?? [], after.gate?.conditions ?? [], (c) =>
-              canonical({ type: c.type, label: c.label, when: c.when ?? null }),
-            )
-          );
-        })
+        removed(previous.project.repos, next.project.repos, (r) => r.name)
       )
         return 'deletion';
       if (
-        feedbackAfter.some((surface) => {
-          const before = feedbackBefore.find((s) => s.id === surface.id);
-          return !before || new URL(before.origin).origin !== new URL(surface.origin).origin;
+        (previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false) ||
+        next.team.members.some((member) => {
+          if (member.kind !== 'human') return false;
+          const before = previous.team.members.find((m) => m.handle === member.handle);
+          const beforeAccess = before?.kind === 'human' ? before.access : null;
+          return beforeAccess === null ? member.access === 'owner' : beforeAccess !== member.access;
         })
       )
-        return 'publication';
+        return 'security';
       const paid = next.team.members.filter(
         (m): m is AiMemberConfig => m.kind === 'ai' && m.provider === 'nanogpt',
       );
@@ -157,19 +157,7 @@ export function ownerReservedEffect(
         })
       )
         return 'cost';
-      if (
-        previous.project.workspacePath !== next.project.workspacePath ||
-        next.project.repos.some((repo) => {
-          const before = previous.project.repos.find((r) => r.name === repo.name);
-          return (
-            before &&
-            (before.path !== repo.path ||
-              before.defaultBranch !== repo.defaultBranch ||
-              before.github !== repo.github)
-          );
-        })
-      )
-        return 'direction';
+      // Labels, stages, columns, roles, feedback surfaces, gates, paths and the repo settings are the Operator's.
       return null;
     }
     default:

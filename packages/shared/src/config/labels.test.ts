@@ -473,22 +473,42 @@ describe('the key owner’s authority in super mode (PM-831)', () => {
     ).toMatchObject(refused);
   });
 
-  it('keeps the owner-reserved labels refused: gates, four eyes, human-only', () => {
+  it('opens the approval and human-only labels the key owner holds, add and remove (PM-870)', () => {
     const c = config();
-    for (const id of ['release-ok', 'review-ok', 'decided', 'lead-human-ok'])
+    for (const id of ['release-ok', 'decided'])
+      expect(code(planLabelChange(c, empty, { add: [id] }, superActor, undefined, authority)), id).toBe('ok');
+    expect(
+      code(
+        planLabelChange(
+          c,
+          { ...empty, labels: ['decided'] },
+          { remove: ['decided'] },
+          superActor,
+          undefined,
+          authority,
+        ),
+      ),
+    ).toBe('ok');
+  });
+
+  it('keeps the approval labels the key owner does not hold refused, and the legacy and AI rules as they were', () => {
+    const c = config();
+    for (const id of ['review-ok', 'lead-human-ok'])
       expect(code(planLabelChange(c, empty, { add: [id] }, superActor, undefined, authority)), id).toBe(
         'owner_approval_required',
       );
+    const legacy: Actor = { kind: 'human', handle: 'owner', via: 'integrator' };
+    expect(labelRefusal(c, labelDefinition(c, 'release-ok'), legacy, empty, authority)).toBe(
+      'owner_approval',
+    );
+    expect(labelRefusal(c, labelDefinition(c, 'release-ok'), ai('dev-1'), empty, authority)).toBe(
+      'humans_only',
+    );
     expect(
-      planLabelChange(
-        c,
-        { ...empty, labels: ['decided'] },
-        { remove: ['decided'] },
-        superActor,
-        undefined,
-        authority,
+      code(
+        planLabelChange(c, empty, { add: ['release-ok'] }, superActor, undefined, { authorizedBy: 'ann' }),
       ),
-    ).toMatchObject({ ok: false, refusal: { code: 'label_not_allowed', reason: 'humans_only' } });
+    ).toBe('owner_approval_required');
     expect(
       planLabelChange(
         c,
@@ -514,5 +534,12 @@ describe('the key owner’s authority in super mode (PM-831)', () => {
     expect(labelRefusal(c, own, ai('operator'), empty, authority)).toBeNull();
     expect(labelRefusal(c, own, ai('operator'), authored, authority)).toBe('self_review');
     expect(labelRefusal(c, own, ai('operator'), authored)).toBe('not_holder');
+    // The self-review rule holds in super mode on a human-only label the owner holds, too.
+    const four: LabelDefinition = {
+      ...own,
+      id: 'own-approval',
+      setBy: { members: ['owner'], humansOnly: true },
+    };
+    expect(labelRefusal(c, four, superActor, authored, authority)).toBe('self_review');
   });
 });

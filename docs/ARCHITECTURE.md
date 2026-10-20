@@ -904,7 +904,7 @@ authenticated by the owner's super token; one `(project, token, request id)` is 
 returns the same record and a different command under the same id is 409 `super_request_conflict`.
 
 The server classifies the command itself (`superCommandEffects`, a projection onto the closed mutation list of
-PM-759; what cannot be classified is refused). With no cost, deletion, publication or direction effect it runs on
+PM-759; what cannot be classified is refused). With no deletion, security or cost effect it runs on
 the integrator's own power. With one, the operation waits (`waiting_owner`) and an owner question carries
 `payload.superOperation = {operationId, commandHash, expectedConfigVersion, expiresAt}`; only the owner's own
 login answers it (not the token, not a relay), within 24 hours. After a yes the integrator executes the same
@@ -1696,7 +1696,7 @@ workers follow the machine's size.
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
   and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
   Operator records a command and a reason; nothing runs until the owner's integrator (a super token) starts it with
-  a request id. A command with a cost, deletion, publication or direction effect waits for the owner's own login
+  a request id. A command with a deletion, security or cost effect waits for the owner's own login
   to answer a bound question (24 hours; the question names the command hash, the config version and the token). The
   service and its state are on the hub only. **Machine assumptions:** none of its own — it holds no path, process,
   socket or account; the executors it calls (the Operator operations, member, invite and merge services, and the
@@ -2589,9 +2589,15 @@ workers follow the machine's size.
   no authority. The hub's request-local scope expires with its callback, and domain mutations recheck
   the active key and current project-owner membership after waiting for locks. Read credentials cannot
   write. Super credentials administer existing services but cannot decide human approvals, manage keys,
-  or bypass fixed Operator invariants. The shared structured mutation projection reserves deletion,
-  new publication, consumption-billed runtime and project-direction effects; until PM-762 supplies an
-  exact owner grant, these fail closed. The repository merge queue's revision and complete permutation
+  or bypass fixed Operator invariants. The shared structured mutation projection (`ownerReservedEffect`,
+  `packages/shared/src/config/super-mutation.ts`) reserves three effect classes for the owner (PM-870, the
+  owner's decision of 2026-10-20): `deletion` (a member, repository, project or key removed), `security` (an
+  access level or a new owner member, the Operator approval waiver, the owner's own login and the keys) and
+  `cost` (the consumption-billed NanoGPT runtime); until PM-762 supplies an exact owner grant, these fail
+  closed. Everything else (deploy and publishing, focus, repository and workspace paths, the other
+  deletions, approval labels the key owner holds, decisions) the Operator does in its own name with the
+  super key: `labelRefusal` opens the approval and human-only labels to a super actor when the key owner
+  holds the label (self-review stays refused), and `superAccessVerdict` allows `approval` for the super mode. The repository merge queue's revision and complete permutation
   use one hub SQLite transaction (`merge_queue_revisions` and `task_merges.queue_rank`, migration 82,
   after PM-771's migration 80 and PM-761's migration 81); the running merge remains behind the existing
   BranchMerger facade.

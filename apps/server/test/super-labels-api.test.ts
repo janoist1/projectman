@@ -95,23 +95,18 @@ describe('labels in super mode on the key owner’s authority (PM-831)', () => {
       });
   });
 
-  it('keeps the owner-reserved labels refused: approvals, four-eyes labels and human-only labels', async () => {
-    for (const label of ['merge-ok', 'code-review-ok', 'release-ok']) {
-      const response = await change({ add: [label] });
-      expect(response.statusCode, label).toBe(403);
-      expect(response.json().error.code, label).toBe('owner_approval_required');
-    }
-    expect(labelsOf()).toEqual([]);
-
-    // The owner gives the approval with their own login; the key cannot take it off, it is human-only.
-    expect((await change({ add: ['merge-ok'] }, { cookie })).statusCode).toBe(200);
-    const removal = await change({ remove: ['merge-ok'] });
-    expect(removal.statusCode).toBe(403);
-    expect(removal.json().error).toMatchObject({
-      code: 'label_not_allowed',
-      details: { reason: 'humans_only' },
-    });
+  it('lets the Operator give and take off an approval label the key owner holds (PM-870)', async () => {
+    expect((await change({ add: ['merge-ok'] })).statusCode).toBe(200);
     expect(labelsOf()).toEqual(['merge-ok']);
+    expect((await change({ remove: ['merge-ok'] })).statusCode).toBe(200);
+    expect(labelsOf()).toEqual([]);
+  });
+
+  it('keeps an approval label the key owner does not hold refused', async () => {
+    const response = await change({ add: ['code-review-ok'] });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe('owner_approval_required');
+    expect(labelsOf()).toEqual([]);
   });
 
   it('does not lend the owner’s holding to a label the owner does not hold', async () => {

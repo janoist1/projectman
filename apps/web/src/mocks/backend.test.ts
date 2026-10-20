@@ -19,7 +19,7 @@ const role = {
 const base = '/api/projects/AC';
 
 describe('integrator credential policy in the fake (PM-759)', () => {
-  it('uses shared read and reserved publication rules', () => {
+  it('uses shared read rules and leaves publication to the super key (PM-870)', () => {
     const backend = new MockBackend();
     backend.integratorMode = 'read';
     expect(backend.handle('GET', `${base}/members`, undefined).status).toBe(200);
@@ -28,11 +28,16 @@ describe('integrator credential policy in the fake (PM-759)', () => {
     expect(errorCode(refused)).toBe('integrator_read_only');
     backend.integratorMode = 'super';
     const publication = backend.handle('POST', `${base}/tasks`, {
-      title: 'No publication grant',
+      title: 'Shared by the Operator',
       visibility: 'shared',
     });
-    expect(publication.status).toBe(403);
-    expect(errorCode(publication)).toBe('owner_approval_required');
+    expect(publication.status).toBe(201);
+    const imported = backend.handle('POST', `${base}/tasks`, {
+      title: 'Historical human attribution',
+      importedAt: '2026-10-17T12:00:00.000Z',
+    });
+    expect(imported.status).toBe(403);
+    expect(errorCode(imported)).toBe('owner_approval_required');
   });
 
   it('uses one revision for queue permutations and stale updates', () => {

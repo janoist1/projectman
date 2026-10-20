@@ -1894,4 +1894,16 @@ migrations.push({
     CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, responsible, subject);
     CREATE INDEX obligations_state ON obligations(state);`,
 });
+migrations.push({
+  version: 91,
+  name: 'hot read indexes',
+  // PM-834: additive indexes for frequent reads in sweeps, board cards and session lifecycle management
+  // (`inbox.listOpen`, `inbox.listOpenOfKind`, `taskMerges.latestMerged`, `taskLoops.open`,
+  // `taskLoops.lastEndedAt`, `timeline.ofProjectType`, `sessions.listInStates`).
+  sql: `CREATE INDEX inbox_open ON inbox_items(seq) WHERE state = 'open';
+    CREATE INDEX task_merges_task ON task_merges(project_key, task_key, state, finished_at);
+    CREATE INDEX task_loops_task_key ON task_loops(task_key, ended_at);
+    CREATE INDEX timeline_project_type ON timeline_events(project_key, type, seq);
+    CREATE INDEX sessions_state ON sessions(state);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

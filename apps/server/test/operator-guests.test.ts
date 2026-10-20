@@ -395,11 +395,37 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     expect(shared).not.toHaveProperty('cardQuestions');
     expect(shared).not.toHaveProperty('workingSessionIds');
     expect((await h.domain.teamTools.listTasks(tool, {})).map((t) => t.key)).toEqual(['AR-2']);
+    // A merge check with a card the client cannot see is left out of both readings (PM-876).
+    const checked = (id: string, taskKeys: string[]) =>
+      h.repos.mergeCheckRuns.start({
+        id,
+        projectKey: 'AR',
+        repo: 'web',
+        kind: 'merge',
+        trainId: null,
+        taskKeys,
+        commit: 'a'.repeat(40),
+        base: null,
+        maxWorkers: 4,
+        requestedAt: new Date().toISOString(),
+      });
+    checked('mergecheck_shared', ['AR-2']);
+    checked('mergecheck_mixed', ['AR-1', 'AR-2']);
+    const runIds = (runs: Array<{ id: string }> | undefined) => runs?.map((run) => run.id);
+    expect(runIds((await h.domain.teamTools.getTask(tool, { taskKey: 'AR-2' })).mergeChecks)).toEqual([
+      'mergecheck_shared',
+    ]);
+    // The listing is no tool of a client conversation at all.
+    expect(await refusal(h.domain.teamTools.listMergeChecks(tool, {}))).toMatch(/^operator_owner_only:/);
     // A developer sees the whole project, and reads it the same way.
     await finish(conversationWith('cleo'));
     await say('dana');
     const developer = toolOf(conversationWith('dana'));
     expect((await h.domain.teamTools.getTask(developer, { taskKey: 'AR-1' })).task.key).toBe('AR-1');
+    expect(runIds((await h.domain.teamTools.getTask(developer, { taskKey: 'AR-2' })).mergeChecks)).toEqual([
+      'mergecheck_mixed',
+      'mergecheck_shared',
+    ]);
     expect((await h.domain.teamTools.listTasks(developer, {})).map((t) => t.key).sort()).toEqual([
       'AR-1',
       'AR-2',

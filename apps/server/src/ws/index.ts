@@ -113,6 +113,11 @@ export function registerWebsocket(
       .then(async () => {
         if (event.type === 'hello' || event.type === 'error') return;
         for (const client of clients) {
+          // Not bound to a project: every logged-in client reads the grant's state again.
+          if (event.type === 'operator_grant_changed') {
+            send(client, event);
+            continue;
+          }
           if (event.type === 'engine_changed') {
             const memberships = await domain.projectsFor(client.user.email);
             if (

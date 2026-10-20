@@ -9,6 +9,7 @@ import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
+import { createOperatorGrantRepository } from './operator-grants';
 import { createSuperAuditRepository } from './super-audit';
 import { createSuperHandoffRepository } from './super-handoffs';
 export type {
@@ -47,6 +48,7 @@ export type {
   HistorySearchRepository,
 } from './history-searches';
 import { createFullTestRunRepository } from './full-test-runs';
+import { createMergeCheckRunRepository } from './merge-check-runs';
 import { createEmailLoginRepository } from './email-login';
 export { EMAIL_LOGIN_MAX_FAILED_ATTEMPTS } from './email-login';
 export type { EmailLoginCodeRecord, EmailLoginEventKind } from './email-login';
@@ -108,6 +110,7 @@ export type { DeploymentRequestRecord } from './release-deployments';
 export type { TaskCoverRecord } from './task-covers';
 export type { TaskFixLimitRecord } from './fix-limits';
 export type { FullTestRunRecord } from './full-test-runs';
+export type { MergeCheckRunEnd, MergeCheckRunQuery, MergeCheckRunStart } from './merge-check-runs';
 export type { TaskLoopRecord } from './task-loops';
 export type { TaskHandoffRow } from './task-handoffs';
 export type { SeniorWaitDecision, SeniorWaitEndReason, SeniorWaitRecord } from './senior-waits';
@@ -125,6 +128,7 @@ export function createRepositories(db: Db) {
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
     integratorKeyAudit: createIntegratorKeyAuditRepository(db),
+    operatorGrants: createOperatorGrantRepository(db),
     superAudit: createSuperAuditRepository(db),
     superHandoffs: createSuperHandoffRepository(db),
     invitations: createInvitationRepository(db),
@@ -157,6 +161,7 @@ export function createRepositories(db: Db) {
     obligations: createObligationRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),
+    mergeCheckRuns: createMergeCheckRunRepository(db),
     docWrites: createDocWriteRepository(db),
     decisionOffers: createDecisionOfferRepository(db),
     schedules: createScheduleRepository(db),

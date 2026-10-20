@@ -208,6 +208,8 @@ import { ProviderKeys } from './runtime/usage';
 export interface DomainOptions {
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
   revokeIntegratorAccessKey?: (userId: string, keyId: string) => unknown;
+  /** The owner's grant every machine operation passes (PM-881); absent: no machine operation runs. */
+  operatorGrants?: import('./contracts').OperatorGrantGate;
   integratorTodoAccess?: IntegratorTodoAccess;
   nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
   /**
@@ -1561,7 +1563,7 @@ export function createDomain(opts: DomainOptions) {
         materializeAttachment: opts.engineAttachments?.materialize,
         sessionEngine,
       }),
-      merges: new MergeTools({ calls: toolCaller, merges }),
+      merges: new MergeTools({ calls: toolCaller, merges, tasks }),
       screenshots: new ScreenshotTools({ calls: toolCaller, screenshots: screenshotRuns }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
       inbox: new InboxTools({ calls: toolCaller, ctx, inbox, humanQuestions }),
@@ -1833,9 +1835,17 @@ export function createDomain(opts: DomainOptions) {
     'operate',
     createOperateExecutor({ ...commandDeps, messaging, pauses, sessions }),
   );
+  // Without a gate no machine operation runs: the fallback refuses like a missing grant.
+  const operatorGrants: import('./contracts').OperatorGrantGate = opts.operatorGrants ?? {
+    active: () => null,
+    assertActive: () => {
+      throw forbidden('operator_grant_inactive', 'the Operator has no active grant for machine operations');
+    },
+  };
   if (administration && opts.integratorCredentials) {
     const administrationDeps = {
       ctx,
+      grants: operatorGrants,
       administration,
       rights: createSuperRights({
         credentials: opts.integratorCredentials,
@@ -1854,6 +1864,7 @@ export function createDomain(opts: DomainOptions) {
   const superAdministration = createSuperAdministration({
     handoffs: superHandoffs,
     administration,
+    grants: operatorGrants,
     diagnostics: createSuperDiagnostics({ ctx }),
     engineLinked,
   });

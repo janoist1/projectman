@@ -1147,6 +1147,10 @@ export const hu = {
         'Az integrátori kulcsot visszavonták, vagy lejárt. A tulajdonos a Beállításokban adhat újat.',
       integrator_not_allowed: 'Ezzel az integrátori kulccsal ez a művelet nem érhető el.',
       integrator_read_only: 'Ezzel az integrátori kulccsal csak olvasni lehet.',
+      operator_grant_owner_only:
+        'Az Operátor jogosítványát csak a tulajdonos adhatja meg és vonhatja vissza, a saját belépésével.',
+      operator_grant_inactive:
+        'Az Operátornak nincs érvényes jogosítványa gépi műveletre. A tulajdonos a Beállításokban adhat.',
       merge_queue_conflict: 'Az összefésülési sor megváltozott. Frissítsd, majd próbáld újra.',
       super_request_conflict: 'Ugyanezzel az azonosítóval már más kérés érkezett.',
       super_operation_stale:

@@ -11,6 +11,7 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  MergeCheckRun,
   ProjectConfig,
   RepoConfig,
   Task,
@@ -19,7 +20,7 @@ import type {
 } from '@projectman/shared';
 import { Effect, Exit, Scope } from 'effect';
 import { mergedState } from '../../db';
-import type { MergeRecord } from '../../db';
+import type { MergeCheckRunQuery, MergeRecord } from '../../db';
 import { isoNow } from '../../core/base';
 import { ownerHandles } from '@projectman/shared';
 import { conflict, DomainError, forbidden } from '../../kernel';
@@ -542,6 +543,8 @@ export class Merges {
   async init(): Promise<void> {
     this.stopped = false;
     const { ctx } = this.deps;
+    // A check still `running` lost its hub; the recovery below runs a new one under a new id (PM-876).
+    ctx.repos.mergeCheckRuns.interruptRunning(isoNow(ctx));
     // Recover publication from the manifest before any member may restart individually.
     for (const train of ctx.repos.mergeTrains.listRunning()) {
       await this.trains.scheduleRecovery(train);
@@ -602,6 +605,11 @@ export class Merges {
   /** The Operator's document writes share the repository's slot (PM-495): a merge waits while one runs, and it goes first when the slot frees. */
   registerSlotPeer(peer: MergeSlotPeer): void {
     this.peer = peer;
+  }
+
+  /** The recorded merge checks of a project, newest first (PM-876); the caller filters by what its member may see. */
+  checkRuns(query: MergeCheckRunQuery): { runs: MergeCheckRun[]; hasMore: boolean } {
+    return this.deps.ctx.repos.mergeCheckRuns.list(query);
   }
 
   /** Whether a merge runs in the repository's slot. */

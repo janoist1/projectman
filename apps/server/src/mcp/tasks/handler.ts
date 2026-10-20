@@ -47,6 +47,8 @@ import type { ToolCaller, GuestView } from '../caller';
 import type { TaskToolsHandler } from '../../contracts';
 /** Attachments get_task shows; the rest are paged with list_attachments. */
 const ATTACHMENTS_IN_TASK = 20;
+/** Merge checks get_task shows (PM-876); the rest are read with list_merge_checks. */
+const MERGE_CHECKS_IN_TASK = 3;
 export class TaskTools implements TaskToolsHandler {
   private readonly calls: ToolCaller;
   private readonly ctx: DomainContext;
@@ -238,15 +240,18 @@ export class TaskTools implements TaskToolsHandler {
       return !!other && canSeeTask(viewer, other);
     };
     const participants = (id: string) => this.ctx.repos.messages.get(id);
-    const { event, ...rest } = whole;
+    const { event, mergeChecks, ...rest } = whole;
     const shown = visibleTaskDetail(viewer, rest, canSeeKey, participants);
+    // A merge check shows only when every card it checked is visible, as in list_merge_checks.
+    const checksShown = (mergeChecks ?? []).filter((run) => run.taskKeys.every(canSeeKey));
+    const withChecks = checksShown.length > 0 ? { mergeChecks: checksShown } : {};
     if (event) {
       const seen = visibleTimelineEvent(viewer, event, participants);
       if (viewer.access === 'client' && !clientCanSeeTimelineEvent(seen))
         throw new TeamToolError('not_found', `${shown.task.key} has no timeline event ${event.id}.`);
       return { ...shown, event: seen };
     }
-    if (viewer.access !== 'client') return { ...rest, ...shown };
+    if (viewer.access !== 'client') return { ...rest, ...shown, ...withChecks };
     const {
       wait: _wait,
       focus: _focus,
@@ -261,6 +266,7 @@ export class TaskTools implements TaskToolsHandler {
     return {
       ...open,
       ...shown,
+      ...withChecks,
       ...(open.relations ? { relations: open.relations.filter((relation) => canSeeKey(relation.key)) } : {}),
       ...(theme && canSeeKey(theme.key) ? { theme } : {}),
       ...(open.themeCards
@@ -298,8 +304,14 @@ export class TaskTools implements TaskToolsHandler {
     const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
     const focus = this.projectFocus.places(ctx.projectKey).get(taskKey);
     const wait = this.taskWaits.ofCard(config, detail.task);
+    const mergeChecks = this.ctx.repos.mergeCheckRuns.list({
+      projectKey: ctx.projectKey,
+      taskKey,
+      limit: MERGE_CHECKS_IN_TASK,
+    }).runs;
     return {
       ...detail,
+      ...(mergeChecks.length > 0 ? { mergeChecks } : {}),
       ...(wait ? { wait } : {}),
       effectiveRepo: effectiveRepo(config, detail.task),
       ...(focus ? { focus } : {}),

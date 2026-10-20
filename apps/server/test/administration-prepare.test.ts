@@ -211,7 +211,8 @@ describe.skipIf(!socketsWork)('the supervisor process', () => {
       expect(await client.status({ kind: 'hub' })).toMatchObject({
         online: true,
         version: '9.9.9',
-        capabilities: ['status', 'logs', 'restart'],
+        // The prepared configuration is a systemd service, which always has a journal to filter.
+        capabilities: ['status', 'logs', 'machine', 'service_logs', 'restart'],
       });
       await expect(client.status({ kind: 'engine', id: 'eng_abcdefghij12' as never })).rejects.toMatchObject({
         code: 'administration_target_mismatch',

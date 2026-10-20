@@ -156,6 +156,7 @@ describe('the cloud package', () => {
       'memory',
       'message-attachments',
       'secret',
+      'secrets',
     ]);
     expect(readdirSync(out).sort()).toEqual(['home', 'manifest.json']);
 
@@ -172,6 +173,10 @@ describe('the cloud package', () => {
     expect(notCarried).not.toEqual(expect.arrayContaining(['db.sqlite', 'secret', 'customization']));
     expect(mode(join(out, 'home', 'db.sqlite'))).toBe(0o600);
     expect(mode(join(out, 'home', 'secret'))).toBe(0o600);
+    expect(mode(join(out, 'home', 'secrets'))).toBe(0o700);
+    const pushKey = join('secrets', 'web-push.json');
+    expect(mode(join(out, 'home', pushKey))).toBe(0o600);
+    expect(sha256(join(out, 'home', pushKey))).toBe(sha256(join(src.home, pushKey)));
     expect(existsSync(join(out, 'home', 'db.sqlite-wal'))).toBe(false);
   });
 

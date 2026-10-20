@@ -16,10 +16,13 @@ interface Harness {
   match: ReturnType<typeof vi.fn>;
   skipWaiting: ReturnType<typeof vi.fn>;
   claim: ReturnType<typeof vi.fn>;
+  showNotification: ReturnType<typeof vi.fn>;
+  matchAll: ReturnType<typeof vi.fn>;
+  openWindow: ReturnType<typeof vi.fn>;
 }
 
 /** Runs the worker source against a fake worker scope; no network, no real Cache API. */
-function load(options: { buildId?: string; cacheNames?: string[] } = {}): Harness {
+function load(options: { buildId?: string; cacheNames?: string[]; windows?: unknown[] } = {}): Harness {
   const handlers = new Map<string, Handler>();
   const cachesPut = vi.fn(async () => undefined);
   const cachesDelete = vi.fn(async () => true);
@@ -27,11 +30,15 @@ function load(options: { buildId?: string; cacheNames?: string[] } = {}): Harnes
   const fetchMock = vi.fn();
   const skipWaiting = vi.fn(async () => undefined);
   const claim = vi.fn(async () => undefined);
+  const showNotification = vi.fn(async () => undefined);
+  const matchAll = vi.fn(async () => options.windows ?? []);
+  const openWindow = vi.fn(async () => undefined);
   const scope = {
     location: new URL(`${ORIGIN}/sw.js`),
     addEventListener: (type: string, handler: Handler) => handlers.set(type, handler),
     skipWaiting,
-    clients: { claim },
+    registration: { showNotification },
+    clients: { claim, matchAll, openWindow },
   };
   const cachesStub = {
     open: vi.fn(async () => ({ put: cachesPut })),
@@ -43,7 +50,40 @@ function load(options: { buildId?: string; cacheNames?: string[] } = {}): Harnes
   new Function('self', 'caches', 'fetch', 'Response', source)(scope, cachesStub, fetchMock, {
     error: () => 'NETWORK_ERROR',
   });
-  return { handlers, cachesPut, cachesDelete, fetchMock, match, skipWaiting, claim };
+  return {
+    handlers,
+    cachesPut,
+    cachesDelete,
+    fetchMock,
+    match,
+    skipWaiting,
+    claim,
+    showNotification,
+    matchAll,
+    openWindow,
+  };
+}
+
+/** A `push` event carrying `payload` (an object is sent as JSON, a string as it is). */
+async function receivePush(h: Harness, payload: unknown) {
+  let waited: Promise<unknown> | undefined;
+  h.handlers.get('push')!({
+    data:
+      payload === null ? null : { json: () => (typeof payload === 'string' ? JSON.parse(payload) : payload) },
+    waitUntil: (p: Promise<unknown>) => (waited = p),
+  });
+  await waited;
+}
+
+async function tap(h: Harness, data: unknown) {
+  const close = vi.fn();
+  let waited: Promise<unknown> | undefined;
+  h.handlers.get('notificationclick')!({
+    notification: { close, data },
+    waitUntil: (p: Promise<unknown>) => (waited = p),
+  });
+  await waited;
+  return close;
 }
 
 function navigation(url: string, init: { mode?: string; method?: string } = {}) {
@@ -145,6 +185,82 @@ describe('service worker', () => {
       h.handlers.get('fetch')!(c.event);
       expect(c.responded()).toBeUndefined();
     }
+  });
+
+  describe('web push', () => {
+    const item = {
+      v: 1,
+      kind: 'item',
+      title: 'A decision waits for you',
+      body: 'PM-123',
+      tag: 'item-1',
+      url: '/p/PM/inbox?via=push#inbox-item-1',
+    };
+
+    it('shows the notification the server wrote, with its tag and the page a tap opens', async () => {
+      const h = load();
+      await receivePush(h, item);
+      expect(h.showNotification).toHaveBeenCalledWith('A decision waits for you', {
+        body: 'PM-123',
+        icon: '/icons/icon-192.png',
+        tag: 'item-1',
+        renotify: true,
+        data: { url: '/p/PM/inbox?via=push#inbox-item-1' },
+      });
+    });
+
+    it('still shows something for a push it cannot read, because a push must be visible', async () => {
+      const h = load();
+      for (const payload of [null, '{not json', { v: 2, title: 'x' }]) {
+        h.showNotification.mockClear();
+        await receivePush(h, payload);
+        expect(h.showNotification).toHaveBeenCalledTimes(1);
+        expect(h.showNotification.mock.calls[0]![0]).toBe('projectman');
+        expect(h.showNotification.mock.calls[0]![1]).toMatchObject({ body: '', data: { url: '/' } });
+      }
+    });
+
+    it('opens only pages of this app', async () => {
+      const h = load();
+      await receivePush(h, { ...item, url: 'https://evil.example/phish' });
+      expect(h.showNotification.mock.calls[0]![1]).toMatchObject({ data: { url: '/' } });
+    });
+
+    it('opens the page of a tapped notification in a new window when none is open', async () => {
+      const h = load();
+      const close = await tap(h, { url: '/p/PM/inbox?via=push#inbox-item-1' });
+      expect(close).toHaveBeenCalled();
+      expect(h.openWindow).toHaveBeenCalledWith('/p/PM/inbox?via=push#inbox-item-1');
+    });
+
+    it('takes an open window to the page instead of opening another', async () => {
+      const navigate = vi.fn(async () => undefined);
+      const client = { focused: false, focus: vi.fn(async () => ({ navigate })), navigate: vi.fn() };
+      const h = load({ windows: [client] });
+      await tap(h, { url: '/p/PM/inbox?via=push' });
+      expect(client.focus).toHaveBeenCalled();
+      expect(navigate).toHaveBeenCalledWith('/p/PM/inbox?via=push');
+      expect(h.openWindow).not.toHaveBeenCalled();
+    });
+
+    it('opens a new window when the open one cannot be navigated', async () => {
+      const client = {
+        focused: true,
+        focus: vi.fn(async () => ({
+          navigate: vi.fn(async () => Promise.reject(new TypeError('uncontrolled'))),
+        })),
+      };
+      const h = load({ windows: [client] });
+      await tap(h, { url: '/p/PM/inbox' });
+      expect(h.openWindow).toHaveBeenCalledWith('/p/PM/inbox');
+    });
+
+    it('sends a tap with no or a foreign address to the front page', async () => {
+      const h = load();
+      await tap(h, undefined);
+      await tap(h, { url: 'https://evil.example/' });
+      expect(h.openWindow.mock.calls).toEqual([['/'], ['/']]);
+    });
   });
 
   it('puts into a cache only in the install step', () => {

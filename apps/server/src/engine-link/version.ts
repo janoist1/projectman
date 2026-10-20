@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
 import { RELEASE_TAG_PATTERN } from '@projectman/shared';
+import { execCommand } from '../exec';
 
 /**
  * The release tag on the installation's checked-out commit (PM-542): the first `vYYYY.M.D` tag that points at
@@ -8,13 +8,9 @@ import { RELEASE_TAG_PATTERN } from '@projectman/shared';
  */
 export async function resolveAppTag(installDir: string): Promise<string | null> {
   try {
-    const out = await new Promise<string>((resolve, reject) => {
-      execFile(
-        'git',
-        ['-C', installDir, 'tag', '--points-at', 'HEAD'],
-        { encoding: 'utf8', timeout: 2000 },
-        (error, stdout) => (error ? reject(error) : resolve(stdout)),
-      );
+    const { stdout: out } = await execCommand('git', ['-C', installDir, 'tag', '--points-at', 'HEAD'], {
+      env: { ...process.env },
+      timeoutMs: 2000,
     });
     return (
       out
@@ -51,17 +47,11 @@ export async function resolveAppVersion(installDir: string | null, override?: st
   if (explicit) return explicit;
   if (installDir === null) return 'dev';
   try {
-    const head = await new Promise<string>((resolve, reject) => {
-      execFile(
-        'git',
-        ['-C', installDir, 'rev-parse', '--verify', '-q', 'HEAD'],
-        {
-          encoding: 'utf8',
-          timeout: 5000,
-        },
-        (error, stdout) => (error ? reject(error) : resolve(stdout.trim())),
-      );
+    const { stdout } = await execCommand('git', ['-C', installDir, 'rev-parse', '--verify', '-q', 'HEAD'], {
+      env: { ...process.env },
+      timeoutMs: 5000,
     });
+    const head = stdout.trim();
     return /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head) ? head : 'dev';
   } catch {
     return 'dev';

@@ -1,6 +1,6 @@
-import { execFile } from 'node:child_process';
 import { lstat, readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { execCommand } from '../exec';
 
 /** Copies the root and at most two workspace levels, preserving relative package links (PM-580). */
 export async function copyDependencyTrees(input: {
@@ -40,33 +40,20 @@ export async function copyDependencyTrees(input: {
   };
   await walk('', 0);
 
-  const copy = (from: string, to: string, clone: boolean): Promise<void> => {
+  const copy = async (from: string, to: string, clone: boolean): Promise<void> => {
     check();
-    return new Promise((resolve, reject) => {
-      // Do not use execFile's signal option: it rejects before the child has actually stopped.
-      const child = execFile(
-        'cp',
-        [...(clone ? ['-c'] : []), '-R', '-P', from, to],
-        { env: { PATH: process.env.PATH ?? '/usr/bin:/bin' }, windowsHide: true },
-        (error) => {
-          clearTimeout(timer);
-          input.signal?.removeEventListener('abort', stop);
-          try {
-            check();
-            if (error) reject(error);
-            else resolve();
-          } catch (err) {
-            reject(err);
-          }
-        },
-      );
-      const stop = () => {
-        child.kill('SIGKILL');
-      };
-      const timer = setTimeout(stop, Math.max(1, deadline - Date.now()));
-      input.signal?.addEventListener('abort', stop, { once: true });
-      if (input.signal?.aborted) stop();
-    });
+    try {
+      // The helper settles only after the child has stopped (TERM, then KILL after a grace period).
+      await execCommand('cp', [...(clone ? ['-c'] : []), '-R', '-P', from, to], {
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+        timeoutMs: Math.max(1, deadline - Date.now()),
+        cancelSignal: input.signal,
+      });
+    } catch (error) {
+      check();
+      throw error;
+    }
+    check();
   };
   const copied: string[] = [];
   for (const parent of parents) {

@@ -4891,7 +4891,8 @@ display is PM-322.
   operating system: `machine()` (processor counters, memory, swap, pressure), `processes()` (one `ps -axww -o
 pid=,ppid=,pgid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pids, names)` and
   `signal(pid, 'SIGTERM'|'SIGKILL')`. The real one (`apps/server/src/machine`) runs `vm_stat`, `sysctl`, `ps` with
-  `execFile`, a 5 s limit and `LC_ALL=C` on macOS, and reads `/proc` on Linux; elsewhere the process list is
+  the shared exec helper (`apps/server/src/exec`), a 5 s limit (SIGTERM, then SIGKILL 5 s later) and `LC_ALL=C`
+  on macOS, and reads `/proc` on Linux; elsewhere the process list is
   unavailable (`null`) and the page says so. A reading that fails is `null`, never an error. The probe
   never signals a pid below 2.
 - **Identity.** A process is its pid together with its start time (`lstart`), because a pid is reused. Every

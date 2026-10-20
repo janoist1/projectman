@@ -1175,7 +1175,8 @@ network, SSM or shell, only one Unix socket.
   0600, version 1) names the target, the state directory, the socket and that one service; it is protected
   like the other app-home files.
 - **Absolute binaries, minimal environment.** The supervisor calls `/bin/launchctl`, `/bin/ps` and
-  `/usr/bin/systemctl` with `execFile` and `PATH`, `LANG`, `LC_ALL` only. A service-manager mismatch (a launchd
+  `/usr/bin/systemctl` through the shared exec helper (no shell; on a timeout SIGTERM, then SIGKILL 5 s later)
+  with `PATH`, `LANG`, `LC_ALL` only. A service-manager mismatch (a launchd
   label on Linux) leaves the controller out and the capability unadvertised.
 - **A restart is not repeated blindly.** The operation id is stored (0600, atomic) before the restart; a
   duplicate submit gets the stored answer, one operation runs at a time, a changed id for the same command is

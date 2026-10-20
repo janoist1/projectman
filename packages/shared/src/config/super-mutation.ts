@@ -35,7 +35,7 @@ export type SuperRoutineMutation =
   | 'release_prepare'
   | 'release_propose'
   | 'member_update';
-/** The protected administration adapter's commands (PM-763); none is owner-reserved any more. */
+/** The protected administration commands that need no per-operation owner approval. */
 export const SUPER_ADMINISTRATION_COMMANDS = [
   'restart',
   'full_test',
@@ -73,6 +73,7 @@ export type SuperMutationCommand =
   | { kind: 'focus_change'; before: TaskKey[]; after: TaskKey[] }
   | { kind: 'runtime_start'; providers: AgentProvider[] }
   | { kind: 'administration'; command: SuperAdministrationCommand }
+  | { kind: 'owner_command' }
   | { kind: 'routine'; operation: SuperRoutineMutation };
 
 const routines = new Set<SuperRoutineMutation>([
@@ -171,6 +172,7 @@ export function ownerReservedEffect(
       return DELETION_RESOURCES.has(command.resource) ? 'deletion' : null;
     case 'access_change':
     case 'permission_change':
+    case 'owner_command':
       return 'security';
     case 'task_visibility':
     case 'focus_change':

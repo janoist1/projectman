@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TODO_CANNOT_OPTION, TODO_DONE_OPTION } from '@projectman/shared';
-import type { SuperActor, SuperCommand, SuperOperation } from '@projectman/shared';
+import type { InboxOption, SuperActor, SuperCommand, SuperOperation } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { bindSuperPrincipal } from '../src/core/members';
 import type { ProjectAccess } from '../src/core/members';
 import { DomainError } from '../src/kernel';
+import { relayOwnerAnswer } from '../src/services/super-operator';
 import type { SuperCommandExecutor, SuperExecutorJob } from '../src/services/super-operator';
 
 const SECRET = 'pmi_handoff_fixture';
@@ -535,8 +536,11 @@ describe('durable super-mode handoff (PM-762)', () => {
     });
   });
 
-  describe('the relay of an owner answer (information questions only)', () => {
-    const ask = (payload: Record<string, unknown>) =>
+  describe('Operator decisions and information relays', () => {
+    const ask = (
+      payload: Record<string, unknown>,
+      options: InboxOption[] = [{ id: 'answer', label: 'answer', style: 'primary' }],
+    ) =>
       h.domain.inbox.create({
         projectKey: 'AR',
         kind: 'question',
@@ -545,7 +549,7 @@ describe('durable super-mode handoff (PM-762)', () => {
         sessionId: null,
         title: 'Fictional question',
         payload: { question: 'Which fictional port?', ...payload },
-        options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+        options,
       });
 
     it('is marked relayed and does not count as the owner`s own decision', async () => {
@@ -571,61 +575,100 @@ describe('durable super-mode handoff (PM-762)', () => {
       expect(decided.resolution?.ownerAnswerRelayed).toBeUndefined();
     });
 
-    const relay = (id: string) =>
+    const resolveAsOperator = (id: string, optionId = 'answer') =>
       asIntegrator(() =>
         h.domain.inbox.resolve(
           'AR',
           id,
-          { optionId: 'answer', note: 'Port 4700.' },
+          { optionId, note: 'A fictional answer.' },
           { handle: 'owner', access: 'owner', via: 'integrator', superActor: SUPER_ACTOR },
         ),
       );
 
-    it('refuses a question that asks for an approval or that is a todo, whatever its purpose says', async () => {
-      await boot();
-      const approval = ask({ responsePurpose: 'information', approvalLabel: 'qa-ok' });
-      const todo = ask({
-        responsePurpose: 'information',
-        screening: {
-          until: '2026-01-01T00:00:00.000Z',
-          outcome: 'todo',
-          todo: { what: 'Fictional step', where: 'Fictional place', expected: 'Fictional result' },
+    const nonRelayQuestions = [
+      {
+        name: 'an approval label',
+        payload: { responsePurpose: 'information', approvalLabel: 'qa-ok' },
+        options: undefined,
+      },
+      {
+        name: 'a screened todo',
+        payload: {
+          responsePurpose: 'information',
+          screening: {
+            until: '2026-01-01T00:00:00.000Z',
+            outcome: 'todo',
+            todo: { what: 'Fictional step', where: 'Fictional place', expected: 'Fictional result' },
+          },
         },
-      });
-      const todoOptions = h.domain.inbox.create({
-        projectKey: 'AR',
-        kind: 'question',
-        assignees: ['owner'],
-        source: 'dev-1',
-        sessionId: null,
-        title: 'Fictional todo',
-        payload: { question: 'Do the fictional step?', responsePurpose: 'information' },
+        options: undefined,
+      },
+      {
+        name: 'todo options',
+        payload: { responsePurpose: 'information' },
         options: [TODO_DONE_OPTION, TODO_CANNOT_OPTION],
-      });
-      for (const item of [approval, todo, todoOptions])
-        await expect(relay(item.id)).rejects.toMatchObject({ code: 'super_relay_refused' });
-      for (const item of [approval, todo, todoOptions])
-        expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+      },
+    ];
+
+    it.each(nonRelayQuestions)(
+      'decides a question with $name as the Operator',
+      async ({ payload, options }) => {
+        await boot();
+        const question = ask(payload, options);
+        const resolved = await resolveAsOperator(question.id, question.options[0]!.id);
+        expect(resolved).toMatchObject({
+          state: 'resolved',
+          resolution: { by: 'owner', via: 'integrator', actor: SUPER_ACTOR, superDecision: true },
+        });
+        expect(resolved.resolution?.ownerAnswerRelayed).toBeUndefined();
+      },
+    );
+
+    it.each(nonRelayQuestions)('refuses to relay a question with $name', async ({ payload, options }) => {
+      await boot();
+      const question = ask(payload, options);
+      await expect(
+        asIntegrator((access) =>
+          relayOwnerAnswer(
+            { inbox: h.domain.inbox, tasks: h.domain.tasks },
+            'AR',
+            question.id,
+            'A fictional answer.',
+            access,
+          ),
+        ),
+      ).rejects.toMatchObject({ code: 'super_relay_refused' });
+      expect(h.domain.inbox.get('AR', question.id).state).toBe('open');
     });
 
-    it('does not close an owner decision through a question group', async () => {
+    it('closes an owner decision question group with the same Operator decision', async () => {
       await boot();
-      const information = ask({ responsePurpose: 'information' });
       const decision = ask({ responsePurpose: 'owner_decision' });
       const unmarked = ask({});
+      const itemIds = [decision.id, unmarked.id];
+      const question = 'Fictional combined question';
       h.repos.inbox.createGroup({
-        primaryItemId: information.id,
+        primaryItemId: decision.id,
         projectKey: 'AR',
-        question: 'Fictional combined question',
+        question,
         by: 'pm',
-        note: '',
-        itemIds: [information.id, decision.id],
+        note: 'Both questions need the same owner decision.',
+        itemIds,
         at: '2026-01-01T00:00:00.000Z',
       });
-      await expect(relay(information.id)).rejects.toMatchObject({ code: 'super_relay_refused' });
-      expect(h.domain.inbox.get('AR', information.id).state).toBe('open');
-      expect(h.domain.inbox.get('AR', decision.id).state).toBe('open');
-      expect(unmarked.state).toBe('open');
+      const resolved = await resolveAsOperator(decision.id);
+      expect(resolved.resolution).toMatchObject({
+        by: 'owner',
+        via: 'integrator',
+        actor: SUPER_ACTOR,
+        superDecision: true,
+      });
+      expect(resolved.resolution?.ownerAnswerRelayed).toBeUndefined();
+      for (const id of itemIds)
+        expect(h.domain.inbox.get('AR', id)).toMatchObject({
+          state: 'resolved',
+          resolution: resolved.resolution,
+        });
     });
 
     it('cannot answer the owner`s question about a super operation, whatever its purpose says', async () => {

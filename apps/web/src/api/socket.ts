@@ -51,6 +51,7 @@ export class SocketClient {
   private connections = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
+  private visible: boolean | null = null;
   private readonly projects = new Map<string, number>();
   private readonly terminals = new Map<string, Set<TerminalListener>>();
   private readonly eventListeners = new Set<(event: ServerEvent) => void>();
@@ -146,6 +147,15 @@ export class SocketClient {
     this.send({ type: 'terminal_resize', sessionId, ...clampTerminalSize(cols, rows) });
   }
 
+  /**
+   * Tells the server whether this tab is on screen (PM-815): while one is, it sends no push notification.
+   * The last value is kept and sent again on every connection.
+   */
+  reportVisibility(visible: boolean): void {
+    this.visible = visible;
+    this.send({ type: 'visibility', visible });
+  }
+
   /** Sends when connected; state (subscriptions, attachments) is replayed on reconnect. */
   send(command: ClientCommand): void {
     if (this.socket && this.socket.readyState === OPEN) this.socket.send(JSON.stringify(command));
@@ -172,6 +182,7 @@ export class SocketClient {
       this.attempts = 0;
       this.connections += 1;
       this.setStatus('open');
+      if (this.visible !== null) this.send({ type: 'visibility', visible: this.visible });
       for (const projectKey of this.projects.keys()) this.send({ type: 'subscribe_project', projectKey });
       for (const sessionId of this.terminals.keys()) this.send({ type: 'terminal_attach', sessionId });
       if (this.connections > 1) this.reconnectListeners.forEach((listener) => listener());

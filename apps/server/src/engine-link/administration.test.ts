@@ -127,6 +127,25 @@ describe('the hello', () => {
 });
 
 describe('the engine handlers', () => {
+  it('forwards owner commands only to its own supervisor target', async () => {
+    const side = engineSide(true);
+    const input = (target: unknown) => ({
+      operationId: 'owner1',
+      requestId: 'req1',
+      command: {
+        kind: 'owner_command',
+        target,
+        command: 'pwd',
+        timeoutSeconds: 120,
+        reason: 'Inspect fixture',
+      },
+    });
+    await expect(side.call('admin.submit', input({ kind: 'hub' }))).rejects.toMatchObject({
+      code: 'administration_target_mismatch',
+    });
+    await expect(side.call('admin.submit', input(OWN))).resolves.toEqual({ accepted: true });
+    expect(side.submitted).toEqual([input(OWN)]);
+  });
   it('serve only the engine’s own target', async () => {
     const side = engineSide(true);
     await expect(side.call('admin.status', { target: OWN })).resolves.toMatchObject({ online: true });
@@ -190,6 +209,49 @@ describe('the hub’s way to an engine', () => {
     const engine = cloud.connect(ENGINE, { hello });
     return { cloud, hub, administration, engine };
   }
+
+  it('transports owner commands only when the engine advertises the opt-in capability', async () => {
+    const old = setup({ administration: ['status', 'restart'] });
+    const input = {
+      operationId: 'owner1',
+      requestId: 'req1',
+      command: {
+        kind: 'owner_command',
+        target: OWN,
+        command: 'pwd',
+        timeoutSeconds: 120,
+        reason: 'Inspect fixture',
+      },
+    } as const;
+    await expect(old.administration.port(ENGINE).submit(input)).rejects.toMatchObject({
+      code: 'administration_unavailable',
+    });
+    expect(old.engine.requests).toEqual([]);
+    const enabled = setup({ administration: ['status', 'owner_command'] });
+    enabled.engine.answer('admin.submit', async () => ({ accepted: true }));
+    enabled.engine.answer('admin.inspect', async ({ operationId }) => ({
+      operationId,
+      state: 'succeeded',
+      errorCode: null,
+      updatedAt: AT,
+      result: {
+        kind: 'owner_command',
+        exitCode: 0,
+        signal: null,
+        stdout: 'fixture',
+        stderr: '',
+        truncated: false,
+        durationMs: 1,
+      },
+    }));
+    const port = enabled.administration.port(ENGINE);
+    expect(await port.submit(input)).toEqual({ accepted: true });
+    expect((await port.inspect(input.operationId)).result).toMatchObject({
+      kind: 'owner_command',
+      stdout: 'fixture',
+    });
+    expect(enabled.engine.requests[0]?.params).toEqual(input);
+  });
 
   it('calls the engine when it announced the capability, and validates what comes back', async () => {
     const { administration, engine } = setup({ administration: ['status', 'logs', 'restart'] });

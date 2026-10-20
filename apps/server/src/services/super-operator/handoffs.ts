@@ -452,17 +452,18 @@ export class SuperHandoffService {
    * Goes on with an operation of the in-app Operator after the owner's yes (PM-888): the Operator's session may
    * be gone by then, so the server itself calls `operate` again, as the answering owner approved. Only an
    * operation that waits to resume, was started by the app credential and has a standing yes is taken up; the
-   * resume checks the yes, the command and the configuration again.
+   * resume checks the yes, the command and the configuration again. Null for an operation of a key client.
    */
-  async resumeApprovedAppOperation(projectKey: string, operationId: string): Promise<SuperOperation> {
+  async resumeApprovedAppOperation(projectKey: string, operationId: string): Promise<SuperOperation | null> {
     const stored = this.ctx.repos.superHandoffs.operation(projectKey, operationId);
     if (!stored) throw notFound('super_operation', operationId);
     const operation = publicOperation(stored);
+    // A key client's operation is not ours to resume: it re-sends its request itself (null, not a refusal).
+    if (!isAppOperation(this.ctx, operation)) return null;
     const item = stored.ownerQuestionId ? this.ctx.repos.inbox.get(stored.ownerQuestionId) : null;
     if (
       stored.state !== 'pending' ||
       stored.handoffId !== null ||
-      !isAppOperation(this.ctx, operation) ||
       item?.resolution?.optionId !== SUPER_OWNER_YES
     )
       throw conflict('super_request_conflict', 'this operation does not wait for the app to go on');
@@ -820,7 +821,11 @@ export class SuperHandoffService {
       title: subject.reason,
       payload: {
         question: subject.reason,
-        details: `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}`,
+        details:
+          `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}` +
+          (subject.command.kind === 'administration' && subject.command.request.kind === 'owner_command'
+            ? `\n\n\`\`\`json\n${JSON.stringify({ ...subject.command.request, cwd: subject.command.request.cwd ?? '<supervisor user home>' }, null, 2)}\n\`\`\`\n\nOutput redaction is best-effort. Output is returned to the Operator and its model provider; avoid commands that print secrets.`
+            : ''),
         options: [SUPER_OWNER_YES, SUPER_OWNER_NO],
         // Only the owner's own login answers it; the server forces this whatever the asker says.
         responsePurpose: 'owner_decision',

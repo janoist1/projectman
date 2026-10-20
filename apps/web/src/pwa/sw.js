@@ -1,6 +1,7 @@
 /*
  * Service worker of the installable web app. It makes the app installable and shows the static
- * offline page when a page load finds no network. Nothing else is cached: no API, authentication,
+ * offline page when a page load finds no network. It also shows web push notifications and opens the page
+ * a tap on one names (the end of this file). Nothing else is cached: no API, authentication,
  * WebSocket or Cloudflare Access response, and no app shell, so a new release runs at the next open.
  *
  * The build (vite-plugin-pwa.ts) copies this file to /sw.js and fills in BUILD_ID, a hash of the offline
@@ -57,4 +58,63 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Web push (a `push` and a `notificationclick` handler) is added here by the notification card (PM-815).
+// Web push (PM-815). The server writes the whole notification (title, body, tag and the page to open), so the
+// worker holds no text of its own; it only shows what arrived and sends a tap to the right page.
+const PUSH_ICON = '/icons/icon-192.png';
+
+function pushPayload(event) {
+  try {
+    const payload = event.data ? event.data.json() : null;
+    return payload && payload.v === 1 ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+// Only a page of this app is ever opened; anything else becomes the front page.
+function targetPath(value) {
+  try {
+    const url = new URL(typeof value === 'string' ? value : '/', self.location.origin);
+    return url.origin === self.location.origin ? url.pathname + url.search + url.hash : '/';
+  } catch {
+    return '/';
+  }
+}
+
+self.addEventListener('push', (event) => {
+  const payload = pushPayload(event);
+  const text = (value) => (typeof value === 'string' ? value : '');
+  // A push must always show something (userVisibleOnly), so an unreadable one still shows the app's name.
+  const title = (payload && text(payload.title)) || 'projectman';
+  const options = {
+    body: payload ? text(payload.body) : '',
+    icon: PUSH_ICON,
+    data: { url: targetPath(payload && payload.url) },
+  };
+  // The same tag replaces the earlier notification of that item instead of piling up.
+  if (payload && text(payload.tag)) {
+    options.tag = payload.tag;
+    options.renotify = true;
+  }
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+async function openApp(path) {
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const open = windows.find((client) => client.focused) || windows[0];
+  if (open) {
+    try {
+      const focused = await open.focus();
+      await (focused || open).navigate(path);
+      return;
+    } catch {
+      // A page this worker does not control cannot be navigated: open a new one instead.
+    }
+  }
+  await self.clients.openWindow(path);
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(openApp(targetPath(event.notification.data && event.notification.data.url)));
+});

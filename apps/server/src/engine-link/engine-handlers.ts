@@ -600,9 +600,13 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       return administration().port.machine(target);
     },
     async 'admin.submit'(input) {
-      // A restart or a process cleanup names its machine; the deploy of a release is the hub's and never runs
+      // Targeted commands name their machine; the deploy of a release is the hub's and never runs
       // on an engine.
-      if (input.command.kind === 'restart' || input.command.kind === 'process_cleanup')
+      if (
+        input.command.kind === 'restart' ||
+        input.command.kind === 'process_cleanup' ||
+        input.command.kind === 'owner_command'
+      )
         ownTarget(input.command.target);
       if (input.command.kind === 'deploy')
         throw conflict('administration_target_mismatch', 'A deployment is not an engine operation');

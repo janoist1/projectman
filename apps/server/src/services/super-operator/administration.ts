@@ -98,6 +98,7 @@ async function authorize(
 ): Promise<void> {
   switch (request.kind) {
     case 'restart':
+    case 'owner_command':
     case 'process_cleanup': {
       if (request.target.kind === 'hub') {
         // The hub serves every project: each one's owner right is needed.

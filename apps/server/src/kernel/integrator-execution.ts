@@ -136,3 +136,18 @@ export function assertOwnApproval(by?: { via?: 'integrator' | null; superActor?:
   if (context || by?.via || hasSuperOrigin(by?.superActor))
     throw forbidden('owner_approval_required', 'a decision requires a person using their own login');
 }
+
+/** A decision by a person's own login, or by the Operator on the owner's authority (PM-875). */
+export function assertOwnOrSuperApproval(by?: { via?: 'integrator' | null; superActor?: Actor }): void {
+  const scope = execution.getStore();
+  if (scope?.context.principal.mode === 'read')
+    throw forbidden('integrator_read_only', 'a read credential cannot decide');
+  if (
+    scope?.active &&
+    scope.context.principal.mode === 'super' &&
+    hasSuperOrigin(scope.context.actor) &&
+    (!by || hasSuperOrigin(by.superActor))
+  )
+    return;
+  assertOwnApproval(by);
+}

@@ -112,6 +112,26 @@ const icons = {
       <path d="M10 20.5a2.2 2.2 0 0 0 4 0" />
     </>
   ),
+  /** A bell with a stroke through it: notifications are off (PM-815). */
+  bellOff: (
+    <>
+      <path d="M8.2 5.2A6 6 0 0 1 18 11v4.2M6 11v5.5L4.5 18H15" />
+      <path d="M10 20.5a2.2 2.2 0 0 0 4 0" />
+      <path d="M4 4l16 16" />
+    </>
+  ),
+  laptop: (
+    <>
+      <rect x="5" y="5" width="14" height="10" rx="1.5" />
+      <path d="M3 19h18" />
+    </>
+  ),
+  phone: (
+    <>
+      <rect x="7" y="3" width="10" height="18" rx="2" />
+      <path d="M11 18h2" />
+    </>
+  ),
   arrowRight: (
     <>
       <path d="M5 12h14" />

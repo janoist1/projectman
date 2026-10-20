@@ -14,10 +14,14 @@ const PATTERNS: Array<[RegExp, string]> = [
   [/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, REDACTED],
   [/\bsk-[A-Za-z0-9_-]{8,}/g, REDACTED],
   [/\bgh[pousr]_[A-Za-z0-9]{8,}/g, REDACTED],
+  // Match only at the start of a name: word boundaries retry at every dot/dash and become quadratic.
   // token=…, api_key=…, password=… (a quoted value may hold spaces).
-  [/\b([A-Za-z0-9_.-]*(?:token|key|password))=("[^"]*"|'[^']*'|[^\s&;,"']+)/gi, `$1=${REDACTED}`],
+  [
+    /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]*(?:token|key|password))=("[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s&;,"']+)/gi,
+    `$1=${REDACTED}`,
+  ],
   // The JSON form of the same: "token":"…".
-  [/"([A-Za-z0-9_.-]*(?:token|key|password))"\s*:\s*"[^"]*"/gi, `"$1":"${REDACTED}"`],
+  [/"([A-Za-z0-9_.-]*(?:token|key|password))"\s*:\s*"[^"]*(?:"|$)/gi, `"$1":"${REDACTED}"`],
   [new RegExp(`\\b[0-9a-fA-F]{${LONG_RUN + 1},}\\b`, 'g'), REDACTED],
 ];
 

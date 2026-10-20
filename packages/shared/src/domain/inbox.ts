@@ -197,6 +197,8 @@ export const InboxItem = z.object({
       via: z.literal('integrator').optional(),
       /** The full origin when the Operator's super mode resolved it (PM-757); older resolutions have none. */
       actor: Actor.optional(),
+      /** The Operator decided this on the owner's authority (PM-875). */
+      superDecision: z.literal(true).optional(),
       /**
        * True when the integrator relayed the owner's answer to a simple information question (PM-762):
        * the owner did not decide this with their own login, so it is no evidence of an owner decision.
@@ -963,6 +965,24 @@ export function externalQuestionAnswerRefusal(
 ): 'super_relay_refused' | 'owner_approval_required' | null {
   if (!payload.externalQuestion || (!by.via && !by.superActor)) return null;
   return payload.responsePurpose === 'information' ? 'super_relay_refused' : 'owner_approval_required';
+}
+
+/** Decisions reserved to a person's own login, even on the owner's authority (PM-883). */
+export function superDecisionRefusal(
+  item: Pick<InboxItem, 'kind' | 'payload' | 'source'>,
+  facts: { operatorHandle: string | null; sessionMember?: string | null },
+): 'owner_approval_required' | null {
+  if (
+    !facts.operatorHandle ||
+    item.kind === 'permission' ||
+    item.kind === 'boundary' ||
+    ['superOperation', 'operatorApproval', 'operatorKnowledge'].some((key) => key in item.payload) ||
+    (item.kind === 'approval' && 'operator' in item.payload) ||
+    item.source === facts.operatorHandle ||
+    facts.sessionMember === facts.operatorHandle
+  )
+    return 'owner_approval_required';
+  return null;
 }
 
 /** The question payload of an item, or null when it has none (or an unreadable one). */

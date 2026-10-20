@@ -81,12 +81,15 @@ export function ProjectSwitcher({
 /** Avatar button with the account: settings and logout. */
 export function AccountMenu({
   settingsPath,
+  notificationsPath = null,
   howWeWorkPath = null,
   feedback = null,
   placement = 'right',
   onPause,
 }: {
   settingsPath: string | null;
+  /** The person's browser notifications (PM-815): the first item of the links, at every width. */
+  notificationsPath?: string | null;
   /** The "how we work" page, above the settings: only the phone's menu has it (the rail has an item). */
   howWeWorkPath?: string | null;
   /** The feedback marks (PM-511): like the "how we work" page, only the phone's menu has it; `badge` is what is owed. */
@@ -164,6 +167,12 @@ export function AccountMenu({
               </button>
               <div className={styles.separator} />
             </>
+          ) : null}
+          {notificationsPath ? (
+            <Link to={notificationsPath} className={styles.item} onClick={() => setOpen(false)}>
+              <Icon name="bell" size={16} />
+              <span className={styles.itemText}>{t('nav.notifications')}</span>
+            </Link>
           ) : null}
           {feedback ? (
             <Link to={feedback.to} className={styles.item} onClick={() => setOpen(false)}>

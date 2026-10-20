@@ -91,6 +91,29 @@ const restartOf = (target: { kind: 'hub' } | { kind: 'engine'; id: EngineId }, o
 });
 
 describe('routing', () => {
+  it('routes an owner command to its target without requiring a builder', async () => {
+    const hub = fakePort('hub');
+    const engine = fakePort('engine');
+    const service = build({ hub, engines: { [ENGINE]: engine } });
+    const command = {
+      kind: 'owner_command',
+      command: 'pwd',
+      timeoutSeconds: 120,
+      reason: 'Inspect fixture',
+    } as const;
+    await service.submit({
+      operationId: 'owner1',
+      requestId: 'req1',
+      command: { ...command, target: { kind: 'hub' } },
+    });
+    await service.submit({
+      operationId: 'owner2',
+      requestId: 'req2',
+      command: { ...command, target: { kind: 'engine', id: ENGINE } },
+    });
+    expect(hub.calls).toEqual(['submit:hub:owner1']);
+    expect(engine.calls).toEqual(['submit:engine:owner2']);
+  });
   it('sends status, logs and a restart to the supervisor of the named target only', async () => {
     const hub = fakePort('hub');
     const engine = fakePort('engine');

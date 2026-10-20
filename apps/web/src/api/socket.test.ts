@@ -93,6 +93,30 @@ describe('SocketClient', () => {
     expect(onReconnect).toHaveBeenCalledTimes(1);
   });
 
+  it('reports whether the page is on screen once connected, on every change, and again after a reconnect', () => {
+    // Said before the socket is open: held until it is.
+    client.reportVisibility(true);
+    client.start();
+    expect(sockets[0]!.sent).toEqual([]);
+    sockets[0]!.open();
+    expect(sockets[0]!.sent).toEqual([{ type: 'visibility', visible: true }]);
+
+    client.reportVisibility(false);
+    expect(sockets[0]!.sent.at(-1)).toEqual({ type: 'visibility', visible: false });
+
+    sockets[0]!.drop();
+    vi.advanceTimersByTime(200);
+    sockets[1]!.open();
+    // The server forgets it with the connection, so the last known value is said again.
+    expect(sockets[1]!.sent).toEqual([{ type: 'visibility', visible: false }]);
+  });
+
+  it('says nothing about visibility until it has been told', () => {
+    client.start();
+    sockets[0]!.open();
+    expect(sockets[0]!.sent).toEqual([]);
+  });
+
   it('routes terminal frames to the attached view and other events to listeners', () => {
     const onData = vi.fn();
     const onSnapshot = vi.fn();

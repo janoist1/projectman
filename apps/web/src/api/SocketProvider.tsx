@@ -42,10 +42,15 @@ export function SocketProvider({
       void queryClient.invalidateQueries({ queryKey: ['engines'] });
       void queryClient.invalidateQueries({ queryKey: ['integrator-keys'] });
     });
+    // Whether this tab is on screen goes to the server on connect and on every change (PM-815).
+    const reportVisibility = () => client.reportVisibility(document.visibilityState === 'visible');
+    reportVisibility();
+    document.addEventListener('visibilitychange', reportVisibility);
     client.start();
     return () => {
       offEvent();
       offReconnect();
+      document.removeEventListener('visibilitychange', reportVisibility);
       client.stop();
     };
   }, [client, queryClient, toast]);

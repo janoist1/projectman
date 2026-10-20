@@ -220,7 +220,9 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
   });
 
   describe('machine reads', () => {
+    const submit = vi.fn();
     const port = {
+      submit,
       status: async (target: unknown) => ({
         target,
         online: true,
@@ -249,6 +251,22 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       await expect(h.domain.teamTools.getMachineLogs(ctx, { target, limit: 5 })).rejects.toMatchObject({
         message: expect.stringContaining('operator_grant_inactive'),
       });
+    });
+
+    it('never let an owner_command run before the owner`s yes, grant or not', async () => {
+      h.auth.grantOperator(userId, 'until_revoked');
+      const { operation } = await execute('shell', {
+        kind: 'administration',
+        request: {
+          kind: 'owner_command',
+          target: { kind: 'hub' },
+          command: 'uptime',
+          reason: 'Check the load',
+        },
+      } as SuperCommand);
+      expect(operation.state).toBe('waiting_owner');
+      expect(operation.ownerQuestionId).not.toBeNull();
+      expect(submit).not.toHaveBeenCalled();
     });
 
     it('answer with the owner`s grant', async () => {

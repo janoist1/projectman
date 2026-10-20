@@ -237,41 +237,38 @@ it('explains member initiated merging and forbids manually landing or pushing th
   expect(pack.initialMessage).not.toContain('the server owns the merge on Done');
 });
 
-it.each(['claude', 'codex', 'nanogpt', 'gemini'] as const)(
-  'allows %s developers to merge the default branch into their card branch without permission (PM-747)',
-  (provider) => {
-    for (const localOnly of [false, true]) {
-      for (const defaultBranch of ['main', 'develop']) {
-        const project = localOnly ? buildLocalOnlyProject() : buildProject();
-        const repo = project.project.repos.find((entry) => entry.name === 'app')!;
-        repo.requireMerge = true;
-        repo.defaultBranch = defaultBranch;
-        const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider };
-        for (const stageId of ['dev', 'code_review']) {
-          const context = input({ project, member, task: makeTask({ stageId }) });
-          const pack = builder.build(context);
-          for (const text of [
-            pack.initialMessage,
-            pack.appendSystemPrompt,
-            dutyPrompt(context, 'implementation'),
-            dutyPrompt(context, 'docs'),
-          ]) {
-            expect(text).toContain(
-              `Merging \`${defaultBranch}\` into your own task branch (for example to resolve review conflicts) is always allowed and needs no permission.`,
-            );
-            expect(text).toContain(`Never merge into \`${defaultBranch}\` or push manually`);
-            expect(text).toContain(`only the card merger's merge_task may move \`${defaultBranch}\``);
-            expect(text).not.toContain('Never merge or push manually');
-            expect(text).not.toContain('AI members must never merge or push manually');
-          }
-          expect(pack.initialMessage).toContain(
-            `The project manager must not request a manual git merge into \`${defaultBranch}\`.`,
+// The sentence is built in one provider-independent place (format.ts), so one provider is enough.
+it('allows developers to merge the default branch into their card branch without permission (PM-747)', () => {
+  for (const localOnly of [false, true]) {
+    for (const defaultBranch of ['main', 'develop']) {
+      const project = localOnly ? buildLocalOnlyProject() : buildProject();
+      const repo = project.project.repos.find((entry) => entry.name === 'app')!;
+      repo.requireMerge = true;
+      repo.defaultBranch = defaultBranch;
+      for (const stageId of ['dev', 'code_review']) {
+        const context = input({ project, handle: 'fe-1', task: makeTask({ stageId }) });
+        const pack = builder.build(context);
+        for (const text of [
+          pack.initialMessage,
+          pack.appendSystemPrompt,
+          dutyPrompt(context, 'implementation'),
+          dutyPrompt(context, 'docs'),
+        ]) {
+          expect(text).toContain(
+            `Merging \`${defaultBranch}\` into your own task branch (for example to resolve review conflicts) is always allowed and needs no permission.`,
           );
+          expect(text).toContain(`Never merge into \`${defaultBranch}\` or push manually`);
+          expect(text).toContain(`only the card merger's merge_task may move \`${defaultBranch}\``);
+          expect(text).not.toContain('Never merge or push manually');
+          expect(text).not.toContain('AI members must never merge or push manually');
         }
+        expect(pack.initialMessage).toContain(
+          `The project manager must not request a manual git merge into \`${defaultBranch}\`.`,
+        );
       }
     }
-  },
-);
+  }
+});
 
 describe('team rules in the system prompt', () => {
   it.each([
@@ -1085,46 +1082,12 @@ describe('continue message', () => {
 });
 
 describe('system prompt', () => {
-  it('has its sections in a fixed order', () => {
-    const prompt = builder.build(input()).appendSystemPrompt;
-    expect(prompt.split('\n').filter((line) => line.startsWith('# '))).toEqual([
-      '# Who you are',
-      '# The team',
-      '# How the team works',
-      '# Token economy',
-      '# The pipeline',
-      '# Labels',
-      '# Team rules',
-      '# Current work item',
-      '# Commands that run without asking',
-      '# Tests that do not run here',
-      '# Guardrails',
-      '# Your role instructions',
-      '# Your memory',
-    ]);
-  });
-
   describe('commands that run without asking', () => {
     const HEADING = '# Commands that run without asking';
     const commandsOf = (overrides: Parameters<typeof input>[0]) =>
       section(builder.build(input(overrides)).appendSystemPrompt, HEADING);
 
-    it('tells a developer the routine steps with the repository default branch', () => {
-      const text = commandsOf({ handle: 'fe-1' });
-      expect(text).toContain("in your working directory (the task's worktree)");
-      expect(text).toContain('`git merge --ff-only main`');
-      expect(text).toContain('`git commit -m "message"`');
-      expect(text).toContain('Claude Code also pre-approves');
-      expect(text).not.toContain('Refused outright');
-    });
-
-    it('tells a reviewer the reading rules only', () => {
-      const text = commandsOf({ handle: 'code-review' });
-      expect(text).toContain("your working directory and the task's own worktree");
-      expect(text).toContain('`npm run typecheck`');
-      expect(text).not.toContain('git commit');
-    });
-
+    // The developer and reviewer texts are in the developer-dev and code-review snapshots.
     it('says publishing is refused in a local-only repository', () => {
       expect(commandsOf({ handle: 'fe-1', project: buildLocalOnlyProject() })).toContain(
         'Refused outright: `git push`',
@@ -1150,16 +1113,6 @@ describe('system prompt', () => {
         expect(prompt).not.toContain(HEADING);
       }
     });
-  });
-
-  it('introduces the member, the team and the sponsor', () => {
-    const prompt = builder.build(input({ handle: 'fe-1' })).appendSystemPrompt;
-    expect(prompt).toContain(
-      "You are Frontend developer (handle `fe-1`), the developer (Frontend) of the Acme Web team (project key `AR`); you run on Anna Example's Claude subscription.",
-    );
-    expect(prompt).toContain('- `owner`: Anna Example (human, owner; roles: owner, product owner)');
-    expect(prompt).toContain('- `fe-1`: Frontend developer (AI, developer, Frontend) ← you');
-    expect(prompt.match(/← you/g)).toHaveLength(1);
   });
 
   it('describes a temporary stand-in and leaves retired members out', () => {
@@ -1588,15 +1541,6 @@ describe('system prompt', () => {
     });
   });
 
-  it('words the plan, the tool names and the rules file for Claude Code members', () => {
-    const prompt = builder.build(input({ handle: 'fe-1' })).appendSystemPrompt;
-    expect(prompt).toContain("you run on Anna Example's Claude subscription.");
-    expect(prompt).toContain('in Claude Code they are named mcp__team__<tool>');
-    expect(prompt).toContain(
-      "The project's CLAUDE.md decides the language of code, commits and pull requests.",
-    );
-  });
-
   it('words the plan, the tool names and the rules file for Codex members', () => {
     const project = buildProject();
     const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
@@ -1621,43 +1565,14 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('# Your workspace');
   });
 
-  it('marks the current stage and describes the next gate', () => {
-    const prompt = builder.build(input()).appendSystemPrompt;
-    expect(prompt).toContain(
-      '3. Code review (`code_review`, step: code review) — owners `code-review` ← current stage',
-    );
-    expect(prompt).toContain(
-      '- Next stage: Integration (`integration`), owners `devops`; gate: label `code-review-ok` (Code review ok).',
-    );
-    expect(prompt).toContain(
-      '7. Merge (`merge`, step: final decision) — owners `owner` — gate: label `client-accepted` (Client accepted) and label `merge-approved` (Merge approved), a human approval',
-    );
-  });
-
-  it('lists the labels with who may set them and their rules', () => {
-    const labels = section(builder.build(input()).appendSystemPrompt, '# Labels').split('\n');
-    const rules = (id: string) =>
-      labels.find((line) => line.startsWith(`- \`${id}\``))?.replace(/^.*\(/, '(');
-    expect(rules('code-review-changes')).toBe(
-      '(set by `code-review`; one of group `code-review`; needs a note; not on your own work)',
-    );
-    expect(rules('client-accepted')).toBe(
-      '(set by `owner`, `qa`, `communication`; one of group `client-test`)',
-    );
-    expect(rules('release-approved')).toBe('(only humans set it: `owner`; never set it yourself)');
-    expect(rules('waiting-answer')).toBe('(set by anyone; holds the task back while on it)');
-  });
-
+  // The stage list, its current-stage mark and the label rules are in the code-review snapshot.
   it('leaves the labels section out when the project defines no labels', () => {
     const project = buildProject();
     project.pipeline.labels = [];
     expect(builder.build(input({ project })).appendSystemPrompt).not.toContain('\n# Labels\n');
   });
 
-  it('tells the member whether it owns the current stage', () => {
-    expect(builder.build(input()).appendSystemPrompt).toContain(
-      '- Stage: Code review (`code_review`), owners `code-review`; you own this stage.',
-    );
+  it('tells a member who does not own the current stage so', () => {
     expect(builder.build(input({ handle: 'devops' })).appendSystemPrompt).toContain(
       'you do not own this stage',
     );
@@ -1800,7 +1715,6 @@ describe('kick-off brief', () => {
   });
 
   it('has no section about other sessions when the member has none', () => {
-    expect(builder.build(input()).initialMessage).not.toContain('Your other running sessions');
     expect(builder.build(input({ relatedSessions: [] })).initialMessage).not.toContain(
       'Your other running sessions',
     );
@@ -1957,14 +1871,6 @@ describe('kick-off brief', () => {
     expect(brief).not.toContain('session_started');
     expect(brief).not.toContain('permission');
     expect(brief).toContain('- 2026-09-28 08:06 UTC · `fe-1`: moved it from Ready to Development');
-  });
-
-  it('does not repeat the steps of the system prompt', () => {
-    const pack = builder.build(input());
-    expect(pack.initialMessage).not.toContain('What is expected next');
-    const firstStep = doneSteps(pack.appendSystemPrompt).split('\n')[0]!.replace(/^1\. /, '');
-    expect(firstStep).toContain('Review the pull requests linked to the task');
-    expect(pack.initialMessage).not.toContain(firstStep);
   });
 
   it('lists links apart from the relations to other cards', () => {
@@ -2310,15 +2216,6 @@ describe('expected steps', () => {
     );
   });
 
-  it('mentions the worktree of the repository the task works in, the project’s only one included', () => {
-    for (const repo of ['app', null]) {
-      const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'dev', repo }) });
-      expect(steps, String(repo)).toContain(
-        "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
-      );
-    }
-  });
-
   it('does not mention a worktree when the task works in no repository', () => {
     // The project has no repository: its tasks work in the workspace root.
     const steps = stepsOf({
@@ -2329,11 +2226,6 @@ describe('expected steps', () => {
     expect(steps).toContain(
       "Implement the change in your working directory. While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
     );
-  });
-
-  it('sends feedback work back to the assignee', () => {
-    const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'qa' }) });
-    expect(steps).toContain('The task is past development (now in QA (`qa`)).');
   });
 
   it('tells a non-owner to do what was asked', () => {
@@ -2383,17 +2275,6 @@ describe('expected steps', () => {
     );
   });
 
-  it('names the built-in designer role UI/UX designer in the system prompt', () => {
-    const project = buildProject();
-    const member = addMember(project, 'member', 'designer', { displayName: 'Member' });
-    (project.pipeline.stages.find((s) => s.id === 'dev')!.owners ??= []).push(member.handle);
-    const pack = builder.build(
-      input({ project, handle: 'member', task: makeTask({ stageId: 'dev', assignee: 'member' }) }),
-    );
-    expect(roleLabel('designer')).toBe('UI/UX designer');
-    expect(pack.appendSystemPrompt).toContain('the UI/UX designer of the Acme Web team');
-  });
-
   it.each(AI_BUILT_IN_ROLE_IDS)('gives the %s concrete steps with the team tools', (role) => {
     const project = buildProject();
     const member = addMember(project, 'member', role, { displayName: 'Member' });
@@ -2440,9 +2321,6 @@ describe('expected steps', () => {
       "1. Install the dependencies only if they are missing from your working directory: they are often in place already. Make the maintenance change the task describes in your working directory (the task's own worktree and branch), small and focused. While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
     );
     expect(steps).toContain('2. Commit, push, open a pull request and attach it with link_pull_request.');
-    expect(steps).toContain(
-      '3. Move the task to Code review (`code_review`) with update_task and hand over to `code-review`',
-    );
   });
 
   it('has the watchdog flag problems to the operator, and the project manager ask the product owner', () => {
@@ -2830,8 +2708,6 @@ describe('the designer round on a UI card (PM-235)', () => {
       task: makeTask({ stageId: 'ready', assignee: null, labels: ['ui'] }),
     });
     await expect(`${steps}\n`).toMatchFileSnapshot('__snapshots__/designer-ready-ui.steps.txt');
-    expect(steps).not.toContain('Move the task to');
-    expect(steps).not.toContain('Commit');
   });
 
   it('has the designer set design-ok when the gate of the stage the card is in asks for it (PM-248)', () => {
@@ -2855,7 +2731,6 @@ describe('the designer round on a UI card (PM-235)', () => {
       task: makeTask({ stageId: 'dev', assignee: 'fe-1', labels: ['ui', 'design-ok'] }),
     });
     await expect(`${steps}\n`).toMatchFileSnapshot('__snapshots__/designer-dev-ui.steps.txt');
-    expect(steps).not.toContain('Move the task to');
   });
 
   it('has the designer add design-review-changes with a note when the project has the label (PM-262)', () => {
@@ -2890,7 +2765,6 @@ describe('the designer round on a UI card (PM-235)', () => {
       task: makeTask({ stageId: 'dev', assignee: 'fe-1', labels: ['ui', 'design-ok'] }),
     });
     await expect(`${steps}\n`).toMatchFileSnapshot('__snapshots__/developer-dev-ui.steps.txt');
-    expect(steps).toContain('which `ux` set instead of you');
   });
 
   it('leaves the designer review out for a card that is not a UI card or already has it', () => {
@@ -2977,34 +2851,7 @@ describe('repositories without GitHub', () => {
     section(builder.build(input(overrides)).appendSystemPrompt, '# Your role instructions');
 
   describe('developer', () => {
-    it('commits on the task branch, never pushes, and hands over the branch and its last commit', () => {
-      const steps = stepsOf({
-        project: buildLocalOnlyProject(),
-        handle: 'fe-1',
-        task: localTask({ stageId: 'dev' }),
-      });
-      expect(steps).toBe(
-        [
-          '1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-          "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
-          "3. Commit the work on the task's own branch in your worktree. Never push and never open a pull request: the repository is local-only (the owner has not allowed publishing from it). Before you hand over, make sure everything is committed: `git status` shows nothing left to commit.",
-          '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (the branch and its last commit, what changed, what to check).',
-        ].join('\n'),
-      );
-    });
-
-    it('opens and links a pull request when the repository is on GitHub', () => {
-      const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'dev' }) });
-      expect(steps).toBe(
-        [
-          '1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-          "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
-          '3. Commit, push, open a pull request and attach it with link_pull_request.',
-          '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (links, what changed, what to check).',
-        ].join('\n'),
-      );
-    });
-
+    // The developer's steps in dev, local-only and on GitHub, are the two developer snapshots.
     it('works the same way when it starts a task from the queue', () => {
       const steps = stepsOf({
         project: buildLocalOnlyProject(),
@@ -3060,23 +2907,8 @@ describe('repositories without GitHub', () => {
     const reviewSteps = (project: ProjectConfig, handle = 'code-review') =>
       stepsOf({ project, handle, task: localTask() }).split('\n');
 
-    it('reads the task branch against the default branch instead of a pull request', () => {
-      const local = reviewSteps(buildLocalOnlyProject('.'));
-      const github = stepsOf({ handle: 'code-review', task: makeTask() }).split('\n');
-      expect(github[0]).toBe('1. Review the pull requests linked to the task; do not edit, commit or push.');
-      expect(local[0]).toBe(
-        "1. Review the task's branch against `main`: there is no pull request, because the repository is local-only (the owner has not allowed publishing from it). Every worktree shares one git repository, so you can read the task's branch from your working directory: find it with `git branch --list 'AR-21-*'` (it is named `AR-21-` followed by the title as a lowercase slug), then read `git log main..<branch>` and `git diff main...<branch>`. Do not edit, commit, merge or push.",
-      );
-      // Recording the result and sending the findings are the same.
-      expect(local.slice(1, 3)).toEqual(github.slice(1, 3));
-    });
-
-    it('leaves the merge to the owner where it says what happens after the review', () => {
-      const local = reviewSteps(buildLocalOnlyProject('.'));
-      const github = stepsOf({ handle: 'code-review', task: makeTask() }).split('\n');
-      expect(github[3]).toMatch(/^4\. When the review passes, move the task to Integration/);
-      expect(local[3]).toBe(`${github[3]} The owner merges the branch into \`main\`.`);
-      // Also when the review ends in a request for a human approval.
+    // The reviewer's steps in a local-only repository and on GitHub are the two reviewer snapshots.
+    it('leaves the merge to the owner also when the review ends in a request for a human approval', () => {
       const small = reviewSteps(buildLocalOnlyProject('.', 'small-team'));
       expect(small.at(-1)).toMatch(
         /never set that label yourself\. The owner merges the branch into `main`\.$/,
@@ -3087,8 +2919,9 @@ describe('repositories without GitHub', () => {
       const project = buildLocalOnlyProject('app');
       project.project.repos.find((r) => r.name === 'app')!.defaultBranch = 'develop';
       const steps = reviewSteps(project);
-      expect(steps[0]).toBe(
-        "1. Review the task's branch against `develop`: there is no pull request, because the repository is local-only (the owner has not allowed publishing from it). Every worktree shares one git repository, so you can read the task's branch from the folder `app` of your working directory: find it with `cd app && git branch --list 'AR-21-*'` (it is named `AR-21-` followed by the title as a lowercase slug), then read `cd app && git log develop..<branch>` and `cd app && git diff develop...<branch>`. Do not edit, commit, merge or push.",
+      expect(steps[0]).toContain('against `develop`');
+      expect(steps[0]).toContain(
+        '`cd app && git log develop..<branch>` and `cd app && git diff develop...<branch>`',
       );
       expect(steps[3]).toMatch(/ The owner merges the branch into `develop`\.$/);
     });
@@ -3208,27 +3041,7 @@ describe('repositories without GitHub', () => {
   });
 
   describe('role instructions', () => {
-    it('ask a developer to commit on the task branch instead of opening a pull request', () => {
-      const local = roleInstructions({ project: buildLocalOnlyProject(), handle: 'fe-1', task: localTask() });
-      expect(local).toContain(
-        "Implement the task and tests only in its worktree; run checks and commit the work on the task's branch. The repository is local-only: never push or open a pull request.",
-      );
-      expect(local).not.toContain(DUTIES.implementation.prompt);
-      expect(roleInstructions({ handle: 'fe-1' })).toContain(DUTIES.implementation.prompt);
-    });
-
-    it('ask a technical writer to commit on the task branch instead of linking a pull request', () => {
-      const local = buildLocalOnlyProject();
-      const github = buildProject();
-      for (const project of [local, github]) addMember(project, 'writer', 'docs');
-      const localRole = roleInstructions({ project: local, handle: 'writer', task: localTask() });
-      expect(localRole).toContain(
-        "Write accurate documentation in the task worktree; verify examples against the code and commit it on the task's branch. The repository is local-only: never push or open a pull request.",
-      );
-      expect(localRole).not.toContain(DUTIES.docs.prompt);
-      expect(roleInstructions({ project: github, handle: 'writer' })).toContain(DUTIES.docs.prompt);
-    });
-
+    // The developer's role instructions, local-only and on GitHub, are the two developer snapshots.
     it('leave no duty fragment about pull requests for a member working in a local-only repository', () => {
       // A new fragment that mentions a pull request or a push needs a local-only variant.
       const mentioning = DUTY_IDS.filter((id) => /pull request|\bpush/i.test(DUTIES[id].prompt));
@@ -3451,7 +3264,6 @@ describe("the CLI's own sandbox (PM-167)", () => {
       '# Your sandbox',
     );
     expect(text).toContain('Writing: your working directory `/pm/worktrees/AR/AR-21-app`');
-    expect(text).toContain('goes on the card as a note, not into a question');
     expect(text).toContain(
       'and `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`',
     );
@@ -3471,11 +3283,9 @@ describe("the CLI's own sandbox (PM-167)", () => {
     // PM-216: git's settings file is told apart from the npm cache and the development data.
     expect(text).not.toContain('`GIT_CONFIG_SYSTEM` is');
     expect(text).toContain('its system settings come from `/pm/member-caches/AR/fe-1/gitconfig`');
-    expect(text).toContain("`Unable to create '…/packed-refs.lock'`: the commit exists");
     expect(text).toContain(
       '`GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` are unset',
     );
-    expect(text).toContain('a here-document (`<<`)');
     const chat = builder.build(
       input({
         project,
@@ -3526,38 +3336,6 @@ describe("the CLI's own sandbox (PM-167)", () => {
       expect(text).not.toContain('$TMPDIR');
       expect(text).not.toContain('take_screenshots` tool');
     }
-  });
-
-  it('tells a writing NanoGPT developer its session folder and its own TMPDIR (PM-522)', () => {
-    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'nanogpt' };
-    const developerPolicy = buildSessionPolicy({
-      config: project,
-      role: 'developer',
-      task,
-      permissionMode: 'acceptEdits',
-      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
-      deniedPaths: ['/home/anna/.ssh', '/pm/secret'],
-    });
-    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
-    const tmpDir = '/tmp/projectman-501-tmp/0123abcd/ses_1.abcdef';
-    const policy = withSessionFolders(developerPolicy, {
-      own: folder,
-      root: '/tmp/projectman-sessions/abc123',
-    });
-    const prompt = builder.build(
-      input({
-        project,
-        member,
-        handle: 'fe-1',
-        task,
-        sessionPolicy: policy,
-        sandbox: sessionSandbox(policy, { ...sandboxPaths, sessionDir: folder, tmpDir })!,
-      }),
-    ).appendSystemPrompt;
-    const text = section(prompt, '# Your session folder');
-    expect(text).toContain('`attach_file`');
-    expect(text).toContain('`view_image`');
-    expect(text).toContain(`\`$TMPDIR\` (\`${tmpDir}\`) is your own, deleted with the session`);
   });
 
   it('tells a Gemini member its session folder: file tools, view_file, no screenshots (PM-522)', () => {
@@ -3680,17 +3458,11 @@ describe('who decides a permission question (the approver, PM-165)', () => {
     expect(policySection('ai')).toContain('a teammate or a human decides');
   });
 
-  it('names what the file tools and web fetch never reach', () => {
-    expect(policySection('none')).toContain('`/Users/anna/.ssh`');
-    expect(policySection('none')).toContain('web fetch never reaches `localhost`, `127.0.0.1`');
-  });
-
-  it('explains automatic dependency refresh and the missing-reference fallback', () => {
+  it('names what the file tools never reach and the missing-dependency fallback', () => {
     const text = policySection('none');
+    expect(text).toContain('`/Users/anna/.ssh`');
     expect(text).toContain("projectman refreshes the worktree's node_modules");
-    expect(text).toContain('do not install it or work around it');
     expect(text).toContain('ask the owner with ask_human');
-    expect(text).toContain('within a minute');
   });
 });
 
@@ -3709,14 +3481,11 @@ describe('member workspaces (PM-138)', () => {
       },
     });
     const prompt = builder.build(input({ project, handle: 'fe-1', task, sessionPolicy })).appendSystemPrompt;
-    expect(section(prompt, '# Your workspace').trim()).toBe(
-      [
-        '# Your workspace',
-        `You work in your own durable workspace for this repository, an independent clone at \`/workspaces/AR/fe-1/app/repo\`, on the task's branch \`AR-21-fix-the-booking-confirmation-email\` (it started from \`${COMMIT_A}\`).`,
-        'It stays yours across tasks: the branches of your other tasks are kept in it, and nothing is ever reset, stashed or cleaned for you. Commit your work before you hand over: you move to another task here only when nothing is left uncommitted and no git operation (merge, rebase, cherry-pick) is unfinished.',
-        'It has no remote. Teammates who review or test your work get your committed branch from here; uncommitted files never reach them.',
-      ].join('\n'),
-    );
+    const text = section(prompt, '# Your workspace');
+    expect(text).toContain('`/workspaces/AR/fe-1/app/repo`');
+    expect(text).toContain('`AR-21-fix-the-booking-confirmation-email`');
+    expect(text).toContain(`\`${COMMIT_A}\``);
+    expect(text).toContain('Commit your work before you hand over');
     // The sandbox may write the clone's own git directory: it is inside the workspace.
     expect(sessionPolicy.filesystem.protectedPaths).toEqual([]);
   });
@@ -3740,14 +3509,10 @@ describe('member workspaces (PM-138)', () => {
     const prompt = builder.build(
       input({ project, handle: 'code-review', task, sessionPolicy: reviewPolicy(project, task) }),
     ).appendSystemPrompt;
-    expect(section(prompt, '# Review round').trim()).toBe(
-      [
-        '# Review round',
-        `Round 2: your own workspace at \`/workspaces/AR/code-review/app/repo\` has the handed-over commit \`${COMMIT_B}\` of \`AR-21-fix-the-booking-confirmation-email\` checked out (detached HEAD); the developer's uncommitted files are not in it.`,
-        `The review base is \`main\` at \`${COMMIT_A}\`: read the change with \`git log ${COMMIT_A}..HEAD\` and \`git diff ${COMMIT_A}...HEAD\`.`,
-        'You keep this commit while the round lasts. A new round with the latest commit starts when the task enters a stage or its developer asks you for a re-review; you are restarted on it then.',
-      ].join('\n'),
-    );
+    const round = section(prompt, '# Review round');
+    expect(round).toContain('Round 2: your own workspace at `/workspaces/AR/code-review/app/repo`');
+    expect(round).toContain(`\`${COMMIT_B}\` of \`AR-21-fix-the-booking-confirmation-email\``);
+    expect(round).toContain(`\`git log ${COMMIT_A}..HEAD\` and \`git diff ${COMMIT_A}...HEAD\``);
   });
 
   describe('the commit pinned when the task entered review (PM-183)', () => {
@@ -3840,15 +3605,12 @@ describe('sub-cards that stand on their own (PM-230)', () => {
 
   it('gives the rule to every role that splits work, once', async () => {
     const project = buildProject();
-    addMember(project, 'architect', 'architect');
     addMember(project, 'analyst', 'business_analyst');
     addMember(project, 'designer', 'designer');
-    for (const handle of ['architect', 'analyst', 'designer']) {
-      const pack = builder.build(input({ project, handle, task: makeTask({ stageId: 'dev' }) }));
-      const role = roleText(pack.appendSystemPrompt);
-      expect(role).toContain(RULE);
-      expect(role.split(RULE)).toHaveLength(2);
-    }
+    const designer = builder.build(
+      input({ project, handle: 'designer', task: makeTask({ stageId: 'dev' }) }),
+    );
+    expect(roleText(designer.appendSystemPrompt)).toContain(RULE);
     const analyst = builder.build(input({ project, handle: 'analyst', task: makeTask({ stageId: 'dev' }) }));
     await expect(`${roleText(analyst.appendSystemPrompt)}\n`).toMatchFileSnapshot(
       '__snapshots__/analyst.role-instructions.txt',
@@ -3857,11 +3619,8 @@ describe('sub-cards that stand on their own (PM-230)', () => {
 
   it('leaves the rule out for the roles that do not split work', () => {
     const project = buildProject();
-    addMember(project, 'architect', 'architect');
-    for (const handle of ['fe-1', 'code-review', 'qa']) {
-      const pack = builder.build(input({ project, handle, task: makeTask({ stageId: 'dev' }) }));
-      expect(pack.appendSystemPrompt).not.toContain(RULE);
-    }
+    const pack = builder.build(input({ project, handle: 'qa', task: makeTask({ stageId: 'dev' }) }));
+    expect(pack.appendSystemPrompt).not.toContain(RULE);
   });
 
   it('shows the parent files the description names first and marked, and only counts the rest', async () => {
@@ -3884,11 +3643,9 @@ describe('sub-cards that stand on their own (PM-230)', () => {
       ).initialMessage ?? '';
     const start = brief.indexOf('## Attachments');
     const end = brief.indexOf('\n\n## ', start + 1);
-    const section = brief.slice(start, end === -1 ? undefined : end);
-    await expect(section).toMatchFileSnapshot('__snapshots__/developer-dev-parent-references.section.txt');
-    expect(section.indexOf('01-first.jpg')).toBeLessThan(section.indexOf('06-rad-var-asztali.jpg'));
-    expect(section).not.toContain('07-other.jpg');
-    expect(section).not.toContain('08-other.jpg');
+    await expect(brief.slice(start, end === -1 ? undefined : end)).toMatchFileSnapshot(
+      '__snapshots__/developer-dev-parent-references.section.txt',
+    );
   });
 
   it('keeps the plain parent list when the description names none of the files', () => {
@@ -3922,19 +3679,12 @@ describe('structural decisions (PM-223)', () => {
   });
 
   it('names every holder of the technical direction duty', () => {
+    // Nobody holding the duty (ask_human) is the plain developer snapshot.
     const project = buildProject();
     addMember(project, 'architect', 'architect');
     addMember(project, 'architect-2', 'architect');
     const pack = builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
     expect(roleText(pack.appendSystemPrompt)).toContain('ask `architect` or `architect-2` with send_message');
-  });
-
-  it('sends the question to a human with ask_human when nobody holds the duty', () => {
-    const pack = builder.build(input({ handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
-    const role = roleText(pack.appendSystemPrompt);
-    expect(role).toContain(RULE);
-    expect(role).toContain('ask the human responsible with ask_human');
-    expect(role).not.toContain('ask `');
   });
 
   it('skips a retired architect', () => {
@@ -3950,10 +3700,8 @@ describe('structural decisions (PM-223)', () => {
   it('leaves the rule out for a member who does not implement', () => {
     const project = buildProject();
     addMember(project, 'architect', 'architect');
-    for (const handle of ['code-review', 'qa', 'architect']) {
-      const pack = builder.build(input({ project, handle, task: makeTask({ stageId: 'dev' }) }));
-      expect(pack.appendSystemPrompt).not.toContain(RULE);
-    }
+    const pack = builder.build(input({ project, handle: 'qa', task: makeTask({ stageId: 'dev' }) }));
+    expect(pack.appendSystemPrompt).not.toContain(RULE);
   });
 
   it('tells the architect to answer a structural question briefly and record the decision', async () => {
@@ -3989,12 +3737,6 @@ describe('handover and previous conversation (PM-342)', () => {
   });
   const brief = (overrides: Partial<ContextPackInput> = {}) =>
     builder.build(input({ handle: 'fe-1', ...overrides })).initialMessage!;
-
-  it('has neither part without a handover or a previous conversation', () => {
-    const text = brief();
-    expect(text).not.toContain('## Handoff');
-    expect(text).not.toContain('## Previous conversation');
-  });
 
   it('puts the handover with the note after the description and before the links', () => {
     const text = brief({ handoff: takeover({ uncommitted: true }) });

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type { ResourceLimits } from 'node:worker_threads';
 import type { HistorySemanticStatus } from '@projectman/shared';
@@ -121,6 +123,11 @@ export function createHistorySemanticPort(options: HistorySemanticOptions): Hist
 
   function spawn(): void {
     if (!usable || state === 'stopped') return;
+    // A build without the model needs no thread to say so.
+    if (!existsSync(join(options.modelDirectory, 'manifest.json'))) {
+      fail('unavailable', 'model_missing', { modelDirectory: options.modelDirectory });
+      return;
+    }
     const entry = options.workerUrl ? sourceEntry(options.workerUrl) : defaultWorkerEntry();
     const data: WorkerData = {
       databasePath: databasePath!,
@@ -198,7 +205,8 @@ export function createHistorySemanticPort(options: HistorySemanticOptions): Hist
       case 'loading':
         return 'loading';
       case 'cooldown':
-        if (now() < cooldownUntil) return lastFailure;
+        // A new thread starts only after the failed one has exited.
+        if (now() < cooldownUntil || worker) return lastFailure;
         spawn();
         return 'loading';
       default:

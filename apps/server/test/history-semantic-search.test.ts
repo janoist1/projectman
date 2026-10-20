@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { HistorySemanticStatus, HistoryViewer } from '@projectman/shared';
+import type { HistorySemanticStatus, HistorySourceType, HistoryViewer } from '@projectman/shared';
 import { HistorySemanticFailure } from '../src/contracts';
 import type {
   HistoryQueryEmbedding,
@@ -103,8 +103,10 @@ describe('history search by meaning', () => {
     h.domain.history.flush();
     return created;
   };
-  const search = (input: { query: string; limit?: number; taskKey?: string }, viewer = OWNER) =>
-    h.domain.history.search('AR', viewer, input);
+  const search = (
+    input: { query: string; limit?: number; taskKey?: string; sourceTypes?: HistorySourceType[] },
+    viewer = OWNER,
+  ) => h.domain.history.search('AR', viewer, input);
   const loggedStatuses = () =>
     (
       h.repos.db.prepare('SELECT semantic_status AS status FROM history_searches ORDER BY id').all() as {
@@ -140,6 +142,31 @@ describe('history search by meaning', () => {
       arguments: { from_line: 1 },
     });
     expect(result.hasMore).toBe(false);
+  });
+
+  it('opens a document found by meaning at the chunk line of its commit', async () => {
+    const commit = 'a'.repeat(40);
+    h.domain.history.replaceDocuments({
+      projectKey: 'AR',
+      repo: 'web',
+      commit,
+      checkedAt: '2026-10-10T10:00:00Z',
+      files: [
+        { path: 'docs/DECISIONS.md', text: '# Decisions\n\nfirst\nEvery automobile is insured.\nlast' },
+        { path: 'docs/LESSONS.md', text: '# Lessons' },
+      ],
+    });
+    port.target = 'automobile';
+    const result = await search({ query: 'vehicle', sourceTypes: ['document'] });
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]).toMatchObject({
+      matchType: 'semantic',
+      document: { path: 'docs/DECISIONS.md', commit, line: 1 },
+      reference: {
+        tool: 'read_history_source',
+        arguments: { source_id: result.matches[0]!.sourceId, from_line: 1, commit },
+      },
+    });
   });
 
   it('marks a word hit that is also close in meaning as both', async () => {

@@ -203,6 +203,47 @@ describe.skipIf(!modelPrepared)(
       expect(found).toBeGreaterThanOrEqual(15);
     });
 
+    it('reports recall and false hits at each threshold (calibration of the default)', async () => {
+      const wide = createSemanticEngine({ db, embedder, indexKey, minCosine: 0.5 });
+      const scoresOf = async (question: string) => {
+        const vector = await wide.embedQuery(PROJECT, question);
+        const { candidates } = wide.scan({
+          projectKey: PROJECT,
+          indexKey,
+          vector,
+          sourceTypes: ['note'],
+          limit: 100,
+          deadlineAt: Number.MAX_SAFE_INTEGER,
+        });
+        return candidates.map((candidate) => ({ id: candidate.sourceId, cosine: 1 - candidate.distance }));
+      };
+      const answers = await Promise.all(
+        QUESTIONS.map(async (item) => ({ item, scores: await scoresOf(item.question) })),
+      );
+      const offTopic = await Promise.all(OFF_TOPIC.map((question) => scoresOf(question)));
+      const rows: string[] = [];
+      for (const threshold of [0.78, 0.8, 0.81, 0.82, 0.83, 0.84]) {
+        const found = answers.filter(({ item, scores }) => {
+          const above = scores.filter((score) => score.cosine >= threshold);
+          const rank = above.findIndex((score) => score.id === item.target) + 1;
+          return rank > 0 && rank <= 10;
+        }).length;
+        const falseHits = offTopic.filter((scores) =>
+          scores.some((score) => score.cosine >= threshold),
+        ).length;
+        rows.push(
+          `${threshold}\trecall ${found}/${QUESTIONS.length}\toff-topic with a hit ${falseHits}/${OFF_TOPIC.length}`,
+        );
+      }
+      const targetScores = answers.map(
+        ({ item, scores }) => scores.find((score) => score.id === item.target)?.cosine ?? 0,
+      );
+      const bestOff = Math.max(...offTopic.map((scores) => scores[0]?.cosine ?? 0));
+      console.log(
+        `PM-767 threshold sweep\n${rows.join('\n')}\ntarget cosines: ${targetScores.map((value) => value.toFixed(3)).join(' ')}\nbest off-topic cosine: ${bestOff.toFixed(3)}`,
+      );
+    });
+
     it('brings no hit for questions about something else', async () => {
       const hits: string[] = [];
       for (const question of OFF_TOPIC) {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { HISTORY_SEMANTIC_STATUSES, HISTORY_SOURCE_TYPES } from '@projectman/shared';
+import { EMBEDDING_DIMENSION } from './model';
 
 /** The statuses a failed request ends in (`used` and `not_run` are not failures). */
 export const FAILURE_STATUSES = HISTORY_SEMANTIC_STATUSES.filter(
@@ -16,7 +17,13 @@ export const WorkerData = z.object({
 });
 export type WorkerData = z.infer<typeof WorkerData>;
 
-const VectorValue = z.custom<Float32Array>((value) => value instanceof Float32Array);
+/** Exactly one vector of the model's size, all finite: anything else is not a vector of this index. */
+const VectorValue = z.custom<Float32Array>(
+  (value) =>
+    value instanceof Float32Array &&
+    value.length === EMBEDDING_DIMENSION &&
+    value.every((component) => Number.isFinite(component)),
+);
 
 const Cursor = z.object({ distance: z.number(), at: z.string(), sourceId: z.string() });
 

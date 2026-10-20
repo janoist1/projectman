@@ -289,8 +289,8 @@ async function configFromEnv(
 
 /**
  * `PROJECTMAN_HISTORY_SEMANTIC` (on) and `PROJECTMAN_HISTORY_MODEL_DIR` (PM-767): the local embedding of the history.
- * `off` switches it off; otherwise it is on when the pinned model is there (beside the bundle in a build, in
- * `apps/server/models/history` from source), and a text-only build simply has none.
+ * `off` switches it off; otherwise it is on, and a build without the pinned model (beside the bundle in a build, in
+ * `apps/server/models/history` from source) searches by the words and logs the search as `unavailable`.
  */
 function parseHistorySemantic(env: NodeJS.ProcessEnv): { enabled: boolean; modelDirectory: string } {
   const flag = env.PROJECTMAN_HISTORY_SEMANTIC || 'on';
@@ -303,7 +303,7 @@ function parseHistorySemantic(env: NodeJS.ProcessEnv): { enabled: boolean; model
         fileURLToPath(new URL('../models/history', import.meta.url)),
       ];
   const found = candidates.find((dir) => existsSync(join(dir, 'manifest.json')));
-  return { enabled: flag === 'on' && found !== undefined, modelDirectory: found ?? candidates[0]! };
+  return { enabled: flag === 'on', modelDirectory: found ?? candidates[0]! };
 }
 
 /** `PROJECTMAN_ADMIN_SOCKET` (PM-763): an absolute socket path that fits a Unix socket address, or undefined. */

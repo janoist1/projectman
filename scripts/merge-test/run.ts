@@ -21,7 +21,7 @@ const CLOUD_TEST_FILTERS = [
 ];
 
 const USAGE =
-  'usage: npm run merge-test -- [--no-cache] [--all | --files <repository path of a test file>...]';
+  'usage: npm run merge-test -- [--no-cache] [--all | --dry-run [<commit>] | --files <repository path of a test file>...]';
 
 export function scopeLine(scope: MergeTestScope): string {
   if (scope.kind === 'shared')
@@ -102,8 +102,12 @@ function sharedScope(
     ? serverTestImpact({
         changed,
         seeds: shared.consumers['apps/server'],
-        before: before.filter((file) => file.path.startsWith('apps/server/')),
-        after: after.filter((file) => file.path.startsWith('apps/server/')),
+        before: before.filter(
+          (file) => file.path.startsWith('apps/server/') || file.path.startsWith('scripts/'),
+        ),
+        after: after.filter(
+          (file) => file.path.startsWith('apps/server/') || file.path.startsWith('scripts/'),
+        ),
         modules: MODULES,
       })
     : undefined;
@@ -115,11 +119,19 @@ function sharedScope(
   };
 }
 
-type Parsed = { all: boolean } | { files: string[] } | { error: string };
+type Parsed = { all: boolean } | { dryRun: string } | { files: string[] } | { error: string };
 
 function parseArgs(argv: readonly string[]): Parsed {
+  if (argv[0] === '--dry-run') {
+    if (argv.length > 2 || (argv[1] !== undefined && (!argv[1] || argv[1].startsWith('-'))))
+      return { error: USAGE };
+    return { dryRun: argv[1] ?? 'HEAD' };
+  }
   const at = argv.indexOf('--files');
-  if (at < 0) return argv.some((arg) => arg !== '--all') ? { error: USAGE } : { all: argv.length > 0 };
+  if (at < 0)
+    return argv.length === 0 || (argv.length === 1 && argv[0] === '--all')
+      ? { all: argv.length > 0 }
+      : { error: USAGE };
   const files = [...new Set(argv.slice(at + 1))];
   if (at > 0 || files.length === 0) return { error: USAGE };
   const unknown = files.find((file) => !isRepoFilePath(file) || !workspaceOf(file));
@@ -154,11 +166,17 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
       if (result.status !== 0) throw new Error(result.stderr.trim() || 'git failed');
       return result.stdout;
     };
-    tree = git(['rev-parse', 'HEAD^{tree}']).trim();
-    const parents = git(['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(/\s+/).slice(1);
+    tree = 'dryRun' in parsed ? '' : git(['rev-parse', 'HEAD^{tree}']).trim();
+    const revision = 'dryRun' in parsed ? parsed.dryRun : 'HEAD';
+    // Verify a single commit before passing an optional revision to any other git command.
+    const commit =
+      'dryRun' in parsed
+        ? git(['rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`]).trim()
+        : revision;
+    const parents = git(['rev-list', '--parents', '-n', '1', commit]).trim().split(/\s+/).slice(1);
     let diffed: string[] | undefined;
     const firstParentDiff = (): string[] =>
-      (diffed ??= git(['diff', '--name-only', '--no-renames', '-z', 'HEAD^1', 'HEAD'])
+      (diffed ??= git(['diff', '--name-only', '--no-renames', '-z', `${commit}^1`, commit])
         .split('\0')
         .filter(Boolean));
     let scope: MergeTestScope;
@@ -170,8 +188,8 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
       absent.push(...selected.absent);
       line = filesScopeLine(parsed.files);
     } else {
-      if (parsed.all) scope = { kind: 'all', reason: '--all' };
-      else if (parents.length < 2) scope = { kind: 'all', reason: 'HEAD has no second parent' };
+      if ('all' in parsed && parsed.all) scope = { kind: 'all', reason: '--all' };
+      else if (parents.length < 2) scope = { kind: 'all', reason: `${revision} has no second parent` };
       else {
         const files = firstParentDiff();
         scope = mergeTestScope(files);
@@ -180,7 +198,9 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
           (scope.sharedChanged !== undefined || scope.workspaces.includes('apps/server'))
         ) {
           const roots =
-            scope.sharedChanged === undefined ? ['apps/server'] : [...MERGE_TEST_WORKSPACES, 'scripts'];
+            scope.sharedChanged === undefined
+              ? ['apps/server', 'scripts']
+              : [...MERGE_TEST_WORKSPACES, 'scripts'];
           const readTree = (revision: string): MergeTestFile[] => {
             const entries = git(['ls-tree', '-r', '-z', revision, '--', ...roots])
               .split('\0')
@@ -213,8 +233,8 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
               return { path, source };
             });
           };
-          const before = readTree('HEAD^1');
-          const after = readTree('HEAD');
+          const before = readTree(`${commit}^1`);
+          const after = readTree(commit);
           if (scope.sharedChanged !== undefined) {
             scope = sharedScope(scope, files, before, after);
           } else {
@@ -240,6 +260,10 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
     return 2;
   }
   console.log(line);
+  if ('dryRun' in parsed) {
+    for (const step of steps) console.log(`merge-test step: npm ${step.args.join(' ')}`);
+    return 0;
+  }
   try {
     for (const file of absent) console.log(`merge-test skipped (absent): ${file}`);
     return await runSteps(steps, {

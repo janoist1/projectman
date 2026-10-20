@@ -20,6 +20,7 @@ import type { BranchMerger } from '../contracts';
 import { newId } from '../kernel';
 import { createLocalBranchMerger } from './branch-merger';
 import { DEPENDENCIES_NOT_INSTALLED, MERGE_CHECK_DIR } from './merge-check';
+import { createGitSeed } from '../../test/helpers/git-seed';
 
 const REF = { projectKey: 'PM', repo: 'projectman' };
 
@@ -44,6 +45,8 @@ function commit(repo: string, message: string): string {
 
 let root: string;
 let counter = 0;
+let seed: ReturnType<typeof createGitSeed>;
+let anonymousSeed: ReturnType<typeof createGitSeed>;
 
 interface Fixture {
   repo: string;
@@ -59,45 +62,11 @@ function fixture(options: { withRemote?: boolean; identity?: boolean } = {}): Fi
   const repo = path.join(dir, 'repo');
   const remote = path.join(dir, 'remote.git');
   const worktreesRoot = path.join(dir, 'worktrees');
-  mkdirSync(repo, { recursive: true });
   mkdirSync(worktreesRoot, { recursive: true });
-  git(repo, 'init', '-q', '-b', 'main');
-  if (options.identity !== false) {
-    git(repo, 'config', 'user.name', 'Merge Owner');
-    git(repo, 'config', 'user.email', 'owner@example.test');
-  }
-  git(repo, 'config', 'commit.gpgsign', 'false');
-  write(repo, 'a.txt', 'one\n');
-  write(repo, 'b.txt', 'bee\n');
-  if (options.identity === false) {
-    execFileSync('git', [
-      '-C',
-      repo,
-      '-c',
-      'user.name=Seed',
-      '-c',
-      'user.email=seed@example.test',
-      'add',
-      '-A',
-    ]);
-    execFileSync('git', [
-      '-C',
-      repo,
-      '-c',
-      'user.name=Seed',
-      '-c',
-      'user.email=seed@example.test',
-      'commit',
-      '-q',
-      '-m',
-      'seed',
-    ]);
-  } else commit(repo, 'seed');
-  if (options.withRemote !== false) {
-    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
-    git(repo, 'remote', 'add', 'origin', remote);
-    git(repo, 'push', '-q', '-u', 'origin', 'main');
-  }
+  (options.identity === false ? anonymousSeed : seed).copyTo(
+    repo,
+    options.withRemote === false ? undefined : remote,
+  );
   const merger = createLocalBranchMerger({
     repoPath: (projectKey, name) => (projectKey === 'PM' && name === 'projectman' ? repo : null),
     worktreesRoot,
@@ -126,6 +95,12 @@ beforeAll(() => {
   vi.stubEnv('GIT_COMMITTER_NAME', undefined);
   vi.stubEnv('GIT_COMMITTER_EMAIL', undefined);
   vi.stubEnv('EMAIL', undefined);
+  const files = { 'a.txt': 'one\n', 'b.txt': 'bee\n' };
+  seed = createGitSeed(path.join(root, 'seed'), files, {
+    name: 'Merge Owner',
+    email: 'owner@example.test',
+  });
+  anonymousSeed = createGitSeed(path.join(root, 'anonymous-seed'), files, false);
 });
 afterAll(() => {
   vi.unstubAllEnvs();

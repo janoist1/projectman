@@ -1531,8 +1531,12 @@ workers follow the machine's size.
   commands are covered; grace is in memory and does not survive a server restart.
 - **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
-  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
-  signal is passed on to the command. An unusable queue folder (`heavy_lock_unavailable`) stops the
+  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75.
+  The command runs under `scripts/lib/child-guard.mjs` (PM-863) as the leader of its own process group
+  (its stdin is `/dev/null`): SIGINT, SIGTERM and SIGHUP to the CLI, and the CLI's death even by SIGKILL
+  (the guard's stdin is a pipe from the CLI), stop the whole group (SIGTERM, SIGKILL after 5 s), and any
+  member left when the leader exits is killed. The lock is released only after the guard has gone, so
+  no vitest worker outlives an interrupted run or overlaps the next one. An unusable queue folder (`heavy_lock_unavailable`) stops the
   command with exit status 78 and a four-line message; it does not run without the queue (decision 33,
   PM-346). `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
   without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
@@ -1566,16 +1570,26 @@ workers follow the machine's size.
   A module check runs one server typecheck and one Vitest invocation with explicit test paths:
   adjacent tests, external tests reached through helpers, uncertain test dependencies, architecture
   tests, integration tests and golden paths.
-  Tests reaching process creation, runtime code loaders or filesystem access through source/helper
-  imports remain in the uncertain baseline: runtime entrypoints need not appear in static imports.
-  Unresolved source dependencies, unmapped sources,
-  changed tests/helpers/fixtures, empty selection or ambiguous Vitest substring filters fall back
-  to the full server workspace. Web changes retain full web checks; documentation-only changes skip.
+  **Server and script impact (PM-864).** Server contracts and config use their source modules;
+  script code uses the server workspace. Both server and script files are read from each git tree.
+  Changed tests select themselves, deleted tests have no effect, and snapshots select their owning
+  test (an unmapped snapshot falls back). Changed helpers and scripts select tests reaching them in
+  either tree; a script dependency also proves a source dependency. Server markdown is ignored.
+  Fixtures, test setup and other non-code changes fall back to the full server workspace, as do
+  nonliteral/unresolved production imports, unmapped sources, empty selection and ambiguous Vitest
+  substring filters. Web changes retain full web checks; documentation-only changes skip tests.
+  Files importing `child_process`, `worker_threads`, `vm`, `module` or `@lydell/node-pty` stay uncertain
+  unless audited in `scripts/merge-test/runtime-entries.ts`: its `RUNTIME_ENTRIES` map adds explicit
+  repository entrypoint edges, and `[]` means only external programs/packages. Unknown launchers
+  and missing historical entrypoints keep every reaching test. Filesystem imports alone do not
+  imply runtime code loading. The runtime-entry guard always runs alongside architecture guards
+  and rejects missing keys/targets or keys without a runtime import; reviewers verify the entries
+  against the launcher's code. Integration tests, golden paths and tests without a source dependency
+  also always run.
   **Shared export impact (PM-843).** `packages/shared/src` changes run shared's own tests and use
   `scripts/merge-test/shared-impact.ts` to follow named exports from its barrel, relative shared
   dependencies and named consumers in both git trees, including `scripts/`. The affected server files
-  and script consumers seed the existing server module/test selection: tests importing scripts
-  outside the server tree stay in its uncertain baseline. Web and widget consumers run their whole
+  and script consumers seed the server module/test graph. Web and widget consumers run their whole
   workspace. Shared changes always typecheck every workspace. A shared test or other non-source file
   selects only shared's tests.
   Unsupported exports/barrels, duplicate export names, uncertain or escaping shared dependencies,
@@ -1583,9 +1597,12 @@ workers follow the machine's size.
   Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
   The architecture checker and shared export analysis share trivia recognition: regex literals at
   proven expression starts cannot create import/export tokens or hide the following real import.
-  Changes to scripts, the widget, other packages, configuration, contracts, architecture guards or
-  unknown paths require all workspaces; `--all` forces them. Scope, selected modules, test count and fallback reason are logged
-  before and after execution. The executor holds
+  Changes to `scripts/merge-test/**`, `scripts/full-test/**`, non-code scripts, the widget, other
+  packages, manifests/lockfiles, TypeScript/Vitest configuration, architecture guards or unknown
+  paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
+  `merge-test step: npm <args>` without executing checks or checking out the commit (default `HEAD`).
+  It compares against the commit's first parent; a non-merge commit retains the full-run scope.
+  Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds
   the machine's lock, so the nested root scripts do not queue again.
   **Rerun and marker lines (PM-842).** `scripts/merge-test/steps.ts` runs the steps one by one (the
   full run is split by workspace: every type check, then every test, so a failed file belongs to a
@@ -2148,14 +2165,18 @@ workers follow the machine's size.
   paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
   **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
   dependencies and queue. Only the command and result need to cross the existing full-test boundary.
-  `scripts/merge-test/{run,scope,impact,shared-impact}.ts` (PM-657, PM-843) selects checks in that detached checkout using
+  `scripts/merge-test/{run,scope,impact,shared-impact,runtime-entries}.ts` (PM-657, PM-843, PM-864) selects checks in that detached checkout using
   argv-based git first-parent diff (`--no-renames -z`) and batched blob reads of both revisions.
   It uses the architecture module map, never evaluates old TypeScript or writes a selection cache,
-  and retains the configured worker limits. Cloud-only infrastructure diffs under `scripts/cloud/`,
+  and retains the configured worker limits. Server contracts/config, changed tests/snapshots, helpers
+  and script code use the server/script graph. The audited `RUNTIME_ENTRIES` table supplies runtime
+  edges; unknown launchers stay uncertain, filesystem imports alone do not. Fixtures, setup and
+  non-code support changes retain full server checks. `--dry-run [<commit>]` reads the named merge's
+  trees without a checkout and only prints the scope and commands. Cloud-only infrastructure diffs under `scripts/cloud/`,
   `deploy/aws/` and `deploy/cloud/` (PM-734), optionally with direct cloud/deploy/release test-family
   changes, run server typecheck and the cloud, deploy, release, architecture and merge-test test
-  prefixes. Manifest, lockfile, TypeScript/Vitest configuration and mixed code changes retain full
-  checks; test-only diffs retain existing selection. **Remote engine:** selection runs on the engine with
+  prefixes. Manifest, lockfile, TypeScript/Vitest configuration, selector/executor scripts and non-code
+  scripts retain full checks; test-only diffs select the changed tests. **Remote engine:** selection runs on the engine with
   its two git trees; no engine files or new selection API cross the server/engine boundary.
   **Module:** `scripts`
 

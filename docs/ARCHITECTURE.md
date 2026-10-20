@@ -2734,6 +2734,10 @@ workers follow the machine's size.
   A command's actual working directory must stay in the session placement/writable roots;
   denied relative paths are resolved there. Read-only placements cannot use the unsandboxed
   shell-rule exception: commands pass through the inbox's existing read-only rules instead.
+  The pre-tool hook uses the session policy's placement when newer agy versions omit `Cwd`
+  (PM-874). It maps `read_file`, `write_file` and `edit_file` with `Path` as well as the
+  older file tool names to the same permission checks (`runner/providers/gemini/hooks.ts`).
+  This normalization runs on the engine using its session policy; no new boundary data is needed.
   This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
   **Remote engine (engine mode, PM-314: runs in the engine process):** the binary, login/keychain, private directories, PTY, forwarder and
   transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;

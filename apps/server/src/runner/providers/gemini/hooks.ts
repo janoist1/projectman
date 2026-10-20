@@ -79,6 +79,7 @@ export function geminiSessionControl(
 export function mapGeminiTool(
   name: string,
   args: Record<string, unknown>,
+  cwd?: string,
 ): { name: string; input: unknown; call: NormalizedToolCall } {
   const paths = Object.entries(args)
     .filter(([key, value]) => /path|file|dir/i.test(key) && typeof value === 'string')
@@ -90,11 +91,19 @@ export function mapGeminiTool(
   switch (name) {
     case 'run_command':
       mapped = 'Bash';
-      input = { command: args.CommandLine, cwd: args.Cwd };
+      call.cwd = args.Cwd === undefined ? cwd : str(args.Cwd);
+      input = { command: args.CommandLine, cwd: call.cwd };
       category = 'command';
       call.command = str(args.CommandLine);
-      call.cwd = str(args.Cwd);
-      call.paths = str(args.Cwd) ? [args.Cwd as string] : [];
+      call.paths = call.cwd ? [call.cwd] : [];
+      break;
+    case 'read_file':
+    case 'write_file':
+    case 'edit_file':
+      mapped = name === 'read_file' ? 'Read' : name === 'write_file' ? 'Write' : 'Edit';
+      input = { file_path: args.Path };
+      category = name === 'read_file' ? 'read' : 'edit';
+      call.paths = str(args.Path) ? [args.Path as string] : [];
       break;
     case 'view_file':
       mapped = 'Read';
@@ -181,7 +190,7 @@ export function parseGeminiHook(body: unknown, event?: string): HookPayload | nu
   if (event === 'PostToolUse' && p.error) hook_event_name = 'PostToolUseFailure';
   if (event === 'Stop')
     hook_event_name = p.error ? 'StopFailure' : p.fullyIdle === true ? 'Stop' : 'StopNotIdle';
-  const mapped = p.toolCall ? mapGeminiTool(p.toolCall.name, p.toolCall.args) : null;
+  const mapped = p.toolCall ? mapGeminiTool(p.toolCall.name, p.toolCall.args, p.workspacePaths?.[0]) : null;
   return {
     hook_event_name,
     session_id: p.conversationId,
@@ -211,7 +220,11 @@ export function decideGeminiToolCall(
     cwd: policy.placement.path,
   });
   if (control) return control;
-  const call = mapGeminiTool(str(payload.gemini_tool) ?? '', object(payload.gemini_args)).call;
+  const call = mapGeminiTool(
+    str(payload.gemini_tool) ?? '',
+    object(payload.gemini_args),
+    policy.placement.path,
+  ).call;
   if (call.category === 'command' && (!call.cwd || !path.isAbsolute(call.cwd)))
     return { decision: 'deny', reason: 'cwd_outside_workspace' };
   const under = (p: string, r: string) => p === r || p.startsWith(`${r}/`);

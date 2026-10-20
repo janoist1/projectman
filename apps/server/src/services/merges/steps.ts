@@ -21,6 +21,7 @@ import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import type { MergeDeps, MergeRun } from './deps';
 import { recordMergeCheck } from './check-runs';
+import { prepareMergeCheck } from './check-preparation';
 import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import { notifyMerge } from './notify';
 import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
@@ -474,7 +475,7 @@ export class MergeSteps {
               taskKey: task.key,
             });
             if (!this.continue(running)) return;
-            const checkout = await merger.checkoutForCheck(ref, {
+            const { checkout, preparation } = await prepareMergeCheck(merger, ref, {
               mergeId: row.id,
               mergeCommit: built.mergeCommit,
               depsFrom:
@@ -482,8 +483,6 @@ export class MergeSteps {
                 (engine.workspacePath(row.projectKey)
                   ? path.resolve(engine.workspacePath(row.projectKey)!, repo.path)
                   : null),
-              // A merged lockfile nothing has installed is prepared by the executor, not by the owner (PM-681).
-              allowDependencyInstall: true,
             });
             if (!this.continue(running)) return;
             const paths = engine.paths();
@@ -508,11 +507,7 @@ export class MergeSteps {
                     command: reviewTest.command,
                     maxWorkers: reviewTest.maxWorkers,
                     timeoutMs: reviewTest.timeoutMinutes * 60_000,
-                    // One heavy run at a time on the machine, whatever happens to the queue (PM-658).
-                    requireHeavyLock: true,
-                    ...(checkout.dependencyInstallRequired === true
-                      ? { npmCi: { ref, mergeId: row.id } }
-                      : {}),
+                    ...preparation,
                     sandbox: this.deps.checkSandbox({
                       checkout: checkout.path,
                       gitDir: checkout.gitDir,

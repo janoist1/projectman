@@ -206,6 +206,9 @@ describe('feedback processing', () => {
 
     it('lists the marks to decide, the oldest first, with the marker’s access', async () => {
       const first = await mark();
+      // The list is ordered by `updated_at`, then by the random id: two marks made in the same
+      // millisecond (a warm process can) would come in any order.
+      await new Promise((resolve) => setTimeout(resolve, 5));
       const second = await mark({ body: 'Second' });
       const list = await h.domain.teamTools.getFeedbackList(pm, { status: 'todo', limit: 30 });
       expect(list.total).toBe(2);

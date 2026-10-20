@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdministrationExecutors, AdministrationSubmit, AdministrationTarget } from '../contracts';
 import type { MachineReader } from './machine';
 import type { ProcessCleaner } from './processes';
+import type { OwnerCommandRunner } from './owner-command';
 import { ensurePrivateDir } from './secure-fs';
 import type { ServiceLogReader } from './service-logs';
 import type { ServiceController, ServiceProbe } from './service-control';
@@ -51,6 +52,7 @@ async function build(
     machine?: MachineReader;
     serviceLogs?: ServiceLogReader;
     cleaner?: ProcessCleaner;
+    ownerCommand?: OwnerCommandRunner;
   } = {},
 ) {
   const store = await createOperationStore(stateDir);
@@ -64,6 +66,7 @@ async function build(
     machine: extra.machine,
     serviceLogs: extra.serviceLogs,
     cleaner: extra.cleaner,
+    ownerCommand: extra.ownerCommand,
     version: '1.2.3',
     now: () => NOW,
     sleep: extra.sleep ?? (async () => undefined),
@@ -77,6 +80,71 @@ const restart = (operationId: string, expectedBootId = 'boot-1'): Administration
   operationId,
   requestId: 'req1',
   command: { kind: 'restart', target: HUB, expectedBootId },
+});
+
+describe('owner command opt-in', () => {
+  const command = {
+    kind: 'owner_command',
+    target: HUB,
+    command: 'pwd',
+    timeoutSeconds: 120,
+    reason: 'Inspect fixture',
+  } as const;
+  const input = { operationId: 'owner1', requestId: 'req1', command };
+  const result = {
+    kind: 'owner_command',
+    exitCode: 0,
+    signal: null,
+    stdout: 'fixture',
+    stderr: '',
+    truncated: false,
+    durationMs: 1,
+  } as const;
+
+  it('does not advertise or accept a shell command without an installed opt-in runner', async () => {
+    const { supervisor } = await build(null);
+    expect((await supervisor.status(HUB)).capabilities).not.toContain('owner_command');
+    await expect(supervisor.submit(input)).rejects.toMatchObject({ code: 'administration_unavailable' });
+  });
+
+  it('advertises an enabled shell and records its result once for duplicate submits', async () => {
+    const ownerCommand = vi.fn(async () => result);
+    const { supervisor } = await build(null, { ownerCommand });
+    expect((await supervisor.status(HUB)).capabilities).toContain('owner_command');
+    await supervisor.submit(input);
+    await supervisor.idle();
+    await supervisor.submit(input);
+    expect(ownerCommand).toHaveBeenCalledTimes(1);
+    expect(await supervisor.inspect(input.operationId)).toMatchObject({ state: 'succeeded', result });
+  });
+
+  it('refuses a shell command for another machine', async () => {
+    const ownerCommand = vi.fn(async () => result);
+    const { supervisor } = await build(null, { ownerCommand });
+    await expect(
+      supervisor.submit({
+        ...input,
+        command: { ...command, target: { kind: 'engine', id: 'eng_aaaaaaaaaaaa' } },
+      }),
+    ).rejects.toMatchObject({ code: 'administration_target_mismatch' });
+    expect(ownerCommand).not.toHaveBeenCalled();
+  });
+
+  it('holds the existing operation lock while a command is running', async () => {
+    let finish!: (value: typeof result) => void;
+    const pending = new Promise<typeof result>((resolve) => {
+      finish = resolve;
+    });
+    const { supervisor } = await build(null, {
+      ownerCommand: () => pending,
+    });
+    await supervisor.submit(input);
+    await expect(supervisor.submit({ ...input, operationId: 'owner2' })).rejects.toMatchObject({
+      code: 'administration_operation_conflict',
+    });
+    finish(result);
+    await supervisor.idle();
+  });
 });
 
 describe('status and logs', () => {

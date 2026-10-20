@@ -69,6 +69,13 @@ const input = (overrides: Partial<PrepareInput> = {}): PrepareInput => ({
 });
 
 describe('prepare', () => {
+  it('writes the shell opt-in only when explicitly requested', () => {
+    const config = (overrides: Partial<PrepareInput>) =>
+      JSON.parse(prepareFiles(input(overrides))[0]!.content);
+    expect(config({})).not.toHaveProperty('ownerCommand');
+    expect(config({ ownerCommandShell: '/bin/zsh' })).toHaveProperty('ownerCommand.shell', '/bin/zsh');
+    expect(() => config({ ownerCommandShell: 'zsh' })).toThrow(PrepareError);
+  });
   it('builds the protected configuration and a systemd unit that names only the configuration file', () => {
     const files = prepareFiles(input());
     expect(files.map((file) => file.name)).toEqual(['supervisor.json', 'projectman-administration.service']);

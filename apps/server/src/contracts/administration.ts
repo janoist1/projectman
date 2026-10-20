@@ -4,14 +4,15 @@ import type {
   AdministrationTarget,
   ErrorCode,
   ImagePlatform,
+  OwnerCommandResult,
 } from '@projectman/shared';
 
 /**
  * The protected administration adapter (PM-763, "Super mode" 7/10): the typed, audited way to look at, restart
- * and run the fixed operations of the hub and of the supported engine, with no SSM, no browser, no host shell
- * and no Docker socket. A separate supervisor process on each machine owns the one projectman service it was
+ * and run the fixed operations of the hub and of the supported engine. The opt-in `owner_command` alone runs
+ * a host shell, with the owner's own approval for each operation (PM-887). A separate supervisor owns the service it was
  * installed for; the hub (or the engine, for its own machine) reaches it over a local Unix socket, never
- * with a program, path, argument, SQL, service name or container name of the caller. The wire schemas live
+ * with caller-supplied service or container names. The wire schemas live
  * in `administration/schemas.ts`; this file is the contract the rest of the server codes against.
  */
 
@@ -36,6 +37,8 @@ export const ADMINISTRATION_CAPABILITIES = [
   'machine',
   /** The managed service's own log can be read; advertised only when it can (PM-886). */
   'service_logs',
+  /** Opt-in shell execution, with per-command approval through the super operation. */
+  'owner_command',
 ] as const;
 export type AdministrationCapability = (typeof ADMINISTRATION_CAPABILITIES)[number];
 
@@ -114,7 +117,8 @@ export type AdministrationResult =
   | { kind: 'image_build'; artifacts: ImageArtifact[] }
   | { kind: 'deploy'; releaseId: string }
   /** Only the numbers: no process id, name or argument of what was stopped. */
-  | { kind: 'process_cleanup'; found: number; stopped: number; remaining: number };
+  | { kind: 'process_cleanup'; found: number; stopped: number; remaining: number }
+  | OwnerCommandResult;
 
 export type AdministrationJobState = 'accepted' | 'running' | 'succeeded' | 'failed' | 'unknown';
 

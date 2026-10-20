@@ -2,6 +2,7 @@ import { lstat, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { OWNER_COMMAND_OUTPUT_BYTES } from '@projectman/shared';
 import type { AdministrationCommand } from '../contracts';
 import { journalLine, parseDiagnosticLine, readDiagnostics } from './diagnostics';
 import { ensurePrivateDir } from './secure-fs';
@@ -33,6 +34,36 @@ const record = (
 });
 
 describe('operation store', () => {
+  it('reads back a completed owner command with both outputs at their encoded limits', async () => {
+    const store = await createOperationStore(stateDir);
+    const output = '"'.repeat((OWNER_COMMAND_OUTPUT_BYTES - 2) / 2);
+    const operation: OperationRecord = {
+      ...record('owner1', 'accepted'),
+      command: {
+        kind: 'owner_command',
+        target: HUB,
+        command: '\x01'.repeat(2000),
+        timeoutSeconds: 600,
+        reason: 'Fixture',
+      },
+    };
+    await store.create(operation);
+    const job: OperationRecord['job'] = {
+      ...operation.job,
+      state: 'succeeded',
+      result: {
+        kind: 'owner_command',
+        exitCode: 0,
+        signal: null,
+        stdout: output,
+        stderr: output,
+        truncated: true,
+        durationMs: 1,
+      },
+    };
+    await store.setJob(operation.operationId, job);
+    expect((await (await createOperationStore(stateDir)).get(operation.operationId))?.job).toEqual(job);
+  });
   it('keeps one private file per operation and finds the unfinished ones oldest first', async () => {
     const store = await createOperationStore(stateDir);
     await store.create(record('b', 'running', '2026-10-17T10:00:02.000Z'));

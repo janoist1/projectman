@@ -8,6 +8,7 @@ import {
   AdministrationOperationId,
   AdministrationTargetSchema,
   ERROR_CODES,
+  OwnerCommandResult,
 } from '@projectman/shared';
 import {
   ADMINISTRATION_CAPABILITIES,
@@ -31,8 +32,7 @@ import type {
 /**
  * The strict wire schemas of the administration adapter (PM-763): the socket protocol and the engine RPCs
  * share them, so what the hub sends, what the engine forwards and what the supervisor accepts are one shape.
- * An unknown key is a refusal; nothing a caller sends can name a program, a path, an argument, a service or
- * a container.
+ * An unknown key is a refusal. Only the opt-in `owner_command` carries a shell command and working directory.
  */
 
 const VERSION = /^[A-Za-z0-9._+-]{1,64}$/;
@@ -106,6 +106,7 @@ export const AdministrationResultSchema: z.ZodType<AdministrationResult> = z.dis
     stopped: nonNegative,
     remaining: nonNegative,
   }),
+  OwnerCommandResult,
 ]);
 
 const byteCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -220,6 +221,16 @@ export const SupervisorConfig = z.strictObject({
   ]),
   builder: z
     .strictObject({ repo: z.string().min(1).max(1024), root: z.string().min(1).max(1024) })
+    .optional(),
+  ownerCommand: z
+    .strictObject({
+      shell: z
+        .string()
+        .min(1)
+        .max(500)
+        .startsWith('/')
+        .refine((value) => !value.includes('\0')),
+    })
     .optional(),
 });
 export type SupervisorConfig = z.infer<typeof SupervisorConfig>;

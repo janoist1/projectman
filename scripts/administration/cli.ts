@@ -1,7 +1,7 @@
 // The administration adapter's installer preparation (PM-763; docs/SECURITY.md "Administration adapter").
 //
 //   npm run administration -- prepare --target hub|engine:<engine id> --service <launchd label | systemd unit> \
-//       --app-home <dir> --state-dir <dir> --socket-dir <dir> --out <dir> [--user <name> [--group <name>]]
+//       --app-home <dir> --state-dir <dir> --socket-dir <dir> --out <dir> [--user <name> [--group <name>]] [--owner-command-shell <absolute shell>]
 //
 // The state and socket directories must lie below `<app home>/administration`, the folder the member sessions'
 // sandbox denies (contracts/sandbox.ts); any other place would leave the socket reachable from a session.
@@ -16,7 +16,17 @@ import { AdministrationSetupError } from '../../apps/server/src/administration';
 import { PrepareError, prepareFiles, writePrepared } from './prepare';
 
 const root = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '');
-const FLAGS = ['target', 'service', 'app-home', 'state-dir', 'socket-dir', 'out', 'user', 'group'] as const;
+const FLAGS = [
+  'target',
+  'service',
+  'app-home',
+  'state-dir',
+  'socket-dir',
+  'out',
+  'user',
+  'group',
+  'owner-command-shell',
+] as const;
 
 function parseFlags(args: string[]): Partial<Record<(typeof FLAGS)[number], string>> | null {
   const out: Partial<Record<(typeof FLAGS)[number], string>> = {};
@@ -42,7 +52,8 @@ if (
 ) {
   console.error(
     'usage: npm run administration -- prepare --target hub|engine:<engine id> --service <label|unit> ' +
-      '--app-home <dir> --state-dir <dir> --socket-dir <dir> --out <dir> [--user <name> [--group <name>]]\n' +
+      '--app-home <dir> --state-dir <dir> --socket-dir <dir> --out <dir> [--user <name> [--group <name>]] ' +
+      '[--owner-command-shell <absolute shell>]\n' +
       'the state and socket directories must lie below <app home>/administration',
   );
   process.exit(2);
@@ -62,8 +73,13 @@ try {
     platform: process.platform,
     user: flags.user,
     group: flags.group,
+    ownerCommandShell: flags['owner-command-shell'],
   });
   for (const file of await writePrepared(outDir, files)) console.log(`wrote ${file}`);
+  if (flags['owner-command-shell'] && process.platform === 'linux')
+    console.log(
+      'Owner commands inherit the supervisor systemd restrictions: read-only system/home, Unix sockets only, no privilege escalation and private temporary files.',
+    );
   console.log(
     'Nothing was installed or started. The owner-approved rollout creates the state and socket directories (0700, ' +
       'owned by the service user), places the service file and starts the supervisor.',

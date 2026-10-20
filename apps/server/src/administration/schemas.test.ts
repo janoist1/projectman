@@ -1,7 +1,61 @@
 import { describe, expect, it } from 'vitest';
-import { AdministrationCommandSchema, SocketParams, SupervisorConfig } from './schemas';
+import { OWNER_COMMAND_OUTPUT_BYTES } from '@projectman/shared';
+import {
+  AdministrationCommandSchema,
+  AdministrationResultSchema,
+  SocketParams,
+  SupervisorConfig,
+} from './schemas';
 
 const HUB = { kind: 'hub' } as const;
+
+describe('owner command on the wire', () => {
+  const command = { kind: 'owner_command', target: HUB, command: 'pwd', reason: 'Inspect fixture' };
+  it('defaults the timeout to 120 seconds', () => {
+    expect(AdministrationCommandSchema.parse(command)).toMatchObject({ timeoutSeconds: 120 });
+  });
+  it('checks the JSON-encoded output budget, including escaping and quotes', () => {
+    const result = {
+      kind: 'owner_command',
+      exitCode: 0,
+      signal: null,
+      stdout: '"'.repeat((OWNER_COMMAND_OUTPUT_BYTES - 2) / 2),
+      stderr: '',
+      truncated: true,
+      durationMs: 1,
+    };
+    expect(AdministrationResultSchema.safeParse(result).success).toBe(true);
+    expect(AdministrationResultSchema.safeParse({ ...result, stdout: result.stdout + 'x' }).success).toBe(
+      false,
+    );
+  });
+  it.each([
+    { cwd: 'relative' },
+    { cwd: `/${'a'.repeat(500)}` },
+    { cwd: '/a\0b' },
+    { command: '' },
+    { command: 'a'.repeat(2001) },
+    { command: 'a\0b' },
+    { timeoutSeconds: 0 },
+    { timeoutSeconds: 601 },
+    { timeoutSeconds: 1.5 },
+    { reason: '' },
+    { reason: 'a'.repeat(501) },
+  ])('refuses invalid command fields: %j', (fields) => {
+    expect(AdministrationCommandSchema.safeParse({ ...command, ...fields }).success).toBe(false);
+  });
+  it('requires an absolute shell in the protected opt-in configuration', () => {
+    const base = {
+      version: 1,
+      target: HUB,
+      stateDir: '/state',
+      socketPath: '/socket',
+      service: { kind: 'systemd', unit: 'pm.service' },
+    };
+    expect(SupervisorConfig.safeParse({ ...base, ownerCommand: { shell: '/bin/sh' } }).success).toBe(true);
+    expect(SupervisorConfig.safeParse({ ...base, ownerCommand: { shell: 'sh' } }).success).toBe(false);
+  });
+});
 
 describe('process cleanup on the wire', () => {
   it('accepts the one selector and refuses an unknown one or an extra key', () => {

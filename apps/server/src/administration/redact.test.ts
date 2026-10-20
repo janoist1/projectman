@@ -14,6 +14,8 @@ describe('redactLine', () => {
     ['a key assignment', `api_key=${SECRET}`],
     ['a quoted password assignment', `password="${SECRET} with spaces"`],
     ['a JSON token field', `{"access_token":"${SECRET}","ok":true}`],
+    ['a quoted assignment truncated before the closing quote', `password="${SECRET} with spaces`],
+    ['a JSON token truncated before the closing quote', `{"access_token":"${SECRET}`],
     ['a long hex run', `digest ${'ab12'.repeat(10)}`],
     ['a long base64 run', `blob ${'Zm9vYmFy0123'.repeat(4)}==`],
   ])('replaces %s', (_name, line) => {

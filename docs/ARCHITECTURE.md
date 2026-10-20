@@ -1785,6 +1785,32 @@ workers follow the machine's size.
   external MCP tool `get_machine_snapshot` and the extended `get_administration_logs`, both behind the operator
   grant (`OperatorGrantGate`); the cleanup goes through `super_operate`.
 
+  **Owner-approved shell (PM-887):** `administration/owner-command.ts` runs
+  `spawn(shell, ['-c', command], {cwd, env, detached: true})` as the supervisor's OS user, only when its protected
+  config explicitly sets `ownerCommand: {shell: <absolute path>}`. The installer writes that field only with
+  `npm run administration -- prepare --owner-command-shell <absolute shell>`; without it the `owner_command`
+  capability is absent and submits are `administration_unavailable`. This deliberately narrows PM-763's
+  “no host shell” principle: only the owner's own login may approve each individual command, through a fresh
+  `waiting_owner` super operation classified as `security`; a grant, waiver or previous yes never substitutes.
+  The owner question includes the exact command, cwd (default: the supervisor user's home), target, timeout
+  and reason. `OperatorGrantGate` is also checked before submission; revoking it does not terminate a running
+  command. The environment inherits the supervisor's variables except the shared `BILLING_ENV_VARS`
+  (`packages/shared/src/config/billing-env.ts`), including Codex OAuth overrides. The timeout is 1–600 seconds
+  (default 120); timeout or supervisor shutdown sends TERM to the dedicated process group and KILL 10 seconds
+  later. Each output stream is bounded to 64 KiB including JSON escaping; raw collection is bounded too.
+  Terminal escapes (CSI/OSC) and C0 controls except newline/tab, plus DEL, are removed before `redact.ts`,
+  then output is cut at code-point boundaries to fit the encoded budget before entering the durable result;
+  the command stays in the Operator's attributed super operation with its request id. The existing operation-id
+  deduplication and single-operation lock apply. **Machine assumptions:** a POSIX shell at the configured
+  absolute path, process groups, and the supervisor user's home and OS permissions. **Remote engine:** the
+  selected hub or engine supervisor executes it through `admin.submit`/`admin.inspect`; only bounded redacted
+  output crosses the link. A cloud target runs its own shell. Access to the owner's Mac requires a supervisor
+  there with this opt-in enabled.
+  On Linux the command inherits the supervisor systemd unit's restrictions: read-only system and home,
+  writes only to its state/socket directories, no network beyond Unix sockets, no privilege escalation and
+  private temporary files. On macOS, launchd runs it with the owner's OS-user permissions. The Linux unit's
+  protections stay in place; a denied operation is reported through the command's exit code and stderr.
+
 - **Durable super-mode handoff and owner-bound operations (PM-762, Super mode 6/10)** —
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,

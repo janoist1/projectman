@@ -10,8 +10,9 @@ Canonical Ubuntu-kép, a type/AMI/létező instance architektúrája egyezzen.
 
 Az owner/integráló **külön admin/builder gépen**, tiszta checkoutból, a jóváhagyott teljes SHA-n
 futtatja: `npm run cloud -- image-build --ref <SHA40> --out <ÚJ_REPÓN_KÍVÜLI_KÖNYVTÁR>`.
-Előtte ugyanennek a `--dry-run` változata használható. Előre rendelkezésre álló Docker/Buildx
-docker-container driver és mindkét platformhoz natív builder/emuláció szükséges. A parancs nem
+Előtte ugyanennek a `--dry-run` változata használható. Alapból csak a cél gép platformja épül
+(`linux/arm64`, PM-916); mindkettő csak `--all-platforms` kapcsolóval. Előre rendelkezésre álló
+Docker/Buildx docker-container driver és a kért platformhoz natív builder/emuláció szükséges. A parancs nem
 fetch-el, nem vált ágat, nem hoz létre infrastruktúrát és nem publikál registrybe.
 
 A konkrét kör jóváhagyásába kerüljön a bundle `sourceSha` értéke, a kiválasztott

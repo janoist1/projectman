@@ -347,7 +347,7 @@ class ReleaseWorld {
       case 'smoke-timeout':
         return { code: 124, stdout: '', stderr: '' };
       case 'archive-changes':
-        fs.appendFileSync(path.join(this.output, 'images', 'linux-amd64.tar'), 'tamper');
+        fs.appendFileSync(path.join(this.output, 'images', 'linux-arm64.tar'), 'tamper');
         break;
       case 'manifest-changes':
         fs.appendFileSync(path.join(this.output, 'images', 'manifest.json'), ' ');
@@ -449,9 +449,12 @@ describe('prepareHybridRelease', () => {
     expect(receipt.smoke.map((entry) => [entry.platform, entry.imageId]).sort()).toEqual(
       manifest.images.map((image) => [image.platform, image.imageId]).sort(),
     );
-    expect(new Set(receipt.smoke.map((entry) => entry.platform))).toEqual(
-      new Set(['linux/amd64', 'linux/arm64']),
-    );
+    // Only the hybrid machine's platform is built and smoked; the emulated amd64 image is gone (PM-916).
+    expect(manifest.images.map((image) => image.platform)).toEqual(['linux/arm64']);
+    expect(receipt.smoke.map((entry) => entry.platform)).toEqual(['linux/arm64']);
+    expect(
+      world.calls.filter((call) => call[0] === 'docker' && call[1] === 'buildx' && call[2] === 'build'),
+    ).toHaveLength(1);
     for (const entry of receipt.smoke)
       expect(entry).toMatchObject({ nativeModules: true, helpers: true, cloudServer: true });
     expect(receipt.engine).toEqual({
@@ -471,7 +474,7 @@ describe('prepareHybridRelease', () => {
 
   it('builds and smokes each image by its ID in a disposable, closed container', async () => {
     await world.prepare();
-    expect(world.dockerRuns).toHaveLength(2);
+    expect(world.dockerRuns).toHaveLength(1);
     for (const args of world.dockerRuns) {
       const joined = args.slice(0, args.indexOf('-c'));
       expect(joined).toEqual(
@@ -499,6 +502,17 @@ describe('prepareHybridRelease', () => {
     // Every throwaway container is removed by name, success or not.
     const names = world.dockerRuns.map((args) => args[args.indexOf('--name') + 1]);
     expect(world.removed.sort()).toEqual(names.sort());
+  });
+
+  it('still accepts a legacy two-platform receipt but refuses a repeated platform', async () => {
+    const receipt = await world.prepare();
+    const legacy = {
+      ...receipt,
+      smoke: [{ ...receipt.smoke[0]!, platform: 'linux/amd64' }, ...receipt.smoke],
+    };
+    expect(preparedHybridReleaseSchema.parse(legacy).smoke).toHaveLength(2);
+    const repeated = { ...receipt, smoke: [receipt.smoke[0]!, receipt.smoke[0]!] };
+    expect(() => preparedHybridReleaseSchema.parse(repeated)).toThrow(/different platforms/);
   });
 
   it('never fetches or uses anything but the exact commit for the builder and the candidate', async () => {

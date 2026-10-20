@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { ReleaseArtifact } from '@projectman/shared';
 import { refused } from '../cloud/errors';
 import { archiveDigest, bundleSchema } from '../cloud/images';
-import type { SelectedImage } from '../cloud/images';
+import type { Platform, SelectedImage } from '../cloud/images';
 import { candidateFingerprints } from './engine';
 import {
   preparedHybridReleaseSchema,
@@ -10,6 +10,9 @@ import {
   readCandidateMarker,
   readRegularFileWithHash,
 } from './receipt';
+
+/** The only platform the hybrid machine runs; a preparation builds and smokes just this one (PM-916). */
+export const HYBRID_PLATFORM = 'linux/arm64' satisfies Platform;
 
 /** What the coordinator carries to the targets once a preparation was checked again. */
 export interface VerifiedPrepared {
@@ -65,11 +68,11 @@ export function verifyPreparedRelease(input: VerifyPreparedInput): VerifiedPrepa
     if (digest.archiveSha256 !== image.archiveSha256 || digest.archiveBytes !== image.archiveBytes)
       throw refused('an image archive differs from the manifest');
   }
-  const arm = bundle.images.find((image) => image.platform === 'linux/arm64');
-  if (!arm) throw refused('the image bundle has no linux/arm64 image');
-  const smoke = receipt.smoke.find((entry) => entry.platform === 'linux/arm64');
+  const arm = bundle.images.find((image) => image.platform === HYBRID_PLATFORM);
+  if (!arm) throw refused(`the image bundle has no ${HYBRID_PLATFORM} image`);
+  const smoke = receipt.smoke.find((entry) => entry.platform === HYBRID_PLATFORM);
   if (!smoke || smoke.imageId !== arm.imageId)
-    throw refused('the smoke evidence does not match the linux/arm64 image');
+    throw refused(`the smoke evidence does not match the ${HYBRID_PLATFORM} image`);
 
   const engineRoot = path.join(input.engineReleasesDir, `${input.releaseId}-${input.commit}`);
   if (receipt.engine.root !== engineRoot)
@@ -94,7 +97,7 @@ export function verifyPreparedRelease(input: VerifyPreparedInput): VerifiedPrepa
   const artifact: ReleaseArtifact = {
     commit: input.commit,
     imageId: arm.imageId,
-    platform: 'linux/arm64',
+    platform: HYBRID_PLATFORM,
     manifestSha256: manifest.sha256,
     archiveSha256: arm.archiveSha256,
     archiveBytes: arm.archiveBytes,

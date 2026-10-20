@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import type { CloudConfig } from './config';
 import type { CloudContext } from './context';
 import type { CloudDeps } from './deps';
 import { badUsage, CloudError, refused } from './errors';
@@ -32,10 +33,18 @@ export const bundleSchema = z
   .strictObject({
     version: z.literal(1),
     sourceSha: sourceShaSchema,
-    images: z.array(imageSchema).length(2),
+    images: z.array(imageSchema).min(1).max(2),
   })
-  .refine((bundle) => new Set(bundle.images.map((image) => image.platform)).size === 2);
+  .refine((bundle) => new Set(bundle.images.map((image) => image.platform)).size === bundle.images.length);
 export type BundleImage = z.output<typeof imageSchema>;
+export type Platform = z.output<typeof platformSchema>;
+
+/** The platform of the target machine, by the same rule the deploy uses to pick its image (PM-916). */
+export function targetPlatform(config: CloudConfig): Platform {
+  return config.aws.compute === 'ec2' && config.aws.ec2?.architecture === 'arm64'
+    ? 'linux/arm64'
+    : 'linux/amd64';
+}
 export interface SelectedImage extends BundleImage {
   file: string;
   sourceSha: string;
@@ -96,11 +105,9 @@ export function selectedImage(context: CloudContext, sha?: string): SelectedImag
     const bundle = bundleSchema.parse(JSON.parse(fs.readFileSync(manifestFile, 'utf8')));
     if (sha !== undefined && bundle.sourceSha !== sha)
       throw refused('bundle source SHA differs from the deployment target');
-    const platform =
-      context.config.aws.compute === 'ec2' && context.config.aws.ec2?.architecture === 'arm64'
-        ? 'linux/arm64'
-        : 'linux/amd64';
-    const image = bundle.images.find((entry) => entry.platform === platform)!;
+    const platform = targetPlatform(context.config);
+    const image = bundle.images.find((entry) => entry.platform === platform);
+    if (!image) throw refused(`image bundle has no ${platform} image`);
     const file = path.join(directory, image.archive);
     const digest = archiveDigest(file);
     if (digest.archiveBytes !== image.archiveBytes || digest.archiveSha256 !== image.archiveSha256)
@@ -339,7 +346,12 @@ export async function runImageBuild(
   ref: string,
   output: string,
   dryRun: boolean,
+  requested: readonly Platform[],
 ): Promise<void> {
+  if (!requested.length || new Set(requested).size !== requested.length)
+    throw badUsage('image-build needs one or two different platforms');
+  // The manifest order is fixed, whatever order the caller asked in.
+  const platforms = platformSchema.options.filter((platform) => requested.includes(platform));
   if (!sourceShaSchema.safeParse(ref).success)
     throw badUsage('image-build --ref needs 40 lowercase hexadecimal characters');
   if (/[\0\r\n,]/.test(output)) throw badUsage('image-build --out contains an invalid character');
@@ -362,13 +374,13 @@ export async function runImageBuild(
   const builder = await checked(context, 'docker', ['buildx', 'inspect']);
   if (!/^Driver:\s+docker-container\s*$/m.test(builder))
     throw refused('a pre-existing docker-container Buildx builder is required');
-  for (const arch of ['amd64', 'arm64'])
-    if (!new RegExp(`linux/${arch}(?:/v[0-9]+)?(?:[*,\\s]|$)`).test(builder))
-      throw refused(`builder does not support linux/${arch}`);
+  for (const platform of platforms)
+    if (!new RegExp(`${platform}(?:/v[0-9]+)?(?:[*,\\s]|$)`).test(builder))
+      throw refused(`builder does not support ${platform}`);
   context.report.step(
     'ok',
     'image-build',
-    `${ref}: linux/amd64 and linux/arm64 to ${out}${dryRun ? ' (dry-run)' : ''}`,
+    `${ref}: ${platforms.join(' and ')} to ${out}${dryRun ? ' (dry-run)' : ''}`,
   );
   if (dryRun) return;
   fs.mkdirSync(out, { mode: 0o700 });
@@ -377,7 +389,7 @@ export async function runImageBuild(
   try {
     await exportTrackedSource(context, root, ref, source);
     const images: BundleImage[] = [];
-    for (const platform of platformSchema.options) {
+    for (const platform of platforms) {
       const archive = `${platform.replace('/', '-')}.tar` as BundleImage['archive'];
       const file = path.join(out, archive);
       const built = await buildArchive(context, {

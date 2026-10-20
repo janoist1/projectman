@@ -48,10 +48,10 @@ export const preparedHybridReleaseSchema = z
     manifestPath: absolutePathSchema,
     manifestSha256: sha256Schema,
     engine: z.strictObject({ root: absolutePathSchema, lockfileSha256: sha256Schema }),
-    smoke: z.array(smokeSchema).length(2),
+    smoke: z.array(smokeSchema).min(1).max(2),
   })
-  .refine((receipt) => new Set(receipt.smoke.map((entry) => entry.platform)).size === 2, {
-    message: 'the smoke evidence needs two different platforms',
+  .refine((receipt) => new Set(receipt.smoke.map((entry) => entry.platform)).size === receipt.smoke.length, {
+    message: 'the smoke evidence needs different platforms',
     path: ['smoke'],
   });
 export type PreparedHybridRelease = z.output<typeof preparedHybridReleaseSchema>;

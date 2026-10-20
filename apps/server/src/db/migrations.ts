@@ -1985,4 +1985,10 @@ migrations.push({
     created_at TEXT NOT NULL, PRIMARY KEY (user_id, inbox_item_id));
   CREATE INDEX web_push_items_outcome ON web_push_items(user_id, outcome);`,
 });
+migrations.push({
+  version: 95,
+  name: 'operator step operation',
+  // PM-888: an `operation` step names the super operation the Operator started on the shared path.
+  sql: 'ALTER TABLE operator_steps ADD COLUMN operation_id TEXT NULL;',
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -121,7 +121,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   start_task: 'task_start',
   start_member: 'task_start',
   operate: 'config_change',
-  request_super_operation: 'super_handoff',
+  execute_operation: 'operation',
   propose_operator_knowledge: 'knowledge_change',
   write_project_docs: 'docs_write',
   mark_decision_candidates: 'decision_offer',
@@ -367,6 +367,7 @@ function stepView(step: OperatorStepRecord): OperatorStep {
     ...step,
     agreementVersion: step.agreementVersion ?? null,
     approvalMode: step.approvalMode ?? null,
+    operationId: step.operationId ?? null,
     refusal: step.refusal ? { code: step.refusal.code as ErrorCode, message: step.refusal.message } : null,
   };
 }
@@ -385,6 +386,8 @@ export interface OperatorStepInput {
   inboxItemId?: string | null;
   /** The system signal the step acted on without a request (PM-545). */
   signalId?: string | null;
+  /** The super operation the step started (PM-888). */
+  operationId?: string | null;
   refusal?: { code: ErrorCode; message: string } | null;
 }
 
@@ -411,6 +414,7 @@ export class OperatorSteps {
       configVersion: input.configVersion ?? null,
       inboxItemId: input.inboxItemId ?? null,
       signalId: input.signalId ?? null,
+      operationId: input.operationId ?? null,
       refusal: input.refusal ?? null,
     };
     this.ctx.repos.operatorRequests.insertStep(step);

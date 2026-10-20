@@ -48,6 +48,7 @@ import {
   newId,
   notFound,
 } from '../../kernel';
+import { isAppOperation } from './app';
 
 /** How long the owner has to answer the question about a reserved effect. */
 export const SUPER_OWNER_QUESTION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -101,6 +102,9 @@ export type SuperCommandSettler = (input: {
   operation: SuperOperation;
   command: SuperCommand;
 }) => Promise<SuperSettlement>;
+
+/** Goes on with an in-app Operator's operation (its credential's key id is the Operator session) as the answering owner approved. */
+type AppResume = (operation: SuperOperation, keyId: string, ownerHandle: string) => Promise<SuperOperation>;
 
 /** What the service runs: a stored handoff, or a command the integrator starts directly. */
 interface Subject {
@@ -194,6 +198,7 @@ export class SuperHandoffService {
   private readonly audit: SuperAuditService;
   private readonly executors = new Map<SuperCommand['kind'], SuperCommandExecutor>();
   private readonly settlers = new Map<SuperCommand['kind'], SuperCommandSettler>();
+  private appResume: AppResume | null = null;
   /** Operations whose executor is still being awaited in this process: a settler leaves them alone. */
   private readonly starting = new Set<string>();
   private readonly grants = new AsyncLocalStorage<Grant>();
@@ -441,6 +446,33 @@ export class SuperHandoffService {
       return this.resume(existing, subject, access, actor);
     }
     return this.start(subject, keyId, input.requestId, access, actor);
+  }
+
+  /**
+   * Goes on with an operation of the in-app Operator after the owner's yes (PM-888): the Operator's session may
+   * be gone by then, so the server itself calls `operate` again, as the answering owner approved. Only an
+   * operation that waits to resume, was started by the app credential and has a standing yes is taken up; the
+   * resume checks the yes, the command and the configuration again.
+   */
+  async resumeApprovedAppOperation(projectKey: string, operationId: string): Promise<SuperOperation> {
+    const stored = this.ctx.repos.superHandoffs.operation(projectKey, operationId);
+    if (!stored) throw notFound('super_operation', operationId);
+    const operation = publicOperation(stored);
+    const item = stored.ownerQuestionId ? this.ctx.repos.inbox.get(stored.ownerQuestionId) : null;
+    if (
+      stored.state !== 'pending' ||
+      stored.handoffId !== null ||
+      !isAppOperation(this.ctx, operation) ||
+      item?.resolution?.optionId !== SUPER_OWNER_YES
+    )
+      throw conflict('super_request_conflict', 'this operation does not wait for the app to go on');
+    if (!this.appResume) throw invalid('super_executor_unavailable', 'the in-app Operator path is not wired');
+    return this.appResume(operation, stored.keyId, item.resolution.by);
+  }
+
+  /** The in-app Operator's runner (PM-888), composed after this service: it is set once, at assembly. */
+  registerAppResume(resume: AppResume): void {
+    this.appResume = resume;
   }
 
   // --- start --------------------------------------------------------------------------------------------

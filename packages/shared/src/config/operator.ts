@@ -18,6 +18,7 @@ import { cardMerger, mergeTargetOf, mergerOf } from './merger';
 import { OPERATOR_ROLE, isOperator } from './operator-member';
 import { ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
+import { ownerReservedEffect } from './super-mutation';
 import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
@@ -302,6 +303,36 @@ export function operatorConfigVerdict(
     changes,
     waiverEligible: level === 'approval' && approvalWaivable(previous, next, opts.operator, owner),
   };
+}
+
+/**
+ * What the Operator may do with a change the owner asked for in the app (decision 55): the owner's request
+ * is the approval, so a change the verdict holds for approval goes straight through, except what stays the
+ * owner's own call. `approval` becomes `now` unless
+ * - a row is about the Operator's own member or its own role (it does not rewrite itself), or
+ * - the change has an owner-reserved effect (deletion, security, cost: `ownerReservedEffect`).
+ * `never` stays `never`, and a `now` stays `now`. The approval waiver (`canWaiveOperatorApproval`) never
+ * covers what this keeps at `approval`.
+ */
+export function operatorAutonomousLevel(
+  previous: ProjectConfig,
+  next: ProjectConfig,
+  verdict: OperatorConfigVerdict,
+  operator: MemberHandle,
+): OperatorLevel {
+  if (verdict.level !== 'approval') return verdict.level;
+  const ownRoles = new Set<string>([OPERATOR_ROLE]);
+  for (const config of [previous, next]) {
+    const own = memberOf(config, operator);
+    if (own?.kind === 'ai') ownRoles.add(own.role);
+  }
+  const aboutItself = verdict.changes.some(
+    (row) =>
+      (row.area === 'member' && row.target === operator) ||
+      (row.area === 'role' && row.target !== null && ownRoles.has(row.target)),
+  );
+  if (aboutItself) return 'approval';
+  return ownerReservedEffect(previous, { kind: 'config_change', next }) === null ? 'now' : 'approval';
 }
 
 function highestLevel(changes: readonly ConfigChangeRow[]): OperatorLevel {

@@ -35,6 +35,8 @@ export interface OperatorStepRecord {
   inboxItemId: string | null;
   /** The system signal the step acted on without a request (PM-545). */
   signalId: string | null;
+  /** The super operation an `operation` step started (PM-888). */
+  operationId?: string | null;
   refusal: { code: string; message: string } | null;
 }
 
@@ -48,7 +50,7 @@ const requestColumns = `id, project_key AS projectKey, session_id AS sessionId, 
   opened_at AS openedAt, closed_at AS closedAt`;
 const stepColumns = `id, request_id AS requestId, at, action, status, task_key AS taskKey, member, changes,
   config_version AS configVersion, inbox_item_id AS inboxItemId, signal_id AS signalId, refusal,
-  agreement_version AS agreementVersion, approval_mode AS approvalMode`;
+  agreement_version AS agreementVersion, approval_mode AS approvalMode, operation_id AS operationId`;
 
 export interface OperatorExecutionIntent {
   id: string;
@@ -94,8 +96,8 @@ export function createOperatorRequestRepository(db: Db) {
        ORDER BY opened_at DESC, rowid DESC LIMIT ?) ORDER BY openedAt, n`,
     ),
     insertStep: db.prepare(`INSERT INTO operator_steps
-      (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, signal_id, refusal, agreement_version, approval_mode)
-      VALUES (@id, @requestId, @at, @action, @status, @taskKey, @member, @changes, @configVersion, @inboxItemId, @signalId, @refusal, @agreementVersion, @approvalMode)`),
+      (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, signal_id, refusal, agreement_version, approval_mode, operation_id)
+      VALUES (@id, @requestId, @at, @action, @status, @taskKey, @member, @changes, @configVersion, @inboxItemId, @signalId, @refusal, @agreementVersion, @approvalMode, @operationId)`),
     stepsOf: db.prepare(`SELECT ${stepColumns} FROM operator_steps WHERE request_id = ? ORDER BY at, rowid`),
     stepsOfSignal: db.prepare(
       `SELECT ${stepColumns} FROM operator_steps WHERE signal_id = ? ORDER BY at, rowid`,
@@ -205,6 +207,7 @@ export function createOperatorRequestRepository(db: Db) {
         ...step,
         agreementVersion: step.agreementVersion ?? null,
         approvalMode: step.approvalMode ?? null,
+        operationId: step.operationId ?? null,
         changes: toJson(step.changes),
         refusal: step.refusal ? toJson(step.refusal) : null,
       });

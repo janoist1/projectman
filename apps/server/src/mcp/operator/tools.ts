@@ -6,7 +6,9 @@ import {
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
-  RequestSuperOperationRequest,
+  GetAdministrationLogsArgs,
+  GetAdministrationStatusArgs,
+  GetSuperOperationArgs,
   SuperCommand,
   TaskKey,
 } from '@projectman/shared';
@@ -241,28 +243,79 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
 
     defineTool({
-      name: 'request_super_operation',
-      title: 'Hand a command to the super mode',
+      name: 'execute_operation',
+      title: 'Execute one command as the Operator',
       readOnly: false,
       description:
-        'Only the Operator, in its own general conversation during an open owner message or answer. Hand ONE command to the owner’s super-mode integrator when the owner asked for something operate cannot do or must not do alone (a reserved effect such as cost, deletion or security). It stores a durable handoff and returns it; it executes nothing and approves nothing. The integrator, working with the owner’s own login, executes it later; an effect reserved for the owner then waits for the owner’s own yes. command is {kind: operate, operation} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request}. Give a fresh request_id (UUID) per handoff and reuse it only to repeat the same call; the same request_id with other content is refused (super_request_conflict). expected_config_version pins the project configuration the owner saw; if it changed, the integrator refuses the handoff as stale. reason is what the owner reads (1–2000 characters, project language).',
+        'Only the Operator, in its own general conversation during an open owner message or answer. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request} | {kind: credential_revoke, keyId}. Configuration, member, session, message and project-pause changes stay with operate (kinds operate and member_update are refused with super_operation_unsupported). A K3 effect (deletion, security, cost, boundary and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Machine operations (administration) need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.',
       input: {
+        request_key: z
+          .string()
+          .min(1)
+          .max(100)
+          .regex(/^[A-Za-z0-9._-]+$/)
+          .describe('Names this call within the open request; repeat it only to retry the same call.'),
         task_key: TaskKey.optional().describe('The card the command is about, when there is one.'),
-        reason: RequestSuperOperationRequest.shape.reason,
         command: SuperCommand,
-        expected_config_version: RequestSuperOperationRequest.shape.expectedConfigVersion,
-        request_id: z
-          .uuid()
-          .describe('A fresh UUID for this handoff; repeat it only to retry the same call.'),
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(
-          await handler.requestSuperOperation(ctx, {
+          await handler.executeOperation(ctx, {
+            requestKey: args.request_key,
             ...(args.task_key ? { taskKey: args.task_key } : {}),
-            reason: args.reason,
             command: args.command,
-            ...(args.expected_config_version ? { expectedConfigVersion: args.expected_config_version } : {}),
-            requestId: args.request_id,
+          }),
+        );
+      },
+    }),
+
+    defineTool({
+      name: 'get_operation',
+      title: 'Read an operation',
+      readOnly: true,
+      description:
+        'Only the Operator, during an open owner request. One operation of this project and, once the adapter recorded it, its result: {operation, result}. A running operation is settled first, so ask again until its state is final.',
+      input: { operation_id: GetSuperOperationArgs.shape.operation_id },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(await handler.getOperation(ctx, { operationId: args.operation_id }));
+      },
+    }),
+
+    defineTool({
+      name: 'get_machine_status',
+      title: 'Read the status of the machine',
+      readOnly: true,
+      description:
+        'Only the Operator, during an open owner request, with the owner’s machine grant (without it: operator_grant_inactive). The administration status of the hub (target "hub") or of an engine linked to this project (target: the engine id) and, when it offers the machine capability, its machine: {status, machine} with the load average, memory, swap and the ten largest processes (name, cpu, memory; no arguments). machine is null when the target cannot tell.',
+      input: { target: GetAdministrationStatusArgs.shape.target },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(await handler.getMachineStatus(ctx, { target: args.target }));
+      },
+    }),
+
+    defineTool({
+      name: 'get_machine_logs',
+      title: 'Read the log of the machine',
+      readOnly: true,
+      description:
+        'Only the Operator, during an open owner request, with the owner’s machine grant (without it: operator_grant_inactive). The diagnostic log of the hub (target "hub") or of an engine linked to this project (target: the engine id): {entries}, oldest first. limit is 1–200 (default 50). source is "supervisor" (default) or "service" (the managed service’s log, secrets redacted); min_level (info, warn, error), since (ISO time) and contains (up to 100 characters) narrow it.',
+      input: {
+        target: GetAdministrationLogsArgs.shape.target,
+        limit: GetAdministrationLogsArgs.shape.limit,
+        source: GetAdministrationLogsArgs.shape.source,
+        min_level: GetAdministrationLogsArgs.shape.min_level,
+        since: GetAdministrationLogsArgs.shape.since,
+        contains: GetAdministrationLogsArgs.shape.contains,
+      },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.getMachineLogs(ctx, {
+            target: args.target,
+            limit: args.limit ?? 50,
+            ...(args.source ? { source: args.source } : {}),
+            ...(args.min_level ? { minLevel: args.min_level } : {}),
+            ...(args.since ? { since: args.since } : {}),
+            ...(args.contains ? { contains: args.contains } : {}),
           }),
         );
       },

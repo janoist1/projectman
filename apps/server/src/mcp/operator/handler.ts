@@ -7,6 +7,7 @@ import {
 } from '@projectman/shared';
 import type { QuestionRecipient, QuestionRecipientRefusal } from '@projectman/shared';
 import type {
+  AdministrationTarget,
   OperatorOperation,
   BuiltInRoleId,
   RoleConfigurationRead,
@@ -18,7 +19,12 @@ import type {
   Task,
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
-import type { OperatorToolsHandler, MemberStartResult, ToolContext } from '../../contracts';
+import type {
+  AdministrationLogsOptions,
+  OperatorToolsHandler,
+  MemberStartResult,
+  ToolContext,
+} from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
@@ -38,8 +44,15 @@ import type {
   LoopTriages,
 } from '../../services/operator';
 import type { ObligationsService } from '../../services/obligations';
-import type { SuperHandoffService } from '../../services/super-operator';
+import { appRequestId } from '../../services/super-operator';
+import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
+
+/** What the Operator's super-operation tools stand on (PM-888). */
+export interface SuperPath {
+  operations: OperatorAppOperations;
+  administration: Pick<SuperAdministration, 'status' | 'logs' | 'machine' | 'operation'>;
+}
 
 export class OperatorTools implements OperatorToolsHandler {
   private readonly calls: ToolCaller;
@@ -57,7 +70,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly operatorKnowledge: OperatorKnowledge;
   private readonly structuralReviews: StructuralReviews;
   private readonly loopTriages: LoopTriages;
-  private readonly superHandoffs: Pick<SuperHandoffService, 'request'>;
+  private readonly superPath: () => SuperPath;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -75,7 +88,8 @@ export class OperatorTools implements OperatorToolsHandler {
     operatorKnowledge: OperatorKnowledge;
     structuralReviews: StructuralReviews;
     loopTriages: LoopTriages;
-    superHandoffs: Pick<SuperHandoffService, 'request'>;
+    /** The shared super-operation path; read at the call, because it is composed after the tools. */
+    superPath: () => SuperPath;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -92,7 +106,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.operatorKnowledge = deps.operatorKnowledge;
     this.structuralReviews = deps.structuralReviews;
     this.loopTriages = deps.loopTriages;
-    this.superHandoffs = deps.superHandoffs;
+    this.superPath = deps.superPath;
   }
 
   async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
@@ -299,44 +313,104 @@ export class OperatorTools implements OperatorToolsHandler {
   }
 
   /**
-   * The Operator hands one command to the super-mode integrator (PM-762). Only the base Operator, in its own
-   * general conversation, during a direct internal owner request (a message or an answer; not an approval
-   * continuation, a signal or a guest). The handoff is only a record: the integrator executes it later.
+   * The Operator's own call on the shared super-operation path (PM-888): the base Operator, in its own general
+   * conversation, during a direct internal owner request (a message or an answer; not an approval continuation,
+   * a signal or a guest). Returns the caller whose request the credential of the call stands on.
    */
-  async requestSuperOperation(
-    ctx: ToolContext,
-    args: Parameters<OperatorToolsHandler['requestSuperOperation']>[1],
-  ) {
-    return this.calls.guard(async () => {
-      const caller = await this.calls.callerWithRequest(ctx, 'request_super_operation');
-      if (!isOperator(memberOf(caller.config, ctx.member)))
+  private async appCaller(ctx: ToolContext, tool: string) {
+    const caller = await this.calls.callerWithRequest(ctx, tool);
+    if (!isOperator(memberOf(caller.config, ctx.member)))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator may use the super operations.');
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    if (
+      !caller.request ||
+      caller.guest ||
+      (caller.request.source !== 'message' && caller.request.source !== 'answer') ||
+      !session ||
+      session.projectKey !== ctx.projectKey ||
+      session.member !== ctx.member ||
+      session.workItem.type !== 'general' ||
+      session.workItem.with
+    )
+      throw new TeamToolError(
+        'forbidden',
+        'operator_owner_only: a super operation needs your own general conversation and an open request of an owner.',
+      );
+    return caller;
+  }
+
+  /** A refusal of the shared path keeps its code in the message, like `operate`'s. */
+  private appFailure(err: unknown): unknown {
+    if (err instanceof DomainError)
+      return new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
+    return toToolError(err);
+  }
+
+  async executeOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['executeOperation']>[1]) {
+    try {
+      const caller = await this.appCaller(ctx, 'execute_operation');
+      // `operate` and `member_update` have their own tool; the direct path takes the rest.
+      if (args.command.kind === 'operate' || args.command.kind === 'member_update')
         throw new TeamToolError(
-          'forbidden',
-          'operator_only: only the Operator may hand work to the super mode.',
-        );
-      const session = this.ctx.repos.sessions.get(ctx.sessionId);
-      if (
-        !caller.request ||
-        caller.guest ||
-        (caller.request.source !== 'message' && caller.request.source !== 'answer') ||
-        !session ||
-        session.projectKey !== ctx.projectKey ||
-        session.member !== ctx.member ||
-        session.workItem.type !== 'general' ||
-        session.workItem.with
-      )
-        throw new TeamToolError(
-          'forbidden',
-          'operator_owner_only: a super-mode handoff needs your own general conversation and an open request of an owner.',
+          'invalid',
+          `super_operation_unsupported: a ${args.command.kind} command is not run here; use operate.`,
         );
       const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : undefined;
-      return this.calls.recorded(caller, { action: 'super_handoff', taskKey: taskKey ?? null }, async () => ({
-        handoff: await this.superHandoffs.request(ctx.projectKey, aiActor(ctx.member), {
-          ...args,
-          ...(taskKey ? { taskKey } : {}),
+      const requestId = appRequestId(caller.request!.id, args.requestKey);
+      return await this.calls.recorded(
+        caller,
+        {
+          action: 'operation',
+          taskKey: taskKey ?? null,
+          madeOperation: (result) => ({
+            id: result.operation.id,
+            awaitsOwner: result.operation.state === 'waiting_owner',
+          }),
+        },
+        async () => ({
+          operation: await this.superPath().operations.execute(ctx.projectKey, ctx.sessionId, {
+            requestId,
+            command: args.command,
+            ...(taskKey ? { taskKey } : {}),
+          }),
         }),
-      }));
-    });
+      );
+    } catch (err) {
+      throw this.appFailure(err);
+    }
+  }
+
+  async getOperation(ctx: ToolContext, args: { operationId: string }) {
+    try {
+      await this.appCaller(ctx, 'get_operation');
+      return await this.superPath().administration.operation(ctx.projectKey, args.operationId);
+    } catch (err) {
+      throw this.appFailure(err);
+    }
+  }
+
+  async getMachineStatus(ctx: ToolContext, args: { target: AdministrationTarget }) {
+    try {
+      await this.appCaller(ctx, 'get_machine_status');
+      const { administration } = this.superPath();
+      const status = await administration.status(ctx.projectKey, args.target);
+      const machine = status.capabilities.includes('machine')
+        ? await administration.machine(ctx.projectKey, args.target)
+        : null;
+      return { status, machine };
+    } catch (err) {
+      throw this.appFailure(err);
+    }
+  }
+
+  async getMachineLogs(ctx: ToolContext, args: { target: AdministrationTarget } & AdministrationLogsOptions) {
+    try {
+      await this.appCaller(ctx, 'get_machine_logs');
+      const { target, ...options } = args;
+      return await this.superPath().administration.logs(ctx.projectKey, target, options);
+    } catch (err) {
+      throw this.appFailure(err);
+    }
   }
 
   /**

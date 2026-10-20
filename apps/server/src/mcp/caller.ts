@@ -392,6 +392,8 @@ export class ToolCaller {
       /** The task the call made, when the step names it only afterwards. */
       madeTask?: (result: T) => string;
       madeMember?: (result: T) => string | null;
+      /** The super operation the call started and whether it still waits for the owner's yes (PM-888). */
+      madeOperation?: (result: T) => { id: string; awaitsOwner: boolean };
     } | null,
     run: () => Promise<T>,
     /** A refusal that is no refusal: the change waits for a human's approval. */
@@ -417,12 +419,14 @@ export class ToolCaller {
         );
         throw err;
       }
+      const operation = step.madeOperation?.(result);
       this.operatorSteps.record({
         requestId: request.id,
         ...target,
         ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
         ...(step.madeMember ? { member: step.madeMember(result) } : {}),
-        status: 'done',
+        ...(operation ? { operationId: operation.id } : {}),
+        status: operation?.awaitsOwner ? 'awaiting_approval' : 'done',
       });
       // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).
       if (signalId && request.source === 'signal') this.operatorSignals.stepTaken(signalId);

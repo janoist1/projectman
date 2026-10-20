@@ -22,12 +22,19 @@ import {
 } from './helpers/domain-harness';
 import type { DomainHarness, HarnessSnapshot } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { autonomy } from './helpers/operator-autonomy';
+
+// The approval tests below are about the approval item itself, which an owner-asked change now skips.
+vi.mock('@projectman/shared', async (original) =>
+  (await import('./helpers/operator-autonomy')).switchable(await original()),
+);
 
 let h: DomainHarness;
 let ctx: ToolContext;
 const by = { actor: OWNER_ACTOR, author: OWNER };
 const owner = { handle: 'owner', access: 'owner' as const };
 afterEach(async () => {
+  autonomy.on = false;
   vi.restoreAllMocks();
   await h?.cleanup();
 });
@@ -701,6 +708,31 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     expect(h.repos.operatorRequests.steps(request.id)).toMatchObject([
       { id: result.step_id, action: 'member_change', status: 'done', configVersion: result.config_version },
     ]);
+  });
+
+  describe('an owner-asked change in the app (decision 55)', () => {
+    it('goes straight through when only the verdict held it for approval', async () => {
+      autonomy.on = true;
+      await setup();
+      const result = await operate({
+        op: 'member_update',
+        handle: 'dev-1',
+        changes: { instructions: 'Keep the changes small.' },
+      });
+      expect(result.status).toBe('done');
+      expect(result.changes).toEqual([expect.objectContaining({ field: 'instructions', level: 'approval' })]);
+      expect(await member()).toMatchObject({ instructions: 'Keep the changes small.' });
+      expect((await h.domain.projects.history('AR'))[0]).toMatchObject({ operator: 'operator' });
+      expect(h.repos.inbox.listOpen('approval')).toEqual([]);
+    });
+
+    it('still waits for the owner when the effect is the owner’s own call', async () => {
+      autonomy.on = true;
+      await setup();
+      const result = await operate({ op: 'member_retire', handle: 'dev-1' });
+      expect(result.status).toBe('awaiting_approval');
+      expect(await member()).toBeDefined();
+    });
   });
 
   it('keeps restricted changes pending until the owner approves, even after the request closes', async () => {

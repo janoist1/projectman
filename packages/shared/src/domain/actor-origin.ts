@@ -15,6 +15,12 @@ export const ActorCredential = z.object({
 export type ActorCredential = z.infer<typeof ActorCredential>;
 
 /**
+ * The credential prefix of the in-app Operator on the shared super-operation path (decision 55, PM-888):
+ * its credential id is the Operator session's id, and no stored key stands behind it.
+ */
+export const OPERATOR_APP_CREDENTIAL_PREFIX = 'operator-app';
+
+/**
  * Whether the optional origin fields of an actor agree (PM-757): `operatorMode: 'super'` and `credential`
  * come together, and only on an AI member acting through the integrator; a credential alone, or a super
  * mode without one, is not a valid actor. A plain actor (no origin fields) is always consistent.

@@ -798,34 +798,31 @@ describe('super-mode origin and audit (PM-757)', () => {
       expect(answers[0]).toMatchObject({ from: 'operator', actor: SUPER });
     });
 
-    it('refuses to relay an answer to a question that is an owner decision or has no stated purpose', async () => {
+    it.each([
+      { question: 'Which fictional option?' },
+      { question: 'Which fictional option?', responsePurpose: 'owner_decision' as const },
+    ])('records an Operator decision for question purpose $responsePurpose', async (payload) => {
       h = await createDomainHarness();
-      for (const payload of [
-        { question: 'Which fictional option?' },
-        { question: 'Which fictional option?', responsePurpose: 'owner_decision' as const },
-      ]) {
-        const question = h.domain.inbox.create({
-          projectKey: 'AR',
-          kind: 'question',
-          assignees: ['owner'],
-          source: 'dev-1',
-          sessionId: null,
-          title: 'Fictional question',
-          payload,
-          options: [{ id: 'answer', label: 'answer', style: 'primary' }],
-        });
-        await expect(
-          authenticated(() =>
-            h.domain.inbox.resolve(
-              'AR',
-              question.id,
-              { optionId: 'answer', note: 'A fictional answer.' },
-              { handle: 'owner', access: 'owner', via: 'integrator', superActor: SUPER },
-            ),
-          ),
-        ).rejects.toMatchObject({ code: 'super_relay_refused' });
-        expect(h.domain.inbox.get('AR', question.id).state).toBe('open');
-      }
+      const question = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        sessionId: null,
+        title: 'Fictional question',
+        payload,
+        options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+      });
+      const resolved = await authenticated(() =>
+        h.domain.inbox.resolve(
+          'AR',
+          question.id,
+          { optionId: 'answer', note: 'A fictional answer.' },
+          { handle: 'owner', access: 'owner', via: 'integrator', superActor: SUPER },
+        ),
+      );
+      expect(resolved.resolution).toMatchObject({ by: 'owner', actor: SUPER, superDecision: true });
+      expect(resolved.resolution?.ownerAnswerRelayed).toBeUndefined();
     });
 
     it('refuses a bound read or legacy principal as a commit author with no super actor', async () => {

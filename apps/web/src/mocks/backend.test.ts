@@ -19,6 +19,56 @@ const role = {
 const base = '/api/projects/AC';
 
 describe('integrator credential policy in the fake (PM-759)', () => {
+  it('records a super inbox decision with the principal and Operator attribution', () => {
+    const backend = new MockBackend();
+    backend.integratorMode = 'super';
+    const item = {
+      ...backend.inbox[0]!,
+      id: 'super_decision',
+      kind: 'decision' as const,
+      source: 'dev',
+      sessionId: null,
+      state: 'open' as const,
+      assignees: [backend.viewerHandle],
+      payload: {},
+      resolution: null,
+      options: [{ id: 'approve', label: 'approve', style: 'primary' as const }],
+    };
+    backend.inbox.push(item);
+    const response = backend.handle('POST', `${base}/inbox/${item.id}/resolve`, { optionId: 'approve' });
+    expect(response.status).toBe(200);
+    expect(backend.inbox.find((row) => row.id === item.id)?.resolution).toMatchObject({
+      by: backend.viewerHandle,
+      via: 'integrator',
+      superDecision: true,
+      actor: { handle: operatorOf(backend.config)?.handle, operatorMode: 'super' },
+    });
+  });
+
+  it('uses the shared rule to refuse an Operator’s own question', () => {
+    const backend = new MockBackend();
+    backend.integratorMode = 'super';
+    const item = {
+      ...backend.inbox[0]!,
+      id: 'own_question',
+      kind: 'question' as const,
+      source: operatorOf(backend.config)!.handle,
+      sessionId: null,
+      state: 'open' as const,
+      assignees: [backend.viewerHandle],
+      payload: {},
+      resolution: null,
+      options: [{ id: 'answer', label: 'answer', style: 'primary' as const }],
+    };
+    backend.inbox.push(item);
+    const response = backend.handle('POST', `${base}/inbox/${item.id}/resolve`, {
+      optionId: 'answer',
+      note: 'Yes',
+    });
+    expect(errorCode(response)).toBe('owner_approval_required');
+    expect(backend.inbox.find((row) => row.id === item.id)?.state).toBe('open');
+  });
+
   it('uses shared read rules and leaves publication to the super key (PM-870)', () => {
     const backend = new MockBackend();
     backend.integratorMode = 'read';

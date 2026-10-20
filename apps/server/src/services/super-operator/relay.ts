@@ -1,4 +1,4 @@
-import { canSeeTask, visibleQuestionItem } from '@projectman/shared';
+import { canSeeTask, isRelayableQuestionItem, visibleQuestionItem } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { ANSWER_OPTION } from '../../core/inbox';
 import type { InboxService } from '../../core/inbox';
@@ -23,8 +23,8 @@ export async function relayOwnerAnswer(
     throw forbidden('super_relay_refused', 'only the integrator in super mode relays an answer');
   const item = deps.inbox.get(projectKey, itemId);
   if (!canSeeInboxItem(access, item)) throw notFound('inbox item', itemId);
-  if (item.kind !== 'question')
-    throw forbidden('super_relay_refused', 'only a question can be answered by a relay');
+  if (!isRelayableQuestionItem(item))
+    throw forbidden('super_relay_refused', 'only an information question can be answered by a relay');
   const resolved = await deps.inbox.resolve(
     projectKey,
     itemId,

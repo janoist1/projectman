@@ -38,7 +38,7 @@ describe('member merge API', () => {
       expect(response.json()).toMatchObject({ error: { code: 'invalid_request' } });
     },
   );
-  it.each(['owner', 'super'] as const)(
+  it.each(['owner', 'super', 'super-inbox'] as const)(
     'starts a merge as %s and keeps conflict fixes with the merger',
     async (mode) => {
       const { domain, repos } = h.app.projectman;
@@ -92,20 +92,34 @@ describe('member merge API', () => {
       merger.isAncestor.mockResolvedValue(true);
       merger.advance.mockResolvedValue({ ok: true });
       let superHeaders: Record<string, string> | undefined;
-      if (mode === 'super') {
+      if (mode !== 'owner') {
         const key = CreatedIntegratorAccessKey.parse(
           (await inject(h.app, 'POST', routes.integratorKeys(), cookie, { mode: 'super' })).json(),
         );
         superHeaders = { authorization: `Bearer ${key.secret}` };
+        await domain.merges.reconcile('AR', 'AR-1');
+        const item = domain.inbox.list('AR', { kind: 'merge_request', state: 'open' })[0]!;
         const started = await h.app.inject({
           method: 'POST',
           url: routes.superOperations('AR'),
           headers: superHeaders,
-          payload: { requestId: randomUUID(), command: { kind: 'merge', taskKey: 'AR-1', request: {} } },
+          payload: {
+            requestId: randomUUID(),
+            command:
+              mode === 'super-inbox'
+                ? { kind: 'inbox_resolve', itemId: item.id, request: { optionId: 'merge' } }
+                : { kind: 'merge', taskKey: 'AR-1', request: {} },
+          },
         });
         expect(started.statusCode, started.body).toBe(202);
         expect(SuperOperateResponse.parse(started.json()).operation.state).toBe('succeeded');
         expect(repos.taskMerges.open('AR', 'AR-1')?.startedBy).toBe('operator');
+        expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
+          by: 'owner',
+          superDecision: true,
+          via: 'integrator',
+          actor: { handle: 'operator' },
+        });
       } else {
         const started = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie);
         expect(started.statusCode, started.body).toBe(200);

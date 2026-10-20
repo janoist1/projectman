@@ -22,6 +22,7 @@ const topicVector = (text: string) => {
 interface FakeEmbedder extends Embedder {
   passages: string[];
   failNext: number;
+  delayMs: number;
   beforeEmbed?: () => void;
 }
 
@@ -29,9 +30,11 @@ function fakeEmbedder(): FakeEmbedder {
   const embedder: FakeEmbedder = {
     passages: [],
     failNext: 0,
+    delayMs: 0,
     countTokens: (text) => Math.ceil(text.length / 4) + 2,
     async embedPassage(text) {
       embedder.passages.push(text);
+      if (embedder.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, embedder.delayMs));
       embedder.beforeEmbed?.();
       if (embedder.failNext > 0) {
         embedder.failNext--;
@@ -212,6 +215,77 @@ describe('semantic engine', () => {
     expect(db.prepare('SELECT DISTINCT index_key AS k FROM history_semantic_sources').all()).toEqual([
       { k: INDEX_KEY },
     ]);
+  });
+
+  it('continues a half-indexed long source after a restart without embedding its first chunks again', async () => {
+    const filler = Array.from({ length: 120 }, (_, i) => `line ${i} about nothing in particular`).join('\n');
+    const rest = Array.from({ length: 120 }, (_, i) => `a different row ${i} of the same note`).join('\n');
+    addSource('note:1', 'Long note', `${filler}\nThe quokka sits here.\n${rest}`);
+    let embedded = 0;
+    embedder.beforeEmbed = () => {
+      // The server stops for good after the second chunk.
+      if (++embedded >= 3) throw new Error('the process ended');
+    };
+    await engineOf().drain();
+    const kept = embedder.passages.slice(0, 2);
+    expect(engineOf().counts()).toMatchObject({ chunks: 2, dirty: 1 });
+
+    embedder.passages.length = 0;
+    embedder.beforeEmbed = undefined;
+    clock += 60_000;
+    const restarted = engineOf();
+    await restarted.drain();
+
+    expect(embedder.passages).not.toContain(kept[0]);
+    expect(embedder.passages).not.toContain(kept[1]);
+    expect(restarted.counts()).toMatchObject({ sources: 1, dirty: 0 });
+    expect(restarted.counts().chunks).toBeGreaterThan(2);
+    expect(scanFor(restarted, 'quokka').candidates).toHaveLength(1);
+  });
+
+  it('rests after each unit of background work for at least the floor', async () => {
+    addSource('note:1', 'Alpaca farm', 'alpaca');
+    addSource('note:2', 'Zebra stripes', 'zebra');
+    const rests: number[] = [];
+    const engine = createSemanticEngine({
+      db,
+      embedder,
+      indexKey: INDEX_KEY,
+      minCosine: 0.8,
+      idlePollMs: 5,
+      rest: async (ms) => {
+        rests.push(ms);
+        await new Promise((resolve) => setImmediate(resolve));
+      },
+    });
+    engine.start();
+    for (let i = 0; i < 200 && rests.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    await engine.stop();
+    expect(rests[0]).toBeGreaterThanOrEqual(250);
+  });
+
+  it('rests as long as the work took when that is longer than the floor', async () => {
+    addSource('note:1', 'Alpaca farm', 'alpaca');
+    addSource('note:2', 'Zebra stripes', 'zebra');
+    embedder.delayMs = 60;
+    const rests: number[] = [];
+    const engine = createSemanticEngine({
+      db,
+      embedder,
+      indexKey: INDEX_KEY,
+      minCosine: 0.8,
+      idlePollMs: 5,
+      restMinMs: 10,
+      rest: async (ms) => {
+        rests.push(ms);
+        await new Promise((resolve) => setImmediate(resolve));
+      },
+    });
+    engine.start();
+    for (let i = 0; i < 200 && rests.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    await engine.stop();
+    // The first unit embedded one source of 60 ms.
+    expect(rests[0]).toBeGreaterThanOrEqual(50);
   });
 
   it('is a failure the caller can read when the question is not ready', async () => {

@@ -252,10 +252,19 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     );
   }
 
-  function referenceOf(projectKey: string, row: HistoryDocumentRow, line: number): HistoryReference {
-    if (row.sourceType === 'task' && row.taskKey)
+  /**
+   * The call that opens a hit. A hit found by meaning only has no matching word to find again, so it opens the
+   * source at the chunk's first line (`atLine`) instead of at the card or the note as a whole.
+   */
+  function referenceOf(
+    projectKey: string,
+    row: HistoryDocumentRow,
+    line: number,
+    atLine = false,
+  ): HistoryReference {
+    if (!atLine && row.sourceType === 'task' && row.taskKey)
       return { tool: 'get_task', arguments: { project_key: projectKey, task_key: row.taskKey } };
-    if (row.sourceType === 'note' && row.taskKey)
+    if (!atLine && row.sourceType === 'note' && row.taskKey)
       return {
         tool: 'get_task',
         arguments: { project_key: projectKey, task_key: row.taskKey, event_id: row.entityId },
@@ -265,7 +274,11 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
       arguments: {
         project_key: projectKey,
         source_id: row.sourceId,
-        ...(row.sourceType === 'document' && row.commitSha ? { from_line: line, commit: row.commitSha } : {}),
+        ...(row.sourceType === 'document' && row.commitSha
+          ? { from_line: line, commit: row.commitSha }
+          : atLine
+            ? { from_line: line }
+            : {}),
       },
     };
   }
@@ -486,7 +499,8 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
           const related = relatedOf(repos, projectKey);
           for (const candidate of page.candidates) {
             if (seen.has(candidate.sourceId)) continue;
-            if (!verifiedCandidate(projectKey, viewer, related, input, candidate, embedding.indexKey)) continue;
+            if (!verifiedCandidate(projectKey, viewer, related, input, candidate, embedding.indexKey))
+              continue;
             seen.add(candidate.sourceId);
             findings.extras.push(candidate);
             if (findings.extras.length > capacity) break;
@@ -530,7 +544,15 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     let current = { config, viewer };
     const findings =
       deps.semantic && requested.length > 0
-        ? await gatherSemantic(deps.semantic, projectKey, viewerIn, input, requested, { matches, hasMore }, trace)
+        ? await gatherSemantic(
+            deps.semantic,
+            projectKey,
+            viewerIn,
+            input,
+            requested,
+            { matches, hasMore },
+            trace,
+          )
         : null;
     if (findings) {
       // One synchronous block after the last wait: the words part is read again, and every candidate is
@@ -542,7 +564,10 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
       const related = relatedOf(repos, projectKey);
       for (const match of matches) {
         const candidate = findings.both.get(match.sourceId);
-        if (candidate && verifiedCandidate(projectKey, current.viewer, related, input, candidate, findings.indexKey))
+        if (
+          candidate &&
+          verifiedCandidate(projectKey, current.viewer, related, input, candidate, findings.indexKey)
+        )
           match.matchType = 'both';
       }
       const seen = new Set(matches.map((match) => match.sourceId));
@@ -570,10 +595,17 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
             author: row.author,
             at: row.at,
             excerpt: chunkExcerpt(fullTextOf(visible), candidate.startChar, candidate.endChar),
-            reference: referenceOf(projectKey, row, candidate.fromLine),
+            reference: referenceOf(projectKey, row, candidate.fromLine, true),
             matchType: 'semantic',
             ...(row.sourceType === 'document' && row.repo && row.path && row.commitSha
-              ? { document: { repo: row.repo, path: row.path, commit: row.commitSha, line: candidate.fromLine } }
+              ? {
+                  document: {
+                    repo: row.repo,
+                    path: row.path,
+                    commit: row.commitSha,
+                    line: candidate.fromLine,
+                  },
+                }
               : {}),
           });
         }

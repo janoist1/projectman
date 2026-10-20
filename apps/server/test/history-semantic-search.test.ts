@@ -134,6 +134,11 @@ describe('history search by meaning', () => {
       [meaning.key, 'semantic'],
     ]);
     expect(result.matches[1]!.excerpt).toContain('automobile');
+    // Found by meaning only, it opens at the chunk's line, not at the card as a whole.
+    expect(result.matches[1]!.reference).toMatchObject({
+      tool: 'read_history_source',
+      arguments: { from_line: 1 },
+    });
     expect(result.hasMore).toBe(false);
   });
 

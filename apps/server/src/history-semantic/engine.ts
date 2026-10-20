@@ -16,6 +16,10 @@ export interface SemanticEngineDeps {
   warn?: (message: string, details?: Record<string, unknown>) => void;
   /** How often an idle engine looks for new work (default 1 s). */
   idlePollMs?: number;
+  /** The least rest after a unit of background work; the rest is the longer of this and the work's own time. */
+  restMinMs?: number;
+  /** Replaces the timer of that rest (tests); resolves early when the engine stops. */
+  rest?: (ms: number) => Promise<void>;
 }
 
 export interface SemanticEngine {
@@ -160,9 +164,24 @@ export function createSemanticEngine(deps: SemanticEngineDeps): SemanticEngine {
     return backfillStep();
   }
 
+  /** Waits `ms`, or less when the engine stops. */
+  async function sleep(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      wake = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+    wake = null;
+  }
+
   async function run(): Promise<void> {
+    const rest = deps.rest ?? sleep;
+    const restMinMs = deps.restMinMs ?? 250;
     while (!stopped) {
       let worked = false;
+      const startedAt = performance.now();
       try {
         worked = await step();
       } catch (error) {
@@ -171,20 +190,14 @@ export function createSemanticEngine(deps: SemanticEngineDeps): SemanticEngine {
         });
       }
       if (worked) {
-        await yieldToLoop();
+        // Background indexing never takes the model for more than about half the time: a question waits for the
+        // text being embedded, not for a queue of them (PM-767 K7).
+        await rest(Math.max(restMinMs, Math.round(performance.now() - startedAt)));
         continue;
       }
       const next = repo.nextAttemptAt();
       const poll = deps.idlePollMs ?? 1_000;
-      const wait = next ? Math.min(poll, Math.max(50, Date.parse(next) - now().getTime())) : poll;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, wait);
-        wake = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-      });
-      wake = null;
+      await sleep(next ? Math.min(poll, Math.max(50, Date.parse(next) - now().getTime())) : poll);
     }
   }
 

@@ -239,6 +239,7 @@ describe('the verdict', () => {
     memoryLimitBytes: 2048 * MIB,
     swapLimitBytes: 0,
     networkAttempts: 0,
+    restartInterrupted: true,
     serverFailed: false,
     ...over,
   });
@@ -274,6 +275,13 @@ describe('the verdict', () => {
       { recall: { topTen: 18, total: 20, negativesClean: false } },
       'recall_failed',
     ],
+    [
+      'the recall in proportion',
+      { recall: { topTen: 18, total: 25, negativesClean: true } },
+      'recall_failed',
+    ],
+    ['a restart after finished indexing', { restartInterrupted: false }, 'missing_phase'],
+    ['a restart with no word on the indexing', { restartInterrupted: null }, 'missing_phase'],
     ['a network attempt', { networkAttempts: 1 }, 'network_attempt'],
     ['a server failure', { serverFailed: true }, 'server_failed'],
   ])('fails on %s', async (_name, over, code) => {
@@ -297,6 +305,13 @@ describe('the verdict', () => {
       }
     }
     expect(evaluate(input).reasonCodes).toContain(code);
+  });
+
+  it('judges the mixed phase by the control HTTP excess, not by its slowest search', async () => {
+    const { evaluate } = await load();
+    const input = good();
+    input.phases[4] = phase('mixed', { searchMaxMs: 5000 });
+    expect(evaluate(input)).toEqual({ outcome: 'pass', reasonCodes: [] });
   });
 
   it('allows the control HTTP p95 a larger excess of 20% or 50 ms', async () => {

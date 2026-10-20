@@ -518,6 +518,7 @@ export function evaluate({
   memoryLimitBytes,
   swapLimitBytes,
   networkAttempts,
+  restartInterrupted,
   serverFailed,
 }) {
   const reasons = new Set();
@@ -549,11 +550,23 @@ export function evaluate({
     const allowed = Math.max(off.httpP95Ms * BUDGET.httpP95ExcessRatio, BUDGET.httpP95ExcessMinMs);
     if (mixed.httpP95Ms - off.httpP95Ms > allowed) reasons.add('latency_budget_exceeded');
   }
+  // The 2 s frame is for the warm questions; the searches of the mixed phase are only reported, and the mixed
+  // phase is judged by the control HTTP excess above.
   if (!mixed || !isNumber(mixed.searchMaxMs)) reasons.add('missing_phase');
-  else if (mixed.searchMaxMs > BUDGET.searchMaxMs) reasons.add('latency_budget_exceeded');
+  // The restart must follow an interrupted indexing: a kill that came after the indexing was done proves nothing.
+  if (restartInterrupted !== true) reasons.add('missing_phase');
   // The fast fallback to the words is no semantic success: every warm question must have been answered by meaning.
   if (warm && isNumber(warm.semanticUsed) && warm.semanticUsed < 1) reasons.add('recall_failed');
-  if (!recall || recall.topTen < BUDGET.topTenMinimum || recall.negativesClean !== true)
+  // 15 of 20, in proportion when the fixture holds more questions.
+  const recallTotal = recall?.total;
+  if (
+    !recall ||
+    !isNumber(recallTotal) ||
+    recallTotal < 20 ||
+    !isNumber(recall.topTen) ||
+    recall.topTen * 20 < BUDGET.topTenMinimum * recallTotal ||
+    recall.negativesClean !== true
+  )
     reasons.add('recall_failed');
   if (networkAttempts > 0) reasons.add('network_attempt');
   const ordered = REASON_CODES.filter((code) => reasons.has(code));
@@ -1617,6 +1630,7 @@ export async function runProfile({
     memoryLimitBytes,
     swapLimitBytes: 0,
     networkAttempts: state.networkPeers,
+    restartInterrupted: state.restartInterrupted,
     serverFailed: serverFailed || state.failed,
   });
   const report = buildReport({

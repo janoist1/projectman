@@ -513,10 +513,12 @@ and the event-loop delay from the probe.
 
 **The frame** (outside it the outcome is `fail`, exit 1): the embedding's extra RSS (the highest RSS of the
 of `cold_load` to `restart`, minus the baseline's) at most 350 MiB; the server's RSS peak at most 1200 MiB in every
-phase; the cgroup peak at most 1536 MiB; no OOM kill and no swap; every question of the `warm` and `mixed` phases
+phase; the cgroup peak at most 1536 MiB; no OOM kill and no swap; every question of the `warm` phase
 at most 2 s; the control HTTP p95 of the `mixed` phase
-at most the baseline's plus max(20 %, 50 ms); at least 15 of 20 questions with the target in the top 10 and the
-negative controls unchanged; a fallback to the word search is not a semantic success (`semanticUsed` counts the
+at most the baseline's plus max(20 %, 50 ms) (the searches of the `mixed` phase stay in the report, but only the
+control HTTP excess judges that phase); at least 15 of 20 questions (in proportion when the fixture has more) with
+the target in the top 10 and the
+negative controls unchanged; a restart that did not follow an interrupted indexing is `missing_phase`; a fallback to the word search is not a semantic success (`semanticUsed` counts the
 searches whose status was `used`). Without the machine (not Linux ARM64, not cgroup v2 with `memory.max` up to
 2 GiB and no swap, or no `manifest.json` in the model folder) the tool writes an `unsupported` report and exits 78.
 A bad parameter, an unsafe or non-empty `--out` or a bad fixture exits 64 before anything starts.
@@ -530,8 +532,10 @@ the cloud's history is the better one and stays on the machine, never in a card)
 _unchanged negative controls_ means no hit of a control got on the list by meaning alone (`matchType` `semantic`);
 `eventLoopP95Ms` of a phase is the highest p95 of one probe interval in it; where the kernel cannot reset
 `VmHWM` or `memory.peak` (before 6.12) a phase's peak is the highest sample instead, and the report's markdown
-says which; the SIGKILL of the `restart` phase hits the indexing at an unknown point, and the markdown records
-whether the index was incomplete when it came.
+says which; the SIGKILL of the `restart` phase waits (up to 300 s) for the embedding to be under way with the text
+index done, and when it never gets there the run cannot pass. The network is shut by the network namespace
+(`--network none`) and the offline environment of the server; the tool's own count of foreign peers is a second
+net that stays almost silent there (a connection fails at once with ENETUNREACH).
 
 **The report** is `report.json` (exactly: `schemaVersion`, `sourceVersion`, `imageDigest`, `platform`, `arch`,
 `nodeVersion`, `modelIndexKey`, `memoryLimitBytes`, `swapLimitBytes`, `corpus` (`sources`, `chunks`,

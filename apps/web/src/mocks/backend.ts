@@ -1,6 +1,9 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
   superAccessVerdict,
+  superDecisionRefusal,
+  externalQuestionAnswerRefusal,
+  isRelayableQuestionItem,
   isCoordinatorOnlySignal,
   humanInboxAssignment,
   isIntegratorTodo,
@@ -861,6 +864,7 @@ export class MockBackend {
     data: Record<string, unknown>,
     sessionId: string | null = null,
     createdAt = nowIso(),
+    actor?: Actor,
   ): TimelineEvent {
     const member = who ? this.findMember(who) : undefined;
     const event: TimelineEvent = {
@@ -868,7 +872,8 @@ export class MockBackend {
       projectKey: fixtures.PROJECT_KEY,
       taskKey,
       sessionId,
-      actor: who ? { kind: member?.kind ?? 'system', handle: who } : { kind: 'system', handle: null },
+      actor:
+        actor ?? (who ? { kind: member?.kind ?? 'system', handle: who } : { kind: 'system', handle: null }),
       type,
       data,
       createdAt,
@@ -6433,6 +6438,27 @@ export class MockBackend {
     if (input.attachmentIds !== undefined && item.kind !== 'question')
       return error(400, 'invalid_request', 'Only questions accept attachmentIds', { field: 'attachmentIds' });
     if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already resolved');
+    let relayed = false;
+    if (this.integratorMode === 'super') {
+      const group = questionPayloadOf(item)?.group;
+      const members = [
+        item,
+        ...(group?.itemIds ?? []).flatMap((id) => {
+          const row = this.inbox.find((entry) => entry.id === id);
+          return row && row.id !== item.id && isPendingQuestion(row) ? [row] : [];
+        }),
+      ];
+      for (const member of members) {
+        const refusal = superDecisionRefusal(member, {
+          operatorHandle: operatorOf(this.config)?.handle ?? null,
+          sessionMember: this.sessions.find((session) => session.id === member.sessionId)?.member,
+        });
+        const question = member.kind === 'question' ? member.payload : null;
+        if (refusal || (question && externalQuestionAnswerRefusal(question, { via: 'integrator' })))
+          return error(403, 'owner_approval_required', 'A person must decide this item');
+      }
+      relayed = members.every(isRelayableQuestionItem);
+    }
     if (!item.options.some((option) => option.id === input.optionId)) {
       return error(400, 'unknown_option', `Unknown option ${input.optionId}`);
     }
@@ -6560,18 +6586,38 @@ export class MockBackend {
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',
-      resolution: { optionId: input.optionId, by: viewer.handle, at: nowIso(), note },
+      resolution: {
+        optionId: input.optionId,
+        by: viewer.handle,
+        at: nowIso(),
+        note,
+        ...(this.integratorMode ? { via: 'integrator' as const } : {}),
+        ...(this.integratorMode === 'super'
+          ? {
+              actor: this.viewerActor(),
+              ...(relayed ? { ownerAnswerRelayed: true as const } : { superDecision: true as const }),
+            }
+          : {}),
+      },
     };
     this.upsertInbox(resolved);
     if (release && item.taskKey) {
       const approved = input.optionId === 'approve';
-      this.addTimeline(item.taskKey, viewer.handle, 'release_changed', {
-        releaseId: release.releaseId,
-        state: approved ? 'approved' : 'rejected',
-        previousState: 'proposed',
-        commit: release.commit,
-        ...(!approved && note ? { note } : {}),
-      });
+      this.addTimeline(
+        item.taskKey,
+        viewer.handle,
+        'release_changed',
+        {
+          releaseId: release.releaseId,
+          state: approved ? 'approved' : 'rejected',
+          previousState: 'proposed',
+          commit: release.commit,
+          ...(!approved && note ? { note } : {}),
+        },
+        null,
+        nowIso(),
+        resolved.resolution?.actor,
+      );
     }
     const group = questionPayloadOf(item)?.group;
     const groupLive = group ? new Set(questionGroupLiveItemIds(group)) : null;
@@ -6757,10 +6803,12 @@ export class MockBackend {
         'question_answered',
         { inboxItemId: item.id, answer },
         sessionId,
+        resolution.at,
+        resolution.actor,
       );
       const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
       const message = this.sendTeamMessage(
-        resolution.by,
+        resolution.actor?.handle ?? resolution.by,
         [item.source],
         item.taskKey,
         answer,
@@ -6784,7 +6832,7 @@ export class MockBackend {
       const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
       const target = request ? stageOf(this.config, request.toStageId) : undefined;
       if (task && target && task.stageId !== target.id)
-        this.applyMove(task, target, { kind: 'human', handle: resolution.by }, {});
+        this.applyMove(task, target, resolution.actor ?? { kind: 'human', handle: resolution.by }, {});
       return;
     }
     const gate = item.kind === 'decision' ? gateRequestOf(item) : null;

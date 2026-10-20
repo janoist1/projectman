@@ -3,7 +3,12 @@ export function createInboxService(deps: ConstructorParameters<typeof InboxServi
 }
 
 import { isAbsolute, resolve, sep } from 'node:path';
-import { assertIntegratorAccess, assertOwnApproval, integratorExecution } from '../../kernel';
+import {
+  assertIntegratorAccess,
+  assertOwnApproval,
+  assertOwnOrSuperApproval,
+  integratorExecution,
+} from '../../kernel';
 import {
   APPROVAL_PAYLOAD_KEYS,
   hasProtectedQuestionPayload,
@@ -25,6 +30,7 @@ import {
   canDecidePermission,
   effectiveSessionPermissions,
   externalQuestionAnswerRefusal,
+  superDecisionRefusal,
   gateRequestOf,
   handOnRequestOf,
   hasSuperOrigin,
@@ -346,15 +352,25 @@ export class InboxService {
 
   resolveMergeRequest(id: string, by: string): void {
     const at = isoNow(this.ctx);
-    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'merge', by, at, note: null }, at);
+    const item = this.ctx.repos.inbox.close(
+      id,
+      'resolved',
+      this.decisionResolution(id, by, 'merge', null, at),
+      at,
+    );
     if (item) this.publish(item);
   }
 
   /** Close a release approval item as part of the transaction that decided its release. */
   resolveRelease(id: string, by: string, optionId: string, note: string | null): void {
-    assertOwnApproval();
+    assertOwnOrSuperApproval();
     const at = isoNow(this.ctx);
-    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId, by, at, note }, at);
+    const item = this.ctx.repos.inbox.close(
+      id,
+      'resolved',
+      this.decisionResolution(id, by, optionId, note, at),
+      at,
+    );
     if (item) this.publish(item);
   }
 
@@ -546,10 +562,65 @@ export class InboxService {
   /** Close a hand-on item as part of the transaction that actually moved its card. */
   resolveHandOn(id: string, by: string): void {
     // Resolving a human mover's pending request records their decision, even during an administrative move.
-    assertOwnApproval();
+    assertOwnOrSuperApproval();
     const at = isoNow(this.ctx);
-    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'move', by, at, note: null }, at);
+    const item = this.ctx.repos.inbox.close(
+      id,
+      'resolved',
+      this.decisionResolution(id, by, 'move', null, at),
+      at,
+    );
     if (item) this.publish(item);
+  }
+
+  /** Domain-owned transactions keep the same principal and Operator attribution as inbox.resolve. */
+  private decisionResolution(
+    id: string,
+    by: string,
+    optionId: string,
+    note: string | null,
+    at: string,
+  ): NonNullable<InboxItem['resolution']> {
+    const scope = integratorExecution();
+    if (scope?.principal.mode !== 'super') return { optionId, by, at, note };
+    assertOwnOrSuperApproval();
+    const item = this.ctx.repos.inbox.get(id)!;
+    const config = this.projects.cachedConfig(item.projectKey)!;
+    const owner = assertIntegratorAccess(config, 'write', scope.actor);
+    if (!owner) throw forbidden('insufficient_access', 'a current project owner is required');
+    if (!hasSuperOrigin(scope.actor))
+      throw forbidden('owner_approval_required', 'an Operator origin is required');
+    const refusal = superDecisionRefusal(item, {
+      operatorHandle: scope.actor.handle,
+      sessionMember: item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null,
+    });
+    if (refusal) throw forbidden(refusal, 'this item requires a person using their own login');
+    return this.resolution(
+      optionId,
+      { handle: owner.handle, access: owner.access, via: 'integrator', superActor: scope.actor },
+      at,
+      note,
+    );
+  }
+
+  private resolution(
+    optionId: string,
+    by: Resolver,
+    at: string,
+    note: string | null,
+    mode: 'decision' | 'relay' | 'todo' = 'decision',
+  ): NonNullable<InboxItem['resolution']> {
+    return {
+      optionId,
+      by: by.handle,
+      at,
+      note,
+      ...(by.via || by.superActor ? { via: 'integrator' as const } : {}),
+      ...(by.superActor ? { actor: by.superActor } : {}),
+      ...(by.superActor && mode === 'decision' ? { superDecision: true as const } : {}),
+      ...(mode === 'relay' ? { ownerAnswerRelayed: true as const } : {}),
+      ...(mode === 'todo' ? { integratorTodo: true as const, via: 'integrator' as const } : {}),
+    };
   }
 
   constructor(deps: {
@@ -949,7 +1020,14 @@ export class InboxService {
   ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
     const initialConfig = await this.projects.config(projectKey);
-    assertIntegratorAccess(initialConfig, 'write', by.superActor);
+    const principalOwner = assertIntegratorAccess(initialConfig, 'write', by.superActor);
+    const superScope = integratorExecution()?.principal.mode === 'super';
+    if (superScope) {
+      assertOwnOrSuperApproval(by);
+      if (!principalOwner || principalOwner.handle !== by.handle)
+        throw forbidden('insufficient_access', 'the resolver must be the authenticated owner');
+      by = { ...by, handle: principalOwner.handle, access: principalOwner.access, via: 'integrator' };
+    }
     if (integratorTodo) {
       if (integratorExecution()?.principal.mode !== 'super' || !by.superActor)
         throw forbidden(
@@ -974,10 +1052,15 @@ export class InboxService {
         'an integrator item needs the dedicated super endpoint or the owner login',
       );
     }
-    if (!['question', 'alert'].includes(item.kind)) assertOwnApproval(by);
+    if (item.kind === 'permission' || item.kind === 'boundary') assertOwnApproval(by);
+    else if (!['question', 'alert'].includes(item.kind)) assertOwnOrSuperApproval(by);
     if (req.attachmentIds !== undefined && item.kind !== 'question')
       throw invalid('invalid_request', 'only questions accept attachments', { field: 'attachmentIds' });
-    if (by.via && !['question', 'alert'].includes(item.kind))
+    if (
+      by.via &&
+      !['question', 'alert'].includes(item.kind) &&
+      (!by.superActor || item.kind === 'permission' || item.kind === 'boundary')
+    )
       throw forbidden(
         'owner_approval_required',
         'Only the owner may give this approval using their own login',
@@ -994,7 +1077,7 @@ export class InboxService {
       });
     // A question the integrator asked itself (PM-784) is answered by an owner's own login: neither a token nor
     // the integrator, in any mode, closes it, including by a direct core call.
-    const asked = item.kind === 'question' ? questionPayloadOf(item) : null;
+    const asked = item.kind === 'question' ? item.payload : null;
     const askedRefusal = asked
       ? externalQuestionAnswerRefusal(asked, {
           via: by.via ?? (integratorExecution() ? 'integrator' : undefined),
@@ -1003,27 +1086,32 @@ export class InboxService {
       : null;
     if (askedRefusal)
       throw forbidden(
-        askedRefusal,
+        superScope ? 'owner_approval_required' : askedRefusal,
         askedRefusal === 'super_relay_refused'
           ? 'The integrator cannot answer its own question'
           : 'Only the owner may decide this, using their own login',
       );
-    // A super-mode step on any other question only relays an answer to a plain information question.
+    // Every pending group member must be decidable; only an entirely relayable group is an information relay.
     let relayed = false;
-    if (by.superActor && item.kind === 'question' && !integratorTodo) {
-      const refuse = () =>
-        forbidden(
-          'super_relay_refused',
-          'The integrator may relay an answer only to a question that asks for information',
-        );
-      if (!isRelayableQuestionItem(item)) throw refuse();
-      // An answer to a question group closes every pending member, so each one must be relayable as well.
-      const relayGroup = this.ctx.repos.inbox.groupOf(id);
-      for (const memberId of relayGroup?.itemIds ?? []) {
-        const member = this.ctx.repos.inbox.get(memberId);
-        if (member && isPendingQuestion(member) && !isRelayableQuestionItem(member)) throw refuse();
+    if (superScope) {
+      const group = this.ctx.repos.inbox.groupOf(id);
+      const members = [
+        item,
+        ...(group?.itemIds ?? []).flatMap((memberId) => {
+          const row = this.ctx.repos.inbox.get(memberId);
+          return row && row.id !== id && isPendingQuestion(row) ? [row] : [];
+        }),
+      ];
+      for (const member of members) {
+        const refusal = superDecisionRefusal(member, {
+          operatorHandle: by.superActor!.handle,
+          sessionMember: member.sessionId ? this.ctx.repos.sessions.get(member.sessionId)?.member : null,
+        });
+        const question = member.kind === 'question' ? member.payload : null;
+        if (refusal || (question && externalQuestionAnswerRefusal(question, by)))
+          throw forbidden('owner_approval_required', 'this item requires a person using their own login');
       }
-      relayed = true;
+      relayed = !integratorTodo && members.every(isRelayableQuestionItem);
     }
     const operator = operatorApprovalOf(item);
     if (operatorKnowledgeApprovalOf(item)?.stale && req.optionId !== 'dismiss')
@@ -1106,16 +1194,13 @@ export class InboxService {
       await decide(item, by, req.optionId, note);
     }
     const at = isoNow(this.ctx);
-    const resolution = {
-      optionId: req.optionId,
-      by: by.handle,
+    const resolution = this.resolution(
+      req.optionId,
+      by,
       at,
       note,
-      ...(by.via ? { via: by.via } : {}),
-      ...(by.superActor ? { actor: by.superActor } : {}),
-      ...(relayed ? { ownerAnswerRelayed: true as const } : {}),
-      ...(integratorTodo ? { integratorTodo: true as const, via: 'integrator' as const } : {}),
-    };
+      integratorTodo ? 'todo' : relayed ? 'relay' : 'decision',
+    );
     const group = this.ctx.repos.inbox.groupOf(id);
     if (group) {
       if (id !== group.primaryItemId || !this.groupAnswer)
@@ -1126,6 +1211,7 @@ export class InboxService {
       });
       const answered: InboxItem[] = [];
       const closeGroup = () => {
+        assertIntegratorAccess(this.projects.cachedConfig(projectKey) ?? config, 'write', by.superActor);
         for (const row of members) {
           const resolved = this.ctx.repos.inbox.close(row.id, 'resolved', resolution, at);
           if (!resolved) throw conflict('inbox_item_closed', 'a group member is no longer pending');

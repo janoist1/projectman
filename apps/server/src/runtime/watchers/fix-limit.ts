@@ -50,7 +50,7 @@ import type { SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from '../../kernel';
-import { assertOwnApproval } from '../../kernel';
+import { assertIntegratorAccess, assertOwnOrSuperApproval, integratorExecution } from '../../kernel';
 
 type FixLimitEvent = TimelineEventData['task_fix_limit'];
 type Phase = NonNullable<TaskFixLimitRecord['holdPhase']>;
@@ -233,9 +233,10 @@ export class FixLimitWatch {
     reason: string,
     assessment?: unknown,
   ): Promise<{ phase: FixLimitPhase }> {
-    assertOwnApproval();
+    assertOwnOrSuperApproval();
     return this.cards.run(taskKey, async () => {
       const config = await this.projects.config(projectKey);
+      assertIntegratorAccess(config, 'write');
       const task = this.tasks.get(projectKey, taskKey);
       const record = this.ctx.repos.taskFixLimits.get(taskKey);
       if (!record?.holdPhase || record.holdPhase === 'owner')
@@ -245,7 +246,7 @@ export class FixLimitWatch {
           'fix_limit_not_decider',
           `${member} does not decide the fix round limit of ${taskKey}`,
         );
-      const actor = aiActor(member);
+      const actor = integratorExecution()?.actor ?? aiActor(member);
       if (decision === 'continue') {
         if (record.holdPhase === 'lead') this.anotherRound(task, record, actor, reason);
         else this.freshStart(task, record, actor, 'continue', reason);
@@ -277,7 +278,9 @@ export class FixLimitWatch {
       const by = item.resolution?.by ?? 'system';
       // The integrator's decision keeps its authenticated origin (PM-714); a person's is theirs.
       const actor =
-        item.resolution?.integratorFixLimit && item.resolution.actor ? item.resolution.actor : humanActor(by);
+        (item.resolution?.integratorFixLimit || item.resolution?.superDecision) && item.resolution.actor
+          ? item.resolution.actor
+          : humanActor(by);
       const note = item.resolution?.note ?? null;
       switch (item.resolution?.optionId) {
         case FIX_ANOTHER_ROUND_OPTION.id:

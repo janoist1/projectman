@@ -1,7 +1,7 @@
 import {
   assertIntegratorAccess,
   assertSuperMutation,
-  assertOwnApproval,
+  assertOwnOrSuperApproval,
   integratorExecution,
 } from '../../kernel';
 import {
@@ -225,7 +225,7 @@ export class TaskStarts {
     const config = await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', opts.actor);
     let task = this.tasks.get(projectKey, taskKey);
-    if (task.fixLimit && integratorExecution()) assertOwnApproval();
+    if (task.fixLimit && integratorExecution()) assertOwnOrSuperApproval();
     const skipped = { task, session: null, hired: null };
     if (opts.automatic && !this.canStartAutomatically(task)) return skipped;
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
@@ -320,7 +320,7 @@ export class TaskStarts {
     if (!startWanted) return skipped;
     // A person's Start of a card held by its fix round limit (PM-262) is one more round for its assignee.
     const anotherRound =
-      opts.actor.kind === 'human' &&
+      (opts.actor.kind === 'human' || isSuperOperatorActor(config, opts.actor)) &&
       task.assignee === member.handle &&
       !!this.fixLimit?.humanStart(task, opts.actor);
     if (task.assignee !== member.handle) {

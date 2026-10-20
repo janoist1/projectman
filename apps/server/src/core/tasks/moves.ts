@@ -45,7 +45,7 @@ import { requireHuman } from '../members';
 import { conflict, DomainError, projectManagerMoveRefused, themeRefused } from '../../kernel';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
-import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
+import { actorHandle, attributedActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
 import type { BoardOrder } from './board-order';
 import type { TaskLabels } from './labels';
 import { requireStage, runEffects } from './store';
@@ -200,7 +200,7 @@ export class TaskMoves {
     this.inbox.registerDecider('hand_on', async (item, by) => {
       const request = handOnRequestOf(item)!;
       const config = await this.store.projects.config(item.projectKey);
-      const actor = humanActor(by.handle);
+      const actor = attributedActor(by);
       requireHuman(config, actor, 'developer');
       const { handover, mergeChecked } = await this.prepareMove(
         config,
@@ -614,11 +614,18 @@ export class TaskMoves {
     }
     const effects: Effect[] = [];
     this.store.ctx.unitOfWork(() =>
-      this.decide(config, item, gate, humanActor(resolution.by), effects, {
-        ...prepared,
-        refused,
-        mergeMissing,
-      }),
+      this.decide(
+        config,
+        item,
+        gate,
+        resolution.superDecision && resolution.actor ? resolution.actor : humanActor(resolution.by),
+        effects,
+        {
+          ...prepared,
+          refused,
+          mergeMissing,
+        },
+      ),
     );
     await runEffects(effects);
   }
@@ -666,7 +673,9 @@ export class TaskMoves {
         return;
       }
       if (current.labels.includes(label)) continue;
-      const approver = humanActor(sibling.resolution!.by);
+      const resolution = sibling.resolution!;
+      const approver =
+        resolution.superDecision && resolution.actor ? resolution.actor : humanActor(resolution.by);
       try {
         const before = current;
         current = this.store.ctx.unitOfWork(() =>

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execCommand, ExecCommandError } from '../exec';
 
 /** Variables that would point git at another repository than the one named with `-C`. */
 const REPOSITORY_OVERRIDES = [
@@ -38,7 +38,7 @@ export class GitCommandError extends Error {
  * system and global configuration and the inherited GIT_CONFIG_* variables (for repositories a
  * member controls, see `member-workspace-manager.ts`).
  */
-export function git(
+export async function git(
   args: string[],
   opts: { timeoutMs?: number; isolatedConfig?: boolean } = {},
 ): Promise<string> {
@@ -54,28 +54,22 @@ export function git(
     delete env.GIT_SSH_COMMAND;
     delete env.GIT_ASKPASS;
   }
-  return new Promise((resolve, reject) => {
-    execFile(
-      'git',
+  try {
+    const { stdout } = await execCommand('git', args, {
+      env,
+      timeoutMs: opts.timeoutMs ?? GIT_TIMEOUT_MS,
+      maxOutputBytes: 32 * 1024 * 1024,
+    });
+    return stdout;
+  } catch (error) {
+    if (!(error instanceof ExecCommandError)) throw error;
+    throw new GitCommandError(
       args,
-      {
-        env,
-        encoding: 'utf8',
-        timeout: opts.timeoutMs ?? GIT_TIMEOUT_MS,
-        maxBuffer: 32 * 1024 * 1024,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(
-            new GitCommandError(args, stderr, typeof error.code === 'number' ? error.code : null, error),
-          );
-        } else {
-          resolve(stdout);
-        }
-      },
+      error.stderr,
+      error.reason === 'exit_code' ? error.exitCode : null,
+      error,
     );
-  });
+  }
 }
 
 /** Runs git; stdout on success, null when git exits with an error (for probes). */

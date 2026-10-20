@@ -51,6 +51,12 @@ modules:
       - apps/server/src/contracts/
 
   # Server: infra
+  - id: exec
+    area: infra
+    name: Egyszeri parancsok
+    summary: Külső parancsok indítása shell nélkül, kimenetkorláttal és TERM–KILL leállítással.
+    paths:
+      - apps/server/src/exec/
   - id: db
     area: infra
     kind: store

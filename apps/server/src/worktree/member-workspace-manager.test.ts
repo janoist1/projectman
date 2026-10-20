@@ -11,9 +11,10 @@ import type { MemberWorkspaceKey, MemberWorkspaceManager, WorkspaceDependencyIns
 import { createMemberWorkspaceManager } from './index';
 import { MemberWorkspaceError } from './member-workspace-manager';
 import { localWorkspaceAccess } from './workspace-access';
+import { createGitSeed } from '../../test/helpers/git-seed';
 
 /*
- * Every test builds its own repositories in a temp directory: a bare "remote", the project
+ * Every test copies independent repositories into a temp directory: a bare "remote", the project
  * repository cloned from it, and the member workspaces under their own root. The user's git
  * configuration is replaced by a test one.
  */
@@ -58,6 +59,7 @@ async function refusal(promise: Promise<unknown>): Promise<MemberWorkspaceError>
 }
 
 let configDir: string;
+let seed: ReturnType<typeof createGitSeed>;
 let base: string;
 let remote: string;
 let projectRepo: string;
@@ -73,6 +75,7 @@ beforeAll(async () => {
   );
   vi.stubEnv('GIT_CONFIG_GLOBAL', configFile);
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  seed = createGitSeed(path.join(configDir, 'seed'), { 'README.md': 'hello\n' });
 });
 
 afterAll(async () => {
@@ -85,11 +88,7 @@ beforeEach(async () => {
   remote = path.join(base, 'remote.git');
   const workspace = path.join(base, 'workspace');
   projectRepo = path.join(workspace, 'app');
-  await git('init', '--quiet', '--bare', '-b', 'main', remote);
-  await mkdir(workspace);
-  await git('clone', '--quiet', remote, projectRepo);
-  await commitFile(projectRepo, 'README.md', 'hello\n', 'Initial commit');
-  await git('-C', projectRepo, 'push', '--quiet', 'origin', 'main');
+  seed.copyTo(projectRepo, remote);
   const template = getTemplate('small-team')!;
   project = template.build({
     key: 'AR',

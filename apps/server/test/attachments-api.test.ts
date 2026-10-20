@@ -10,7 +10,8 @@ import {
 } from '@projectman/shared';
 import type { Attachment } from '@projectman/shared';
 import { aiActor } from '../src/kernel';
-import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import { createHumanSessions } from './helpers/human-sessions';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 import { fileBody, htmlBytes, pdfBytes, pngBytes, svgBytes, uploadFile } from './helpers/attachments';
@@ -19,18 +20,20 @@ import { Readable } from 'node:stream';
 describe('task attachments API', () => {
   let h: AppHarness;
   let owner: string;
-  const cookies: Record<string, string> = {};
+  let cookies: Record<string, string>;
 
   beforeEach(async () => {
     h = await createAppHarness();
     owner = await setupOwner(h.app);
     await createProject(h, owner);
-    cookies.admin = await addHumanAndLogin(h.app, { handle: 'ada', access: 'admin' });
-    cookies.developer = await addHumanAndLogin(h.app, { handle: 'robin', access: 'developer' });
-    cookies.other = await addHumanAndLogin(h.app, { handle: 'olga', access: 'developer' });
-    cookies.client = await addHumanAndLogin(h.app, { handle: 'cleo', access: 'client' });
-    cookies.viewer = await addHumanAndLogin(h.app, { handle: 'vic', access: 'viewer' });
-    cookies.stranger = await addHumanAndLogin(h.app, { handle: 'sam', projectKey: null });
+    cookies = await createHumanSessions(h.app, {
+      admin: { handle: 'ada', access: 'admin' },
+      developer: { handle: 'robin', access: 'developer' },
+      other: { handle: 'olga', access: 'developer' },
+      client: { handle: 'cleo', access: 'client' },
+      viewer: { handle: 'vic', access: 'viewer' },
+      stranger: { handle: 'sam', projectKey: null },
+    });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
     await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);

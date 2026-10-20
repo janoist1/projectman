@@ -21,6 +21,8 @@ const gitCalls = () => spawn.mock.calls.map(([, args]) => args);
 beforeEach(() => {
   // The members' sandboxes carry the PTY skip; the merge runs without it (PM-754).
   vi.stubEnv('PROJECTMAN_SKIP_PTY_TESTS', '');
+  // The merge sandbox sets the worker count; the tests decide it themselves.
+  vi.stubEnv('VITEST_MAX_FORKS', '');
 });
 afterEach(() => {
   vi.resetAllMocks();

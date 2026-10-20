@@ -66,6 +66,7 @@ describe('merge check repository (PM-876)', () => {
       report: null,
     });
     repos.mergeCheckRuns.markStarted('mergecheck_1', minute(2));
+    repos.mergeCheckRuns.markStarted('mergecheck_1', minute(5)); // the first turn stays
     repos.mergeCheckRuns.finish('mergecheck_1', { ...end('passed', 1), durationMs: 900, report });
     expect(repos.mergeCheckRuns.get('mergecheck_1')).toEqual({
       ...start(1, { kind: 'train', trainId: 'mrg_train', taskKeys: ['PM-3', 'PM-1'] }),

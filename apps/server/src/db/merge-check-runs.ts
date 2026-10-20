@@ -73,7 +73,7 @@ export function createMergeCheckRunRepository(db: Db) {
   const insertTask = db.prepare(
     'INSERT INTO merge_check_run_tasks (run_id, task_key, position) VALUES (?, ?, ?)',
   );
-  const markStarted = db.prepare('UPDATE merge_check_runs SET started_at = ? WHERE id = ?');
+  const markStarted = db.prepare('UPDATE merge_check_runs SET started_at = ? WHERE id = ? AND started_at IS NULL');
   const markEnded = db.prepare(
     `UPDATE merge_check_runs SET status = @status, reason = @reason, duration_ms = @durationMs,
        report_json = @report, finished_at = @finishedAt WHERE id = @id`,

@@ -167,9 +167,9 @@ export const hu: TemplateLocale = {
     ai_operator: {
       name: 'Operátor',
       summary:
-        'A tulajdonos kérésére átállítja, hogyan dolgozik a projekt: a tagok modelljét, a szabadságot, a szakaszok nevét, a szerepek utasításait. Amihez jóváhagyás kell, azt előkészíti, és a tulajdonosra vár.',
+        'A tulajdonos jobb keze: az appon belül mindent intéz, amit a tulajdonos is megtehet, a tagok modelljétől, szabadságától és a szerepek utasításaitól a tábláig. Amihez a tulajdonos saját igene kell (tagok, kulcsok, a projekt vagy egy repó törlése; a tulajdonos belépése és biztonsági beállításai; fizetős költség), azt előkészíti, és vár.',
       notTheirJob:
-        'Magától nem dolgozik, nem fejleszt, és nem ad jóváhagyást a tulajdonos helyett. Emberi tagot nem változtat.',
+        'Nem fejleszt, és nem dönt a tulajdonos helyett. Csak ember írására dolgozik, AI-tag üzenete nem ébreszti.',
       whenToAsk:
         'Ha a projekt működésén változtatnál (ki melyik modellel dolgozik, ki van szabadságon), vagy tudni szeretnéd, miért áll egy kártya.',
     },

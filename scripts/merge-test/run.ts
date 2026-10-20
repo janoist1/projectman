@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { isRepoFilePath } from '@projectman/shared';
+import { isRepoFilePath, MERGE_TEST_WORKERS_PREFIX } from '@projectman/shared';
 import { MODULES } from '../../apps/server/test/architecture/module-map';
 import { serverTestImpact } from './impact';
 import type { MergeTestFile } from './impact';
@@ -279,6 +279,9 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
     for (const step of steps) console.log(`merge-test step: npm ${step.args.join(' ')}`);
     return 0;
   }
+  // The worker count the steps run with (it is also part of the step cache key): PM-876.
+  const workers = process.env.VITEST_MAX_FORKS ?? '';
+  console.log(`${MERGE_TEST_WORKERS_PREFIX}${/^[1-9][0-9]{0,5}$/.test(workers) ? workers : 'unset'}`);
   try {
     for (const file of absent) console.log(`merge-test skipped (absent): ${file}`);
     return await runSteps(steps, {

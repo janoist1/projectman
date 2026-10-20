@@ -1142,6 +1142,62 @@ describe('cloud mode remote parts', () => {
       ]);
     });
 
+    describe('step report (PM-876)', () => {
+      const passed = {
+        outcome: 'passed' as const,
+        exitCode: 0,
+        durationMs: 1,
+        failedFiles: [],
+        outputTail: '',
+      };
+      const report = {
+        scope: 'modules' as const,
+        workers: 4,
+        commandMs: 90,
+        steps: [
+          {
+            index: 0,
+            kind: 'test' as const,
+            workspace: 'apps/server',
+            result: 'passed' as const,
+            durationMs: 80,
+          },
+        ],
+      };
+
+      it('fetches the report after the run and puts it on the result', async () => {
+        const engine = await online();
+        engine.answer('full_test.run', () => passed);
+        engine.answer('full_test.report', () => ({ state: 'ended' as const, report }));
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(fullTestSpec('f1'), new AbortController().signal);
+        expect(result).toEqual({ ...passed, report });
+        expect(engine.requests.filter((item) => item.method === 'full_test.report')).toEqual([
+          { method: 'full_test.report', params: { runId: 'f1' } },
+        ]);
+      });
+
+      it.each([
+        ['an older engine without the method', undefined],
+        ['an engine that no longer knows the run', () => ({ state: 'unknown' as const })],
+        [
+          'a failing report call',
+          () => {
+            throw new Error('boom');
+          },
+        ],
+      ])('leaves the report out, without an error, for %s', async (_name, handler) => {
+        const engine = await online();
+        engine.answer('full_test.run', () => passed);
+        if (handler) engine.answer('full_test.report', handler);
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(fullTestSpec('f1'), new AbortController().signal);
+        expect(result).toEqual(passed);
+      });
+    });
+
     it('blocks the run on an older engine that refuses npmCi, without repeating it without the field', async () => {
       const engine = await online();
       let ran = false;

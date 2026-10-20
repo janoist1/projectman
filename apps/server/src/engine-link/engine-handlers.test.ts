@@ -266,6 +266,30 @@ describe('engine handlers', () => {
       await expect(call('full_test.attach', { runId: 'missing' })).resolves.toEqual({ state: 'unknown' });
     });
 
+    it('keeps the step report out of the run and attach answers and gives it with full_test.report (PM-876)', async () => {
+      const report = { scope: 'all' as const, workers: 2, commandMs: 5, steps: [] };
+      const { call } = fullTestHarness(async () => ({ ...passed, report }));
+      await expect(call('full_test.run', { spec: fullSpec('measured') })).resolves.toEqual(passed);
+      await expect(call('full_test.attach', { runId: 'measured' })).resolves.toEqual({
+        state: 'ended',
+        result: passed,
+      });
+      await expect(call('full_test.report', { runId: 'measured' })).resolves.toEqual({
+        state: 'ended',
+        report,
+      });
+    });
+
+    it('answers full_test.report with a null report for a run that measured nothing, unknown for a missing run', async () => {
+      const { call } = fullTestHarness();
+      await call('full_test.run', { spec: fullSpec('plain') });
+      await expect(call('full_test.report', { runId: 'plain' })).resolves.toEqual({
+        state: 'ended',
+        report: null,
+      });
+      await expect(call('full_test.report', { runId: 'missing' })).resolves.toEqual({ state: 'unknown' });
+    });
+
     it('keeps a run across link closure and attaches through a replacement RPC connection', async () => {
       const started = deferred<void>();
       const ended = deferred<FullTestResult>();

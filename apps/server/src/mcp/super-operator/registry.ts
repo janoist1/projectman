@@ -53,6 +53,7 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   hand_off: MEMBER_DUTY,
   merge_task: MEMBER_DUTY,
   prioritize_merge: MEMBER_DUTY,
+  list_merge_checks: UNBOUND,
   link_pull_request: MEMBER_DUTY,
   save_memory: SESSION,
   set_current_work: SESSION,

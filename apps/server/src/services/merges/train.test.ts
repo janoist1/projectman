@@ -448,6 +448,78 @@ describe('merge train execution', () => {
     expect(runIds.size).toBe(count);
   });
 
+  describe('recorded merge checks (PM-876)', () => {
+    const report = {
+      scope: 'all' as const,
+      workers: 2,
+      commandMs: 90,
+      steps: [
+        {
+          index: 0,
+          kind: 'typecheck' as const,
+          workspace: 'packages/shared',
+          result: 'cached' as const,
+          durationMs: null,
+        },
+        {
+          index: 1,
+          kind: 'test' as const,
+          workspace: 'apps/server',
+          result: 'passed' as const,
+          durationMs: 80,
+        },
+      ],
+    };
+    const trains = () => h.repos.mergeCheckRuns.list({ projectKey: 'AR', kinds: ['train'], limit: 10 }).runs;
+
+    it('records the group check with its members, the worker count passed and the engine report', async () => {
+      await setup(2);
+      vi.mocked(executor.run).mockImplementation(async (_spec, _signal, started) => {
+        started?.();
+        return { ...passed, durationMs: 123, report };
+      });
+      pump();
+      await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+      await settled();
+      expect(trains()).toEqual([
+        expect.objectContaining({
+          projectKey: 'AR',
+          kind: 'train',
+          taskKeys: ['AR-1', 'AR-2'],
+          maxWorkers: reviewTest.maxWorkers,
+          status: 'passed',
+          durationMs: 123,
+          startedAt: expect.any(String),
+          finishedAt: expect.any(String),
+          report,
+        }),
+      ]);
+    });
+
+    it('records a failed group check with the report of its steps', async () => {
+      await setup(2);
+      vi.mocked(executor.run).mockResolvedValueOnce({
+        ...passed,
+        outcome: 'failed',
+        exitCode: 1,
+        durationMs: 77,
+        report,
+      });
+      pump();
+      await settled();
+      // Newest first: the oldest run is the failed one, whatever the isolation ran after it.
+      expect(trains().at(-1)).toMatchObject({ status: 'failed', durationMs: 77, report });
+    });
+
+    it('records a run that throws as an error without a time or report', async () => {
+      await setup(2);
+      vi.mocked(executor.run).mockRejectedValue(new Error('engine exploded'));
+      pump();
+      await settled();
+      expect(trains()[0]).toMatchObject({ status: 'error', durationMs: null, report: null });
+    });
+  });
+
   it('notes the flaky test files of a passed group check on every member, and merges them', async () => {
     await setup(3);
     vi.mocked(executor.run).mockResolvedValue({

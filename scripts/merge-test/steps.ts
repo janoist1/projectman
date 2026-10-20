@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
-import { MERGE_TEST_PASSED_STEP_PREFIX, mergeTestMarkerLine } from '@projectman/shared';
+import {
+  MERGE_TEST_PASSED_STEP_PREFIX,
+  mergeTestMarkerLine,
+  mergeTestTimingLine,
+  type MergeTestStepResult,
+} from '@projectman/shared';
 import { stripAnsi, vitestFailedFiles } from '../../apps/server/src/full-test/output';
 
 /** One command of the merge check (not a contract): `kind` tells the rerun rule what it may do. */
@@ -38,6 +43,8 @@ export interface MergeTestDeps {
   tree: string;
   passedKeysFile?: string;
   noCache?: boolean;
+  /** The clock in milliseconds; default `Date.now`. */
+  now?: () => number;
   log(line: string): void;
 }
 
@@ -165,38 +172,69 @@ export async function runSteps(steps: readonly MergeTestStep[], deps: MergeTestD
     passed.add(key);
     deps.log(`${MERGE_TEST_PASSED_STEP_PREFIX}${key}`);
   };
+  const now = deps.now ?? Date.now;
+  const timings: string[] = [];
+  // Printed at once (a run stopped by its timeout keeps what finished) and again at the end.
+  const timed = (
+    index: number,
+    step: MergeTestStep,
+    result: MergeTestStepResult,
+    durationMs: number | null,
+    rerunMs?: number,
+  ) => {
+    const line = mergeTestTimingLine({
+      index,
+      kind: step.kind,
+      workspace: step.workspace,
+      result,
+      durationMs,
+      ...(rerunMs === undefined ? {} : { rerunMs }),
+    });
+    timings.push(line);
+    deps.log(line);
+  };
   try {
-    for (const step of steps) {
+    for (const [index, step] of steps.entries()) {
       const key = mergeTestStepKey(deps.tree, step.args);
       if (cached.has(key)) {
         deps.log(`merge-test cached: npm ${step.args.join(' ')}`);
         markPassed(key);
+        timed(index, step, 'cached', null);
         continue;
       }
+      const startedAt = now();
       const first = await deps.spawn(step.args);
+      const firstMs = Math.max(0, now() - startedAt);
       if (first.code === 0 && !first.signaled) {
         markPassed(key);
+        timed(index, step, 'passed', firstMs);
         continue;
       }
       const files = rerunFiles(step, first, deps);
       if (!files) {
         if (step.kind === 'test' && !first.signaled)
           failed.push(...(failedRepoFiles(step, first.output) ?? []));
+        timed(index, step, 'failed', firstMs);
         return first.code;
       }
       deps.log(`merge-test: rerunning the failed files of ${step.workspace} once: ${files.join(', ')}`);
+      const rerunStarted = now();
       const again = await deps.spawn(testStep(step.workspace, files).args);
+      const rerunMs = Math.max(0, now() - rerunStarted);
       if (again.code === 0 && !again.signaled) {
         // A flaky result depends on the changed-file rerun rule and must keep its diagnostic on retries.
         flaky.push(...files);
+        timed(index, step, 'rerun_passed', firstMs, rerunMs);
         continue;
       }
       const still = again.signaled ? null : failedRepoFiles(step, again.output);
       failed.push(...(still?.length ? still : files));
+      timed(index, step, 'rerun_failed', firstMs, rerunMs);
       return again.code;
     }
     return 0;
   } finally {
+    for (const line of timings) deps.log(line);
     for (const key of passed) deps.log(`${MERGE_TEST_PASSED_STEP_PREFIX}${key}`);
     for (const file of new Set(failed)) deps.log(mergeTestMarkerLine('failed', file));
     for (const file of new Set(flaky)) deps.log(mergeTestMarkerLine('flaky', file));

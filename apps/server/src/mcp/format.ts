@@ -2,6 +2,7 @@ import { developerLevelText, isCardLink, isTheme, QUESTION_SCREENING_MINUTES } f
 import type {
   Attachment,
   MemberView,
+  MergeCheckRun,
   QuestionAttachment,
   Task,
   TimelineEvent,
@@ -37,6 +38,7 @@ import type {
   FeedbackToolMark,
   FeedbackToolResult,
   LocatedAttachmentForTool,
+  MergeCheckList,
   MessageAttachmentReading,
   ScreenshotFailure,
   ScreenshotRun,
@@ -440,10 +442,64 @@ export function formatTaskDetail(
   if (workers.length > 0) lines.push('', `Working on it now: ${workers.map(sessionText).join(', ')}`);
   if (others.length > 0)
     lines.push(...(workers.length > 0 ? [] : ['']), `Other sessions: ${others.map(sessionText).join(', ')}`);
+  if (detail.mergeChecks?.length)
+    lines.push('', 'Merge checks (latest 3, newest first):', ...detail.mergeChecks.flatMap(mergeCheckLines));
   if (detail.cardQuestions?.length)
     lines.push('', 'Questions to people on this card:', ...cardQuestionLines(detail.cardQuestions, task.key));
   lines.push('', ...timelineLines(timeline, detail.undeliveredMessageIds, detail.pendingSentMessages));
   return lines.join('\n');
+}
+
+/* ---------- merge checks ---------- */
+
+const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
+
+/** One merge check (PM-876): its head line, then one line per measured step; what was not measured says so. */
+function mergeCheckLines(run: MergeCheckRun): string[] {
+  const { report } = run;
+  const queueWait =
+    run.startedAt !== null
+      ? ` · queue wait ${Math.max(0, Math.round((Date.parse(run.startedAt) - Date.parse(run.requestedAt)) / 1000))} s`
+      : '';
+  const head = [
+    run.id,
+    `${run.kind} (${run.taskKeys.join(', ')})`,
+    run.repo,
+    run.commit.slice(0, 8),
+    run.reason ? `${run.status}/${run.reason}` : run.status,
+    run.durationMs === null ? 'duration unknown' : seconds(run.durationMs),
+    `workers ${run.maxWorkers} (seen ${report ? (report.workers ?? 'unset') : 'unknown'})`,
+    `scope ${report?.scope ?? 'unknown'}`,
+    ...(report
+      ? [report.commandMs === null ? 'command unknown' : `command ${seconds(report.commandMs)}`]
+      : []),
+    `requested ${formatTimestamp(run.requestedAt)}`,
+    ...(run.startedAt ? [`started ${formatTimestamp(run.startedAt)}`] : []),
+    ...(run.finishedAt ? [`finished ${formatTimestamp(run.finishedAt)}`] : []),
+  ].join(' · ');
+  if (!report) return [head + queueWait, '  steps: unknown (no step report from the engine)'];
+  if (report.steps.length === 0) return [head + queueWait, '  steps: none reported'];
+  return [
+    head + queueWait,
+    ...report.steps.map((step) => {
+      const took =
+        step.durationMs === null
+          ? 'cached (not measured)'
+          : step.result === 'rerun_passed' || step.result === 'rerun_failed'
+            ? `${step.result} ${seconds(step.durationMs)}${step.rerunMs === undefined ? '' : ` + rerun ${seconds(step.rerunMs)}`}`
+            : `${step.result} ${seconds(step.durationMs)}`;
+      return `  ${step.index + 1}. ${step.kind} ${step.workspace} — ${took}`;
+    }),
+  ];
+}
+
+/** list_merge_checks: the runs with the count and whether more match. */
+export function formatMergeChecks(list: MergeCheckList): string {
+  if (list.runs.length === 0) return 'No merge checks match.';
+  return [
+    `${list.runs.length} merge checks, newest first${list.hasMore ? ' (has_more: true, ask again with until set to the oldest requested time)' : ' (has_more: false)'}:`,
+    ...list.runs.flatMap(mergeCheckLines),
+  ].join('\n');
 }
 
 /* ---------- attachments ---------- */

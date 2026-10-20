@@ -1,4 +1,4 @@
-import type { FullTestErrorReason } from '@projectman/shared';
+import type { FullTestErrorReason, MergeTestReport } from '@projectman/shared';
 import type { MergeRepoRef } from './engine';
 
 /**
@@ -60,6 +60,12 @@ export interface FullTestResult {
    * passed: the `merge-test flaky:` marker lines, if any (PM-842).
    */
   outputTail: string;
+  /**
+   * The measurements read from the merge-test output (PM-876), for every end of the main command
+   * (passed, failed, timeout, killed); absent when it never ran, null when the output had no
+   * measurement (another command, an older script). It stays on the engine side of the wire.
+   */
+  report?: MergeTestReport | null;
 }
 
 /**

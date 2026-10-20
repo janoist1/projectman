@@ -1645,9 +1645,11 @@ workers follow the machine's size.
   The report, top twenty files and forty replay rows are attached to PM-866 and PM-849;
   PM-876 tracks the remaining time gap and the owner's structural options.
   Historical successful merge step times and worker counts cannot be reconstructed:
-  `passedOutputTail` retains flaky markers only. The complete check duration is stored
-  in `full_test_runs.duration_ms`, linked by the merge's `check.runId`, but no member
-  API/MCP or operator diagnostic exposes it. Requested-to-merged timeline intervals
+  `passedOutputTail` retains flaky markers only. Merge checks did not store their duration
+  before PM-876 (they call the executor directly and write no `full_test_runs` row); since then
+  every one is recorded in `merge_check_runs` (migration 92: time, queue wait, the `maxWorkers`
+  the hub passed, scope and step timings from the engine; `list_merge_checks`, `get_task`).
+  Runs before that have no record. Requested-to-merged timeline intervals
   include queue time and retries, so they are upper bounds. The last explicit setting
   record (PM-798, owner, 2026-10-19 11:38 UTC) reduced `reviewTest.maxWorkers` to two;
   it is not a per-run worker measurement. Only one merge at this cutoff contains all
@@ -2340,7 +2342,11 @@ workers follow the machine's size.
     60 minutes, at most 32, pruning on run/attach calls and completion without a timer. Cancel and
     final disposal forget records; link closure leaves the executor and records alive. Only run ids
     and strict full-test results cross the boundary. Protocol version stays 1; an older engine
-    answers `unknown_method`.
+    answers `unknown_method`. PM-876 adds `full_test.report {runId}`: the engine reads the bounded
+    `MergeTestReport` (scope, workers seen, step timings; no output) from the retained record, and the
+    host asks for it after `run`/`attach`. The `report` is cut from the `run`/`attach` answers, so
+    older hubs and engines keep their strict schemas; an older engine answers `unknown_method`, which
+    leaves the report unknown (null), never an error.
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents; PM-784: also the integrator's document write through the bearer MCP, same calls, started by the hub with no member session), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
     The cloud history copy also consumes `merge.read_file` and `merge.is_ancestor` (PM-744, PM-788):
     `services/history/document-sync.ts`, adapted to `EngineDirectory` in `assembly.ts`, reads the fixed
@@ -3613,6 +3619,19 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   reads, expiry, bounded merge and atomic writes; no cache data crosses the server/engine boundary.
   `FullTestSpec`, `FullTestResult` and engine-link schemas are unchanged.
   **Module:** `full-test`
+- **Merge check measurements (PM-876)** — `scripts/merge-test/{steps,run}.ts`, `full-test/index.ts`,
+  `engine-link/{methods,engine-handlers}.ts`, `engine-link/remote/host.ts`,
+  `services/merges/check-runs.ts`, `db/merge-check-runs.ts` (migration 92), `mcp/merges`.
+  The merge-test script, running in the executing machine's sandbox, prints one timing line per step
+  and the worker count it saw (`VITEST_MAX_FORKS`); the executor on that same machine parses its own
+  output into a bounded `MergeTestReport` (scope kind, workers, step timings; at most 64 steps). The hub
+  records every merge check (a card's merge, a train's group check, a member's diagnosis) in
+  `merge_check_runs` with the `maxWorkers` it passed, the queue wait and the report. **Machine
+  assumption:** none new; the clock is the executing machine's `Date.now()`. **Remote engine:** yes, it works:
+  the measurement stays on the engine, the full output never leaves it, and only the bounded report
+  crosses, in the separate `full_test.report` call (the `run`/`attach` schemas are unchanged). An older
+  engine answers `unknown_method`, so its checks show unknown steps. Related task: PM-876.
+  **Module:** `full-test`, `engine-link`, `services/merges`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without

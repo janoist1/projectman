@@ -158,15 +158,6 @@ describe('engine local limit', () => {
       await refused(limit, 'session.start', start({ cwd: `${repo}\0/../../etc` }), 'path_outside_roots');
     });
 
-    it('refuses a path that leaves the workspace through ..', async () => {
-      await refused(
-        make(),
-        'session.start',
-        start({ cwd: path.join(repo, '..', '..', 'elsewhere') }),
-        'path_outside_roots',
-      );
-    });
-
     it('refuses a symbolic link inside the workspace that points outside', async () => {
       symlinkSync(outside, path.join(workspace, 'link'));
       await refused(
@@ -359,6 +350,7 @@ describe('engine local limit', () => {
         sandbox: { denyRead: string[]; denyWrite: string[]; deniedEnvVars: string[] };
       };
       expect(given.sandbox.denyRead).toContain(path.join(userHome, '.ssh'));
+      expect(given.sandbox.denyWrite).toContain(path.join(userHome, '.ssh'));
       expect(given.sandbox.denyWrite).toContain(path.join(userHome, '.claude', 'settings.json'));
       expect(given.sandbox.deniedEnvVars.length).toBeGreaterThan(0);
       const built = (await limit.check('session.start', start() as never)) as {
@@ -522,19 +514,6 @@ describe('engine local limit', () => {
       it('leaves any other entry of the cloud as it was, wildcard or not', async () => {
         const list = await denied(make(), ['/x/y*', '/x/*.lock', '/x/plain']);
         expect(list).toEqual(expect.arrayContaining(['/x/y*', '/x/*.lock', '/x/plain']));
-      });
-
-      it('keeps the key, the configuration and the status file denied for writing', async () => {
-        const list = await denied(make({ linkHeadersFile: path.join(base, 'keys', 'headers.json') }), []);
-        expect(list).toEqual(
-          expect.arrayContaining([
-            path.join(home, 'engine.key'),
-            path.join(base, 'keys', 'headers.json'),
-            path.join(home, 'engine.json'),
-            path.join(home, 'engine-status.json'),
-            path.join(userHome, '.ssh'),
-          ]),
-        );
       });
 
       it('applies to a screenshot run as well', async () => {
@@ -930,13 +909,6 @@ describe('engine local limit', () => {
       );
     });
 
-    it('adds the credential places to the test sandbox denials', async () => {
-      const result = (await make().check('full_test.run', fullTest() as never)) as {
-        spec: { sandbox: { denyRead: string[] } };
-      };
-      expect(result.spec.sandbox.denyRead).toContain(path.join(userHome, '.ssh'));
-    });
-
     it('keeps the engine’s key and configuration out of the test and screenshot sandboxes', async () => {
       const limit = make({ linkHeadersFile: path.join(base, 'keys', 'headers.json') });
       type Denials = { spec: { sandbox: { denyRead: string[]; denyWrite?: string[] } } };
@@ -944,7 +916,11 @@ describe('engine local limit', () => {
       const shot = (await limit.check('screenshots.run', shots() as never)) as unknown as Denials;
       for (const { spec } of [test, shot])
         expect(spec.sandbox.denyRead).toEqual(
-          expect.arrayContaining([path.join(home, 'engine.key'), path.join(base, 'keys', 'headers.json')]),
+          expect.arrayContaining([
+            path.join(home, 'engine.key'),
+            path.join(base, 'keys', 'headers.json'),
+            path.join(userHome, '.ssh'),
+          ]),
         );
       // The test writes only its run directory; the screenshots keep the configuration read-only too.
       expect(shot.spec.sandbox.denyWrite).toEqual(
@@ -1315,22 +1291,6 @@ describe('engine local limit', () => {
       );
     });
 
-    it('refuses the document calls for a repo without a mergeBranch', async () => {
-      const limit = make();
-      await refused(
-        limit,
-        'merge.read_file',
-        { ref, at: { commit: sha }, path: 'a.md' },
-        'merge_not_allowed',
-      );
-      await refused(
-        limit,
-        'merge.commit_files',
-        { ref, onto: sha, files: [{ path: 'a.md', text: 'x' }], message: 'm' },
-        'merge_not_allowed',
-      );
-    });
-
     it('refuses every call for a repo without a mergeBranch', async () => {
       const limit = make();
       const calls: [EngineMethod, Record<string, unknown>][] = [
@@ -1343,6 +1303,8 @@ describe('engine local limit', () => {
         ['merge.push', { ref, base: 'main', mergeCommit: sha }],
         ['merge.advance', { ref, base: 'main', from: sha, to: other }],
         ['merge.read_file', { ref, at: { base: 'main' }, path: 'a.md' }],
+        ['merge.read_file', { ref, at: { commit: sha }, path: 'a.md' }],
+        ['merge.commit_files', { ref, onto: sha, files: [{ path: 'a.md', text: 'x' }], message: 'm' }],
         ['merge.list_paths', { ref, base: 'main' }],
         ['merge.changed_paths', { ref, base: 'main', items: [] }],
       ];

@@ -161,9 +161,9 @@ export const en: TemplateLocale = {
     ai_operator: {
       name: 'Operator',
       summary:
-        "At the owner's request changes how the project works: the members' models, leave, stage names and role instructions. What needs an approval it prepares, and waits for the owner.",
+        "The owner's right hand: inside the app it handles whatever the owner could, from the team's models, leave and role instructions to the board. What needs the owner's own yes (deleting members, keys, the project or a repository; the owner's login and security settings; paid cost) it prepares, and waits.",
       notTheirJob:
-        "Does not work on its own, does not develop, and does not give approvals in the owner's place. Does not change a person.",
+        "Does not develop, and does not decide in the owner's place. Works only when a person writes to it, not on an AI member's message.",
       whenToAsk:
         'When you want to change how the project works (who uses which model, who is on leave), or want to know why a card is stuck.',
     },

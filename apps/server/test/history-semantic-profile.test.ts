@@ -538,12 +538,12 @@ describe('a run against a real server bundle', () => {
   // The Linux ARM64 / cgroup / model measurement is the release check; this keeps the orchestration true on any host:
   // a fake host reads fixed numbers, the model is missing, so the semantic server never becomes ready and the run
   // must stop with `server_failed` after it measured the baseline over a real server, a real login and real searches.
-  const bundleDir = join(root, 'apps/server/dist', `profile-smoke-${process.pid}`);
-  afterEach(() => {
-    rmSync(bundleDir, { recursive: true, force: true });
-  });
-
   it('measures the baseline, reports the semantic server that did not come up and keeps the history text out', async () => {
+    // The bundle goes to the temp folder (the checkout can be read-only); the symlink lets it resolve its external
+    // dependencies, as the built `dist` does in the checkout.
+    const bundleDir = join(temp, 'smoke-bundle');
+    mkdirSync(bundleDir);
+    symlinkSync(join(root, 'node_modules'), join(bundleDir, 'node_modules'));
     const server = join(bundleDir, 'history-semantic-profile.js');
     await bundle('src/history-semantic-profile.ts', server, true);
     const i = { ...inputs(), server };

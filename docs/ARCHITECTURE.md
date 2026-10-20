@@ -1564,6 +1564,22 @@ workers follow the machine's size.
   one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
   still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
+- **Two server test projects (PM-865).** `apps/server/vitest.config.ts` has two `test.projects`, both
+  `extends: true`. `isolated` is plain vitest, a fresh module graph per file in a `forks` process. `pooled` runs
+  the files `pooledTests` (`apps/server/test/isolation.ts`) picks in the `threads` pool with `isolate: false`:
+  the files of a worker share its modules, process and globals, so the server's modules load once per worker,
+  not once per file. The choice is a machine rule, not a list kept by hand: a file is `isolated` when it, or a
+  test-side file it imports (under `test/`, `*test-helpers*`, fixtures), holds a pattern of
+  `ISOLATION_REQUIRED` (module mocks, `vi.resetModules`, `process.chdir`/`on`/`exitCode`/`env` writes, globals set
+  by hand, spies on `process`, fake timers nobody gives back) or is named in `ALWAYS_ISOLATED` (with a reason),
+  or is a PTY test. `test/isolation.test.ts` covers each pattern. `pooled` puts `vi.stubEnv` and
+  `vi.stubGlobal` back after each file (`test/setup/unstub-after-file.ts`; not after each test, which would end a
+  `beforeAll` stub early). Vitest decides whether a worker is recycled from the root
+  `poolOptions.<pool>.isolate`, never from a project's, so the root sets it for `threads` only. The pool's
+  `minThreads` equals its `maxThreads`: with fewer, tinypool ends an idle worker thread without isolation and the run
+  fails with "Terminating worker thread". The two pools would run at the same time, so `pooled` has
+  `sequence.groupOrder: 1`. `VITEST_MAX_FORKS` caps the threads too (`VITEST_MAX_THREADS` first). A failed file
+  is named `FAIL  |pooled| …` or `|isolated| …`; `merge-test` and `full-test/output.ts` read both.
 - **The server's merge check** runs the repository's `npm run merge-test` in the full test sandbox
   before the default branch moves (PM-386, PM-490, PM-657). The first-parent diff and the union of
   both git trees' import graphs select changed server modules and their transitive dependents.

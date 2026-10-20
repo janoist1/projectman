@@ -99,6 +99,28 @@ describe('runSteps', () => {
     expect(markers(t.lines)).toEqual(['merge-test flaky: apps/server/test/a.test.ts']);
   });
 
+  it('reruns the failed files of both server test projects with one absolute filter each (PM-865)', async () => {
+    const t = setup([
+      bad(
+        ' FAIL  |pooled| test/a.test.ts > suite > x\n FAIL  |isolated| src/b/b.test.ts > y\n FAIL  |pooled| test/a.test.ts > z\n',
+      ),
+      ok(),
+    ]);
+    expect(await t.run([server])).toBe(0);
+    expect(t.calls()[1]).toEqual([
+      'test',
+      '-w',
+      'apps/server',
+      '--',
+      resolve('apps/server/test/a.test.ts'),
+      resolve('apps/server/src/b/b.test.ts'),
+    ]);
+    expect(markers(t.lines)).toEqual([
+      'merge-test flaky: apps/server/test/a.test.ts',
+      'merge-test flaky: apps/server/src/b/b.test.ts',
+    ]);
+  });
+
   it('writes failed lines and returns the rerun code when the rerun fails', async () => {
     const t = setup([
       bad(failLines('test/a.test.ts', 'test/b.test.ts')),

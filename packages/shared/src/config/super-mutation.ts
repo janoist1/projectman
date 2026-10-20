@@ -4,6 +4,9 @@ import type { TaskKey, Visibility } from '../domain/task';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
 import { boundaryDelegationChanged, permissionsChanged } from './owner-only';
+import { memberDuties, roleBundle } from './duties';
+import { operatorFixedChange } from './operator';
+import { operatorOf } from './operator-member';
 
 /**
  * What stays the owner's in super mode (owner decision of 2026-10-20, PM-862 K3): deleting a member, key,
@@ -97,6 +100,7 @@ const DELETION_RESOURCES = new Set<string>(['member', 'repo', 'project', 'creden
  * boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
  */
 function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  if (operatorSelfChanged(previous, next)) return true;
   if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
     return true;
   if (permissionsChanged(previous, next) || boundaryDelegationChanged(previous, next)) return true;
@@ -117,6 +121,38 @@ function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean 
     // The e-mail is the member's login binding: rebinding it changes who can sign in as them.
     return before.access !== member.access || login(before.email) !== login(member.email);
   });
+}
+
+/** The Operator cannot rewrite its own member or role using its delegated authority. */
+function operatorSelfChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  if (operatorFixedChange(previous, next)) return true;
+  const operator = operatorOf(previous);
+  return (
+    !!operator &&
+    (canonical(operator) !== canonical(next.team.members.find((m) => m.handle === operator.handle)) ||
+      canonical(roleBundle(previous, operator.role)) !== canonical(roleBundle(next, operator.role)))
+  );
+}
+
+/** Shared by command planning and the final configuration commit, including direct super writes. */
+export function superConfigMutations(previous: ProjectConfig, next: ProjectConfig): SuperMutationCommand[] {
+  const mutations: SuperMutationCommand[] = [{ kind: 'config_change', next }];
+  const permissions = new Set<string>();
+  for (const before of previous.team.members) {
+    const after = next.team.members.find((m) => m.handle === before.handle);
+    if (
+      after &&
+      memberDuties(previous, before).includes('boundary_authorization') !==
+        memberDuties(next, after).includes('boundary_authorization')
+    )
+      permissions.add(before.handle);
+  }
+  if (operatorSelfChanged(previous, next)) {
+    const operator = operatorOf(previous) ?? operatorOf(next);
+    if (operator) permissions.add(operator.handle);
+  }
+  for (const handle of permissions) mutations.push({ kind: 'permission_change', handle });
+  return mutations;
 }
 
 /** Server-generated authorization projection, never an executable command or a client exemption. */

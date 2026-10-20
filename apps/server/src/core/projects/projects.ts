@@ -24,6 +24,7 @@ import {
   canonical,
   ownerOnlyChanges,
   unknownPatchRepo,
+  superConfigMutations,
   validateProjectConfig,
 } from '@projectman/shared';
 import type {
@@ -673,12 +674,8 @@ export class ProjectService {
         });
       }
     }
-    await authorizeSuperMutation({
-      projectKey: key,
-      previous,
-      actor: meta.actor,
-      command: { kind: 'config_change', next },
-    });
+    for (const command of superConfigMutations(previous, next))
+      await authorizeSuperMutation({ projectKey: key, previous, actor: meta.actor, command });
   }
 
   private async commitLocked(

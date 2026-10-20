@@ -978,9 +978,16 @@ operation stays `running`, and a registered settler finishes it from the result 
 found is `unknown`). A finished full test also lands on its card as `task_full_test` (outcome, run id, commit,
 duration, failed files; no output) and `super_operation_changed {operationId, state, resultKind}`; it writes no
 approval label and does not replace the merge's own mandatory test. A quick fix or a release keeps every human
-gate: the super actor can propose a release but not approve it, and a merge stays `merge_task` with its gates (a
-super `merge` command has no executor, 503 `super_executor_unavailable`). The MCP tools for these calls are bound
-by a later card; only their argument shapes (`super-operate.ts`) exist here.
+gate: the super actor can propose a release but not approve it. The common operation executors (PM-882,
+`services/super-operator/commands.ts` and `operate.ts`) call the task, admission, merge, configuration,
+member, invitation and credential domains as the bound Operator. A created card's key is recorded on the
+operation, and retries return that same result. Owner-reserved effects wait for the owner's own answer;
+an approved operation resumes only against its pinned configuration. Fixed Operator fields are refused
+before opening a question (`operator_fixed`), including role instructions; changes to its model, provider
+or effort require an owner answer. The final configuration commit applies the same shared projection to
+direct super writes. Login methods, key creation, the waiver, the NanoGPT key and super-rights management
+remain owner-login-only; `inbox_resolve` reserves its command shape for PM-883. The executors run on the hub;
+merge work uses the existing engine boundary.
 
 ## Project change journal (PM-761, part of the super mode PM-757)
 
@@ -1304,8 +1311,10 @@ installed only when missing from the working directory.
 
 ## Merge (PM-452)
 
-The system requests a merge; only the member selected by `cardMerger` starts it with `merge_task`,
-`POST /tasks/:taskKey/merge`, or the human inbox request. `mergeReadiness` and `mergeRepoOf` in shared
+The system requests a merge; the member selected by `cardMerger` starts it with `merge_task`,
+`POST /tasks/:taskKey/merge`, or the human inbox request. An authenticated super Operator may also start
+a normal merge (PM-882); conflict fix checkouts and resolution submissions remain the merger's.
+`mergeReadiness` and `mergeRepoOf` in shared
 configuration rules determine readiness and the forward moves that need the approved commit on the
 default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
 pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.merged`.

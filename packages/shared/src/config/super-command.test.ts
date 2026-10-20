@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SuperCommand } from '../api/super-handoff';
 import { SuperCommand as SuperCommandSchema } from '../api/super-handoff';
-import { ProjectConfig } from './schema';
+import { AiMemberConfig, ProjectConfig } from './schema';
 import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
 import type { SuperCommandContext } from './super-command';
 
@@ -148,4 +148,104 @@ describe('super command classification (PM-762)', () => {
       }).success,
     ).toBe(false);
   });
+
+  it.each([
+    { kind: 'task_create', request: { title: 'A card', labels: ['refine'] } },
+    { kind: 'task_update', taskKey: 'AC-1', request: { title: 'Changed' } },
+    { kind: 'task_labels', taskKey: 'AC-1', request: { add: ['scope-ok'] } },
+    { kind: 'task_start', taskKey: 'AC-1', request: {} },
+    { kind: 'task_cancel', taskKey: 'AC-1', request: {} },
+    { kind: 'inbox_resolve', itemId: 'inbox_1', request: { optionId: 'done' } },
+  ])('accepts and classifies the additive $kind command', (input) => {
+    const command = SuperCommandSchema.parse(input);
+    expect(effects(command)).toEqual([]);
+    expect(SuperCommandSchema.safeParse({ ...input, unexpected: true }).success).toBe(false);
+  });
+
+  it('projects task visibility against the current card', () => {
+    expect(
+      superCommandMutations(
+        { kind: 'task_create', request: { title: 'A card', visibility: 'shared' } },
+        context(),
+      ),
+    ).toContainEqual({ kind: 'task_visibility', taskKey: null, before: 'internal', after: 'shared' });
+    const command: SuperCommand = { kind: 'task_update', taskKey: 'AC-1', request: { visibility: 'shared' } };
+    expect(superCommandMutations(command, { ...context(), taskVisibility: () => 'internal' })).toContainEqual(
+      { kind: 'task_visibility', taskKey: 'AC-1', before: 'internal', after: 'shared' },
+    );
+    expect(superCommandMutations(command, { ...context(), taskVisibility: () => 'shared' })).toEqual([
+      { kind: 'routine', operation: 'task_write' },
+    ]);
+  });
+
+  it('reserves credential revocation for the owner', () => {
+    expect(effects(SuperCommandSchema.parse({ kind: 'credential_revoke', keyId: 'key_1' }))).toEqual([
+      'deletion',
+    ]);
+  });
+
+  it.each(['grant', 'remove'] as const)('reserves a boundary duty role change: %s', (direction) => {
+    const ctx = context();
+    const member = ctx.config.team.members.find((m) => m.handle === 'dev-1')!;
+    if (member.kind !== 'ai') throw new Error('expected AI fixture');
+    if (direction === 'remove') member.role = 'lead_developer';
+    const command = operate({
+      op: 'member_update',
+      handle: member.handle,
+      changes: { role: direction === 'grant' ? 'lead_developer' : 'developer' },
+    });
+    expect(superCommandMutations(command, ctx)).toContainEqual({
+      kind: 'permission_change',
+      handle: member.handle,
+    });
+    expect(superCommandEffects(command, ctx)).toEqual(['security']);
+  });
+
+  it('reserves a boundary role definition change in a config patch', () => {
+    const command = operate({
+      op: 'config_patch',
+      patch: {
+        roleOverrides: {
+          developer: { duties: ['implementation', 'boundary_authorization'], instructions: '' },
+        },
+      },
+    });
+    expect(superCommandMutations(command, context())).toContainEqual({
+      kind: 'permission_change',
+      handle: 'dev-1',
+    });
+    expect(effects(command)).toEqual(['security']);
+  });
+
+  it.each(['model', 'instructions', 'roleOverride'] as const)(
+    'reserves Operator self changes: %s',
+    (field) => {
+      const ctx = context();
+      ctx.config.team.members.push(
+        AiMemberConfig.parse({
+          handle: 'operator',
+          kind: 'ai',
+          displayName: 'Operator',
+          role: 'ai_operator',
+          sponsor: 'owner',
+        }),
+      );
+      const command: SuperCommand =
+        field === 'roleOverride'
+          ? operate({
+              op: 'config_patch',
+              patch: {
+                roleOverrides: {
+                  ai_operator: { duties: ['project_operation'], instructions: 'Updated role instructions' },
+                },
+              },
+            })
+          : { kind: 'member_update', handle: 'operator', request: { [field]: 'Updated value' } };
+      expect(superCommandMutations(command, ctx)).toContainEqual({
+        kind: 'permission_change',
+        handle: 'operator',
+      });
+      expect(superCommandEffects(command, ctx)).toEqual(['security']);
+    },
+  );
 });

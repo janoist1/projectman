@@ -254,7 +254,7 @@ export class Merges {
           reason: 'not_conflict',
         });
       const merger = row?.merger ?? cardMerger(config, task, this.reviewer(config, task));
-      if (!merger || actorHandle(actor) !== merger)
+      if (!merger || (actorHandle(actor) !== merger && !isSuperOperatorActor(config, actor)))
         throw forbidden('merge_not_merger', 'only the card merger may start the merge');
       if (row?.trainId) {
         const train = ctx.repos.mergeTrains.get(row.trainId);

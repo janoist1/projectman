@@ -11,6 +11,8 @@ import {
   ownerReservedEffect,
   questionPayloadOf,
   superCommandEffects,
+  superCommandMutations,
+  operatorFixedChange,
   superOperationName,
 } from '@projectman/shared';
 import type {
@@ -30,7 +32,7 @@ import type { SuperExecutionContext, SuperMutationAuthorizer } from '../../contr
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
-import type { ProjectAccess } from '../../core/members';
+import type { ProjectAccess, MemberService } from '../../core/members';
 import type { ProjectService } from '../../core/projects';
 import type { SuperAuditService, TimelineService } from '../../core/timeline';
 import type { StoredSuperHandoff, StoredSuperOperation } from '../../db';
@@ -68,7 +70,9 @@ export interface SuperExecutorJob {
  * Runs one kind of command. The service registers none by itself: a command whose kind has no executor in
  * this installation is refused (`super_executor_unavailable`), never run some other way.
  */
-export type SuperCommandExecutor = (job: SuperExecutorJob) => Promise<void | SuperExecutorPending>;
+export type SuperCommandExecutor = (
+  job: SuperExecutorJob,
+) => Promise<void | SuperExecutorPending | { taskKey: string }>;
 
 /**
  * What an executor returns when the work goes on elsewhere (a supervisor job that outlives the request): the
@@ -151,8 +155,8 @@ export const superCommandHash = (projectKey: string, command: SuperCommand): str
 
 const isTerminal = (state: SuperState) => SUPER_TERMINAL_STATES.includes(state);
 
-const isPending = (outcome: void | SuperExecutorPending): outcome is SuperExecutorPending =>
-  typeof outcome === 'object' && outcome !== null && outcome.pending === true;
+const isPending = (outcome: Awaited<ReturnType<SuperCommandExecutor>>): outcome is SuperExecutorPending =>
+  typeof outcome === 'object' && outcome !== null && 'pending' in outcome && outcome.pending === true;
 
 const subjectOf = (handoff: StoredSuperHandoff): Subject => ({
   projectKey: handoff.projectKey,
@@ -184,6 +188,7 @@ const codeOf = (error: unknown): string =>
 export class SuperHandoffService {
   private readonly ctx: DomainContext;
   private readonly projects: Pick<ProjectService, 'load' | 'versionConfig'>;
+  private readonly members: Pick<MemberService, 'prepareUpdate' | 'prepareHire' | 'prepareRetire'>;
   private readonly inbox: Pick<InboxService, 'create' | 'get' | 'expire' | 'cancel'>;
   private readonly timeline: TimelineService;
   private readonly audit: SuperAuditService;
@@ -196,12 +201,14 @@ export class SuperHandoffService {
   constructor(deps: {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'load' | 'versionConfig'>;
+    members: Pick<MemberService, 'prepareUpdate' | 'prepareHire' | 'prepareRetire'>;
     inbox: Pick<InboxService, 'create' | 'get' | 'expire' | 'cancel'>;
     timeline: TimelineService;
     audit: SuperAuditService;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
+    this.members = deps.members;
     this.inbox = deps.inbox;
     this.timeline = deps.timeline;
     this.audit = deps.audit;
@@ -408,7 +415,10 @@ export class SuperHandoffService {
       throw forbidden('integrator_not_allowed', 'only the integrator in super mode starts an operation');
     const keyId = scope.principal.keyId;
     this.sweep();
-    const taskKey = input.taskKey ?? null;
+    const commandTaskKey = 'taskKey' in input.command ? input.command.taskKey : null;
+    if (input.taskKey && commandTaskKey && input.taskKey !== commandTaskKey)
+      throw invalid('invalid_request', 'the command names another task than the operation');
+    const taskKey = input.taskKey ?? commandTaskKey;
     if (taskKey && this.ctx.repos.tasks.get(taskKey)?.projectKey !== projectKey)
       throw notFound('task', taskKey);
     const subject: Subject = {
@@ -423,7 +433,7 @@ export class SuperHandoffService {
     if (existing) {
       if (
         existing.handoffId !== null ||
-        existing.taskKey !== taskKey ||
+        (existing.taskKey !== taskKey && !(taskKey === null && input.command.kind === 'task_create')) ||
         existing.commandHash !== superCommandHash(projectKey, input.command)
       )
         throw conflict('super_request_conflict', 'this request id was used for another operation');
@@ -566,6 +576,7 @@ export class SuperHandoffService {
     let state: SuperState = 'succeeded';
     let errorCode: string | null = null;
     let detached = false;
+    let resultTaskKey: string | undefined;
     this.starting.add(operation.id);
     try {
       const outcome = await this.audit.runExternal(
@@ -581,6 +592,7 @@ export class SuperHandoffService {
         },
       );
       detached = isPending(outcome) && this.settlers.has(operation.command.kind);
+      if (outcome && 'taskKey' in outcome && operation.taskKey === null) resultTaskKey = outcome.taskKey;
     } catch (error) {
       // A refusal is a plain failure; anything else may have left an effect behind and is not guessed at.
       state = error instanceof DomainError && error.status < 500 ? 'failed' : 'unknown';
@@ -594,7 +606,12 @@ export class SuperHandoffService {
     if (detached) return publicOperation(current);
     return publicOperation(
       this.ctx.unitOfWork(() =>
-        this.move(current, state, { handoff: state, errorCode }, attributedActor(access)),
+        this.move(
+          current,
+          state,
+          { handoff: state, errorCode, taskKey: resultTaskKey },
+          attributedActor(access),
+        ),
       ),
     );
   }
@@ -687,11 +704,30 @@ export class SuperHandoffService {
       ? await this.projects.versionConfig(subject.projectKey, revertVersion).catch(() => null)
       : null;
     try {
-      return superCommandEffects(command, {
+      const context = {
         config,
         configVersion,
-        configAt: (version) => (version === revertVersion ? target : null),
-      });
+        configAt: (version: string) => (version === revertVersion ? target : null),
+        taskVisibility: (taskKey: string) => this.ctx.repos.tasks.get(taskKey)?.visibility ?? null,
+      };
+      let next = superCommandMutations(command, context).find((m) => m.kind === 'config_change')?.next;
+      const operation = command.kind === 'operate' ? command.operation : null;
+      if (command.kind === 'member_update' || operation?.op === 'member_update') {
+        next = structuredClone(config);
+        if (command.kind === 'member_update')
+          this.members.prepareUpdate(next, command.handle, command.request);
+        else if (operation?.op === 'member_update')
+          this.members.prepareUpdate(next, operation.handle, operation.changes);
+      } else if (operation?.op === 'member_hire') {
+        next = structuredClone(config);
+        this.members.prepareHire(subject.projectKey, next, operation.request, ownerHandles(config)[0]!);
+      } else if (operation?.op === 'member_retire') {
+        next = structuredClone(config);
+        this.members.prepareRetire(next, operation.handle);
+      }
+      const fixed = next && operatorFixedChange(config, next);
+      if (fixed) throw conflict('operator_fixed', 'the fixed Operator fields cannot change', fixed);
+      return superCommandEffects(command, context);
     } catch (error) {
       if (error instanceof SuperCommandUnclassifiable)
         throw forbidden('integrator_not_allowed', 'this command cannot be classified, so it is not run');
@@ -829,7 +865,12 @@ export class SuperHandoffService {
   private move(
     operation: StoredSuperOperation,
     state: SuperState,
-    to: { handoff: SuperState; keepOperation?: boolean; errorCode?: string | null },
+    to: {
+      handoff: SuperState;
+      keepOperation?: boolean;
+      errorCode?: string | null;
+      taskKey?: string | undefined;
+    },
     actor: Actor,
   ): StoredSuperOperation {
     const repo = this.ctx.repos.superHandoffs;
@@ -838,11 +879,13 @@ export class SuperHandoffService {
       state,
       updatedAt: at,
       ...(to.errorCode !== undefined ? { errorCode: to.errorCode } : {}),
+      ...(to.taskKey !== undefined && operation.taskKey === null ? { taskKey: to.taskKey } : {}),
     };
     if (!repo.casOperation(operation.projectKey, operation.id, operation.revision, patch))
       throw conflict('super_handoff_busy', 'the operation was moved by another client');
     const moved: StoredSuperOperation = {
       ...operation,
+      taskKey: patch.taskKey ?? operation.taskKey,
       state,
       errorCode: to.errorCode !== undefined ? to.errorCode : operation.errorCode,
       revision: operation.revision + 1,
@@ -860,7 +903,7 @@ export class SuperHandoffService {
       )
         throw conflict('super_handoff_busy', 'the handoff was moved by another client');
     }
-    this.recordChange(moved, operation.taskKey, actor, handoff?.id ?? null, to.handoff);
+    this.recordChange(moved, moved.taskKey, actor, handoff?.id ?? null, to.handoff);
     return moved;
   }
 

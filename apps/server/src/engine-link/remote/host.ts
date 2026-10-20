@@ -40,6 +40,8 @@ const SCREENSHOT_GRACE_MS = 60_000;
 const CANCEL_TIMEOUT_MS = 10_000;
 // A full test's cancel is answered when the run has ended, after its processes were stopped.
 const FULL_TEST_CANCEL_WAIT_MS = 60_000;
+/** The step report (PM-876) is a lookup in the engine's memory; it never holds the merge back. */
+const FULL_TEST_REPORT_TIMEOUT_MS = 10_000;
 // One git step of the engine's merger waits up to 120 s. These are the engine's worst cases (steps in a
 // row, and the five-minute dependency copy), so the cloud never gives up before the engine has.
 const MERGE_WAIT_MS = 600_000; // up to five git steps
@@ -208,150 +210,171 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       },
     };
 
+    const runFullTest: FullTestExecutor['run'] = async (spec, signal, onStarted, options) => {
+      const startedAt = now();
+      const linkWaitMs = options?.linkWaitMs ?? 0;
+      // An older engine never sends `full_test_started`: the caller stays at its waiting step.
+      if (onStarted) fullStarted.set(spec.runId, onStarted);
+      // The engine answers a cancel when the run has ended and cleaned up; one cancel serves both paths.
+      let cancelled: Promise<void> | null = null;
+      const cancel = (): Promise<void> => {
+        cancelled ??= call(
+          'full_test.cancel',
+          { runId: spec.runId },
+          { timeoutMs: FULL_TEST_CANCEL_WAIT_MS },
+        ).then(
+          () => {},
+          () => {},
+        );
+        return cancelled;
+      };
+      let waitingForLink = false;
+      const onAbort = () => {
+        if (!waitingForLink) void cancel();
+      };
+      const errorResult = (
+        reason: NonNullable<FullTestResult['reason']>,
+        outputTail = '',
+      ): FullTestResult => ({
+        outcome: 'error',
+        reason,
+        outputTail,
+        exitCode: null,
+        durationMs: now() - startedAt,
+        failedFiles: [],
+      });
+      const follow = async (): Promise<FullTestResult> => {
+        for (let losses = 0; losses < FULL_TEST_LINK_WAITS; losses++) {
+          waitingForLink = true;
+          options?.onLinkWait?.(true);
+          logger.info(
+            { engineId: id, runId: spec.runId, outcome: 'waiting' },
+            'a full test waits for its engine to reconnect',
+          );
+          const back = await hub.awaitLink(id, linkWaitMs, signal);
+          if (back === 'aborted' || signal.aborted) return errorResult('killed');
+          if (back === 'timeout')
+            return errorResult(
+              'engine_offline',
+              `engine ${id} did not reconnect within ${linkWaitMs / 60_000} minutes`,
+            );
+          waitingForLink = false;
+          options?.onLinkWait?.(false);
+          try {
+            const attached = await call(
+              'full_test.attach',
+              { runId: spec.runId },
+              {
+                timeoutMs: Math.max(0, spec.timeoutMs - (now() - startedAt)) + FULL_TEST_GRACE_MS,
+              },
+            );
+            logger.info(
+              {
+                engineId: id,
+                runId: spec.runId,
+                outcome: attached.state === 'ended' ? attached.result.outcome : attached.state,
+              },
+              'a full test was followed after a reconnect',
+            );
+            return attached.state === 'ended'
+              ? attached.result
+              : errorResult('engine_offline', 'the engine no longer knows the run');
+          } catch (err) {
+            if (linkDown(err)) continue;
+            if (err instanceof EngineCallError && err.linkCode === 'unknown_method') {
+              await cancel();
+              return errorResult(
+                'engine_offline',
+                'the engine cannot hand over a run after a reconnect; update it',
+              );
+            }
+            throw err;
+          }
+        }
+        return errorResult('engine_offline', 'the engine kept losing its link');
+      };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+      try {
+        try {
+          return await call('full_test.run', { spec }, { timeoutMs: spec.timeoutMs + FULL_TEST_GRACE_MS });
+        } catch (err) {
+          if (linkDown(err) && linkWaitMs > 0) return await follow();
+          throw err;
+        }
+      } catch (err) {
+        logger.warn({ err, engineId: id, runId: spec.runId }, 'a full test did not end on its engine');
+        // The call timed out or was cut off while the engine may still run it: a dependency installation
+        // must not go on unattended (PM-681). The engine ends the run and frees its heavy-run lock; the
+        // caller removes the check checkout only after that, so the cancel is waited for.
+        if (err instanceof EngineCallError && err.linkCode === 'timeout') {
+          await cancel();
+          return {
+            outcome: 'error',
+            reason: signal.aborted ? 'killed' : 'timeout',
+            exitCode: null,
+            durationMs: now() - startedAt,
+            failedFiles: [],
+            outputTail: '',
+          };
+        }
+        // An older engine's strict schema refuses `npmCi` before it runs anything (PM-681): the run is
+        // blocked, never repeated without the dependency preparation it asked for.
+        if (spec.npmCi && err instanceof EngineCallError && err.linkCode === 'invalid_params')
+          return {
+            outcome: 'error',
+            reason: 'dependency_install_failed',
+            exitCode: null,
+            durationMs: now() - startedAt,
+            failedFiles: [],
+            outputTail: `engine ${id} refused the request: it does not support the dependency preparation (npmCi). Update the engine to this version of projectman.`,
+          };
+        // An older engine's strict schema refuses `requireHeavyLock` before it runs anything (PM-658):
+        // the run is blocked, never repeated without the flag.
+        if (spec.requireHeavyLock && err instanceof EngineCallError && err.linkCode === 'invalid_params')
+          return {
+            outcome: 'error',
+            reason: 'heavy_lock_unavailable',
+            exitCode: null,
+            durationMs: now() - startedAt,
+            failedFiles: [],
+            outputTail: `engine ${id} refused the request: it does not support the required heavy-run queue (requireHeavyLock). Update the engine to this version of projectman.`,
+          };
+        if (linkDown(err)) return errorResult('engine_offline');
+        // A refusal or a failed handler is not a link loss: merge callers must not restart it.
+        return errorResult(
+          'spawn_failed',
+          `engine ${id} could not execute the full test request${err instanceof EngineCallError ? ` (${err.linkCode})` : ''}`,
+        );
+      } finally {
+        fullStarted.delete(spec.runId);
+        signal.removeEventListener('abort', onAbort);
+      }
+    };
+
     const fullTestExecutor: FullTestExecutor = {
       async available() {
         // The engine's own sandbox answers at the run; here only whether it can be reached at all.
         return hub.link(id) ? { ok: true } : { ok: false, reason: 'engine_offline' };
       },
       async run(spec, signal, onStarted, options) {
-        const startedAt = now();
-        const linkWaitMs = options?.linkWaitMs ?? 0;
-        // An older engine never sends `full_test_started`: the caller stays at its waiting step.
-        if (onStarted) fullStarted.set(spec.runId, onStarted);
-        // The engine answers a cancel when the run has ended and cleaned up; one cancel serves both paths.
-        let cancelled: Promise<void> | null = null;
-        const cancel = (): Promise<void> => {
-          cancelled ??= call(
-            'full_test.cancel',
-            { runId: spec.runId },
-            { timeoutMs: FULL_TEST_CANCEL_WAIT_MS },
-          ).then(
-            () => {},
-            () => {},
-          );
-          return cancelled;
-        };
-        let waitingForLink = false;
-        const onAbort = () => {
-          if (!waitingForLink) void cancel();
-        };
-        const errorResult = (
-          reason: NonNullable<FullTestResult['reason']>,
-          outputTail = '',
-        ): FullTestResult => ({
-          outcome: 'error',
-          reason,
-          outputTail,
-          exitCode: null,
-          durationMs: now() - startedAt,
-          failedFiles: [],
-        });
-        const follow = async (): Promise<FullTestResult> => {
-          for (let losses = 0; losses < FULL_TEST_LINK_WAITS; losses++) {
-            waitingForLink = true;
-            options?.onLinkWait?.(true);
-            logger.info(
-              { engineId: id, runId: spec.runId, outcome: 'waiting' },
-              'a full test waits for its engine to reconnect',
-            );
-            const back = await hub.awaitLink(id, linkWaitMs, signal);
-            if (back === 'aborted' || signal.aborted) return errorResult('killed');
-            if (back === 'timeout')
-              return errorResult(
-                'engine_offline',
-                `engine ${id} did not reconnect within ${linkWaitMs / 60_000} minutes`,
-              );
-            waitingForLink = false;
-            options?.onLinkWait?.(false);
-            try {
-              const attached = await call(
-                'full_test.attach',
-                { runId: spec.runId },
-                {
-                  timeoutMs: Math.max(0, spec.timeoutMs - (now() - startedAt)) + FULL_TEST_GRACE_MS,
-                },
-              );
-              logger.info(
-                {
-                  engineId: id,
-                  runId: spec.runId,
-                  outcome: attached.state === 'ended' ? attached.result.outcome : attached.state,
-                },
-                'a full test was followed after a reconnect',
-              );
-              return attached.state === 'ended'
-                ? attached.result
-                : errorResult('engine_offline', 'the engine no longer knows the run');
-            } catch (err) {
-              if (linkDown(err)) continue;
-              if (err instanceof EngineCallError && err.linkCode === 'unknown_method') {
-                await cancel();
-                return errorResult(
-                  'engine_offline',
-                  'the engine cannot hand over a run after a reconnect; update it',
-                );
-              }
-              throw err;
-            }
-          }
-          return errorResult('engine_offline', 'the engine kept losing its link');
-        };
-        if (signal.aborted) onAbort();
-        else signal.addEventListener('abort', onAbort, { once: true });
+        const result = await runFullTest(spec, signal, onStarted, options);
+        // The step measurements (PM-876) come in their own call, so no older engine or hub breaks on
+        // them. They are optional: an engine that does not know the method, no link, or any error
+        // leaves them out, and the run's result stays as it is.
+        // A call to an engine without a link would wait for it to come back: the report is not worth that.
+        if (!hub.link(id)) return result;
         try {
-          try {
-            return await call('full_test.run', { spec }, { timeoutMs: spec.timeoutMs + FULL_TEST_GRACE_MS });
-          } catch (err) {
-            if (linkDown(err) && linkWaitMs > 0) return await follow();
-            throw err;
-          }
-        } catch (err) {
-          logger.warn({ err, engineId: id, runId: spec.runId }, 'a full test did not end on its engine');
-          // The call timed out or was cut off while the engine may still run it: a dependency installation
-          // must not go on unattended (PM-681). The engine ends the run and frees its heavy-run lock; the
-          // caller removes the check checkout only after that, so the cancel is waited for.
-          if (err instanceof EngineCallError && err.linkCode === 'timeout') {
-            await cancel();
-            return {
-              outcome: 'error',
-              reason: signal.aborted ? 'killed' : 'timeout',
-              exitCode: null,
-              durationMs: now() - startedAt,
-              failedFiles: [],
-              outputTail: '',
-            };
-          }
-          // An older engine's strict schema refuses `npmCi` before it runs anything (PM-681): the run is
-          // blocked, never repeated without the dependency preparation it asked for.
-          if (spec.npmCi && err instanceof EngineCallError && err.linkCode === 'invalid_params')
-            return {
-              outcome: 'error',
-              reason: 'dependency_install_failed',
-              exitCode: null,
-              durationMs: now() - startedAt,
-              failedFiles: [],
-              outputTail: `engine ${id} refused the request: it does not support the dependency preparation (npmCi). Update the engine to this version of projectman.`,
-            };
-          // An older engine's strict schema refuses `requireHeavyLock` before it runs anything (PM-658):
-          // the run is blocked, never repeated without the flag.
-          if (spec.requireHeavyLock && err instanceof EngineCallError && err.linkCode === 'invalid_params')
-            return {
-              outcome: 'error',
-              reason: 'heavy_lock_unavailable',
-              exitCode: null,
-              durationMs: now() - startedAt,
-              failedFiles: [],
-              outputTail: `engine ${id} refused the request: it does not support the required heavy-run queue (requireHeavyLock). Update the engine to this version of projectman.`,
-            };
-          if (linkDown(err)) return errorResult('engine_offline');
-          // A refusal or a failed handler is not a link loss: merge callers must not restart it.
-          return errorResult(
-            'spawn_failed',
-            `engine ${id} could not execute the full test request${err instanceof EngineCallError ? ` (${err.linkCode})` : ''}`,
+          const answer = await call(
+            'full_test.report',
+            { runId: spec.runId },
+            { timeoutMs: FULL_TEST_REPORT_TIMEOUT_MS },
           );
-        } finally {
-          fullStarted.delete(spec.runId);
-          signal.removeEventListener('abort', onAbort);
+          return answer.state === 'ended' ? { ...result, report: answer.report } : result;
+        } catch (err) {
+          if (!(err instanceof EngineCallError && err.linkCode === 'unknown_method'))
+            logger.info({ err, engineId: id, runId: spec.runId }, 'no step report from the engine');
+          return result;
         }
       },
     };

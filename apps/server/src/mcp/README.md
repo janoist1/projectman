@@ -171,6 +171,14 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   someone else with `merge_not_merger`. The reason and the cards it went ahead of go on the card's timeline
   (`task_merge_prioritized`). Handler method: `prioritizeMerge(ctx, { taskKey, reason })`. An owner does the
   same in the UI (`POST …/tasks/:taskKey/merge/prioritize`, the "Előre" button of the queued merge box).
+- `list_merge_checks { task_key?, outcome?, kind?, since?, until?, limit? }` (PM-876, read only, every AI member) lists
+  the recorded merge checks (`merge_check_runs`) newest first: the check's run time (the queue wait apart), the workers
+  the hub passed, the scope and every step with its time and result (a cached step is marked, not timed). `outcome` is
+  `passed`, `not_passed` (failed, error, cancelled, still running) or `any`; `kind` is `checks` (default: a single merge
+  and a train's group check), `merge`, `train`, `diagnose` or `any`; `since`/`until` are ISO 8601 with a time zone and bound
+  the request time; `limit` is 1–100 (30). A check shows only when the caller may see all its cards. A check recorded
+  without a step report (an older engine or merge-test script) shows its steps as unknown, never as zero. `get_task`
+  adds the card's latest three checks. Handler method: `listMergeChecks(ctx, input)`.
 - `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
   not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
   candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the

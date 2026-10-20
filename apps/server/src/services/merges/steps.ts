@@ -20,6 +20,7 @@ import { conflict } from '../../kernel';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import type { MergeDeps, MergeRun } from './deps';
+import { recordMergeCheck } from './check-runs';
 import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import { notifyMerge } from './notify';
 import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
@@ -464,6 +465,7 @@ export class MergeSteps {
           if (!this.continue(running)) return;
           let result;
           const runId = newId('mergecheck');
+          const { reviewTest } = repo;
           let checkStep: 'check_waiting' | 'checking' = 'check_waiting';
           try {
             const worktree = await engine.worktrees.find({
@@ -485,40 +487,58 @@ export class MergeSteps {
             });
             if (!this.continue(running)) return;
             const paths = engine.paths();
-            result = await executor.run(
+            result = await recordMergeCheck(
+              ctx,
               {
-                runId,
-                cwd: checkout.path,
-                command: repo.reviewTest.command,
-                maxWorkers: repo.reviewTest.maxWorkers,
-                timeoutMs: repo.reviewTest.timeoutMinutes * 60_000,
-                // One heavy run at a time on the machine, whatever happens to the queue (PM-658).
-                requireHeavyLock: true,
-                ...(checkout.dependencyInstallRequired === true ? { npmCi: { ref, mergeId: row.id } } : {}),
-                sandbox: this.deps.checkSandbox({
-                  checkout: checkout.path,
-                  gitDir: checkout.gitDir,
-                  userHome: paths.userHome,
-                  appHome: paths.home ?? undefined,
-                  closedTmpRoots: [
-                    ...paths.claudeTmpRoots,
-                    ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
-                  ],
-                }),
+                id: runId,
+                projectKey: row.projectKey,
+                repo: row.repo,
+                kind: 'merge',
+                trainId: null,
+                taskKeys: [row.taskKey],
+                commit: built.mergeCommit,
+                base: onto,
+                maxWorkers: reviewTest.maxWorkers,
               },
-              running.signal!,
-              () => {
-                checkStep = 'checking';
-                if (this.continue(running) && row.step !== 'engine_waiting')
-                  this.save(row, { step: checkStep });
-              },
-              {
-                linkWaitMs: MERGE_ENGINE_WAIT_MS,
-                onLinkWait: (waiting) => {
-                  if (this.continue(running))
-                    this.save(row, { step: waiting ? 'engine_waiting' : checkStep });
-                },
-              },
+              (markStarted) =>
+                executor.run(
+                  {
+                    runId,
+                    cwd: checkout.path,
+                    command: reviewTest.command,
+                    maxWorkers: reviewTest.maxWorkers,
+                    timeoutMs: reviewTest.timeoutMinutes * 60_000,
+                    // One heavy run at a time on the machine, whatever happens to the queue (PM-658).
+                    requireHeavyLock: true,
+                    ...(checkout.dependencyInstallRequired === true
+                      ? { npmCi: { ref, mergeId: row.id } }
+                      : {}),
+                    sandbox: this.deps.checkSandbox({
+                      checkout: checkout.path,
+                      gitDir: checkout.gitDir,
+                      userHome: paths.userHome,
+                      appHome: paths.home ?? undefined,
+                      closedTmpRoots: [
+                        ...paths.claudeTmpRoots,
+                        ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
+                      ],
+                    }),
+                  },
+                  running.signal!,
+                  () => {
+                    markStarted();
+                    checkStep = 'checking';
+                    if (this.continue(running) && row.step !== 'engine_waiting')
+                      this.save(row, { step: checkStep });
+                  },
+                  {
+                    linkWaitMs: MERGE_ENGINE_WAIT_MS,
+                    onLinkWait: (waiting) => {
+                      if (this.continue(running))
+                        this.save(row, { step: waiting ? 'engine_waiting' : checkStep });
+                    },
+                  },
+                ),
             );
           } catch (err) {
             if (!this.continue(running)) return;

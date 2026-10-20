@@ -1303,6 +1303,95 @@ describe('member initiated merge', () => {
     expect(steps).toEqual(['check_waiting', 'checking']);
   });
 
+  describe('recorded merge check (PM-876)', () => {
+    const runs = () => h!.repos.mergeCheckRuns.list({ projectKey: 'AR', limit: 10 }).runs;
+    const report = {
+      scope: 'modules' as const,
+      workers: 4,
+      commandMs: 50,
+      steps: [
+        {
+          index: 0,
+          kind: 'test' as const,
+          workspace: 'apps/server',
+          result: 'passed' as const,
+          durationMs: 40,
+        },
+      ],
+    };
+
+    it.each([2, 4])(
+      'records the check with %i workers, its queue turn and the engine report',
+      async (workers) => {
+        const executor = fakeExecutor();
+        vi.mocked(executor.run).mockImplementation(async (_spec, _signal, onStarted) => {
+          onStarted?.();
+          return { ...passed, durationMs: 50, report };
+        });
+        await setup({
+          executor,
+          adjust: (c) => {
+            c.project.repos[0]!.reviewTest = { ...reviewTest, maxWorkers: workers };
+          },
+        });
+        await start();
+        await merged();
+        expect(vi.mocked(executor.run).mock.calls[0]![0].maxWorkers).toBe(workers);
+        expect(runs()).toEqual([
+          expect.objectContaining({
+            kind: 'merge',
+            taskKeys: ['AR-1'],
+            trainId: null,
+            maxWorkers: workers,
+            status: 'passed',
+            durationMs: 50,
+            startedAt: expect.any(String),
+            report,
+          }),
+        ]);
+      },
+    );
+
+    it.each([
+      ['failed', 'failed', 'failed'],
+      ['error', 'error', 'check_error'],
+    ] as const)('records a %s check as %s', async (outcome, status, blockReason) => {
+      await setup({
+        executor: fakeExecutor({ ...passed, outcome, durationMs: 9, report }),
+        adjust: (c) => {
+          c.project.repos[0]!.reviewTest = reviewTest;
+        },
+      });
+      await start();
+      if (outcome === 'error') await blocked(blockReason);
+      else await vi.waitFor(() => expect(row()?.state).toBe(blockReason));
+      expect(runs()).toEqual([expect.objectContaining({ status, durationMs: 9, report })]);
+    });
+
+    it('records a check that never started its queue turn without a start time, and marks the unfinished ones interrupted at the hub start', async () => {
+      const executor = fakeExecutor();
+      const finish = deferred<FullTestResult>();
+      vi.mocked(executor.run).mockImplementation(() => finish.promise);
+      await setup({
+        executor,
+        adjust: (c) => {
+          c.project.repos[0]!.reviewTest = reviewTest;
+        },
+      });
+      await start();
+      await vi.waitFor(() => expect(runs()).toHaveLength(1));
+      expect(runs()[0]).toMatchObject({ status: 'running', startedAt: null, finishedAt: null });
+      await h!.domain.merges.init();
+      expect(runs()[0]).toMatchObject({
+        status: 'cancelled',
+        reason: 'interrupted',
+        finishedAt: expect.any(String),
+      });
+      finish.resolve(passed);
+      await merged();
+    });
+  });
+
   it('stays at the waiting step when the executor never reports the start', async () => {
     const executor = fakeExecutor();
     const finish = deferred<FullTestResult>();

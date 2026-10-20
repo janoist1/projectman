@@ -4,12 +4,17 @@ import {
   MERGE_TEST_FLAKY_PREFIX,
   MERGE_TEST_MARKED_FILES_MAX,
   MERGE_TEST_PASSED_STEP_PREFIX,
+  MERGE_TEST_TIMING_PREFIX,
+  MERGE_TEST_WORKERS_PREFIX,
   mergeTestFilesCommand,
   mergeTestMarkedFiles,
   mergeTestMarkerLine,
   mergeTestPassedSteps,
+  mergeTestReport,
+  mergeTestTimingLine,
   quoteShellWord,
 } from './merge-test';
+import type { MergeTestStepTiming } from './merge-test';
 
 describe('mergeTestPassedSteps', () => {
   const key = 'a'.repeat(64);
@@ -107,5 +112,75 @@ describe('mergeTestMarkedFiles', () => {
   it('stops at the upper limit', () => {
     const output = Array.from({ length: 30 }, (_, i) => `merge-test flaky: t/${i}.test.ts`).join('\n');
     expect(mergeTestMarkedFiles(output, 'flaky')).toHaveLength(MERGE_TEST_MARKED_FILES_MAX);
+  });
+});
+
+describe('mergeTestReport', () => {
+  const step = (index: number, over: Partial<MergeTestStepTiming> = {}): MergeTestStepTiming => ({
+    index,
+    kind: 'test',
+    workspace: 'apps/server',
+    result: 'passed',
+    durationMs: 1000,
+    ...over,
+  });
+  const output = (...lines: string[]) => lines.join('\n');
+
+  it('is unknown (null) for an output without any measurement line', () => {
+    expect(mergeTestReport('', 5)).toBeNull();
+    expect(mergeTestReport('vitest run\n 12 passed\n', 5)).toBeNull();
+  });
+
+  it('reads the scope, the workers and the steps in order, with the command time', () => {
+    const report = mergeTestReport(
+      output(
+        'merge-test scope: modules (3 files); modules: a, b; tests: x',
+        `${MERGE_TEST_WORKERS_PREFIX}2`,
+        mergeTestTimingLine(step(1, { durationMs: 20 })),
+        mergeTestTimingLine(step(0, { kind: 'typecheck', durationMs: 10 })),
+      ),
+      398_041.4,
+    );
+    expect(report).toEqual({
+      scope: 'modules',
+      workers: 2,
+      commandMs: 398_041,
+      steps: [step(0, { kind: 'typecheck', durationMs: 10 }), step(1, { durationMs: 20 })],
+    });
+  });
+
+  it('keeps a cached step as null, not as 0, and the rerun time of a rerun', () => {
+    const cached = step(0, { result: 'cached', durationMs: null });
+    const rerun = step(1, { result: 'rerun_passed', durationMs: 280_100, rerunMs: 12_000 });
+    const report = mergeTestReport(output(mergeTestTimingLine(cached), mergeTestTimingLine(rerun)), null);
+    expect(report?.steps).toEqual([cached, rerun]);
+    expect(report?.commandMs).toBeNull();
+  });
+
+  it('lets the last line of a step win, and skips an invalid line', () => {
+    const report = mergeTestReport(
+      output(
+        mergeTestTimingLine(step(0, { durationMs: 1 })),
+        `${MERGE_TEST_TIMING_PREFIX}{not json`,
+        `${MERGE_TEST_TIMING_PREFIX}${JSON.stringify({ ...step(1), workspace: '/etc/passwd' })}`,
+        mergeTestTimingLine(step(0, { durationMs: 2 })),
+      ),
+      0,
+    );
+    expect(report?.steps).toEqual([step(0, { durationMs: 2 })]);
+  });
+
+  it.each([
+    ['unset', null],
+    ['0', null],
+    ['four', null],
+    ['4', 4],
+  ])('reads the worker value "%s"', (value, workers) => {
+    expect(mergeTestReport(`${MERGE_TEST_WORKERS_PREFIX}${value}`, 0)?.workers).toBe(workers);
+  });
+
+  it('reads the scope from the line start, without ANSI, and not from a quoted line', () => {
+    expect(mergeTestReport('\u001b[1mmerge-test scope: none (no changes)\u001b[0m', 0)?.scope).toBe('none');
+    expect(mergeTestReport('see merge-test scope: all', 0)).toBeNull();
   });
 });

@@ -118,6 +118,12 @@ function memberOf(params: unknown): string | undefined {
   return typeof value === 'string' && value.length <= 64 ? value : undefined;
 }
 
+/** A full test result as the wire schema has it: the step report travels with `full_test.report`. */
+function wireFullResult(result: FullTestResult): FullTestResult {
+  const { report: _report, ...wire } = result;
+  return wire;
+}
+
 export function createEngineHandlers(deps: EngineHandlerDeps) {
   const { limit, audit, runner, engine, github, probe, transfers } = deps;
   const now = deps.now ?? Date.now;
@@ -380,7 +386,7 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
         ),
       );
       try {
-        return await running;
+        return wireFullResult(await running);
       } finally {
         record.endedAt = now();
         fullRuns.delete(spec.runId);
@@ -392,7 +398,15 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       pruneFullRunRecords();
       const record = fullRunRecords.get(runId);
       if (!record) return { state: 'unknown' };
-      return { state: 'ended', result: await record.ended };
+      return { state: 'ended', result: wireFullResult(await record.ended) };
+    },
+    // The measurements of an ended run (PM-876): their own call, because the strict result schema of
+    // `full_test.run` and `attach` stays as older hubs know it.
+    async 'full_test.report'({ runId }) {
+      pruneFullRunRecords();
+      const record = fullRunRecords.get(runId);
+      if (!record) return { state: 'unknown' };
+      return { state: 'ended', report: (await record.ended).report ?? null };
     },
     async 'full_test.cancel'({ runId }) {
       fullRuns.get(runId)?.abort();

@@ -5,6 +5,7 @@ import {
   HANDOFF_SUMMARY_MAX,
   HandoffSummary,
   MemoryPressure,
+  MergeTestReport,
   PausePoint,
   PlanUsage,
   ProjectConfig,
@@ -96,6 +97,11 @@ const fullResult: z.ZodType<FullTestResult> = z.strictObject({
 });
 const fullAttachResult = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('ended'), result: fullResult }),
+  z.strictObject({ state: z.literal('unknown') }),
+]);
+/** The step measurements of an ended run (PM-876); `report` null: the output had none. */
+const fullReportResult = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('ended'), report: MergeTestReport.nullable() }),
   z.strictObject({ state: z.literal('unknown') }),
 ]);
 const screenshotSpec: z.ZodType<ScreenshotRunSpec> = z.strictObject({
@@ -522,6 +528,7 @@ export const methods = {
   'github.unwatch': method(z.strictObject({ watchId: text }), done),
   'full_test.run': method(z.strictObject({ spec: fullSpec }), fullResult),
   'full_test.attach': method(z.strictObject({ runId: text }), fullAttachResult),
+  'full_test.report': method(z.strictObject({ runId: text }), fullReportResult),
   'full_test.cancel': method(z.strictObject({ runId: text }), done),
   'screenshots.run': method(z.strictObject({ runId: text, spec: screenshotSpec }), screenshotEnded),
   'screenshots.cancel': method(z.strictObject({ runId: text }), done),

@@ -111,7 +111,7 @@ describe('team tool registration', () => {
         'mark_decision_candidates',
       ],
       'services/history': ['search_history', 'read_history_source', 'get_history_search_stats'],
-      'services/merges': ['merge_task', 'prioritize_merge'],
+      'services/merges': ['merge_task', 'prioritize_merge', 'list_merge_checks'],
       'services/full-tests': ['take_screenshots', 'get_screenshot_run'],
     });
   });

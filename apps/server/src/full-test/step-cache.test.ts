@@ -232,3 +232,42 @@ describe('the executor merge-test step cache', () => {
     expect(rename).not.toHaveBeenCalled();
   });
 });
+
+describe('the executor report of the measurements (PM-876)', () => {
+  const measured = [
+    'merge-test scope: modules (2 files); modules: a',
+    'merge-test workers: 4',
+    'merge-test timing: {"index":0,"kind":"typecheck","workspace":"apps/server","result":"passed","durationMs":41200}',
+    'merge-test timing: {"index":1,"kind":"test","workspace":"apps/server","result":"cached","durationMs":null}',
+    '',
+  ].join('\n');
+  const report = {
+    scope: 'modules',
+    workers: 4,
+    commandMs: expect.any(Number),
+    steps: [
+      { index: 0, kind: 'typecheck', workspace: 'apps/server', result: 'passed', durationMs: 41_200 },
+      { index: 1, kind: 'test', workspace: 'apps/server', result: 'cached', durationMs: null },
+    ],
+  };
+
+  it.each([
+    ['passed', ended({ output: measured }), 'passed'],
+    ['failed', ended({ output: `${measured} FAIL  test/a.test.ts > x\n`, exitCode: 1 }), 'failed'],
+    ['timeout', ended({ output: measured, timedOut: true }), 'error'],
+    ['killed', ended({ output: measured, signal: 'SIGKILL' }), 'error'],
+  ])('carries what the command measured on a %s run', async (_name, end, outcome) => {
+    commandEnd = end;
+    expect(await run()).toMatchObject({ outcome, report });
+  });
+
+  it('keeps the failure report as it was (the failed files)', async () => {
+    commandEnd = ended({ output: `${measured} FAIL  test/a.test.ts > x\n`, exitCode: 1 });
+    expect(await run()).toMatchObject({ failedFiles: ['test/a.test.ts'] });
+  });
+
+  it('has no report for a command that printed no measurement (another command or an older script)', async () => {
+    commandEnd = ended({ output: 'vitest run\n' });
+    expect(await run()).toMatchObject({ outcome: 'passed', report: null });
+  });
+});

@@ -3264,6 +3264,9 @@ describe("the CLI's own sandbox (PM-167)", () => {
       '# Your sandbox',
     );
     expect(text).toContain('Writing: your working directory `/pm/worktrees/AR/AR-21-app`');
+    expect(text).toContain(
+      'and `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`',
+    );
     // PM-193: npm and the development instance use the member's own directories.
     expect(text).toContain(
       '`npm_config_cache` is `/pm/member-caches/AR/fe-1/npm-cache`, `PROJECTMAN_HOME` is `/pm/member-caches/AR/fe-1/projectman-dev`',

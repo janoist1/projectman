@@ -60,6 +60,9 @@ export const routes = {
   integratorKeys: () => '/api/auth/integrator-keys',
   integratorAccessKey: (id: string) => `/api/auth/integrator-keys/${id}`,
   integratorKeyAudit: () => '/api/auth/integrator-keys/audit',
+  /** GET the state, POST grants, DELETE revokes the Operator's grant for machine operations (PM-881). */
+  operatorGrant: () => '/api/auth/operator-grant',
+  operatorGrantAudit: () => '/api/auth/operator-grant/audit',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   /** GET the project's focus (`ProjectFocusView`, PM-427); internal members only. */
   projectFocus: (key: string) => `/api/projects/${key}/focus`,

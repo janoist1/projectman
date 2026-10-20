@@ -83,14 +83,16 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
   const created = new Set<string>();
   afterEach(() => h?.cleanup());
 
+  let clock = NOW;
   const boot = async (withAdministration = true) => {
+    clock = NOW;
     created.clear();
     submitted = [];
     hub = fakePort('hub', submitted);
     builder = fakePort('builder', submitted);
     other = fakePort('other', submitted);
     h = await createDomainHarness({
-      now: () => new Date(NOW),
+      now: () => new Date(clock),
       ...(withAdministration
         ? {
             administration: {
@@ -132,6 +134,8 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
     }
     if (!created.has(KEY.id)) {
       created.add(KEY.id);
+      // The owner's grant for machine operations (PM-881); the gate itself is tested in operator-grant.test.ts.
+      h.auth.grantOperator(user.id, 'until_revoked');
       h.repos.integratorKeys.create({
         id: KEY.id,
         userId: user.id,
@@ -177,6 +181,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
   ): SuperCommandExecutor => {
     const deps: SuperAdministrationDeps = {
       ctx: { repos: h.repos } as unknown as SuperAdministrationDeps['ctx'],
+      grants: h.auth.operatorGrantGate,
       administration: h.domain.administration!,
       rights: createSuperRights({
         credentials: h.auth,
@@ -473,6 +478,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
   describe('reads', () => {
     it('answers the status and the log of the hub and of a linked engine, only from the project’s side', async () => {
       await boot();
+      ensureKey();
       const facade = h.domain.superAdministration;
       expect(await facade.status('AR', { kind: 'hub' })).toMatchObject({ online: true, bootId: 'boot-1' });
       expect(await facade.status('AR', { kind: 'engine', id: LOCAL })).toMatchObject({ online: true });
@@ -551,6 +557,101 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       expect(() => query({ query: 'tasks', taskKey: 'ZZ-1' })).toThrow(
         expect.objectContaining({ status: 404 }),
       );
+    });
+  });
+
+  describe('the owner’s grant for machine operations (PM-881)', () => {
+    const restartHub = admin({ kind: 'restart', target: { kind: 'hub' }, expectedBootId: 'boot-1' });
+    const pause: SuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
+    const grantRow = () => h.repos.operatorGrants.active('user-1', clock);
+
+    it('refuses a machine operation, a status read and a log read without a grant, but not a plain operation', async () => {
+      await boot();
+      ensureKey();
+      h.auth.revokeOperatorGrant('user-1');
+      expect(await operate(fullTest())).toMatchObject({
+        state: 'failed',
+        errorCode: 'operator_grant_inactive',
+      });
+      expect(await operate(restartHub, randomUUID(), undefined)).toMatchObject({
+        state: 'failed',
+        errorCode: 'operator_grant_inactive',
+      });
+      expect(submitted).toEqual([]);
+      const facade = h.domain.superAdministration;
+      await expect(facade.status('AR', { kind: 'hub' })).rejects.toMatchObject({
+        code: 'operator_grant_inactive',
+        status: 403,
+      });
+      await expect(facade.logs('AR', { kind: 'hub' }, 5)).rejects.toMatchObject({
+        code: 'operator_grant_inactive',
+      });
+      expect(await operate(pause, randomUUID(), undefined)).toMatchObject({ state: 'succeeded' });
+    });
+
+    it('runs the same operations with an active grant and records its use', async () => {
+      await boot();
+      ensureKey();
+      expect(grantRow()!.lastUsedAt).toBeNull();
+      clock = '2026-10-17T10:05:00.000Z';
+      expect(await operate(fullTest())).toMatchObject({ state: 'running' });
+      expect(grantRow()!.lastUsedAt).toBe(clock);
+      clock = '2026-10-17T10:06:00.000Z';
+      await h.domain.superAdministration.status('AR', { kind: 'hub' });
+      expect(grantRow()!.lastUsedAt).toBe(clock);
+    });
+
+    it('lets an operation that was already handed in finish and stay readable, and refuses the next one', async () => {
+      await boot();
+      const running = await operate(fullTest());
+      expect(running.state).toBe('running');
+      h.auth.revokeOperatorGrant('user-1');
+      builder.jobs.set(running.id, {
+        operationId: running.id,
+        state: 'succeeded',
+        result: { kind: 'full_test', outcome: 'passed', exitCode: 0, durationMs: 1, failedFiles: [] },
+        errorCode: null,
+        updatedAt: NOW,
+      });
+      const done = await detail(running.id);
+      expect(done.operation.state).toBe('succeeded');
+      expect(done.result).toMatchObject({ kind: 'full_test', outcome: 'passed' });
+      expect(await operate(fullTest(), randomUUID())).toMatchObject({
+        state: 'failed',
+        errorCode: 'operator_grant_inactive',
+      });
+      expect(submitted).toHaveLength(1);
+    });
+
+    // An administration command has no owner-reserved effect, so it never waits for the owner's yes; the only
+    // later start is a handoff the Operator made earlier, and it goes through the same executor and gate.
+    it('refuses a handoff that is started after the grant was revoked, and submits nothing', async () => {
+      await boot();
+      ensureKey();
+      const handoff = await h.domain.superHandoffs.request(
+        'AR',
+        { kind: 'ai', handle: 'operator' },
+        { reason: 'A fictional reason', command: fullTest(), requestId: randomUUID(), taskKey: 'AR-1' },
+      );
+      h.auth.revokeOperatorGrant('user-1');
+      const started = await asIntegrator((access) =>
+        h.domain.superHandoffs.execute('AR', handoff.id, randomUUID(), access),
+      );
+      expect(started).toMatchObject({ state: 'failed', errorCode: 'operator_grant_inactive' });
+      expect(submitted).toEqual([]);
+    });
+
+    it('treats an expired grant like a revoked one', async () => {
+      await boot();
+      ensureKey();
+      h.auth.grantOperator('user-1', '12h');
+      expect(await operate(fullTest())).toMatchObject({ state: 'running' });
+      clock = '2026-10-17T22:00:01.000Z';
+      expect(await operate(fullTest(), randomUUID())).toMatchObject({
+        state: 'failed',
+        errorCode: 'operator_grant_inactive',
+      });
+      expect(submitted).toHaveLength(1);
     });
   });
 

@@ -210,6 +210,8 @@ export interface DomainOptions {
   webPush?: { enabled?: boolean; subject?: string };
   webPushTransport?: PushTransport;
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
+  /** The owner's grant every machine operation passes (PM-881); absent: no machine operation runs. */
+  operatorGrants?: import('./contracts').OperatorGrantGate;
   integratorTodoAccess?: IntegratorTodoAccess;
   nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
   /**
@@ -1821,9 +1823,17 @@ export function createDomain(opts: DomainOptions) {
     );
   };
   superHandoffs.registerExecutor('operate', createOperateExecutor({ messaging, pauses, sessions }));
+  // Without a gate no machine operation runs: the fallback refuses like a missing grant.
+  const operatorGrants: import('./contracts').OperatorGrantGate = opts.operatorGrants ?? {
+    active: () => null,
+    assertActive: () => {
+      throw forbidden('operator_grant_inactive', 'the Operator has no active grant for machine operations');
+    },
+  };
   if (administration && opts.integratorCredentials) {
     const administrationDeps = {
       ctx,
+      grants: operatorGrants,
       administration,
       rights: createSuperRights({
         credentials: opts.integratorCredentials,
@@ -1842,6 +1852,7 @@ export function createDomain(opts: DomainOptions) {
   const superAdministration = createSuperAdministration({
     handoffs: superHandoffs,
     administration,
+    grants: operatorGrants,
     diagnostics: createSuperDiagnostics({ ctx }),
     engineLinked,
   });

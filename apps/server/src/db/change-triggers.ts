@@ -183,6 +183,7 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   merge_check_run_tasks: 'written in the same transaction as its merge_check_runs row, which is journaled',
   merge_queue_revisions: 'CAS counter; task_merges announces queue changes in the same transaction',
   obligations: 'obligation bookkeeping; its wake and hand-over are timeline events',
+  operator_grants: 'the owner’s grant for machine operations (PM-881), not project state',
   operator_execution_intents: 'recovery intent; its outcome is the configuration and operation rows',
   operator_signals: 'announced by the inbox item it raises',
   operator_signal_arms: 'detector bookkeeping; the signals it gates are not journaled either',

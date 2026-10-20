@@ -895,20 +895,27 @@ export interface OperatorToolsHandler {
     deduplicated?: true;
   }>;
   /**
-   * request_super_operation (PM-762): the Operator hands one command to the super-mode integrator during an
-   * open owner request. The handoff is durable and grants no execution right or approval. A repeat with the
-   * same `requestId` and content returns the same handoff; other content is `super_request_conflict`.
+   * execute_operation (PM-888): the Operator starts one command on the shared super-operation path, as itself,
+   * during an open owner request in its own general conversation. A K3 effect waits for the owner's own yes and
+   * goes on by itself after it. The same `requestKey` in the same request is the same operation; `operate` and
+   * `member_update` commands are `super_operation_unsupported`.
    */
-  requestSuperOperation(
+  executeOperation(
     ctx: ToolContext,
-    args: {
-      taskKey?: string;
-      reason: string;
-      command: SuperCommand;
-      expectedConfigVersion?: string;
-      requestId: string;
-    },
-  ): Promise<{ handoff: SuperHandoff }>;
+    args: { requestKey: string; taskKey?: string; command: SuperCommand },
+  ): Promise<{ operation: SuperOperation }>;
+  /** get_operation (PM-888): one operation of the project and, once recorded, its result. */
+  getOperation(ctx: ToolContext, args: { operationId: string }): Promise<SuperOperationDetail>;
+  /** get_machine_status (PM-888): the administration status and, when the target has the capability, its machine. */
+  getMachineStatus(
+    ctx: ToolContext,
+    args: { target: AdministrationTarget },
+  ): Promise<{ status: AdministrationStatus; machine: AdministrationMachineSnapshot | null }>;
+  /** get_machine_logs (PM-888): the filtered diagnostic log of the hub or of an engine linked to the project. */
+  getMachineLogs(
+    ctx: ToolContext,
+    args: { target: AdministrationTarget } & AdministrationLogsOptions,
+  ): Promise<{ entries: DiagnosticLogEntry[] }>;
   startTask(
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },

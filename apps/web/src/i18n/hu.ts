@@ -3144,6 +3144,7 @@ export const hu = {
         knowledge_change: 'Megállapodás vagy tanult elv módosítása',
         structural_review: 'Alkalmi architektúraszemle',
         super_handoff: 'Munka átadása az integrátornak',
+        operation: 'Művelet végrehajtása',
       },
     },
     change: {
@@ -4748,6 +4749,8 @@ export const hu = {
         engine_offline: 'a futtató gép nem volt elérhető',
         heavy_lock_unavailable: 'a gép nehézfutási sora nem érhető el',
         dependency_install_failed: 'a függőségek előkészítése nem sikerült',
+        github_unavailable: 'a GitHub Actions nem volt elérhető',
+        github_run_error: 'a GitHub Actions-futás eredmény nélkül állt le',
       },
       review_repinned: 'Új átnézési kör: az átadott commit {previous} helyett {commit}',
       task_assigned: 'Kiosztva: {assignee}',
@@ -5888,6 +5891,8 @@ export const hu = {
       operator_approver_fixed: 'Az Operátor engedélykérője csak ember lehet.',
       operator_merger_forbidden: 'Az Operátor nem lehet beolvasztó.',
       operator_boundary_duty_forbidden: 'Az Operátor nem kaphat határkéréseket eldöntő feladatkört.',
+      review_test_runner_github:
+        'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
     },
     problems: {
       count: '{n} hiba van a mentett beállításokban.',

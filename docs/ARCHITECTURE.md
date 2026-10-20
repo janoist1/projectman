@@ -895,8 +895,9 @@ the server refuses a database a newer build migrated.
 
 ## Durable super-mode handoff (PM-762, part of the super mode PM-757)
 
-`request_super_operation` (the base Operator, in its own general conversation during an open owner request)
-stores a `SuperHandoff`: one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`,
+`request_super_operation` (the base Operator, in its own general conversation during an open owner request;
+retired by PM-888, whose `execute_operation` runs the command directly, see "In-app Operator on the shared path"
+below; the schema and the stored handoffs stay) stores a `SuperHandoff`: one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`,
 `merge`, `merge_order`, `administration`), a reason and, optionally, the configuration version it was made
 against. It grants no execution right and no approval. The integrator lists the handoffs (`GET
 …/operator-super/handoffs`) and starts one with `POST …/handoffs/:id/execute {requestId}` (202 `{operation}`),
@@ -917,6 +918,30 @@ The relay (`POST …/inbox/:id/relay-answer`) lets the integrator give the owner
 question the asker marked as plain information (`ask_human` `response_purpose: "information"`). It is marked
 `ownerAnswerRelayed`, is not an owner decision and never reaches the decision candidates. The rule lives in
 `services/super-operator/relay.ts`; the REST route and the MCP tool `relay_owner_answer` (PM-760) both call it.
+
+### In-app Operator on the shared path (PM-888, decision 55)
+
+The in-app Operator uses the same path as a super-mode key: `execute_operation {request_key, task_key?, command}`
+(not `operate` or `member_update`, which keep `operate`), `get_operation`, `get_machine_status` and `get_machine_logs`
+(Operator tools, in the Operator's own general conversation during an owner message or answer; guests and the other
+members are refused). They call `SuperAdministration`, `SuperOperator.execute` and `SuperHandoffService.operate`, so the
+rights check, the audit, the owner question for a K3 effect and the machine grant (`operator_grant_inactive`) are the
+key path's, not a copy.
+
+- **Credential.** There is no stored key. `services/super-operator/app.ts` issues an `IntegratorPrincipal` with
+  `source: 'app'`, `prefix: 'operator-app'` and `keyId` = the Operator session id, acting as the first owner (by
+  handle) with a user account. The authority wrapped around the key authority accepts an app principal only when it
+  was issued there (a `WeakSet`) and `OperatorAppSessions.active` holds: the session is live, it is the Operator's own
+  general conversation (no guest) and an owner message or answer request is open. Otherwise `insufficient_access`.
+- **Idempotence.** The request id of an operation is a UUID v8 from the first 16 bytes of
+  `sha256(operatorRequestId:request_key)`, so a retry in the same request is the same operation.
+- **Owner's yes.** The operation waits (`waiting_owner`) with the usual question. After the owner's own login says yes,
+  the `inbox_resolved` event calls `SuperHandoffService.resumeApprovedAppOperation`, which re-runs `operate` under an
+  approved app principal (no live session needed; the yes, command hash and config version are checked again).
+- **Step log.** `OperatorAction` has `operation`; `operator_steps.operation_id` (migration 96) links the operation.
+
+**Does this work on a remote engine?** The whole path runs on the hub; a machine operation reaches an engine through the
+existing administration port. No new machine-dependent part.
 
 ## The external MCP endpoint (PM-760, part of the super mode PM-757)
 
@@ -1348,6 +1373,24 @@ the publication flag is retained. Shutdown aborts the wait through the merge sig
 unpublished work; a merge already pushing retains its durable publication recovery for startup. A timed-out
 wait or repeated losses block with `engine_offline`; no database migration is needed.
 
+**Where the check runs (PM-900, PM-906).** `reviewTest.runner` (`MergeCheckRunner`: `engine`, the default,
+or `github_actions`) chooses it per repository; the merge check only (the review test is untouched), and
+changing it is an owner-only `review_test` change. `github_actions` needs the repository's `github`
+owner/name (`review_test_runner_github`; at run time the lack of it blocks `check_unavailable`). In that
+mode the hub makes **no local check checkout, takes no heavy-run lock and prepares no dependencies**: the
+one helper `prepareMergeCheck` (`services/merges/check-preparation.ts`), used by the single-card merge
+(`steps.ts`) and by the train group check and lone diagnosis (`train.ts`), releases any checkout of the
+merge and builds the same `full_test.run` spec with a `githubActions` descriptor (`GithubActionsCheck`:
+ref, `mergeId`, `owner/name`, base branch, merge commit, the `merge-check.yml` workflow and, for a lone
+diagnosis, the failed files, at most 20) instead of `requireHeavyLock`/`npmCi`; the `cwd` is only a label
+(`github-actions:owner/name`). The executor of the card's engine runs the workflow and answers with the
+usual `FullTestResult` plus `externalUrl`, the run's page (the engine side is PM-907; the local executor and an
+older engine refuse the descriptor with `github_unavailable`, a run that stopped with no result is
+`github_run_error`). Both are operational errors: the merge or train blocks, nothing is split or blamed.
+`endChecksIn` also stops a descriptor run by its `mergeId`, as the merge has no checkout path to match.
+A train groups only cards of the same runner (`train-selection.ts`). `merge_check_runs` records the
+`runner` and the `url` (migration 95); `list_merge_checks` shows both.
+
 `task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
 already in the default branch stays a system event.
 Conflicts and failed checks notify the merger and keep the card in place; a failed check tells an AI merger
@@ -1691,7 +1734,17 @@ workers follow the machine's size.
   `merge-test scope:` line; the rule (`mergeTestMarkerLine`, `mergeTestMarkedFiles`) is in
   `packages/shared/src/domain/merge-test.ts`. `npm run merge-test -- --files <path>...` runs only
   those test files (grouped by workspace, no type check, same rerun rule; a path absent from the
-  checkout prints `merge-test skipped (absent): <path>` and is left out). The executor
+  checkout prints `merge-test skipped (absent): <path>` and is left out).
+  `--files-from-env` takes the same list as a JSON array (1 to 20 files) from `MERGE_TEST_FILES`
+  (empty or absent: the plain scope mode; not with `--files`, `--all` or `--dry-run`), so a CI
+  workflow hands its input over through the environment and no shell reads it. `--shard <k>/<n>`
+  (1 <= k <= n <= 8, with any mode, anywhere in the arguments) deals the type checks round-robin
+  among the shards and runs every test step on every shard with `--shard=k/n --passWithNoTests`;
+  the `merge-test timing:` line keeps the step's index in the whole list, so the shards' reports
+  can be merged. The failed-file rerun (PM-842) stays inside the shard and has no shard flag.
+  `.github/workflows/merge-check.yml` (PM-900) runs four shards on `macos-15` for a
+  `workflow_dispatch` on a `pm-check/` branch only (no secret, read-only token, actions pinned to
+  commits; `merge-check-workflow.test.ts` guards this). The executor
   (`full-test/output.ts`) reads the markers: `failedFiles` prefers the `failed` lines, and a passed
   run's `outputTail` holds the `flaky` lines. The server adds a system `task_note` to the card of a
   single merge, and to every member of a train, when its check passed with flaky files, and logs
@@ -1834,7 +1887,7 @@ workers follow the machine's size.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
-  and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
+  (retired by PM-888) and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
   Operator records a command and a reason; nothing runs until the owner's integrator (a super token) starts it with
   a request id. A command with a deletion, security or cost effect waits for the owner's own login
   to answer a bound question (24 hours; the question names the command hash, the config version and the token). The

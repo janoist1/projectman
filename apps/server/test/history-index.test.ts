@@ -369,6 +369,8 @@ describe('history index', () => {
         'sessions_state',
       ])
         old.exec(`DROP INDEX ${index}`);
+      // Migration 96 (PM-888) added a column; migrating adds it again.
+      old.exec('ALTER TABLE operator_steps DROP COLUMN operation_id');
       old.pragma('user_version = 83');
       expect(old.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE 'history%'").get()).toEqual(
         { n: 0 },

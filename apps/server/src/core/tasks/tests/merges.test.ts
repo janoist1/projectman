@@ -1250,6 +1250,62 @@ describe('member initiated merge', () => {
     expect(steps).toEqual(['check_waiting', 'checking']);
   });
 
+  describe('GitHub Actions runner (PM-900)', () => {
+    const viaGithub = (github: string | undefined) => (config: ProjectConfig) => {
+      const repo = config.project.repos[0]!;
+      repo.reviewTest = { ...reviewTest, runner: 'github_actions' };
+      repo.github = github;
+    };
+
+    it('sends the descriptor with no checkout, heavy-run lock or installation, and records the runner and the run page', async () => {
+      const url = 'https://github.com/acme/web/actions/runs/7';
+      const executor = fakeExecutor({ ...passed, externalUrl: url });
+      await setup({ executor, adjust: viaGithub('acme/web') });
+      vi.mocked(executor.available).mockClear();
+      await start();
+      await merged();
+      const spec = vi.mocked(executor.run).mock.calls[0]![0];
+      expect(spec).toEqual({
+        runId: expect.stringMatching(/^mergecheck_/),
+        cwd: 'github-actions:acme/web',
+        command: reviewTest.command,
+        maxWorkers: reviewTest.maxWorkers,
+        timeoutMs: reviewTest.timeoutMinutes * 60_000,
+        sandbox: { denyRead: [], allowRead: [] },
+        githubActions: {
+          ref: { projectKey: 'AR', repo: expect.any(String) },
+          mergeId: expect.stringMatching(/^merge_/),
+          repo: 'acme/web',
+          base: expect.any(String),
+          commit: expect.stringMatching(/^merged-/),
+          workflow: 'merge-check.yml',
+        },
+      });
+      expect(merger.checkoutForCheck).not.toHaveBeenCalled();
+      expect(executor.available).not.toHaveBeenCalled();
+      expect(merger.releaseCheck.mock.calls[0]![1]).toEqual({ mergeId: spec.githubActions!.mergeId });
+      expect(h!.repos.mergeCheckRuns.list({ projectKey: 'AR', limit: 10 }).runs).toEqual([
+        expect.objectContaining({ runner: 'github_actions', url }),
+      ]);
+    });
+
+    it('blocks as check_unavailable when the configuration no longer names the github owner/name', async () => {
+      const executor = fakeExecutor();
+      await setup({ executor, adjust: viaGithub('acme/web') });
+      // The invariant refuses such a configuration, so the loss is simulated at the read.
+      const read = h!.domain.projects.config.bind(h!.domain.projects);
+      vi.spyOn(h!.domain.projects, 'config').mockImplementation(async (key) => {
+        const config = structuredClone(await read(key));
+        delete config.project.repos[0]!.github;
+        return config;
+      });
+      await start();
+      await blocked('check_unavailable');
+      expect(row()?.block?.message).toContain('github');
+      expect(executor.run).not.toHaveBeenCalled();
+    });
+  });
+
   describe('recorded merge check (PM-876)', () => {
     const runs = () => h!.repos.mergeCheckRuns.list({ projectKey: 'AR', limit: 10 }).runs;
     const report = {

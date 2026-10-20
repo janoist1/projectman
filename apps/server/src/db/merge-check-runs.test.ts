@@ -14,6 +14,7 @@ function start(n: number, patch: Partial<MergeCheckRunStart> = {}): MergeCheckRu
     commit: 'a'.repeat(40),
     base: 'b'.repeat(40),
     maxWorkers: 4,
+    runner: 'engine',
     requestedAt: minute(n),
     ...patch,
   };
@@ -23,6 +24,7 @@ const end = (status: 'passed' | 'failed', n: number) => ({
   reason: null,
   durationMs: 1000 * n,
   report: null,
+  url: null,
   finishedAt: minute(n + 1),
 });
 
@@ -76,10 +78,20 @@ describe('merge check repository (PM-876)', () => {
       finishedAt: minute(2),
       durationMs: 900,
       report,
+      url: null,
     });
     repos.db.prepare('UPDATE merge_check_runs SET report_json = \'{"scope":"nowhere"}\'').run();
     expect(repos.mergeCheckRuns.get('mergecheck_1')?.report).toBeNull();
     expect(repos.mergeCheckRuns.get('mergecheck_unknown')).toBeNull();
+  });
+
+  it('keeps the runner a run started with and the GitHub Actions run page it ended with (PM-906)', () => {
+    const url = 'https://github.com/o/r/actions/runs/1';
+    repos.mergeCheckRuns.start(start(1, { runner: 'github_actions' }));
+    repos.mergeCheckRuns.finish('mergecheck_1', { ...end('passed', 1), url });
+    repos.mergeCheckRuns.start(start(2));
+    expect(repos.mergeCheckRuns.get('mergecheck_1')).toMatchObject({ runner: 'github_actions', url });
+    expect(repos.mergeCheckRuns.get('mergecheck_2')).toMatchObject({ runner: 'engine', url: null });
   });
 
   describe('listing', () => {

@@ -280,23 +280,60 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('operate', ctx, args);
       return { status: 'done', step_id: 'ops_fake', changes: [] };
     },
-    async requestSuperOperation(ctx, args) {
-      await enter('requestSuperOperation', ctx, args);
+    async executeOperation(ctx, args) {
+      await enter('executeOperation', ctx, args);
       return {
-        handoff: {
-          id: 'sho_fake',
+        operation: {
+          id: 'sop_fake',
           projectKey: ctx.projectKey,
           taskKey: args.taskKey ?? null,
-          requestedBy: { kind: 'ai', handle: ctx.member },
-          reason: args.reason,
+          handoffId: null,
+          state: 'succeeded',
+          requestId: '00000000-0000-8000-8000-000000000000',
           command: args.command,
-          expectedConfigVersion: args.expectedConfigVersion ?? null,
-          state: 'pending',
-          operationId: null,
+          ownerQuestionId: null,
+          errorCode: null,
           createdAt: '2026-10-17T00:00:00.000Z',
           updatedAt: '2026-10-17T00:00:00.000Z',
         },
       };
+    },
+    async getOperation(ctx, args) {
+      await enter('getOperation', ctx, args);
+      return {
+        operation: {
+          id: args.operationId,
+          projectKey: ctx.projectKey,
+          taskKey: null,
+          handoffId: null,
+          state: 'succeeded',
+          requestId: '00000000-0000-8000-8000-000000000000',
+          command: { kind: 'credential_revoke', keyId: 'key_fake' },
+          ownerQuestionId: null,
+          errorCode: null,
+          createdAt: '2026-10-17T00:00:00.000Z',
+          updatedAt: '2026-10-17T00:00:00.000Z',
+        },
+        result: null,
+      };
+    },
+    async getMachineStatus(ctx, args) {
+      await enter('getMachineStatus', ctx, args);
+      return {
+        status: {
+          target: args.target,
+          online: true,
+          version: null,
+          bootId: null,
+          capabilities: ['status'],
+          activeOperationId: null,
+        },
+        machine: null,
+      };
+    },
+    async getMachineLogs(ctx, args) {
+      await enter('getMachineLogs', ctx, args);
+      return { entries: [] };
     },
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);

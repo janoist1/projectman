@@ -132,6 +132,134 @@ describe('merge test runner', () => {
     expect(spawn).not.toHaveBeenCalled();
     expect(npm).not.toHaveBeenCalled();
   });
+  describe('--shard', () => {
+    const timingIndexes = (log: { mock: { calls: unknown[][] } }) =>
+      log.mock.calls
+        .map(([line]) => String(line))
+        .filter((line) => line.startsWith('merge-test timing: '))
+        .map((line) => JSON.parse(line.slice('merge-test timing: '.length)).index);
+    it('runs its type check and a vitest shard of every workspace, timed by the original index', async () => {
+      const log = output();
+      mockHead('first second');
+      expect(await run(['--all', '--shard', '2/4'])).toBe(0);
+      expect(npmCalls()).toEqual([
+        ['run', 'typecheck', '-w', 'packages/templates', '--if-present'],
+        ...['packages/shared', 'packages/templates', 'apps/feedback-widget', 'apps/server', 'apps/web'].map(
+          (ws) => ['test', '-w', ws, '--if-present', '--', '--shard=2/4', '--passWithNoTests'],
+        ),
+      ]);
+      expect(timingIndexes(log)).toEqual([1, 5, 6, 7, 8, 9, 1, 5, 6, 7, 8, 9]);
+    });
+    it('reruns a failed file without the shard flags', async () => {
+      output();
+      mockHead('first second');
+      vi.stubEnv('MERGE_TEST_FILES', JSON.stringify(['apps/server/test/b.test.ts']));
+      npm.mockResolvedValueOnce(done(' FAIL  test/a.test.ts > suite > test\n', 1)).mockResolvedValue(done());
+      expect(await run(['--shard', '1/2', '--files-from-env'])).toBe(0);
+      expect(npmCalls().at(-1)).toEqual([
+        'test',
+        '-w',
+        'apps/server',
+        '--',
+        resolve('apps/server/test/a.test.ts'),
+      ]);
+    });
+    it('prints only the steps of the shard for a dry run, wherever the flag stands', async () => {
+      const log = output();
+      mockHead('');
+      expect(await run(['--dry-run', 'root', '--shard', '4/4'])).toBe(0);
+      expect(
+        log.mock.calls.map(([line]) => line).filter((line) => line.startsWith('merge-test step:')),
+      ).toEqual([
+        'merge-test step: npm run typecheck -w apps/server --if-present',
+        ...['packages/shared', 'packages/templates', 'apps/feedback-widget', 'apps/server', 'apps/web'].map(
+          (ws) => `merge-test step: npm test -w ${ws} --if-present -- --shard=4/4 --passWithNoTests`,
+        ),
+      ]);
+      expect(npm).not.toHaveBeenCalled();
+    });
+    it.each([['0/4'], ['5/4'], ['1/9'], ['1.5/4'], ['a/4'], ['2'], ['-1/4']])(
+      'refuses %s with a usage error',
+      async (value) => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        expect(await run(['--shard', value])).toBe(2);
+        expect(spawn).not.toHaveBeenCalled();
+        expect(npm).not.toHaveBeenCalled();
+      },
+    );
+    it.each([[['--shard']], [['--shard', '1/2', '--shard', '2/2']]])(
+      'refuses %j with a usage error',
+      async (argv) => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        expect(await run(argv)).toBe(2);
+        expect(npm).not.toHaveBeenCalled();
+      },
+    );
+  });
+  describe('--files-from-env', () => {
+    const files = JSON.stringify(['apps/server/test/b.test.ts', 'apps/web/src/a.test.tsx']);
+    it('runs the listed files exactly as --files does', async () => {
+      const log = output();
+      mockHead('first second');
+      vi.stubEnv('MERGE_TEST_FILES', files);
+      expect(await run(['--files-from-env'])).toBe(0);
+      expect(npmCalls()).toEqual([
+        ['test', '-w', 'apps/server', '--', resolve('apps/server/test/b.test.ts')],
+        ['test', '-w', 'apps/web', '--', resolve('apps/web/src/a.test.tsx')],
+      ]);
+      expect(log.mock.calls[0]?.[0]).toContain('merge-test scope: files (2)');
+    });
+    it.each([undefined, '', '  '])('is the plain scope mode when the list is %j', async (value) => {
+      output();
+      mockHead('first second', ['docs/a.md']);
+      vi.stubEnv('MERGE_TEST_FILES', value);
+      expect(await run(['--files-from-env'])).toBe(0);
+      expect(npm).not.toHaveBeenCalled();
+      expect(gitCalls()).toContainEqual(['diff', '--name-only', '--no-renames', '-z', 'HEAD^1', 'HEAD']);
+    });
+    it('shards the listed files too', async () => {
+      output();
+      mockHead('first second');
+      vi.stubEnv('MERGE_TEST_FILES', files);
+      expect(await run(['--no-cache', '--shard', '1/4', '--files-from-env'])).toBe(0);
+      expect(npmCalls()[0]).toEqual([
+        'test',
+        '-w',
+        'apps/server',
+        '--',
+        resolve('apps/server/test/b.test.ts'),
+        '--shard=1/4',
+        '--passWithNoTests',
+      ]);
+    });
+    it.each([
+      ['not json', 'is not valid JSON'],
+      ['{"a":1}', 'not a JSON array'],
+      ['[1]', 'not a JSON array'],
+      ['[]', '1 to 20'],
+      [JSON.stringify(Array.from({ length: 21 }, (_, i) => `apps/server/test/f${i}.test.ts`)), '1 to 20'],
+      ['["scripts/a.test.ts"]', 'not of a known workspace'],
+      ['["../etc/passwd"]', 'not of a known workspace'],
+    ])('refuses the list %s with exit 2 and says why', async (value, reason) => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.stubEnv('MERGE_TEST_FILES', value);
+      expect(await run(['--files-from-env'])).toBe(2);
+      expect(String(error.mock.calls[0]?.[0])).toContain(reason);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(npm).not.toHaveBeenCalled();
+    });
+    it.each([
+      [['--files-from-env', '--all']],
+      [['--files-from-env', '--files', 'apps/server/test/a.test.ts']],
+      [['--files', 'apps/server/test/a.test.ts', '--files-from-env']],
+      [['--dry-run', '--files-from-env']],
+    ])('refuses %j with a usage error', async (argv) => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.stubEnv('MERGE_TEST_FILES', files);
+      expect(await run(argv)).toBe(2);
+      expect(npm).not.toHaveBeenCalled();
+    });
+  });
   const sourceTree = [
     ['apps/server/src/logging/index.ts', 'export const value = 1;'],
     ['apps/server/src/logging/index.test.ts', "import './index';"],

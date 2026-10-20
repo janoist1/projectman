@@ -9,8 +9,17 @@ import { runNpm } from './npm';
 import { mergeTestScope } from './scope';
 import type { MergeTestScope } from './scope';
 import { sharedImpact } from './shared-impact';
-import { filesSteps, MERGE_TEST_WORKSPACES, runSteps, testStep, typecheckStep, workspaceOf } from './steps';
-import type { MergeTestStep, StepRun } from './steps';
+import {
+  filesSteps,
+  MERGE_TEST_SHARDS_MAX,
+  MERGE_TEST_WORKSPACES,
+  runSteps,
+  shardSteps,
+  testStep,
+  typecheckStep,
+  workspaceOf,
+} from './steps';
+import type { MergeTestShard, MergeTestStep, StepRun } from './steps';
 
 const CLOUD_TEST_FILTERS = [
   'apps/server/test/cloud-',
@@ -24,7 +33,7 @@ const CLOUD_TEST_FILTERS = [
 ];
 
 const USAGE =
-  'usage: npm run merge-test -- [--no-cache] [--all | --dry-run [<commit>] | --files <repository path of a test file>...]';
+  'usage: npm run merge-test -- [--no-cache] [--shard <k>/<n>] [--all | --dry-run [<commit>] | --files-from-env | --files <repository path of a test file>...]';
 
 /** Whether the scope runs the server's tests, which include the PTY and Unix socket integration tests. */
 function runsServerTests(scope: MergeTestScope): boolean {
@@ -130,7 +139,48 @@ function sharedScope(
 
 type Parsed = { all: boolean } | { dryRun: string } | { files: string[] } | { error: string };
 
+const FILES_FROM_ENV_MAX = 20;
+
+/** The `--files-from-env` list: a JSON array in `MERGE_TEST_FILES`; empty or absent means no list. */
+function filesFromEnv(raw: string | undefined): Parsed | undefined {
+  if (!raw?.trim()) return undefined;
+  const fail = (reason: string): Parsed => ({ error: `merge-test: MERGE_TEST_FILES ${reason}\n${USAGE}` });
+  let list: unknown;
+  try {
+    list = JSON.parse(raw);
+  } catch {
+    return fail('is not valid JSON');
+  }
+  if (!Array.isArray(list) || list.some((file) => typeof file !== 'string'))
+    return fail('is not a JSON array of strings');
+  if (list.length === 0 || list.length > FILES_FROM_ENV_MAX)
+    return fail(`must hold 1 to ${FILES_FROM_ENV_MAX} files`);
+  const files = [...new Set(list as string[])];
+  const unknown = files.find((file) => !isRepoFilePath(file) || !workspaceOf(file));
+  return unknown === undefined
+    ? { files }
+    : fail(`names a file that is not of a known workspace: ${unknown}`);
+}
+
+/** `--shard k/n`, taken out of the arguments wherever it stands. */
+function takeShard(argv: readonly string[]): { rest: string[]; shard?: MergeTestShard } | { error: string } {
+  const at = argv.indexOf('--shard');
+  if (at < 0) return { rest: [...argv] };
+  const match = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(argv[at + 1] ?? '');
+  const shard = match && { index: Number(match[1]), count: Number(match[2]) };
+  const rest = [...argv.slice(0, at), ...argv.slice(at + 2)];
+  if (!shard || shard.index > shard.count || shard.count > MERGE_TEST_SHARDS_MAX || rest.includes('--shard'))
+    return { error: `merge-test: --shard takes k/n with 1 <= k <= n <= ${MERGE_TEST_SHARDS_MAX}\n${USAGE}` };
+  return { rest, shard };
+}
+
 function parseArgs(argv: readonly string[]): Parsed {
+  const fromEnv = argv.indexOf('--files-from-env');
+  if (fromEnv >= 0) {
+    // Not with any other mode; with an empty list it is the plain scope mode.
+    if (argv.length > 1) return { error: USAGE };
+    return filesFromEnv(process.env.MERGE_TEST_FILES) ?? { all: false };
+  }
   if (argv[0] === '--dry-run') {
     if (argv.length > 2 || (argv[1] !== undefined && (!argv[1] || argv[1].startsWith('-'))))
       return { error: USAGE };
@@ -158,11 +208,13 @@ export interface MergeTestIo {
 
 export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}): Promise<number> {
   const noCache = argv.includes('--no-cache');
-  const parsed = parseArgs(argv.filter((arg) => arg !== '--no-cache'));
+  const taken = takeShard(argv.filter((arg) => arg !== '--no-cache'));
+  const parsed = 'error' in taken ? taken : parseArgs(taken.rest);
   if ('error' in parsed) {
     console.error(parsed.error);
     return 2;
   }
+  const shard = 'shard' in taken ? taken.shard : undefined;
   let steps: MergeTestStep[];
   let line: string;
   let changed: ReadonlySet<string> | null;
@@ -270,6 +322,7 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
       steps = mergeTestSteps(scope);
       line = scopeLine(scope);
     }
+    if (shard) steps = shardSteps(steps, shard);
   } catch (error) {
     console.error(`merge-test: ${error instanceof Error ? error.message : String(error)}`);
     return 2;

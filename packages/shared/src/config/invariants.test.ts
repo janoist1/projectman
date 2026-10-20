@@ -929,6 +929,30 @@ describe('validateProjectConfig working system (PM-459)', () => {
   });
 });
 
+describe('review_test_runner_github (PM-900)', () => {
+  const runner = (github: string | undefined) => (input: ProjectConfigInput) => {
+    const repo = input.project.repos[0]!;
+    repo.github = github;
+    repo.reviewTest = { command: 'npm run merge-test', runner: 'github_actions' };
+  };
+
+  it('reports the GitHub Actions runner on a repository without a github owner/name', () => {
+    expect(issuesOf('review_test_runner_github', runner(undefined))).toEqual([
+      { code: 'review_test_runner_github', path: 'project.repos[0].reviewTest.runner', detail: 'web' },
+    ]);
+  });
+
+  it('accepts the runner with a github owner/name and the engine runner without one', () => {
+    expect(issuesOf('review_test_runner_github', runner('acme/web'))).toEqual([]);
+    expect(
+      issuesOf('review_test_runner_github', (input) => {
+        input.project.repos[0]!.github = undefined;
+        input.project.repos[0]!.reviewTest = { command: 'npm test', runner: 'engine' };
+      }),
+    ).toEqual([]);
+  });
+});
+
 describe('errors a stored configuration may keep', () => {
   it('tolerates the rules added after configurations were written, and nothing else', () => {
     const tolerated = [

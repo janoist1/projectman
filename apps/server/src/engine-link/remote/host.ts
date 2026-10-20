@@ -329,6 +329,17 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
             failedFiles: [],
             outputTail: `engine ${id} refused the request: it does not support the dependency preparation (npmCi). Update the engine to this version of projectman.`,
           };
+        // An older engine's strict schema refuses `githubActions` before it runs anything (PM-900): the
+        // check is not run anywhere else.
+        if (spec.githubActions && err instanceof EngineCallError && err.linkCode === 'invalid_params')
+          return {
+            outcome: 'error',
+            reason: 'github_unavailable',
+            exitCode: null,
+            durationMs: now() - startedAt,
+            failedFiles: [],
+            outputTail: `engine ${id} refused the request: it does not support the GitHub Actions merge check (githubActions). Update the engine to this version of projectman.`,
+          };
         // An older engine's strict schema refuses `requireHeavyLock` before it runs anything (PM-658):
         // the run is blocked, never repeated without the flag.
         if (spec.requireHeavyLock && err instanceof EngineCallError && err.linkCode === 'invalid_params')

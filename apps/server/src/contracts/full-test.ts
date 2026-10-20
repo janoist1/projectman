@@ -23,6 +23,24 @@ export interface NpmCiPreparation {
   mergeId: string;
 }
 
+/** The merge check runs as the repository's GitHub Actions workflow (PM-900), not on this engine. */
+export interface GithubActionsCheck {
+  /** The repository on the engine; its base's upstream remote receives the check branch. */
+  ref: MergeRepoRef;
+  /** The check id the merge uses for checkoutForCheck/releaseCheck; `merge.release_check` ends the run. */
+  mergeId: string;
+  /** GitHub "owner/name" (`repos[].github`); the engine checks that the upstream remote is this repository. */
+  repo: string;
+  /** The default branch; its upstream remote receives the check branch. */
+  base: string;
+  /** The merge commit to check (40 hex). */
+  commit: string;
+  /** MERGE_CHECK_WORKFLOW. */
+  workflow: string;
+  /** Lone diagnosis only: the test files to run (1–20 repository paths); absent: the full merge check. */
+  files?: string[];
+}
+
 export interface FullTestSpec {
   runId: string;
   /** The root of the developer's checkout: read-only for the command. */
@@ -45,6 +63,12 @@ export interface FullTestSpec {
    * the previous behaviour.
    */
   npmCi?: NpmCiPreparation;
+  /**
+   * The merge check runs as GitHub Actions (PM-900): the engine's executor orchestrates the run and
+   * the local executor refuses it as `github_unavailable`. Then `cwd` only informs, `sandbox` is empty,
+   * and neither `requireHeavyLock` nor `npmCi` is set.
+   */
+  githubActions?: GithubActionsCheck;
 }
 
 export interface FullTestResult {
@@ -66,6 +90,8 @@ export interface FullTestResult {
    * measurement (another command, an older script). It stays on the engine side of the wire.
    */
   report?: MergeTestReport | null;
+  /** The GitHub Actions run page (PM-900); only a githubActions run has one. */
+  externalUrl?: string;
 }
 
 /**

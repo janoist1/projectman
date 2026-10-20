@@ -407,6 +407,7 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
         commit: 'a'.repeat(40),
         base: null,
         maxWorkers: 4,
+        runner: 'engine',
         requestedAt: new Date().toISOString(),
       });
     checked('mergecheck_shared', ['AR-2']);

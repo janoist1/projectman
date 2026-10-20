@@ -9,6 +9,7 @@ import {
   PermissionMode,
 } from '../domain/member';
 import { FeedbackConfig } from '../domain/feedback';
+import { MergeCheckRunner } from '../domain/merge-test';
 import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
@@ -262,6 +263,12 @@ export const ReviewTestConfig = z.object({
    * repository-relative paths, each shell-quoted. Absent: a failed train is halved as before (PM-844).
    */
   filesCommand: z.string().min(1).max(500).optional(),
+  /**
+   * Where the merge check runs (PM-900): absent or 'engine' = the card's engine (full test sandbox,
+   * heavy-run queue); 'github_actions' = the repository's merge-check workflow. The merge check only;
+   * a review-time full test stays on the engine.
+   */
+  runner: MergeCheckRunner.optional(),
 });
 export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
 

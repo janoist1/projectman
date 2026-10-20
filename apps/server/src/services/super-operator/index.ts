@@ -18,7 +18,12 @@ import {
 } from '@projectman/shared';
 import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from '@projectman/shared';
 
-export { SuperHandoffService, createSuperHandoffService, superCommandHash } from './handoffs';
+export {
+  SUPER_OWNER_YES,
+  SuperHandoffService,
+  createSuperHandoffService,
+  superCommandHash,
+} from './handoffs';
 export type {
   SuperCommandExecutor,
   SuperCommandSettler,
@@ -34,6 +39,14 @@ export { createCommandExecutor } from './commands';
 export type { SuperCommandDeps } from './commands';
 export { createSuperDiagnostics } from './diagnostics';
 export type { SuperDiagnostics } from './diagnostics';
+export {
+  appRequestId,
+  createOperatorAppCredentials,
+  createOperatorAppOperations,
+  createOperatorAppSessions,
+  isAppOperation,
+} from './app';
+export type { AppOperationInput, OperatorAppCredentials, OperatorAppOperations } from './app';
 export { createSuperAdministration } from './facade';
 export type { SuperAdministration } from './facade';
 export { relayOwnerAnswer } from './relay';

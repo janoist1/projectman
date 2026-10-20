@@ -1,6 +1,6 @@
-import { execFile } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, realpathSync, renameSync, statfsSync } from 'node:fs';
 import path from 'node:path';
+import { execCommand, ExecCommandError } from '../../apps/server/src/exec';
 import {
   EngineConfig,
   EngineConfigError,
@@ -21,13 +21,18 @@ export const OLD_SUFFIX = '.pre-PM-846';
 /** Runs a program without a shell; resolves with its standard output, rejects with its error text. */
 export type Exec = (file: string, args: string[]) => Promise<string>;
 
-export const defaultExec: Exec = (file, args) =>
-  new Promise((resolve, reject) => {
-    execFile(file, args, { maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(`${file} ${args.join(' ')} failed: ${(stderr || error.message).trim()}`));
-      else resolve(stdout);
+export const defaultExec: Exec = async (file, args) => {
+  try {
+    const { stdout } = await execCommand(file, args, {
+      env: { ...process.env },
+      maxOutputBytes: 64 * 1024 * 1024,
     });
-  });
+    return stdout;
+  } catch (error) {
+    if (!(error instanceof ExecCommandError)) throw error;
+    throw new Error(`${file} ${args.join(' ')} failed: ${(error.stderr || error.message).trim()}`);
+  }
+};
 
 export interface MoveWorkRootDeps {
   home: string;

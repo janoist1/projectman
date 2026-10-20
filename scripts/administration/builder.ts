@@ -1,22 +1,20 @@
 // The builder of an administration supervisor (PM-764): the full test and the image build of a pinned card
 // commit, run on this machine. Both read the commit out of the builder repository (a detached check checkout,
 // `git archive`), never the repository's working tree, and only digests and counts go back to the hub.
-import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import Fastify from 'fastify';
 import { createBuilderExecutors } from '../../apps/server/src/administration';
 import type { BuilderToolbox } from '../../apps/server/src/administration';
 import type { AdministrationExecutors } from '../../apps/server/src/contracts';
 import { createLocalBranchMerger } from '../../apps/server/src/engine-host';
+import { execCommand } from '../../apps/server/src/exec';
 import { createFullTestExecutor, defaultHeavyLockDir } from '../../apps/server/src/full-test';
 import { fullTestSandbox } from '../../apps/server/src/runtime/sessions';
 import { realDeps } from '../cloud/deps';
 import { buildPinnedImage } from '../cloud/images';
 
-const git = promisify(execFile);
 /** A test of the whole repository: the same four workers and hour the merge check is given. */
 const MAX_WORKERS = 4;
 const TIMEOUT_MS = 60 * 60_000;
@@ -33,7 +31,9 @@ export function createBuilderToolbox(builder: { repo: string; root: string }): B
   return {
     async hasCommit(commit) {
       try {
-        await git('git', ['-C', builder.repo, 'cat-file', '-e', `${commit}^{commit}`]);
+        await execCommand('git', ['-C', builder.repo, 'cat-file', '-e', `${commit}^{commit}`], {
+          env: { ...process.env },
+        });
         return true;
       } catch {
         return false;

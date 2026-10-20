@@ -21,16 +21,11 @@ export const RUNTIME_ENTRIES: Readonly<Record<string, readonly string[]>> = {
   // Helpers and scripts with a fixed command set. Generic command runners stay unlisted.
   'apps/server/test/helpers/golden-path.ts': [],
   'apps/server/test/helpers/migration-source.ts': [],
-  'scripts/administration/builder.ts': [], // Direct subprocess calls only read git objects.
   'scripts/browsers.mjs': [], // Starts Playwright's package CLI.
   'scripts/engine/cli.ts': ['apps/server/src/index.ts'],
-  'scripts/engine/move-work-root.ts': [],
   'scripts/full-test/cli.ts': [], // Only git; command execution has a separate dependency.
   'scripts/load-probe/load-probe.mjs': [],
   'scripts/merge-test/run.ts': [], // Only git; npm execution is behind its own graph dependency.
-  'scripts/migrate/apply.ts': [],
-  'scripts/migrate/git.ts': [],
-  'scripts/migrate/package.ts': [],
   'scripts/release/cli.ts': [],
 
   // Tests that only start git. Their imported production dependencies still determine selection.

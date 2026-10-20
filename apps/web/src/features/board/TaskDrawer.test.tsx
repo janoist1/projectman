@@ -8,6 +8,8 @@ import { setFetchImplementation } from '../../api/client';
 import { plainLanguageQuestion } from '../../mocks/fixtures';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { t } from '../../i18n/t';
+import { onTaskLabels, onTaskUpdate } from '../../test/msw/tasks';
+import { apiFailure } from '../../test/msw/contract';
 import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -136,6 +138,12 @@ describe('task drawer lifecycle', () => {
   });
   it('changes and clears the assignee even while the old assignee has a live session', async () => {
     const project = mockProject();
+    onTaskUpdate('AC-20', ({ body }) => {
+      const previous = project.backend.findTask('AC-20')!.assignee;
+      const task = project.backend.updateTask('AC-20', { assignee: body.assignee })!;
+      project.backend.addTimeline('AC-20', 'owner', 'task_assigned', { assignee: body.assignee, previous });
+      return task;
+    });
     project.render(drawer, '/p/AC/tasks/AC-20');
     // The select saves on change: there is no save button.
     const select = (await screen.findByLabelText(t('taskLifecycle.assignee'))) as HTMLSelectElement;
@@ -218,6 +226,15 @@ describe('task drawer stage moves', () => {
   });
   it('previews gates and lists unmet conditions inline without moving', async () => {
     const project = mockProject();
+    onTaskUpdate(
+      'AC-20',
+      apiFailure(409, 'gate_blocked', undefined, {
+        unmet: [
+          { stageId: 'integration', condition: { type: 'has_label', label: 'code-review-ok' } },
+          { stageId: 'client_test', condition: { type: 'has_label', label: 'qa-ok' } },
+        ],
+      }),
+    );
     project.render(drawer, '/p/AC/tasks/AC-20');
     fireEvent.change(await openMove(), {
       target: { value: 'client_test' },
@@ -234,17 +251,18 @@ describe('task drawer stage moves', () => {
   it('reports requested approval as information and stays in the original stage', async () => {
     const project = mockProject();
     markMerged(project.backend.findTask('AC-17')!);
+    onTaskUpdate('AC-17', apiFailure(409, 'approval_requested'));
     project.render(drawer, '/p/AC/tasks/AC-17');
     await openMove();
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
     expect(await screen.findByText(t('errors.codes.approval_requested'))).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(project.backend.findTask('AC-17')?.stageId).toBe('merge');
-    expect(
-      project.backend.inbox.some(
-        (item) => item.taskKey === 'AC-17' && item.kind === 'decision' && item.state === 'open',
-      ),
-    ).toBe(true);
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: '/api/projects/AC/tasks/AC-17',
+      body: { stageId: 'release' },
+    });
   });
   it('says why nobody may approve the move when the only approver authored the task', async () => {
     const project = mockProject();
@@ -253,6 +271,7 @@ describe('task drawer stage moves', () => {
     task.stageId = 'merge';
     task.links[0]!.author = 'owner';
     markMerged(task);
+    onTaskUpdate('AC-28', apiFailure(409, 'release_four_eyes'));
     project.render(drawer, '/p/AC/tasks/AC-28');
     await openMove();
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
@@ -300,6 +319,26 @@ describe('task drawer labels', () => {
       name: 'Infó kell',
       setBy: 'anyone',
       requiresComment: true,
+    });
+    const initial = [...project.backend.findTask('AC-20')!.labels];
+    const replies = [
+      { labels: [...initial, 'waiting-answer'], added: ['waiting-answer'], removed: [] },
+      { labels: initial, added: [], removed: ['waiting-answer'] },
+      { labels: [...initial, 'needs-info'], added: ['needs-info'], removed: [] },
+    ];
+    onTaskLabels('AC-20', ({ body }) => {
+      const reply = replies.shift()!;
+      const task = project.backend.updateTask('AC-20', { labels: reply.labels })!;
+      project.backend.addTimeline('AC-20', 'owner', 'task_labels_changed', {
+        added: reply.added,
+        removed: reply.removed,
+      });
+      if (body.comment)
+        project.backend.addTimeline('AC-20', 'owner', 'task_note', {
+          text: body.comment,
+          mentions: [],
+        });
+      return project.backend.taskDetail(task);
     });
     project.render(drawer, '/p/AC/tasks/AC-20');
     const section = await labelsSection();
@@ -371,11 +410,10 @@ describe('task drawer labels', () => {
     const section = await labelsSection();
     fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
     // The label rules change after the drawer has loaded, before the human picks.
-    project.backend.config.pipeline.labels = project.backend.config.pipeline.labels.map((label) =>
-      label.id === 'waiting-answer' ? { ...label, setBy: 'system' as const } : label,
-    );
+    onTaskLabels('AC-20', apiFailure(403, 'label_not_allowed'));
     fireEvent.click(within(section).getByRole('button', { name: /Válaszra vár/ }));
     expect((await within(section).findByRole('alert')).textContent).toBe(t('errors.codes.label_not_allowed'));
+    expect(labelChanges(project)).toEqual([{ add: ['waiting-answer'] }]);
   });
 });
 
@@ -414,13 +452,13 @@ describe('task drawer comments', () => {
       (event) => event.taskKey === 'AC-20' && event.data.text === 'Hello @fe-1',
     )!;
     expect(event.data.mentions).toEqual(['fe-1']);
-    expect(project.backend.messages.some((message) => message.body === 'Hello @fe-1')).toBe(true);
   });
 
   it('preserves line breaks and renders imported attribution and mention chips', async () => {
     const project = mockProject();
     const at = '2024-01-02T03:04:05Z';
-    project.backend.handle('POST', '/api/projects/AC/tasks/AC-20/comments', {
+    project.backend.addTimeline('AC-20', 'owner', 'task_note', {
+      mentions: ['fe-1'],
       text: 'History\n@FE-1 and mail@fe-1.test',
       importedAuthor: 'Morgan Example',
       importedAt: at,
@@ -521,13 +559,13 @@ describe('task editing and subtasks', () => {
     fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
       target: { value: 'Preserved draft' },
     });
-    project.backend.viewerHandle = 'kata';
+    onTaskUpdate('AC-20', apiFailure(403, 'insufficient_access'));
     fireEvent.click(screen.getByRole('button', { name: t('task.save') }));
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect((screen.getByLabelText(t('newTask.fields.title')) as HTMLInputElement).value).toBe(
       'Preserved draft',
     );
-    project.backend.viewerHandle = 'owner';
+    onTaskUpdate('AC-20', () => project.backend.updateTask('AC-20', { title: 'Preserved draft' })!);
     fireEvent.click(screen.getByRole('button', { name: t('task.save') }));
     await waitFor(() => expect(project.backend.findTask('AC-20')?.title).toBe('Preserved draft'));
   });
@@ -739,6 +777,7 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
 
   it('warns before the move panel moves the card into the work stage, then sends the flag', async () => {
     const project = mockProject();
+    onTaskUpdate('AC-23', () => project.backend.updateTask('AC-23', { stageId: 'dev' })!);
     project.render(drawer, '/p/AC/tasks/AC-23');
     fireEvent.change(await openMove(), { target: { value: 'dev' } });
 
@@ -870,24 +909,6 @@ describe('starting a card that waits for a label an AI member sets (PM-236)', ()
     });
     expect(project.backend.sessions.map((session) => session.member)).toContain('des');
   });
-
-  it('starts the developer by itself once the gate lets the card through', async () => {
-    const { project } = uiProject();
-    project.render(drawer, '/p/AC/tasks/AC-23');
-    fireEvent.click(await startButton());
-    await screen.findAllByText(t('taskStatus.startHints.label_missing'));
-
-    // A person takes the card out of the label's scope; the designer's own label change works the same way.
-    const changed = project.backend.handle('POST', '/api/projects/AC/tasks/AC-23/labels', {
-      remove: ['ui'],
-    });
-    expect(changed.status).toBe(200);
-
-    await waitFor(() => expect(project.backend.findTask('AC-23')!.stageId).toBe('dev'));
-    const task = project.backend.findTask('AC-23')!;
-    expect(task.assignee).not.toBeNull();
-    expect(task.startWaiting).toBeUndefined();
-  });
 });
 
 describe('the Kidolgozás button and the refused Start (decision 31)', () => {
@@ -925,14 +946,13 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     project.render(drawer, '/p/AC/tasks/AC-24');
     const button = await refineButton();
     // The label rules change after the drawer has loaded.
-    project.backend.config.pipeline.labels = project.backend.config.pipeline.labels.map((label) =>
-      label.id === 'refine' ? { ...label, setBy: 'system' as const } : label,
-    );
+    onTaskLabels('AC-24', apiFailure(403, 'label_not_allowed'));
 
     fireEvent.click(button);
 
     await screen.findByRole('alert');
     expect(project.backend.findTask('AC-24')!.labels).not.toContain('refine');
+    expect(labelRequests(project)).toEqual([{ add: ['refine'] }]);
   });
 
   it.each([

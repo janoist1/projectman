@@ -54,15 +54,11 @@ import {
   AgentProvider,
   CancelTaskRequest,
   CloseThemeRequest,
-  ChangeTaskLabelsRequest,
   CreateInviteRequest,
   CreateProjectRequest,
-  CreateTaskCommentRequest,
   CreateTaskRequest,
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
-  HANDOFF_TIMEOUT_MS,
-  planHandoff,
   hasPlanUsage,
   pausesOnPlanUsage,
   HireMemberRequest,
@@ -90,8 +86,6 @@ import {
   mergeQueueOrderRefusal,
   UpdateMemberRequest,
   UpdateSessionRequest,
-  UpdateTaskRequest,
-  priorityRefusal,
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
@@ -126,7 +120,6 @@ import {
   handOnRequestOf,
   holdersAllow,
   isBuiltInRole,
-  isHandleOnLeave,
   isOnLeave,
   isRequiredOperator,
   isRequiredProjectManager,
@@ -216,8 +209,6 @@ import {
   fixLimitPlannerForOwner,
   fixLimitReached,
   maxFixRoundsOf,
-  canSetDeveloperLevel,
-  DEVELOPER_LEVEL_REASON_MAX,
   developerLevelOf,
   isSenior,
   pickDeveloper,
@@ -239,6 +230,7 @@ import {
 } from '@projectman/shared';
 import type {
   CardBusyDetails,
+  TaskDetail,
   PartsClosed,
   MessageAttachment,
   MessageAttachmentRef,
@@ -246,7 +238,6 @@ import type {
   EngineStatusView,
   EngineView,
   HandoffFallbackReason,
-  HandoffStart,
   HandoffStep,
   TaskHandoff,
   TaskHandoffRecord,
@@ -2341,19 +2332,13 @@ export class MockBackend {
       (rest.startsWith('/members') && method !== 'GET' && !rest.endsWith('/conversation')) ||
       /\/tasks\/[^/]+\/cancel$/.test(rest) ||
       // A theme is reopened from developer access, any other card by an admin (like the server).
-      this.reopensNonTheme(rest) ||
-      (rest.startsWith('/tasks/') &&
-        method === 'PATCH' &&
-        body !== null &&
-        typeof body === 'object' &&
-        'assignee' in body);
+      this.reopensNonTheme(rest);
     const viewer = this.findMember(this.viewerHandle);
     if (!viewer) return error(403, 'not_a_member', 'Not a member');
     if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
       return error(403, 'insufficient_access', 'Owner or admin required');
     if (
       (rest === '/tasks' && method === 'POST') ||
-      (rest.startsWith('/tasks/') && method === 'PATCH') ||
       /\/tasks\/[^/]+\/(close-theme|reopen|board-move)$/.test(rest)
     ) {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
@@ -2442,44 +2427,11 @@ export class MockBackend {
       if (method === 'POST') return this.createTask(body);
       return ok(clone(this.tasks));
     }
-    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)$/.exec(rest))) {
-      const task = this.findTask(m[1]!);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      if (method === 'PATCH') {
-        const input = parseBody(UpdateTaskRequest, body);
-        if (!input) return error(400, 'invalid_request', 'Invalid task update');
-        return this.changeTask(task, input);
-      }
-      return ok(this.taskDetail(task));
-    }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/handoffs\/([^/]+)$/.exec(rest)) && method === 'GET') {
       const record = this.handoffRecords.get(m[2]!);
       if (!record || record.taskKey !== m[1]) return error(404, 'not_found', 'Unknown handoff');
       const { taskKey: _taskKey, ...view } = record;
       return ok(clone(view));
-    }
-    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/comments$/.exec(rest)) && method === 'POST') {
-      if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
-        return error(403, 'insufficient_access', 'Developer access required');
-      const input = parseBody(CreateTaskCommentRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid comment');
-      if ((input.importedAuthor !== undefined || input.importedAt !== undefined) && viewer.role !== 'owner')
-        return error(403, 'insufficient_access', 'Owner access required');
-      const task = this.findTask(m[1]!);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      const { text, ...importedFrom } = input;
-      this.recordNote(task, text, this.viewerActor(), importedFrom);
-      return { status: 201, body: this.taskDetail(task) };
-    }
-    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/labels$/.exec(rest)) && method === 'POST') {
-      if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
-        return error(403, 'insufficient_access', 'Developer access required');
-      const input = parseBody(ChangeTaskLabelsRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid label change');
-      const task = this.findTask(m[1]!);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      const refused = this.applyLabels(task, input, this.viewerActor(), { comment: input.comment });
-      return refused ?? ok(this.taskDetail(task));
     }
     if ((m = /^\/message-attachments(?:\/(msa_[a-z0-9]+)(?:\/(content|download|thumbnail))?)?$/.exec(rest))) {
       return this.handleMessageAttachments(method, m[1], m[2], body);
@@ -3394,7 +3346,7 @@ export class MockBackend {
     return ok(clone(member));
   }
 
-  private taskPullRequests(task: Task) {
+  private taskPullRequests(task: Task): TaskDetail['pullRequests'] {
     return task.links
       .filter((link) => link.kind === 'pull_request' && link.repo)
       .map((link) => ({
@@ -3402,7 +3354,7 @@ export class MockBackend {
         number: Number(link.ref),
         url: `https://github.com/${link.repo}/pull/${link.ref}`,
         title: link.title ?? null,
-        state: link.state ?? null,
+        state: (link.state as TaskDetail['pullRequests'][number]['state']) ?? null,
         checks: 'passing',
         reviewDecision: 'approved',
         additions: 42,
@@ -3638,7 +3590,7 @@ export class MockBackend {
     return clone(visible);
   }
 
-  private taskDetail(task: Task) {
+  taskDetail(task: Task): TaskDetail {
     const client = this.findMember(this.viewerHandle)?.role === 'client';
     const wait = client ? null : this.taskWaitOf(task);
     return {
@@ -3680,282 +3632,6 @@ export class MockBackend {
       .sort((a, b) => (a.closedAt! < b.closedAt! ? 1 : -1))
       .map((task) => measureClosedCard(task, this.taskSessions(task.key), this.cardRounds(task.key)));
     return { since, days, cards: clone(cards) };
-  }
-
-  /**
-   * Like the server's all-or-nothing task update: the whole change is validated first (label
-   * rules, then the gates against the labels the task will have, and whether someone may give
-   * the approvals the move needs); fields, assignee and labels are applied before the move, and
-   * a move that needs an approval requests it with the rest applied.
-   */
-  private changeTask(task: Task, input: UpdateTaskRequest): MockResponse {
-    if (
-      this.integratorMode === 'super' &&
-      input.visibility !== undefined &&
-      ownerReservedEffect(this.config, {
-        kind: 'task_visibility',
-        taskKey: task.key,
-        before: task.visibility,
-        after: input.visibility,
-      })
-    )
-      return error(403, 'owner_approval_required', 'Publication requires a specific owner authorization');
-    const actor = this.viewerActor();
-    const patch: Partial<Task> = {};
-    const fields: string[] = [];
-    // A theme does not move, have an assignee or a repository.
-    if (
-      isTheme(task) &&
-      ((input.stageId !== undefined && input.stageId !== task.stageId) ||
-        (input.assignee !== undefined && input.assignee !== null) ||
-        (input.repo !== undefined && input.repo !== null) ||
-        (input.priority !== undefined && input.priority !== null))
-    )
-      return error(409, 'task_is_theme', 'A theme has no stage, assignee or repository');
-    // Like the server (`planDeveloperLevel`): who may, theme, closed, then the reason; the same level and reason is no change.
-    let levelEvent: TimelineEventData['task_level_changed'] | null = null;
-    if (input.developerLevel) {
-      if (!canSetDeveloperLevel(this.config, this.viewerHandle))
-        return error(403, 'developer_level_forbidden', 'Not allowed to set the recommended developer');
-      if (isTheme(task)) return error(409, 'task_is_theme', 'A theme has no recommended developer');
-      if (!isOpenTask(task)) return error(409, 'task_closed', `Task ${task.key} is ${task.status}`);
-      const reason = input.developerLevel.reason?.trim() || null;
-      if (reason && reason.length > DEVELOPER_LEVEL_REASON_MAX)
-        return error(400, 'invalid_request', 'The reason is too long');
-      if (input.developerLevel.level === 'senior' && !reason)
-        return error(400, 'developer_level_reason_required', 'A Senior task needs a reason');
-      const before = task.developerLevel
-        ? { level: task.developerLevel.level, reason: task.developerLevel.reason }
-        : null;
-      if (!(before && before.level === input.developerLevel.level && before.reason === reason)) {
-        patch.developerLevel = {
-          level: input.developerLevel.level,
-          reason,
-          setBy: this.viewerHandle,
-          setAt: nowIso(),
-        };
-        levelEvent = { level: input.developerLevel.level, reason, previous: before };
-      }
-    }
-    if (input.priority !== undefined) {
-      const refusal = priorityRefusal(actor, this.config);
-      if (refusal)
-        return error(403, refusal, 'The priority of a card is set by people and the project manager only');
-      if (input.priority !== task.priority) {
-        patch.priority = input.priority;
-        fields.push('priority');
-      }
-    }
-    if (input.title !== undefined && input.title.trim() !== task.title) {
-      patch.title = input.title.trim();
-      if (!patch.title) return error(400, 'invalid_request', 'Empty title');
-      fields.push('title');
-    }
-    if (input.description !== undefined && input.description !== task.description) {
-      patch.description = input.description;
-      fields.push('description');
-    }
-    if (input.visibility !== undefined && input.visibility !== task.visibility) {
-      patch.visibility = input.visibility;
-      fields.push('visibility');
-    }
-    if (input.relations && input.parentKey !== undefined)
-      return error(400, 'invalid_request', 'Give the parent in parentKey or in relations, not both');
-    const relationPlan = input.relations ? this.planRelationChange(task, input.relations) : null;
-    if (relationPlan && 'status' in relationPlan) return relationPlan;
-    if (relationPlan?.closes && input.stageId !== undefined && input.stageId !== task.stageId)
-      return error(400, 'invalid_request', 'A card marked as a duplicate cannot move in the same call');
-    if (input.parentKey) {
-      const refusal = this.validateParent(task.key, input.parentKey, task.kind);
-      if (refusal) return refusal;
-    }
-    if (input.parentKey !== undefined && input.parentKey !== (task.parentKey ?? null)) {
-      patch.parentKey = input.parentKey;
-      fields.push('parentKey');
-    }
-    // Like the server: the theme the card stores (a subtask stores none), the rule, and the loss of the
-    // card's own theme when it becomes a subtask.
-    const ownTheme = task.parentKey ? null : (task.themeKey ?? null);
-    let themeAfter = ownTheme;
-    let parentAfter = input.parentKey !== undefined ? input.parentKey : (task.parentKey ?? null);
-    for (const step of relationPlan?.steps ?? [])
-      if (step.type === 'parent' && step.child === task.key) parentAfter = step.parent;
-    if (input.themeKey !== undefined && input.themeKey !== ownTheme) {
-      if (input.themeKey !== null) {
-        const refusal = this.themeError(input.themeKey, task, parentAfter);
-        if (refusal) return refusal;
-      }
-      themeAfter = input.themeKey;
-    }
-    if (parentAfter) themeAfter = null;
-    if (themeAfter !== ownTheme) patch.themeKey = themeAfter;
-    // Like the server: a repository of the project, and not while a session of the task runs.
-    if (input.repo !== undefined && input.repo !== task.repo) {
-      if (input.repo !== null && !repoOf(this.config, input.repo))
-        return error(400, 'unknown_repo', 'Unknown repository');
-      const live = this.taskSessions(task.key).find((session) => this.isLive(session));
-      if (live) return error(409, 'task_session_live', 'A session is still live', { sessionId: live.id });
-      patch.repo = input.repo;
-      fields.push('repo');
-    }
-    if (input.assignee !== undefined) {
-      if (input.assignee !== null && !memberOf(this.config, input.assignee))
-        return error(400, 'unknown_member', 'Unknown member');
-      // A live session of the old assignee is no obstacle (PM-342): the server asks it for a handoff note.
-      if (input.assignee !== task.assignee) {
-        if (isHandleOnLeave(this.config, input.assignee))
-          return error(409, 'member_on_leave', `${input.assignee} is on leave`);
-        patch.assignee = input.assignee;
-      }
-    }
-    const wanted = input.labels && unique(input.labels.map((label) => label.trim()).filter(Boolean));
-    const labels = planLabelChange(
-      this.config,
-      { ...task, ...patch },
-      wanted
-        ? {
-            add: wanted.filter((label) => !task.labels.includes(label)),
-            remove: task.labels.filter((label) => !wanted.includes(label)),
-          }
-        : {},
-      actor,
-    );
-    if (!labels.ok) return labelChangeError(labels.refusal);
-    const moving = input.stageId !== undefined && input.stageId !== task.stageId;
-    if (moving) {
-      if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
-      const target = stageOf(this.config, input.stageId!);
-      if (!target) return error(400, 'unknown_stage', 'Unknown stage');
-      const unmerged = this.mergeGate(task, target.id, labels.labels);
-      if (unmerged) return unmerged;
-      const prospective = { ...task, ...patch, labels: labels.labels };
-      const evaluation = this.partsClosedOf(prospective, target.id)
-        ? { unmet: [], approvals: [] }
-        : evaluateMove(prospective, this.config, task.stageId, target.id);
-      if (evaluation.unmet.length) return gateBlockedError(evaluation);
-      const nobody = this.noApproverError(
-        { ...task, ...patch, labels: labels.labels },
-        target,
-        evaluation.approvals,
-      );
-      if (nobody) return nobody;
-    }
-
-    const previous = {
-      assignee: task.assignee,
-      parentKey: task.parentKey ?? null,
-      repo: task.repo,
-      priority: task.priority,
-    };
-    const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
-    let handoffStart: HandoffStart | undefined;
-    if (
-      fields.length ||
-      patch.assignee !== undefined ||
-      patch.themeKey !== undefined ||
-      labelsChanged ||
-      levelEvent
-    ) {
-      this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
-      if (levelEvent) this.addTimeline(task.key, actor.handle, 'task_level_changed', { ...levelEvent });
-      if (fields.length)
-        this.addTimeline(task.key, actor.handle, 'task_updated', {
-          fields,
-          ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: previous.repo } : {}),
-          ...(patch.priority !== undefined
-            ? { priority: patch.priority, previousPriority: previous.priority }
-            : {}),
-        });
-      if (labelsChanged) this.recordLabels(task, labels, actor, {});
-      if (patch.assignee !== undefined)
-        this.addTimeline(task.key, actor.handle, 'task_assigned', {
-          assignee: task.assignee,
-          previous: previous.assignee,
-        });
-      if (patch.assignee !== undefined)
-        handoffStart = this.handOver(task, previous.assignee, patch.assignee, actor.handle);
-      if (patch.parentKey !== undefined)
-        this.recordParentChange(task.key, previous.parentKey, task.parentKey ?? null);
-      if (patch.themeKey !== undefined) this.recordThemeChange(task.key, ownTheme, themeAfter);
-      this.settleSeniorWaits();
-    }
-    if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
-    this.syncSubtaskThemes();
-    return moving
-      ? this.move(task, input.stageId!, actor)
-      : ok({ ...clone(task), ...(handoffStart ? { handoffStart } : {}) });
-  }
-
-  /**
-   * What a change of the assignee starts (PM-342), by the shared `planHandoff` rule the server uses: the
-   * old session is asked for a note (`live`, the card carries `handoff`), or the transcript summary stands
-   * in at once (`fallback`, the card carries `lastHandoff`). Giving the card back to the old assignee
-   * cancels the open handoff, a third member takes it over as the receiver.
-   */
-  private handOver(
-    task: Task,
-    previous: string | null,
-    next: string | null,
-    by: string | null,
-  ): HandoffStart | undefined {
-    const open = task.handoff;
-    if (open) {
-      if (next === open.from) {
-        this.updateTask(task.key, { handoff: undefined });
-        this.addTimeline(task.key, by, 'task_handoff', this.handoffEventData('cancelled', open));
-        return undefined;
-      }
-      const toProvider = next ? this.providerOf(next) : null;
-      this.updateTask(task.key, { handoff: { ...open, to: next, toProvider } });
-      this.addTimeline(
-        task.key,
-        by,
-        'task_handoff',
-        this.handoffEventData('retargeted', { ...open, to: next, toProvider }),
-      );
-      return undefined;
-    }
-    if (!previous) return undefined;
-    const from = memberOf(this.config, previous);
-    const conversation = this.taskSessions(task.key)
-      .filter((session) => session.member === previous)
-      .at(-1);
-    const plan = planHandoff({
-      from: from
-        ? {
-            kind: from.kind,
-            provider: this.providerOf(previous),
-            onLeave: isHandleOnLeave(this.config, previous),
-          }
-        : null,
-      conversation: conversation
-        ? { provider: conversation.provider ?? this.providerOf(previous), transcript: this.handoffTranscript }
-        : null,
-    });
-    if (!plan) return undefined;
-    const fromProvider = this.providerOf(previous);
-    const base: TaskHandoff = {
-      id: mockId('hnd'),
-      from: previous,
-      to: next,
-      fromProvider,
-      toProvider: next ? this.providerOf(next) : null,
-      reason: 'manual',
-      step: plan.mode === 'live' ? 'waiting_point' : 'closing',
-      startedAt: nowIso(),
-      deadlineAt: plan.mode === 'live' ? new Date(Date.now() + HANDOFF_TIMEOUT_MS).toISOString() : null,
-    };
-    this.addTimeline(task.key, by, 'task_handoff', {
-      ...this.handoffEventData('started', base),
-      mode: plan.mode,
-      reason: base.reason,
-    });
-    if (plan.mode === 'live') {
-      this.updateTask(task.key, { handoff: base });
-      return { mode: 'live', from: previous };
-    }
-    this.closeHandoff(task, base, { fallbackReason: plan.reason, summary: 'Where the work stood.' }, false);
-    return { mode: 'fallback', from: previous, reason: plan.reason };
   }
 
   private handoffEventData(phase: TimelineEventData['task_handoff']['phase'], handoff: TaskHandoff) {
@@ -4079,22 +3755,15 @@ export class MockBackend {
     return task;
   }
 
-  /** Adds a comment; the members it mentions get it as a team message (imported ones do not). */
-  private recordNote(
-    task: Task,
-    text: string,
-    actor: Actor,
-    imported: Pick<CreateTaskCommentRequest, 'importedAuthor' | 'importedAt'> = {},
-  ): void {
+  /** Adds the comment of a label change and notifies the mentioned members. */
+  private recordNote(task: Task, text: string, actor: Actor): void {
     const mentions = commentMentions(
       text,
       this.config.team.members.map((member) => member.handle),
       actor.handle,
     );
-    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions, ...imported });
-    const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
-    if (!isImported && mentions.length && actor.handle)
-      this.sendTeamMessage(actor.handle, mentions, task.key, text);
+    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions });
+    if (mentions.length && actor.handle) this.sendTeamMessage(actor.handle, mentions, task.key, text);
   }
 
   /** Records a label change already written to the task: the event, the comment, the assignee's notice. */

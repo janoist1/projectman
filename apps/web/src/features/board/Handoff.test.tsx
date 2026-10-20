@@ -11,6 +11,8 @@ import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import type { TaskStateContext } from '../../lib/taskState';
 import { buildConfig, inbox, tasks } from '../../mocks/fixtures';
 import { createMockFetch, mockProject } from '../../test/mockProject';
+import { onTaskUpdate } from '../../test/msw/tasks';
+import { apiFailure } from '../../test/msw/contract';
 import { mockIndexes, renderUi } from '../../test/render';
 import { TaskCard } from './TaskCard';
 import { TaskDrawer } from './TaskDrawer';
@@ -63,11 +65,20 @@ describe('the assignee select (PM-342)', () => {
 
   it('says in a toast that the old assignee hands the work over', async () => {
     const project = mockProject();
+    onTaskUpdate('AC-20', () => ({
+      ...project.backend.updateTask('AC-20', { assignee: 'fe-1', handoff: openHandoff('waiting_point') })!,
+      handoffStart: { mode: 'live', from: 'be-1' },
+    }));
     project.render(drawer, '/p/AC/tasks/AC-20');
     fireEvent.change(await screen.findByLabelText(t('taskLifecycle.assignee')), {
       target: { value: 'fe-1' },
     });
     await screen.findByText(t('handoff.toast.live', { from: nameBe }));
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: '/api/projects/AC/tasks/AC-20',
+      body: { assignee: 'fe-1' },
+    });
     // The card carries the handoff, and the box tells so.
     await screen.findByRole('heading', { name: t('handoff.box.title') });
   });
@@ -75,6 +86,22 @@ describe('the assignee select (PM-342)', () => {
   it('says in a toast why the new assignee starts without a note', async () => {
     const project = mockProject();
     project.backend.handle('PATCH', '/api/projects/AC/members/be-1', { onLeave: true });
+    onTaskUpdate('AC-20', () => ({
+      ...project.backend.updateTask('AC-20', {
+        assignee: 'fe-1',
+        lastHandoff: {
+          id: 'hnd_fallback',
+          from: 'be-1',
+          to: 'fe-1',
+          fromProvider: 'codex',
+          toProvider: 'claude',
+          outcome: 'fallback',
+          fallbackReason: 'on_leave',
+          endedAt: new Date().toISOString(),
+        },
+      })!,
+      handoffStart: { mode: 'fallback', from: 'be-1', reason: 'on_leave' },
+    }));
     project.render(drawer, '/p/AC/tasks/AC-20');
     fireEvent.change(await screen.findByLabelText(t('taskLifecycle.assignee')), {
       target: { value: 'fe-1' },
@@ -82,6 +109,11 @@ describe('the assignee select (PM-342)', () => {
     await screen.findByText(
       t('handoff.toast.fallback', { reason: t('handoff.fallbackReason.on_leave', { from: nameBe }) }),
     );
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: '/api/projects/AC/tasks/AC-20',
+      body: { assignee: 'fe-1' },
+    });
     // No box, but the button of the note that was not.
     expect(screen.queryByRole('heading', { name: t('handoff.box.title') })).toBeNull();
     await screen.findByRole('button', { name: t('handoff.note.fallbackButton') });
@@ -177,6 +209,9 @@ describe('the handoff box (PM-342)', () => {
 
   it('gives the card back to the old assignee with one request', async () => {
     const project = await renderBox(openHandoff('waiting_point'));
+    onTaskUpdate('AC-20', () =>
+      project.backend.updateTask('AC-20', { assignee: 'be-1', handoff: undefined })!,
+    );
     fireEvent.click(screen.getByRole('button', { name: t('handoff.box.undo') }));
     await waitFor(() =>
       expect(project.requests).toContainEqual({
@@ -186,25 +221,13 @@ describe('the handoff box (PM-342)', () => {
       }),
     );
     await waitFor(() => expect(screen.queryByRole('region', { name: t('handoff.box.title') })).toBeNull());
-    expect(project.backend.timeline.at(-1)).toMatchObject({
-      type: 'task_handoff',
-      data: { phase: 'cancelled' },
-    });
   });
 
   it('keeps the box and says why when the server refuses the way back', async () => {
     const project = mockProject();
     const handoff = openHandoff('waiting_point');
     Object.assign(project.backend.findTask('AC-20')!, { assignee: handoff.to, handoff });
-    const inner = createMockFetch(project.backend, project.requests);
-    setFetchImplementation(async (path, init) =>
-      init?.method === 'PATCH'
-        ? new Response(JSON.stringify({ error: { code: 'undo_refused', message: 'The card moved on.' } }), {
-            status: 409,
-            headers: { 'content-type': 'application/json' },
-          })
-        : inner(String(path), init),
-    );
+    onTaskUpdate('AC-20', apiFailure(409, 'undo_refused', 'The card moved on.'));
     project.render(drawer, '/p/AC/tasks/AC-20');
     await screen.findByRole('region', { name: /Átadás/ });
     fireEvent.click(screen.getByRole('button', { name: t('handoff.box.undo') }));
@@ -467,10 +490,8 @@ describe('the handoff in the mock backend (PM-342)', () => {
   it('walks the steps and ends with the note, the record and the last handoff', async () => {
     const project = mockProject();
     const backend = project.backend;
-    expect(backend.handle('PATCH', '/api/projects/AC/tasks/AC-20', { assignee: 'fe-1' }).body).toMatchObject({
-      handoffStart: { mode: 'live', from: 'be-1' },
-    });
-    expect(backend.findTask('AC-20')?.handoff).toMatchObject({ step: 'waiting_point', to: 'fe-1' });
+    backend.updateTask('AC-20', { assignee: 'fe-1', handoff: openHandoff('waiting_point') });
+    backend.addTimeline('AC-20', 'owner', 'task_handoff', { phase: 'started' });
     backend.advanceHandoff('AC-20', 'writing');
     expect(backend.findTask('AC-20')?.handoff?.step).toBe('writing');
     backend.advanceHandoff('AC-20', 'closing', { note: 'Done so far.' });
@@ -489,17 +510,5 @@ describe('the handoff in the mock backend (PM-342)', () => {
     expect(
       backend.timeline.filter((event) => event.type === 'task_handoff').map((event) => event.data.phase),
     ).toEqual(['started', 'note', 'taken_over']);
-  });
-
-  it('retargets an open handoff, and cancels it when the card goes back', () => {
-    const backend = mockProject().backend;
-    backend.handle('PATCH', '/api/projects/AC/tasks/AC-20', { assignee: 'fe-1' });
-    backend.handle('PATCH', '/api/projects/AC/tasks/AC-20', { assignee: 'qa' });
-    expect(backend.findTask('AC-20')?.handoff).toMatchObject({ from: 'be-1', to: 'qa' });
-    backend.handle('PATCH', '/api/projects/AC/tasks/AC-20', { assignee: 'be-1' });
-    expect(backend.findTask('AC-20')?.handoff).toBeUndefined();
-    expect(
-      backend.timeline.filter((event) => event.type === 'task_handoff').map((event) => event.data.phase),
-    ).toEqual(['started', 'retargeted', 'cancelled']);
   });
 });

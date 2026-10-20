@@ -5,7 +5,9 @@ import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { MockBackend } from '../../mocks/backend';
 import { ToastProvider } from '../../components/Toast';
-import { createMockFetch, mockProject } from '../../test/mockProject';
+import { mockProject } from '../../test/mockProject';
+import { onTaskUpdate } from '../../test/msw/tasks';
+import { apiFailure } from '../../test/msw/contract';
 import { BoardPage } from './BoardPage';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -287,11 +289,6 @@ describe('the "Ajánlott" row (PM-349)', () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('button', { name: t('task.level.edit') })),
     );
-    expect(
-      project.backend.timeline.filter(
-        (event) => event.taskKey === 'AC-24' && event.type === 'task_level_changed',
-      ),
-    ).toHaveLength(1);
   });
 
   it('wants a reason for a Senior card: the field says so, and nothing is sent', async () => {
@@ -329,15 +326,7 @@ describe('the "Ajánlott" row (PM-349)', () => {
 
   it('shows the refusal of the server in an alert and keeps the editor open', async () => {
     const project = seniorProject({ seniorCard: false });
-    const fetch = createMockFetch(project.backend, project.requests);
-    setFetchImplementation(async (path, init) => {
-      if (init?.method === 'PATCH')
-        return new Response(
-          JSON.stringify({ error: { code: 'developer_level_forbidden', message: 'Forbidden' } }),
-          { status: 403 },
-        );
-      return fetch(path, init);
-    });
+    onTaskUpdate('AC-24', apiFailure(403, 'developer_level_forbidden'));
     project.render(drawer, '/p/AC/tasks/AC-24');
     await row();
     fireEvent.click(await screen.findByRole('button', { name: t('task.level.edit') }));

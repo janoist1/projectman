@@ -55,11 +55,9 @@ interface WorkerEntry {
 
 /** A TypeScript entry (tests, `tsx`) is loaded through tsx registered inside the thread: a worker ignores `--import`. */
 function sourceEntry(url: URL): WorkerEntry {
-  const target = JSON.stringify(url.href);
-  return {
-    eval: true,
-    source: `import('tsx/esm/api').then(({ register }) => { register(); return import(${target}); });`,
-  };
+  // Joined from plain strings: a template literal with an `import(${…})` reads as a computed dependency.
+  const load = "import('tsx/esm/api').then(({ register }) => { register(); return import(";
+  return { eval: true, source: load + JSON.stringify(url.href) + '); });' };
 }
 
 function defaultWorkerEntry(): WorkerEntry {

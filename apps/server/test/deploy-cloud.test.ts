@@ -430,7 +430,7 @@ describe('deploy/cloud shell scripts', () => {
     expect(build).toContain("'dist/control/cli.js': 'src/control/cli.ts'");
     expect(existsSync(join(root, 'apps/server/src/control/cli.ts'))).toBe(true);
     // `npm run build` makes apps/server/dist, and the runtime stage takes the whole folder.
-    expect(withoutComments(dockerfile)).toContain('RUN npm run build');
+    expect(withoutComments(dockerfile)).toMatch(/^RUN .*\bnpm run build\b/m);
     expect(dockerfile).toContain('COPY --from=build /app/apps/server/dist ./apps/server/dist');
     const hostScript = read('deploy/aws/host.sh');
     const relay = shellFunction(hostScript, 'release_control');

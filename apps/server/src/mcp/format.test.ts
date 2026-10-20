@@ -309,6 +309,8 @@ describe('formatTaskDetail', () => {
         finishedAt: '2026-10-20T10:02:00.000Z',
         durationMs: 120_000,
         report: null,
+        runner: 'github_actions',
+        url: 'https://github.com/o/r/actions/runs/1',
       },
     ];
     const text = formatTaskDetail(detail);
@@ -316,6 +318,8 @@ describe('formatTaskDetail', () => {
     expect(text).toContain('train (AR-21, AR-22)');
     expect(text).toContain('workers 4 (seen unknown)');
     expect(text).toContain('steps: unknown');
+    expect(text).toContain('runner: github_actions');
+    expect(text).toContain('url: https://github.com/o/r/actions/runs/1');
   });
   it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {
     const lineOf = (detail: Parameters<typeof formatTaskDetail>[0]) =>

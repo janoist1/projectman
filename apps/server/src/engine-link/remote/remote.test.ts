@@ -1123,6 +1123,64 @@ describe('cloud mode remote parts', () => {
       expect(ran).toBe(true);
     });
 
+    describe('GitHub Actions descriptor (PM-900)', () => {
+      const githubSpec = (runId: string): FullTestSpec => ({
+        ...fullTestSpec(runId),
+        cwd: 'github-actions:acme/web',
+        githubActions: {
+          ref: { projectKey: 'AR', repo: 'ar' },
+          mergeId: 'merge_1',
+          repo: 'acme/web',
+          base: 'main',
+          commit: 'a'.repeat(40),
+          workflow: 'merge-check.yml',
+          files: ['a.test.ts'],
+        },
+      });
+
+      it('sends the descriptor to the engine and relays the run page of its result', async () => {
+        const engine = await online();
+        const externalUrl = 'https://github.com/acme/web/actions/runs/7';
+        engine.answer('full_test.run', () => ({
+          outcome: 'passed' as const,
+          exitCode: 0,
+          durationMs: 1,
+          failedFiles: [],
+          outputTail: '',
+          externalUrl,
+        }));
+        const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+        const result = await executor.run(githubSpec('f1'), new AbortController().signal);
+        expect(result).toMatchObject({ outcome: 'passed', externalUrl });
+        expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
+          { method: 'full_test.run', params: { spec: expect.objectContaining(githubSpec('f1')) } },
+        ]);
+      });
+
+      it('blocks the run on an older engine that refuses the descriptor, without running it', async () => {
+        const engine = await online();
+        let ran = false;
+        // An older engine's strict schema: the unknown field makes the request invalid before it runs.
+        engine.answer('full_test.run', (params) => {
+          if ('githubActions' in params.spec)
+            throw Object.assign(new Error('Invalid method parameters'), { code: 'invalid_params' });
+          ran = true;
+          return { outcome: 'passed' as const, exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+        });
+        const onStarted = vi.fn();
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(githubSpec('f1'), new AbortController().signal, onStarted);
+        expect(result).toMatchObject({
+          outcome: 'error',
+          reason: 'github_unavailable',
+          outputTail: expect.stringContaining('Update the engine'),
+        });
+        expect(ran).toBe(false);
+        expect(onStarted).not.toHaveBeenCalled();
+      });
+    });
+
     it('sends npmCi to the engine and relays its result (PM-681)', async () => {
       const engine = await online();
       engine.answer('full_test.run', () => ({

@@ -1,4 +1,3 @@
-import path from 'node:path';
 import {
   ALERT_SEEN_OPTION,
   isCommitId,
@@ -19,7 +18,12 @@ import { prerequisiteCards } from '../../core/tasks';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import { recordMergeCheck } from './check-runs';
-import { prepareMergeCheck } from './check-preparation';
+import {
+  GITHUB_RUNNER_NEEDS_REPO,
+  mergeCheckExecutor,
+  mergeCheckRunner,
+  prepareMergeCheck,
+} from './check-preparation';
 import type { MergeDeps, MergeRun } from './deps';
 import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import type { MergeSteps } from './steps';
@@ -422,8 +426,12 @@ export class MergeTrains {
     const { ctx } = this.deps;
     if (!merger || train.members.length < 2 || group.failedFiles.length === 0 || !train.onto) return false;
     const config = await this.deps.projects.config(train.projectKey);
-    const filesCommand = config.project.repos.find((r) => r.name === train.repo)?.reviewTest?.filesCommand;
+    const repoConfig = config.project.repos.find((r) => r.name === train.repo);
+    const filesCommand = repoConfig?.reviewTest?.filesCommand;
     if (!filesCommand) return false;
+    const runner = mergeCheckRunner(train.reviewTest);
+    const github = repoConfig?.github;
+    if (runner === 'github_actions' && !github) return false;
     const command = mergeTestFilesCommand(filesCommand, group.failedFiles);
     const ref = { projectKey: train.projectKey, repo: train.repo };
     const paths = engine.paths();
@@ -456,10 +464,17 @@ export class MergeTrains {
       const runId = newId('mergecheck');
       let result: FullTestResult;
       try {
-        const { checkout, preparation } = await prepareMergeCheck(merger, ref, {
+        const prepared = await prepareMergeCheck(merger, {
+          ref,
           mergeId,
           mergeCommit: built.mergeCommit,
+          base: train.base,
           depsFrom: null,
+          runner,
+          github,
+          files: group.failedFiles,
+          checkSandbox: this.deps.checkSandbox,
+          paths,
         });
         if (!(await this.checkpoint(run))) return true;
         result = await recordMergeCheck(
@@ -474,27 +489,11 @@ export class MergeTrains {
             commit: built.mergeCommit,
             base: train.onto,
             maxWorkers: train.reviewTest.maxWorkers,
+            runner,
           },
           (markStarted) =>
             executor.run(
-              {
-                runId,
-                cwd: checkout.path,
-                command,
-                maxWorkers: train.reviewTest.maxWorkers,
-                timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
-                ...preparation,
-                sandbox: this.deps.checkSandbox({
-                  checkout: checkout.path,
-                  gitDir: checkout.gitDir,
-                  userHome: paths.userHome,
-                  appHome: paths.home ?? undefined,
-                  closedTmpRoots: [
-                    ...paths.claudeTmpRoots,
-                    ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
-                  ],
-                }),
-              },
+              prepared.spec({ runId, command, reviewTest: train.reviewTest }),
               run.signal ?? new AbortController().signal,
               markStarted,
               { linkWaitMs: MERGE_ENGINE_WAIT_MS },
@@ -830,24 +829,28 @@ export class MergeTrains {
             'local_checkout',
             `Uncommitted paths overlap the train: ${conflicts.join(', ')}`,
           );
-        const executor = engine.fullTestExecutor;
-        const available = await executor?.available();
-        if (available && !available.ok && available.reason === 'engine_offline')
-          throw new EngineLinkLostError('the merge check engine is not connected');
-        if (!executor || !available?.ok)
-          return await this.terminal(
-            run,
-            'check_unavailable',
-            available && !available.ok ? available.reason : 'No full test executor is available',
-          );
+        const runner = mergeCheckRunner(train.reviewTest);
+        const github = (await this.deps.projects.config(train.projectKey)).project.repos.find(
+          (r) => r.name === train.repo,
+        )?.github;
+        if (runner === 'github_actions' && !github)
+          return await this.terminal(run, 'check_unavailable', GITHUB_RUNNER_NEEDS_REPO);
+        const available = await mergeCheckExecutor(engine, runner);
+        if (!available.ok) return await this.terminal(run, 'check_unavailable', available.reason);
+        const { executor } = available;
         if (!(await this.checkpoint(run))) return;
-        const { checkout, preparation } = await prepareMergeCheck(merger, ref, {
+        const prepared = await prepareMergeCheck(merger, {
+          ref,
           mergeId: train.id,
           mergeCommit: built.mergeCommit,
+          base: train.base,
           depsFrom: null,
+          runner,
+          github,
+          checkSandbox: this.deps.checkSandbox,
+          paths: engine.paths(),
         });
         if (!(await this.checkpoint(run))) return;
-        const paths = engine.paths();
         const runId = newId('mergecheck');
         let started = false;
         let waitingForEngine = false;
@@ -863,27 +866,11 @@ export class MergeTrains {
             commit: built.mergeCommit,
             base: onto,
             maxWorkers: train.reviewTest.maxWorkers,
+            runner,
           },
           (markStarted) =>
             executor.run(
-              {
-                runId,
-                cwd: checkout.path,
-                command: train.reviewTest.command,
-                maxWorkers: train.reviewTest.maxWorkers,
-                timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
-                ...preparation,
-                sandbox: this.deps.checkSandbox({
-                  checkout: checkout.path,
-                  gitDir: checkout.gitDir,
-                  userHome: paths.userHome,
-                  appHome: paths.home ?? undefined,
-                  closedTmpRoots: [
-                    ...paths.claudeTmpRoots,
-                    ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
-                  ],
-                }),
-              },
+              prepared.spec({ runId, command: train.reviewTest.command, reviewTest: train.reviewTest }),
               run.signal ?? new AbortController().signal,
               () => {
                 markStarted();

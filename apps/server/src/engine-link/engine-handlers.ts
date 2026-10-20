@@ -54,6 +54,8 @@ const FULL_TEST_RESULTS_KEPT = 32;
 
 interface FullRunRecord {
   cwd: string;
+  /** A GitHub Actions run (PM-900): `merge.release_check` of this check id ends it. */
+  mergeId?: string;
   ended: Promise<FullTestResult>;
   endedAt: number | null;
 }
@@ -170,18 +172,22 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
 
   const endChecksIn = async (mergeId: string) => {
     const { worktreesRoot } = engine.paths();
-    if (worktreesRoot === null) return;
     // The merger returns a canonical checkout path, even when the configured engine home is a symlink.
-    const roots = new Set([worktreesRoot, await realpath(worktreesRoot).catch(() => worktreesRoot)]);
-    const checkouts = [...roots].map((root) => path.resolve(mergeCheckPath(root, mergeId)));
+    const roots =
+      worktreesRoot === null
+        ? []
+        : [...new Set([worktreesRoot, await realpath(worktreesRoot).catch(() => worktreesRoot)])];
+    const checkouts = roots.map((root) => path.resolve(mergeCheckPath(root, mergeId)));
     await Promise.all(
       [...fullRunRecords].map(async ([runId, record]) => {
         if (record.endedAt !== null) return;
         const cwd = path.resolve(record.cwd);
-        const inside = checkouts.some((checkout) => {
-          const relative = path.relative(checkout, cwd);
-          return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
-        });
+        const inside =
+          record.mergeId === mergeId ||
+          checkouts.some((checkout) => {
+            const relative = path.relative(checkout, cwd);
+            return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+          });
         if (!inside) return;
         fullRuns.get(runId)?.abort();
         await fullRunEnds.get(runId);
@@ -376,7 +382,12 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
         engine.fullTestExecutor!.run(spec, controller.signal, () =>
           deps.emit({ kind: 'full_test_started', runId: spec.runId }),
         ))();
-      const record: FullRunRecord = { cwd: spec.cwd, ended: running, endedAt: null };
+      const record: FullRunRecord = {
+        cwd: spec.cwd,
+        ...(spec.githubActions ? { mergeId: spec.githubActions.mergeId } : {}),
+        ended: running,
+        endedAt: null,
+      };
       fullRunRecords.set(spec.runId, record);
       fullRunEnds.set(
         spec.runId,

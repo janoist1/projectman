@@ -21,7 +21,12 @@ import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import type { MergeDeps, MergeRun } from './deps';
 import { recordMergeCheck } from './check-runs';
-import { prepareMergeCheck } from './check-preparation';
+import {
+  GITHUB_RUNNER_NEEDS_REPO,
+  mergeCheckExecutor,
+  mergeCheckRunner,
+  prepareMergeCheck,
+} from './check-preparation';
 import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import { notifyMerge } from './notify';
 import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
@@ -457,16 +462,17 @@ export class MergeSteps {
             check: { command: repo.reviewTest.command, status: 'passed', runId: passed.id, reused: true },
           });
         } else {
-          const executor = engine.fullTestExecutor;
-          const available = await executor?.available();
-          if (available && !available.ok && available.reason === 'engine_offline')
-            throw new EngineLinkLostError('the merge check engine is not connected');
-          if (!executor || !available?.ok)
+          const { reviewTest } = repo;
+          const runner = mergeCheckRunner(reviewTest);
+          if (runner === 'github_actions' && !repo.github)
+            return this.block(running, 'check_unavailable', GITHUB_RUNNER_NEEDS_REPO);
+          const available = await mergeCheckExecutor(engine, runner);
+          if (!available.ok)
             return this.block(running, 'check_unavailable', 'no full test executor is available');
+          const { executor } = available;
           if (!this.continue(running)) return;
           let result;
           const runId = newId('mergecheck');
-          const { reviewTest } = repo;
           let checkStep: 'check_waiting' | 'checking' = 'check_waiting';
           try {
             const worktree = await engine.worktrees.find({
@@ -475,17 +481,22 @@ export class MergeSteps {
               taskKey: task.key,
             });
             if (!this.continue(running)) return;
-            const { checkout, preparation } = await prepareMergeCheck(merger, ref, {
+            const prepared = await prepareMergeCheck(merger, {
+              ref,
               mergeId: row.id,
               mergeCommit: built.mergeCommit,
+              base: row.base,
               depsFrom:
                 worktree?.path ??
                 (engine.workspacePath(row.projectKey)
                   ? path.resolve(engine.workspacePath(row.projectKey)!, repo.path)
                   : null),
+              runner,
+              github: repo.github,
+              checkSandbox: this.deps.checkSandbox,
+              paths: engine.paths(),
             });
             if (!this.continue(running)) return;
-            const paths = engine.paths();
             result = await recordMergeCheck(
               ctx,
               {
@@ -498,27 +509,11 @@ export class MergeSteps {
                 commit: built.mergeCommit,
                 base: onto,
                 maxWorkers: reviewTest.maxWorkers,
+                runner,
               },
               (markStarted) =>
                 executor.run(
-                  {
-                    runId,
-                    cwd: checkout.path,
-                    command: reviewTest.command,
-                    maxWorkers: reviewTest.maxWorkers,
-                    timeoutMs: reviewTest.timeoutMinutes * 60_000,
-                    ...preparation,
-                    sandbox: this.deps.checkSandbox({
-                      checkout: checkout.path,
-                      gitDir: checkout.gitDir,
-                      userHome: paths.userHome,
-                      appHome: paths.home ?? undefined,
-                      closedTmpRoots: [
-                        ...paths.claudeTmpRoots,
-                        ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
-                      ],
-                    }),
-                  },
+                  prepared.spec({ runId, command: reviewTest.command, reviewTest }),
                   running.signal!,
                   () => {
                     markStarted();

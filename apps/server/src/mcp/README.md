@@ -173,7 +173,8 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   same in the UI (`POST …/tasks/:taskKey/merge/prioritize`, the "Előre" button of the queued merge box).
 - `list_merge_checks { task_key?, outcome?, kind?, since?, until?, limit? }` (PM-876, read only, every AI member) lists
   the recorded merge checks (`merge_check_runs`) newest first: the check's run time (the queue wait apart), the workers
-  the hub passed, the scope and every step with its time and result (a cached step is marked, not timed). `outcome` is
+  the hub passed, the runner (`engine` or `github_actions`, PM-906; with the run's page `url` once the GitHub Actions run
+  has one), the scope and every step with its time and result (a cached step is marked, not timed). `outcome` is
   `passed`, `not_passed` (failed, error, cancelled, still running) or `any`; `kind` is `checks` (default: a single merge
   and a train's group check), `merge`, `train`, `diagnose` or `any`; `since`/`until` are ISO 8601 with a time zone and bound
   the request time; `limit` is 1–100 (30). A check shows only when the caller may see all its cards. A check recorded

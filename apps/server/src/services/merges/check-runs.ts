@@ -33,6 +33,7 @@ export async function recordMergeCheck(
         reason: null,
         durationMs: null,
         report: null,
+        url: null,
         finishedAt: isoNow(ctx),
       }),
     );
@@ -44,6 +45,7 @@ export async function recordMergeCheck(
       reason: result.reason ?? null,
       durationMs: result.durationMs,
       report: result.report ?? null,
+      url: result.externalUrl ?? null,
       finishedAt: isoNow(ctx),
     }),
   );

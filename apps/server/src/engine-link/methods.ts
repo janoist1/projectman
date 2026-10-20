@@ -86,6 +86,17 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   sandbox: z.strictObject({ denyRead: texts, allowRead: texts }),
   requireHeavyLock: z.boolean().optional(),
   npmCi: z.strictObject({ ref: mergeRef, mergeId: mergeText }).optional(),
+  githubActions: z
+    .strictObject({
+      ref: mergeRef,
+      mergeId: mergeText,
+      repo: text.max(100).regex(/^[\w.-]+\/[\w.-]+$/),
+      base: mergeText,
+      commit: z.string().regex(/^[0-9a-f]{40}$/),
+      workflow: text.max(100),
+      files: z.array(text.max(500)).min(1).max(20).optional(),
+    })
+    .optional(),
 });
 const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outcome: z.enum(['passed', 'failed', 'error']),
@@ -94,6 +105,8 @@ const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   durationMs: int,
   failedFiles: texts,
   outputTail: text,
+  // Only a githubActions run has one, so an older hub never receives it.
+  externalUrl: text.max(500).optional(),
 });
 const fullAttachResult = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('ended'), result: fullResult }),

@@ -452,7 +452,7 @@ export class MergeTrains {
       }
       if (!(await this.checkpoint(run))) return true;
       if (!built.ok) continue;
-      const mergeId = `${train.id}-${member.mergeId}`;
+      const mergeId = newId('mrg');
       const runId = newId('mergecheck');
       let result: FullTestResult;
       try {

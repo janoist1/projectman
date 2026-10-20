@@ -350,6 +350,15 @@ describe('history index', () => {
         'obligations',
       ])
         old.exec(`DROP TABLE ${table}`);
+      // The hot read indexes (migration 91) do not exist at version 83 either; migrating recreates them.
+      for (const index of [
+        'inbox_open',
+        'task_merges_task',
+        'task_loops_task_key',
+        'timeline_project_type',
+        'sessions_state',
+      ])
+        old.exec(`DROP INDEX ${index}`);
       old.pragma('user_version = 83');
       expect(old.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE 'history%'").get()).toEqual(
         { n: 0 },

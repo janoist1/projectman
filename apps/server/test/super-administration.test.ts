@@ -442,21 +442,14 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
     const release = (over: Partial<Release> = {}) =>
       ({ id: 'rel_1', projectKey: 'AR', state: 'approved', decidedBy: 'owner', ...over }) as Release;
     const deploy = admin({ kind: 'deploy', releaseId: 'rel_1' });
-    const answerYes = (itemId: string) =>
-      h.domain.inbox.resolve('AR', itemId, { optionId: 'yes' }, { handle: 'owner', access: 'owner' });
 
-    it('asks the owner first, and deploys only the release a human owner approved', async () => {
+    it('deploys the release a human owner approved without asking the owner again (PM-870)', async () => {
       await boot();
       useExecutor(() => release());
-      const requestId = randomUUID();
-      const waiting = await operate(deploy, requestId, undefined);
-      expect(waiting.state).toBe('waiting_owner');
-      expect(submitted).toEqual([]);
-      await answerYes(waiting.ownerQuestionId!);
-      const started = await operate(deploy, requestId, undefined);
-      expect(started).toMatchObject({ id: waiting.id, state: 'running' });
+      const started = await operate(deploy, randomUUID(), undefined);
+      expect(started.state).toBe('running');
       expect(submitted).toMatchObject([
-        { port: 'hub', input: { operationId: waiting.id, command: { kind: 'deploy', releaseId: 'rel_1' } } },
+        { port: 'hub', input: { operationId: started.id, command: { kind: 'deploy', releaseId: 'rel_1' } } },
       ]);
     });
 
@@ -471,10 +464,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
     ])('refuses %s', async (_name, over, code) => {
       await boot();
       useExecutor(() => release(over as Partial<Release>));
-      const requestId = randomUUID();
-      const waiting = await operate(deploy, requestId, undefined);
-      await answerYes(waiting.ownerQuestionId!);
-      const refused = await operate(deploy, requestId, undefined);
+      const refused = await operate(deploy, randomUUID(), undefined);
       expect(refused).toMatchObject({ state: 'failed', errorCode: code });
       expect(submitted).toEqual([]);
     });

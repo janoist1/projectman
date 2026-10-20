@@ -173,8 +173,8 @@ const codeOf = (error: unknown): string =>
  * - `request`: the base Operator records what it asks the integrator to do. This grants no right to execute
  *   and no approval; it needs no token and survives a restart and an offline integrator.
  * - `execute`: the integrator, with its own super token, starts the handoff's operation. A command with no
- *   owner-reserved effect runs on the integrator's own power. One with a reserved effect (cost, deletion,
- *   publication, direction) opens a question for the owner and waits: only the owner's own login answers it
+ *   owner-reserved effect runs on the integrator's own power. One with a reserved effect (deletion,
+ *   security, cost) opens a question for the owner and waits: only the owner's own login answers it
  *   (the inbox refuses a token, a relay and anyone else), and only a `yes` for this exact command, this exact
  *   configuration version and this token lets the re-execution run it.
  *

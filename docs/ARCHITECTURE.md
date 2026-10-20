@@ -1474,9 +1474,10 @@ source, its repository checkout, then that repository's non-prunable worktrees u
 outside `_merge`, using canonical paths and excluding overlapping checkouts. The first byte-identical
 lockfile with an installation at least as recent as that lockfile supplies `node_modules`; the source
 is checked again after copying. Without a matching installed source the merge asks for the preparation
-(PM-681, PM-711): the card merge calls `checkoutForCheck` with `allowDependencyInstall: true`, and the
+(PM-681, PM-711, PM-897): standalone merges, train checks and lone-member diagnoses call
+`checkoutForCheck` with `allowDependencyInstall: true` through `services/merges/check-preparation.ts`, and the
 engine then answers `dependencyInstallRequired: true` with a check checkout that has no `node_modules`
-(old packages are never copied in their place). `services/merges/steps.ts` adds
+(old packages are never copied in their place). The shared preparation adds
 `npmCi: { ref, mergeId }` to the check's `FullTestSpec` only for that answer, always with
 `requireHeavyLock: true`; the executor then restores the exact merged lockfile's installation from its
 store or installs it in its sandbox, under the same machine reservation as the test (see "Server full
@@ -3723,13 +3724,16 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   home matches either test working directory form; relative paths exclude parent traversal at directory
   boundaries. It requires no cloud filesystem access or new machine assumption. The engine tries the bounded preferred source,
   its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
-  source after copying and blocks with `check_error` before checks if none matches. Since PM-681
+  source after copying. Callers that do not request dependency preparation block with `check_error`
+  before checks if none matches. Since PM-681
   `checkoutForCheck` takes an optional `allowDependencyInstall` (default false) and may answer
   `dependencyInstallRequired` (missing: false) in the strict `merge.checkout_for_check` schemas (PM-709).
-  The card merge passes `true` (PM-711); the engine then answers `dependencyInstallRequired: true`, without
+  Standalone merges, train checks and lone-member diagnoses pass `true` through
+  `services/merges/check-preparation.ts` (PM-711, PM-897); the engine then answers `dependencyInstallRequired: true`, without
   copying old packages, when the root has a regular non-symlink lockfile and no installed source matches,
-  and the merge hands the preparation to the executor (see "Server full test before review"). The train
-  keeps the switch off. `merge.push`
+  and the shared helper hands the preparation to the executor under the required heavy-run lock
+  (see "Server full test before review"). Checkout creation and sandboxed installation run on the
+  selected engine through the existing contracts; no new server/engine boundary field is needed. `merge.push`
   (never forced, `--no-verify`) and `merge.advance` (a
   fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
   Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched

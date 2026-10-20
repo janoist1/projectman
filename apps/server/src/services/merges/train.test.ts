@@ -232,6 +232,30 @@ describe('merge train execution', () => {
     },
   );
 
+  it('prepares missing candidate dependencies before checking and merging a train', async () => {
+    await setup();
+    merger.checkoutForCheck.mockImplementation(async (_ref, input) => {
+      if (!input.allowDependencyInstall) throw new Error('No installed checkout matches the merged lockfile');
+      return { path: '/fake/check', gitDir: '/fake/git', dependencyInstallRequired: true };
+    });
+    vi.mocked(executor.run).mockImplementation(async (spec, _signal, started) => {
+      const [ref, input] = merger.checkoutForCheck.mock.calls.at(-1)!;
+      expect(spec).toMatchObject({
+        cwd: '/fake/check',
+        requireHeavyLock: true,
+        npmCi: { ref, mergeId: input.mergeId },
+      });
+      started?.();
+      return passed;
+    });
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await settled();
+    expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    expect(merger.releaseCheck).toHaveBeenCalledTimes(1);
+  });
+
   it.each([false, true])(
     'keeps only member rows waiting during a disconnected group check (started: %s)',
     async (started) => {
@@ -729,6 +753,11 @@ describe('merge train execution', () => {
 
     it('fails only the member that fails the files alone and requeues the others without a limit', async () => {
       await setup(3, true, filesCommand);
+      merger.checkoutForCheck.mockResolvedValue({
+        path: '/fake/check',
+        gitDir: '/fake/git',
+        dependencyInstallRequired: true,
+      });
       const files = ['a.test.ts', "b'c.test.ts"];
       script(groupFailed(files), (card) =>
         card === 2 ? { ...groupFailed([...files, 'extra.test.ts']), outputTail: 'Broken alone' } : passed,
@@ -740,8 +769,16 @@ describe('merge train execution', () => {
       expect(order).toEqual(['AR-1', 'AR-2', 'AR-3']);
       const command = `${filesCommand} 'a.test.ts' 'b'\\''c.test.ts'`;
       expect(loneCalls().map(([spec]) => spec.command)).toEqual([command, command, command]);
-      for (const [spec] of loneCalls())
-        expect(spec).toMatchObject({ maxWorkers: 2, timeoutMs: 600_000, requireHeavyLock: true });
+      for (const [index, [spec]] of loneCalls().entries()) {
+        const [ref, input] = merger.checkoutForCheck.mock.calls[index + 1]!;
+        expect(input.allowDependencyInstall).toBe(true);
+        expect(spec).toMatchObject({
+          maxWorkers: 2,
+          timeoutMs: 600_000,
+          requireHeavyLock: true,
+          npmCi: { ref, mergeId: input.mergeId },
+        });
+      }
       const failed = row('AR-2')!;
       expect(failed.failure).toMatchObject({
         reason: 'check_failed',

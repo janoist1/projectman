@@ -19,6 +19,7 @@ import { prerequisiteCards } from '../../core/tasks';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import { recordMergeCheck } from './check-runs';
+import { prepareMergeCheck } from './check-preparation';
 import type { MergeDeps, MergeRun } from './deps';
 import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import type { MergeSteps } from './steps';
@@ -455,7 +456,7 @@ export class MergeTrains {
       const runId = newId('mergecheck');
       let result: FullTestResult;
       try {
-        const checkout = await merger.checkoutForCheck(ref, {
+        const { checkout, preparation } = await prepareMergeCheck(merger, ref, {
           mergeId,
           mergeCommit: built.mergeCommit,
           depsFrom: null,
@@ -482,7 +483,7 @@ export class MergeTrains {
                 command,
                 maxWorkers: train.reviewTest.maxWorkers,
                 timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
-                requireHeavyLock: true,
+                ...preparation,
                 sandbox: this.deps.checkSandbox({
                   checkout: checkout.path,
                   gitDir: checkout.gitDir,
@@ -840,7 +841,7 @@ export class MergeTrains {
             available && !available.ok ? available.reason : 'No full test executor is available',
           );
         if (!(await this.checkpoint(run))) return;
-        const checkout = await merger.checkoutForCheck(ref, {
+        const { checkout, preparation } = await prepareMergeCheck(merger, ref, {
           mergeId: train.id,
           mergeCommit: built.mergeCommit,
           depsFrom: null,
@@ -871,7 +872,7 @@ export class MergeTrains {
                 command: train.reviewTest.command,
                 maxWorkers: train.reviewTest.maxWorkers,
                 timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
-                requireHeavyLock: true,
+                ...preparation,
                 sandbox: this.deps.checkSandbox({
                   checkout: checkout.path,
                   gitDir: checkout.gitDir,

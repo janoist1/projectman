@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   CreateIntegratorAccessKeyRequest,
   CreateIntegratorKeyRequest,
+  CreateOperatorGrantRequest,
   IntegratorKeyAuditQuery,
   LoginRequest,
   routes,
@@ -154,6 +155,8 @@ export function registerAuth(
     setupCode?: SetupCode;
     /** The e-mail login of invited clients (PM-670); null or absent: it is unavailable. */
     emailLogin?: EmailLoginService | null;
+    /** Tells every logged-in client that the Operator's grant changed (PM-881). */
+    onOperatorGrantChanged?: () => void;
   },
 ): void {
   const {
@@ -164,6 +167,7 @@ export function registerAuth(
     publicBoard = false,
     setupCode,
     emailLogin = null,
+    onOperatorGrantChanged = () => undefined,
   } = deps;
   const loginAttempts = createAttemptLimiter({
     max: MAX_FAILED_LOGINS,
@@ -210,8 +214,11 @@ export function registerAuth(
           .code(401)
           .send(apiError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired'));
       // The bearer MCP endpoint (`/mcp`) filters its tools by the key's mode itself (PM-760).
+      // The grant's state is readable with any key; its routes refuse a key themselves (`operator_grant_owner_only`).
       if (
         principal.mode !== 'legacy' &&
+        path !== routes.operatorGrant() &&
+        path !== routes.operatorGrantAudit() &&
         (path.startsWith('/api/auth/') ||
           path === routes.me() ||
           path === routes.logout() ||
@@ -358,4 +365,47 @@ export function registerAuth(
     const userId = keyOwner(request);
     return auth.integratorKeyAudit(userId, parseBody(IntegratorKeyAuditQuery, request.query));
   });
+
+  // The Operator's grant for machine operations (PM-881): the host owner gives and takes it with their own login.
+  const grantOwner = (request: FastifyRequest): string => {
+    if (
+      request.via ||
+      !request.user ||
+      !auth.isHostOwner(request.user.id) ||
+      !auth.hasPassword(request.user.id)
+    )
+      throw forbidden(
+        'operator_grant_owner_only',
+        'Only the host owner may manage the Operator’s grant, with their own login',
+      );
+    return request.user.id;
+  };
+  const canManageGrant = (request: FastifyRequest): boolean => {
+    try {
+      grantOwner(request);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  app.get(routes.operatorGrant(), async (request) => ({
+    grant: auth.operatorGrantState(canManageGrant(request)),
+  }));
+  app.post(routes.operatorGrant(), async (request, reply) => {
+    const userId = grantOwner(request);
+    const body = parseBody(CreateOperatorGrantRequest, request.body ?? {});
+    const grant = auth.grantOperator(userId, body.duration);
+    app.log.info({ grantId: grant.id, expiresAt: grant.expiresAt, userId }, 'Operator grant created');
+    onOperatorGrantChanged();
+    return reply.code(201).send({ grant: auth.operatorGrantState(true) });
+  });
+  app.delete(routes.operatorGrant(), async (request) => {
+    const userId = grantOwner(request);
+    const grant = auth.revokeOperatorGrant(userId);
+    if (!grant) throw new DomainError('not_found', 'No active Operator grant', { status: 404 });
+    app.log.info({ grantId: grant.id, userId }, 'Operator grant revoked');
+    onOperatorGrantChanged();
+    return { grant: auth.operatorGrantState(true) };
+  });
+  app.get(routes.operatorGrantAudit(), async (request) => auth.operatorGrantAudit(grantOwner(request)));
 }

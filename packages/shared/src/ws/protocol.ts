@@ -15,6 +15,8 @@ import { Task, TaskKey } from '../domain/task';
 export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('operator_signal'), projectKey: z.string(), signal: OperatorSignal }),
   z.object({ type: z.literal('engine_changed'), engine: EngineStatusView }),
+  /** The Operator's grant for machine operations was given, replaced or revoked (PM-881); not project-bound. */
+  z.object({ type: z.literal('operator_grant_changed') }),
   z.object({ type: z.literal('hello'), serverTime: z.string() }),
   z.object({ type: z.literal('task_upserted'), projectKey: z.string(), task: Task }),
   z.object({ type: z.literal('timeline_appended'), projectKey: z.string(), event: TimelineEvent }),

@@ -23,6 +23,8 @@ export const ERROR_CODES = [
   'invalid_event_cursor',
   'event_cursor_expired',
   'integrator_not_allowed',
+  'operator_grant_owner_only',
+  'operator_grant_inactive',
   'owner_approval_required',
   'integrator_read_only',
   'merge_queue_conflict',

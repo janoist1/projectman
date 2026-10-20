@@ -1906,4 +1906,19 @@ migrations.push({
     CREATE INDEX timeline_project_type ON timeline_events(project_key, type, seq);
     CREATE INDEX sessions_state ON sessions(state);`,
 });
+migrations.push({
+  version: 92,
+  name: 'operator grants',
+  // PM-881: the host owner's grant that lets the Operator run machine operations. At most one is active at
+  // a time (the service closes the old row as 'replaced' in the same transaction); the audit is read from the rows.
+  sql: `CREATE TABLE operator_grants (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL,
+      granted_at      TEXT NOT NULL,
+      expires_at      TEXT,
+      revoked_at      TEXT,
+      revoked_reason  TEXT CHECK (revoked_reason IN ('revoked', 'replaced')),
+      last_used_at    TEXT
+    );`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

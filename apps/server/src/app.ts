@@ -482,6 +482,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt }));
     const domain = createDomain({
       integratorCredentials: auth,
+      operatorGrants: auth.operatorGrantGate,
       integratorTodoAccess: {
         available: (config) =>
           superAccessVerdict(config, { mode: 'super', operation: 'write', ownerMembership: true }).allowed &&
@@ -642,6 +643,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       publicBoard: options.publicBoard === true,
       setupCode,
       emailLogin: domain.emailLogin,
+      onOperatorGrantChanged: () => domain.bus.publish({ type: 'operator_grant_changed' }),
     });
     // The remote parts that need the domain, and what the engine's settings view counts.
     remote?.bind(domain, app);

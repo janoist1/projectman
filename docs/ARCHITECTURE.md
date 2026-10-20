@@ -1348,6 +1348,24 @@ the publication flag is retained. Shutdown aborts the wait through the merge sig
 unpublished work; a merge already pushing retains its durable publication recovery for startup. A timed-out
 wait or repeated losses block with `engine_offline`; no database migration is needed.
 
+**Where the check runs (PM-900, PM-906).** `reviewTest.runner` (`MergeCheckRunner`: `engine`, the default,
+or `github_actions`) chooses it per repository; the merge check only (the review test is untouched), and
+changing it is an owner-only `review_test` change. `github_actions` needs the repository's `github`
+owner/name (`review_test_runner_github`; at run time the lack of it blocks `check_unavailable`). In that
+mode the hub makes **no local check checkout, takes no heavy-run lock and prepares no dependencies**: the
+one helper `prepareMergeCheck` (`services/merges/check-preparation.ts`), used by the single-card merge
+(`steps.ts`) and by the train group check and lone diagnosis (`train.ts`), releases any checkout of the
+merge and builds the same `full_test.run` spec with a `githubActions` descriptor (`GithubActionsCheck`:
+ref, `mergeId`, `owner/name`, base branch, merge commit, the `merge-check.yml` workflow and, for a lone
+diagnosis, the failed files, at most 20) instead of `requireHeavyLock`/`npmCi`; the `cwd` is only a label
+(`github-actions:owner/name`). The executor of the card's engine runs the workflow and answers with the
+usual `FullTestResult` plus `externalUrl`, the run's page (the engine side is PM-907; the local executor and an
+older engine refuse the descriptor with `github_unavailable`, a run that stopped with no result is
+`github_run_error`). Both are operational errors: the merge or train blocks, nothing is split or blamed.
+`endChecksIn` also stops a descriptor run by its `mergeId`, as the merge has no checkout path to match.
+A train groups only cards of the same runner (`train-selection.ts`). `merge_check_runs` records the
+`runner` and the `url` (migration 95); `list_merge_checks` shows both.
+
 `task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
 already in the default branch stays a system event.
 Conflicts and failed checks notify the merger and keep the card in place; a failed check tells an AI merger

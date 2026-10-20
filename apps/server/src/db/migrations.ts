@@ -1985,4 +1985,13 @@ migrations.push({
     created_at TEXT NOT NULL, PRIMARY KEY (user_id, inbox_item_id));
   CREATE INDEX web_push_items_outcome ON web_push_items(user_id, outcome);`,
 });
+migrations.push({
+  version: 95,
+  name: 'merge check runner',
+  // PM-906: where a merge check ran (the card's engine, or the repository's GitHub Actions workflow) and, for
+  // a GitHub run, its run page.
+  sql: `ALTER TABLE merge_check_runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'engine'
+      CHECK (runner IN ('engine','github_actions'));
+    ALTER TABLE merge_check_runs ADD COLUMN url TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

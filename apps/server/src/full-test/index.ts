@@ -128,6 +128,16 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     },
 
     async run(spec, signal, onStarted) {
+      // The GitHub Actions merge check (PM-900) is orchestrated by the engine's own executor, not here.
+      if (spec.githubActions)
+        return {
+          outcome: 'error',
+          reason: 'github_unavailable',
+          exitCode: null,
+          durationMs: 0,
+          failedFiles: [],
+          outputTail: 'This engine runs no GitHub Actions check.',
+        };
       if (spec.npmCi) {
         try {
           await assertNpmCiCheckout(options.worktreesRoot, spec);

@@ -477,10 +477,11 @@ function mergeCheckLines(run: MergeCheckRun): string[] {
     ...(run.startedAt ? [`started ${formatTimestamp(run.startedAt)}`] : []),
     ...(run.finishedAt ? [`finished ${formatTimestamp(run.finishedAt)}`] : []),
   ].join(' · ');
-  if (!report) return [head + queueWait, '  steps: unknown (no step report from the engine)'];
-  if (report.steps.length === 0) return [head + queueWait, '  steps: none reported'];
+  const headLines = [head + queueWait, `  runner: ${run.runner}`, ...(run.url ? [`  url: ${run.url}`] : [])];
+  if (!report) return [...headLines, '  steps: unknown (no step report from the engine)'];
+  if (report.steps.length === 0) return [...headLines, '  steps: none reported'];
   return [
-    head + queueWait,
+    ...headLines,
     ...report.steps.map((step) => {
       const took =
         step.durationMs === null

@@ -195,6 +195,16 @@ describe('review_test owner-only change', () => {
     ],
     ['removing the test', (r) => delete r[1]!.reviewTest],
     ['adding a test', (r) => (r[0]!.reviewTest = { command: 'true', maxWorkers: 2, timeoutMinutes: 15 })],
+    [
+      'the runner',
+      (r) =>
+        (r[1]!.reviewTest = {
+          command: 'npm test',
+          maxWorkers: 3,
+          timeoutMinutes: 20,
+          runner: 'github_actions',
+        }),
+    ],
     ['fullTestAtMerge turned off', (r) => (r[1]!.fullTestAtMerge = false)],
     ['fullTestAtMerge turned on', (r) => (r[0]!.fullTestAtMerge = true)],
   ])('is reported for %s', (_name, edit) => {

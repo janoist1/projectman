@@ -38,6 +38,7 @@ export function selectMergeTrain(queued: readonly MergeTrainCandidate[]): string
       next.reviewTest.command !== first.reviewTest.command ||
       next.reviewTest.maxWorkers !== first.reviewTest.maxWorkers ||
       next.reviewTest.timeoutMinutes !== first.reviewTest.timeoutMinutes ||
+      (next.reviewTest.runner ?? 'engine') !== (first.reviewTest.runner ?? 'engine') ||
       Boolean(next.diagnostic) !== Boolean(first.diagnostic) ||
       next.diagnostic?.parentTrainId !== first.diagnostic?.parentTrainId
     )

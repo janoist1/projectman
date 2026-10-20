@@ -2214,6 +2214,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                     "minimum": 1,
                                     "type": "integer",
                                   },
+                                  "runner": {
+                                    "enum": [
+                                      "engine",
+                                      "github_actions",
+                                    ],
+                                    "type": "string",
+                                  },
                                   "timeoutMinutes": {
                                     "default": 15,
                                     "maximum": 60,
@@ -3729,6 +3736,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                       "maximum": 8,
                                       "minimum": 1,
                                       "type": "integer",
+                                    },
+                                    "runner": {
+                                      "enum": [
+                                        "engine",
+                                        "github_actions",
+                                      ],
+                                      "type": "string",
                                     },
                                     "timeoutMinutes": {
                                       "default": 15,
@@ -5327,6 +5341,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                             "maximum": 8,
                                             "minimum": 1,
                                             "type": "integer",
+                                          },
+                                          "runner": {
+                                            "enum": [
+                                              "engine",
+                                              "github_actions",
+                                            ],
+                                            "type": "string",
                                           },
                                           "timeoutMinutes": {
                                             "default": 15,

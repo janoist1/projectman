@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mergeShardReports,
   MERGE_TEST_FAILED_PREFIX,
   MERGE_TEST_FLAKY_PREFIX,
   MERGE_TEST_MARKED_FILES_MAX,
@@ -14,7 +15,7 @@ import {
   mergeTestTimingLine,
   quoteShellWord,
 } from './merge-test';
-import type { MergeTestStepTiming } from './merge-test';
+import type { MergeTestReport, MergeTestStepTiming } from './merge-test';
 
 describe('mergeTestPassedSteps', () => {
   const key = 'a'.repeat(64);
@@ -182,5 +183,66 @@ describe('mergeTestReport', () => {
   it('reads the scope from the line start, without ANSI, and not from a quoted line', () => {
     expect(mergeTestReport('\u001b[1mmerge-test scope: none (no changes)\u001b[0m', 0)?.scope).toBe('none');
     expect(mergeTestReport('see merge-test scope: all', 0)).toBeNull();
+  });
+});
+
+describe('mergeShardReports (PM-900)', () => {
+  const step = (index: number, over: Partial<MergeTestStepTiming> = {}): MergeTestStepTiming => ({
+    index,
+    kind: 'test',
+    workspace: 'apps/server',
+    result: 'passed',
+    durationMs: 1000,
+    ...over,
+  });
+  const report = (steps: MergeTestStepTiming[], over: Partial<MergeTestReport> = {}): MergeTestReport => ({
+    scope: 'modules',
+    workers: 4,
+    commandMs: 0,
+    steps,
+    ...over,
+  });
+
+  it('is unknown (null) without a shard report', () => {
+    expect(mergeShardReports([], 5)).toBeNull();
+  });
+
+  it('merges the shards step by step: the slowest time and the worst result win', () => {
+    const merged = mergeShardReports(
+      [
+        report([step(0, { durationMs: 10 }), step(1, { result: 'cached', durationMs: null })], {
+          scope: null,
+          workers: null,
+        }),
+        report([
+          step(0, { durationMs: 30, result: 'rerun_passed', rerunMs: 5 }),
+          step(1, { result: 'failed', durationMs: 7 }),
+        ]),
+        report([step(0, { durationMs: 20, result: 'rerun_failed', rerunMs: 9 }), step(2)]),
+      ],
+      1234.6,
+    );
+    expect(merged).toEqual({
+      scope: 'modules',
+      workers: 4,
+      commandMs: 1235,
+      steps: [
+        step(0, { result: 'rerun_failed', durationMs: 30, rerunMs: 9 }),
+        step(1, { result: 'failed', durationMs: 7 }),
+        step(2),
+      ],
+    });
+  });
+
+  it('keeps a step that was cached in every shard as null and drops the rerun time of a plain result', () => {
+    const merged = mergeShardReports(
+      [
+        report([step(0, { result: 'cached', durationMs: null }), step(1, { rerunMs: 3 })]),
+        report([step(0, { result: 'cached', durationMs: null }), step(1)]),
+      ],
+      null,
+    );
+    expect(merged?.steps).toEqual([step(0, { result: 'cached', durationMs: null }), step(1)]);
+    expect(merged?.commandMs).toBeNull();
   });
 });

@@ -65,6 +65,7 @@ describe('merge train selection', () => {
     { reviewTest: { ...reviewTest, command: 'npm test' } },
     { reviewTest: { ...reviewTest, maxWorkers: 3 } },
     { reviewTest: { ...reviewTest, timeoutMinutes: 20 } },
+    { reviewTest: { ...reviewTest, runner: 'github_actions' } },
     { reviewTest: undefined },
     { eligible: false },
     { solo: true },
@@ -76,7 +77,12 @@ describe('merge train selection', () => {
   });
 
   it('compares review test values independently of object identity or property order', () => {
-    const next = { timeoutMinutes: 15, maxWorkers: 2, command: 'npm run merge-test' };
+    const next = {
+      runner: 'engine' as const,
+      timeoutMinutes: 15,
+      maxWorkers: 2,
+      command: 'npm run merge-test',
+    };
     expect(selectMergeTrain([candidate(1), candidate(2, { reviewTest: next })])).toEqual([
       'merge_member01',
       'merge_member02',

@@ -53,16 +53,33 @@ export function createRemoteAdministration(options: { hub: RemoteHub }): EngineA
           return refusal(error);
         }
       },
-      async logs(target, { limit }) {
+      async logs(target, options) {
         advertised(id, 'logs');
+        // The filters are an addition: an engine that predates them would refuse the extra keys, so they go
+        // only to an engine that announced `machine` (shipped with them), and the service log only to one that
+        // announced `service_logs`.
+        const params: Record<string, unknown> = { target, limit: options.limit };
+        for (const key of ['source', 'minLevel', 'since', 'contains'] as const)
+          if (options[key] !== undefined) params[key] = options[key];
+        if (Object.keys(params).length > 2) advertised(id, 'machine');
+        if (options.source === 'service') advertised(id, 'service_logs');
         try {
-          return await hub.call(id, 'admin.logs', { target, limit }, { timeoutMs: CALL_TIMEOUT_MS });
+          return await hub.call(id, 'admin.logs', params as never, { timeoutMs: CALL_TIMEOUT_MS });
+        } catch (error) {
+          return refusal(error);
+        }
+      },
+      async machine(target) {
+        advertised(id, 'machine');
+        try {
+          return await hub.call(id, 'admin.machine', { target }, { timeoutMs: CALL_TIMEOUT_MS });
         } catch (error) {
           return refusal(error);
         }
       },
       async submit(input) {
-        advertised(id, input.command.kind);
+        // A process cleanup rides on the machine capability; the other commands are their own capability.
+        advertised(id, input.command.kind === 'process_cleanup' ? 'machine' : input.command.kind);
         try {
           return await hub.call(id, 'admin.submit', input, { timeoutMs: CALL_TIMEOUT_MS });
         } catch (error) {

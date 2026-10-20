@@ -96,7 +96,8 @@ async function authorize(
   request: AdministrationRequest,
 ): Promise<void> {
   switch (request.kind) {
-    case 'restart': {
+    case 'restart':
+    case 'process_cleanup': {
       if (request.target.kind === 'hub') {
         // The hub serves every project: each one's owner right is needed.
         await deps.rights.assertNow(principal, [projectKey, ...deps.rights.allProjectKeys()], 'write');

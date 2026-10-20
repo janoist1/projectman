@@ -1,5 +1,11 @@
 import { loadSupervisorConfig } from './config';
+import { createHostSystem } from './host';
+import type { HostSystem } from './host';
+import { createMachineReader } from './machine';
+import { createProcessCleaner } from './processes';
+import type { ProcessCleanerOptions } from './processes';
 import type { SupervisorConfig } from './schemas';
+import { createServiceLogReader } from './service-logs';
 import { createServiceController } from './service-control';
 import type { RunCommand } from './service-control';
 import { startSocketServer } from './socket-server';
@@ -22,6 +28,10 @@ export interface StartSupervisorOptions {
   /** The service manager runner; the real `execFile` one when omitted. */
   run?: RunCommand;
   executors?: AdministrationExecutors;
+  /** The host the machine readers and the cleanup use; the real one when omitted. */
+  host?: HostSystem;
+  /** Overrides of the cleanup's markers, age and waits; only the tests set them. */
+  cleanup?: Pick<ProcessCleanerOptions, 'markers' | 'minAgeSeconds' | 'graceMs' | 'pollMs'>;
   version?: string | null;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -44,11 +54,20 @@ export async function startSupervisor(options: StartSupervisorOptions): Promise<
   });
   const store = await createOperationStore(config.stateDir);
   const journal = await createDiagnosticsJournal(config.stateDir, now);
+  const host = options.host ?? createHostSystem({ run: options.run, platform: options.platform });
+  const cleaner = createProcessCleaner({
+    host,
+    protectedPid: () => controller?.mainPid?.() ?? Promise.resolve(null),
+    ...options.cleanup,
+  });
   const supervisor = createSupervisor({
     config,
     controller,
     store,
     journal,
+    machine: createMachineReader(host),
+    serviceLogs: createServiceLogReader({ host, service: config.service }),
+    cleaner,
     executors: options.executors,
     version: options.version ?? null,
     now,

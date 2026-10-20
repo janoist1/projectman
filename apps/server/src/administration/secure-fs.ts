@@ -144,6 +144,44 @@ export async function readPrivateFile(
   }
 }
 
+/**
+ * The last `maxBytes` of a regular log file of the service user, opened without following a link (PM-886). A log
+ * may be readable by others, but not writable by them: a file anyone could rewrite is not trusted. `null`: the
+ * file is not there. `complete`: the text starts at the first byte of the file, so its first line is whole.
+ */
+export async function readFileTail(
+  file: string,
+  maxBytes: number,
+  uid: number | null = currentUid(),
+): Promise<{ text: string; complete: boolean; modifiedAt: Date } | null> {
+  let handle;
+  try {
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return null;
+    if (code === 'ELOOP') throw new AdministrationSetupError('symlink', `${file} is a symbolic link`);
+    throw err;
+  }
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile()) throw new AdministrationSetupError('not_file', `${file} is not a regular file`);
+    checkOwner(stats, file, uid);
+    if ((stats.mode & 0o022) !== 0)
+      throw new AdministrationSetupError('too_open', `${file} is writable by group or others`);
+    const length = Math.min(stats.size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, stats.size - length);
+    return {
+      text: buffer.subarray(0, bytesRead).toString('utf8'),
+      complete: stats.size <= maxBytes,
+      modifiedAt: stats.mtime,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
 /** The socket must be a real socket (not a link) of the expected user, closed to group and others. */
 export async function assertSocketFile(socketPath: string, uid: number | null = currentUid()): Promise<void> {
   const stats = await lstatOrNull(socketPath);

@@ -3,6 +3,7 @@ import { DomainError, newId, unavailable } from '../kernel';
 import { ADMINISTRATION_LIMITS } from '../contracts';
 import type {
   AdministrationJob,
+  AdministrationMachineSnapshot,
   AdministrationPort,
   AdministrationStatus,
   DiagnosticLogEntry,
@@ -23,6 +24,7 @@ import { AdministrationSetupError, assertSocketFile } from './secure-fs';
 interface Values {
   status: AdministrationStatus;
   logs: { entries: DiagnosticLogEntry[] };
+  machine: AdministrationMachineSnapshot;
   submit: { accepted: boolean };
   inspect: AdministrationJob;
 }
@@ -107,7 +109,8 @@ export function createSocketClient(options: SocketClientOptions): Administration
 
   return {
     status: (target) => call('status', { target }),
-    logs: (target, { limit }) => call('logs', { target, limit }),
+    logs: (target, options) => call('logs', { target, ...options }),
+    machine: (target) => call('machine', { target }),
     submit: (input) => call('submit', input),
     inspect: (operationId) => call('inspect', { operationId }),
   };

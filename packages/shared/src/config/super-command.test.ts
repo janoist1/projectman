@@ -60,6 +60,12 @@ describe('super command classification (PM-762)', () => {
         request: { kind: 'full_test', taskKey: 'AC-1', commit: 'a'.repeat(40), profile: 'merge-test' },
       }),
     ).toEqual([]);
+    expect(
+      effects({
+        kind: 'administration',
+        request: { kind: 'process_cleanup', target: { kind: 'hub' }, selector: 'orphan_test_workers' },
+      }),
+    ).toEqual([]);
   });
 
   it('names deletion for a member retired', () => {

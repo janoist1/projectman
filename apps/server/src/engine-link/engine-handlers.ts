@@ -591,13 +591,19 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       ownTarget(target);
       return administration().port.status(target);
     },
-    async 'admin.logs'({ target, limit: count }) {
+    async 'admin.logs'({ target, ...options }) {
       ownTarget(target);
-      return administration().port.logs(target, { limit: count });
+      return administration().port.logs(target, options);
+    },
+    async 'admin.machine'({ target }) {
+      ownTarget(target);
+      return administration().port.machine(target);
     },
     async 'admin.submit'(input) {
-      // A restart names its machine; the deploy of a release is the hub's and never runs on an engine.
-      if (input.command.kind === 'restart') ownTarget(input.command.target);
+      // A restart or a process cleanup names its machine; the deploy of a release is the hub's and never runs
+      // on an engine.
+      if (input.command.kind === 'restart' || input.command.kind === 'process_cleanup')
+        ownTarget(input.command.target);
       if (input.command.kind === 'deploy')
         throw conflict('administration_target_mismatch', 'A deployment is not an engine operation');
       return administration().port.submit(input);

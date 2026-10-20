@@ -32,6 +32,10 @@ export const ADMINISTRATION_CAPABILITIES = [
   'full_test',
   'image_build',
   'deploy',
+  /** The machine snapshot and the process cleanup (PM-886); it also tells that the log filters are understood. */
+  'machine',
+  /** The managed service's own log can be read; advertised only when it can (PM-886). */
+  'service_logs',
 ] as const;
 export type AdministrationCapability = (typeof ADMINISTRATION_CAPABILITIES)[number];
 
@@ -57,6 +61,34 @@ export interface DiagnosticLogEntry {
 
 export const MAX_DIAGNOSTIC_ENTRIES = 200;
 export const MAX_DIAGNOSTIC_MESSAGE = 1000;
+export const MAX_LOG_CONTAINS = 100;
+
+export type AdministrationLogSource = 'supervisor' | 'service';
+
+/** What a log read may ask for; the default source is the supervisor's own journal. */
+export interface AdministrationLogsOptions {
+  limit: number;
+  source?: AdministrationLogSource;
+  minLevel?: DiagnosticLevel;
+  /** ISO time; older lines are left out. */
+  since?: string;
+  /** A text the (redacted) line must contain; at most `MAX_LOG_CONTAINS` characters. */
+  contains?: string;
+}
+
+/**
+ * The state of the supervisor's machine at one moment. Named apart from the machine display's
+ * `MachineSnapshot` (`contracts/machine.ts`); this one is the supervisor user's view for the Operator.
+ */
+export interface AdministrationMachineSnapshot {
+  at: string;
+  /** 1, 5 and 15 minutes. */
+  loadAvg: [number, number, number];
+  memory: { totalBytes: number; availableBytes: number };
+  swap: { totalBytes: number; usedBytes: number } | null;
+  /** At most 10, by resident memory; `name` is the program's base name, never an argument. */
+  topProcesses: { pid: number; name: string; cpuPercent: number; rssBytes: number }[];
+}
 
 export interface ImageArtifact {
   /** Opaque, never a file path. */
@@ -80,7 +112,9 @@ export type AdministrationResult =
       failedFiles: string[];
     }
   | { kind: 'image_build'; artifacts: ImageArtifact[] }
-  | { kind: 'deploy'; releaseId: string };
+  | { kind: 'deploy'; releaseId: string }
+  /** Only the numbers: no process id, name or argument of what was stopped. */
+  | { kind: 'process_cleanup'; found: number; stopped: number; remaining: number };
 
 export type AdministrationJobState = 'accepted' | 'running' | 'succeeded' | 'failed' | 'unknown';
 
@@ -102,7 +136,11 @@ export interface AdministrationSubmit {
 
 export interface AdministrationPort {
   status(target: AdministrationTarget): Promise<AdministrationStatus>;
-  logs(target: AdministrationTarget, options: { limit: number }): Promise<{ entries: DiagnosticLogEntry[] }>;
+  logs(
+    target: AdministrationTarget,
+    options: AdministrationLogsOptions,
+  ): Promise<{ entries: DiagnosticLogEntry[] }>;
+  machine(target: AdministrationTarget): Promise<AdministrationMachineSnapshot>;
   submit(input: AdministrationSubmit): Promise<{ accepted: boolean }>;
   inspect(operationId: string): Promise<AdministrationJob>;
 }
@@ -136,7 +174,7 @@ export interface AdministrationExecutors {
  */
 export type AdministrationFence = () => { releaseId: string } | null;
 
-export const ADMINISTRATION_SOCKET_METHODS = ['status', 'logs', 'submit', 'inspect'] as const;
+export const ADMINISTRATION_SOCKET_METHODS = ['status', 'logs', 'machine', 'submit', 'inspect'] as const;
 export type AdministrationSocketMethod = (typeof ADMINISTRATION_SOCKET_METHODS)[number];
 
 /** The sizes of the socket protocol: one JSON line each way. */

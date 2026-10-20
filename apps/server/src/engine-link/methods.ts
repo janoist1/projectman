@@ -669,6 +669,7 @@ export const methods = {
   // supervisor, and only for its own target; there is no engine-to-cloud counterpart.
   'admin.status': method(SocketParams.status, SocketValues.status),
   'admin.logs': method(SocketParams.logs, SocketValues.logs),
+  'admin.machine': method(SocketParams.machine, SocketValues.machine),
   'admin.submit': method(SocketParams.submit, SocketValues.submit),
   'admin.inspect': method(SocketParams.inspect, SocketValues.inspect),
   'permission.decide': method(z.strictObject({ request: permissionRequest }), permissionDecision, 'cloud'),

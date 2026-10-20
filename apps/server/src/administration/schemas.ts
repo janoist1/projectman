@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import {
+  ADMINISTRATION_LOG_LEVELS,
+  ADMINISTRATION_LOG_SOURCES,
   AdministrationBootId,
   AdministrationCommandSchema,
   AdministrationCommitSchema,
@@ -14,9 +16,11 @@ import {
   IMAGE_PLATFORMS,
   MAX_DIAGNOSTIC_ENTRIES,
   MAX_DIAGNOSTIC_MESSAGE,
+  MAX_LOG_CONTAINS,
 } from '../contracts';
 import type {
   AdministrationJob,
+  AdministrationMachineSnapshot,
   AdministrationResult,
   AdministrationStatus,
   AdministrationSubmit,
@@ -96,7 +100,32 @@ export const AdministrationResultSchema: z.ZodType<AdministrationResult> = z.dis
   }),
   z.strictObject({ kind: z.literal('image_build'), artifacts: z.array(ImageArtifactSchema).max(2) }),
   z.strictObject({ kind: z.literal('deploy'), releaseId: OperationId }),
+  z.strictObject({
+    kind: z.literal('process_cleanup'),
+    found: nonNegative,
+    stopped: nonNegative,
+    remaining: nonNegative,
+  }),
 ]);
+
+const byteCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+export const AdministrationMachineSnapshotSchema: z.ZodType<AdministrationMachineSnapshot> = z.strictObject({
+  at: iso,
+  loadAvg: z.tuple([z.number().nonnegative(), z.number().nonnegative(), z.number().nonnegative()]),
+  memory: z.strictObject({ totalBytes: byteCount, availableBytes: byteCount }),
+  swap: z.strictObject({ totalBytes: byteCount, usedBytes: byteCount }).nullable(),
+  topProcesses: z
+    .array(
+      z.strictObject({
+        pid: z.number().int().positive(),
+        name: z.string().min(1).max(128),
+        cpuPercent: z.number().nonnegative(),
+        rssBytes: byteCount,
+      }),
+    )
+    .max(10),
+});
 
 export const AdministrationJobSchema: z.ZodType<AdministrationJob> = z.strictObject({
   operationId: OperationId,
@@ -117,7 +146,16 @@ export const AdministrationAccepted = z.strictObject({ accepted: z.boolean() });
 /** The parameters of each socket method (the port's parameters, as one object). */
 export const SocketParams = {
   status: z.strictObject({ target: AdministrationTargetSchema }),
-  logs: z.strictObject({ target: AdministrationTargetSchema, limit: LogsLimit }),
+  // The filters are optional, so an older caller's request is still valid.
+  logs: z.strictObject({
+    target: AdministrationTargetSchema,
+    limit: LogsLimit,
+    source: z.enum(ADMINISTRATION_LOG_SOURCES).optional(),
+    minLevel: z.enum(ADMINISTRATION_LOG_LEVELS).optional(),
+    since: iso.optional(),
+    contains: z.string().min(1).max(MAX_LOG_CONTAINS).optional(),
+  }),
+  machine: z.strictObject({ target: AdministrationTargetSchema }),
   submit: AdministrationSubmitSchema,
   inspect: z.strictObject({ operationId: OperationId }),
 } as const;
@@ -126,6 +164,7 @@ export const SocketParams = {
 export const SocketValues = {
   status: AdministrationStatusSchema,
   logs: DiagnosticLogsSchema,
+  machine: AdministrationMachineSnapshotSchema,
   submit: AdministrationAccepted,
   inspect: AdministrationJobSchema,
 } as const;
@@ -171,6 +210,8 @@ export const SupervisorConfig = z.strictObject({
     z.strictObject({
       kind: z.literal('launchd'),
       label: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+      // The service's own log file, for the filtered service logs (PM-886); absolute, checked when read.
+      logFile: z.string().min(1).max(1024).optional(),
     }),
     z.strictObject({
       kind: z.literal('systemd'),

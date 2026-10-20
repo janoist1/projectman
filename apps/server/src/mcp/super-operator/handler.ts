@@ -470,7 +470,15 @@ export class ExternalTools implements ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: Parameters<ExternalToolsHandler['getAdministrationLogs']>[1],
   ) {
-    return this.deps.superAdministration.logs(ctx.projectKey, args.target, args.limit);
+    const { target, ...options } = args;
+    return this.deps.superAdministration.logs(ctx.projectKey, target, options);
+  }
+
+  async getMachineSnapshot(
+    ctx: ExternalToolContext,
+    target: Parameters<ExternalToolsHandler['getMachineSnapshot']>[1],
+  ) {
+    return { snapshot: await this.deps.superAdministration.machine(ctx.projectKey, target) };
   }
 
   async resolveIntegratorTodo(

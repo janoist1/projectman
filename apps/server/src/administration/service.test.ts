@@ -36,6 +36,16 @@ function fakePort(name: string, known: Record<string, AdministrationJob> = {}) {
       port.calls.push(`logs:${name}`);
       return { entries: [] };
     },
+    async machine() {
+      port.calls.push(`machine:${name}`);
+      return {
+        at: AT,
+        loadAvg: [0, 0, 0],
+        memory: { totalBytes: 1, availableBytes: 1 },
+        swap: null,
+        topProcesses: [],
+      };
+    },
     async submit(input) {
       port.calls.push(`submit:${name}:${input.operationId}`);
       return { accepted: true };

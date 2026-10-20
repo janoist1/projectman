@@ -78,6 +78,7 @@ function administrationMutation(request: AdministrationCommand): SuperMutationCo
     case 'full_test':
     case 'image_build':
     case 'deploy':
+    case 'process_cleanup':
       return { kind: 'administration', command: request.kind };
     default: {
       const unknown: never = request;

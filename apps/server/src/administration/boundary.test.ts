@@ -1,8 +1,11 @@
+import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sensitivePaths } from '../runtime/sessions';
+import { createHostSystem } from './host';
+import { createProcessCleaner, listProcesses } from './processes';
 import { ensurePrivateDir } from './secure-fs';
 import { runCommand } from './service-control';
 import { createDiagnosticsJournal, createOperationStore } from './store';
@@ -84,6 +87,56 @@ describe('secrets', () => {
         if (name.isFile())
           expect(await readFile(path.join(dir, name.name), 'utf8'), name.name).not.toContain(CANARY);
   });
+});
+
+const host = createHostSystem();
+// The sandbox of a member session refuses `ps`; the test then has nothing to read and is skipped.
+const psWorks = await listProcesses(host, { withCommand: true })
+  .then((rows) => rows.length > 0)
+  .catch(() => false);
+
+describe('process cleanup', () => {
+  const MARKER = `pm886-orphan-${process.pid}-${Date.now()}`;
+
+  it.skipIf(!psWorks)(
+    'stops a real orphan that carries the marker and leaves its neighbours alone',
+    async (ctx) => {
+      // A shell in a group of its own starts a marked child in the background and exits, so the child's parent is 1.
+      const shell = spawn(
+        '/bin/sh',
+        ['-c', `"$0" -e "setTimeout(function(){},600000)" ${MARKER} & :`, process.execPath],
+        {
+          detached: true,
+          stdio: 'ignore',
+        },
+      );
+      shell.unref();
+      const orphans = async () =>
+        (await listProcesses(host, { withCommand: true })).filter((row) => row.command.includes(MARKER));
+      let found: Awaited<ReturnType<typeof orphans>> = [];
+      for (let attempt = 0; attempt < 40 && (found.length === 0 || found[0]!.ppid !== 1); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        found = await orphans();
+      }
+      try {
+        // A host with a subreaper never makes the child's parent 1: nothing to assert there.
+        if (found.length !== 1 || found[0]!.ppid !== 1) return ctx.skip();
+        const cleaner = createProcessCleaner({
+          host,
+          markers: [MARKER],
+          minAgeSeconds: 0,
+          graceMs: 5_000,
+          pollMs: 100,
+        });
+        expect(await cleaner.cleanup('orphan_test_workers')).toEqual({ found: 1, stopped: 1, remaining: 0 });
+        expect(await orphans()).toEqual([]);
+        // The test process itself, which carries no marker, is still here.
+        expect(() => process.kill(process.pid, 0)).not.toThrow();
+      } finally {
+        for (const row of await orphans()) host.kill(row.pid, 'SIGKILL');
+      }
+    },
+  );
 });
 
 describe('sessions', () => {

@@ -1185,6 +1185,16 @@ network, SSM or shell, only one Unix socket.
   journal (fixed codes and fields, ids and hashes). No transcript, environment, argv, secret or raw exception
   is stored or returned; a token canary is tested absent from argv, output, wire, journal, state files and
   environment.
+- **Machine state, service logs and process cleanup (PM-886).** Still a fixed shape: no caller-supplied program,
+  path, argument or process id. The machine snapshot and the log file are read by the supervisor's own fixed
+  commands and files; it returns numbers, program base names and lines redacted in the supervisor (project keys,
+  bearer tokens, API and GitHub tokens, secret-looking assignments, long hex and base64 runs become
+  `[redacted]`). The launchd service log file comes from `supervisor.json` only, is opened with `O_NOFOLLOW` and
+  must be a regular file of the supervisor's user that group and others cannot write. The cleanup has one
+  selector (`orphan_test_workers`) and signals only processes of the supervisor's own OS user with parent 1, a
+  `vitest` or `tinypool` marker and an age of at least 5 minutes, never the service, its process group or the
+  supervisor; TERM first, KILL after 10 s, and the answer holds counts only. The three are behind the owner's
+  operator grant like the status and logs reads.
 - **Out of reach of members.** `PROJECTMAN_ADMIN_SOCKET` is stripped from every session environment, and the
   `administration` folder of the app home is in the sandbox's sensitive paths. Member sessions run as the same
   OS user as the supervisor, so the sandbox is what keeps them from the 0600 socket: the state and the socket

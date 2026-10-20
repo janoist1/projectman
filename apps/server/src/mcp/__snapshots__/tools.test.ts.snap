@@ -6329,6 +6329,62 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                       ],
                       "type": "object",
                     },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "const": "process_cleanup",
+                          "type": "string",
+                        },
+                        "selector": {
+                          "enum": [
+                            "orphan_test_workers",
+                          ],
+                          "type": "string",
+                        },
+                        "target": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "const": "hub",
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "kind",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "pattern": "^(local|eng_[a-z0-9]{12})$",
+                                  "type": "string",
+                                },
+                                "kind": {
+                                  "const": "engine",
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "kind",
+                                "id",
+                              ],
+                              "type": "object",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "kind",
+                        "target",
+                        "selector",
+                      ],
+                      "type": "object",
+                    },
                   ],
                 },
               },

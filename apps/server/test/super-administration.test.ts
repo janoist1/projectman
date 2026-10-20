@@ -24,6 +24,9 @@ interface Submitted {
   input: AdministrationSubmit;
 }
 
+/** The options of every log read the fake supervisors answered. */
+const logOptions: unknown[] = [];
+
 /** A fake supervisor: records what it is given and keeps the jobs a test can finish. */
 function fakePort(name: string, submitted: Submitted[]) {
   const jobs = new Map<string, AdministrationJob>();
@@ -36,13 +39,23 @@ function fakePort(name: string, submitted: Submitted[]) {
       capabilities: ['status', 'logs', 'restart', 'full_test', 'image_build', 'deploy'],
       activeOperationId: null,
     }),
-    logs: async (_target, { limit }) => ({
-      entries: Array.from({ length: Math.min(limit, 3) }, (_, index) => ({
-        at: NOW,
-        level: 'info' as const,
-        code: 'fixture',
-        message: `entry ${index}`,
-      })),
+    logs: async (_target, options) => {
+      logOptions.push(options);
+      return {
+        entries: Array.from({ length: Math.min(options.limit, 3) }, (_, index) => ({
+          at: NOW,
+          level: 'info' as const,
+          code: 'fixture',
+          message: `entry ${index}`,
+        })),
+      };
+    },
+    machine: async () => ({
+      at: NOW,
+      loadAvg: [0.5, 0.4, 0.3],
+      memory: { totalBytes: 16_000_000_000, availableBytes: 8_000_000_000 },
+      swap: null,
+      topProcesses: [],
     }),
     submit: async (input) => {
       submitted.push({ port: name, input });
@@ -443,6 +456,37 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
     });
   });
 
+  describe('process cleanup (PM-886)', () => {
+    const cleanup = (target: Extract<AdministrationCommand, { kind: 'process_cleanup' }>['target']) =>
+      admin({ kind: 'process_cleanup', target, selector: 'orphan_test_workers' });
+
+    it('cleans the hub with the owner right and a linked engine on its own engine, and nothing else', async () => {
+      await boot();
+      const started = await operate(cleanup({ kind: 'hub' }), randomUUID(), undefined);
+      expect(started.state).toBe('running');
+      expect(submitted).toMatchObject([{ port: 'hub', input: { command: { kind: 'process_cleanup' } } }]);
+      const engine = await operate(cleanup({ kind: 'engine', id: LOCAL }), randomUUID(), undefined);
+      expect(engine.state).toBe('running');
+      expect(submitted.at(-1)).toMatchObject({ port: 'builder' });
+      const refused = await operate(cleanup({ kind: 'engine', id: UNLINKED }), randomUUID(), undefined);
+      expect(refused).toMatchObject({ state: 'failed', errorCode: 'administration_target_mismatch' });
+    });
+
+    it('is refused without the owner’s grant like the other machine operations', async () => {
+      await boot();
+      ensureKey();
+      h.auth.revokeOperatorGrant('user-1');
+      expect(await operate(cleanup({ kind: 'hub' }), randomUUID(), undefined)).toMatchObject({
+        state: 'failed',
+        errorCode: 'operator_grant_inactive',
+      });
+      await expect(h.domain.superAdministration.machine('AR', { kind: 'hub' })).rejects.toMatchObject({
+        code: 'operator_grant_inactive',
+      });
+      expect(submitted).toEqual([]);
+    });
+  });
+
   describe('deploy', () => {
     const release = (over: Partial<Release> = {}) =>
       ({ id: 'rel_1', projectKey: 'AR', state: 'approved', decidedBy: 'owner', ...over }) as Release;
@@ -482,13 +526,37 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       const facade = h.domain.superAdministration;
       expect(await facade.status('AR', { kind: 'hub' })).toMatchObject({ online: true, bootId: 'boot-1' });
       expect(await facade.status('AR', { kind: 'engine', id: LOCAL })).toMatchObject({ online: true });
-      expect((await facade.logs('AR', { kind: 'hub' }, 2)).entries).toHaveLength(2);
+      expect((await facade.logs('AR', { kind: 'hub' }, { limit: 2 })).entries).toHaveLength(2);
       await expect(facade.status('AR', { kind: 'engine', id: UNLINKED })).rejects.toMatchObject({
         code: 'administration_target_mismatch',
         status: 403,
       });
-      await expect(facade.logs('AR', { kind: 'engine', id: UNLINKED }, 5)).rejects.toMatchObject({
+      await expect(facade.logs('AR', { kind: 'engine', id: UNLINKED }, { limit: 5 })).rejects.toMatchObject({
         code: 'administration_target_mismatch',
+      });
+    });
+
+    it('reads the machine state of the hub and of a linked engine, and filters the log, only from the project’s side', async () => {
+      await boot();
+      ensureKey();
+      logOptions.length = 0;
+      const facade = h.domain.superAdministration;
+      expect(await facade.machine('AR', { kind: 'hub' })).toMatchObject({ loadAvg: [0.5, 0.4, 0.3] });
+      expect(await facade.machine('AR', { kind: 'engine', id: LOCAL })).toMatchObject({
+        loadAvg: [0.5, 0.4, 0.3],
+      });
+      await expect(facade.machine('AR', { kind: 'engine', id: UNLINKED })).rejects.toMatchObject({
+        code: 'administration_target_mismatch',
+      });
+      await facade.logs('AR', { kind: 'hub' }, { limit: 5, minLevel: 'warn', contains: 'timeout' });
+      expect(logOptions).toEqual([{ limit: 5, minLevel: 'warn', contains: 'timeout' }]);
+    });
+
+    it('is administration_unavailable (503) for the machine state where the instance has no adapter', async () => {
+      await boot(false);
+      await expect(h.domain.superAdministration.machine('AR', { kind: 'hub' })).rejects.toMatchObject({
+        code: 'administration_unavailable',
+        status: 503,
       });
     });
 
@@ -499,7 +567,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
         code: 'administration_unavailable',
         status: 503,
       });
-      await expect(facade.logs('AR', { kind: 'hub' }, 5)).rejects.toMatchObject({
+      await expect(facade.logs('AR', { kind: 'hub' }, { limit: 5 })).rejects.toMatchObject({
         code: 'administration_unavailable',
       });
     });
@@ -584,7 +652,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
         code: 'operator_grant_inactive',
         status: 403,
       });
-      await expect(facade.logs('AR', { kind: 'hub' }, 5)).rejects.toMatchObject({
+      await expect(facade.logs('AR', { kind: 'hub' }, { limit: 5 })).rejects.toMatchObject({
         code: 'operator_grant_inactive',
       });
       expect(await operate(pause, randomUUID(), undefined)).toMatchObject({ state: 'succeeded' });

@@ -66,10 +66,13 @@ async function answer(port: AdministrationPort, line: string): Promise<SocketRes
         value = await port.status((params.data as { target: never }).target);
         break;
       case 'logs': {
-        const { target, limit } = params.data as { target: never; limit: number };
-        value = await port.logs(target, { limit });
+        const { target, ...options } = params.data as { target: never } & Parameters<typeof port.logs>[1];
+        value = await port.logs(target, options);
         break;
       }
+      case 'machine':
+        value = await port.machine((params.data as { target: never }).target);
+        break;
       case 'submit':
         value = await port.submit(params.data as never);
         break;

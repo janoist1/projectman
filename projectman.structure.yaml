@@ -550,6 +550,7 @@ modules:
     summary: Telepítési fájlok – Mac, felhő, VM, Cloudflare és GitHub.
     paths:
       - deploy/
+      - .github/
   - id: docs
     area: tools
     name: Dokumentáció

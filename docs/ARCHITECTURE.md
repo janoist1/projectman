@@ -1691,7 +1691,17 @@ workers follow the machine's size.
   `merge-test scope:` line; the rule (`mergeTestMarkerLine`, `mergeTestMarkedFiles`) is in
   `packages/shared/src/domain/merge-test.ts`. `npm run merge-test -- --files <path>...` runs only
   those test files (grouped by workspace, no type check, same rerun rule; a path absent from the
-  checkout prints `merge-test skipped (absent): <path>` and is left out). The executor
+  checkout prints `merge-test skipped (absent): <path>` and is left out).
+  `--files-from-env` takes the same list as a JSON array (1 to 20 files) from `MERGE_TEST_FILES`
+  (empty or absent: the plain scope mode; not with `--files`, `--all` or `--dry-run`), so a CI
+  workflow hands its input over through the environment and no shell reads it. `--shard <k>/<n>`
+  (1 <= k <= n <= 8, with any mode, anywhere in the arguments) deals the type checks round-robin
+  among the shards and runs every test step on every shard with `--shard=k/n --passWithNoTests`;
+  the `merge-test timing:` line keeps the step's index in the whole list, so the shards' reports
+  can be merged. The failed-file rerun (PM-842) stays inside the shard and has no shard flag.
+  `.github/workflows/merge-check.yml` (PM-900) runs four shards on `macos-15` for a
+  `workflow_dispatch` on a `pm-check/` branch only (no secret, read-only token, actions pinned to
+  commits; `merge-check-workflow.test.ts` guards this). The executor
   (`full-test/output.ts`) reads the markers: `failedFiles` prefers the `failed` lines, and a passed
   run's `outputTail` holds the `flaky` lines. The server adds a system `task_note` to the card of a
   single merge, and to every member of a train, when its check passed with flaky files, and logs

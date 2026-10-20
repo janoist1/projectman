@@ -93,6 +93,358 @@ describe('credential REST and domain access (PM-759)', () => {
     }
   });
 
+  it('executes an owner decision through the common command path and offers it as a decision candidate', async () => {
+    const { headers } = await credential('super');
+    const { domain, repos } = h.app.projectman;
+    await domain.projects.update(
+      'AR',
+      {
+        actor: { kind: 'human', handle: 'owner' },
+        author: { name: 'Owner', email: 'owner@example.com' },
+      },
+      (draft) => {
+        draft.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md' };
+        return 'Configure the decision log';
+      },
+    );
+    const item = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Choose an approach',
+      payload: { question: 'Which approach?', responsePurpose: 'owner_decision' },
+      options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+    });
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.superOperations('AR'),
+      headers,
+      payload: {
+        requestId: randomUUID(),
+        command: {
+          kind: 'inbox_resolve',
+          itemId: item.id,
+          request: { optionId: 'answer', note: 'Use the first approach.' },
+        },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(202);
+    expect(SuperOperateResponse.parse(response.json()).operation.state).toBe('succeeded');
+    const resolved = domain.inbox.get('AR', item.id);
+    expect(resolved.resolution).toMatchObject({
+      by: 'owner',
+      via: 'integrator',
+      superDecision: true,
+      actor: { kind: 'ai', handle: 'operator', operatorMode: 'super' },
+    });
+    expect(resolved.resolution?.ownerAnswerRelayed).toBeUndefined();
+    expect(
+      repos.timeline.list('AR').find((event) => event.type === 'question_answered')?.actor,
+    ).toMatchObject({
+      kind: 'ai',
+      handle: 'operator',
+      operatorMode: 'super',
+    });
+    expect(domain.decisionCandidates.list('AR', await domain.projects.config('AR')).candidates).toEqual([
+      expect.objectContaining({ item_id: item.id, answered_by: 'owner', via_integrator: true }),
+    ]);
+  });
+
+  it('executes a release approval with the Operator as the timeline actor', async () => {
+    const { headers } = await credential('super');
+    const { domain, repos } = h.app.projectman;
+    const task = await domain.tasks.create(
+      'AR',
+      { kind: 'theme', title: 'Release' },
+      { kind: 'human', handle: 'owner' },
+    );
+    const at = new Date().toISOString();
+    repos.releases.insert(
+      {
+        id: 'rel_fixture',
+        projectKey: 'AR',
+        repo: 'web',
+        taskKey: task.key,
+        state: 'proposed',
+        commit: 'a'.repeat(40),
+        baseCommit: null,
+        tasks: [],
+        summary: 'A release',
+        proposedBy: 'dev-1',
+        proposedAt: at,
+        decidedBy: null,
+        decidedAt: null,
+        deployStartedAt: null,
+        previousCommit: null,
+        liveAt: null,
+        tag: null,
+        url: null,
+        publishedAt: null,
+        failure: null,
+        publishError: null,
+      },
+      at,
+    );
+    const item = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'release',
+      taskKey: task.key,
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Release approval',
+      payload: {
+        release: {
+          releaseId: 'rel_fixture',
+          commit: 'a'.repeat(40),
+          baseCommit: null,
+          tasks: [],
+          summary: 'A release',
+        },
+      },
+      options: [{ id: 'approve', label: 'approve', style: 'primary' }],
+    });
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.superOperations('AR'),
+      headers,
+      payload: {
+        requestId: randomUUID(),
+        command: { kind: 'inbox_resolve', itemId: item.id, request: { optionId: 'approve' } },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(202);
+    expect(response.json().operation, response.body).toMatchObject({ state: 'succeeded' });
+    expect(repos.releases.get('rel_fixture')).toMatchObject({ state: 'approved', decidedBy: 'owner' });
+    expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
+      by: 'owner',
+      superDecision: true,
+      actor: { handle: 'operator', operatorMode: 'super' },
+    });
+    expect(
+      repos.timeline.list('AR', { taskKey: task.key }).find((event) => event.type === 'release_changed')
+        ?.actor,
+    ).toMatchObject({ handle: 'operator', operatorMode: 'super' });
+  });
+
+  it('executes a hand-on approval and records the move as the Operator', async () => {
+    const { headers } = await credential('super');
+    const { domain, repos } = h.app.projectman;
+    const task = await domain.tasks.create(
+      'AR',
+      { title: 'Move this card' },
+      { kind: 'human', handle: 'owner' },
+    );
+    const item = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'hand_on',
+      taskKey: task.key,
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Move this card',
+      payload: {
+        handOn: {
+          taskKey: task.key,
+          fromStageId: 'backlog',
+          toStageId: 'development',
+          requestedBy: 'dev-1',
+        },
+      },
+      options: [{ id: 'move', label: 'move', style: 'primary' }],
+    });
+    repos.taskHandOns.save({
+      projectKey: 'AR',
+      taskKey: task.key,
+      fromStageId: 'backlog',
+      toStageId: 'development',
+      requestedBy: 'dev-1',
+      mover: 'owner',
+      requestedAt: item.createdAt,
+      inboxItemId: item.id,
+    });
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.superOperations('AR'),
+      headers,
+      payload: {
+        requestId: randomUUID(),
+        command: { kind: 'inbox_resolve', itemId: item.id, request: { optionId: 'move' } },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(202);
+    expect(response.json().operation).toMatchObject({ state: 'succeeded' });
+    expect(domain.tasks.get('AR', task.key).stageId).toBe('development');
+    expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
+      by: 'owner',
+      superDecision: true,
+      actor: { handle: 'operator', operatorMode: 'super' },
+    });
+    expect(
+      repos.timeline.list('AR', { taskKey: task.key }).find((event) => event.type === 'task_stage_changed')
+        ?.actor,
+    ).toMatchObject({ handle: 'operator', operatorMode: 'super' });
+  });
+
+  it.each([
+    { source: 'operator', payload: {} },
+    { source: 'dev-1', payload: { superOperation: null } },
+    { source: 'dev-1', payload: { operatorApproval: null } },
+  ])('refuses an Operator decision on a protected item: $source $payload', async ({ source, payload }) => {
+    const { headers } = await credential('super');
+    const { domain } = h.app.projectman;
+    const item = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source,
+      assignees: ['owner'],
+      title: 'Protected question',
+      payload: { question: 'May I proceed?', responsePurpose: 'owner_decision', ...payload },
+      options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+    });
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.resolveInbox('AR', item.id),
+      headers,
+      payload: { optionId: 'answer', note: 'Proceed' },
+    });
+    expect(response.statusCode, response.body).toBe(403);
+    expect(response.json().error.code).toBe('owner_approval_required');
+    expect(domain.inbox.get('AR', item.id).state).toBe('open');
+  });
+
+  it('refuses the entire group when the Operator asked a pending member', async () => {
+    const { headers } = await credential('super');
+    const { domain, repos } = h.app.projectman;
+    const items = ['dev-1', 'operator'].map((source) =>
+      domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source,
+        assignees: ['owner'],
+        title: 'Related question',
+        payload: { question: 'Which approach?', responsePurpose: 'owner_decision' },
+        options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+      }),
+    );
+    repos.inbox.createGroup({
+      projectKey: 'AR',
+      primaryItemId: items[0]!.id,
+      itemIds: items.map((item) => item.id),
+      question: 'Which shared approach?',
+      note: 'Same decision',
+      by: 'pm',
+      at: items[0]!.createdAt,
+    });
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.resolveInbox('AR', items[0]!.id),
+      headers,
+      payload: { optionId: 'answer', note: 'Proceed' },
+    });
+    expect(response.statusCode, response.body).toBe(403);
+    expect(response.json().error.code).toBe('owner_approval_required');
+    expect(items.map((item) => domain.inbox.get('AR', item.id).state)).toEqual(['open', 'open']);
+  });
+
+  it('refuses an integrator-asked information question through the generic resolution endpoint', async () => {
+    const { headers, context } = await credential('super');
+    const { domain } = h.app.projectman;
+    const actor = superActorOf(await domain.projects.config('AR'), {
+      id: context!.principal.keyId,
+      prefix: context!.principal.prefix,
+    })!;
+    const item = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'External question',
+      payload: {
+        question: 'Which port?',
+        responsePurpose: 'information',
+        externalQuestion: {
+          ownerUserId: context!.principal.userId,
+          actor,
+          requestId: randomUUID(),
+        },
+      },
+      options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+    });
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.resolveInbox('AR', item.id),
+      headers,
+      payload: { optionId: 'answer', note: '4700' },
+    });
+    expect(response.statusCode, response.body).toBe(403);
+    expect(response.json().error.code).toBe('owner_approval_required');
+    expect(domain.inbox.get('AR', item.id).state).toBe('open');
+  });
+
+  it('refuses an Operator proposal for a routine project pause', async () => {
+    const { headers } = await credential('super');
+    const { domain } = h.app.projectman;
+    const item = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'approval',
+      source: 'system',
+      assignees: ['owner'],
+      title: 'A routine proposal',
+      payload: {
+        operator: {
+          requestId: 'opr_fixture',
+          stepId: 'ops_fixture',
+          quote: 'Pause the team',
+          action: 'project_pause',
+          operation: { op: 'project_pause' },
+          changes: [],
+          consequence: 'project_pause',
+          baseVersion: null,
+          session: null,
+          stale: null,
+        },
+      },
+      options: [{ id: 'approve', label: 'approve', style: 'primary' }],
+    });
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.resolveInbox('AR', item.id),
+      headers,
+      payload: { optionId: 'approve' },
+    });
+    expect(response.statusCode, response.body).toBe(403);
+    expect(response.json().error.code).toBe('owner_approval_required');
+    expect(domain.inbox.get('AR', item.id).state).toBe('open');
+  });
+
+  it.each(['own', 'legacy', 'super', 'read'] as const)(
+    '%s retains its inbox approval policy',
+    async (mode) => {
+      const { headers } = await credential(mode);
+      const item = h.app.projectman.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'decision',
+        source: 'dev-1',
+        assignees: ['owner'],
+        title: 'A decision',
+        payload: {},
+        options: [{ id: 'approve', label: 'approve', style: 'primary' }],
+      });
+      const response = await h.app.inject({
+        method: 'POST',
+        url: routes.resolveInbox('AR', item.id),
+        headers,
+        payload: { optionId: 'approve' },
+      });
+      expect(response.statusCode, response.body).toBe(mode === 'own' || mode === 'super' ? 200 : 403);
+      if (mode === 'super') expect(response.json().resolution).toMatchObject({ superDecision: true });
+      if (mode === 'legacy' || mode === 'read')
+        expect(response.json().error.code).toBe(
+          mode === 'read' ? 'integrator_read_only' : 'owner_approval_required',
+        );
+    },
+  );
+
   it.each(['own', 'legacy', 'super', 'read'] as const)(
     '%s writes through existing services with its own provenance',
     async (mode) => {
@@ -341,10 +693,10 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(waiver.json().error.code).toBe('owner_approval_required');
   });
 
-  it('refuses every human decision at both REST and direct domain entry', async () => {
+  it('keeps permission and boundary decisions exclusive to a person at REST and domain entry', async () => {
     const { context, headers } = await credential('super');
     const { domain } = h.app.projectman;
-    for (const kind of ['decision', 'permission', 'approval', 'boundary', 'release'] as const) {
+    for (const kind of ['permission', 'boundary'] as const) {
       const item = domain.inbox.create({
         projectKey: 'AR',
         kind,
@@ -369,12 +721,6 @@ describe('credential REST and domain access (PM-759)', () => {
         ),
       ).rejects.toMatchObject({ code: 'owner_approval_required' });
       expect(domain.inbox.get('AR', item.id).state).toBe('open');
-      if (kind === 'release')
-        expect(() =>
-          domain.superOperator.run(context!, () =>
-            domain.releases.decide(item, { handle: 'owner', access: 'owner' }, 'approve', null),
-          ),
-        ).toThrow(expect.objectContaining({ code: 'owner_approval_required' }));
     }
     await expect(
       domain.superOperator.run(context!, () =>
@@ -383,7 +729,7 @@ describe('credential REST and domain access (PM-759)', () => {
     ).rejects.toMatchObject({ code: 'owner_approval_required' });
     await expect(
       domain.superOperator.run(context!, () =>
-        domain.fixLimit.decide('operator', 'AR', 'AR-1', 'continue', 'No human decision'),
+        domain.inbox.resolveDelegated('AR', 'missing', 'operator', { decision: 'allow', reason: 'Checked' }),
       ),
     ).rejects.toMatchObject({ code: 'owner_approval_required' });
   });
@@ -519,7 +865,7 @@ describe('credential REST and domain access (PM-759)', () => {
       ).toHaveLength(0);
   });
 
-  it('preserves human hand-on decisions while allowing an administrative move to cancel a stale request', async () => {
+  it('records super hand-on decisions and cancels stale requests on a different administrative move', async () => {
     const { domain, repos } = h.app.projectman;
     const { context, headers } = await credential('super');
     for (const target of ['development', 'code_review']) {
@@ -557,9 +903,6 @@ describe('credential REST and domain access (PM-759)', () => {
         inboxItemId: item.id,
       };
       repos.taskHandOns.save(request);
-      expect(() =>
-        domain.superOperator.run(context!, () => domain.inbox.resolveHandOn(item.id, 'owner')),
-      ).toThrow(expect.objectContaining({ code: 'owner_approval_required' }));
       const response = await h.app.inject({
         method: 'PATCH',
         url: routes.task('AR', task.key),
@@ -567,19 +910,16 @@ describe('credential REST and domain access (PM-759)', () => {
         payload: { stageId: target },
       });
       if (target === 'development') {
-        expect(response.statusCode, response.body).toBe(403);
-        expect(response.json().error.code).toBe('owner_approval_required');
-        expect(domain.tasks.get('AR', task.key).stageId).toBe('backlog');
-        expect(repos.taskHandOns.get('AR', task.key)).toEqual(request);
-        expect(repos.inbox.get(item.id)?.state).toBe('open');
-        const own = await h.app.inject({
-          method: 'PATCH',
-          url: routes.task('AR', task.key),
-          headers: { cookie },
-          payload: { stageId: target },
+        expect(response.statusCode, response.body).toBe(200);
+        expect(domain.tasks.get('AR', task.key).stageId).toBe(target);
+        expect(repos.inbox.get(item.id)).toMatchObject({
+          state: 'resolved',
+          resolution: {
+            by: 'owner',
+            superDecision: true,
+            actor: { handle: 'operator' },
+          },
         });
-        expect(own.statusCode, own.body).toBe(200);
-        expect(repos.inbox.get(item.id)).toMatchObject({ state: 'resolved', resolution: { by: 'owner' } });
       } else {
         expect(response.statusCode, response.body).toBe(200);
         expect(domain.tasks.get('AR', task.key).stageId).toBe(target);

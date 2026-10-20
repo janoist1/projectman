@@ -2,6 +2,7 @@ import type { Actor, OrderMergeQueueRequest, StartMergeRequest, StartTaskRequest
 import type { InvitationService, InvitationUser, MemberService } from '../../core/members';
 import type { Author, ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
+import type { InboxService } from '../../core/inbox';
 import {
   DomainError,
   assertIntegratorAccess,
@@ -13,6 +14,7 @@ import {
 import type { SuperCommandExecutor, SuperExecutorJob } from './handoffs';
 
 export interface SuperCommandDeps {
+  inbox: Pick<InboxService, 'resolve'>;
   tasks: Pick<TaskService, 'create' | 'update' | 'changeLabels' | 'cancel'>;
   members: Pick<MemberService, 'update' | 'hire' | 'retire' | 'sponsorFor'>;
   projects: Pick<ProjectService, 'patch' | 'revert'>;
@@ -64,6 +66,9 @@ export function createCommandExecutor(deps: SuperCommandDeps): SuperCommandExecu
     const { actor, author, user } = superJobIdentity(job, deps);
     const projectKey = job.operation.projectKey;
     switch (command.kind) {
+      case 'inbox_resolve':
+        await deps.inbox.resolve(projectKey, command.itemId, command.request, job.access);
+        return;
       case 'task_create': {
         const task = await deps.tasks.create(projectKey, command.request, actor);
         return { taskKey: task.key };

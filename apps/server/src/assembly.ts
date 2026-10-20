@@ -200,7 +200,7 @@ import { DiskGuard } from './runtime/watchers';
 import { WorkOutages } from './runtime/watchers';
 import { WorktreeSweep } from './runtime/watchers';
 import { CardMeasure } from './core/tasks';
-import { humanActor, SYSTEM_ACTOR } from './kernel';
+import { attributedActor, humanActor, SYSTEM_ACTOR } from './kernel';
 import { SYSTEM_SENDER, isSessionAtWork } from '@projectman/shared';
 import { DomainError } from './kernel';
 import { ObligationsService } from './services/obligations';
@@ -1098,7 +1098,7 @@ export function createDomain(opts: DomainOptions) {
   });
   merges.registerSlotPeer(docWrites);
   inbox.registerDecider('merge_request', async (item, by) => {
-    if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
+    if (item.taskKey) await merges.start(item.projectKey, item.taskKey, attributedActor(by));
   });
   const releases = new ReleaseService({
     ctx,
@@ -1832,6 +1832,7 @@ export function createDomain(opts: DomainOptions) {
     );
   };
   const commandDeps = {
+    inbox,
     tasks,
     members,
     projects,
@@ -1853,6 +1854,7 @@ export function createDomain(opts: DomainOptions) {
     'member_update',
     'invite_create',
     'credential_revoke',
+    'inbox_resolve',
   ] as const)
     superHandoffs.registerExecutor(kind, commandExecutor);
   superHandoffs.registerExecutor(

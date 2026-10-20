@@ -443,6 +443,12 @@ modules:
     summary: A csapat üzenetei és beszélgetései.
     paths:
       - apps/web/src/features/messages/
+  - id: web/notifications
+    area: ui
+    name: Értesítések
+    summary: A böngészőértesítések oldala (eszközök, tételfajták, csendes órák) és a Postafiók bekapcsoló sávja.
+    paths:
+      - apps/web/src/features/notifications/
   - id: web/operator
     area: ui
     name: Operátor

@@ -5,7 +5,12 @@ import {
   releaseApprovalOf,
   releaseApprovers,
 } from '@projectman/shared';
-import { assertOwnApproval, externalToolOrigin } from '../../kernel';
+import {
+  assertIntegratorAccess,
+  assertOwnOrSuperApproval,
+  attributedActor,
+  externalToolOrigin,
+} from '../../kernel';
 import type {
   Actor,
   EngineId,
@@ -28,7 +33,7 @@ import { DECISION_OPTIONS } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
-import { aiActor, humanActor, KeyedMutex, newId, SYSTEM_ACTOR } from '../../kernel';
+import { aiActor, KeyedMutex, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** The project and repository that are the instance itself (`PROJECTMAN_RELEASE_TARGET`, `<project key>/<repository>`). */
 export interface ReleaseTarget {
@@ -478,8 +483,15 @@ export class ReleaseService {
    * that still waits for the decision can be decided.
    */
   decide(item: InboxItem, by: Resolver, optionId: string, note: string | null): void {
-    assertOwnApproval(by);
+    assertOwnOrSuperApproval(by);
     const { ctx, tasks, inbox } = this.deps;
+    const owner = assertIntegratorAccess(
+      this.deps.projects.cachedConfig(item.projectKey)!,
+      'write',
+      by.superActor,
+    );
+    if (owner && by.superActor && owner.handle !== by.handle)
+      throw forbidden('insufficient_access', 'the resolver must be the authenticated owner');
     const payload = releaseApprovalOf(item);
     const release = payload ? ctx.repos.releases.get(payload.releaseId) : null;
     if (!release || release.state !== 'proposed')
@@ -494,8 +506,8 @@ export class ReleaseService {
     };
     ctx.unitOfWork(() => {
       ctx.repos.releases.save(next, at);
-      this.record(next, release.state, humanActor(by.handle), approved ? undefined : note);
-      if (!approved) tasks.closeThemeBySystem(release.projectKey, release.taskKey, humanActor(by.handle));
+      this.record(next, release.state, attributedActor(by), approved ? undefined : note);
+      if (!approved) tasks.closeThemeBySystem(release.projectKey, release.taskKey, attributedActor(by));
       inbox.resolveRelease(item.id, by.handle, optionId, note);
     });
   }

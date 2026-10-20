@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { INTEGRATOR_TODO_TIMEOUT_MS, routes } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
@@ -148,6 +149,50 @@ describe('integrator fix limit decision', () => {
       data: { phase: 'decided', decision: 'another_round', note: 'Try once more.', extraRounds: 1 },
     });
     expect((await decide(created.id, 'another_round')).json().error.code).toBe('inbox_item_closed');
+  });
+
+  it('executes an owner-addressed fix limit decision through inbox_resolve', async () => {
+    const created = await passedOn();
+    await decide(created.id, 'to_owner', 'Ask the owner.');
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.superOperations('AR'),
+      headers: headers(),
+      payload: {
+        requestId: randomUUID(),
+        command: {
+          kind: 'inbox_resolve',
+          itemId: created.id,
+          request: { optionId: 'another_round', note: 'Try again.' },
+        },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(202);
+    expect(response.json().operation.state).toBe('succeeded');
+    expect(item(created.id).resolution).toMatchObject({
+      by: 'owner',
+      superDecision: true,
+      actor: { handle: 'operator', operatorMode: 'super' },
+    });
+    expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
+    expect(fixLimitEvents().at(-1)?.actor).toMatchObject({ handle: 'operator', operatorMode: 'super' });
+  });
+
+  it('starts a held card as the Operator and releases its fix limit hold', async () => {
+    await passedOn();
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.superOperations('AR'),
+      headers: headers(),
+      payload: {
+        requestId: randomUUID(),
+        command: { kind: 'task_start', taskKey: 'AR-1', request: { assignee: 'dev-1' } },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(202);
+    expect(response.json().operation.state).toBe('succeeded');
+    expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
+    expect(fixLimitEvents().at(-1)?.actor).toMatchObject({ handle: 'operator', operatorMode: 'super' });
   });
 
   it('reassign: another implementer starts with a fresh count', async () => {

@@ -48,6 +48,7 @@ export {
   integratorExecution,
   assertIntegratorAccess,
   assertOwnApproval,
+  assertOwnOrSuperApproval,
   assertSuperMutation,
   authorizeSuperMutation,
   externalToolOrigin,

@@ -29,6 +29,8 @@ export const queryKeys = {
   invite: (token: string) => ['invite', token] as const,
   setupStatus: ['setupStatus'] as const,
   me: ['me'] as const,
+  /** The person's own web push devices and settings (PM-815): not tied to a project. */
+  push: ['push'] as const,
   projects: ['projects'] as const,
   templates: ['templates'] as const,
   projectPreview: (body: unknown) => ['project-preview', body] as const,

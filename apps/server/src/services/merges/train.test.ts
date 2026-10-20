@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isMergeId } from '@projectman/shared';
 import type {
   FullTestExecutor,
   FullTestResult,
@@ -769,8 +770,12 @@ describe('merge train execution', () => {
       expect(order).toEqual(['AR-1', 'AR-2', 'AR-3']);
       const command = `${filesCommand} 'a.test.ts' 'b'\\''c.test.ts'`;
       expect(loneCalls().map(([spec]) => spec.command)).toEqual([command, command, command]);
+      const checkoutIds = merger.checkoutForCheck.mock.calls.map(([, input]) => input.mergeId);
+      expect(checkoutIds.every(isMergeId)).toBe(true);
+      expect(new Set(checkoutIds).size).toBe(checkoutIds.length);
       for (const [index, [spec]] of loneCalls().entries()) {
         const [ref, input] = merger.checkoutForCheck.mock.calls[index + 1]!;
+        expect(merger.releaseCheck).toHaveBeenCalledWith(ref, { mergeId: input.mergeId });
         expect(input.allowDependencyInstall).toBe(true);
         expect(spec).toMatchObject({
           maxWorkers: 2,
@@ -847,9 +852,8 @@ describe('merge train execution', () => {
     it('treats a member whose lone run throws as unknown', async () => {
       await setup(3, true, filesCommand);
       script(groupFailed(['a.test.ts']), (card) => (card === 1 ? groupFailed(['a.test.ts']) : passed));
-      const ar3 = row('AR-3')!.id;
       merger.checkoutForCheck.mockImplementation(async (_ref, input) => {
-        if (input.mergeId.endsWith(`-${ar3}`)) throw new Error('No space left');
+        if (merger.parents.get(input.mergeCommit)?.[1] === sha(3)) throw new Error('No space left');
         return { path: '/fake/check', gitDir: '/fake/git' };
       });
       pump();

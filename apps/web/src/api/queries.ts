@@ -49,6 +49,7 @@ import { isApiError } from './client';
 import { BoundaryReason } from '@projectman/shared';
 import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTask, writeTaskDetail } from './cache';
 import { api } from './endpoints';
+import { unsubscribeThisDevice } from '../lib/pushDevice';
 import { queryKeys } from './queryKeys';
 import type { AllMessagesFilter } from './queryKeys';
 
@@ -92,7 +93,11 @@ export function useLogin() {
 export function useLogout() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: () => api.logout(),
+    mutationFn: async () => {
+      // This browser leaves the push list while the session is still good (PM-815).
+      await unsubscribeThisDevice();
+      return api.logout();
+    },
     onSettled: () => {
       client.clear();
     },

@@ -26,8 +26,10 @@ export function superAccessVerdict(
 ): SuperAccessVerdict {
   if (facts.mode === 'read' && facts.operation !== 'read')
     return { allowed: false, code: 'integrator_read_only' };
-  if (facts.operation === 'approval') return { allowed: false, code: 'owner_approval_required' };
   if (facts.operation === 'key_management') return { allowed: false, code: 'integrator_not_allowed' };
+  // The super key decides approvals in the Operator's own name (PM-870); the legacy key never does.
+  if (facts.operation === 'approval' && facts.mode !== 'super')
+    return { allowed: false, code: 'owner_approval_required' };
   if (!facts.ownerMembership) return { allowed: false, code: 'insufficient_access' };
   if (facts.mode === 'super' && !operatorOf(config))
     return { allowed: false, code: 'integrator_not_allowed' };

@@ -270,23 +270,30 @@ describe('credential REST and domain access (PM-759)', () => {
       id: context!.principal.keyId,
       prefix: context!.principal.prefix,
     })!;
-    for (const labelId of ['merge-ok', 'code-review-ok']) {
-      const response = await h.app.inject({
-        method: 'PATCH',
-        url: routes.task('AR', task.key),
-        headers,
-        payload: { labels: [labelId], actor: { kind: 'human', handle: 'owner' } },
-      });
-      expect(response.statusCode, response.body).toBe(403);
-      expect(response.json().error.code).toBe('owner_approval_required');
-      await expect(
-        domain.superOperator.run(context!, () =>
-          domain.tasks.changeLabels('AR', task.key, { add: [labelId] }, actor, {
-            comment: 'No human approval',
-          }),
-        ),
-      ).rejects.toMatchObject({ code: 'owner_approval_required' });
-    }
+    // An approval label the key owner holds is the Operator's own in super mode (PM-870); one the owner
+    // does not hold stays refused.
+    const refused = await h.app.inject({
+      method: 'PATCH',
+      url: routes.task('AR', task.key),
+      headers,
+      payload: { labels: ['code-review-ok'], actor: { kind: 'human', handle: 'owner' } },
+    });
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json().error.code).toBe('owner_approval_required');
+    await expect(
+      domain.superOperator.run(context!, () =>
+        domain.tasks.changeLabels('AR', task.key, { add: ['code-review-ok'] }, actor, {
+          comment: 'No human approval',
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'owner_approval_required' });
+    const approved = await h.app.inject({
+      method: 'PATCH',
+      url: routes.task('AR', task.key),
+      headers,
+      payload: { labels: ['merge-ok'], actor: { kind: 'human', handle: 'owner' } },
+    });
+    expect(approved.statusCode, approved.body).toBe(200);
     await expect(
       domain.tasks.changeLabels('AR', task.key, { add: ['plain-tag'] }, actor),
     ).rejects.toMatchObject({ code: 'insufficient_access' });
@@ -378,8 +385,7 @@ describe('credential REST and domain access (PM-759)', () => {
         const defaulted = await app.inject({ method: 'POST', url: routes.defaultEngine(id), headers });
         expect(defaulted.statusCode, defaulted.body).toBe(200);
         const revoked = await app.inject({ method: 'POST', url: routes.revokeEngine(id), headers });
-        expect(revoked.statusCode, revoked.body).toBe(mode === 'super' ? 403 : 200);
-        if (mode === 'super') expect(revoked.json().error.code).toBe('owner_approval_required');
+        expect(revoked.statusCode, revoked.body).toBe(200);
       }
     },
   );
@@ -592,21 +598,10 @@ describe('credential REST and domain access (PM-759)', () => {
           stageId: 'done',
         },
       },
-      { method: 'PUT' as const, url: routes.config('AR'), payload: direction },
       {
         method: 'PATCH' as const,
         url: routes.member('AR', 'dev-1'),
         payload: { provider: 'nanogpt', model: 'paid-model' },
-      },
-      {
-        method: 'POST' as const,
-        url: routes.tasks('AR'),
-        payload: { title: 'Forbidden publication', visibility: 'shared' },
-      },
-      {
-        method: 'PATCH' as const,
-        url: routes.task('AR', task.key),
-        payload: { visibility: 'shared', title: 'Must stay unchanged' },
       },
     ]) {
       const response = await h.app.inject({ ...endpoint, headers });
@@ -632,9 +627,23 @@ describe('credential REST and domain access (PM-759)', () => {
       url: routes.invitation('AR', invite.json().id),
       headers,
     });
-    expect(revoke.statusCode).toBe(403);
-    expect(revoke.json().error.code).toBe('owner_approval_required');
-    expect(domain.invitations.list('AR')[0]?.revokedAt).toBeNull();
+    // Publication, direction and revoking an invitation are the Operator's own since PM-870.
+    expect(revoke.statusCode, revoke.body).toBe(204);
+    expect(domain.invitations.list('AR')[0]?.revokedAt).not.toBeNull();
+    const relocation = await h.app.inject({
+      method: 'PUT',
+      url: routes.config('AR'),
+      headers,
+      payload: direction,
+    });
+    expect(relocation.statusCode, relocation.body).toBe(200);
+    const shared = await h.app.inject({
+      method: 'PATCH',
+      url: routes.task('AR', task.key),
+      headers,
+      payload: { visibility: 'shared' },
+    });
+    expect(shared.statusCode, shared.body).toBe(200);
   });
 
   it('rejects copied principals, mismatched actors and work inherited past the scope lifetime', async () => {

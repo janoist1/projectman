@@ -84,7 +84,7 @@ describe('credential operation access (PM-759)', () => {
       const code =
         mode === 'read' && operation !== 'read'
           ? 'integrator_read_only'
-          : operation === 'approval'
+          : operation === 'approval' && mode === 'legacy'
             ? 'owner_approval_required'
             : operation === 'key_management'
               ? 'integrator_not_allowed'
@@ -92,7 +92,11 @@ describe('credential operation access (PM-759)', () => {
       expect(superAccessVerdict(project, { mode, operation, ownerMembership: true })).toEqual(
         code ? { allowed: false, code } : { allowed: true },
       );
-      if (operation === 'read' || (operation === 'write' && mode !== 'read'))
+      if (
+        operation === 'read' ||
+        (operation === 'write' && mode !== 'read') ||
+        (operation === 'approval' && mode === 'super')
+      )
         expect(superAccessVerdict(project, { mode, operation, ownerMembership: false })).toEqual({
           allowed: false,
           code: 'insufficient_access',
@@ -102,6 +106,9 @@ describe('credential operation access (PM-759)', () => {
   it('requires the project Operator only for super execution', () => {
     expect(
       superAccessVerdict(config(), { mode: 'super', operation: 'write', ownerMembership: true }),
+    ).toEqual({ allowed: false, code: 'integrator_not_allowed' });
+    expect(
+      superAccessVerdict(config(), { mode: 'super', operation: 'approval', ownerMembership: true }),
     ).toEqual({ allowed: false, code: 'integrator_not_allowed' });
     expect(superAccessVerdict(config(), { mode: 'read', operation: 'read', ownerMembership: true })).toEqual({
       allowed: true,
@@ -113,31 +120,91 @@ describe('reserved mutation effects (PM-759)', () => {
   it.each([
     ['member removal', (c: ProjectConfig): unknown => c.team.members.pop(), 'deletion'],
     ['repository removal', (c: ProjectConfig) => c.project.repos.pop(), 'deletion'],
-    ['role removal', (c: ProjectConfig) => c.team.roles.pop(), 'deletion'],
-    ['label removal', (c: ProjectConfig) => c.pipeline.labels.pop(), 'deletion'],
-    ['stage removal', (c: ProjectConfig) => c.pipeline.stages.pop(), 'deletion'],
-    ['column removal', (c: ProjectConfig) => c.pipeline.columns.pop(), 'deletion'],
-    ['gate removal', (c: ProjectConfig) => c.pipeline.stages[2]!.gate!.conditions.pop(), 'deletion'],
+    ['role removal', (c: ProjectConfig) => c.team.roles.pop(), null],
+    ['label removal', (c: ProjectConfig) => c.pipeline.labels.pop(), null],
+    ['stage removal', (c: ProjectConfig) => c.pipeline.stages.pop(), null],
+    ['column removal', (c: ProjectConfig) => c.pipeline.columns.pop(), null],
+    ['gate removal', (c: ProjectConfig) => c.pipeline.stages[2]!.gate!.conditions.pop(), null],
+    ['workspace relocation', (c: ProjectConfig): unknown => (c.project.workspacePath = '/other'), null],
+    ['repository relocation', (c: ProjectConfig): unknown => (c.project.repos[0]!.path = '/other'), null],
+    ['default branch', (c: ProjectConfig): unknown => (c.project.repos[0]!.defaultBranch = 'other'), null],
+    ['GitHub destination', (c: ProjectConfig): unknown => (c.project.repos[0]!.github = 'other/repo'), null],
     [
-      'workspace relocation',
-      (c: ProjectConfig): unknown => (c.project.workspacePath = '/other'),
-      'direction',
+      'member access change',
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === 'ann')!;
+        if (m.kind === 'human') m.access = 'admin';
+      },
+      'security',
     ],
     [
-      'repository relocation',
-      (c: ProjectConfig): unknown => (c.project.repos[0]!.path = '/other'),
-      'direction',
+      'login email rebinding',
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === 'ann')!;
+        if (m.kind === 'human') m.email = 'ann@elsewhere.example.com';
+      },
+      'security',
     ],
     [
-      'default branch',
-      (c: ProjectConfig): unknown => (c.project.repos[0]!.defaultBranch = 'other'),
-      'direction',
+      'human owner turned into an AI member under the same handle',
+      (c: ProjectConfig) =>
+        c.team.members.splice(0, 1, {
+          kind: 'ai',
+          handle: 'owner',
+          displayName: 'Owner',
+          role: 'developer',
+          sponsor: 'ann',
+        } as ProjectConfig['team']['members'][number]),
+      'security',
     ],
     [
-      'GitHub destination',
-      (c: ProjectConfig): unknown => (c.project.repos[0]!.github = 'other/repo'),
-      'direction',
+      'AI approver switched off',
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === 'dev-1')!;
+        if (m.kind === 'ai') m.approver = 'none';
+      },
+      'security',
     ],
+    [
+      'AI outbound network setting',
+      (c: ProjectConfig) => {
+        const m = c.team.members.find((m) => m.handle === 'dev-1')!;
+        if (m.kind === 'ai') m.outboundNetwork = false;
+      },
+      'security',
+    ],
+    [
+      'boundary delegation switched on',
+      (c: ProjectConfig) => (c.team.boundary = { enabled: true, leadTimeoutSeconds: 120 }),
+      'security',
+    ],
+    [
+      'new owner member',
+      (c: ProjectConfig) =>
+        c.team.members.push({
+          kind: 'human',
+          handle: 'eve',
+          displayName: 'Eve',
+          access: 'owner',
+          email: 'eve@example.com',
+          roles: [],
+        }),
+      'security',
+    ],
+    [
+      'new non-owner human member',
+      (c: ProjectConfig) =>
+        c.team.members.push({
+          kind: 'human',
+          handle: 'eve',
+          displayName: 'Eve',
+          access: 'developer',
+          email: 'eve@example.com',
+          roles: [],
+        }),
+      null,
+    ],
+    ['approval waiver', (c: ProjectConfig): unknown => (c.team.operatorApprovalWaiver = true), 'security'],
     [
       'new paid member',
       (c: ProjectConfig) => {
@@ -153,7 +220,7 @@ describe('reserved mutation effects (PM-759)', () => {
           surfaces: [{ id: 'web', name: 'Web', origin: 'https://example.test' }],
           blockedMarkers: [],
         }),
-      'publication',
+      null,
     ],
   ] as const)('classifies %s before committing', (_name, change, effect) => {
     const before = config();
@@ -165,10 +232,6 @@ describe('reserved mutation effects (PM-759)', () => {
     const before = config();
     const next = structuredClone(before);
     next.pipeline.labels[0]!.setBy = { members: ['ann'], humansOnly: true };
-    next.team.members[1] = {
-      ...next.team.members[1]!,
-      access: 'admin',
-    } as ProjectConfig['team']['members'][number];
     next.team.roles[0]!.duties = ['implementation'];
     const member = next.team.members.find((m) => m.kind === 'ai')!;
     if (member.kind === 'ai') {
@@ -221,27 +284,57 @@ describe('reserved mutation effects (PM-759)', () => {
   it('uses deterministic precedence and refuses unknown or incomplete projections', () => {
     const next = structuredClone(config());
     next.team.members.pop();
-    next.project.workspacePath = '/other';
+    next.team.operatorApprovalWaiver = true;
     expect(ownerReservedEffect(config(), { kind: 'config_change', next })).toBe('deletion');
+    const securityAndCost = structuredClone(config());
+    securityAndCost.team.operatorApprovalWaiver = true;
+    securityAndCost.team.limits.aiEnabled = true;
+    const paidDev = securityAndCost.team.members.find((m) => m.kind === 'ai')!;
+    if (paidDev.kind === 'ai') paidDev.provider = 'nanogpt';
+    expect(ownerReservedEffect(config(), { kind: 'config_change', next: securityAndCost })).toBe('security');
     expect(() => ownerReservedEffect(null, { kind: 'config_change', next })).toThrow();
     expect(() =>
       ownerReservedEffect(null, { kind: 'routine', operation: 'sudo' } as unknown as SuperMutationCommand),
     ).toThrow();
     expect(() => ownerReservedEffect(null, { kind: 'unknown' } as unknown as SuperMutationCommand)).toThrow();
-    expect(
-      ownerReservedEffect(null, { kind: 'task_visibility', taskKey: null, before: null, after: 'shared' }),
-    ).toBe('publication');
+  });
+  it.each([
+    ['member', 'deletion'],
+    ['repo', 'deletion'],
+    ['project', 'deletion'],
+    ['credential', 'deletion'],
+    ['label', null],
+    ['stage', null],
+    ['column', null],
+    ['role', null],
+    ['feedback_surface', null],
+    ['invitation', null],
+    ['guest', null],
+    ['engine', null],
+    ['attachment', null],
+    ['message_attachment', null],
+    ['task', null],
+  ] as const)('classifies removing a %s as %s', (resource, effect) => {
+    expect(ownerReservedEffect(null, { kind: 'remove', resource, id: 'x' })).toBe(effect);
+  });
+  it('reserves an access change for the owner and frees visibility, focus and deploy', () => {
     expect(
       ownerReservedEffect(null, {
-        kind: 'task_visibility',
-        taskKey: 'AC-1',
-        before: 'shared',
-        after: 'shared',
+        kind: 'access_change',
+        handle: 'ann',
+        before: 'developer',
+        after: 'admin',
       }),
+    ).toBe('security');
+    expect(
+      ownerReservedEffect(null, { kind: 'task_visibility', taskKey: null, before: null, after: 'shared' }),
     ).toBeNull();
     expect(
       ownerReservedEffect(null, { kind: 'focus_change', before: ['AC-1', 'AC-2'], after: ['AC-2', 'AC-1'] }),
-    ).toBe('direction');
+    ).toBeNull();
+    expect(ownerReservedEffect(null, { kind: 'administration', command: 'deploy' })).toBeNull();
+    for (const operation of ['task_create', 'task_start', 'inbox_resolve'] as const)
+      expect(ownerReservedEffect(null, { kind: 'routine', operation })).toBeNull();
   });
 });
 

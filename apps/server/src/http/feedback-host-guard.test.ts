@@ -14,11 +14,11 @@ describe('parseFeedbackPublicUrl', () => {
     ['https://jelolo.example.com', 'jelolo.example.com', false],
     ['https://jelolo.example.com/', 'jelolo.example.com', false],
     ['  https://Jelolo.Example.com  ', 'jelolo.example.com', false],
-    ['https://jelolo.example.com:8443', 'jelolo.example.com:8443', false],
+    ['https://jelolo.example.com:8443', 'jelolo.example.com', false],
     ['https://jelolo.example.com.', 'jelolo.example.com', false],
-    ['http://127.0.0.1:4700', '127.0.0.1:4700', true],
-    ['http://localhost:4700/', 'localhost:4700', true],
-    ['http://[::1]:4700', '[::1]:4700', true],
+    ['http://127.0.0.1:4700', '127.0.0.1', true],
+    ['http://localhost:4700/', 'localhost', true],
+    ['http://[::1]:4700', '[::1]', true],
     ['https://localhost', 'localhost', true],
   ])('accepts %s', (raw, host, loopback) => {
     const address = parseFeedbackPublicUrl(raw);
@@ -141,15 +141,23 @@ describe('registerFeedbackHostGuard', () => {
     expect(other.status).toBe(200);
   });
 
-  it('compares the Host header in lowercase, with its port, and without the root label dot', async () => {
-    const port = await serve('https://jelolo.example.com:8443');
-    for (const host of ['jelolo.example.com:8443', 'JELOLO.Example.com:8443', 'jelolo.example.com.:8443']) {
-      const res = await rawRequest(port, '/api/setup', { host });
-      expect([host, res.status]).toEqual([host, 404]);
-    }
-    // Another port is another host for the guard (and for Cloudflare's hostname rule).
-    expect((await rawRequest(port, '/api/setup', { host: 'jelolo.example.com' })).status).toBe(200);
-  });
+  it.each(['https://jelolo.example.com', 'https://jelolo.example.com:8443'])(
+    'compares only the host name of the Host header: lowercase, any port, no root label dot (%s)',
+    async (url) => {
+      const port = await serve(url);
+      for (const host of [
+        'jelolo.example.com',
+        'jelolo.example.com:443',
+        'JELOLO.Example.com',
+        'jelolo.example.com.',
+        'jelolo.example.com.:8443',
+      ]) {
+        const res = await rawRequest(port, '/api/setup', { host });
+        expect([host, res.status]).toEqual([host, 404]);
+      }
+      expect((await rawRequest(port, '/api/setup', { host: 'chopper.example.com:443' })).status).toBe(200);
+    },
+  );
 
   it('does nothing for a loopback address', async () => {
     const port = await serve('http://127.0.0.1:4700');

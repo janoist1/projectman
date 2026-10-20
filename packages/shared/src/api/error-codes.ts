@@ -4,6 +4,12 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'web_push_unavailable',
+  'web_push_endpoint_invalid',
+  'web_push_device_limit',
+  'web_push_quiet_hours_invalid',
+  'web_push_integrator_refused',
+  'web_push_test_too_soon',
   'operator_knowledge_invalid',
   'operator_knowledge_unavailable',
   'operator_knowledge_stale',

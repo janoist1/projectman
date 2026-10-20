@@ -73,6 +73,21 @@ describe('websocket', () => {
     await expect(h.app.injectWS('/ws', { headers: {} })).rejects.toThrow('401');
   });
 
+  it('tracks visible connections and removes them on disconnect', async () => {
+    const first = await connect();
+    const second = await connect();
+    first.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(true));
+    first.ws.terminate();
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: false }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(false));
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(true));
+    second.ws.terminate();
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(false));
+  });
+
   it('streams project events to subscribers and terminal data to attached clients', async () => {
     const { ws, events } = await connect();
     await waitFor(events, ofType('hello'));

@@ -21,6 +21,8 @@ import {
   ExternalTools,
 } from './mcp';
 import { createInboxService } from './core/inbox';
+import { createWebPushService } from './services/web-push';
+import type { PushTransport } from './contracts';
 import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
@@ -205,6 +207,8 @@ import { ObligationsService } from './services/obligations';
 import { ProviderKeys } from './runtime/usage';
 
 export interface DomainOptions {
+  webPush?: { enabled?: boolean; subject?: string };
+  webPushTransport?: PushTransport;
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
   integratorTodoAccess?: IntegratorTodoAccess;
   nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
@@ -575,6 +579,26 @@ export function createDomain(opts: DomainOptions) {
     () => providerKeys?.nanogptKey() ?? Promise.resolve(null),
   );
   const presence = new PresenceService();
+  const webPush = createWebPushService({
+    home: opts.appHome,
+    enabled: opts.webPush?.enabled,
+    subject: opts.webPush?.subject,
+    standby: opts.standby,
+    transport: opts.webPushTransport,
+    repos: opts.repos,
+    presence,
+    config: (key) => projects.config(key),
+    logger: opts.logger,
+    now,
+  });
+  if (!opts.standby)
+    bus.subscribe((event) => {
+      if (event.type !== 'inbox_upserted') return;
+      background.run(
+        () => webPush.onItem(event.item),
+        () => opts.logger.warn('web push processing failed'),
+      );
+    });
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
   const operatorRequests = new OperatorRequests({ ctx });
@@ -2141,6 +2165,7 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
+    webPush,
     superOperator,
     superHandoffs,
     superAdministration,
@@ -2332,6 +2357,12 @@ export function createDomain(opts: DomainOptions) {
         (err) => opts.logger.warn({ err }, 'automatic stage advance sweep failed'),
       );
       sweeps = startSweeps([
+        {
+          name: 'web-push',
+          everyMs: 60000,
+          run: () => webPush.sweep(),
+          onError: () => opts.logger.warn('web push sweep failed'),
+        },
         {
           name: 'handoffs',
           everyMs: opts.handoffSweepMs ?? 15_000,

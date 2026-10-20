@@ -1,6 +1,16 @@
 /** Which users have an open websocket (drives the online/offline status of human members). */
 export class PresenceService {
   private readonly connections = new Map<string, number>();
+  private readonly visible = new Map<string, string>();
+
+  setVisible(connectionId: string, email: string, visible: boolean): void {
+    if (visible) this.visible.set(connectionId, email.trim().toLowerCase());
+    else this.visible.delete(connectionId);
+  }
+
+  isViewing(email: string): boolean {
+    return [...this.visible.values()].includes(email.trim().toLowerCase());
+  }
 
   /** Returns true when the user just came online. */
   connect(email: string): boolean {

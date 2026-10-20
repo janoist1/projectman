@@ -1,4 +1,5 @@
 import type { Me } from '@projectman/shared';
+import { randomUUID } from 'node:crypto';
 import type { RunnerModule, EventBus } from '../contracts';
 import type { TaskService } from '../core/tasks';
 import type { SessionOrchestrator } from '../runtime/sessions';
@@ -45,6 +46,7 @@ const POLICY_VIOLATION = 1008;
 const errorEvent = (code: ErrorCode): ServerEvent => ({ type: 'error', message: code });
 
 interface Client {
+  id: string;
   socket: WsSocket;
   user: AuthUser;
   token: string;
@@ -171,6 +173,7 @@ export function registerWebsocket(
   };
 
   const handle = async (client: Client, data: unknown) => {
+    if (!clients.has(client)) return;
     if (!authenticated(client)) return;
     if (Buffer.byteLength(messageText(data)) > 1024 * 1024) {
       client.socket.close(1009);
@@ -185,6 +188,9 @@ export function registerWebsocket(
     }
     try {
       switch (command.type) {
+        case 'visibility':
+          domain.presence.setVisible(client.id, client.user.email, command.visible);
+          return;
         case 'subscribe_project': {
           const access = await domain.accessFor(command.projectKey, client.user.email);
           if (!access) send(client, errorEvent('not_a_member'));
@@ -251,6 +257,7 @@ export function registerWebsocket(
       return;
     }
     const client: Client = {
+      id: randomUUID(),
       socket,
       user,
       token: request.authToken!,
@@ -268,6 +275,7 @@ export function registerWebsocket(
     });
     socket.on('error', (err) => app.log.debug({ err }, 'websocket error'));
     socket.on('close', () => {
+      domain.presence.setVisible(client.id, user.email, false);
       clients.delete(client);
       for (const sessionId of client.terminals) if (!viewed(sessionId)) runner.detachTerminal?.(sessionId);
       client.terminals.clear();

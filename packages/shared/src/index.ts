@@ -107,3 +107,4 @@ export * from './domain/email-mask';
 export * from './domain/structural-review';
 export * from './domain/timeline-visibility';
 export * from './domain/history';
+export * from './domain/web-push';

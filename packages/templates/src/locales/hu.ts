@@ -2,6 +2,17 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** Hungarian default display names and role texts (the only place for Hungarian text in this package). */
 export const hu: TemplateLocale = {
+  webPush: {
+    title: {
+      question: 'Új kérdés vár rád',
+      decision: 'Új döntés vár rád',
+      approval: 'Jóváhagyás vár rád',
+      permission: 'Engedélykérés vár rád',
+      release: 'Kiadás vár a jóváhagyásodra',
+    },
+    digest: { title: '{n} teendő vár rád', body: 'A csendes órák alatt érkeztek.' },
+    test: { title: 'Próbaértesítés', body: 'Ha ezt látod, működik.' },
+  },
   structuralReview: {
     details:
       'A PM a jóváhagyás után friss bizonyíték és szabad kapacitás alapján választ műszaki felelőst. A szemle újraellenőrzi az érintett kártyákat és felelősséghatárokat, majd néhány javaslatot ad. Az is elfogadott eredmény, hogy nincs mit változtatni. Nem nyit automatikusan kártyát és nem indít refaktort.',

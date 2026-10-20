@@ -1,4 +1,5 @@
 import type { AuthDomain } from '../auth';
+import type { WebPushService } from '../services/web-push';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
 import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
@@ -33,6 +34,7 @@ import type {
 } from '../services/operator';
 
 export interface ApiDomain extends AuthDomain {
+  readonly webPush: WebPushService;
   readonly superOperator: SuperOperator;
   readonly superHandoffs: SuperHandoffService;
   readonly superAdministration: SuperAdministration;

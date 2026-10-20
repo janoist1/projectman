@@ -202,7 +202,7 @@ rehearse() {
   trap 'terminate; exit 143' TERM INT
   # The standby copy sends no login mail from the production sender (PM-669), whatever cloud.env says. It is not
   # the public board either (PM-672): that needs the mail login, which is off here.
-  start_server "$scratch" "$port" PROJECTMAN_EMAIL_LOGIN_ENABLED=0 PROJECTMAN_PUBLIC_BOARD=0
+  start_server "$scratch" "$port" PROJECTMAN_EMAIL_LOGIN_ENABLED=0 PROJECTMAN_PUBLIC_BOARD=0 PROJECTMAN_WEB_PUSH_ENABLED=0
   wait_for_server "$port"
   "$APP_DIR/deploy/cloud/smoke.sh" "http://127.0.0.1:$port" || {
     terminate

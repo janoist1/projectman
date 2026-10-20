@@ -1,4 +1,7 @@
 import { createAttachmentRepository } from './attachments';
+import { createWebPushRepository } from './web-push';
+export { pushDeviceView } from './web-push';
+export type { PushDeviceRecord, PushItemRecord } from './web-push';
 import { createMessageAttachmentRepository } from './message-attachments';
 export type {
   MessageAttachmentRecord,
@@ -121,6 +124,7 @@ export { encodeWorkItem, decodeWorkItem } from './sessions';
 export function createRepositories(db: Db) {
   return {
     db,
+    webPush: createWebPushRepository(db),
     engines: createEngineRepository(db),
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),

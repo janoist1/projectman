@@ -5,6 +5,12 @@
  * per-session token.
  */
 export const routes = {
+  push: () => '/api/me/push',
+  pushSettings: () => '/api/me/push/settings',
+  pushDevices: () => '/api/me/push/devices',
+  pushDevice: (id: string) => `/api/me/push/devices/${id}`,
+  pushDeviceTest: (id: string) => `/api/me/push/devices/${id}/test`,
+  pushUnsubscribe: () => '/api/me/push/unsubscribe',
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
   operator: (key: string) => `/api/projects/${key}/operator`,

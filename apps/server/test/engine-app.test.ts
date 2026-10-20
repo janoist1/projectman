@@ -281,6 +281,7 @@ describe('engine process', () => {
         expect(full).toHaveBeenCalledWith({
           heavyLockDir: path.join(base, 'heavy'),
           worktreesRoot: path.join(home, 'worktrees'),
+          stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
         });
       });
 
@@ -297,6 +298,7 @@ describe('engine process', () => {
         expect(full).toHaveBeenCalledWith({
           heavyLockDir: path.join(base, 'heavy'),
           worktreesRoot: path.join(root, 'worktrees'),
+          stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
         });
         expect(existsSync(path.join(root, 'tmp'))).toBe(false);
       });

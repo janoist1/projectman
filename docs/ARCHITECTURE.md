@@ -1620,6 +1620,22 @@ workers follow the machine's size.
   single merge, and to every member of a train, when its check passed with flaky files, and logs
   `merge check passed with flaky test files`; the merge goes on. The engine link is unchanged: the
   lines travel in the existing `failedFiles` and `outputTail` fields.
+  **Passed-step cache (PM-845, PM-841).** Each step hashes
+  `JSON.stringify({ v: 1, tree, args, node, platform, arch, maxWorkers })` with SHA-256: the complete
+  `HEAD^{tree}`, npm arguments with absolute paths made repository-relative, Node version, OS,
+  architecture and `VITEST_MAX_FORKS` (or an empty string). Only identical inputs reuse a step.
+  The engine-owned executor reads `<app home>/cache/merge-test-steps.json`, drops entries older than
+  14 days and writes a disposable `sandbox/merge-test-passed-keys` list, exposed by
+  `PROJECTMAN_MERGE_TEST_PASSED_KEYS`. A hit prints `merge-test cached: <command>` and skips npm;
+  `--no-cache` bypasses reads. Passed steps print `merge-test step passed: <64-hex key>` immediately
+  and again before the closing scope line. Only an original invocation with exit code 0 produces a
+  passed-step key; a green failed-file rerun stays flaky and is never cached, so retries retain its
+  diagnostic and apply their own changed-file rerun condition. The shared `mergeTestPassedSteps`
+  parser accepts at most 50 unique, line-anchored keys, after ANSI removal. After any command outcome, including timeout or
+  cancellation, the executor merges those keys with fresh timestamps and the run id, retains the
+  newest 500 entries and publishes the version-1 JSON by temporary file and rename. Cache failures
+  are warnings and never change the test verdict. The sandbox never writes the persistent cache;
+  markers have the same candidate-code trust boundary as the script and its exit code.
 
 ## Machine-dependent parts (PM-341)
 
@@ -3503,6 +3519,16 @@ projectman-cloud node /app/apps/server/dist/control/cli.js /data/control.sock` (
   `engine-link/remote/host.ts` maps older-engine `invalid_params` to the preparation error without retrying
   a weakened request. No Linux sandbox support is added.
   **Module:** `services/full-tests`
+- **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
+  `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
+  The executor stores passed command keys in the engine-local
+  `<app home>/cache/merge-test-steps.json`, outside the sandbox, and exposes only a disposable key list
+  in the run's sandbox directory. It assumes a writable app home on the executing machine;
+  an unavailable or invalid cache only disables reuse. The cache stays in app home even with a
+  separate work root. **Remote engine:** the remote engine uses its own home and performs the same
+  reads, expiry, bounded merge and atomic writes; no cache data crosses the server/engine boundary.
+  `FullTestSpec`, `FullTestResult` and engine-link schemas are unchanged.
+  **Module:** `full-test`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without

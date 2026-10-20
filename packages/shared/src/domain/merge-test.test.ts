@@ -3,11 +3,47 @@ import {
   MERGE_TEST_FAILED_PREFIX,
   MERGE_TEST_FLAKY_PREFIX,
   MERGE_TEST_MARKED_FILES_MAX,
+  MERGE_TEST_PASSED_STEP_PREFIX,
   mergeTestFilesCommand,
   mergeTestMarkedFiles,
   mergeTestMarkerLine,
+  mergeTestPassedSteps,
   quoteShellWord,
 } from './merge-test';
+
+describe('mergeTestPassedSteps', () => {
+  const key = 'a'.repeat(64);
+  const other = 'B'.repeat(64);
+  const line = (value: string) => `${MERGE_TEST_PASSED_STEP_PREFIX}${value}`;
+
+  it('reads exact lines, removes ANSI and CRLF and deduplicates keys in order', () => {
+    expect(
+      mergeTestPassedSteps(`noise\n\u001b[32m${line(key)}\u001b[0m\r\n${line(other)}\n${line(key)}`),
+    ).toEqual([key, other]);
+  });
+
+  it('rejects embedded, indented, incomplete, extended and non-hex keys', () => {
+    expect(
+      mergeTestPassedSteps(
+        [
+          `see ${line(key)}`,
+          ` ${line(key)}`,
+          line(key.slice(1)),
+          line(key + 'a'),
+          line('g'.repeat(64)),
+          line(key + ' '),
+        ].join('\n'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('keeps at most fifty unique keys', () => {
+    const keys = Array.from({ length: 60 }, (_, i) => i.toString(16).padStart(64, '0'));
+    expect(mergeTestPassedSteps(keys.flatMap((key) => [line(key), line(key)]).join('\n'))).toEqual(
+      keys.slice(0, 50),
+    );
+  });
+});
 
 describe('mergeTestFilesCommand', () => {
   it('appends every file shell-quoted', () => {

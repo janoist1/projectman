@@ -21,7 +21,7 @@ const CLOUD_TEST_FILTERS = [
 ];
 
 const USAGE =
-  'usage: npm run merge-test -- [--all | --dry-run [<commit>] | --files <repository path of a test file>...]';
+  'usage: npm run merge-test -- [--no-cache] [--all | --dry-run [<commit>] | --files <repository path of a test file>...]';
 
 export function scopeLine(scope: MergeTestScope): string {
   if (scope.kind === 'shared')
@@ -148,7 +148,8 @@ export interface MergeTestIo {
 }
 
 export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}): Promise<number> {
-  const parsed = parseArgs(argv);
+  const noCache = argv.includes('--no-cache');
+  const parsed = parseArgs(argv.filter((arg) => arg !== '--no-cache'));
   if ('error' in parsed) {
     console.error(parsed.error);
     return 2;
@@ -156,6 +157,7 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
   let steps: MergeTestStep[];
   let line: string;
   let changed: ReadonlySet<string> | null;
+  let tree: string;
   const absent: string[] = [];
   try {
     const git = (args: string[]): string => {
@@ -164,6 +166,7 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
       if (result.status !== 0) throw new Error(result.stderr.trim() || 'git failed');
       return result.stdout;
     };
+    tree = 'dryRun' in parsed ? '' : git(['rev-parse', 'HEAD^{tree}']).trim();
     const revision = 'dryRun' in parsed ? parsed.dryRun : 'HEAD';
     // Verify a single commit before passing an optional revision to any other git command.
     const commit =
@@ -266,6 +269,9 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
     return await runSteps(steps, {
       spawn: io.npm ?? runNpm,
       changed,
+      tree,
+      noCache,
+      passedKeysFile: process.env.PROJECTMAN_MERGE_TEST_PASSED_KEYS,
       log: (text) => console.log(text),
     });
   } catch (error) {

@@ -115,6 +115,61 @@ export const MergeTestReport = z.strictObject({
 });
 export type MergeTestReport = z.infer<typeof MergeTestReport>;
 
+/** Where a merge check runs (PM-900): the card's engine, or the repository's GitHub Actions workflow. */
+export const MergeCheckRunner = z.enum(['engine', 'github_actions']);
+export type MergeCheckRunner = z.infer<typeof MergeCheckRunner>;
+/** The repository workflow file of the GitHub Actions merge check. */
+export const MERGE_CHECK_WORKFLOW = 'merge-check.yml';
+
+/** The result of a step, worst last. */
+const STEP_RESULT_ORDER: readonly MergeTestStepResult[] = [
+  'cached',
+  'passed',
+  'rerun_passed',
+  'rerun_failed',
+  'failed',
+];
+
+/**
+ * One report from the shard reports of a sharded run (PM-900): the steps merged by index, each with
+ * the worst result of its shards and the longest times. Null for no reports.
+ */
+export function mergeShardReports(
+  reports: readonly MergeTestReport[],
+  commandMs: number | null,
+): MergeTestReport | null {
+  if (reports.length === 0) return null;
+  const byIndex = new Map<number, MergeTestStepTiming[]>();
+  for (const report of reports)
+    for (const step of report.steps) byIndex.set(step.index, [...(byIndex.get(step.index) ?? []), step]);
+  const steps = [...byIndex.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, shards]): MergeTestStepTiming => {
+      const first = shards[0]!;
+      const result = shards.reduce(
+        (worst, { result: next }) =>
+          STEP_RESULT_ORDER.indexOf(next) > STEP_RESULT_ORDER.indexOf(worst) ? next : worst,
+        first.result,
+      );
+      const durations = shards.flatMap((s) => (s.durationMs === null ? [] : [s.durationMs]));
+      const reruns = shards.flatMap((s) => (s.rerunMs === undefined ? [] : [s.rerunMs]));
+      return {
+        index,
+        kind: first.kind,
+        workspace: first.workspace,
+        result,
+        durationMs: durations.length > 0 ? Math.max(...durations) : null,
+        ...(result.startsWith('rerun_') && reruns.length > 0 ? { rerunMs: Math.max(...reruns) } : {}),
+      };
+    });
+  return {
+    scope: reports.find((r) => r.scope !== null)?.scope ?? null,
+    workers: reports.find((r) => r.workers !== null)?.workers ?? null,
+    commandMs: commandMs === null ? null : Math.max(0, Math.round(commandMs)),
+    steps,
+  };
+}
+
 /** One timing line, without newline. */
 export function mergeTestTimingLine(step: MergeTestStepTiming): string {
   return `${MERGE_TEST_TIMING_PREFIX}${JSON.stringify(MergeTestStepTiming.parse(step))}`;

@@ -9,6 +9,7 @@ import {
   MERGE_TEST_WORKSPACES,
   mergeTestStepKey,
   runSteps,
+  shardSteps,
   testStep,
   typecheckStep,
   workspaceOf,
@@ -450,6 +451,60 @@ describe('passed step reuse', () => {
       ]);
     },
   );
+});
+
+describe('shardSteps', () => {
+  const full = [
+    ...MERGE_TEST_WORKSPACES.map((ws) => typecheckStep(ws, true)),
+    ...MERGE_TEST_WORKSPACES.map((ws) => testStep(ws, undefined, true)),
+  ];
+  it('deals the type checks round-robin and keeps every step’s place in the whole list', () => {
+    const steps = shardSteps(full, { index: 2, count: 3 });
+    expect(
+      steps.filter((step) => step.kind === 'typecheck').map((step) => [step.index, step.workspace]),
+    ).toEqual([
+      [1, 'packages/templates'],
+      [4, 'apps/web'],
+    ]);
+    expect(steps.filter((step) => step.kind === 'test').map((step) => step.index)).toEqual([5, 6, 7, 8, 9]);
+  });
+
+  it('gives every type check to exactly one shard', () => {
+    const owners = [1, 2, 3, 4].flatMap((index) =>
+      shardSteps(full, { index, count: 4 })
+        .filter((step) => step.kind === 'typecheck')
+        .map((step) => step.index),
+    );
+    expect(owners.sort()).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('adds the vitest shard to every test step, with a separator only when it has none', () => {
+    const steps = shardSteps(
+      [testStep('apps/web', undefined, true), testStep('apps/server', ['apps/server/test/a.test.ts'])],
+      { index: 3, count: 4 },
+    );
+    expect(steps.map((step) => step.args)).toEqual([
+      ['test', '-w', 'apps/web', '--if-present', '--', '--shard=3/4', '--passWithNoTests'],
+      [
+        'test',
+        '-w',
+        'apps/server',
+        '--',
+        resolve('apps/server/test/a.test.ts'),
+        '--shard=3/4',
+        '--passWithNoTests',
+      ],
+    ]);
+  });
+
+  it('times a shard’s step with its original index', async () => {
+    const t = setup([]);
+    expect(await t.run(shardSteps(full, { index: 2, count: 4 }).slice(0, 2))).toBe(0);
+    expect(timings(t.lines).map((step) => [step.index, step.kind])).toEqual([
+      [1, 'typecheck'],
+      [5, 'test'],
+    ]);
+  });
 });
 
 describe('filesSteps', () => {

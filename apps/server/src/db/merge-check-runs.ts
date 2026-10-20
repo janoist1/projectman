@@ -19,6 +19,8 @@ interface RunRow {
   finished_at: string | null;
   duration_ms: number | null;
   report_json: string | null;
+  runner: MergeCheckRun['runner'];
+  url: string | null;
 }
 
 /** What a merge check records when it is asked for. */
@@ -34,6 +36,7 @@ export type MergeCheckRunStart = Pick<
   | 'base'
   | 'maxWorkers'
   | 'requestedAt'
+  | 'runner'
 >;
 
 export interface MergeCheckRunEnd {
@@ -41,6 +44,8 @@ export interface MergeCheckRunEnd {
   reason: string | null;
   durationMs: number | null;
   report: MergeCheckRun['report'];
+  /** The GitHub Actions run page; null on the engine. */
+  url: string | null;
   finishedAt: string;
 }
 
@@ -67,16 +72,18 @@ function readReport(text: string | null): MergeCheckRun['report'] {
 /** The merge checks (PM-876): the hub's record of every full-test run of a merge, a train and a diagnosis. */
 export function createMergeCheckRunRepository(db: Db) {
   const insert = db.prepare(
-    `INSERT INTO merge_check_runs (id, project_key, repo, kind, train_id, commit_sha, base, status, max_workers, requested_at)
-     VALUES (@id, @projectKey, @repo, @kind, @trainId, @commit, @base, 'running', @maxWorkers, @requestedAt)`,
+    `INSERT INTO merge_check_runs (id, project_key, repo, kind, train_id, commit_sha, base, status, max_workers, requested_at, runner)
+     VALUES (@id, @projectKey, @repo, @kind, @trainId, @commit, @base, 'running', @maxWorkers, @requestedAt, @runner)`,
   );
   const insertTask = db.prepare(
     'INSERT INTO merge_check_run_tasks (run_id, task_key, position) VALUES (?, ?, ?)',
   );
-  const markStarted = db.prepare('UPDATE merge_check_runs SET started_at = ? WHERE id = ? AND started_at IS NULL');
+  const markStarted = db.prepare(
+    'UPDATE merge_check_runs SET started_at = ? WHERE id = ? AND started_at IS NULL',
+  );
   const markEnded = db.prepare(
     `UPDATE merge_check_runs SET status = @status, reason = @reason, duration_ms = @durationMs,
-       report_json = @report, finished_at = @finishedAt WHERE id = @id`,
+       report_json = @report, url = @url, finished_at = @finishedAt WHERE id = @id`,
   );
   const interrupt = db.prepare(
     `UPDATE merge_check_runs SET status = 'cancelled', reason = 'interrupted', finished_at = ?
@@ -114,6 +121,8 @@ export function createMergeCheckRunRepository(db: Db) {
     finishedAt: row.finished_at,
     durationMs: row.duration_ms,
     report: readReport(row.report_json),
+    runner: row.runner,
+    url: row.url,
   });
 
   return {
@@ -134,6 +143,7 @@ export function createMergeCheckRunRepository(db: Db) {
         reason: end.reason,
         durationMs: end.durationMs,
         report: end.report === null ? null : toJson(end.report),
+        url: end.url,
         finishedAt: end.finishedAt,
       });
     },

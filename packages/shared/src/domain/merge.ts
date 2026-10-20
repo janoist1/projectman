@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { StageId } from './pipeline';
 import { MemberHandle } from './member';
-import { MergeTestReport } from './merge-test';
+import { MergeCheckRunner, MergeTestReport } from './merge-test';
 
 export const MERGE_ENGINE_WAIT_MINUTES = 15;
 
@@ -159,5 +159,9 @@ export const MergeCheckRun = z.object({
   /** The executor's own time; it starts after the queue wait. */
   durationMs: z.number().int().nullable(),
   report: MergeTestReport.nullable(),
+  /** Where the check ran. */
+  runner: MergeCheckRunner,
+  /** The GitHub Actions run page; null on the engine. */
+  url: z.string().nullable(),
 });
 export type MergeCheckRun = z.infer<typeof MergeCheckRun>;

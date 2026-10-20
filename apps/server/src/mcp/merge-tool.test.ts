@@ -116,6 +116,8 @@ describe('list_merge_checks (PM-876)', () => {
     finishedAt: '2026-10-20T10:02:00.000Z',
     durationMs: 90_000,
     report,
+    runner: 'engine',
+    url: null,
     ...patch,
   });
 

@@ -1987,6 +1987,15 @@ migrations.push({
 });
 migrations.push({
   version: 95,
+  name: 'merge check runner',
+  // PM-906: where a merge check ran (the card's engine, or the repository's GitHub Actions workflow) and, for
+  // a GitHub run, its run page.
+  sql: `ALTER TABLE merge_check_runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'engine'
+      CHECK (runner IN ('engine','github_actions'));
+    ALTER TABLE merge_check_runs ADD COLUMN url TEXT;`,
+});
+migrations.push({
+  version: 96,
   name: 'operator step operation',
   // PM-888: an `operation` step names the super operation the Operator started on the shared path.
   sql: 'ALTER TABLE operator_steps ADD COLUMN operation_id TEXT NULL;',

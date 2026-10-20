@@ -139,6 +139,31 @@ describe('the full test executor in the heavy-run queue', () => {
     await other.release();
   });
 
+  it('refuses a GitHub Actions descriptor without starting, taking the lock or making a run directory (PM-900)', async () => {
+    const onStarted = vi.fn();
+    const github: FullTestSpec = {
+      ...spec,
+      cwd: 'github-actions:acme/web',
+      githubActions: {
+        ref: { projectKey: 'PM', repo: 'projectman' },
+        mergeId: 'merge_1',
+        repo: 'acme/web',
+        base: 'main',
+        commit: 'a'.repeat(40),
+        workflow: 'merge-check.yml',
+      },
+    };
+    const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir }).run(
+      github,
+      new AbortController().signal,
+      onStarted,
+    );
+    expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable', durationMs: 0 });
+    expect(onStarted).not.toHaveBeenCalled();
+    expect(await readHeavyQueue(dir)).toEqual({ holder: null, waiting: [] });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   describe('when the run requires the queue (PM-658)', () => {
     const required: FullTestSpec = { ...spec, requireHeavyLock: true };
 

@@ -44,6 +44,18 @@ const fullSpec = (runId: string, cwd = checkCwd): FullTestSpec => ({
   sandbox: { denyRead: [], allowRead: [] },
 });
 
+const githubSpec = (runId: string, mergeId: string): FullTestSpec => ({
+  ...fullSpec(runId, 'github-actions:acme/web'),
+  githubActions: {
+    ref: { projectKey: 'PM', repo: 'projectman' },
+    mergeId,
+    repo: 'acme/web',
+    base: 'main',
+    commit: 'a'.repeat(40),
+    workflow: 'merge-check.yml',
+  },
+});
+
 function fullTestHarness(
   run: FullTestExecutor['run'] = async () => passed,
   options: { now?: () => number; worktreesRoot?: string | null } = {},
@@ -280,6 +292,16 @@ describe('engine handlers', () => {
       });
     });
 
+    it('keeps the run page of a GitHub Actions run in the run and attach answers (PM-900)', async () => {
+      const result = { ...passed, externalUrl: 'https://github.com/acme/web/actions/runs/7' };
+      const { call } = fullTestHarness(async () => result);
+      await expect(call('full_test.run', { spec: githubSpec('github', 'mrg_1') })).resolves.toEqual(result);
+      await expect(call('full_test.attach', { runId: 'github' })).resolves.toEqual({
+        state: 'ended',
+        result,
+      });
+    });
+
     it('answers full_test.report with a null report for a run that measured nothing, unknown for a missing run', async () => {
       const { call } = fullTestHarness();
       await call('full_test.run', { spec: fullSpec('plain') });
@@ -513,6 +535,40 @@ describe('engine handlers', () => {
           await expect(call('full_test.attach', { runId })).resolves.toEqual({ state: 'unknown' });
         for (const runId of ['other-merge', 'prefix', 'outside']) runs.get(runId)!.resolve(passed);
         await allRuns;
+      },
+    );
+
+    it.each([true, false])(
+      'merge.release_check stops a GitHub Actions run of the merge by its mergeId (worktrees root: %s)',
+      async (hasRoot) => {
+        const started = deferred<void>();
+        const aborted = deferred<void>();
+        const ended = deferred<FullTestResult>();
+        const { call, releaseCheck, info } = fullTestHarness(
+          (_spec, signal) => {
+            signal.addEventListener('abort', () => aborted.resolve());
+            started.resolve();
+            return ended.promise;
+          },
+          hasRoot ? {} : { worktreesRoot: null },
+        );
+        const other = call('full_test.run', { spec: githubSpec('other-merge', 'mrg_2') });
+        const run = call('full_test.run', { spec: githubSpec('github', 'mrg_1') });
+        await started.promise;
+        const operation = call('merge.release_check', {
+          ref: { projectKey: 'PM', repo: 'projectman' },
+          mergeId: 'mrg_1',
+        });
+        await aborted.promise;
+        expect(releaseCheck).not.toHaveBeenCalled();
+        ended.resolve(passed);
+        await operation;
+        expect(releaseCheck).toHaveBeenCalledTimes(1);
+        expect(info.mock.calls).toEqual([
+          [{ runId: 'github', mergeId: 'mrg_1' }, expect.stringContaining('stopped a full test')],
+        ]);
+        await expect(call('full_test.attach', { runId: 'github' })).resolves.toEqual({ state: 'unknown' });
+        await Promise.all([run, other]);
       },
     );
 

@@ -938,7 +938,7 @@ key path's, not a copy.
 - **Owner's yes.** The operation waits (`waiting_owner`) with the usual question. After the owner's own login says yes,
   the `inbox_resolved` event calls `SuperHandoffService.resumeApprovedAppOperation`, which re-runs `operate` under an
   approved app principal (no live session needed; the yes, command hash and config version are checked again).
-- **Step log.** `OperatorAction` has `operation`; `operator_steps.operation_id` (migration 95) links the operation.
+- **Step log.** `OperatorAction` has `operation`; `operator_steps.operation_id` (migration 96) links the operation.
 
 **Does this work on a remote engine?** The whole path runs on the hub; a machine operation reaches an engine through the
 existing administration port. No new machine-dependent part.
@@ -1373,6 +1373,24 @@ the publication flag is retained. Shutdown aborts the wait through the merge sig
 unpublished work; a merge already pushing retains its durable publication recovery for startup. A timed-out
 wait or repeated losses block with `engine_offline`; no database migration is needed.
 
+**Where the check runs (PM-900, PM-906).** `reviewTest.runner` (`MergeCheckRunner`: `engine`, the default,
+or `github_actions`) chooses it per repository; the merge check only (the review test is untouched), and
+changing it is an owner-only `review_test` change. `github_actions` needs the repository's `github`
+owner/name (`review_test_runner_github`; at run time the lack of it blocks `check_unavailable`). In that
+mode the hub makes **no local check checkout, takes no heavy-run lock and prepares no dependencies**: the
+one helper `prepareMergeCheck` (`services/merges/check-preparation.ts`), used by the single-card merge
+(`steps.ts`) and by the train group check and lone diagnosis (`train.ts`), releases any checkout of the
+merge and builds the same `full_test.run` spec with a `githubActions` descriptor (`GithubActionsCheck`:
+ref, `mergeId`, `owner/name`, base branch, merge commit, the `merge-check.yml` workflow and, for a lone
+diagnosis, the failed files, at most 20) instead of `requireHeavyLock`/`npmCi`; the `cwd` is only a label
+(`github-actions:owner/name`). The executor of the card's engine runs the workflow and answers with the
+usual `FullTestResult` plus `externalUrl`, the run's page (the engine side is PM-907; the local executor and an
+older engine refuse the descriptor with `github_unavailable`, a run that stopped with no result is
+`github_run_error`). Both are operational errors: the merge or train blocks, nothing is split or blamed.
+`endChecksIn` also stops a descriptor run by its `mergeId`, as the merge has no checkout path to match.
+A train groups only cards of the same runner (`train-selection.ts`). `merge_check_runs` records the
+`runner` and the `url` (migration 95); `list_merge_checks` shows both.
+
 `task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
 already in the default branch stays a system event.
 Conflicts and failed checks notify the merger and keep the card in place; a failed check tells an AI merger
@@ -1716,7 +1734,17 @@ workers follow the machine's size.
   `merge-test scope:` line; the rule (`mergeTestMarkerLine`, `mergeTestMarkedFiles`) is in
   `packages/shared/src/domain/merge-test.ts`. `npm run merge-test -- --files <path>...` runs only
   those test files (grouped by workspace, no type check, same rerun rule; a path absent from the
-  checkout prints `merge-test skipped (absent): <path>` and is left out). The executor
+  checkout prints `merge-test skipped (absent): <path>` and is left out).
+  `--files-from-env` takes the same list as a JSON array (1 to 20 files) from `MERGE_TEST_FILES`
+  (empty or absent: the plain scope mode; not with `--files`, `--all` or `--dry-run`), so a CI
+  workflow hands its input over through the environment and no shell reads it. `--shard <k>/<n>`
+  (1 <= k <= n <= 8, with any mode, anywhere in the arguments) deals the type checks round-robin
+  among the shards and runs every test step on every shard with `--shard=k/n --passWithNoTests`;
+  the `merge-test timing:` line keeps the step's index in the whole list, so the shards' reports
+  can be merged. The failed-file rerun (PM-842) stays inside the shard and has no shard flag.
+  `.github/workflows/merge-check.yml` (PM-900) runs four shards on `macos-15` for a
+  `workflow_dispatch` on a `pm-check/` branch only (no secret, read-only token, actions pinned to
+  commits; `merge-check-workflow.test.ts` guards this). The executor
   (`full-test/output.ts`) reads the markers: `failedFiles` prefers the `failed` lines, and a passed
   run's `outputTail` holds the `flaky` lines. The server adds a system `task_note` to the card of a
   single merge, and to every member of a train, when its check passed with flaky files, and logs

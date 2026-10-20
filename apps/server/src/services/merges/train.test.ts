@@ -85,7 +85,7 @@ describe('merge train execution', () => {
   let remoteCheck: CloudRemote | undefined;
   const row = (key: string) => h.repos.taskMerges.open('AR', key);
   const settled = () => vi.waitFor(() => expect(h.domain.merges.busy('AR', 'web')).toBe(false));
-  async function setup(count = 2, remote = true, filesCommand?: string) {
+  async function setup(count = 2, remote = true, filesCommand?: string, github?: string) {
     merger = fakeMerger(remote);
     executor = {
       available: vi.fn(async () => ({ ok: true as const })),
@@ -105,6 +105,11 @@ describe('merge train execution', () => {
         config.team.merger = { kind: 'developer' };
         config.project.repos[0]!.requireMerge = true;
         config.project.repos[0]!.reviewTest = filesCommand ? { ...reviewTest, filesCommand } : reviewTest;
+        if (github) {
+          const repo = config.project.repos[0]!;
+          repo.reviewTest = { ...repo.reviewTest!, runner: 'github_actions' };
+          repo.github = github;
+        }
         config.pipeline.stages = config.pipeline.stages.filter((s) => s.id !== 'merge' && s.id !== 'release');
         config.pipeline.stages.find((s) => s.id === 'done')!.gate = {
           conditions: [{ type: 'has_label', label: 'code-review-ok' }],
@@ -930,6 +935,107 @@ describe('merge train execution', () => {
         expect(row(key)?.failure).toBeUndefined();
       }
       expect(h.repos.db.prepare("SELECT id FROM merge_trains WHERE state = 'failed'").all()).toEqual([]);
+    });
+  });
+
+  describe('GitHub Actions runner (PM-900)', () => {
+    const filesCommand = 'npm run merge-test -- --files';
+    const runs = () => h.repos.mergeCheckRuns.list({ projectKey: 'AR', limit: 10 }).runs;
+    const githubSpecs = () => vi.mocked(executor.run).mock.calls.map(([spec]) => spec);
+
+    it('checks the group by the descriptor with no checkout, heavy-run lock or installation', async () => {
+      await setup(2, true, undefined, 'acme/web');
+      vi.mocked(executor.available).mockClear();
+      vi.mocked(executor.run).mockImplementation(async (_spec, _signal, started) => {
+        started?.();
+        return { ...passed, externalUrl: 'https://github.com/acme/web/actions/runs/9' };
+      });
+      pump();
+      await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+      await settled();
+      const [spec, ...more] = githubSpecs();
+      expect(more).toEqual([]);
+      expect(spec).toEqual({
+        runId: expect.stringMatching(/^mergecheck_/),
+        cwd: 'github-actions:acme/web',
+        command: reviewTest.command,
+        maxWorkers: reviewTest.maxWorkers,
+        timeoutMs: reviewTest.timeoutMinutes * 60_000,
+        sandbox: { denyRead: [], allowRead: [] },
+        githubActions: {
+          ref: { projectKey: 'AR', repo: 'web' },
+          mergeId: expect.any(String),
+          repo: 'acme/web',
+          base: 'main',
+          commit: merger.base.local,
+          workflow: 'merge-check.yml',
+        },
+      });
+      const { mergeId } = spec!.githubActions!;
+      expect(isMergeId(mergeId)).toBe(true);
+      expect(merger.checkoutForCheck).not.toHaveBeenCalled();
+      expect(executor.available).not.toHaveBeenCalled();
+      expect(merger.releaseCheck).toHaveBeenCalledWith(spec!.githubActions!.ref, { mergeId });
+      expect(runs()).toEqual([
+        expect.objectContaining({
+          kind: 'train',
+          runner: 'github_actions',
+          url: 'https://github.com/acme/web/actions/runs/9',
+        }),
+      ]);
+    });
+
+    it('runs each lone diagnosis by a descriptor naming the failed files', async () => {
+      await setup(3, true, filesCommand, 'acme/web');
+      const files = ['a.test.ts', "b'c.test.ts"];
+      const failing = { ...passed, outcome: 'failed' as const, exitCode: 1, failedFiles: files };
+      let groups = 0;
+      vi.mocked(executor.run).mockImplementation(async (spec, _signal, started) => {
+        started?.();
+        if (spec.command === reviewTest.command) {
+          if (groups++ > 0) return passed;
+          peerBusy = true;
+          return failing;
+        }
+        const card = Number.parseInt(merger.parents.get(spec.githubActions!.commit)![1]!, 16);
+        return card === 2 ? failing : passed;
+      });
+      pump();
+      await vi.waitFor(() => expect(row('AR-2')?.state).toBe('failed'));
+      await settled();
+      const lone = githubSpecs().filter((spec) => spec.command !== reviewTest.command);
+      expect(lone).toHaveLength(3);
+      for (const spec of lone) {
+        expect(spec).toMatchObject({
+          command: `${filesCommand} 'a.test.ts' 'b'\\''c.test.ts'`,
+          cwd: 'github-actions:acme/web',
+          githubActions: { repo: 'acme/web', files },
+        });
+        expect(spec).not.toHaveProperty('requireHeavyLock');
+        expect(spec).not.toHaveProperty('npmCi');
+        expect(isMergeId(spec.githubActions!.mergeId)).toBe(true);
+      }
+      expect(new Set(lone.map((spec) => spec.githubActions!.mergeId)).size).toBe(3);
+      expect(merger.checkoutForCheck).not.toHaveBeenCalled();
+      expect(runs().filter((run) => run.kind === 'diagnose')).toHaveLength(3);
+      expect(runs().every((run) => run.runner === 'github_actions')).toBe(true);
+    });
+
+    it('blocks the group as check_unavailable when the configuration no longer names the github owner/name', async () => {
+      await setup(2, true, undefined, 'acme/web');
+      // The invariant refuses such a configuration, so the loss is simulated at the read.
+      const read = h.domain.projects.config.bind(h.domain.projects);
+      vi.spyOn(h.domain.projects, 'config').mockImplementation(async (key) => {
+        const config = structuredClone(await read(key));
+        delete config.project.repos[0]!.github;
+        return config;
+      });
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.state).toBe('blocked'));
+      await settled();
+      expect(row('AR-1')?.block?.reason).toBe('check_unavailable');
+      expect(row('AR-1')?.block?.message).toContain('github');
+      expect(executor.run).not.toHaveBeenCalled();
     });
   });
 

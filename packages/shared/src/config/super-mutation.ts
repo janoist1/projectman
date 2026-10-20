@@ -130,7 +130,8 @@ export function ownerReservedEffect(
           const before = previous.team.members.find((m) => m.handle === member.handle);
           if (before?.kind !== 'human') return member.access === 'owner';
           // The email is the member's login binding: rebinding it changes who can sign in as them.
-          return before.access !== member.access || (before.email ?? null) !== (member.email ?? null);
+          const login = (email: string | undefined) => (email ?? '').trim().toLowerCase();
+          return before.access !== member.access || login(before.email) !== login(member.email);
         })
       )
         return 'security';

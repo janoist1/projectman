@@ -504,13 +504,14 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       });
     });
 
-    it('has no executor for a super merge: merging stays with merge_task and its gates', async () => {
+    it('runs the super merge executor and preserves the merger requirement', async () => {
       await boot();
-      await expect(
-        operate({ kind: 'merge', taskKey: 'AR-1', request: {} } as SuperCommand),
-      ).rejects.toMatchObject({ code: 'super_executor_unavailable', status: 503 });
+      const operation = await operate({ kind: 'merge', taskKey: 'AR-1', request: {} });
+      expect(operation).toMatchObject({ state: 'failed', errorCode: 'merge_not_merger' });
       expect(h.domain.superHandoffs.list('AR', { limit: 10 })).toEqual([]);
-      expect(h.repos.superHandoffs.listOperations('AR', { limit: 10 })).toEqual([]);
+      expect(h.repos.superHandoffs.listOperations('AR', { limit: 10 })).toMatchObject([
+        { id: operation.id, state: 'failed', errorCode: 'merge_not_merger' },
+      ]);
     });
   });
 

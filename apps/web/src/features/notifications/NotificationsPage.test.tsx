@@ -312,6 +312,8 @@ describe('devices', () => {
     );
     expect(await screen.findByText(t('notifications.devices.removeTitle'))).toBeTruthy();
     expect(project.backend.push.devices).toHaveLength(1);
+    // The safe choice has the focus: Enter alone must not delete anything.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: t('common.cancel') }));
     fireEvent.click(screen.getByRole('button', { name: t('common.cancel') }));
     await waitFor(() => expect(screen.queryByText(t('notifications.devices.removeTitle'))).toBeNull());
     expect(project.backend.push.devices).toHaveLength(1);

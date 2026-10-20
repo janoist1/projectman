@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { PushDeviceView } from '@projectman/shared';
 import { ApiError } from '../../api/client';
+import { formatStamp, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { codeMessage } from '../../lib/errors';
 import { deviceName, deviceStatus, deviceWhy, failText } from './deviceText';
-import { zoneLabel, zoneOffset, zoneOptions } from './timeZones';
+import { offsetMinutes, zoneLabel, zoneOffset, zoneOptions } from './timeZones';
 
 const NOW = new Date('2026-07-01T12:00:00Z');
 
@@ -56,6 +57,19 @@ describe('device text', () => {
     );
   });
 
+  it('dates a send "now" in the first minute, "today HH:MM" later the same day, and by the stamp after that', () => {
+    const at = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
+    const status = (ms: number) =>
+      deviceStatus(device({ lastResult: 'ok', lastSentAt: at(ms) }), false, NOW).text;
+    expect(status(20_000)).toBe(t('notifications.devices.state.ok', { when: t('time.justNow') }));
+    expect(status(5 * 60_000)).toBe(
+      t('notifications.devices.state.ok', { when: t('time.todayAt', { time: formatTime(at(5 * 60_000)) }) }),
+    );
+    expect(status(30 * 3_600_000)).toBe(
+      t('notifications.devices.state.ok', { when: formatStamp(at(30 * 3_600_000), NOW) }),
+    );
+  });
+
   it('explains only what went wrong, with the text of that failure', () => {
     expect(deviceWhy(device({ lastResult: 'ok' }))).toBeNull();
     expect(deviceWhy(device({ state: 'expired' }))).toBe(t('notifications.devices.expiredWhy'));
@@ -88,10 +102,18 @@ describe('time zones', () => {
     expect(zoneLabel('Not/A_Zone', NOW)).toBe('A Zone');
   });
 
-  it('always lists the saved zone, even when it is not one of the usual ones', () => {
-    const options = zoneOptions('Pacific/Auckland', NOW);
+  it('lists every zone the browser knows, from west to east, and always the saved one', () => {
+    const options = zoneOptions('Not/Listed', NOW);
     const values = [...(options.device ? [options.device.value] : []), ...options.others.map((o) => o.value)];
-    expect(values).toContain('Pacific/Auckland');
+    expect(values).toEqual(
+      expect.arrayContaining([...Intl.supportedValuesOf('timeZone'), 'UTC', 'Not/Listed']),
+    );
     expect(new Set(values).size).toBe(values.length);
+    const offsets = options.others.map((zone) => offsetMinutes(zone.value, NOW) ?? 0);
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+  });
+
+  it('writes a half-hour offset with its minutes', () => {
+    expect(zoneOffset('Asia/Kolkata', NOW)).toBe('UTC+5:30');
   });
 });

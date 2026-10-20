@@ -178,7 +178,7 @@ export function DevicesCard({
         description={t('notifications.devices.removeText')}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setRemoving(null)}>
+            <Button variant="secondary" autoFocus onClick={() => setRemoving(null)}>
               {t('common.cancel')}
             </Button>
             <Button variant="dangerSolid" loading={remove.isPending} onClick={confirmRemove}>

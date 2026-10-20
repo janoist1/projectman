@@ -1,6 +1,6 @@
 import type { PushDeviceView } from '@projectman/shared';
 import { isApiError } from '../../api/client';
-import { formatStamp } from '../../i18n/format';
+import { daysBetween, formatStamp, formatTime } from '../../i18n/format';
 import { t, tDynamic } from '../../i18n/t';
 import { codeMessage } from '../../lib/errors';
 
@@ -24,10 +24,18 @@ export interface DeviceStatus {
   text: string;
 }
 
+/** "most" for the last minute, "ma 08:41" today, then the timeline stamp ("tegnap 21:03", "okt. 12. 09:00"). */
+function whenText(value: string, now: Date): string {
+  if (now.getTime() - new Date(value).getTime() < 60_000) return t('time.justNow');
+  return daysBetween(value, now) === 0
+    ? t('time.todayAt', { time: formatTime(value) })
+    : formatStamp(value, now);
+}
+
 /** The last send of a device, in words: "Kiment · ma 08:41", "Hibás · tegnap 21:03", "Szünetel". */
 export function deviceStatus(device: PushDeviceView, sending: boolean, now: Date = new Date()): DeviceStatus {
   if (sending) return { tone: 'none', text: t('notifications.devices.state.sending') };
-  const when = formatStamp(device.lastSentAt ?? device.createdAt, now);
+  const when = whenText(device.lastSentAt ?? device.createdAt, now);
   if (device.state === 'expired')
     return { tone: 'exp', text: t('notifications.devices.state.expired', { when }) };
   if (!device.enabled) return { tone: 'paused', text: t('notifications.devices.state.paused') };

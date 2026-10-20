@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PushDeviceView } from '@projectman/shared';
 import { Button } from '../../components/Button';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { PageHeader } from '../../components/PageHeader';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
@@ -69,6 +70,7 @@ export function NotificationsPage() {
       <PageHeader
         title={t('notifications.title')}
         subtitle={t('notifications.subtitle')}
+        hideTitleOnPhone
         className={styles.header}
       />
 
@@ -91,8 +93,8 @@ export function NotificationsPage() {
         {overview.isPending ? (
           <DevicesSkeleton />
         ) : overview.isError ? (
-          <div className={`${styles.banner} ${styles.bannerError}`} role="alert">
-            <span className={styles.grow}>{t('notifications.devices.loadFailed')}</span>
+          <div className={styles.loadFailed}>
+            <ErrorBanner>{t('notifications.devices.loadFailed')}</ErrorBanner>
             <Button size="md" onClick={() => void overview.refetch()}>
               {t('app.retry')}
             </Button>

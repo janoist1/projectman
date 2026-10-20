@@ -827,6 +827,7 @@ export const hu = {
 
   time: {
     justNow: 'most',
+    todayAt: 'ma {time}',
     minutesAgo: '{count} perce',
     today: 'ma',
     yesterday: 'tegnap',

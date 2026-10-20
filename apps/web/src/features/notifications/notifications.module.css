@@ -1,8 +1,17 @@
 .page {
+  box-sizing: border-box;
   max-width: 760px;
+  padding: 22px 24px 32px;
   display: flex;
   flex-direction: column;
   gap: 28px;
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: 10px 12px 24px;
+    gap: 22px;
+  }
 }
 
 .header {
@@ -19,7 +28,8 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 2px 12px;
 }
 
 .sectionTitle {
@@ -43,6 +53,7 @@
 }
 
 .card {
+  position: relative;
   background: var(--c-surface);
   border: 1px solid var(--c-line);
   border-radius: var(--radius-2xl);
@@ -125,48 +136,37 @@
   margin-top: 10px;
 }
 
-.fold summary {
-  cursor: pointer;
-  color: var(--c-accent-text);
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.fold dl {
-  margin: 8px 0 0;
+.howTo {
+  margin: 0;
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 4px 12px;
   font-size: 13px;
 }
 
-.fold dt {
+.howTo dt {
   font-weight: 600;
 }
 
-.fold dd {
+.howTo dd {
   margin: 0;
   color: var(--c-ink-3);
 }
 
-.banner {
+.enableFailed {
+  margin: 12px 0 0;
+}
+
+.loadFailed {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
   align-items: flex-start;
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-lg);
-  font-size: 13px;
+  gap: 10px;
 }
 
-.bannerError {
-  background: var(--c-blocked-bg);
-  border: 1px solid var(--c-blocked-border);
-  color: var(--c-blocked-text);
-}
-
-.grow {
-  flex: 1;
+.loadFailed > p {
+  align-self: stretch;
+  margin: 0;
 }
 
 /* Devices */
@@ -477,10 +477,11 @@
   color: var(--c-accent-text);
 }
 
+/* Out of the flow, so the card keeps its height while nothing has been saved. */
 .saved {
-  display: block;
-  margin-top: 8px;
-  min-height: 1.4em;
+  position: absolute;
+  right: 20px;
+  bottom: 3px;
   color: var(--c-ok-text);
   font-size: 12px;
 }

@@ -3,6 +3,8 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { PushDeviceView } from '@projectman/shared';
 import { Button } from '../../components/Button';
+import { ErrorBanner } from '../../components/ErrorBanner';
+import { Fold } from '../../components/Fold';
 import { Icon } from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
 import { LoadingState } from '../../components/States';
@@ -120,9 +122,8 @@ export function ThisDeviceCard({
           }
         >
           <p className={styles.heroText}>{t('notifications.denied.text')}</p>
-          <details className={styles.fold}>
-            <summary>{t('notifications.denied.howTo')}</summary>
-            <dl>
+          <Fold summary={t('notifications.denied.howTo')} className={styles.fold}>
+            <dl className={styles.howTo}>
               <dt>{t('notifications.denied.chrome')}</dt>
               <dd>{t('notifications.denied.chromeText')}</dd>
               <dt>{t('notifications.denied.firefox')}</dt>
@@ -134,7 +135,7 @@ export function ThisDeviceCard({
               <dt>{t('notifications.denied.android')}</dt>
               <dd>{t('notifications.denied.androidText')}</dd>
             </dl>
-          </details>
+          </Fold>
         </Hero>
       );
     case 'asking':
@@ -207,9 +208,7 @@ export function ThisDeviceCard({
           <p className={styles.heroText}>{t('notifications.off.text')}</p>
           <p className={styles.heroSmall}>{t('notifications.off.hint')}</p>
           {state.failed ? (
-            <div className={clsx(styles.banner, styles.bannerError)} role="alert">
-              <span className={styles.grow}>{t('notifications.enableFailed')}</span>
-            </div>
+            <ErrorBanner className={styles.enableFailed}>{t('notifications.enableFailed')}</ErrorBanner>
           ) : null}
         </Hero>
       );

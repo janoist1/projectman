@@ -1,5 +1,5 @@
 import { screen, waitFor } from '@testing-library/react';
-import { Route, Routes } from 'react-router';
+import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
@@ -18,11 +18,17 @@ beforeEach(() => {
 });
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
+function UrlProbe() {
+  const { pathname, search, hash } = useLocation();
+  return <output data-testid="url">{`${pathname}${search}${hash}`}</output>;
+}
+
 function renderInbox(route: string, items: InboxItem[]) {
   const project = mockProject();
   project.backend.inbox.push(...items);
   project.render(
     <ToastProvider>
+      <UrlProbe />
       <Routes>
         <Route path="/p/:projectKey/inbox" element={<InboxPage />} />
       </Routes>
@@ -47,6 +53,13 @@ describe('inbox opened from a push notification', () => {
   it('says so when the item is not there at all', async () => {
     renderInbox('/p/AC/inbox?via=push#inbox-item-inb_gone', []);
     expect(await screen.findByText(t('notifications.alreadyHandled'))).toBeTruthy();
+  });
+
+  it('takes the marker off the address once it has been read, and keeps the rest', async () => {
+    renderInbox('/p/AC/inbox?via=push&x=1#inbox-item-inb_open', [plainLanguageQuestion({ id: 'inb_open' })]);
+    await waitFor(() =>
+      expect(screen.getByTestId('url').textContent).toBe('/p/AC/inbox?x=1#inbox-item-inb_open'),
+    );
   });
 
   it('says nothing when the item is still open', async () => {

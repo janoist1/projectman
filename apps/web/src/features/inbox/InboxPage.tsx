@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
-import { Outlet, useLocation, useMatch } from 'react-router';
+import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import {
   InboxKind,
   fixLimitDecisionOf,
@@ -245,7 +245,8 @@ export function InboxPage() {
   useDocumentTitle(t('inbox.title'), board.data?.project.name);
 
   const items = inbox.data?.items;
-  const { hash, search } = useLocation();
+  const { hash, search, pathname } = useLocation();
+  const navigate = useNavigate();
   useEffect(() => {
     if (!hash.startsWith('#inbox-item-')) return;
     const target = document.getElementById(hash.slice(1));
@@ -266,7 +267,11 @@ export function InboxPage() {
     const itemId = hash.slice('#inbox-item-'.length);
     const item = items.find((candidate) => candidate.id === itemId);
     if (!item || item.state !== 'open') toast.show(t('notifications.alreadyHandled'), 'info');
-  }, [viaPush, hash, items, inbox.isFetching, toast]);
+    // The marker has done its work: a reload or a shared link must not say it again.
+    const rest = new URLSearchParams(search);
+    rest.delete('via');
+    navigate({ pathname, search: rest.size ? `?${rest}` : '', hash }, { replace: true });
+  }, [viaPush, hash, search, pathname, items, inbox.isFetching, toast, navigate]);
   const mine = useMemo(
     () =>
       newestFirst(

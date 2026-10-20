@@ -51,7 +51,7 @@ export function createAdministrationService(options: AdministrationServiceOption
   /** Where a submitted command runs. */
   function targetOf(input: AdministrationSubmit): AdministrationTarget {
     const { command } = input;
-    if (command.kind === 'restart') return command.target;
+    if (command.kind === 'restart' || command.kind === 'process_cleanup') return command.target;
     if (command.kind === 'deploy') return { kind: 'hub' };
     const id = options.builderEngine();
     if (!id) throw unavailable('administration_unavailable', 'no engine is set up to run this operation');
@@ -76,6 +76,9 @@ export function createAdministrationService(options: AdministrationServiceOption
     },
     async logs(target, params) {
       return portFor(target).logs(target, params);
+    },
+    async machine(target) {
+      return portFor(target).machine(target);
     },
 
     async submit(input) {

@@ -8,6 +8,7 @@ import {
   assertPrivateDir,
   assertSocketFile,
   ensurePrivateDir,
+  readFileTail,
   readPrivateFile,
   removeStaleSocket,
   writeFileAtomic,
@@ -107,6 +108,22 @@ describe('atomic private files', () => {
     await symlink(path.join(dir, 'ok.txt'), path.join(dir, 'link.txt'));
     expect(await reason(readPrivateFile(path.join(dir, 'link.txt'), 100))).toBe('symlink');
     expect(await reason(readPrivateFile(dir, 100))).toBe('not_file');
+  });
+
+  it('reads the end of a log file that others may read, and refuses a link or a file others may write', async () => {
+    const file = path.join(root, 'service.log');
+    expect(await readFileTail(file, 100)).toBeNull();
+    await writeFile(file, 'first\nsecond\nthird\n');
+    await chmod(file, 0o644);
+    expect(await readFileTail(file, 1000)).toMatchObject({ text: 'first\nsecond\nthird\n', complete: true });
+    expect(await readFileTail(file, 6)).toMatchObject({ text: 'third\n', complete: false });
+    expect(await reason(readFileTail(file, 100, process.getuid!() + 1))).toBe('wrong_owner');
+
+    await chmod(file, 0o666);
+    expect(await reason(readFileTail(file, 100))).toBe('too_open');
+    const link = path.join(root, 'link.log');
+    await symlink(file, link);
+    expect(await reason(readFileTail(link, 100))).toBe('symlink');
   });
 });
 

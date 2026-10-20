@@ -33,7 +33,13 @@ export type SuperRoutineMutation =
   | 'release_propose'
   | 'member_update';
 /** The protected administration adapter's commands (PM-763); none is owner-reserved any more. */
-export const SUPER_ADMINISTRATION_COMMANDS = ['restart', 'full_test', 'image_build', 'deploy'] as const;
+export const SUPER_ADMINISTRATION_COMMANDS = [
+  'restart',
+  'full_test',
+  'image_build',
+  'deploy',
+  'process_cleanup',
+] as const;
 export type SuperAdministrationCommand = (typeof SUPER_ADMINISTRATION_COMMANDS)[number];
 export type SuperMutationCommand =
   | { kind: 'config_change'; next: ProjectConfig }

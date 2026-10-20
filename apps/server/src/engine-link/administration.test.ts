@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineId } from '@projectman/shared';
 import { notFound } from '../kernel';
-import type { AdministrationJob, AdministrationPort, AdministrationStatus } from '../contracts';
+import type {
+  AdministrationJob,
+  AdministrationMachineSnapshot,
+  AdministrationPort,
+  AdministrationStatus,
+} from '../contracts';
 import { createEngineHandlers } from './engine-handlers';
 import { methods } from './methods';
 import type { EngineMethod } from './methods';
@@ -15,6 +20,14 @@ const ENGINE = 'eng_aaaaaaaaaaaa' as EngineId;
 const OTHER = 'eng_bbbbbbbbbbbb' as EngineId;
 const OWN = { kind: 'engine', id: ENGINE } as const;
 const AT = '2026-10-17T10:00:00.000Z';
+
+const SNAPSHOT: AdministrationMachineSnapshot = {
+  at: AT,
+  loadAvg: [0.5, 0.4, 0.3],
+  memory: { totalBytes: 16_000_000_000, availableBytes: 8_000_000_000 },
+  swap: null,
+  topProcesses: [{ pid: 42, name: 'node', cpuPercent: 1.5, rssBytes: 1_000_000 }],
+};
 
 const status = (target: AdministrationStatus['target']): AdministrationStatus => ({
   target,
@@ -30,6 +43,7 @@ function fakePort() {
   const port: AdministrationPort = {
     status: vi.fn(async (target) => status(target)),
     logs: vi.fn(async () => ({ entries: [] })),
+    machine: vi.fn(async () => SNAPSHOT),
     submit: vi.fn(async (input) => {
       submitted.push(input);
       return { accepted: true };
@@ -245,5 +259,66 @@ describe('the hub’s way to an engine', () => {
   it('lists every engine the registry knows, for the operation lookup', () => {
     const { administration } = setup({});
     expect(administration.ids()).toEqual([ENGINE]);
+  });
+
+  it('reads the machine of an engine that announced it, and validates the snapshot', async () => {
+    const { administration, engine } = setup({ administration: ['status', 'logs', 'machine'] });
+    engine.answer('admin.machine', async () => SNAPSHOT);
+    expect(await administration.port(ENGINE).machine(OWN)).toEqual(SNAPSHOT);
+    expect(engine.requests.map((request) => request.method)).toEqual(['admin.machine']);
+  });
+
+  it('gives an engine that predates the machine state, its log filters and the cleanup an unavailable answer', async () => {
+    const { administration, engine } = setup({ administration: ['status', 'logs', 'restart'] });
+    const answered = vi.fn();
+    engine.answer('admin.machine', answered as never);
+    engine.answer('admin.logs', answered as never);
+    engine.answer('admin.submit', answered as never);
+    const port = administration.port(ENGINE);
+    await expect(port.machine(OWN)).rejects.toMatchObject({ code: 'administration_unavailable' });
+    await expect(port.logs(OWN, { limit: 5, minLevel: 'warn' })).rejects.toMatchObject({
+      code: 'administration_unavailable',
+    });
+    await expect(
+      port.submit({
+        operationId: 'c1',
+        requestId: 'r',
+        command: { kind: 'process_cleanup', target: OWN, selector: 'orphan_test_workers' },
+      }),
+    ).rejects.toMatchObject({ code: 'administration_unavailable' });
+    expect(answered).not.toHaveBeenCalled();
+  });
+
+  it('sends the log filters only when they are set, and the service log only to an engine that has one', async () => {
+    const { administration, engine } = setup({ administration: ['status', 'logs', 'machine'] });
+    engine.answer('admin.logs', async () => ({ entries: [] }));
+    const port = administration.port(ENGINE);
+    await port.logs(OWN, { limit: 5 });
+    await port.logs(OWN, { limit: 5, minLevel: 'warn', contains: 'timeout' });
+    expect(engine.requests.map((request) => request.params)).toEqual([
+      { target: OWN, limit: 5 },
+      { target: OWN, limit: 5, minLevel: 'warn', contains: 'timeout' },
+    ]);
+    await expect(port.logs(OWN, { limit: 5, source: 'service' })).rejects.toMatchObject({
+      code: 'administration_unavailable',
+    });
+  });
+
+  it('serves the machine and the cleanup only for the engine’s own target', async () => {
+    const side = engineSide(true);
+    await expect(side.call('admin.machine', { target: OWN })).resolves.toEqual(SNAPSHOT);
+    await expect(side.call('admin.machine', { target: { kind: 'hub' } })).rejects.toMatchObject({
+      code: 'administration_target_mismatch',
+    });
+    const cleanup = (target: unknown) => ({
+      operationId: 'c1',
+      requestId: 'r',
+      command: { kind: 'process_cleanup', target, selector: 'orphan_test_workers' },
+    });
+    await expect(side.call('admin.submit', cleanup({ kind: 'hub' }))).rejects.toMatchObject({
+      code: 'administration_target_mismatch',
+    });
+    await expect(side.call('admin.submit', cleanup(OWN))).resolves.toEqual({ accepted: true });
+    expect(side.submitted).toHaveLength(1);
   });
 });

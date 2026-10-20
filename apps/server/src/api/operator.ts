@@ -114,7 +114,8 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
     const key = request.params.key;
     await requireAccess(domain, request, key, { minimum: 'owner' });
     const query = parseBody(AdministrationLogsQuery, request.query);
-    return domain.superAdministration.logs(key, query.target, query.limit);
+    const { target, ...options } = query;
+    return domain.superAdministration.logs(key, target, options);
   });
   app.post<ProjectParams>(
     routes.superDiagnosticsQuery(':key'),

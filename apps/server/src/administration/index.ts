@@ -10,6 +10,7 @@ export {
   AdministrationAccepted,
   AdministrationCommandSchema,
   AdministrationJobSchema,
+  AdministrationMachineSnapshotSchema,
   AdministrationRequestId,
   AdministrationResultSchema,
   AdministrationStatusSchema,

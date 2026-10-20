@@ -12,8 +12,13 @@ import type {
   AdministrationSubmit,
   AdministrationTarget,
 } from '../contracts';
+import { MAX_DIAGNOSTIC_ENTRIES } from '../contracts';
 import type { DiagnosticFields } from './diagnostics';
+import type { MachineReader } from './machine';
+import type { ProcessCleaner } from './processes';
 import type { SupervisorConfig } from './schemas';
+import { filterEntries } from './service-logs';
+import type { ServiceLogReader } from './service-logs';
 import type { ServiceController } from './service-control';
 import { commandKey } from './store';
 import type { DiagnosticsJournal, OperationRecord, OperationStore } from './store';
@@ -33,6 +38,12 @@ export interface SupervisorDeps {
   store: OperationStore;
   journal: DiagnosticsJournal;
   executors?: AdministrationExecutors;
+  /** The machine snapshot reader (PM-886); absent where the host cannot report its state. */
+  machine?: MachineReader;
+  /** The managed service's own log; absent or unavailable when the installation has none to read. */
+  serviceLogs?: ServiceLogReader;
+  /** The orphan test worker cleanup; absent or unsupported where the host cannot list and signal processes. */
+  cleaner?: ProcessCleaner;
   version?: string | null;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -85,6 +96,8 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
 
   const capabilities = (): AdministrationCapability[] => {
     const out: AdministrationCapability[] = ['status', 'logs'];
+    if (deps.machine) out.push('machine');
+    if (deps.serviceLogs?.available()) out.push('service_logs');
     if (deps.controller) out.push('restart');
     if (executors.full_test) out.push('full_test');
     if (executors.image_build) out.push('image_build');
@@ -159,6 +172,21 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     }
   }
 
+  async function runCleanup(
+    record: OperationRecord,
+    command: Extract<AdministrationCommand, { kind: 'process_cleanup' }>,
+  ): Promise<void> {
+    if (!deps.cleaner) return finish(record, 'failed', { errorCode: 'administration_unavailable' });
+    await deps.store.setJob(record.operationId, job(record.operationId, 'running'));
+    try {
+      const counts = await deps.cleaner.cleanup(command.selector);
+      await log('cleanup_finished', { operationId: record.operationId, ...counts });
+      await finish(record, 'succeeded', { result: { kind: 'process_cleanup', ...counts } });
+    } catch {
+      await finish(record, 'failed', { errorCode: 'administration_failed' });
+    }
+  }
+
   async function runExecutor(record: OperationRecord, command: AdministrationCommand): Promise<void> {
     await deps.store.setJob(record.operationId, job(record.operationId, 'running'));
     try {
@@ -180,7 +208,12 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
 
   function start(record: OperationRecord): void {
     const { command } = record;
-    const work = command.kind === 'restart' ? runRestart(record, command) : runExecutor(record, command);
+    const work =
+      command.kind === 'restart'
+        ? runRestart(record, command)
+        : command.kind === 'process_cleanup'
+          ? runCleanup(record, command)
+          : runExecutor(record, command);
     running = work
       .catch(async () => {
         await finish(record, 'failed', { errorCode: 'administration_failed' }).catch(() => undefined);
@@ -202,6 +235,12 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         throw conflict('administration_boot_mismatch', 'the service has started since the status was read');
       return;
     }
+    if (command.kind === 'process_cleanup') {
+      requireOwnTarget(command.target);
+      if (!deps.cleaner?.supported())
+        throw unavailable('administration_unavailable', 'this host cannot stop processes');
+      return;
+    }
     if (!executors[command.kind])
       throw unavailable('administration_unavailable', `this installation cannot run ${command.kind}`);
   }
@@ -221,9 +260,21 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       };
     },
 
-    async logs(target, { limit }) {
+    async logs(target, options) {
       requireOwnTarget(target);
-      return { entries: await deps.journal.read(limit) };
+      if (options.source === 'service') {
+        if (!deps.serviceLogs?.available())
+          throw unavailable('administration_unavailable', 'this installation has no service log');
+        return { entries: await deps.serviceLogs.read(options) };
+      }
+      // The filters run on the whole journal, the newest `limit` of what is left are returned.
+      return { entries: filterEntries(await deps.journal.read(MAX_DIAGNOSTIC_ENTRIES), options) };
+    },
+
+    async machine(target) {
+      requireOwnTarget(target);
+      if (!deps.machine) throw unavailable('administration_unavailable', 'this host cannot report its state');
+      return deps.machine.snapshot();
     },
 
     submit(input: AdministrationSubmit) {

@@ -42,6 +42,15 @@ describe.skipIf(!socketsWork)('administration socket', () => {
         })),
       };
     },
+    async machine() {
+      return {
+        at: AT,
+        loadAvg: [0, 0, 0],
+        memory: { totalBytes: 1, availableBytes: 1 },
+        swap: null,
+        topProcesses: [],
+      };
+    },
     async submit(input) {
       seen.push(input);
       return { accepted: true };

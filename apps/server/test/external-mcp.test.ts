@@ -392,6 +392,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       'query_super_diagnostics',
       'get_administration_status',
       'get_administration_logs',
+      'get_machine_snapshot',
       'relay_owner_answer',
       'resolve_integrator_todo',
       'resolve_integrator_fix_limit',

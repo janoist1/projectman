@@ -1,6 +1,7 @@
 import {
   GetAdministrationLogsArgs,
   GetAdministrationStatusArgs,
+  GetMachineSnapshotArgs,
   GetProjectDocWriteInput,
   GetSuperOperationArgs,
   GetSuperQuestionInput,
@@ -133,7 +134,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
     name: 'get_administration_logs',
     title: 'Read the administration log',
     description:
-      'The diagnostic log of the hub (target "hub") or of an engine linked to this project (target: the engine id), newest first: {entries}. limit is at most 200.',
+      'The log of the hub (target "hub") or of an engine linked to this project (target: the engine id): {entries}, oldest first. limit is at most 200. source is "supervisor" (default, its own journal) or "service" (the managed service\'s log, secrets redacted); min_level (info, warn, error), since (ISO time) and contains (up to 100 characters) narrow it.',
     access: 'read',
     modes: ['super'],
     input: withoutProject(GetAdministrationLogsArgs),
@@ -142,8 +143,24 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
         structured: await handler.getAdministrationLogs(ctx, {
           target: args.target,
           limit: args.limit ?? 50,
+          ...(args.source ? { source: args.source } : {}),
+          ...(args.min_level ? { minLevel: args.min_level } : {}),
+          ...(args.since ? { since: args.since } : {}),
+          ...(args.contains ? { contains: args.contains } : {}),
         }),
       };
+    },
+  }),
+  defineExternalTool({
+    name: 'get_machine_snapshot',
+    title: 'Read the machine snapshot',
+    description:
+      'The state of the machine of the hub (target "hub") or of an engine linked to this project (target: the engine id): {snapshot} with the load average, memory, swap and the ten largest processes of the supervisor user (name, cpu, memory; no arguments).',
+    access: 'read',
+    modes: ['super'],
+    input: withoutProject(GetMachineSnapshotArgs),
+    async run({ ctx, args, handler }) {
+      return { structured: await handler.getMachineSnapshot(ctx, args.target) };
     },
   }),
   defineExternalTool({

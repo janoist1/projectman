@@ -23,6 +23,7 @@ export const DIAGNOSTIC_CODES = {
   operation_failed: 'error',
   operation_unknown: 'warn',
   service_probe_failed: 'warn',
+  cleanup_finished: 'info',
 } as const satisfies Record<string, DiagnosticLevel>;
 export type DiagnosticCode = keyof typeof DIAGNOSTIC_CODES;
 
@@ -41,6 +42,10 @@ const FIELD_CHECKS = {
   exitCode: (value) => typeof value === 'number' && Number.isInteger(value) && Math.abs(value) < 2 ** 31,
   durationMs: (value) =>
     typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 2 ** 40,
+  // The counts of a process cleanup (PM-886): numbers only, never a process id, name or argument.
+  found: (value) => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 2 ** 20,
+  stopped: (value) => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 2 ** 20,
+  remaining: (value) => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 2 ** 20,
 } as const satisfies Record<string, (value: unknown) => boolean>;
 export type DiagnosticField = keyof typeof FIELD_CHECKS;
 export type DiagnosticFields = Partial<Record<DiagnosticField, string | number>>;

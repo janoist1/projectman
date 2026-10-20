@@ -2,8 +2,11 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdministrationExecutors, AdministrationSubmit } from '../contracts';
+import type { AdministrationExecutors, AdministrationSubmit, AdministrationTarget } from '../contracts';
+import type { MachineReader } from './machine';
+import type { ProcessCleaner } from './processes';
 import { ensurePrivateDir } from './secure-fs';
+import type { ServiceLogReader } from './service-logs';
 import type { ServiceController, ServiceProbe } from './service-control';
 import { createDiagnosticsJournal, createOperationStore } from './store';
 import { createSupervisor } from './supervisor';
@@ -45,6 +48,9 @@ async function build(
     executors?: AdministrationExecutors;
     target?: { kind: 'hub' } | { kind: 'engine'; id: string };
     sleep?: (ms: number) => Promise<void>;
+    machine?: MachineReader;
+    serviceLogs?: ServiceLogReader;
+    cleaner?: ProcessCleaner;
   } = {},
 ) {
   const store = await createOperationStore(stateDir);
@@ -55,6 +61,9 @@ async function build(
     store,
     journal,
     executors: extra.executors,
+    machine: extra.machine,
+    serviceLogs: extra.serviceLogs,
+    cleaner: extra.cleaner,
     version: '1.2.3',
     now: () => NOW,
     sleep: extra.sleep ?? (async () => undefined),
@@ -375,6 +384,131 @@ describe('business commands', () => {
     expect(job).toMatchObject({ state: 'failed', errorCode: 'administration_failed' });
     expect(JSON.stringify(job)).not.toContain('canary');
     expect(JSON.stringify(await journal.read(50))).not.toContain('canary');
+  });
+});
+
+describe('machine state, service logs and process cleanup (PM-886)', () => {
+  const SNAPSHOT = {
+    at: NOW.toISOString(),
+    loadAvg: [0.1, 0.2, 0.3] as [number, number, number],
+    memory: { totalBytes: 2, availableBytes: 1 },
+    swap: null,
+    topProcesses: [],
+  };
+  const machine: MachineReader = { snapshot: async () => SNAPSHOT };
+  const cleanup = (overrides: Partial<ProcessCleaner> = {}): ProcessCleaner & { selectors: string[] } => {
+    const selectors: string[] = [];
+    return {
+      selectors,
+      supported: () => true,
+      cleanup: async (selector) => {
+        selectors.push(selector);
+        return { found: 3, stopped: 2, remaining: 1 };
+      },
+      ...overrides,
+    };
+  };
+  const cleanupCommand = (operationId: string, target: AdministrationTarget = HUB): AdministrationSubmit => ({
+    operationId,
+    requestId: 'req1',
+    command: { kind: 'process_cleanup', target, selector: 'orphan_test_workers' },
+  });
+
+  it('advertises the machine and the service log only when this installation has them', async () => {
+    const { controller } = fakeService();
+    const serviceLogs: ServiceLogReader = { available: () => false, read: async () => [] };
+    const without = await build(controller, { machine, serviceLogs });
+    expect((await without.supervisor.status(HUB)).capabilities).toEqual([
+      'status',
+      'logs',
+      'machine',
+      'restart',
+    ]);
+    const withLog = await build(controller, {
+      machine,
+      serviceLogs: { ...serviceLogs, available: () => true },
+    });
+    expect((await withLog.supervisor.status(HUB)).capabilities).toEqual([
+      'status',
+      'logs',
+      'machine',
+      'service_logs',
+      'restart',
+    ]);
+  });
+
+  it('answers the machine snapshot, and refuses another target or a host without a reader', async () => {
+    const { controller } = fakeService();
+    const { supervisor } = await build(controller, { machine });
+    expect(await supervisor.machine(HUB)).toEqual(SNAPSHOT);
+    await expect(supervisor.machine({ kind: 'engine', id: 'eng_aaaaaaaaaaaa' })).rejects.toMatchObject({
+      code: 'administration_target_mismatch',
+    });
+    const bare = await build(controller);
+    await expect(bare.supervisor.machine(HUB)).rejects.toMatchObject({ code: 'administration_unavailable' });
+  });
+
+  it('filters its own journal and hands the service log request to the reader', async () => {
+    const { controller } = fakeService();
+    const seen: unknown[] = [];
+    const serviceLogs: ServiceLogReader = {
+      available: () => true,
+      read: async (query) => {
+        seen.push(query);
+        return [{ at: NOW.toISOString(), level: 'info', code: 'service_log', message: 'from the service' }];
+      },
+    };
+    const { supervisor, journal } = await build(controller, { serviceLogs });
+    await journal.append('supervisor_started');
+    await journal.append('submit_refused', { errorCode: 'administration_operation_conflict' });
+    const warned = await supervisor.logs(HUB, { limit: 10, minLevel: 'warn' });
+    expect(warned.entries.map((entry) => entry.code)).toEqual(['submit_refused']);
+    const service = await supervisor.logs(HUB, { limit: 10, source: 'service', contains: 'service' });
+    expect(service.entries.map((entry) => entry.message)).toEqual(['from the service']);
+    expect(seen).toEqual([{ limit: 10, source: 'service', contains: 'service' }]);
+
+    const bare = await build(controller);
+    await expect(bare.supervisor.logs(HUB, { limit: 10, source: 'service' })).rejects.toMatchObject({
+      code: 'administration_unavailable',
+    });
+  });
+
+  it('runs the cleanup, records only its counts and refuses it where it cannot work', async () => {
+    const { controller } = fakeService();
+    const cleaner = cleanup();
+    const { supervisor } = await build(controller, { cleaner });
+    expect(await supervisor.submit(cleanupCommand('op1'))).toEqual({ accepted: true });
+    await supervisor.idle();
+    expect(cleaner.selectors).toEqual(['orphan_test_workers']);
+    expect(await supervisor.inspect('op1')).toMatchObject({
+      state: 'succeeded',
+      result: { kind: 'process_cleanup', found: 3, stopped: 2, remaining: 1 },
+    });
+    const journal = (await supervisor.logs(HUB, { limit: 50 })).entries.map((entry) => entry.message);
+    expect(journal).toContain('cleanup_finished operationId=op1 found=3 stopped=2 remaining=1');
+
+    await expect(
+      supervisor.submit(cleanupCommand('op2', { kind: 'engine', id: 'eng_aaaaaaaaaaaa' })),
+    ).rejects.toMatchObject({ code: 'administration_target_mismatch' });
+    const unsupported = await build(controller, { cleaner: cleanup({ supported: () => false }) });
+    await expect(unsupported.supervisor.submit(cleanupCommand('op3'))).rejects.toMatchObject({
+      code: 'administration_unavailable',
+    });
+  });
+
+  it('records a failed cleanup as a failure without its error text', async () => {
+    const { controller } = fakeService();
+    const cleaner = cleanup({
+      cleanup: async () => {
+        throw new Error('ps said secret-argv');
+      },
+    });
+    const { supervisor } = await build(controller, { cleaner });
+    await supervisor.submit(cleanupCommand('op1'));
+    await supervisor.idle();
+    const job = await supervisor.inspect('op1');
+    expect(job).toMatchObject({ state: 'failed', errorCode: 'administration_failed' });
+    expect(JSON.stringify(job)).not.toContain('secret-argv');
   });
 });
 

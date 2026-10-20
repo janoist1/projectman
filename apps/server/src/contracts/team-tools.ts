@@ -75,7 +75,12 @@ import type {
   SuperOperation,
   SuperOperationDetail,
 } from '@projectman/shared';
-import type { AdministrationStatus, DiagnosticLogEntry } from './administration';
+import type {
+  AdministrationLogsOptions,
+  AdministrationMachineSnapshot,
+  AdministrationStatus,
+  DiagnosticLogEntry,
+} from './administration';
 import type { IntegratorPrincipal } from './integrator-principal';
 import type { CardQuestion, CardWorker } from './context';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
@@ -1061,8 +1066,12 @@ export interface ExternalToolsHandler {
   ): Promise<{ status: AdministrationStatus }>;
   getAdministrationLogs(
     ctx: ExternalToolContext,
-    args: { target: AdministrationTarget; limit: number },
+    args: { target: AdministrationTarget } & AdministrationLogsOptions,
   ): Promise<{ entries: DiagnosticLogEntry[] }>;
+  getMachineSnapshot(
+    ctx: ExternalToolContext,
+    target: AdministrationTarget,
+  ): Promise<{ snapshot: AdministrationMachineSnapshot }>;
   resolveIntegratorTodo(
     ctx: ExternalToolContext,
     args: { itemId: string; optionId: 'todo_done' | 'todo_cannot'; note?: string },

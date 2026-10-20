@@ -944,7 +944,7 @@ connection, `ToolContext` with a `sessionId`).
 - **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
   the audit row `mcp_<tool>`); a `legacy` key keeps the unscoped, unaudited REST behaviour. The super tools
   (`list_super_handoffs`, `execute_super_handoff`, `super_operate`, `get_super_operation`, `query_super_diagnostics`,
-  `get_administration_status`, `get_administration_logs`, `relay_owner_answer`) are `super` only and answer with structured
+  `get_administration_status`, `get_administration_logs`, `get_machine_snapshot`, `relay_owner_answer`) are `super` only and answer with structured
   JSON plus the domain `errorCode`.
 - **Entrance.** The tunnel and proxy rules pass `/mcp` and refuse `/mcp/` and `/hooks` (`^/mcp/` in
   `scripts/cloud/cloudflare.ts` and `deploy/cloudflare/config.example.yml`); the root auth hook treats `/hooks/` and `/mcp/` as
@@ -1740,6 +1740,30 @@ workers follow the machine's size.
   and the adapter share one definition; `contracts/administration.ts` and `administration/schemas.ts` re-export it
   under the old names. Only the schema moved: the port, the executors, the socket protocol, the installation and
   the engine RPCs stay on the server, and the hub/engine boundary is unchanged.
+  **Machine state, filtered logs and process cleanup (PM-886, part of PM-875):** three more typed operations of the
+  same supervisor (`machine.ts`, `service-logs.ts`, `processes.ts`, `redact.ts`, `host.ts` next to it). _Machine
+  state_ (`AdministrationPort.machine`, capability `machine`, RPC `admin.machine`): on macOS the fixed commands
+  `/usr/sbin/sysctl` (`vm.loadavg`, `hw.memsize`, `vm.swapusage`), `/usr/bin/vm_stat` and `/bin/ps -axo …`; on Linux
+  `/proc/loadavg`, `/proc/meminfo` and `/proc/<pid>/stat|status`. It returns the load, memory and swap numbers and at
+  most 10 processes of the supervisor's own user by resident memory with the program's base name only (no argument,
+  path or environment). _Filtered logs_ (`logs` options `source`, `minLevel`, `since`, `contains`, capability
+  `service_logs` for `source: 'service'`; limits stay 200 lines and 1000 characters): launchd reads the optional
+  `service.logFile` of `supervisor.json` (an absolute path, opened with `O_NOFOLLOW`, a regular file of the
+  supervisor's user that others cannot write, only its last 512 KiB), systemd runs `/usr/bin/journalctl -u <unit>
+-o json --no-pager -n <limit>`. Every line is redacted in the supervisor before it leaves (project keys, bearer
+  tokens, API and GitHub tokens, `token=`/`key=`/`password=` values, long hex or base64 runs). _Process cleanup_
+  (`AdministrationCommand` `process_cleanup`, selector `orphan_test_workers`, a durable operation like the restart,
+  mapped to the `machine` capability): sends TERM, then KILL after 10 s, only to processes of the supervisor's own
+  OS user whose parent is 1, whose command line carries `vitest` or `tinypool` and that are at least 5 minutes old;
+  the running service, its process group and the supervisor itself are never targets, and the result carries the
+  counts `found`, `stopped`, `remaining` only. **Machine assumptions:** the absolute binaries above, `/proc` on
+  Linux, the same OS user as the processes, and the optional service log file path. **Remote engine:** yes. All of
+  it runs in the supervisor on the machine it describes; the engine link carries `admin.machine`, the extended
+  `admin.logs` parameters (sent only to an engine that announced `machine`) and the `process_cleanup` submit. The
+  cloud hub sees only the numbers, the base names and the redacted lines, never a command line, a pid list or an
+  unredacted log; an older engine gives 503 `administration_unavailable`. The super surface reads them with the
+  external MCP tool `get_machine_snapshot` and the extended `get_administration_logs`, both behind the operator
+  grant (`OperatorGrantGate`); the cleanup goes through `super_operate`.
 
 - **Durable super-mode handoff and owner-bound operations (PM-762, Super mode 6/10)** —
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:

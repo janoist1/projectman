@@ -7,6 +7,8 @@ import type {
   SuperOperationDetail,
 } from '@projectman/shared';
 import type {
+  AdministrationLogsOptions,
+  AdministrationMachineSnapshot,
   AdministrationPort,
   AdministrationStatus,
   DiagnosticLogEntry,
@@ -28,8 +30,9 @@ export interface SuperAdministration {
   logs(
     projectKey: string,
     target: AdministrationTarget,
-    limit: number,
+    options: AdministrationLogsOptions,
   ): Promise<{ entries: DiagnosticLogEntry[] }>;
+  machine(projectKey: string, target: AdministrationTarget): Promise<AdministrationMachineSnapshot>;
   operate(
     projectKey: string,
     input: SuperOperateRequest,
@@ -64,10 +67,15 @@ export function createSuperAdministration(deps: {
       deps.grants.assertActive();
       return port.status(target);
     },
-    async logs(projectKey, target, limit) {
+    async logs(projectKey, target, options) {
       const port = bind(projectKey, target);
       deps.grants.assertActive();
-      return port.logs(target, { limit });
+      return port.logs(target, options);
+    },
+    async machine(projectKey, target) {
+      const port = bind(projectKey, target);
+      deps.grants.assertActive();
+      return port.machine(target);
     },
     operate: (projectKey, input, access) => deps.handoffs.operate(projectKey, input, access),
     async operation(projectKey, operationId) {

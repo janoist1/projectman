@@ -15,6 +15,10 @@ export type ImagePlatform = (typeof IMAGE_PLATFORMS)[number];
 export const FULL_TEST_PROFILES = ['merge-test', 'full-test'] as const;
 export type FullTestProfile = (typeof FULL_TEST_PROFILES)[number];
 
+/** The named sets of processes a `process_cleanup` may stop; the supervisor owns what each one means (PM-886). */
+export const PROCESS_CLEANUP_SELECTORS = ['orphan_test_workers'] as const;
+export type ProcessCleanupSelector = (typeof PROCESS_CLEANUP_SELECTORS)[number];
+
 /** The full 40-hex commit of a card's work; an abbreviation or a ref is never accepted. */
 export type AdministrationCommit = string;
 
@@ -26,7 +30,9 @@ export type AdministrationCommand =
   | { kind: 'full_test'; taskKey: TaskKey; commit: AdministrationCommit; profile: FullTestProfile }
   | { kind: 'image_build'; taskKey: TaskKey; commit: AdministrationCommit; platforms: ImagePlatform[] }
   /** Only the release a human approved, to the target PM-752 recorded for it; no new image, no `release_report`. */
-  | { kind: 'deploy'; releaseId: string };
+  | { kind: 'deploy'; releaseId: string }
+  /** Stops the named set of the supervisor user's processes on the target's own machine (PM-886). */
+  | { kind: 'process_cleanup'; target: AdministrationTarget; selector: ProcessCleanupSelector };
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const BOOT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -64,4 +70,9 @@ export const AdministrationCommandSchema: z.ZodType<AdministrationCommand> = z.d
       .refine((platforms) => new Set(platforms).size === platforms.length, { message: 'Duplicate platform' }),
   }),
   z.strictObject({ kind: z.literal('deploy'), releaseId: AdministrationOperationId }),
+  z.strictObject({
+    kind: z.literal('process_cleanup'),
+    target: AdministrationTargetSchema,
+    selector: z.enum(PROCESS_CLEANUP_SELECTORS),
+  }),
 ]);

@@ -16,7 +16,7 @@ export interface RunResult {
 export type RunCommand = (
   file: string,
   args: readonly string[],
-  options: { timeoutMs: number },
+  options: { timeoutMs: number; maxBytes?: number },
 ) => Promise<RunResult>;
 
 export interface ServiceProbe {
@@ -30,6 +30,8 @@ export interface ServiceController {
   probe(): Promise<ServiceProbe>;
   /** Asks the service manager to restart the one configured service; resolves when the command was accepted. */
   restart(): Promise<void>;
+  /** The process id of the running service's main process, or null; the process cleanup never touches it (PM-886). */
+  mainPid?(): Promise<number | null>;
 }
 
 const COMMAND_TIMEOUT_MS = 20_000;
@@ -41,7 +43,7 @@ export const PS = '/bin/ps';
 export const SYSTEMCTL = '/usr/bin/systemctl';
 
 /** The real runner: `execFile` with an absolute binary, a minimal environment and a bounded output. */
-export const runCommand: RunCommand = (file, args, { timeoutMs }) =>
+export const runCommand: RunCommand = (file, args, { timeoutMs, maxBytes }) =>
   new Promise((resolve, reject) => {
     execFile(
       file,
@@ -49,7 +51,7 @@ export const runCommand: RunCommand = (file, args, { timeoutMs }) =>
       {
         env: { ...MINIMAL_ENV },
         timeout: timeoutMs,
-        maxBuffer: MAX_OUTPUT_BYTES,
+        maxBuffer: maxBytes ?? MAX_OUTPUT_BYTES,
         encoding: 'utf8',
         shell: false,
       },
@@ -86,6 +88,11 @@ function launchdController(label: string, uid: number | null, run: RunCommand): 
       const result = await run(LAUNCHCTL, ['kickstart', '-k', target], { timeoutMs: COMMAND_TIMEOUT_MS });
       if (result.exitCode !== 0) throw new Error('the service manager refused the restart');
     },
+    async mainPid() {
+      const printed = await run(LAUNCHCTL, ['print', target], { timeoutMs: COMMAND_TIMEOUT_MS });
+      const pid = printed.exitCode === 0 ? /^\s*pid = (\d{1,10})\s*$/m.exec(printed.stdout)?.[1] : undefined;
+      return pid ? Number(pid) : null;
+    },
   };
 }
 
@@ -107,6 +114,13 @@ function systemdController(unit: string, run: RunCommand): ServiceController {
     async restart() {
       const result = await run(SYSTEMCTL, ['restart', unit], { timeoutMs: COMMAND_TIMEOUT_MS });
       if (result.exitCode !== 0) throw new Error('the service manager refused the restart');
+    },
+    async mainPid() {
+      const shown = await run(SYSTEMCTL, ['show', '--property=MainPID', unit], {
+        timeoutMs: COMMAND_TIMEOUT_MS,
+      });
+      const pid = shown.exitCode === 0 ? /^MainPID=(\d{1,10})$/m.exec(shown.stdout)?.[1] : undefined;
+      return pid && Number(pid) > 0 ? Number(pid) : null;
     },
   };
 }

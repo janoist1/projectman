@@ -64,7 +64,7 @@ const PR_FIELDS = new Set([
   'updatedAt',
   'url',
 ]);
-const BOOLEAN_FLAGS = new Set(['active']);
+const BOOLEAN_FLAGS = new Set(['active', 'allow-escape-sequences']);
 
 function parseArgs(argv) {
   const positional = [];

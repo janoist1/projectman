@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -484,17 +484,20 @@ describe('shardSteps', () => {
       { index: 3, count: 4 },
     );
     expect(steps.map((step) => step.args)).toEqual([
-      ['test', '-w', 'apps/web', '--if-present', '--', '--shard=3/4', '--passWithNoTests'],
-      [
-        'test',
-        '-w',
-        'apps/server',
-        '--',
-        resolve('apps/server/test/a.test.ts'),
-        '--shard=3/4',
-        '--passWithNoTests',
-      ],
+      ['test', '-w', 'apps/web', '--if-present', '--', '--shard=3/4'],
+      ['test', '-w', 'apps/server', '--', resolve('apps/server/test/a.test.ts'), '--shard=3/4'],
     ]);
+  });
+
+  it('relies on every workspace test script to allow an empty shard, since vitest refuses the flag twice', () => {
+    for (const workspace of MERGE_TEST_WORKSPACES) {
+      const pkg = JSON.parse(
+        readFileSync(resolve(import.meta.dirname, '../../..', workspace, 'package.json'), 'utf8'),
+      ) as {
+        scripts: { test: string };
+      };
+      expect(pkg.scripts.test.match(/--passWithNoTests/g)).toHaveLength(1);
+    }
   });
 
   it('times a shard’s step with its original index', async () => {

@@ -9,7 +9,7 @@
     "build": "node scripts/build.mjs",
     "prepare:history-model": "node scripts/prepare-history-model.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --configLoader runner"
+    "test": "vitest run --configLoader runner --passWithNoTests"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.78",

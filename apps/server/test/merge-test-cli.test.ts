@@ -145,7 +145,7 @@ describe('merge test runner', () => {
       expect(npmCalls()).toEqual([
         ['run', 'typecheck', '-w', 'packages/templates', '--if-present'],
         ...['packages/shared', 'packages/templates', 'apps/feedback-widget', 'apps/server', 'apps/web'].map(
-          (ws) => ['test', '-w', ws, '--if-present', '--', '--shard=2/4', '--passWithNoTests'],
+          (ws) => ['test', '-w', ws, '--if-present', '--', '--shard=2/4'],
         ),
       ]);
       expect(timingIndexes(log)).toEqual([1, 5, 6, 7, 8, 9, 1, 5, 6, 7, 8, 9]);
@@ -173,7 +173,7 @@ describe('merge test runner', () => {
       ).toEqual([
         'merge-test step: npm run typecheck -w apps/server --if-present',
         ...['packages/shared', 'packages/templates', 'apps/feedback-widget', 'apps/server', 'apps/web'].map(
-          (ws) => `merge-test step: npm test -w ${ws} --if-present -- --shard=4/4 --passWithNoTests`,
+          (ws) => `merge-test step: npm test -w ${ws} --if-present -- --shard=4/4`,
         ),
       ]);
       expect(npm).not.toHaveBeenCalled();
@@ -229,7 +229,6 @@ describe('merge test runner', () => {
         '--',
         resolve('apps/server/test/b.test.ts'),
         '--shard=1/4',
-        '--passWithNoTests',
       ]);
     });
     it.each([

@@ -26,16 +26,21 @@ import type { PushTransport } from './contracts';
 import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
+  SUPER_OWNER_YES,
   createAdministrationExecutor,
   createOperateExecutor,
   createCommandExecutor,
   createAdministrationSettler,
+  createOperatorAppCredentials,
+  createOperatorAppOperations,
+  createOperatorAppSessions,
   createSuperAdministration,
   createSuperDiagnostics,
   createSuperHandoffService,
   createSuperOperator,
   createSuperRights,
 } from './services/super-operator';
+import type { OperatorAppOperations, SuperAdministration } from './services/super-operator';
 import { createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -201,7 +206,7 @@ import { WorkOutages } from './runtime/watchers';
 import { WorktreeSweep } from './runtime/watchers';
 import { CardMeasure } from './core/tasks';
 import { attributedActor, humanActor, SYSTEM_ACTOR } from './kernel';
-import { SYSTEM_SENDER, isSessionAtWork } from '@projectman/shared';
+import { SYSTEM_SENDER, isSessionAtWork, questionPayloadOf } from '@projectman/shared';
 import { DomainError } from './kernel';
 import { ObligationsService } from './services/obligations';
 
@@ -1532,6 +1537,8 @@ export function createDomain(opts: DomainOptions) {
     questionScreening,
     openQuestionLabel,
   });
+  // The in-app Operator's super-operation path (PM-888) is composed below, after the tools that use it.
+  let superPath: { operations: OperatorAppOperations; administration: SuperAdministration } | null = null;
   const teamTools = new TeamToolsService({
     tools: {
       history: new HistoryTools({ calls: toolCaller, ctx, projects, history }),
@@ -1561,7 +1568,10 @@ export function createDomain(opts: DomainOptions) {
         taskStarts,
         operatorSignals,
         loopTriages,
-        superHandoffs,
+        superPath: () => {
+          if (!superPath) throw new Error('the super-operation path is not composed yet');
+          return superPath;
+        },
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
       releases: new ReleaseTools({ calls: toolCaller, releases }),
@@ -1815,10 +1825,25 @@ export function createDomain(opts: DomainOptions) {
   );
   // The durable handoff of work to the super-mode integrator (PM-762): its grants are the only way a reserved
   // effect passes the mutation checks, and the owner's own answer is the only way the waiting operation goes on.
+  // The in-app Operator acts on the same path as a super-mode key (PM-888): its credential is the Operator's
+  // session while an owner request is open. Stored keys still go to the key authority.
+  const appCredentials = createOperatorAppCredentials({
+    base: opts.integratorCredentials,
+    sessions: createOperatorAppSessions({
+      ctx,
+      projects,
+      hasOpenRequest: (sessionId) => {
+        const source = operatorRequests.openFor(sessionId)?.source;
+        return source === 'message' || source === 'answer';
+      },
+    }),
+    user: (id) => ctx.repos.users.get(id),
+    userByEmail: (email) => ctx.repos.users.findByEmail(email),
+  });
   const superOperator = createSuperOperator({
     projects,
     audit: superAudit,
-    credentials: opts.integratorCredentials,
+    credentials: appCredentials.authority,
   });
   superOperator.useMutationAuthorizer(superHandoffs.authorizer);
   // The super mode's administration (PM-764): reads, direct operations and the filtered diagnostics, all bound to
@@ -1868,13 +1893,13 @@ export function createDomain(opts: DomainOptions) {
       throw forbidden('operator_grant_inactive', 'the Operator has no active grant for machine operations');
     },
   };
-  if (administration && opts.integratorCredentials) {
+  if (administration) {
     const administrationDeps = {
       ctx,
       grants: operatorGrants,
       administration,
       rights: createSuperRights({
-        credentials: opts.integratorCredentials,
+        credentials: appCredentials.authority,
         config: (key) => projects.config(key),
         projectKeys: () => projects.summaries().map((project) => project.key),
       }),
@@ -1894,7 +1919,24 @@ export function createDomain(opts: DomainOptions) {
     diagnostics: createSuperDiagnostics({ ctx }),
     engineLinked,
   });
+  const appOperations = createOperatorAppOperations({
+    credentials: appCredentials,
+    superOperator,
+    superAdministration,
+    projects,
+  });
+  superPath = { operations: appOperations, administration: superAdministration };
+  superHandoffs.registerAppResume(appOperations.resume);
   inbox.registerSuperOperationAnswer(superHandoffs.ownerAnswer);
+  // The owner's yes on an in-app Operator's operation: the Operator's turn may be over, so the server goes on
+  // by itself, after the answer is committed (PM-888). A refusal leaves the operation as it is and is logged.
+  events.on('inbox_resolved', (item) => {
+    const bound = questionPayloadOf(item)?.superOperation;
+    if (!bound || item.resolution?.optionId !== SUPER_OWNER_YES) return;
+    superHandoffs.resumeApprovedAppOperation(item.projectKey, bound.operationId).catch((error: unknown) => {
+      opts.logger.warn({ err: error, operationId: bound.operationId }, 'in-app operation did not resume');
+    });
+  });
   inbox.registerQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
   inbox.registerQuestionGroupAnswer((items, attachmentIds, close) =>
     messaging.answerGroup(items, attachmentIds, close),

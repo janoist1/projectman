@@ -130,6 +130,7 @@ export const OperatorAction = z.enum([
   'knowledge_change',
   'structural_review',
   'super_handoff',
+  'operation',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([
@@ -157,6 +158,8 @@ export const OperatorStep = z.object({
   inboxItemId: z.string().nullable(),
   /** The system signal the Operator acted on without an owner's request (PM-545). */
   signalId: z.string().nullable(),
+  /** The super operation an `operation` step started on the shared path (PM-888). */
+  operationId: z.string().nullable().optional(),
   refusal: z.object({ code: z.enum(ERROR_CODES), message: z.string() }).nullable(),
 });
 export type OperatorStep = z.infer<typeof OperatorStep>;

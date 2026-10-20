@@ -97,7 +97,7 @@ export const SuperOperation = z.strictObject({
 });
 export type SuperOperation = z.infer<typeof SuperOperation>;
 
-/** The hand-over from the base Operator (MCP `request_super_operation`). */
+/** The hand-over from the base Operator (the retired MCP `request_super_operation`; old handoffs stay readable). */
 export const RequestSuperOperationRequest = z.strictObject({
   taskKey: TaskKey.optional(),
   reason: z.string().trim().min(1).max(SUPER_REASON_MAX),

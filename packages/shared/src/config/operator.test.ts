@@ -13,6 +13,7 @@ import {
   isOperator,
   isOperatorActor,
   isRequiredOperator,
+  operatorAutonomousLevel,
   operatorConfigVerdict,
   operatorConversationOf,
   operatorFixedChange,
@@ -1262,6 +1263,39 @@ describe('operatorConfigVerdict', () => {
       });
       expect(more.result.level).toBe('approval');
     });
+  });
+});
+
+describe('operatorAutonomousLevel (decision 55)', () => {
+  const autonomous = (edit: (next: ProjectConfig) => void) => {
+    const { previous, next, result } = verdict(edit);
+    return { before: result.level, after: operatorAutonomousLevel(previous, next, result, 'operator') };
+  };
+
+  it.each<[string, (next: ProjectConfig) => void]>([
+    [
+      'a stage is added',
+      (n) => n.pipeline.stages.splice(2, 0, { id: 'qa', name: 'QA', kind: 'step', columnId: 'all' }),
+    ],
+    ['a gate is added', (n) => (stage(n, 'dev').gate = { conditions: [{ type: 'has_label', label: 'ui' }] })],
+    ['a member’s role', (n) => (ai(n, 'writer').role = 'docs')],
+  ])('lets an owner-asked approval change through: %s', (_name, edit) => {
+    expect(autonomous(edit)).toEqual({ before: 'approval', after: 'now' });
+  });
+
+  it('keeps what stays the owner’s call at approval: deletion and the Operator member itself', () => {
+    const retire = autonomous((n) => (n.team.members = n.team.members.filter((m) => m.handle !== 'dev-1')));
+    expect(retire).toEqual({ before: 'approval', after: 'approval' });
+    const itself = autonomous((n) => (ai(n, 'operator').model = 'sonnet'));
+    expect(itself).toEqual({ before: 'approval', after: 'approval' });
+  });
+
+  it('never turns a never into anything else, and leaves a now alone', () => {
+    expect(autonomous((n) => ((member(n, 'ann') as { access: string }).access = 'admin'))).toEqual({
+      before: 'never',
+      after: 'never',
+    });
+    expect(autonomous((n) => (ai(n, 'writer').model = 'sonnet'))).toEqual({ before: 'now', after: 'now' });
   });
 });
 

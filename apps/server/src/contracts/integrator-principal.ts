@@ -21,6 +21,21 @@ export interface IntegratorPrincipal {
   readonly keyId: string;
   readonly prefix: string;
   readonly mode: 'legacy' | 'super' | 'read';
+  /**
+   * Where the credential comes from (PM-888): a stored `key` (the default) or the in-app Operator `app`, whose
+   * `keyId` is its session's id. An `app` principal is made only by the server's own issuer and is valid only
+   * while `OperatorAppSessions.active` says so; no stored key stands behind it.
+   */
+  readonly source?: 'key' | 'app';
+}
+
+/**
+ * Whether the in-app Operator's session may still act as the owner on the shared super-operation path
+ * (PM-888): the session runs, it is the project's Operator in its own general conversation, and an owner
+ * request is open.
+ */
+export interface OperatorAppSessions {
+  active(principal: IntegratorPrincipal): boolean;
 }
 
 /**

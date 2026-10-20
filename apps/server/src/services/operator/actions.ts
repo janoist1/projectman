@@ -11,6 +11,7 @@ import {
   operatorApprovalOf,
   hasPendingOperatorAgreement,
   operatorKnowledgeOperationIncluded,
+  operatorAutonomousLevel,
   operatorConfigVerdict,
   operatorCriticalOp,
   OperatorOperation,
@@ -22,6 +23,7 @@ import type {
   InboxItem,
   OperatorAction,
   OperatorApprovalPayload,
+  OperatorConfigVerdict,
   OperatorConsequence,
   ProjectConfig,
 } from '@projectman/shared';
@@ -263,12 +265,14 @@ export class OperatorActions implements OperatorConfigAuthorization {
         throw conflict('operator_agreement_pending', 'approve or dismiss the pending agreement first');
       if (preview.level === 'never')
         throw forbidden('operator_never', 'the Operator cannot make this change');
+      const autonomous = 'autonomous' in preview && preview.autonomous;
       const knowledge =
-        'waiverEligible' in preview && preview.level === 'approval'
+        'waiverEligible' in preview && preview.level === 'approval' && !autonomous
           ? await this.deps.knowledge.readKnowledge(projectKey)
           : null;
       const agreement =
         'waiverEligible' in preview &&
+        !autonomous &&
         canWaiveOperatorApproval(preview, {
           enabled: config.team.operatorApprovalWaiver ?? false,
           agreementVersion: knowledge?.agreement?.version ?? null,
@@ -276,7 +280,7 @@ export class OperatorActions implements OperatorConfigAuthorization {
         })
           ? knowledge!.agreement
           : null;
-      if (preview.level === 'now' || agreement) {
+      if (preview.level === 'now' || autonomous || agreement) {
         steps.record({
           id: stepId,
           requestId,
@@ -531,12 +535,46 @@ export class OperatorActions implements OperatorConfigAuthorization {
       throw notFound('request', request.id);
     if (operatorWaiverChanged(loaded.config, next))
       throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
+    const verdict = operatorConfigVerdict(loaded.config, next, { operator: source });
     return {
-      ...operatorConfigVerdict(loaded.config, next, { operator: source }),
+      ...verdict,
       operation,
       baseVersion: loaded.version,
       session: null,
+      autonomous: this.autonomous(loaded.config, next, verdict, request, source),
     };
+  }
+
+  /** The owner's own-login request in the app is the approval of what `operatorAutonomousLevel` lets through. */
+  private autonomous(
+    previous: ProjectConfig,
+    next: ProjectConfig,
+    verdict: OperatorConfigVerdict,
+    request: OperatorRequestRecord,
+    operator: string,
+  ): boolean {
+    return (
+      verdict.level === 'approval' &&
+      (request.source === 'message' || request.source === 'answer') &&
+      this.ownerRequest(previous, request, operator) &&
+      operatorAutonomousLevel(previous, next, verdict, operator) === 'now'
+    );
+  }
+
+  /** Called inside the configuration lock: does this commit stand on the owner's request alone? */
+  autonomousCommit(input: Parameters<OperatorConfigAuthorization['autonomousCommit']>[0]): boolean {
+    const request = this.deps.ctx.repos.operatorRequests.get(input.requestId);
+    return (
+      !!request &&
+      request.projectKey === input.projectKey &&
+      this.autonomous(
+        input.previous,
+        input.next,
+        operatorConfigVerdict(input.previous, input.next, { operator: input.operator }),
+        request,
+        input.operator,
+      )
+    );
   }
 
   pauseChanges(projectKey: string, op: 'project_pause' | 'project_resume'): ConfigChangeRow[] {

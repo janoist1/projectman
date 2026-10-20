@@ -59,6 +59,7 @@ it.each([64, 68])('preserves requests, steps and signal links when migrating sch
         ...step,
         agreement_version: null,
         approval_mode: null,
+        operation_id: null,
       })),
     );
     const current = createRepositories(db);

@@ -454,11 +454,20 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.operator.operate(ctx, args);
   }
 
-  async requestSuperOperation(
-    ctx: ToolContext,
-    args: Parameters<OperatorToolsHandler['requestSuperOperation']>[1],
-  ) {
-    return this.tools.operator.requestSuperOperation(ctx, args);
+  async executeOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['executeOperation']>[1]) {
+    return this.tools.operator.executeOperation(ctx, args);
+  }
+
+  async getOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getOperation']>[1]) {
+    return this.tools.operator.getOperation(ctx, args);
+  }
+
+  async getMachineStatus(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineStatus']>[1]) {
+    return this.tools.operator.getMachineStatus(ctx, args);
+  }
+
+  async getMachineLogs(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineLogs']>[1]) {
+    return this.tools.operator.getMachineLogs(ctx, args);
   }
 
   async readProjectDoc(

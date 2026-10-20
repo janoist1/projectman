@@ -13,6 +13,11 @@ import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
+// The waiver covers what would wait for a click; an owner-asked change now goes through without one.
+vi.mock('@projectman/shared', async (original) =>
+  (await import('./helpers/operator-autonomy')).switchable(await original()),
+);
+
 let h: DomainHarness;
 let app: AppHarness;
 let ctx: ToolContext;

@@ -895,8 +895,9 @@ the server refuses a database a newer build migrated.
 
 ## Durable super-mode handoff (PM-762, part of the super mode PM-757)
 
-`request_super_operation` (the base Operator, in its own general conversation during an open owner request)
-stores a `SuperHandoff`: one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`,
+`request_super_operation` (the base Operator, in its own general conversation during an open owner request;
+retired by PM-888, whose `execute_operation` runs the command directly, see "In-app Operator on the shared path"
+below; the schema and the stored handoffs stay) stores a `SuperHandoff`: one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`,
 `merge`, `merge_order`, `administration`), a reason and, optionally, the configuration version it was made
 against. It grants no execution right and no approval. The integrator lists the handoffs (`GET
 …/operator-super/handoffs`) and starts one with `POST …/handoffs/:id/execute {requestId}` (202 `{operation}`),
@@ -917,6 +918,30 @@ The relay (`POST …/inbox/:id/relay-answer`) lets the integrator give the owner
 question the asker marked as plain information (`ask_human` `response_purpose: "information"`). It is marked
 `ownerAnswerRelayed`, is not an owner decision and never reaches the decision candidates. The rule lives in
 `services/super-operator/relay.ts`; the REST route and the MCP tool `relay_owner_answer` (PM-760) both call it.
+
+### In-app Operator on the shared path (PM-888, decision 55)
+
+The in-app Operator uses the same path as a super-mode key: `execute_operation {request_key, task_key?, command}`
+(not `operate` or `member_update`, which keep `operate`), `get_operation`, `get_machine_status` and `get_machine_logs`
+(Operator tools, in the Operator's own general conversation during an owner message or answer; guests and the other
+members are refused). They call `SuperAdministration`, `SuperOperator.execute` and `SuperHandoffService.operate`, so the
+rights check, the audit, the owner question for a K3 effect and the machine grant (`operator_grant_inactive`) are the
+key path's, not a copy.
+
+- **Credential.** There is no stored key. `services/super-operator/app.ts` issues an `IntegratorPrincipal` with
+  `source: 'app'`, `prefix: 'operator-app'` and `keyId` = the Operator session id, acting as the first owner (by
+  handle) with a user account. The authority wrapped around the key authority accepts an app principal only when it
+  was issued there (a `WeakSet`) and `OperatorAppSessions.active` holds: the session is live, it is the Operator's own
+  general conversation (no guest) and an owner message or answer request is open. Otherwise `insufficient_access`.
+- **Idempotence.** The request id of an operation is a UUID v8 from the first 16 bytes of
+  `sha256(operatorRequestId:request_key)`, so a retry in the same request is the same operation.
+- **Owner's yes.** The operation waits (`waiting_owner`) with the usual question. After the owner's own login says yes,
+  the `inbox_resolved` event calls `SuperHandoffService.resumeApprovedAppOperation`, which re-runs `operate` under an
+  approved app principal (no live session needed; the yes, command hash and config version are checked again).
+- **Step log.** `OperatorAction` has `operation`; `operator_steps.operation_id` (migration 96) links the operation.
+
+**Does this work on a remote engine?** The whole path runs on the hub; a machine operation reaches an engine through the
+existing administration port. No new machine-dependent part.
 
 ## The external MCP endpoint (PM-760, part of the super mode PM-757)
 
@@ -1845,7 +1870,7 @@ workers follow the machine's size.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
-  and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
+  (retired by PM-888) and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
   Operator records a command and a reason; nothing runs until the owner's integrator (a super token) starts it with
   a request id. A command with a deletion, security or cost effect waits for the owner's own login
   to answer a bound question (24 hours; the question names the command hash, the config version and the token). The

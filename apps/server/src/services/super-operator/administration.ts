@@ -62,10 +62,11 @@ export function createAdministrationExecutor(deps: SuperAdministrationDeps): Sup
         'only the integrator in super mode runs an administration job',
       );
     const projectKey = operation.projectKey;
-    // The owner's switch: no grant, no machine operation, however valid the key is (PM-881). The executor runs on
-    // every start and on the continuation after the owner's yes, so both stop at once when the grant is gone.
-    deps.grants.assertActive();
     await authorize(deps, scope.principal, projectKey, operation.taskKey, request);
+    // The owner's switch: no grant, no machine operation, however valid the key is (PM-881). The executor runs on
+    // every start and on the continuation after the owner's yes, so both stop at once when the grant is gone;
+    // the check is the last one before the job is handed over, after every await above.
+    deps.grants.assertActive();
     try {
       await deps.administration.submit({
         operationId: operation.id,

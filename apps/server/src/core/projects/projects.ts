@@ -647,7 +647,17 @@ export class ProjectService {
           authorization.agreementVersion !== meta.author.operatorAgreementVersion
         )
           throw forbidden('owner_approval_required', 'the Operator change needs approval');
-      } else if (verdict.level === 'approval' && !approval)
+      } else if (
+        verdict.level === 'approval' &&
+        !approval &&
+        !this.operatorAuthorization?.autonomousCommit({
+          projectKey: key,
+          operator: meta.actor.handle!,
+          requestId: request.id,
+          previous,
+          next,
+        })
+      )
         throw forbidden('owner_approval_required', 'the Operator change needs approval');
     } else if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')

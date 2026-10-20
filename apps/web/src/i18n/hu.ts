@@ -3144,6 +3144,7 @@ export const hu = {
         knowledge_change: 'Megállapodás vagy tanult elv módosítása',
         structural_review: 'Alkalmi architektúraszemle',
         super_handoff: 'Munka átadása az integrátornak',
+        operation: 'Művelet végrehajtása',
       },
     },
     change: {

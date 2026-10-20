@@ -11,6 +11,7 @@ import { FakePushTransport } from '../../../test/helpers/fake-push';
 import { capturingLogger } from '../../../test/helpers/fakes';
 import { testTemplate } from '../../../test/helpers/test-template';
 import { createWebPushService } from './index';
+import type { PushSendOutcome } from '../../contracts';
 import { loadOrCreateVapidKey } from './secret';
 import { pushOutcomeOf } from './transport';
 
@@ -247,6 +248,69 @@ describe('web push service', () => {
       last_failure: null,
     });
     await expect(service.test(user.id, d.id)).rejects.toMatchObject({ code: 'web_push_endpoint_invalid' });
+  });
+  it('records expiration after another concurrent delivery completes', async () => {
+    const d = subscribe();
+    const complete: Array<(outcome: PushSendOutcome) => void> = [];
+    service = build({ transport: { send: () => new Promise((resolve) => complete.push(resolve)) } });
+    const first = service.onItem(item('first'));
+    const second = service.onItem(item('second'));
+    await vi.waitFor(() => expect(complete).toHaveLength(2));
+    time = new Date(time.getTime() + 1000);
+    complete[0]!({ result: 'ok' });
+    await first;
+    time = new Date(time.getTime() + 1000);
+    complete[1]!({ result: 'expired' });
+    await second;
+    expect(repos.webPush.device(user.id, d.id)).toMatchObject({
+      state: 'expired',
+      endpoint: null,
+      p256dh: null,
+      auth: null,
+      last_result: 'expired',
+      last_sent_at: time.toISOString(),
+    });
+  });
+  it('ignores an old delivery result after subscription keys change', async () => {
+    const d = subscribe();
+    let complete!: (outcome: PushSendOutcome) => void;
+    service = build({
+      transport: {
+        send: () =>
+          new Promise((resolve) => {
+            complete = resolve;
+          }),
+      },
+    });
+    const sending = service.onItem(item());
+    await vi.waitFor(() => expect(complete).toBeTypeOf('function'));
+    time = new Date(time.getTime() + 1000);
+    const next = { ...input(), keys: { p256dh: 'c'.repeat(87), auth: 'd'.repeat(22) } };
+    service.subscribe(user.id, next, '', 'https://project.example');
+    complete({ result: 'expired' });
+    await sending;
+    expect(repos.webPush.device(user.id, d.id)).toMatchObject({
+      state: 'active',
+      endpoint: next.endpoint,
+      p256dh: next.keys.p256dh,
+      auth: next.keys.auth,
+      last_result: null,
+    });
+  });
+  it('schedules a quiet item without rewriting saved user settings', async () => {
+    subscribe();
+    const savedAt = time.toISOString();
+    service.settings(user.id, {
+      ...DEFAULT_PUSH_SETTINGS,
+      quietHours: { ...DEFAULT_PUSH_SETTINGS.quietHours, enabled: true },
+    });
+    time = new Date('2026-10-20T23:00:00Z');
+    await service.onItem(item());
+    expect(
+      repos.db
+        .prepare('SELECT updated_at, digest_due_at FROM web_push_settings WHERE user_id = ?')
+        .get(user.id),
+    ).toEqual({ updated_at: savedAt, digest_due_at: '2026-10-21T07:00:00.000Z' });
   });
   it('expires devices from a lost VAPID key without sending', async () => {
     const d = subscribe();

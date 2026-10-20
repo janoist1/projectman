@@ -21,6 +21,8 @@ const gitCalls = () => spawn.mock.calls.map(([, args]) => args);
 beforeEach(() => {
   // The members' sandboxes carry the PTY skip; the merge runs without it (PM-754).
   vi.stubEnv('PROJECTMAN_SKIP_PTY_TESTS', '');
+  // The merge sandbox sets the worker count; the tests decide it themselves.
+  vi.stubEnv('VITEST_MAX_FORKS', '');
 });
 afterEach(() => {
   vi.resetAllMocks();
@@ -48,8 +50,22 @@ describe('merge test runner', () => {
     expect(npm).toHaveBeenCalledTimes(1);
     expect(log.mock.calls).toEqual([
       ['merge-test scope: all (--all); modules: all; tests: all; fallback: --all'],
+      ['merge-test workers: unset'],
+      [expect.stringContaining('merge-test timing: {"index":0,"kind":"typecheck"')],
+      [expect.stringContaining('merge-test timing: {"index":0,"kind":"typecheck"')],
       ['merge-test scope: all (--all); modules: all; tests: all; fallback: --all'],
     ]);
+  });
+  it.each([
+    ['2', '2'],
+    ['0', 'unset'],
+    ['many', 'unset'],
+  ])('prints the worker count of the steps (VITEST_MAX_FORKS %s)', async (forks, printed) => {
+    const log = output();
+    mockHead('first second');
+    vi.stubEnv('VITEST_MAX_FORKS', forks);
+    expect(await run(['--all'])).toBe(0);
+    expect(log.mock.calls).toContainEqual([`merge-test workers: ${printed}`]);
   });
   it('runs everything by workspace when HEAD is not a merge', async () => {
     output();

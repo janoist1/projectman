@@ -18,6 +18,7 @@ import { isoNow } from '../../core/base';
 import { prerequisiteCards } from '../../core/tasks';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
+import { recordMergeCheck } from './check-runs';
 import type { MergeDeps, MergeRun } from './deps';
 import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import type { MergeSteps } from './steps';
@@ -460,28 +461,43 @@ export class MergeTrains {
           depsFrom: null,
         });
         if (!(await this.checkpoint(run))) return true;
-        result = await executor.run(
+        result = await recordMergeCheck(
+          ctx,
           {
-            runId,
-            cwd: checkout.path,
-            command,
+            id: runId,
+            projectKey: train.projectKey,
+            repo: train.repo,
+            kind: 'diagnose',
+            trainId: train.id,
+            taskKeys: [member.taskKey],
+            commit: built.mergeCommit,
+            base: train.onto,
             maxWorkers: train.reviewTest.maxWorkers,
-            timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
-            requireHeavyLock: true,
-            sandbox: this.deps.checkSandbox({
-              checkout: checkout.path,
-              gitDir: checkout.gitDir,
-              userHome: paths.userHome,
-              appHome: paths.home ?? undefined,
-              closedTmpRoots: [
-                ...paths.claudeTmpRoots,
-                ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
-              ],
-            }),
           },
-          run.signal ?? new AbortController().signal,
-          () => {},
-          { linkWaitMs: MERGE_ENGINE_WAIT_MS },
+          (markStarted) =>
+            executor.run(
+              {
+                runId,
+                cwd: checkout.path,
+                command,
+                maxWorkers: train.reviewTest.maxWorkers,
+                timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
+                requireHeavyLock: true,
+                sandbox: this.deps.checkSandbox({
+                  checkout: checkout.path,
+                  gitDir: checkout.gitDir,
+                  userHome: paths.userHome,
+                  appHome: paths.home ?? undefined,
+                  closedTmpRoots: [
+                    ...paths.claudeTmpRoots,
+                    ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
+                  ],
+                }),
+              },
+              run.signal ?? new AbortController().signal,
+              markStarted,
+              { linkWaitMs: MERGE_ENGINE_WAIT_MS },
+            ),
         );
       } catch (err) {
         if (isEngineLinkLost(err)) throw err;
@@ -834,47 +850,63 @@ export class MergeTrains {
         const runId = newId('mergecheck');
         let started = false;
         let waitingForEngine = false;
-        const result = await executor.run(
+        const result = await recordMergeCheck(
+          ctx,
           {
-            runId,
-            cwd: checkout.path,
-            command: train.reviewTest.command,
+            id: runId,
+            projectKey: train.projectKey,
+            repo: train.repo,
+            kind: 'train',
+            trainId: train.id,
+            taskKeys: train.members.map((member) => member.taskKey),
+            commit: built.mergeCommit,
+            base: onto,
             maxWorkers: train.reviewTest.maxWorkers,
-            timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
-            requireHeavyLock: true,
-            sandbox: this.deps.checkSandbox({
-              checkout: checkout.path,
-              gitDir: checkout.gitDir,
-              userHome: paths.userHome,
-              appHome: paths.home ?? undefined,
-              closedTmpRoots: [
-                ...paths.claudeTmpRoots,
-                ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
-              ],
-            }),
           },
-          run.signal ?? new AbortController().signal,
-          () => {
-            if (started || run.signal?.aborted) return;
-            started = true;
-            ctx.unitOfWork(() => {
-              this.save(train, { step: 'checking' });
-              if (!waitingForEngine) this.patchMembers(train, { step: 'checking' });
-            });
-          },
-          {
-            linkWaitMs: MERGE_ENGINE_WAIT_MS,
-            onLinkWait: (waiting) => {
-              waitingForEngine = waiting;
-              if (
-                !run.signal?.aborted &&
-                !this.hooks.stopped() &&
-                ctx.repos.mergeTrains.get(train.id)?.state === 'running' &&
-                this.rows(train).every((row) => row.state === 'running')
-              )
-                this.patchMembers(train, { step: waiting ? 'engine_waiting' : train.step });
-            },
-          },
+          (markStarted) =>
+            executor.run(
+              {
+                runId,
+                cwd: checkout.path,
+                command: train.reviewTest.command,
+                maxWorkers: train.reviewTest.maxWorkers,
+                timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
+                requireHeavyLock: true,
+                sandbox: this.deps.checkSandbox({
+                  checkout: checkout.path,
+                  gitDir: checkout.gitDir,
+                  userHome: paths.userHome,
+                  appHome: paths.home ?? undefined,
+                  closedTmpRoots: [
+                    ...paths.claudeTmpRoots,
+                    ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
+                  ],
+                }),
+              },
+              run.signal ?? new AbortController().signal,
+              () => {
+                markStarted();
+                if (started || run.signal?.aborted) return;
+                started = true;
+                ctx.unitOfWork(() => {
+                  this.save(train, { step: 'checking' });
+                  if (!waitingForEngine) this.patchMembers(train, { step: 'checking' });
+                });
+              },
+              {
+                linkWaitMs: MERGE_ENGINE_WAIT_MS,
+                onLinkWait: (waiting) => {
+                  waitingForEngine = waiting;
+                  if (
+                    !run.signal?.aborted &&
+                    !this.hooks.stopped() &&
+                    ctx.repos.mergeTrains.get(train.id)?.state === 'running' &&
+                    this.rows(train).every((row) => row.state === 'running')
+                  )
+                    this.patchMembers(train, { step: waiting ? 'engine_waiting' : train.step });
+                },
+              },
+            ),
         );
         if (!(await this.checkpoint(run))) return;
         if (result.outcome === 'error' && result.reason === 'engine_offline')

@@ -1,5 +1,6 @@
 import { TaskKey } from '@projectman/shared';
 import { z } from 'zod';
+import { formatMergeChecks } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
 
 export const MERGE_TOOL_GROUP: TeamToolGroup = {
@@ -66,6 +67,53 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
         return moved
           ? `moved: ${args.task_key} merges next, after the one that runs now.`
           : `not moved: ${args.task_key} is first in the queue already.`;
+      },
+    }),
+    defineTool({
+      name: 'list_merge_checks',
+      title: 'List merge checks',
+      readOnly: true,
+      description:
+        "Read the project's recorded merge checks (the full check of a merge or of a merge train), newest first: " +
+        'the run time of the check, the workers it ran with, its scope and each step with its time and result ' +
+        '(a step taken from the cache is marked, not timed). The time is the check itself; the queue wait is ' +
+        'shown apart. A check recorded without a step report (an older engine) shows its steps as unknown. ' +
+        'Filter by card, outcome, kind or period; get_task shows the latest checks of one card.',
+      input: {
+        task_key: TaskKey.optional().describe('Only the checks that included this card.'),
+        outcome: z
+          .enum(['passed', 'not_passed', 'any'])
+          .default('any')
+          .describe('not_passed: failed, errored, cancelled or still running.'),
+        kind: z
+          .enum(['checks', 'merge', 'train', 'diagnose', 'any'])
+          .default('checks')
+          .describe(
+            'checks (default): the check of a single merge and of a train. diagnose is the per-card diagnosis ' +
+              'of a failed train, which runs only the failed files.',
+          ),
+        since: z
+          .string()
+          .datetime({ offset: true })
+          .optional()
+          .describe('Only checks requested at or after this time (ISO 8601 with a time zone).'),
+        until: z
+          .string()
+          .datetime({ offset: true })
+          .optional()
+          .describe('Only checks requested before this time (ISO 8601 with a time zone).'),
+        limit: z.number().int().min(1).max(100).default(30),
+      },
+      async run({ ctx, args, handler }) {
+        const list = await handler.listMergeChecks(ctx, {
+          taskKey: args.task_key,
+          outcome: args.outcome,
+          kind: args.kind,
+          since: args.since,
+          until: args.until,
+          limit: args.limit,
+        });
+        return formatMergeChecks(list);
       },
     }),
   ],

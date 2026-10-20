@@ -348,6 +348,11 @@ describe('history index', () => {
         'history_searches',
         'operator_signal_arms',
         'obligations',
+        'merge_check_run_tasks',
+        'merge_check_runs',
+        'web_push_devices',
+        'web_push_settings',
+        'web_push_items',
       ])
         old.exec(`DROP TABLE ${table}`);
       // The hot read indexes (migration 91) do not exist at version 83 either; migrating recreates them.

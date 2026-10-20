@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { StageId } from './pipeline';
 import { MemberHandle } from './member';
+import { MergeTestReport } from './merge-test';
 
 export const MERGE_ENGINE_WAIT_MINUTES = 15;
 
@@ -124,3 +125,39 @@ export const TaskMerged = z.object({
   pullRequests: z.array(z.object({ number: z.number().int(), url: z.string() })).optional(),
 });
 export type TaskMerged = z.infer<typeof TaskMerged>;
+
+export const MergeCheckRunKind = z.enum(['merge', 'train', 'diagnose']);
+export type MergeCheckRunKind = z.infer<typeof MergeCheckRunKind>;
+export const MergeCheckRunStatus = z.enum(['running', 'passed', 'failed', 'error', 'cancelled']);
+export type MergeCheckRunStatus = z.infer<typeof MergeCheckRunStatus>;
+/**
+ * One merge check as the hub measured it (PM-876): a single card's merge, a train's group check or a
+ * train member's diagnosis. `report` null means unknown: the engine sent no step report.
+ */
+export const MergeCheckRun = z.object({
+  /** The full test run id (`mergecheck_…`). */
+  id: z.string(),
+  projectKey: z.string(),
+  repo: z.string(),
+  kind: MergeCheckRunKind,
+  trainId: z.string().nullable(),
+  /** In train order. */
+  taskKeys: z.array(z.string()).min(1),
+  /** The checked merge commit. */
+  commit: z.string(),
+  /** What it was built onto. */
+  base: z.string().nullable(),
+  status: MergeCheckRunStatus,
+  /** `FullTestErrorReason`, `interrupted`, or null. */
+  reason: z.string().nullable(),
+  /** The worker count the hub passed to the executor. */
+  maxWorkers: z.number().int(),
+  requestedAt: z.string(),
+  /** The heavy-run queue's turn came: requested → started is the wait. */
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  /** The executor's own time; it starts after the queue wait. */
+  durationMs: z.number().int().nullable(),
+  report: MergeTestReport.nullable(),
+});
+export type MergeCheckRun = z.infer<typeof MergeCheckRun>;

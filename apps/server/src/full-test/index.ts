@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
+import { mergeTestReport } from '@projectman/shared';
 import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
@@ -263,6 +264,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         spec.runId,
         logger,
       );
+      const commandStarted = Date.now();
       const ended = await execute(
         paths,
         spec,
@@ -272,12 +274,15 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         paths.settings,
         cache?.passedKeysFile,
       );
+      const commandMs = Date.now() - commandStarted;
       await cache?.record(ended.output);
       const durationMs = Date.now() - started;
-      if (ended.aborted) return failure('killed', started, ended.output);
+      // The command ran: what it measured stays, even when it was stopped (PM-876).
+      const report = mergeTestReport(ended.output, commandMs);
+      if (ended.aborted) return { ...failure('killed', started, ended.output), report };
       if (ended.spawnError) return failure('spawn_failed', started, ended.output);
-      if (ended.timedOut) return failure('timeout', started, ended.output);
-      if (ended.signal) return failure('killed', started, ended.output);
+      if (ended.timedOut) return { ...failure('timeout', started, ended.output), report };
+      if (ended.signal) return { ...failure('killed', started, ended.output), report };
       if (ended.exitCode === 0)
         return {
           outcome: 'passed',
@@ -285,6 +290,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
           durationMs,
           failedFiles: [],
           outputTail: passedOutputTail(ended.output),
+          report,
         };
       return {
         outcome: 'failed',
@@ -292,6 +298,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         durationMs,
         failedFiles: failedFiles(ended.output),
         outputTail: failureReport(ended.output),
+        report,
       };
     } catch (err) {
       logger.warn({ err, runId: spec.runId }, 'the full test run failed to start');

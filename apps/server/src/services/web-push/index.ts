@@ -291,7 +291,7 @@ export function createWebPushService(opts: WebPushOptions) {
           )
             return false;
           if (!skip && window.quiet) {
-            repo.saveSettings(user.id, settings, time.toISOString());
+            repo.saveSettings(user.id, settings, time.toISOString(), true);
             repo.setDue(user.id, window.endsAt, true);
           }
           return true;

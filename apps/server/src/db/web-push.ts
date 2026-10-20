@@ -95,9 +95,9 @@ export function createWebPushRepository(db: Db) {
       ).run(now, keyId);
     },
     recordResult(row: PushDeviceRecord, outcome: PushSendOutcome, now: string) {
-      // A response to an old subscription must not expire a newly registered subscription.
+      // Match subscription credentials, not the timestamp another delivery or pause can change.
       db.prepare(
-        `UPDATE web_push_devices SET last_sent_at = ?, last_result = ?, last_failure = ?, updated_at = ?, state = ?, endpoint = ?, p256dh = ?, auth = ? WHERE id = ? AND updated_at = ?`,
+        `UPDATE web_push_devices SET last_sent_at = ?, last_result = ?, last_failure = ?, updated_at = ?, state = ?, endpoint = ?, p256dh = ?, auth = ? WHERE id = ? AND user_id = ? AND vapid_key_id = ? AND endpoint IS ? AND p256dh IS ? AND auth IS ? AND state = 'active'`,
       ).run(
         now,
         outcome.result,
@@ -108,7 +108,11 @@ export function createWebPushRepository(db: Db) {
         outcome.result === 'expired' ? null : row.p256dh,
         outcome.result === 'expired' ? null : row.auth,
         row.id,
-        row.updated_at,
+        row.user_id,
+        row.vapid_key_id,
+        row.endpoint,
+        row.p256dh,
+        row.auth,
       );
     },
     settings(userId: string): PushSettings {
@@ -133,10 +137,10 @@ export function createWebPushRepository(db: Db) {
           })
         : structuredClone(DEFAULT_PUSH_SETTINGS);
     },
-    saveSettings(userId: string, settings: PushSettings, now: string) {
+    saveSettings(userId: string, settings: PushSettings, now: string, onlyIfMissing = false) {
       const q = settings.quietHours;
       db.prepare(
-        `INSERT INTO web_push_settings (user_id, categories, quiet_enabled, quiet_start, quiet_end, time_zone, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET categories = excluded.categories, quiet_enabled = excluded.quiet_enabled, quiet_start = excluded.quiet_start, quiet_end = excluded.quiet_end, time_zone = excluded.time_zone, updated_at = excluded.updated_at`,
+        `INSERT INTO web_push_settings (user_id, categories, quiet_enabled, quiet_start, quiet_end, time_zone, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO ${onlyIfMissing ? 'NOTHING' : 'UPDATE SET categories = excluded.categories, quiet_enabled = excluded.quiet_enabled, quiet_start = excluded.quiet_start, quiet_end = excluded.quiet_end, time_zone = excluded.time_zone, updated_at = excluded.updated_at'}`,
       ).run(userId, JSON.stringify(settings.categories), +q.enabled, q.start, q.end, q.timeZone, now);
     },
     setDue(userId: string, due: string | null, onlyEmpty = false) {

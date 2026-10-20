@@ -319,6 +319,7 @@ import { t } from '../i18n/t';
 import { MockEmailLogin } from './email-login';
 import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
+import { MockPush } from './push';
 import { mockId, mockUuid, nowIso } from './time';
 
 export type MockAuthState = 'ready' | 'setup' | 'login';
@@ -569,6 +570,8 @@ export class MockBackend {
     addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
     emit: (event) => this.emit(event),
   });
+  /** The viewer's web push devices and settings (PM-815); a test fills the device list. */
+  readonly push = new MockPush();
   /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
   operatorRequests: OperatorRequestView[] = [];
   operatorKnowledge: OperatorKnowledgeDocument = {
@@ -1869,6 +1872,11 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/me/push' || path.startsWith('/api/me/push/'))
+      return (
+        this.push.handle(method, path.slice('/api/me/push'.length), body) ??
+        error(404, 'not_found', 'Unknown route')
+      );
     if (path === '/api/auth/integrator-keys' || path.startsWith('/api/auth/integrator-keys/')) {
       if (this.integratorMode) {
         const verdict = superAccessVerdict(this.config, {

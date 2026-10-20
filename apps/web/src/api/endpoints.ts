@@ -1,4 +1,8 @@
 import {
+  PushDeviceView,
+  PushOverview,
+  PushSettings,
+  SubscribePushRequest,
   IntegratorAccessKeysResponse,
   IntegratorAccessKeyResponse,
   CreatedIntegratorAccessKey,
@@ -117,6 +121,19 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  /** Web push (PM-815): the signed-in person's own devices and settings. */
+  push: () => apiRequest(routes.push(), { schema: PushOverview }),
+  savePushSettings: (body: PushSettings) =>
+    apiRequest(routes.pushSettings(), { method: 'PUT', body, schema: PushSettings }),
+  subscribePush: (body: SubscribePushRequest) =>
+    apiRequest(routes.pushDevices(), { method: 'POST', body, schema: PushDeviceView }),
+  setPushDeviceEnabled: (id: string, enabled: boolean) =>
+    apiRequest(routes.pushDevice(id), { method: 'PATCH', body: { enabled }, schema: PushDeviceView }),
+  removePushDevice: (id: string) => apiRequest<null>(routes.pushDevice(id), { method: 'DELETE' }),
+  testPushDevice: (id: string) =>
+    apiRequest(routes.pushDeviceTest(id), { method: 'POST', body: {}, schema: PushDeviceView }),
+  unsubscribePush: (endpoint: string) =>
+    apiRequest<null>(routes.pushUnsubscribe(), { method: 'POST', body: { endpoint } }),
   superHandoff: (key: string, id: string) =>
     apiRequest(routes.superHandoff(key, encodeURIComponent(id)), { schema: SuperHandoffDetail }),
   superOperation: (key: string, id: string) =>

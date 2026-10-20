@@ -55,6 +55,7 @@ import { errorMessage } from '../../lib/errors';
 import { refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { PushNudge } from '../notifications/PushNudge';
 import { DrawerBaseContext } from '../board/drawerBase';
 import type { DrawerBase } from '../board/drawerBase';
 import { moveErrorText } from '../board/moveTask';
@@ -244,7 +245,7 @@ export function InboxPage() {
   useDocumentTitle(t('inbox.title'), board.data?.project.name);
 
   const items = inbox.data?.items;
-  const { hash } = useLocation();
+  const { hash, search } = useLocation();
   useEffect(() => {
     if (!hash.startsWith('#inbox-item-')) return;
     const target = document.getElementById(hash.slice(1));
@@ -253,6 +254,19 @@ export function InboxPage() {
     target.tabIndex = -1;
     target.focus({ preventScroll: true });
   }, [hash, items]);
+
+  // A tap on a push notification (PM-815) opens `…/inbox?via=push#inbox-item-<id>`; when that item has been
+  // handled in the meantime (by someone else, or on another device) the person is told, once, why it is not open.
+  const viaPush = new URLSearchParams(search).get('via') === 'push';
+  const announcedPush = useRef<string | null>(null);
+  useEffect(() => {
+    if (!viaPush || !hash.startsWith('#inbox-item-') || !items || inbox.isFetching) return;
+    if (announcedPush.current === hash) return;
+    announcedPush.current = hash;
+    const itemId = hash.slice('#inbox-item-'.length);
+    const item = items.find((candidate) => candidate.id === itemId);
+    if (!item || item.state !== 'open') toast.show(t('notifications.alreadyHandled'), 'info');
+  }, [viaPush, hash, items, inbox.isFetching, toast]);
   const mine = useMemo(
     () =>
       newestFirst(
@@ -506,6 +520,7 @@ export function InboxPage() {
                 : t('inbox.subtitle')
           }
         />
+        <PushNudge />
         {isMobile || mine.length === 0 ? null : (
           <SegmentedControl<KindFilter>
             label={t('inbox.filtersLabel')}

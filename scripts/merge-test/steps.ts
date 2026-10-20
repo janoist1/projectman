@@ -9,8 +9,20 @@ import {
 } from '@projectman/shared';
 import { stripAnsi, vitestFailedFiles } from '../../apps/server/src/full-test/output';
 
-/** One command of the merge check (not a contract): `kind` tells the rerun rule what it may do. */
-export type MergeTestStep = { kind: 'typecheck' | 'test'; workspace: string; args: string[] };
+/**
+ * One command of the merge check (not a contract): `kind` tells the rerun rule what it may do. `index` is
+ * the step's place in the whole list when a shard runs only some of them (the timing line carries it).
+ */
+export type MergeTestStep = { kind: 'typecheck' | 'test'; workspace: string; args: string[]; index?: number };
+
+/** The `k`th of `count` shards of one merge check (`--shard k/n`), `index` counted from 1. */
+export interface MergeTestShard {
+  index: number;
+  count: number;
+}
+
+/** The most shards a merge check is split into. */
+export const MERGE_TEST_SHARDS_MAX = 8;
 
 /** The workspaces of the repository, in the order the full run checks them. */
 export const MERGE_TEST_WORKSPACES = [
@@ -108,6 +120,21 @@ export function testStep(workspace: string, files?: readonly string[], ifPresent
   };
 }
 
+/**
+ * The steps one shard runs: the type checks are dealt round-robin by their order among the type checks,
+ * and every test step runs on every shard with vitest's own `--shard` (a shard may hold no file of a
+ * workspace, which `--passWithNoTests` allows). Each step keeps its place in the whole list.
+ */
+export function shardSteps(steps: readonly MergeTestStep[], shard: MergeTestShard): MergeTestStep[] {
+  let typechecks = 0;
+  return steps.flatMap((step, index) => {
+    if (step.kind === 'typecheck')
+      return typechecks++ % shard.count === shard.index - 1 ? [{ ...step, index }] : [];
+    const flags = [`--shard=${shard.index}/${shard.count}`, '--passWithNoTests'];
+    return [{ ...step, index, args: [...step.args, ...(step.args.includes('--') ? [] : ['--']), ...flags] }];
+  });
+}
+
 /** The workspace a repository path belongs to, or undefined. */
 export function workspaceOf(path: string): string | undefined {
   return MERGE_TEST_WORKSPACES.find((workspace) => path.startsWith(`${workspace}/`));
@@ -194,7 +221,8 @@ export async function runSteps(steps: readonly MergeTestStep[], deps: MergeTestD
     deps.log(line);
   };
   try {
-    for (const [index, step] of steps.entries()) {
+    for (const [position, step] of steps.entries()) {
+      const index = step.index ?? position;
       const key = mergeTestStepKey(deps.tree, step.args);
       if (cached.has(key)) {
         deps.log(`merge-test cached: npm ${step.args.join(' ')}`);

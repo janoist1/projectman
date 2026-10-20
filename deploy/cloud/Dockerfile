@@ -5,8 +5,10 @@
 #   docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION=$(git rev-parse HEAD) -t projectman-cloud .
 #
 # Deliberately NOT in this image: the `claude`, `codex` and `gh` CLIs. The cloud runs no AI session
-# and no machine-dependent part; the engine on the owner's Mac does (docs/ARCHITECTURE.md,
-# "Machine-dependent parts"). `git` IS here: the customization repository (config/git.ts) runs it.
+# and no machine-dependent part but one: the history search's local embedding (PM-767) is the server's own
+# worker thread over the history in this database, so it runs here (docs/ARCHITECTURE.md, "Machine-dependent
+# parts"); the rest is the engine's on the owner's Mac. `git` IS here: the customization repository
+# (config/git.ts) runs it.
 
 ARG NODE_IMAGE=node:22-bookworm-slim
 
@@ -29,7 +31,9 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/templates/package.json packages/templates/
 RUN npm ci
 COPY . .
-RUN npm run build && npm prune --omit=dev
+# The pinned embedding model of the history search (PM-767), fetched and hash-checked here; `npm run build` copies
+# it to apps/server/dist/models/history. The runtime never downloads anything.
+RUN npm run prepare:history-model && npm run build && npm prune --omit=dev
 
 # ---- runtime ----
 FROM ${NODE_IMAGE} AS runtime

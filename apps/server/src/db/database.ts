@@ -17,6 +17,19 @@ export function openDatabase(path: string): Db {
 }
 
 /**
+ * Opens a second connection to the runtime database for a worker thread (PM-767): it never migrates, and gives up
+ * quickly on a lock so it does not hold the server's writes back. The caller checks `schemaVersion` first.
+ */
+export function openAuxiliaryDatabase(path: string): Db {
+  const db = new Database(path);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 50');
+  db.pragma('cache_size = -8192');
+  return db;
+}
+
+/**
  * Applies every migration newer than `PRAGMA user_version`; returns the resulting version.
  * A database written by a newer build is refused: this build would misread it.
  */

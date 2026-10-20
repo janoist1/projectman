@@ -65,7 +65,7 @@ describe('the history tools of a member (PM-787)', () => {
       expect(HistorySearchResult.parse(result)).toEqual(result);
       expect(result.projectKey).toBe('AR');
       expect(result.matches.map((match) => match.excerpt)).toEqual(['Checkout redesign The basket page']);
-      expect(result).toEqual(h.domain.history.search('AR', as('dev-1'), { query: 'checkout' }));
+      expect(result).toEqual(await h.domain.history.search('AR', as('dev-1'), { query: 'checkout' }));
     });
 
     it('refuses another project, also for the same handle, and an unknown one the same way', async () => {
@@ -96,7 +96,11 @@ describe('the history tools of a member (PM-787)', () => {
         { actor: OWNER_ACTOR },
       );
       h.domain.history.flush();
-      const owner = h.domain.history.search('AR', { handle: 'owner', access: 'owner' }, { query: 'budget' });
+      const owner = await h.domain.history.search(
+        'AR',
+        { handle: 'owner', access: 'owner' },
+        { query: 'budget' },
+      );
       const sourceId = owner.matches[0]!.sourceId;
       // A third party's message is no hit for the AI member, and its id opens nothing.
       expect((await search({ query: 'budget' })).matches).toEqual([]);
@@ -191,7 +195,7 @@ describe('the history tools of a member (PM-787)', () => {
       expect(found.matches.map((match) => match.excerpt)).toEqual(['Shared page']);
       // The record names the guest, not the Operator.
       expect(rows().map((row) => [row.member, row.via])).toEqual([['acme', null]]);
-      expect(found).toEqual(h.domain.history.search('AR', as('acme'), { query: 'page' }));
+      expect(found).toEqual(await h.domain.history.search('AR', as('acme'), { query: 'page' }));
     });
 
     it('lets a guest who left the team find nothing and records nothing', async () => {
@@ -261,7 +265,7 @@ describe('the history tools of a member (PM-787)', () => {
       };
       await tools().searchHistory(dev, input);
       tick();
-      h.domain.history.search('AR', { handle: 'owner', access: 'owner', via: 'integrator' }, input);
+      await h.domain.history.search('AR', { handle: 'owner', access: 'owner', via: 'integrator' }, input);
       const [native, integrator] = rows();
       expect(integrator!.filters).toBe(native!.filters);
       expect(JSON.parse(native!.filters)).toEqual({
@@ -278,8 +282,10 @@ describe('the history tools of a member (PM-787)', () => {
       await refusal(search({ query: '   ' }));
       await refusal(search({ query: 'checkout', taskKey: 'AR-999' }));
       await refusal(tools().searchHistory(dev, { query: 'checkout', projectKey: 'BR' }));
-      expect(() => h.domain.history.search('AR', as('nobody'), { query: 'checkout' })).toThrow();
-      expect(() => h.domain.history.search('AR', as('dev-1'), { query: 'checkout', limit: 0 })).toThrow();
+      await expect(h.domain.history.search('AR', as('nobody'), { query: 'checkout' })).rejects.toThrow();
+      await expect(
+        h.domain.history.search('AR', as('dev-1'), { query: 'checkout', limit: 0 }),
+      ).rejects.toThrow();
       await refusal(tools().readHistorySource(dev, { sourceId: 'msg_missing' }));
       expect(rows()).toEqual([]);
       await search({ query: 'checkout' });
@@ -347,6 +353,8 @@ describe('the history tools of a member (PM-787)', () => {
         hasMore: false,
         outcome: 'ok',
         errorCode: null,
+        semanticStatus: 'not_run',
+        semanticDurationMs: null,
         ...extra,
       });
     const ids = () => rows().map((row) => row.id);
@@ -400,20 +408,22 @@ describe('the history tools of a member (PM-787)', () => {
 
     it('counts per member, leaves a failed search out of the rates, and lists the zero results newest first', async () => {
       await card('Checkout redesign');
-      const as1 = (query: string, viewer = 'dev-1') => {
+      const as1 = async (query: string, viewer = 'dev-1') => {
         tick();
-        h.domain.history.search('AR', as(viewer), { query });
+        await h.domain.history.search('AR', as(viewer), { query });
       };
-      as1('checkout');
-      as1('no such thing one');
-      as1('checkout');
-      as1('no such thing two', 'admin');
-      as1('checkout', 'admin');
+      await as1('checkout');
+      await as1('no such thing one');
+      await as1('checkout');
+      await as1('no such thing two', 'admin');
+      await as1('checkout', 'admin');
       tick();
       vi.spyOn(h.repos.history, 'scan').mockImplementationOnce(() => {
         throw new Error('broke');
       });
-      expect(() => h.domain.history.search('AR', as('dev-1'), { query: 'checkout' })).toThrow('broke');
+      await expect(h.domain.history.search('AR', as('dev-1'), { query: 'checkout' })).rejects.toThrow(
+        'broke',
+      );
 
       const result = stats();
       expect(result.totalSearches).toBe(5);
@@ -432,10 +442,10 @@ describe('the history tools of a member (PM-787)', () => {
       expect(result.nextCursor).toBeNull();
     });
 
-    it('pages the zero results with a cursor and keeps the aggregate whole on every page', () => {
+    it('pages the zero results with a cursor and keeps the aggregate whole on every page', async () => {
       for (const query of ['zero a', 'zero b', 'zero c']) {
         tick();
-        h.domain.history.search('AR', as('dev-1'), { query });
+        await h.domain.history.search('AR', as('dev-1'), { query });
       }
       const first = stats({ limit: 2 });
       expect(first.zeroResults.map((entry) => entry.query)).toEqual(['zero c', 'zero b']);
@@ -448,13 +458,13 @@ describe('the history tools of a member (PM-787)', () => {
       }
     });
 
-    it('bounds the period by since and until, and one member by the member filter', () => {
+    it('bounds the period by since and until, and one member by the member filter', async () => {
       const start = clock.toISOString();
-      h.domain.history.search('AR', as('dev-1'), { query: 'zero a' });
+      await h.domain.history.search('AR', as('dev-1'), { query: 'zero a' });
       tick(DAY);
-      h.domain.history.search('AR', as('admin'), { query: 'zero b' });
+      await h.domain.history.search('AR', as('admin'), { query: 'zero b' });
       tick(DAY);
-      h.domain.history.search('AR', as('dev-1'), { query: 'zero c' });
+      await h.domain.history.search('AR', as('dev-1'), { query: 'zero c' });
       expect(stats({ since: start, until: start }).totalSearches).toBe(1);
       expect(stats({ member: 'admin' })).toMatchObject({
         totalSearches: 1,

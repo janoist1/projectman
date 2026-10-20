@@ -52,6 +52,7 @@ import { createAttachmentStorage, createMessageAttachmentStorage } from './core/
 import { createDomain } from './assembly';
 import { createEventBus } from './core/base';
 import { freeBytesOf, resolveWorkRoots } from './engine-host';
+import { createHistorySemanticPort } from './history-semantic';
 import { readHeavyRunSessions } from './full-test';
 import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
@@ -316,6 +317,11 @@ export interface BuildAppOptions {
    * (PM-219): the team is paused first. Default `APP_DEFAULTS.shutdownPauseMs`; 0 switches the pause off.
    */
   shutdownPauseMs?: number;
+  /**
+   * The local embedding of the history search (PM-767, `history-semantic`): on with the pinned model's directory.
+   * Absent (tests): the history search uses the words only.
+   */
+  historySemantic?: { enabled: boolean; modelDirectory: string; minCosine?: number };
   /** Opens `${home}/control.sock` for the control command (PM-219); default true, never for a standby copy. */
   controlSocket?: boolean;
 }
@@ -482,7 +488,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       (engineRegistry?.list() ?? [])
         .filter((engine) => !engine.revokedAt)
         .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt }));
+    // The history's local embedding (PM-767): its own worker thread on its own connection of the database file.
+    const historySemantic = createHistorySemanticPort({
+      databasePath: options.dbPath ?? join(home, 'db.sqlite'),
+      modelDirectory: options.historySemantic?.modelDirectory ?? '',
+      enabled: options.historySemantic?.enabled === true && !standby,
+      ...(options.historySemantic?.minCosine !== undefined
+        ? { minCosine: options.historySemantic.minCosine }
+        : {}),
+      logger: log.child({ module: 'history-semantic' }),
+    });
     const domain = createDomain({
+      historySemantic,
       integratorCredentials: auth,
       revokeIntegratorAccessKey: (userId, keyId) => auth.revokeIntegratorAccessKey(userId, keyId),
       operatorGrants: auth.operatorGrantGate,

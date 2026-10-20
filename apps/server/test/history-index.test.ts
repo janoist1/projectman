@@ -63,7 +63,7 @@ describe('history index', () => {
     expect(h.repos.history.dirtyCount()).toBe(0);
     // A project that was empty at start has no checkpoint yet: the first call marks it complete.
     expect(h.repos.history.indexState('AR')).toBeNull();
-    expect(h.domain.history.search('AR', OWNER, { query: 'alpaca' }).matches).toHaveLength(2);
+    expect((await h.domain.history.search('AR', OWNER, { query: 'alpaca' })).matches).toHaveLength(2);
     expect(h.repos.history.indexState('AR')).toMatchObject({
       complete: true,
       version: HISTORY_INDEX_VERSION,
@@ -340,6 +340,10 @@ describe('history index', () => {
         .all() as Array<{ name: string }>)
         old.exec(`DROP TRIGGER ${row.name}`);
       for (const table of [
+        'history_semantic_chunks',
+        'history_semantic_sources',
+        'history_semantic_dirty',
+        'history_semantic_state',
         'history_fts',
         'history_documents',
         'history_dirty',
@@ -379,16 +383,16 @@ describe('history index', () => {
         complete: true,
         version: HISTORY_INDEX_VERSION,
       });
-      const find = (query: string) =>
-        h!.domain.history.search('AR', OWNER, { query }).matches.map((hit) => hit.sourceType);
-      expect(find('heirloom')).toEqual(expect.arrayContaining(['task', 'note', 'message', 'question']));
+      const find = async (query: string) =>
+        (await h!.domain.history.search('AR', OWNER, { query })).matches.map((hit) => hit.sourceType);
+      expect(await find('heirloom')).toEqual(expect.arrayContaining(['task', 'note', 'message', 'question']));
       // The label comment is a note of the card like any other.
       expect(
-        h.domain.history
-          .search('AR', OWNER, { query: 'heirloom label comment' })
-          .matches.map((hit) => hit.sourceType),
+        (await h.domain.history.search('AR', OWNER, { query: 'heirloom label comment' })).matches.map(
+          (hit) => hit.sourceType,
+        ),
       ).toContain('note');
-      expect(find('heirloom').filter((type) => type === 'note')).toHaveLength(2);
+      expect((await find('heirloom')).filter((type) => type === 'note')).toHaveLength(2);
       expect(h.repos.history.dirtyCount()).toBe(0);
       expect(as('owner').handle).toBe('owner');
     });
@@ -434,7 +438,7 @@ describe('history index', () => {
     await h.domain.tasks.create('AR', { title: 'Shared database card' }, OWNER_ACTOR);
     const { service } = await ownService(h);
     await service.init();
-    expect(service.search('AR', OWNER, { query: 'shared' }).matches).toHaveLength(1);
+    expect((await service.search('AR', OWNER, { query: 'shared' })).matches).toHaveLength(1);
     await service.stop();
   });
 });

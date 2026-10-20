@@ -1,3 +1,4 @@
+import type { HistorySemanticStatus } from '@projectman/shared';
 import type { Db } from './database';
 
 /** One measured search (PM-787): who asked what, with which filters, and how it ended. Never a hit's text. */
@@ -16,6 +17,10 @@ export interface HistorySearchRecord {
   hasMore: boolean | null;
   outcome: 'ok' | 'error';
   errorCode: string | null;
+  /** How the semantic part ended (PM-767); a record of a search that never asked it is `not_run`. */
+  semanticStatus: HistorySemanticStatus;
+  /** How long the semantic part took; null when it did not run. */
+  semanticDurationMs: number | null;
 }
 
 /** The period and the member the statistics are read for; both ends are inclusive UTC ISO times. */
@@ -43,6 +48,8 @@ interface SearchRow {
   has_more: number | null;
   outcome: string;
   error_code: string | null;
+  semantic_status: string;
+  semantic_duration_ms: number | null;
 }
 
 const toRecord = (r: SearchRow): HistorySearchRecord => ({
@@ -57,6 +64,8 @@ const toRecord = (r: SearchRow): HistorySearchRecord => ({
   hasMore: r.has_more === null ? null : r.has_more === 1,
   outcome: r.outcome === 'error' ? 'error' : 'ok',
   errorCode: r.error_code,
+  semanticStatus: r.semantic_status as HistorySemanticStatus,
+  semanticDurationMs: r.semantic_duration_ms,
 });
 
 /**
@@ -67,8 +76,10 @@ export function createHistorySearchRepository(db: Db) {
   const statements = {
     insert: db.prepare(
       `INSERT INTO history_searches
-         (id, at, member, project_key, via, query, filters, result_count, has_more, outcome, error_code)
-       VALUES (@id, @at, @member, @projectKey, @via, @query, @filters, @resultCount, @hasMore, @outcome, @errorCode)`,
+         (id, at, member, project_key, via, query, filters, result_count, has_more, outcome, error_code,
+          semantic_status, semantic_duration_ms)
+       VALUES (@id, @at, @member, @projectKey, @via, @query, @filters, @resultCount, @hasMore, @outcome, @errorCode,
+          @semanticStatus, @semanticDurationMs)`,
     ),
     purge: db.prepare('DELETE FROM history_searches WHERE at < ?'),
     failed: db.prepare(

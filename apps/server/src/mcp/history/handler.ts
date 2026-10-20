@@ -81,7 +81,7 @@ export class HistoryTools implements HistoryToolsHandler {
     const { projectKey: requested, ...input } = args;
     const { projectKey, viewer } = await this.viewerOf(ctx, 'search_history', requested);
     try {
-      return this.history.search(projectKey, viewer, input);
+      return await this.history.search(projectKey, viewer, input);
     } catch (err) {
       throw historyToolError(err);
     }

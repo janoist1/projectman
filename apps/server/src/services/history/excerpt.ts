@@ -61,6 +61,16 @@ export interface Excerpt {
 const collapse = (text: string) => text.replace(/\s+/g, ' ').trim();
 
 /**
+ * The excerpt of a hit found by meaning (PM-767): the chunk that was nearest to the question, as plain text of at
+ * most `HISTORY_EXCERPT_MAX_CHARS` characters. The offsets are UTF-16 offsets into the text the chunk was cut from.
+ */
+export function chunkExcerpt(text: string, startChar: number, endChar: number): string {
+  const chars = Array.from(collapse(text.slice(startChar, endChar)));
+  const max = HISTORY_EXCERPT_MAX_CHARS;
+  return chars.length <= max ? chars.join('') : `${chars.slice(0, max - 1).join('').trimEnd()}${ELLIPSIS}`;
+}
+
+/**
  * A plain-text excerpt of at most `HISTORY_EXCERPT_MAX_CHARS` characters around the first match in the body.
  * A match in the title (or none in the body) starts the excerpt at the title, or at the top of the body when
  * there is no title. It is cut from the text the viewer may read only.

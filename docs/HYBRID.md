@@ -466,6 +466,97 @@ snapshot can include that; `ready` and `start` are read before any snapshot, and
 the heap during the load. Compare variants of one run (no limit, `--heap-limit-mb`, `--env MALLOC_ARENA_MAX=2`)
 with each other, not with the live container.
 
+## History semantic profile
+
+`deploy/cloud/history-semantic-profile.mjs` (PM-910, the release check of PM-767) proves, before the cloud
+turns the local embedding of `search_history` on, that the server with the embedding fits a 2 GiB ARM64
+machine. It reuses the PM-773 tools (`memory-probe.mjs` as the preload, and `buildServerEnv` / `buildNodeArgs`
+of `memory-profile.mjs`) and changes nothing in the server's runtime or in any contract. **The cloud stays
+`PROJECTMAN_HISTORY_SEMANTIC=off` until a report of this tool passes; turning it on is a separate decision of the
+owner.** This tool and its tests set no live environment variable.
+
+```sh
+docker run --rm --network none --memory 2g --memory-swap 2g -v <out>:/out -v <fixture.json>:/in/fixture.json:ro \
+  --entrypoint node <image> /app/deploy/cloud/history-semantic-profile.mjs \
+  --server /app/apps/server/dist/history-semantic-profile.js --model-dir /app/apps/server/dist/models/history \
+  --fixture /in/fixture.json --out /out/profile [--mixed-seconds 600]
+```
+
+(`--memory-swap` equal to `--memory` means no swap; the tool refuses a machine where `memory.swap.max` is not 0.
+The image runs as uid 10001, so `<out>` must be writable by it.
+Set `PROJECTMAN_IMAGE_DIGEST=sha256:<digest>` for the report; `PROJECTMAN_VERSION` is the image's own.)
+
+**What it runs.** The built server, in fresh processes, over a disposable home under `--out` (owner-only) with a
+synthetic login. The bundle `dist/history-semantic-profile.js` is the normal server plus one loopback listener with
+a one-time secret that calls the same `HistoryService.search` the MCP tool calls (the search has no other entry
+without a member's CLI session); `dist/index.js` never loads it. No real member CLI, live token or live instance
+is used, and the tool counts any connection to a peer that is not this machine as a failure. A preparation
+server in the single-machine mode (a cloud server makes a project only through a connected engine) makes the
+owner and project and seeds the fixture, and its text index is built before the copy of the home every run starts
+from, so the baseline and the semantic run begin from the same database. Then:
+
+| phase       | what it is                                                                                          |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| `off`       | server with `PROJECTMAN_HISTORY_SEMANTIC=off`, at least 60 s of the load below (the baseline)       |
+| `cold_load` | server with `on`: process start until the worker's "semantic history search is ready" line          |
+| `backfill`  | until the embedding index is complete                                                               |
+| `warm`      | three passes of the fixture's questions and negative controls (the recall is read from the first)   |
+| `mixed`     | at least 10 minutes (`--mixed-seconds`) of the load, searches and new cards for background indexing |
+| `restart`   | a burst of new cards, a SIGKILL while indexing, a restart, the index completes, a question pass     |
+| `off_again` | `off` again over the same home, to see what the embedding left behind                               |
+
+The load is the web app's reads in three parallel loops (`/api/me`, projects, board, tasks, inbox, team
+threads, involvements), one search every 2 s and three new cards every 10 s; the `off`, `mixed` and `off_again`
+phases run the same load. Every phase also takes the process's and the cgroup's memory every 250 ms
+(`/proc/<pid>/status`, cgroup v2 `memory.current`, `memory.peak`, `memory.events` `oom_kill`, `memory.swap.current`)
+and the event-loop delay from the probe.
+
+**The frame** (outside it the outcome is `fail`, exit 1): the embedding's extra RSS (the highest RSS of the
+of `cold_load` to `restart`, minus the baseline's) at most 350 MiB; the server's RSS peak at most 1200 MiB in every
+phase; the cgroup peak at most 1536 MiB; no OOM kill and no swap; every question of the `warm` and `mixed` phases
+at most 2 s; the control HTTP p95 of the `mixed` phase
+at most the baseline's plus max(20 %, 50 ms); at least 15 of 20 questions with the target in the top 10 and the
+negative controls unchanged; a fallback to the word search is not a semantic success (`semanticUsed` counts the
+searches whose status was `used`). Without the machine (not Linux ARM64, not cgroup v2 with `memory.max` up to
+2 GiB and no swap, or no `manifest.json` in the model folder) the tool writes an `unsupported` report and exits 78.
+A bad parameter, an unsafe or non-empty `--out` or a bad fixture exits 64 before anything starts.
+
+**The fixture** is a JSON file the owner of the check provides, and its origin is stated in it:
+`{ schemaVersion: 1, origin, project: { key }, sources: [{ id, type, title, body, path? }], questions:
+[{ question, targetId }] (at least 20, reworded so the words alone do not find the target), negatives:
+[{ question }] }`, with source types `task`, `note`, `question`, `message` and `document` (the path is one of
+`docs/DECISIONS.md`, `docs/LESSONS.md`). Use a synthetic corpus of about the size of the real history (a copy of
+the cloud's history is the better one and stays on the machine, never in a card). Interpretations the tool makes:
+_unchanged negative controls_ means no hit of a control got on the list by meaning alone (`matchType` `semantic`);
+`eventLoopP95Ms` of a phase is the highest p95 of one probe interval in it; where the kernel cannot reset
+`VmHWM` or `memory.peak` (before 6.12) a phase's peak is the highest sample instead, and the report's markdown
+says which; the SIGKILL of the `restart` phase hits the indexing at an unknown point, and the markdown records
+whether the index was incomplete when it came.
+
+**The report** is `report.json` (exactly: `schemaVersion`, `sourceVersion`, `imageDigest`, `platform`, `arch`,
+`nodeVersion`, `modelIndexKey`, `memoryLimitBytes`, `swapLimitBytes`, `corpus` (`sources`, `chunks`,
+`inputBytes`, `origin`), `phases[]` (`name`, `durationMs`, `rssPeakBytes`, `cgroupPeakBytes`, `swapPeakBytes`,
+`oomKills`, `semanticUsed`, `searchP50Ms`, `searchP95Ms`, `searchMaxMs`, `httpP95Ms`, `eventLoopP95Ms`),
+`extraRssBytes`, `outcome`, `reasonCodes[]`) and `report.md`. Reason codes: `unsupported_platform`,
+`cgroup_unavailable`, `model_unavailable`, `invalid_fixture`, `server_failed`, `missing_phase`,
+`memory_budget_exceeded`, `latency_budget_exceeded`, `recall_failed`, `network_attempt`, `oom_detected`. **Only these
+two files may go on a card.** `--out` also holds the server logs, the databases and the login, and stays on the
+machine; delete it when done. Neither report holds history text, questions, hits, titles, a password, a cookie or a
+heap snapshot.
+
+**If a number is out of the frame**, look at the components first (the probe's `rss`, `external` and
+`arrayBuffers` per phase; a second tokenizer beside the pipeline's, transient copies at the cold load). A small
+fix that keeps the behaviour is allowed, followed by a new measurement. A different model, a new service or a higher
+frame is a question for the architect and the owner.
+
+**What the image must have, and what this does not check by itself.** The model is a release asset: the
+Dockerfile runs `npm run prepare:history-model` before `npm run build`, which copies it to
+`dist/models/history` and the native ONNX Runtime and `sharp` binaries come from the image's own `npm ci` on the
+ARM64 build. The single-machine path and the live-watcher's build do not prepare the model, so a build made there
+searches by text only. Before the run, confirm that the ARM64 image has `dist/models/history/manifest.json`, that
+`node -e "require('onnxruntime-node')"` and the `sqlite-vec` extension load on it, and write the image digest in
+`PROJECTMAN_IMAGE_DIGEST`. A model folder without a manifest is `model_unavailable`, not a pass.
+
 ## What is not covered, and what was not verified
 
 - The cloud runs one machine. High availability, a read replica and several regions are not

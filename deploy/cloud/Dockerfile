@@ -61,8 +61,9 @@ COPY --from=build /app/apps/web/dist ./apps/web/dist
 COPY --from=build /app/apps/feedback-widget/dist ./apps/feedback-widget/dist
 COPY --chmod=0755 deploy/cloud/entrypoint.sh deploy/cloud/backup.sh deploy/cloud/smoke.sh ./deploy/cloud/
 COPY deploy/cloud/litestream.yml ./deploy/cloud/litestream.yml
-# The memory tools run by hand on a disposable copy, never by the entrypoint (docs/HYBRID.md "Memory profile").
-COPY deploy/cloud/memory-probe.mjs deploy/cloud/memory-profile.mjs deploy/cloud/heap-summary.mjs ./deploy/cloud/
+# The memory tools run by hand on a disposable copy, never by the entrypoint (docs/HYBRID.md "Memory profile",
+# "History semantic profile").
+COPY deploy/cloud/memory-probe.mjs deploy/cloud/memory-profile.mjs deploy/cloud/heap-summary.mjs deploy/cloud/history-semantic-profile.mjs ./deploy/cloud/
 
 # Shared by the cloud and the engine: git HEAD is not in the image, so the version is a build argument.
 ARG PROJECTMAN_VERSION=dev

@@ -1784,7 +1784,14 @@ workers follow the machine's size.
   engine. The history, its index and the search belong to the server/hub that holds the database, so the worker
   runs there (the cloud image carries the model, `deploy/cloud/Dockerfile`); no embedding, text or vector crosses
   the server/engine boundary. A failure of the worker, the model or the extension only leaves the word search
-  (statuses in the private search log, never in a tool reply).
+  (statuses in the private search log, never in a tool reply). **Release measurement (PM-910):**
+  `deploy/cloud/history-semantic-profile.mjs` (docs/HYBRID.md "History semantic profile") runs the built server in
+  fresh processes on a Linux ARM64 machine in a cgroup v2 with `memory.max` up to 2 GiB, no swap and no network,
+  reading `/proc/<pid>/status`, the cgroup's `memory.*` files and `/proc/net/tcp*`; the server starts through
+  `src/start.ts` (`index.ts` is its one-line entry) and the measurement's bundle `dist/history-semantic-profile.js`
+  adds a loopback search listener with a one-time secret that `dist/index.js` never loads. It runs where the model,
+  the database and the worker run, on the server machine, and nothing of it crosses the server/engine boundary.
+  The cloud stays `PROJECTMAN_HISTORY_SEMANTIC=off` until a report passes.
 
 - **Web push sender (PM-815, PM-827)** — `apps/server/src/services/web-push`, the
   `contracts/web-push.ts` transport and the personal `web_push_*` tables run on the server/hub.
@@ -2677,7 +2684,7 @@ workers follow the machine's size.
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
 
-- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs}`,
+- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
   PM-719's trial reset (admin `scripts/cloud/trial-reset.ts`, EC2 `deploy/aws/host.sh`) refuses
   active unit/container/backup writers, bucket versioning including Suspended, Object Lock,

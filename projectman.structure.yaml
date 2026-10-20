@@ -385,6 +385,9 @@ modules:
     paths:
       - apps/server/src/app.ts
       - apps/server/src/index.ts
+      - apps/server/src/start.ts
+      - apps/server/src/history-semantic-profile.ts
+      - apps/server/src/history-semantic-profile-control.ts
       - apps/server/src/engine-app.ts
       - apps/server/src/shutdown.ts
 

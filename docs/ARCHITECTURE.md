@@ -1740,7 +1740,7 @@ workers follow the machine's size.
   (empty or absent: the plain scope mode; not with `--files`, `--all` or `--dry-run`), so a CI
   workflow hands its input over through the environment and no shell reads it. `--shard <k>/<n>`
   (1 <= k <= n <= 8, with any mode, anywhere in the arguments) deals the type checks round-robin
-  among the shards and runs every test step on every shard with `--shard=k/n --passWithNoTests`;
+  among the shards and runs every test step on every shard with `--shard=k/n` (every workspace's `test` script carries `--passWithNoTests` itself);
   the `merge-test timing:` line keeps the step's index in the whole list, so the shards' reports
   can be merged. The failed-file rerun (PM-842) stays inside the shard and has no shard flag.
   `.github/workflows/merge-check.yml` (PM-900) runs four shards on `macos-15` for a

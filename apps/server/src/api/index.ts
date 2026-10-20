@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { registerWebPushRoutes } from './web-push';
 import type { AuthService } from '../auth';
 import type { ApiDomain } from './ports';
 import type { EngineRegistry } from '../runtime/sessions';
@@ -53,6 +54,8 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
       .replace(/:[A-Za-z]+/g, '')
       .replace(/[^a-z0-9]+/g, '_');
     route.handler = function (request, reply) {
+      if (route.url.startsWith('/api/me/push') && (request.via === 'integrator' || request.principal))
+        throw forbidden('web_push_integrator_refused', 'Web push requires a personal login');
       if (!request.principal || request.principal.mode === 'legacy')
         return handler.call(this, request, reply);
       services.auth.assertActive(request.principal);
@@ -79,6 +82,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
     };
   });
   registerEngineRoutes(app, services);
+  registerWebPushRoutes(app, domain);
   registerProviderRoutes(app, domain);
   registerProjectRoutes(app, services);
   registerOperatorRoutes(app, services);

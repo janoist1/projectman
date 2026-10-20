@@ -222,6 +222,12 @@ modules:
     summary: A repók szerkezetleírója, a modulméretek és a kártyák fájljainak elhelyezése.
     paths:
       - apps/server/src/services/structure/
+  - id: services/web-push
+    area: service
+    name: Webes értesítések
+    summary: VAPID kulcs, eszközök és csendes órákhoz igazított kézbesítés a hubon.
+    paths:
+      - apps/server/src/services/web-push/
   - id: services/github
     area: service
     name: GitHub-szinkron
@@ -561,8 +567,18 @@ modules:
     kind: external
     name: E-mail (SES)
     summary: Az AWS SES, amelyen át a belépési kódok és értesítések mennek.
+  - id: push-delivery
+    area: outside
+    kind: external
+    name: Web Push kézbesítők
+    summary: A böngészők saját HTTPS push-kézbesítői.
 
 links:
+  - from: services/web-push
+    to: push-delivery
+    label: Titkosított Web Push
+  - from: api
+    to: services/web-push
   # UI to server
   - from: web/shell
     to: api

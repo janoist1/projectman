@@ -1959,4 +1959,30 @@ migrations.push({
       last_used_at    TEXT
     );`,
 });
+migrations.push({
+  version: 94,
+  name: 'web push notifications',
+  sql: `CREATE TABLE web_push_devices (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT, endpoint_hash TEXT NOT NULL UNIQUE, p256dh TEXT, auth TEXT,
+    vapid_key_id TEXT NOT NULL, origin TEXT, browser TEXT NOT NULL, os TEXT NOT NULL,
+    form TEXT NOT NULL CHECK (form IN ('desktop','phone')),
+    installed INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+    state TEXT NOT NULL CHECK (state IN ('active','expired')),
+    last_sent_at TEXT, last_result TEXT CHECK (last_result IN ('ok','failed','expired')), last_failure TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX web_push_devices_user ON web_push_devices(user_id);
+  CREATE TABLE web_push_settings (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    categories TEXT NOT NULL, quiet_enabled INTEGER NOT NULL, quiet_start TEXT NOT NULL,
+    quiet_end TEXT NOT NULL, time_zone TEXT NOT NULL, digest_due_at TEXT, updated_at TEXT NOT NULL);
+  CREATE INDEX web_push_settings_digest ON web_push_settings(digest_due_at) WHERE digest_due_at IS NOT NULL;
+  CREATE TABLE web_push_items (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    inbox_item_id TEXT NOT NULL, project_key TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('sent','quiet','digested','skipped')),
+    skip_reason TEXT CHECK (skip_reason IN ('category_off','viewing')),
+    created_at TEXT NOT NULL, PRIMARY KEY (user_id, inbox_item_id));
+  CREATE INDEX web_push_items_outcome ON web_push_items(user_id, outcome);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

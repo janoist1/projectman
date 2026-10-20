@@ -880,6 +880,13 @@ export const hu = {
     code: 'Hibakód: {code}',
     /** Stable error codes from the server (ApiError.code and websocket error events). */
     codes: {
+      web_push_unavailable: 'A böngészőértesítések most nem érhetők el.',
+      web_push_endpoint_invalid:
+        'Ez az értesítési eszköz nem használható. Kapcsold be újra az értesítéseket.',
+      web_push_device_limit: 'Legfeljebb 20 eszközön kérhetsz értesítést. Előbb törölj egy eszközt.',
+      web_push_quiet_hours_invalid: 'Ellenőrizd a csendes órák kezdetét, végét és időzónáját.',
+      web_push_integrator_refused: 'Az értesítéseket a saját bejelentkezéseddel kezelheted.',
+      web_push_test_too_soon: 'Várj öt másodpercet az újabb próba előtt.',
       card_busy: 'A kártyán már dolgozik egy azonos szerepű tag.',
       engine_not_found: 'Nincs ilyen motor.',
       engine_revoked: 'Ezt a motort visszavonták.',

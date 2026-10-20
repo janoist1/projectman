@@ -29,6 +29,12 @@ export type SpecialtyKey = 'frontend' | 'backend';
 /** Members a template hires under a display name of their own (not the role's name). */
 export type TemplateMemberKey = 'daily_worker';
 
+export interface WebPushText {
+  title: Record<'question' | 'decision' | 'approval' | 'permission' | 'release', string>;
+  digest: { title: string; body: string };
+  test: { title: string; body: string };
+}
+
 /** Labels the templates may ship; rules live in ../labels.ts, words in the locales. */
 export type StandardLabelId =
   | 'code-review-ok'
@@ -163,6 +169,7 @@ export interface TemplateLocale {
     subject: string;
     text: (input: { code: string; validUntil: string }) => string;
   };
+  webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */
   fixLimitItem: FixLimitItemText;
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */

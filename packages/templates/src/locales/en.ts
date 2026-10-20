@@ -2,6 +2,17 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** English default display names and role texts. */
 export const en: TemplateLocale = {
+  webPush: {
+    title: {
+      question: 'A new question awaits you',
+      decision: 'A new decision awaits you',
+      approval: 'An approval awaits you',
+      permission: 'A permission request awaits you',
+      release: 'A release awaits your approval',
+    },
+    digest: { title: '{n} items await you', body: 'They arrived during quiet hours.' },
+    test: { title: 'Test notification', body: 'If you see this, it works.' },
+  },
   structuralReview: {
     details:
       'After approval the PM rechecks the evidence and selects a technical direction holder with free capacity. The review re-reads the affected cards and responsibility boundaries and reports a few suggestions, including no change when appropriate. It never creates cards or starts a refactor automatically.',

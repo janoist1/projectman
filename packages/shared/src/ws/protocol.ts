@@ -76,6 +76,7 @@ export type ServerEvent = z.infer<typeof ServerEvent>;
 
 /** Browser -> server commands. */
 export const ClientCommand = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('visibility'), visible: z.boolean() }),
   z.object({ type: z.literal('subscribe_project'), projectKey: z.string() }),
   z.object({ type: z.literal('unsubscribe_project'), projectKey: z.string() }),
   z.object({ type: z.literal('terminal_attach'), sessionId: z.string() }),

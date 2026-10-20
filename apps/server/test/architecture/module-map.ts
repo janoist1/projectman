@@ -54,6 +54,7 @@ const structureModules = new Map(structure.modules.map((module) => [module.id, m
 const SERVER_SRC = 'apps/server/src/';
 
 const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
+  { id: 'services/web-push', layer: 'service', target: 'services/web-push', pass: 'none', sealed: true },
   {
     id: 'services/super-operator',
     layer: 'service',

@@ -44,6 +44,8 @@ export interface AppHarnessOptions {
   /** Further buildApp options. */
   app?: Pick<
     BuildAppOptions,
+    | 'webPush'
+    | 'webPushTransport'
     | 'doneCleanupDelayMs'
     | 'screenQuestions'
     | 'doneTurnLimitMs'

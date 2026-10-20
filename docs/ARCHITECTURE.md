@@ -1706,6 +1706,16 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Web push sender (PM-815, PM-827)** — `apps/server/src/services/web-push`, the
+  `contracts/web-push.ts` transport and the personal `web_push_*` tables run on the server/hub.
+  The P-256 installation key is atomically created under `PROJECTMAN_HOME/secrets/web-push.json`
+  (directory 0700, file 0600), included in the cloud restic backup. Delivery requires outbound HTTPS
+  to the allowlisted browser push providers (Google, Mozilla, Apple and Windows); redirects are
+  not followed. Visibility is held per authenticated WebSocket connection in hub memory.
+  Standby copies never create keys or send; cloud restore rehearsals additionally set
+  `PROJECTMAN_WEB_PUSH_ENABLED=0`. **Remote engine:** fully supported; nothing runs on the
+  engine and no new data crosses the server/engine boundary.
+
 - **Administration adapter and supervisor (PM-763, Super mode 7/10)** — `apps/server/src/administration/**`
   (module `administration`, engine layer, sealed), `apps/server/src/contracts/administration.ts`,
   `apps/server/src/engine-link/{methods,protocol,engine-handlers}.ts` and `engine-link/remote/administration.ts`,

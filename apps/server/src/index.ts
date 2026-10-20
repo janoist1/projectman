@@ -369,6 +369,10 @@ async function main(): Promise<void> {
   const fullTest = mode === 'cloud' ? undefined : await import('./full-test');
   const app = await buildApp({
     ...config.app,
+    webPush: {
+      enabled: process.env.PROJECTMAN_WEB_PUSH_ENABLED !== '0',
+      subject: process.env.PROJECTMAN_WEB_PUSH_SUBJECT,
+    },
     // Always wire the live checker here; buildApp and domain harnesses never contact NanoGPT.
     modules:
       // The cloud runs none of the machine's work itself: its engine does the full test and the screenshots.

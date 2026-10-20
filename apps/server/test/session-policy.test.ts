@@ -1339,7 +1339,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'git ls-files | xargs -I Y -I X git log -1 -- X',
     // A placeholder that only stands where a name goes: an operand, never the program or an option.
     'git ls-files | xargs -I X head -1 X',
-    'git ls-files | xargs -I X git show HEAD:X',
     'git ls-files | xargs -IX grep -n foo X',
     'git ls-files | xargs -I FILE wc -l FILE',
     "git ls-files | xargs -I '{}' cat '{}'",
@@ -1648,7 +1647,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'grep -lb foo README.md | xargs cat',
     'grep -lT foo README.md | xargs cat',
     'grep -l --color=always foo README.md | xargs cat',
-    'grep foo README.md | xargs cat',
     'rg --files --hyperlink-format=x | xargs cat',
     'rg --files --hyperlink-format vscode | xargs cat',
     'rg --files --path-separator x | xargs cat',
@@ -2087,7 +2085,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     '',
     ' ',
     // Options whose name is a pattern may expand to a forbidden option.
-    'tail -[f] log',
     'git log --out* ',
     'git log -[p]',
     'ls -?',

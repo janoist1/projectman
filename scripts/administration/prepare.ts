@@ -43,6 +43,8 @@ export interface PrepareInput {
   /** The user and group of the systemd unit (Linux only). */
   user?: string;
   group?: string;
+  /** Explicit opt-in only: the absolute shell for owner-approved commands. */
+  ownerCommandShell?: string;
 }
 
 export interface PreparedFile {
@@ -126,6 +128,9 @@ export function prepareFiles(input: PrepareInput): PreparedFile[] {
     target: parseTarget(input.target),
     stateDir,
     socketPath,
+    ...(input.ownerCommandShell !== undefined
+      ? { ownerCommand: { shell: checkPath('the owner command shell', input.ownerCommandShell) } }
+      : {}),
     service: kind === 'launchd' ? { kind, label: input.service } : { kind, unit: input.service },
   });
   if (!config.success)

@@ -4,6 +4,7 @@ import { SuperCommand as SuperCommandSchema } from '../api/super-handoff';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
 import type { SuperCommandContext } from './super-command';
+import { ownerReservedEffect, SUPER_ADMINISTRATION_COMMANDS } from './super-mutation';
 
 function config() {
   return ProjectConfig.parse({
@@ -47,6 +48,24 @@ const effects = (command: SuperCommand) => superCommandEffects(command, context(
 const operate = (operation: unknown) => ({ kind: 'operate', operation }) as SuperCommand;
 
 describe('super command classification (PM-762)', () => {
+  it('always reserves an owner command for a fresh security approval', () => {
+    const command: SuperCommand = {
+      kind: 'administration',
+      request: {
+        kind: 'owner_command',
+        target: { kind: 'hub' },
+        command: 'pwd',
+        timeoutSeconds: 120,
+        reason: 'Inspect fixture',
+      },
+    };
+    expect(ownerReservedEffect(null, { kind: 'owner_command' })).toBe('security');
+    expect(superCommandMutations(command, context())).toEqual([{ kind: 'owner_command' }]);
+    const ctx = context();
+    ctx.config.team.operatorApprovalWaiver = true;
+    expect(superCommandEffects(command, ctx)).toEqual(['security']);
+    expect(SUPER_ADMINISTRATION_COMMANDS).not.toContain('owner_command');
+  });
   it('has no owner-reserved effect for the routine commands', () => {
     expect(effects(operate({ op: 'project_pause' }))).toEqual([]);
     expect(effects(operate({ op: 'project_resume' }))).toEqual([]);

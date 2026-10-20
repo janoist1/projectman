@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sensitivePaths } from '../runtime/sessions';
 import { createHostSystem } from './host';
 import { createProcessCleaner, listProcesses } from './processes';
+import { createOwnerCommandRunner } from './owner-command';
 import { ensurePrivateDir } from './secure-fs';
 import { runCommand } from './service-control';
 import { createDiagnosticsJournal, createOperationStore } from './store';
@@ -143,5 +144,28 @@ describe('sessions', () => {
   it('cannot read the supervisor’s state on a machine that has the app home', () => {
     const denied = sensitivePaths({ userHome: '/fictional/user', appHome: '/fictional/app' });
     expect(denied).toContain('/fictional/app/administration');
+  });
+});
+
+describe('owner command shell', () => {
+  it('runs a harmless command as the supervisor user in a temporary directory and redacts the result', async (ctx) => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'adm-owner-'));
+    ctx.onTestFinished(() => rm(cwd, { recursive: true, force: true }));
+    await writeFile(path.join(cwd, 'fixture.txt'), 'fixture-cwd\n');
+    const result = await createOwnerCommandRunner('/bin/sh')(
+      {
+        kind: 'owner_command',
+        target: HUB,
+        command: 'cat fixture.txt; printf "token=fixture-secret\\n"; printf "fixture-error\\n" >&2; exit 3',
+        cwd,
+        timeoutSeconds: 5,
+        reason: 'Boundary fixture',
+      },
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({ exitCode: 3, signal: null, stderr: 'fixture-error\n', truncated: false });
+    expect(result.stdout).toContain('fixture-cwd');
+    expect(result.stdout).toContain('[redacted]');
+    expect(result.stdout).not.toContain('fixture-secret');
   });
 });

@@ -16,6 +16,7 @@ import { MAX_DIAGNOSTIC_ENTRIES } from '../contracts';
 import type { DiagnosticFields } from './diagnostics';
 import type { MachineReader } from './machine';
 import type { ProcessCleaner } from './processes';
+import type { OwnerCommandRunner } from './owner-command';
 import type { SupervisorConfig } from './schemas';
 import { filterEntries } from './service-logs';
 import type { ServiceLogReader } from './service-logs';
@@ -44,6 +45,8 @@ export interface SupervisorDeps {
   serviceLogs?: ServiceLogReader;
   /** The orphan test worker cleanup; absent or unsupported where the host cannot list and signal processes. */
   cleaner?: ProcessCleaner;
+  /** Installed only when this machine explicitly enables the owner's shell (PM-887). */
+  ownerCommand?: OwnerCommandRunner;
   version?: string | null;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -102,6 +105,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     if (executors.full_test) out.push('full_test');
     if (executors.image_build) out.push('image_build');
     if (executors.deploy) out.push('deploy');
+    if (deps.ownerCommand) out.push('owner_command');
     return out;
   };
 
@@ -197,6 +201,8 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         result = await executors.image_build(command, abort.signal);
       else if (command.kind === 'deploy' && executors.deploy)
         result = await executors.deploy(command, abort.signal);
+      else if (command.kind === 'owner_command' && deps.ownerCommand)
+        result = await deps.ownerCommand(command, abort.signal);
       else return finish(record, 'failed', { errorCode: 'administration_unavailable' });
       await finish(record, 'succeeded', { result });
     } catch (err) {
@@ -239,6 +245,12 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       requireOwnTarget(command.target);
       if (!deps.cleaner?.supported())
         throw unavailable('administration_unavailable', 'this host cannot stop processes');
+      return;
+    }
+    if (command.kind === 'owner_command') {
+      requireOwnTarget(command.target);
+      if (!deps.ownerCommand)
+        throw unavailable('administration_unavailable', 'this host has not enabled owner commands');
       return;
     }
     if (!executors[command.kind])

@@ -3,6 +3,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { OWNER_COMMAND_OUTPUT_BYTES } from '@projectman/shared';
 import { notFound } from '../kernel';
 import type { AdministrationJob, AdministrationPort } from '../contracts';
 import { createSocketClient } from './socket-client';
@@ -57,6 +58,24 @@ describe.skipIf(!socketsWork)('administration socket', () => {
     },
     async inspect(operationId): Promise<AdministrationJob> {
       if (operationId === 'missing') throw notFound('Administration operation', operationId);
+      if (operationId === 'owner-output') {
+        const output = '"'.repeat((OWNER_COMMAND_OUTPUT_BYTES - 2) / 2);
+        return {
+          operationId,
+          state: 'succeeded',
+          errorCode: null,
+          updatedAt: AT,
+          result: {
+            kind: 'owner_command',
+            exitCode: 0,
+            signal: null,
+            stdout: output,
+            stderr: output,
+            truncated: true,
+            durationMs: 1,
+          },
+        };
+      }
       return { operationId, state: 'running', result: null, errorCode: null, updatedAt: AT };
     },
   };
@@ -99,6 +118,11 @@ describe.skipIf(!socketsWork)('administration socket', () => {
     };
     expect(await client.submit(submit)).toEqual({ accepted: true });
     expect(seen).toEqual([submit]);
+  });
+
+  it('carries both encoded owner-command outputs at their limit through the socket', async () => {
+    const client = createSocketClient({ socketPath });
+    expect(await client.inspect('owner-output')).toEqual(await port.inspect('owner-output'));
   });
 
   it('answers one line per connection and refuses a request it cannot take', async () => {

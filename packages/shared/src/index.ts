@@ -51,6 +51,7 @@ export * from './domain/project-change';
 export * from './chat/chat';
 export * from './config/schema';
 export * from './config/super-mutation';
+export * from './config/billing-env';
 export * from './config/super-command';
 export * from './config/canonical';
 export * from './config/invariants';

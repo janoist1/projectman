@@ -74,6 +74,8 @@ function memberUpdate(
 /** Exhaustive on purpose: a new administration command does not classify until someone decides its effect. */
 function administrationMutation(request: AdministrationCommand): SuperMutationCommand {
   switch (request.kind) {
+    case 'owner_command':
+      return { kind: 'owner_command' };
     case 'restart':
     case 'full_test':
     case 'image_build':

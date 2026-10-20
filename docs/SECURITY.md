@@ -1160,7 +1160,8 @@ network, SSM or shell, only one Unix socket.
 
 - **A closed set of commands.** The wire carries one JSON line each way (request at most 16 KiB, answer at most
   256 KiB, 30 s timeout), parsed with strict zod schemas: `restart` (target and the expected boot id),
-  `full_test`, `image_build` and `deploy`. There is no raw command, argv, path or environment in any request. An
+  `full_test`, `image_build`, `deploy`, `process_cleanup` and the opt-in `owner_command` described below.
+  Only `owner_command` takes a raw shell command and working directory. An
   unknown key, an oversized line or a malformed one is refused. A target other than the supervisor's own gives
   `administration_target_mismatch`; an engine answers for its own target only.
 - **The socket is protected by the file system.** Node cannot read Unix-socket peer credentials, so the 0700
@@ -1200,6 +1201,25 @@ network, SSM or shell, only one Unix socket.
   OS user as the supervisor, so the sandbox is what keeps them from the 0600 socket: the state and the socket
   directory must therefore lie below `<app home>/administration`. `npm run administration -- prepare` takes
   `--app-home` and refuses any other place, on the hub host and on an engine machine alike.
+- **Owner-approved shell (PM-887).** The protected config must explicitly set `ownerCommand.shell` to an
+  absolute shell path (`prepare --owner-command-shell <path>`); otherwise the capability is absent and the
+  command is unavailable. Every command is a `security` effect in a fresh `waiting_owner` operation and needs
+  the owner's own login approval of its exact command, cwd, target, timeout and reason. A waiver, agreement,
+  operator grant or earlier approval cannot replace it. The machine grant is also checked before submission;
+  its revocation does not stop a running command. The supervisor inherits its own environment minus the shared
+  billing and Codex OAuth override list, runs the configured shell as its OS user in a separate process group,
+  and sends TERM on timeout (1–600 s, default 120) followed by KILL after 10 s. Both output streams have a
+  bounded raw buffer and a 64 KiB JSON-encoded result limit; terminal escapes, C0 controls other than newline/tab
+  and DEL are removed before redaction, then output is cut at code-point boundaries. The command is kept in the
+  Operator's attributed operation and the redacted output in its result. **Linux:** the systemd restrictions
+  remain: read-only system/home, writes only to state/socket directories, Unix sockets only, no privilege
+  escalation and private temporary files. A restriction appears as the command's exit code and stderr.
+  Process-group termination cannot reach descendants that create a new session or daemonize. Redaction is
+  best-effort: arbitrary secrets and short fragments at the raw buffer boundary may survive; the owner question
+  notes that output reaches the Operator and its model provider. The command, cwd and reason reject Unicode
+  format characters and C1 controls; the exact request is shown in a JSON code block to preserve shell syntax.
+  **macOS:** launchd runs the command with the owner's OS-user permissions. A remote target always runs on its
+  own supervisor machine, through the existing engine link.
 - **A live socket is never taken over.** A starting supervisor removes a leftover socket file only after a
   connection attempt finds nobody answering; a second supervisor on the same socket stops with `in_use`.
 - **Known limits, left for PM-764.** (1) A restart is confirmed by the supervisor's boot id plus the registry

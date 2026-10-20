@@ -14,6 +14,8 @@ describe('redactLine', () => {
     ['a key assignment', `api_key=${SECRET}`],
     ['a quoted password assignment', `password="${SECRET} with spaces"`],
     ['a JSON token field', `{"access_token":"${SECRET}","ok":true}`],
+    ['a quoted assignment truncated before the closing quote', `password="${SECRET} with spaces`],
+    ['a JSON token truncated before the closing quote', `{"access_token":"${SECRET}`],
     ['a long hex run', `digest ${'ab12'.repeat(10)}`],
     ['a long base64 run', `blob ${'Zm9vYmFy0123'.repeat(4)}==`],
   ])('replaces %s', (_name, line) => {
@@ -28,5 +30,13 @@ describe('redactLine', () => {
     const line =
       'listening on port 4700 for request req_12345 at /Users/someone/projects/application/server/src';
     expect(redactLine(line)).toBe(line);
+  });
+
+  it('processes a 64 KiB dotted name without repeated rescanning', () => {
+    const line = 'a.'.repeat(32 * 1024);
+    const started = performance.now();
+    expect(redactLine(line)).toBe(line);
+    // The old word-boundary pattern takes several seconds; leave ample room for a busy test host.
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });

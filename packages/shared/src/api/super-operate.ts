@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AdministrationTarget } from './administration';
+import { OwnerCommandResult } from './administration';
 import { SuperCommand, SuperOperation } from './super-handoff';
 import { EngineId } from '../domain/engine';
 import { TaskKey } from '../domain/task';
@@ -32,7 +33,7 @@ const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/);
 /**
  * What a finished administration operation produced, as the adapter recorded it. A restart's boot id, a full
  * test's verdict and failed file names, an image's digest and checksum (never a path, never the image), a
- * deploy's release id: no output text and no raw error.
+ * deploy's release id, or bounded redacted output from an owner-approved command. No raw error.
  */
 export const SuperAdministrationResult = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('restart'), bootId: z.string(), version: z.string().nullable() }),
@@ -64,6 +65,7 @@ export const SuperAdministrationResult = z.discriminatedUnion('kind', [
     stopped: z.number().int().min(0),
     remaining: z.number().int().min(0),
   }),
+  OwnerCommandResult,
 ]);
 export type SuperAdministrationResult = z.infer<typeof SuperAdministrationResult>;
 

@@ -22,7 +22,8 @@ import { ensurePrivateDir, readPrivateFile, writeFileAtomic } from './secure-fs'
 const OPERATIONS_DIR = 'operations';
 const JOURNAL = 'journal.log';
 const JOURNAL_PREVIOUS = 'journal.log.1';
-const MAX_OPERATION_BYTES = 64 * 1024;
+// Two owner-command outputs (64 KiB JSON each), their command and the record envelope (PM-887).
+const MAX_OPERATION_BYTES = 256 * 1024;
 const MAX_JOURNAL_BYTES = 256 * 1024;
 const MAX_KEPT_OPERATIONS = 200;
 

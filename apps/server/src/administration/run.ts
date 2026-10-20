@@ -3,6 +3,7 @@ import { createHostSystem } from './host';
 import type { HostSystem } from './host';
 import { createMachineReader } from './machine';
 import { createProcessCleaner } from './processes';
+import { createOwnerCommandRunner } from './owner-command';
 import type { ProcessCleanerOptions } from './processes';
 import type { SupervisorConfig } from './schemas';
 import { createServiceLogReader } from './service-logs';
@@ -18,7 +19,7 @@ import type { AdministrationExecutors } from '../contracts';
  * The supervisor process (PM-763): what `scripts/administration/supervisor.ts` runs on the hub host and on
  * the engine machine. It reads only its protected configuration file, builds the one controller that file
  * names, re-checks what a previous run left unfinished and then listens on the socket. It reads no
- * environment variable and takes no argument but the configuration path; the business executors (full test,
+ * environment variable for configuration and takes no argument but the configuration path; the business executors (full test,
  * image build, deploy) are provided by the installation that has them (PM-764), none by default.
  */
 
@@ -68,6 +69,7 @@ export async function startSupervisor(options: StartSupervisorOptions): Promise<
     machine: createMachineReader(host),
     serviceLogs: createServiceLogReader({ host, service: config.service }),
     cleaner,
+    ...(config.ownerCommand ? { ownerCommand: createOwnerCommandRunner(config.ownerCommand.shell) } : {}),
     executors: options.executors,
     version: options.version ?? null,
     now,

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { SUPER_DIAGNOSTIC_COLUMNS, SuperDiagnosticsRequest } from '@projectman/shared';
+import { SUPER_DIAGNOSTIC_COLUMNS, SuperDiagnosticsRequest, SuperOperationDetail } from '@projectman/shared';
 import type { AdministrationCommand, EngineId, Release, SuperActor, SuperCommand } from '@projectman/shared';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -186,6 +186,130 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
     );
   const detail = (operationId: string) => h.domain.superAdministration.operation('AR', operationId);
   const timeline = (type: string) => h.repos.timeline.list('AR').filter((event) => event.type === type);
+
+  describe('owner commands', () => {
+    const command = admin({
+      kind: 'owner_command',
+      target: { kind: 'hub' },
+      command: 'printf "%s\\n" "*tmp* **bold** `id` [ls](https://example.test)";\nprintf "```\\n"',
+      cwd: '/fixture/work',
+      timeoutSeconds: 45,
+      reason: 'Inspect fixture',
+    });
+    const answer = (id: string) =>
+      h.domain.inbox.resolve('AR', id, { optionId: 'yes' }, { handle: 'owner', access: 'owner' });
+
+    it('waits for the owner, shows the exact request and runs as the Operator only after the owner’s own yes', async () => {
+      await boot();
+      const requestId = randomUUID();
+      const waiting = await operate(command, requestId);
+      expect(waiting.state).toBe('waiting_owner');
+      expect(submitted).toEqual([]);
+      const question = h.domain.inbox.get('AR', waiting.ownerQuestionId!);
+      const details = (question.payload as { details: string }).details;
+      const blocks = [...details.matchAll(/^```json\n([\s\S]*?)\n```$/gm)];
+      expect(blocks).toHaveLength(1);
+      expect(JSON.parse(blocks[0]![1]!)).toEqual(
+        (command as Extract<SuperCommand, { kind: 'administration' }>).request,
+      );
+      expect(question.payload).toMatchObject({ responsePurpose: 'owner_decision' });
+      await answer(waiting.ownerQuestionId!);
+      const running = await operate(command, requestId);
+      expect(running).toMatchObject({ id: waiting.id, state: 'running' });
+      expect(submitted).toMatchObject([
+        {
+          port: 'hub',
+          input: {
+            operationId: waiting.id,
+            requestId,
+            command: (command as Extract<SuperCommand, { kind: 'administration' }>).request,
+          },
+        },
+      ]);
+      expect(timeline('super_operation_changed').at(-1)?.actor).toMatchObject({
+        kind: 'ai',
+        operatorMode: 'super',
+      });
+      const result = {
+        kind: 'owner_command',
+        exitCode: 0,
+        signal: null,
+        stdout: 'fixture',
+        stderr: '',
+        truncated: false,
+        durationMs: 1,
+      } as const;
+      hub.jobs.set(waiting.id, {
+        operationId: waiting.id,
+        state: 'succeeded',
+        result,
+        errorCode: null,
+        updatedAt: NOW,
+      });
+      expect(SuperOperationDetail.parse(await detail(waiting.id))).toMatchObject({
+        operation: { state: 'succeeded' },
+        result,
+      });
+    });
+
+    it.each(['token', 'operator'] as const)('refuses an approval from the %s', async (source) => {
+      await boot();
+      const waiting = await operate(command);
+      const resolve = () =>
+        h.domain.inbox.resolve(
+          'AR',
+          waiting.ownerQuestionId!,
+          { optionId: 'yes' },
+          source === 'token'
+            ? { handle: 'owner', access: 'owner', via: 'integrator' }
+            : { handle: 'operator', access: 'developer' },
+        );
+      await expect(source === 'token' ? asIntegrator(resolve) : resolve()).rejects.toThrow();
+      expect(h.domain.superHandoffs.operation('AR', waiting.id).state).toBe('waiting_owner');
+      expect(submitted).toEqual([]);
+    });
+
+    it('requires a new owner question for an identical command under a new request id', async () => {
+      await boot();
+      const requestId = randomUUID();
+      const first = await operate(command, requestId);
+      await answer(first.ownerQuestionId!);
+      await operate(command, requestId);
+      hub.jobs.set(first.id, {
+        operationId: first.id,
+        state: 'succeeded',
+        result: {
+          kind: 'owner_command',
+          exitCode: 0,
+          signal: null,
+          stdout: '',
+          stderr: '',
+          truncated: false,
+          durationMs: 1,
+        },
+        errorCode: null,
+        updatedAt: NOW,
+      });
+      await detail(first.id);
+      const second = await operate(command);
+      expect(second.state).toBe('waiting_owner');
+      expect(second.ownerQuestionId).not.toBe(first.ownerQuestionId);
+      expect(submitted).toHaveLength(1);
+    });
+
+    it('rechecks the machine grant after the owner approves', async () => {
+      await boot();
+      const requestId = randomUUID();
+      const waiting = await operate(command, requestId);
+      await answer(waiting.ownerQuestionId!);
+      h.auth.revokeOperatorGrant('user-1');
+      expect(await operate(command, requestId)).toMatchObject({
+        state: 'failed',
+        errorCode: 'operator_grant_inactive',
+      });
+      expect(submitted).toEqual([]);
+    });
+  });
 
   /** The executor of the composition, with the release the test makes up and a hook just before it starts. */
   const useExecutor = (

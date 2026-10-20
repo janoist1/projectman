@@ -788,7 +788,11 @@ export class SuperHandoffService {
       title: subject.reason,
       payload: {
         question: subject.reason,
-        details: `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}`,
+        details:
+          `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}` +
+          (subject.command.kind === 'administration' && subject.command.request.kind === 'owner_command'
+            ? `\n\n\`\`\`json\n${JSON.stringify({ ...subject.command.request, cwd: subject.command.request.cwd ?? '<supervisor user home>' }, null, 2)}\n\`\`\`\n\nOutput redaction is best-effort. Output is returned to the Operator and its model provider; avoid commands that print secrets.`
+            : ''),
         options: [SUPER_OWNER_YES, SUPER_OWNER_NO],
         // Only the owner's own login answers it; the server forces this whatever the asker says.
         responsePurpose: 'owner_decision',

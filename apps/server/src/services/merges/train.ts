@@ -431,7 +431,13 @@ export class MergeTrains {
     if (!filesCommand) return false;
     const runner = mergeCheckRunner(train.reviewTest);
     const github = repoConfig?.github;
-    if (runner === 'github_actions' && !github) return false;
+    if (runner === 'github_actions' && !github) {
+      ctx.logger.warn(
+        { trainId: train.id, repo: train.repo },
+        'the merge check runs on GitHub Actions but the repo has no github setting; the train is halved instead of diagnosed',
+      );
+      return false;
+    }
     const command = mergeTestFilesCommand(filesCommand, group.failedFiles);
     const ref = { projectKey: train.projectKey, repo: train.repo };
     const paths = engine.paths();

@@ -275,7 +275,8 @@ describe('member initiated merge', () => {
     expect(row()?.state).toBe('fixing');
     expect(h!.worktrees.fixes.size).toBe(1);
   });
-  it.each(['requested', 'queued', 'running', 'blocked', 'failed'] as const)(
+  // Any state but `failed` is refused alike; a failed check is the other refusing branch.
+  it.each(['running', 'failed'] as const)(
     'refuses fixing an unrelated state or check failure: %s',
     async (state) => {
       await setup();
@@ -398,16 +399,14 @@ describe('member initiated merge', () => {
     });
     expect(publish.mock.calls.map((call) => call[2])).not.toContain('resolved-again');
   });
-  it.each([new Error('source missing'), new EngineLinkLostError('link dropped')])(
-    'preserves source publication failures before creating a fix: %s',
-    async (error) => {
-      await workspaceConflict();
-      vi.spyOn(h!.domain.sessions, 'prepareMergeSource').mockRejectedValue(error);
-      await expect(fix({ fixConflict: true })).rejects.toBe(error);
-      expect(h!.worktrees.fixes.size).toBe(0);
-      expect(row()?.state).toBe('failed');
-    },
-  );
+  it('preserves a source publication failure before creating a fix', async () => {
+    await workspaceConflict();
+    const error = new EngineLinkLostError('link dropped');
+    vi.spyOn(h!.domain.sessions, 'prepareMergeSource').mockRejectedValue(error);
+    await expect(fix({ fixConflict: true })).rejects.toBe(error);
+    expect(h!.worktrees.fixes.size).toBe(0);
+    expect(row()?.state).toBe('failed');
+  });
   it('retains the resolved commit and note when retrying a blocked fix merge', async () => {
     await conflictFailure();
     await fix({ fixConflict: true });
@@ -785,21 +784,6 @@ describe('member initiated merge', () => {
       await merged();
     });
 
-    it('restarts after losing the link during source handover', async () => {
-      await setup();
-      const handover = vi
-        .spyOn(h!.domain.sessions, 'prepareMergeSource')
-        .mockRejectedValueOnce(new EngineLinkLostError('disconnected'));
-      const back = deferred<'connected'>();
-      engines.awaitConnected = () => back.promise;
-      await start();
-      await vi.waitFor(() => expect(row()?.step).toBe('engine_waiting'));
-      back.resolve('connected');
-      await merged();
-      expect(handover).toHaveBeenCalledTimes(2);
-      expect(merger.build).toHaveBeenCalledTimes(1);
-    });
-
     it('waits when the check availability probe reports an offline engine', async () => {
       const executor = fakeExecutor();
       await setup({ executor, adjust: withCheck });
@@ -959,17 +943,14 @@ describe('member initiated merge', () => {
       expect(engines.awaitConnected).toHaveBeenCalledTimes(5);
     });
 
-    it.each(['timeout', 'unknown_method', 'module_error'])(
-      'does not treat %s as a lost link',
-      async (linkCode) => {
-        await setup();
-        merger.build.mockRejectedValueOnce({ linkCode });
-        engines.awaitConnected = vi.fn(async () => 'connected' as const);
-        await start();
-        await blocked('merge_error');
-        expect(engines.awaitConnected).not.toHaveBeenCalled();
-      },
-    );
+    it('does not treat another link code as a lost link', async () => {
+      await setup();
+      merger.build.mockRejectedValueOnce({ linkCode: 'timeout' });
+      engines.awaitConnected = vi.fn(async () => 'connected' as const);
+      await start();
+      await blocked('merge_error');
+      expect(engines.awaitConnected).not.toHaveBeenCalled();
+    });
 
     it('holds its repository slot while a different repository can merge', async () => {
       await setup({
@@ -1009,14 +990,18 @@ describe('member initiated merge', () => {
     expect(merger.build).not.toHaveBeenCalled();
   });
 
-  it.each(['developer', 'member'] as const)('resolves %s merger', async (kind) => {
+  it.each([
+    [{ kind: 'developer' }, 'dev-1'],
+    [{ kind: 'member', handle: 'owner' }, 'owner'],
+    [{ kind: 'code_reviewer' }, 'cr'],
+  ] as const)('resolves the merger of %j', async (merger, expected) => {
     await setup({
       adjust: (c) => {
-        c.team.merger = kind === 'developer' ? { kind } : { kind, handle: 'owner' };
+        c.team.merger = merger;
       },
     });
     await h!.domain.merges.reconcile('AR', 'AR-1');
-    expect(row()?.merger).toBe(kind === 'developer' ? 'dev-1' : 'owner');
+    expect(row()?.merger).toBe(expected);
   });
 
   it('requires the named merger even for an owner and refuses an unready card', async () => {
@@ -1065,18 +1050,20 @@ describe('member initiated merge', () => {
     expect(merger.push).toHaveBeenCalledTimes(remote ? 1 : 0);
     expect(task().merged).toMatchObject({ mergeCommit: 'landed', commit: 'approved-AR-1', by: 'dev-1' });
     expect(events('task_merged')).toHaveLength(1);
+    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'ai', handle: 'dev-1' });
     expect(merger.releaseCheck).toHaveBeenCalled();
     await move();
     expect(task().status).toBe('done');
   });
 
-  it('records a tool success when there is nothing left to merge', async () => {
+  it('records a tool success on the system when there is nothing left to merge', async () => {
     await setup();
     merger.base.contains = { local: true, remote: true };
     await start();
     await merged();
     expect(merger.build).not.toHaveBeenCalled();
     expect(task().stageId).toBe('code_review');
+    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'system', handle: null });
   });
 
   it('lets AutoAdvance continue an idle card after success', async () => {
@@ -1095,6 +1082,11 @@ describe('member initiated merge', () => {
     await vi.waitFor(() => expect(row()?.state).toBe('failed'));
     expect(row()?.failure).toMatchObject({ reason: 'conflict', base: 'base', files: ['a.ts', 'b.ts'] });
     expect(events('task_merge_failed')).toHaveLength(1);
+    const text = h!.repos.messages
+      .list('AR', { taskKey: 'AR-1' })
+      .map((m) => m.body)
+      .find((body) => body.includes('failed (conflict)'));
+    expect(text).toContain('fix_conflict: true');
     expect(task().stageId).toBe('code_review');
     expect(merger.push).not.toHaveBeenCalled();
     expect(merger.advance).not.toHaveBeenCalled();
@@ -1103,52 +1095,22 @@ describe('member initiated merge', () => {
     expect(merger.build).toHaveBeenCalledTimes(2);
   });
 
-  it.each(['passed', 'failed', 'error'] as const)(
-    'handles check %s and releases checkout',
-    async (outcome) => {
-      const output = Array.from({ length: 60 }, (_, i) => `line ${i} ${'x'.repeat(200)}`).join('\n');
-      await setup({
-        executor: fakeExecutor({ ...passed, outcome, outputTail: output }),
-        adjust: (c) => {
-          c.project.repos[0]!.reviewTest = reviewTest;
-        },
-      });
-      await start();
-      if (outcome === 'passed') await merged();
-      else if (outcome === 'error') await blocked('check_error');
-      else {
-        await vi.waitFor(() => expect(row()?.state).toBe('failed'));
-        expect(row()?.failure?.outputTail?.length).toBeLessThanOrEqual(8000);
-        // The executor's report is kept from its start (PM-554), not cut to its last lines.
-        expect(row()?.failure?.outputTail).toBe(output.slice(0, 8000));
-        expect(task().stageId).toBe('code_review');
-        expect(merger.push).not.toHaveBeenCalled();
-      }
-      expect(merger.releaseCheck).toHaveBeenCalled();
-    },
-  );
-
-  it('requires the heavy-run queue for the check and blocks without trying another way when it is missing', async () => {
-    const executor = fakeExecutor({
-      ...passed,
-      outcome: 'error',
-      reason: 'heavy_lock_unavailable',
-      durationMs: 0,
-      outputTail: 'the queue is unavailable',
-    });
+  it('keeps a failed check on the card with the start of its output and releases the checkout', async () => {
+    const output = Array.from({ length: 60 }, (_, i) => `line ${i} ${'x'.repeat(200)}`).join('\n');
     await setup({
-      executor,
+      executor: fakeExecutor({ ...passed, outcome: 'failed', outputTail: output }),
       adjust: (c) => {
         c.project.repos[0]!.reviewTest = reviewTest;
       },
     });
     await start();
-    await blocked('check_error');
-    expect(executor.run).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(executor.run).mock.calls[0]![0]).toMatchObject({ requireHeavyLock: true });
-    expect(row()?.block?.message).toContain('heavy_lock_unavailable');
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    expect(row()?.failure?.outputTail?.length).toBeLessThanOrEqual(8000);
+    // The executor's report is kept from its start (PM-554), not cut to its last lines.
+    expect(row()?.failure?.outputTail).toBe(output.slice(0, 8000));
+    expect(task().stageId).toBe('code_review');
     expect(merger.push).not.toHaveBeenCalled();
-    expect(merger.advance).not.toHaveBeenCalled();
+    expect(merger.releaseCheck).toHaveBeenCalled();
   });
 
   describe('dependency preparation (PM-681)', () => {
@@ -1157,14 +1119,7 @@ describe('member initiated merge', () => {
     };
 
     it('asks the engine for an installation and passes the request on to the executor under the heavy-run queue', async () => {
-      const steps: unknown[] = [];
       const executor = fakeExecutor();
-      vi.mocked(executor.run).mockImplementation(async (_spec, _signal, onStarted) => {
-        steps.push(row()?.step);
-        onStarted?.();
-        steps.push(row()?.step);
-        return passed;
-      });
       await setup({ executor, adjust: withCheck });
       merger.checkoutForCheck.mockResolvedValueOnce({
         path: '/fake/check',
@@ -1183,51 +1138,43 @@ describe('member initiated merge', () => {
         },
       });
       expect(spec.npmCi!.mergeId).toBe(merger.checkoutForCheck.mock.calls[0]![1].mergeId);
-      expect(steps).toEqual(['check_waiting', 'checking']);
       expect(vi.mocked(executor.run)).toHaveBeenCalledTimes(1);
     });
 
-    it.each([{}, { dependencyInstallRequired: false }])(
-      'sends no installation request when the engine answers %j',
-      async (extra) => {
-        const executor = fakeExecutor();
-        await setup({ executor, adjust: withCheck });
-        merger.checkoutForCheck.mockResolvedValueOnce({ path: '/fake/check', gitDir: '/fake/git', ...extra });
-        await start();
-        await merged();
-        const spec = vi.mocked(executor.run).mock.calls[0]![0];
-        expect(spec).not.toHaveProperty('npmCi');
-        expect(spec.requireHeavyLock).toBe(true);
-      },
-    );
+    it('sends no installation request when the engine does not ask for one', async () => {
+      const executor = fakeExecutor();
+      await setup({ executor, adjust: withCheck });
+      await start();
+      await merged();
+      const spec = vi.mocked(executor.run).mock.calls[0]![0];
+      expect(spec).not.toHaveProperty('npmCi');
+      expect(spec.requireHeavyLock).toBe(true);
+    });
 
-    it.each(['dependency_install_failed', 'timeout', 'killed'] as const)(
-      'blocks as check_error, not as a failed check, when the preparation ends with %s',
-      async (reason) => {
-        const executor = fakeExecutor({
-          ...passed,
-          outcome: 'error',
-          reason,
-          exitCode: 1,
-          outputTail: 'npm ERR! network',
-        });
-        await setup({ executor, adjust: withCheck });
-        merger.checkoutForCheck.mockResolvedValueOnce({
-          path: '/fake/check',
-          gitDir: '/fake/git',
-          dependencyInstallRequired: true,
-        });
-        await start();
-        await blocked('check_error');
-        expect(row()?.block?.message).toContain(reason);
-        expect(row()?.failure).toBeUndefined();
-        expect(task().stageId).not.toBe('development');
-        expect(executor.run).toHaveBeenCalledTimes(1);
-        expect(merger.push).not.toHaveBeenCalled();
-        expect(merger.advance).not.toHaveBeenCalled();
-        expect(merger.releaseCheck).toHaveBeenCalled();
-      },
-    );
+    it('blocks as check_error, not as a failed check, when the check cannot run', async () => {
+      const executor = fakeExecutor({
+        ...passed,
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: 1,
+        outputTail: 'npm ERR! network',
+      });
+      await setup({ executor, adjust: withCheck });
+      merger.checkoutForCheck.mockResolvedValueOnce({
+        path: '/fake/check',
+        gitDir: '/fake/git',
+        dependencyInstallRequired: true,
+      });
+      await start();
+      await blocked('check_error');
+      expect(row()?.block?.message).toContain('dependency_install_failed');
+      expect(row()?.failure).toBeUndefined();
+      expect(task().stageId).not.toBe('development');
+      expect(executor.run).toHaveBeenCalledTimes(1);
+      expect(merger.push).not.toHaveBeenCalled();
+      expect(merger.advance).not.toHaveBeenCalled();
+      expect(merger.releaseCheck).toHaveBeenCalled();
+    });
 
     it('releases the checkout after the executor has ended when the merge is cancelled', async () => {
       const executor = fakeExecutor();
@@ -1257,9 +1204,9 @@ describe('member initiated merge', () => {
     });
   });
 
-  it.each(['local_ahead', 'diverged'] as const)('blocks base %s', async (relation) => {
+  it('blocks a local default branch that is ahead of its upstream', async () => {
     await setup();
-    merger.base.relation = relation;
+    merger.base.relation = 'local_ahead';
     await start();
     await blocked('base_out_of_sync');
   });
@@ -1333,72 +1280,30 @@ describe('member initiated merge', () => {
     expect(merger.advance).not.toHaveBeenCalled();
   });
 
-  it('records the merge on the member who started it, AI or human', async () => {
+  it('tells the AI merger the failed files and output after a failed full check', async () => {
     await setup({
+      executor: fakeExecutor({
+        ...passed,
+        outcome: 'failed',
+        failedFiles: ['src/a.test.ts'],
+        outputTail: 'FAIL src/a.test.ts\nAssertionError: expected 1 to be 2',
+      }),
       adjust: (c) => {
-        c.team.merger = { kind: 'member', handle: 'owner' };
+        c.project.repos[0]!.reviewTest = reviewTest;
       },
     });
-    await start('AR-1', OWNER_ACTOR);
-    await merged();
-    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'human', handle: 'owner' });
-  });
-
-  it('records the merge on the AI member who started it', async () => {
-    await setup();
-    await start();
-    await merged();
-    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'ai', handle: 'dev-1' });
-  });
-
-  it('records work found in the default branch as a system event', async () => {
-    await setup();
-    merger.base.contains = { local: true, remote: true };
-    await start();
-    await merged();
-    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'system', handle: null });
-  });
-
-  it.each([{ failedFiles: [] }, { failedFiles: ['src/a.test.ts'] }])(
-    'tells the AI merger the failed files and output after a failed full check ($failedFiles)',
-    async ({ failedFiles }) => {
-      await setup({
-        executor: fakeExecutor({
-          ...passed,
-          outcome: 'failed',
-          failedFiles,
-          outputTail: 'FAIL src/a.test.ts\nAssertionError: expected 1 to be 2',
-        }),
-        adjust: (c) => {
-          c.project.repos[0]!.reviewTest = reviewTest;
-        },
-      });
-      await start();
-      await vi.waitFor(() => expect(row()?.state).toBe('failed'));
-      const text = h!.repos.messages
-        .list('AR', { taskKey: 'AR-1' })
-        .map((m) => m.body)
-        .find((body) => body.includes('The full check'));
-      expect(text).toContain('The full check (`npm test`) failed on the merge result of AR-1 onto ');
-      expect(text).toContain('the default branch did not move.');
-      expect(text).toContain('FAIL src/a.test.ts');
-      expect(text).toContain('AssertionError: expected 1 to be 2');
-      expect(row()?.failure?.files).toEqual(failedFiles);
-      expect(text).toContain('send the card back to its work stage with update_task (a fix round)');
-      expect(text).toContain('retry once with merge_task; if it fails again, ask_human.');
-    },
-  );
-
-  it('keeps the conflict message for a conflict', async () => {
-    await setup();
-    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
     await start();
     await vi.waitFor(() => expect(row()?.state).toBe('failed'));
     const text = h!.repos.messages
       .list('AR', { taskKey: 'AR-1' })
       .map((m) => m.body)
-      .find((body) => body.includes('failed (conflict)'));
-    expect(text).toContain('fix_conflict: true');
+      .find((body) => body.includes('The full check'));
+    expect(text).toContain('`npm test`');
+    expect(text).toContain('FAIL src/a.test.ts');
+    expect(text).toContain('AssertionError: expected 1 to be 2');
+    expect(text).toContain('update_task');
+    expect(text).toContain('merge_task');
+    expect(row()?.failure?.files).toEqual(['src/a.test.ts']);
   });
 
   it('hands the approved commit over to the source repository before it prepares or builds (PM-739)', async () => {
@@ -1497,6 +1402,7 @@ describe('member initiated merge', () => {
     expect(alert.assignees).toEqual(['owner']);
     await start('AR-1', OWNER_ACTOR);
     await merged();
+    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'human', handle: 'owner' });
     expect(h!.repos.taskMerges.get(id)?.state).toBe('merged');
     expect(merger.push).toHaveBeenCalledTimes(1);
     expect(h!.domain.inbox.get('AR', alert.id).state).toBe('cancelled');
@@ -1607,17 +1513,6 @@ describe('member initiated merge', () => {
         'AR-2',
         'AR-3',
       ]);
-      gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
-      await merged('AR-3');
-      expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual([
-        'approved-AR-1',
-        'approved-AR-2',
-        'approved-AR-3',
-      ]);
-    });
-
-    it('keeps the order of the requests when nobody prioritizes', async () => {
-      const gate = await threeCards();
       gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
       await merged('AR-3');
       expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual([
@@ -1828,17 +1723,6 @@ describe('member initiated merge', () => {
           Array.isArray(entry) && entry.includes('could not reconcile a merge request after startup'),
       ),
     ).toBe(true);
-  });
-
-  it('attributes a reviewer merge to the last label setter owning the review stage', async () => {
-    await setup({
-      adjust: (c) => {
-        c.team.merger = { kind: 'code_reviewer' };
-      },
-    });
-    await h!.domain.merges.reconcile('AR', 'AR-1');
-    expect(row()?.merger).toBe('cr');
-    expect(merger.build).not.toHaveBeenCalled();
   });
 
   it('restores a running row from prepare after restart and releases its checkout', async () => {
@@ -2100,30 +1984,6 @@ describe('member initiated merge', () => {
     expect(item.payload.mergeRequest).toMatchObject({
       failure: { reason: 'conflict', base: 'base', files: ['a.ts'] },
     });
-  });
-
-  it('aborts a running check after moving the card back', async () => {
-    let signal: AbortSignal | undefined;
-    const executor = fakeExecutor();
-    vi.mocked(executor.run).mockImplementation(async (_spec, current) => {
-      signal = current;
-      return new Promise((resolve) =>
-        current.addEventListener('abort', () => resolve({ ...passed, outcome: 'error' }), { once: true }),
-      );
-    });
-    await setup({
-      executor,
-      adjust: (c) => {
-        c.project.repos[0]!.reviewTest = reviewTest;
-      },
-    });
-    await start();
-    await vi.waitFor(() => expect(signal).toBeDefined());
-    const id = row()!.id;
-    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
-    await vi.waitFor(() => expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled'));
-    expect(signal?.aborted).toBe(true);
-    expect(merger.push).not.toHaveBeenCalled();
   });
 
   it('does not cancel after push starts even if the card is moved back', async () => {

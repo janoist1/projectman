@@ -33,6 +33,7 @@ import type {
   EmailCodeMailer,
   FullTestExecutor,
   ScreenshotExecutor,
+  GithubActionsClient,
   GithubService,
   McpModule,
   McpModuleOptions,
@@ -57,7 +58,7 @@ import { readHeavyRunSessions } from './full-test';
 import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
 import type { TemplateRegistry } from './core/base';
-import { createGithubService } from './services/github';
+import { createGithubActionsClient, createGithubService } from './services/github';
 import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http';
 import { assertHomeMayStart, RUN_MODES } from './instance';
 import type { RunMode } from './instance';
@@ -135,6 +136,8 @@ export interface AppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;
   github?: GithubService;
+  /** Overrides the GitHub Actions client of the single-machine engine (PM-900); tests pass a fake. */
+  githubActions?: GithubActionsClient;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
   operatorKnowledge?: OperatorKnowledgeStore;
@@ -597,6 +600,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               logger: log.child({ module: 'runner' }),
             }),
       github,
+      // The single-machine engine runs the merge check's workflow itself; an engine of its own has its client.
+      ...(remote
+        ? {}
+        : {
+            githubActions:
+              modules.githubActions ??
+              createGithubActionsClient({
+                ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+                ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
+                pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
+                logger: log.child({ module: 'github' }),
+              }),
+          }),
       contextBuilder,
       memory,
       operatorKnowledge:

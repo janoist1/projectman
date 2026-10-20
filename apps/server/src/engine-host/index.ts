@@ -7,6 +7,8 @@
  */
 export { createLocalBranchMerger } from './branch-merger';
 export type { LocalBranchMergerOptions } from './branch-merger';
+export { createCheckBranchGit } from './check-branch';
+export type { CheckBranchGitOptions } from './check-branch';
 export { freeBytesOf } from './disk';
 export { userExcludesFile } from './git-excludes';
 export { createLocalEngine } from './local-engine';

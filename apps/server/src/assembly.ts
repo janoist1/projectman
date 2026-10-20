@@ -93,6 +93,7 @@ import type {
   MessageAttachmentStorage,
   ScreenshotExecutor,
   ExternalMcpBackend,
+  GithubActionsClient,
   GithubService,
   HistoryDocumentReader,
   MachineProbe,
@@ -149,7 +150,7 @@ import { InboxService, delegatedPermissionPrompt } from './core/inbox';
 import { OperatorActions, OperatorApprovals } from './services/operator';
 import { FixLimitWatch } from './runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from './services/full-tests';
-import { outputTail } from './full-test';
+import { outputTail, withGithubActions } from './full-test';
 import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
@@ -181,7 +182,7 @@ import { PauseService } from './runtime/sessions';
 import { MachineMonitor } from './runtime/watchers';
 import { createMachineProbe } from './machine';
 import { LocalEngineDirectory } from './runtime/sessions';
-import { createLocalEngine } from './engine-host';
+import { createCheckBranchGit, createLocalEngine } from './engine-host';
 import { createAdministrationService } from './administration';
 import type { EngineAdministration } from './administration';
 import { conflict, forbidden, notFound } from './kernel';
@@ -246,6 +247,11 @@ export interface DomainOptions {
   /** Creates the runner module once the permission broker (the inbox) exists. */
   createRunner: (broker: PermissionBroker, nanogptKey?: () => Promise<string | null>) => RunnerModule;
   github: GithubService;
+  /**
+   * GitHub Actions through this machine's `gh` login (PM-900). With it the single-machine engine runs a
+   * `githubActions` merge check as the workflow instead of refusing it; absent, it stays refused.
+   */
+  githubActions?: GithubActionsClient;
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
   operatorKnowledge: OperatorKnowledgeStore;
@@ -538,6 +544,11 @@ export function createDomain(opts: DomainOptions) {
       : opts.attachmentStorage.taskDirectory(projectKey, taskKey);
   // The machines the sessions can run on (PM-311): without a given directory, the one this server runs
   // on, built from the options below (a single-machine installation behaves as before).
+  const localRepoPath = (projectKey: string, repoName: string) => {
+    const project = projects.cachedConfig(projectKey)?.project;
+    const repo = project?.repos.find((entry) => entry.name === repoName);
+    return project && repo ? path.resolve(project.workspacePath, repo.path) : null;
+  };
   const engines: EngineDirectory =
     opts.engines ??
     new LocalEngineDirectory(
@@ -545,17 +556,21 @@ export function createDomain(opts: DomainOptions) {
         {
           worktrees: opts.worktrees,
           memberWorkspaces: opts.memberWorkspaces,
-          fullTestExecutor: opts.fullTestExecutor,
+          // The merge check as a GitHub Actions workflow (PM-900) is run by this engine's own executor.
+          fullTestExecutor:
+            opts.fullTestExecutor && opts.githubActions
+              ? withGithubActions(opts.fullTestExecutor, {
+                  actions: opts.githubActions,
+                  branches: createCheckBranchGit({ repoPath: localRepoPath, networkTimeoutMs: 60_000 }),
+                  logger: opts.logger,
+                })
+              : opts.fullTestExecutor,
           screenshotExecutor: opts.screenshotExecutor,
           freeDiskBytes: opts.freeDiskBytes,
           heavyRunSessions: opts.heavyRunSessions,
           processExists: opts.processExists,
           workspacePath: (projectKey) => projects.cachedConfig(projectKey)?.project.workspacePath ?? null,
-          repoPath: (projectKey, repoName) => {
-            const project = projects.cachedConfig(projectKey)?.project;
-            const repo = project?.repos.find((entry) => entry.name === repoName);
-            return project && repo ? path.resolve(project.workspacePath, repo.path) : null;
-          },
+          repoPath: localRepoPath,
           appHome: opts.appHome,
           userHome: opts.userHome,
           worktreesRootDir: opts.worktreesRootDir,

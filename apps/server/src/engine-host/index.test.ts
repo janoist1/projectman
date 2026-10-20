@@ -6,6 +6,7 @@ describe('engine-host index', () => {
       'SessionFolders',
       'WORK_ROOT_MARKER',
       'WorkRootError',
+      'createCheckBranchGit',
       'createLocalBranchMerger',
       'createLocalEngine',
       'createLocalEngineHost',

@@ -3102,6 +3102,7 @@ assumption or remote-engine RPC.
   (`scripts/release/adapters.ts` `heavyPort`, `npm run heavy`'s lock) for the drain-to-end window of one
   attempt, so a card's full test never runs while the Mac engine is switched. The lock folder is the
   administration Mac's, not an engine's.
+  The queue does not apply in GitHub mode (`FullTestSpec.githubActions`, PM-900): the machine does not run the tests.
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `index.ts` (`loggerOptions`)
   (PM-444), exposed through `logging/index.ts` to `index.ts` and
@@ -3750,6 +3751,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `full_test.run/cancel` request/result crosses the boundary, with no new config/env/RPC/database shape.
   `engine-link/remote/host.ts` maps older-engine `invalid_params` to the preparation error without retrying
   a weakened request. No Linux sandbox support is added.
+  In GitHub mode (`FullTestSpec.githubActions`, PM-900) the sandbox does not run: the engine's
+  `withGithubActions` executor takes the request (see "GitHub Actions merge check").
   **Module:** `services/full-tests`
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
   `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
@@ -3774,6 +3777,23 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   crosses, in the separate `full_test.report` call (the `run`/`attach` schemas are unchanged). An older
   engine answers `unknown_method`, so its checks show unknown steps. Related task: PM-876.
   **Module:** `full-test`, `engine-link`, `services/merges`
+- **GitHub Actions merge check (PM-900, PM-907)** — `full-test/{github-actions,github-verdict}.ts`
+  (`withGithubActions`), `engine-host/check-branch.ts` (`createCheckBranchGit`),
+  `services/github/actions.ts` (`createGithubActionsClient`), wired in `assembly.ts` (single machine) and
+  `engine-app.ts` (engine process), and the repository's `.github/workflows/merge-check.yml`. For a
+  `full_test.run` that carries `githubActions`, the engine pushes the merge commit to a check branch
+  `pm-check/<time36>/<runId>` of the base's upstream remote (never forced), dispatches the workflow with
+  the inputs `check_id` and `files`, follows the run (`gh api`), and builds the `FullTestResult` from the
+  jobs' conclusions and logs (the `merge-test` marker lines and timing report the local run prints).
+  A timeout or an abort cancels the run; the check branch is deleted at every end, and a run sweeps a few
+  check branches older than two hours. **Machine assumptions:** `gh` installed and logged in on the executing
+  machine with the right to run workflows of the repository (`repos[].github`); the base's upstream remote
+  is that repository on github.com and `git push` works to it unprompted; outbound HTTPS to GitHub. The
+  tests do not run on the machine: no macOS, no `srt`, no heavy-run queue, no step cache. **Remote engine:**
+  the same on the engine's machine with its own `gh` login and remote; the server sends only the existing
+  `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
+  Related tasks: PM-900, PM-906, PM-907.
+  **Module:** `full-test`, `engine-host`, `services/github`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
@@ -4945,3 +4965,9 @@ Tasks live in our database (decision 9); GitHub is used for pull requests, revie
 and merges. projectman reads from GitHub: it polls the PRs linked to tasks, keeps the
 `pr-merged` label, clears `pr_updated` labels when new commits land, and attributes PR authors
 to members (`githubLogin`). See [GITHUB.md](GITHUB.md).
+
+GitHub Actions (PM-900, PM-907) is a second, narrower client next to the pull-request service:
+`createGithubActionsClient` (`services/github/actions.ts`, contract `GithubActionsClient`) dispatches the
+`merge-check.yml` workflow, finds and follows its run, lists its jobs, reads job logs and cancels a run, all
+through `gh api` with the machine's own login. It is used only by the engine's merge-check executor
+(`full-test/github-actions.ts`); a test passes its own client as `modules.githubActions`.

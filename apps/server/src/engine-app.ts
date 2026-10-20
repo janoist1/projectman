@@ -13,6 +13,7 @@ import type {
   AdministrationPort,
   AdministrationTarget,
   FullTestExecutor,
+  GithubActionsClient,
   GithubService,
   MachineProbe,
   PermissionBroker,
@@ -48,13 +49,14 @@ import {
   createWorkspaceDependencyInstaller,
   defaultHeavyLockDir,
   readHeavyRunSessions,
+  withGithubActions,
 } from './full-test';
-import { freeBytesOf } from './engine-host';
+import { createCheckBranchGit, freeBytesOf } from './engine-host';
 import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
 import { createRunnerModule, DEPENDENCY_GATE_WAIT_S } from './runner';
-import { createGithubService } from './services/github';
+import { createGithubActionsClient, createGithubService } from './services/github';
 import {
   createDependencyGate,
   createMemberWorkspaceManager,
@@ -82,6 +84,8 @@ const LOOPBACK = '127.0.0.1';
 export interface EngineAppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   github?: GithubService;
+  /** Overrides the GitHub Actions client of the merge check (PM-900); tests pass a fake. */
+  githubActions?: GithubActionsClient;
   createFullTestExecutor?: (deps: {
     heavyLockDir: string;
     worktreesRoot?: string;
@@ -325,6 +329,17 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       pollIntervalMs: APP_DEFAULTS.githubPollIntervalMs,
       logger: log.child({ module: 'github' }),
     });
+  const githubActions =
+    modules.githubActions ??
+    createGithubActionsClient({
+      ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+      ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
+      pollIntervalMs: APP_DEFAULTS.githubPollIntervalMs,
+      logger: log.child({ module: 'github' }),
+    });
+  // A repository's path from the engine's own binding (`engine.json`), never the cloud's paths (PM-451).
+  const boundRepoPath = (projectKey: string, repo: string) =>
+    resolved.repos.find((entry) => entry.project === projectKey && entry.repo === repo)?.path ?? null;
   const worktrees = createWorktreeManager({
     rootDir: roots.worktrees,
     logger: log.child({ module: 'worktree' }),
@@ -387,19 +402,26 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     {
       worktrees,
       memberWorkspaces,
-      fullTestExecutor:
+      // The merge check as a GitHub Actions workflow (PM-900) is run by this engine, with its own gh login.
+      fullTestExecutor: withGithubActions(
         modules.createFullTestExecutor?.({
           heavyLockDir,
           worktreesRoot: roots.worktrees,
           stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
         }) ??
-        createFullTestExecutor({
-          logger: log.child({ module: 'full-test' }),
-          env: agentEnv,
-          heavyLockDir,
-          worktreesRoot: roots.worktrees,
-          stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
-        }),
+          createFullTestExecutor({
+            logger: log.child({ module: 'full-test' }),
+            env: agentEnv,
+            heavyLockDir,
+            worktreesRoot: roots.worktrees,
+            stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
+          }),
+        {
+          actions: githubActions,
+          branches: createCheckBranchGit({ repoPath: boundRepoPath, networkTimeoutMs: 60_000 }),
+          logger: log.child({ module: 'github-actions' }),
+        },
+      ),
       screenshotExecutor:
         modules.createScreenshotExecutor?.({ heavyLockDir }) ??
         createScreenshotExecutor({
@@ -415,9 +437,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
-      // The engine's own binding (`engine.json`), never the cloud's paths (PM-451).
-      repoPath: (projectKey, repo) =>
-        resolved.repos.find((entry) => entry.project === projectKey && entry.repo === repo)?.path ?? null,
+      repoPath: boundRepoPath,
       appHome: home,
       userHome,
       worktreesRootDir: roots.worktrees,

@@ -181,6 +181,21 @@ export type MergeBuildResult =
 export type MergePushResult =
   { ok: true } | { ok: false; reason: 'non_fast_forward' | 'rejected' | 'unreachable'; message: string };
 
+/**
+ * The check branches of the GitHub Actions merge check (PM-900), on the base's upstream remote. Used
+ * inside one engine only: there is no wire method for it. Branch names are `pm-check/<time>/<id>`.
+ */
+export interface CheckBranchGit {
+  /** "owner/name" of the base's upstream remote when its URL is a github.com one (ssh or https); null otherwise. */
+  upstreamRepo(ref: MergeRepoRef, input: { base: string }): Promise<string | null>;
+  /** Pushes `commit` to refs/heads/<branch> of that remote, never forced. */
+  push(ref: MergeRepoRef, input: { base: string; commit: string; branch: string }): Promise<MergePushResult>;
+  /** Deletes refs/heads/<branch> there; a missing branch is fine. */
+  remove(ref: MergeRepoRef, input: { base: string; branch: string }): Promise<void>;
+  /** The branch names under `prefix` there (ls-remote), at most 100. */
+  list(ref: MergeRepoRef, input: { base: string; prefix: string }): Promise<string[]>;
+}
+
 export type MergeAdvanceResult =
   { ok: true } | { ok: false; reason: 'checkout_in_the_way' | 'moved'; message: string; paths: string[] };
 

@@ -27,6 +27,8 @@ export interface FakeGhScenario {
   branches?: Record<string, FakeGhResponse | FakeGhResponse[]>;
   /** `gh pr create`, keyed by "owner/name@<branch>"; unscripted calls create a pull request in the fake's state. */
   create?: Record<string, FakeGhResponse | FakeGhResponse[]>;
+  /** `gh api` calls, keyed by "<METHOD> <endpoint without its query>" (the Actions endpoints, PM-907). */
+  api?: Record<string, FakeGhResponse | FakeGhResponse[]>;
   /** What each token (GH_TOKEN) may do; an unknown token is login "bot" without the right to merge. */
   identities?: Record<string, { login: string; canMerge?: boolean }>;
   /** The number of the first created pull request (default 100). */

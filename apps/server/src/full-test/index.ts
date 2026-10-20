@@ -23,6 +23,8 @@ import type { RunPaths } from './sandbox';
 import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
 import { prepareStepCache } from './step-cache';
 export { assertNpmCiCheckout } from './npm-ci';
+export { withGithubActions } from './github-actions';
+export type { GithubActionsDeps } from './github-actions';
 export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } from './workspace-dependencies';
 export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
 

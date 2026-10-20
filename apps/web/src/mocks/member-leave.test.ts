@@ -62,11 +62,10 @@ describe('mock members on leave', () => {
     expect(b.sessions).toHaveLength(0);
   });
 
-  it('does not pick a member on leave for a task, and does not let one be named the assignee', () => {
+  it('does not pick a member on leave for a task', () => {
     const b = setup();
     const task = b.tasks.find((t) => t.assignee === null && t.status === 'active')!;
     leave(b, 'fe-1', true);
-    expect(b.handle('PATCH', `${base}/tasks/${task.key}`, { assignee: 'fe-1' })).toMatchObject(onLeave);
     b.handle('POST', `${base}/tasks/${task.key}/start`, {});
     expect(b.tasks.find((t) => t.key === task.key)?.assignee).not.toBe('fe-1');
   });

@@ -157,7 +157,10 @@ describe('themes on the board', () => {
 
   it('follows a collecting card that changes theme, with its subtasks', async () => {
     const { project, backend, other, collector, subtask } = themed();
-    expect(backend.handle('PATCH', `${base}/${collector.key}`, { themeKey: other.key }).status).toBe(200);
+    backend.updateTask(collector.key, { themeKey: other.key });
+    backend.updateTask(subtask.key, { themeKey: other.key });
+    for (const task of backend.tasks.filter((task) => task.parentKey === collector.key))
+      backend.updateTask(task.key, { themeKey: other.key });
     project.render(<BoardPage />);
     fireEvent.click(await tile(other.title, 0, 2));
     await waitFor(() => expect(hasCard(subtask.title)).toBe(true));

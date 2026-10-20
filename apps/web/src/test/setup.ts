@@ -1,5 +1,7 @@
 import { cleanup, configure } from '@testing-library/react';
 import { afterEach } from 'vitest';
+import { server } from './msw/server';
+import { takeContractViolations } from './msw/contract';
 
 // findBy* and waitFor poll for 1 s by default; a slow role query under parallel load can use that
 // up on its own, so give them time to stay below the test timeout in vitest.config.ts.
@@ -8,6 +10,9 @@ configure({ asyncUtilTimeout: 5000 });
 // Vitest globals are off, so testing-library cannot register its own cleanup.
 afterEach(() => {
   cleanup();
+  server.resetHandlers();
+  const violations = takeContractViolations();
+  if (violations.length) throw new Error(`Mock API contract violations:\n${violations.join('\n')}`);
 });
 
 // jsdom lacks these browser APIs used by the UI.

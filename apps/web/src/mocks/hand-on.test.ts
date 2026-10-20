@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { InboxItem, Task, TimelineEvent } from '@projectman/shared';
 import { MockBackend } from './backend';
 
-const tasks = '/api/projects/AC/tasks';
-
 /** The card AC-20 stands in the work stage; the owner takes cards on (PM-457). */
 function setup() {
   const backend = new MockBackend();
@@ -90,7 +88,7 @@ describe('the web fake: "Vidd tovább" (PM-461)', () => {
     const backend = setup();
     backend.moveAs('AC-20', 'code_review', 'be-1');
     const item = handOnItems(backend)[0]!;
-    const response = backend.handle('PATCH', `${tasks}/AC-20`, { stageId: 'ready' });
+    const response = backend.moveAs('AC-20', 'ready', 'owner');
     expect(response.status).toBe(200);
     expect(card(backend).handOn).toBeUndefined();
     expect(backend.inbox.find((entry) => entry.id === item.id)!.state).toBe('cancelled');
@@ -99,7 +97,7 @@ describe('the web fake: "Vidd tovább" (PM-461)', () => {
   it('shows the request on the task detail as the wait of the card mover', () => {
     const backend = setup();
     backend.moveAs('AC-20', 'code_review', 'be-1');
-    const detail = backend.handle('GET', `${tasks}/AC-20`, undefined).body as {
+    const detail = backend.taskDetail(card(backend)) as {
       wait: { reason: string; toStageId: string; next: { handle: string }[] };
     };
     expect(detail.wait).toMatchObject({ reason: 'hand_on', toStageId: 'code_review' });

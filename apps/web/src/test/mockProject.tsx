@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getResponse, HttpHandler } from 'msw';
 import type { ReactElement } from 'react';
 import { setFetchImplementation } from '../api/client';
 import { ProjectContext } from '../app/contexts';
@@ -7,26 +8,39 @@ import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
 import { noBoardFilters } from '../features/board/boardFilters';
 import { MockBackend } from '../mocks/backend';
 import { renderUi } from './render';
+import { server } from './msw/server';
+import { defaultTaskHandlers } from './msw/tasks';
 
 export interface MockRequest {
   method: string;
   path: string;
-  /** Parsed JSON, or the FormData of an upload. */
+  /** Parsed JSON, malformed JSON as text, or the FormData of an upload. */
   body: unknown;
 }
 
 /** A fetch() that answers /api requests from the in-memory backend and records each request. */
 export function createMockFetch(backend: MockBackend, requests: MockRequest[] = []) {
+  const handlers = defaultTaskHandlers(backend);
   return async (path: string, init?: RequestInit): Promise<Response> => {
-    const body: unknown =
-      typeof init?.body === 'string'
-        ? JSON.parse(init.body)
-        : init?.body instanceof FormData
-          ? init.body
-          : undefined;
+    let body: unknown = init?.body instanceof FormData ? init.body : undefined;
+    if (typeof init?.body === 'string') {
+      try {
+        body = JSON.parse(init.body);
+      } catch {
+        body = init.body; // The MSW handler records the invalid request, even if the UI handles its 400.
+      }
+    }
     const method = init?.method ?? 'GET';
     requests.push({ path, method, body });
     const url = new URL(path, 'http://localhost');
+    if (!(init?.body instanceof FormData)) {
+      const request = new Request(url, { method, headers: init?.headers, body: init?.body });
+      const overrides = server
+        .listHandlers()
+        .filter((handler): handler is HttpHandler => handler instanceof HttpHandler);
+      const mocked = await getResponse([...overrides, ...handlers], request);
+      if (mocked) return mocked;
+    }
     const response = backend.handle(method, url.pathname, body, url.searchParams);
     return new Response(response.status === 204 ? null : JSON.stringify(response.body), {
       status: response.status,

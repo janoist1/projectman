@@ -100,9 +100,7 @@ describe('MockBackend', () => {
     expect(BoardView.safeParse(backend.handle('GET', '/api/projects/AC/board', undefined).body).success).toBe(
       true,
     );
-    expect(
-      TaskDetail.safeParse(backend.handle('GET', '/api/projects/AC/tasks/AC-21', undefined).body).success,
-    ).toBe(true);
+    expect(TaskDetail.safeParse(backend.taskDetail(backend.findTask('AC-21')!)).success).toBe(true);
     expect(
       SessionDetail.safeParse(backend.handle('GET', '/api/projects/AC/sessions/ses_ac21_fe1', undefined).body)
         .success,
@@ -132,9 +130,12 @@ describe('MockBackend', () => {
       model: 'gpt-6.1-sol',
       permissionMode: 'acceptEdits',
     });
-    expect(
-      TaskDetail.parse(backend.handle('GET', '/api/projects/AC/tasks/AC-21', undefined).body).pullRequests[0],
-    ).toMatchObject({ checks: 'passing', reviewDecision: 'approved', additions: 42, deletions: 8 });
+    expect(TaskDetail.parse(backend.taskDetail(backend.findTask('AC-21')!)).pullRequests[0]).toMatchObject({
+      checks: 'passing',
+      reviewDecision: 'approved',
+      additions: 42,
+      deletions: 8,
+    });
     const hired = MemberView.parse(
       backend.handle('POST', '/api/projects/AC/members', {
         role: 'qa',

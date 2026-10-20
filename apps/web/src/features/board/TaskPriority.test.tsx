@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { createMockFetch, mockProject } from '../../test/mockProject';
+import { onTaskUpdate } from '../../test/msw/tasks';
+import { apiFailure } from '../../test/msw/contract';
 import { TaskDrawer } from './TaskDrawer';
 import { TaskPrioritySelect } from './TaskPriority';
 
@@ -22,6 +24,16 @@ describe('card priority properties', () => {
     async (query) => {
       const project = mockProject();
       const rank = project.backend.findTask('AC-20')!.boardRank;
+      onTaskUpdate('AC-20', ({ body }) => {
+        const previousPriority = project.backend.findTask('AC-20')!.priority;
+        const task = project.backend.updateTask('AC-20', { priority: body.priority })!;
+        project.backend.addTimeline('AC-20', 'owner', 'task_updated', {
+          fields: ['priority'],
+          priority: body.priority,
+          previousPriority,
+        });
+        return task;
+      });
       project.render(drawer, `/p/AC/tasks/AC-20${query}`);
       fireEvent.change(await select(), { target: { value: 'high' } });
       await waitFor(() => expect(project.backend.findTask('AC-20')!.priority).toBe('high'));
@@ -56,14 +68,12 @@ describe('card priority properties', () => {
     const project = mockProject();
     project.backend.updateTask('AC-20', { priority: 'normal' });
     const fetch = createMockFetch(project.backend, project.requests);
+    onTaskUpdate('AC-20', apiFailure(500, 'unexpected_failure'));
     let fail: (() => void) | undefined;
     setFetchImplementation(async (path, init) => {
       if (init?.method === 'PATCH') {
         await new Promise<void>((resolve) => {
           fail = resolve;
-        });
-        return new Response(JSON.stringify({ error: { code: 'unexpected_failure', message: 'Failed' } }), {
-          status: 500,
         });
       }
       return fetch(path, init);

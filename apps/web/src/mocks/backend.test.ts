@@ -1,7 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   ProvidersView,
-  Task,
   effectiveSessionPermissions,
   operatorOf,
   validateProjectConfig,
@@ -126,19 +125,6 @@ describe('integrator credential policy in the fake (PM-759)', () => {
 });
 function errorCode(response: { body?: unknown }) {
   return (response.body as { error: { code: string } }).error.code;
-}
-
-/** The card's work is on the main branch already: a move to the release is not refused for want of the merge. */
-function markMerged(backend: MockBackend, taskKey: string) {
-  const task = backend.findTask(taskKey)!;
-  task.merged = {
-    via: 'tool',
-    mergeCommit: 'c'.repeat(40),
-    commit: 'a'.repeat(40),
-    repo: task.repo ?? 'webshop',
-    base: 'main',
-    at: new Date().toISOString(),
-  };
 }
 
 describe('mock fixed Operator session approver', () => {
@@ -347,7 +333,6 @@ describe('mock role catalogue and member mutations', () => {
     expect(backend.handle('POST', `${base}/roles`, role).status).toBe(403);
     expect(backend.handle('PATCH', `${base}/members/owner`, { roles: [] }).status).toBe(403);
     expect(backend.handle('POST', `${base}/tasks/AC-20/cancel`, {}).status).toBe(403);
-    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { assignee: null }).status).toBe(403);
     backend.findMember('kata')!.role = 'admin';
     const admin = backend.config.team.members.find((m) => m.handle === 'kata')!;
     if (admin.kind === 'human') admin.access = 'admin';
@@ -356,22 +341,10 @@ describe('mock role catalogue and member mutations', () => {
 });
 
 describe('mock task lifecycle', () => {
-  it('returns realistic errors and retains previous assignment in the timeline', () => {
+  it('returns realistic lifecycle errors', () => {
     const backend = new MockBackend();
     expect(errorCode(backend.handle('POST', `${base}/tasks/AC-16/cancel`, {}))).toBe('task_closed');
     expect(errorCode(backend.handle('POST', `${base}/tasks/AC-20/reopen`, {}))).toBe('task_not_cancelled');
-    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-20`, { assignee: 'missing-member' }))).toBe(
-      'unknown_member',
-    );
-    // A live session of the old assignee is no obstacle: the server asks it for a handoff note (PM-342).
-    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { assignee: null }).status).toBe(200);
-    expect(backend.timeline.findLast((event) => event.type === 'task_assigned')).toMatchObject({
-      data: { previous: 'be-1', assignee: null },
-    });
-    expect(backend.timeline.at(-1)).toMatchObject({
-      type: 'task_handoff',
-      data: { phase: 'started', from: 'be-1', mode: 'live' },
-    });
   });
   it('cancels every live task session and its open inbox items', () => {
     const backend = new MockBackend();
@@ -389,98 +362,6 @@ describe('mock task lifecycle', () => {
       closedAt: null,
       stageId: 'code_review',
     });
-  });
-});
-
-describe('mock task updates', () => {
-  /** A label anyone may set, required to enter code review. */
-  function gatedBackend() {
-    const backend = new MockBackend();
-    backend.config.pipeline.labels.push({ id: 'ready-for-review', name: 'Ready', setBy: 'anyone' });
-    backend.config.pipeline.stages.find((stage) => stage.id === 'code_review')!.gate = {
-      conditions: [{ type: 'has_label', label: 'ready-for-review' }],
-    };
-    return backend;
-  }
-  const newEvents = (backend: MockBackend, before: number) =>
-    backend.timeline.slice(before).map((event) => event.type);
-
-  it('applies fields and labels before the move, so one change can pass a gate', () => {
-    const backend = gatedBackend();
-    const task = backend.findTask('AC-20')!;
-    const before = backend.timeline.length;
-    const response = backend.handle('PATCH', `${base}/tasks/AC-20`, {
-      title: 'Fictional backup check',
-      labels: [...task.labels, 'ready-for-review'],
-      stageId: 'code_review',
-    });
-    expect(response.status).toBe(200);
-    expect(Task.parse(response.body)).toMatchObject({
-      title: 'Fictional backup check',
-      stageId: 'code_review',
-    });
-    expect(backend.findTask('AC-20')?.labels).toContain('ready-for-review');
-    expect(newEvents(backend, before)).toEqual(['task_updated', 'task_labels_changed', 'task_stage_changed']);
-  });
-
-  it.each([
-    ['a blocked gate', { stageId: 'code_review' }, 409, 'gate_blocked'],
-    ['a refused label', { labels: ['pr-merged'] }, 403, 'label_not_allowed'],
-  ] as const)('changes nothing when %s refuses the update', (_case, change, status, code) => {
-    const backend = gatedBackend();
-    const task = structuredClone(backend.findTask('AC-20')!);
-    const before = backend.timeline.length;
-    expect(
-      backend.handle('PATCH', `${base}/tasks/AC-20`, { title: 'Must not save', ...change }),
-    ).toMatchObject({ status, body: { error: { code } } });
-    expect(backend.findTask('AC-20')).toEqual(task);
-    expect(backend.timeline).toHaveLength(before);
-  });
-
-  it('applies the rest and asks for the approval once when the move needs one', () => {
-    const backend = new MockBackend();
-    const open = () =>
-      backend.inbox.filter(
-        (item) => item.taskKey === 'AC-28' && item.kind === 'decision' && item.state === 'open',
-      );
-    backend.handle('PATCH', `${base}/tasks/AC-28`, { stageId: 'merge' });
-    markMerged(backend, 'AC-28');
-    for (const title of ['Fictional shipping fee', 'Fictional shipping fee v2'])
-      expect(backend.handle('PATCH', `${base}/tasks/AC-28`, { title, stageId: 'release' })).toMatchObject({
-        status: 409,
-        body: { error: { code: 'approval_requested', details: { inboxItemIds: [open()[0]?.id] } } },
-      });
-    expect(backend.findTask('AC-28')).toMatchObject({
-      title: 'Fictional shipping fee v2',
-      stageId: 'merge',
-      status: 'waiting',
-    });
-    expect(open()).toHaveLength(1);
-  });
-  it.each([
-    ['four eyes leave only its author', 'release_four_eyes'],
-    ["the label's own rule leaves only its author", 'self_review_forbidden'],
-    ['nobody holds the label', 'missing_duty_holder'],
-  ] as const)('changes nothing when nobody may give the approval: %s', (_case, code) => {
-    const backend = new MockBackend();
-    backend.handle('PATCH', `${base}/tasks/AC-28`, { stageId: 'merge' });
-    markMerged(backend, 'AC-28');
-    backend.findTask('AC-28')!.links[0]!.author = 'owner';
-    const approval = backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!;
-    if (code === 'release_four_eyes') backend.config.team.releaseFourEyes = true;
-    if (code === 'self_review_forbidden') approval.notByAuthor = true;
-    if (code === 'missing_duty_holder') approval.setBy = { members: [], humansOnly: true };
-    const task = structuredClone(backend.findTask('AC-28')!);
-    const before = backend.timeline.length;
-    expect(
-      backend.handle('PATCH', `${base}/tasks/AC-28`, { title: 'Must not save', stageId: 'release' }),
-    ).toMatchObject({
-      status: 409,
-      body: { error: { code, details: { stageId: 'release', label: 'release-approved' } } },
-    });
-    expect(backend.findTask('AC-28')).toEqual(task);
-    expect(backend.timeline).toHaveLength(before);
-    expect(backend.inbox.filter((item) => item.taskKey === 'AC-28' && item.state === 'open')).toEqual([]);
   });
 });
 
@@ -572,49 +453,6 @@ describe('mock provider settings', () => {
 });
 
 describe('mock repository of a task', () => {
-  const sessionsOf = (backend: MockBackend, key: string) =>
-    backend.sessions.filter(
-      (session) => session.workItem.type === 'task' && session.workItem.taskKey === key,
-    );
-
-  it('sets and clears the repository, records the change and refuses unknown names', () => {
-    const backend = new MockBackend();
-    backend.handle('POST', `${base}/sessions/ses_ac20_be1/stop`, {});
-    const before = backend.timeline.length;
-    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: 'mobile' }))).toBe(
-      'unknown_repo',
-    );
-    expect(backend.findTask('AC-20')!.repo).toBe('infra');
-    expect(backend.timeline).toHaveLength(before);
-
-    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: 'admin' }).body).toMatchObject({
-      repo: 'admin',
-    });
-    expect(backend.timeline.at(-1)).toMatchObject({
-      type: 'task_updated',
-      data: { fields: ['repo'], repo: 'admin', previousRepo: 'infra' },
-    });
-    // The same value is no change.
-    const events = backend.timeline.length;
-    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: 'admin' }).status).toBe(200);
-    expect(backend.timeline).toHaveLength(events);
-
-    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: null }).body).toMatchObject({ repo: null });
-    expect(backend.timeline.at(-1)).toMatchObject({
-      data: { fields: ['repo'], repo: null, previousRepo: 'admin' },
-    });
-  });
-
-  it('refuses the change while a session of the task is running, like the server', () => {
-    const backend = new MockBackend();
-    expect(sessionsOf(backend, 'AC-20').some((session) => session.state !== 'exited')).toBe(true);
-    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: 'admin' })).toMatchObject({
-      status: 409,
-      body: { error: { code: 'task_session_live', details: { sessionId: 'ses_ac20_be1' } } },
-    });
-    expect(backend.findTask('AC-20')!.repo).toBe('infra');
-  });
-
   it('refuses to start a developer on a task without a repository in a project with several', () => {
     const backend = new MockBackend();
     backend.updateTask('AC-24', { repo: null });
@@ -624,7 +462,7 @@ describe('mock repository of a task', () => {
     });
     expect(backend.findTask('AC-24')).toMatchObject({ assignee: null, stageId: 'ready' });
 
-    backend.handle('PATCH', `${base}/tasks/AC-24`, { repo: 'webshop' });
+    backend.updateTask('AC-24', { repo: 'webshop' });
     expect(backend.handle('POST', `${base}/tasks/AC-24/start`, {}).status).toBe(200);
     expect(backend.findTask('AC-24')!.assignee).not.toBeNull();
   });
@@ -636,38 +474,5 @@ describe('mock repository of a task', () => {
       backend.updateTask('AC-24', { repo: null });
       expect(backend.handle('POST', `${base}/tasks/AC-24/start`, {}).status, String(repos.length)).toBe(200);
     }
-  });
-});
-
-describe('mock task moves', () => {
-  it('updates stageEnteredAt when moving to a different stage', () => {
-    const backend = new MockBackend();
-    const created = backend.handle('POST', `${base}/tasks`, { title: 'T1' });
-    const taskKey = (created.body as Task).key;
-    const task = backend.findTask(taskKey)!;
-    const t0 = task.stageEnteredAt;
-
-    // advance time to ensure timestamp difference
-    vi.setSystemTime(new Date(Date.now() + 5000));
-
-    const response = backend.handle('PATCH', `${base}/tasks/${taskKey}`, { stageId: 'dev' });
-    expect(response.status).toBe(200);
-
-    const moved = backend.findTask(taskKey)!;
-    expect(moved.stageEnteredAt).not.toBe(t0);
-    expect(moved.stageEnteredAt! > t0!).toBe(true);
-
-    const enteredAtReview = moved.stageEnteredAt;
-
-    // advance time again
-    vi.setSystemTime(new Date(Date.now() + 5000));
-
-    // updating non-stage fields shouldn't change stageEnteredAt
-    backend.handle('PATCH', `${base}/tasks/${taskKey}`, { title: 'Updated title' });
-
-    const unchanged = backend.findTask(taskKey)!;
-    expect(unchanged.stageEnteredAt).toBe(enteredAtReview);
-
-    vi.useRealTimers();
   });
 });

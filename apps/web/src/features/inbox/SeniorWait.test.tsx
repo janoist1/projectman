@@ -108,8 +108,20 @@ describe('the Senior-wait question in the inbox (PM-349)', () => {
 
   it('closes by itself when the card goes another way, with its own label', async () => {
     const project = waitingProject();
-    project.backend.handle('PATCH', '/api/projects/AC/tasks/AC-24', {
-      developerLevel: { level: 'any', reason: null },
+    const item = waitItems(project.backend)[0]!;
+    project.backend.updateTask('AC-24', {
+      developerLevel: { level: 'any', reason: null, setBy: 'owner', setAt: new Date().toISOString() },
+      startWaiting: undefined,
+    });
+    Object.assign(item, {
+      state: 'resolved',
+      resolution: {
+        optionId: 'ended',
+        by: 'system',
+        at: new Date().toISOString(),
+        note: null,
+        rule: 'senior_wait_ended',
+      },
     });
     render(project);
     await screen.findByText(t('inbox.recent'));

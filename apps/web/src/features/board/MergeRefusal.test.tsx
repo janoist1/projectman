@@ -6,6 +6,8 @@ import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { findBoardCardLinks } from '../../test/boardCards';
 import { mockProject } from '../../test/mockProject';
+import { onTaskUpdate } from '../../test/msw/tasks';
+import { apiFailure } from '../../test/msw/contract';
 import { BoardPage } from './BoardPage';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -46,11 +48,19 @@ function dropOn(project: Project, taskKey: string, columnId: string) {
 }
 
 /** Opens the move panel of the drawer and asks for the release step. */
-async function moveToRelease() {
+async function moveToRelease(project: Project, merger: string, reason = 'not_merged') {
+  onTaskUpdate('AC-27', apiFailure(409, 'task_not_merged', undefined, { reason, merger, base: 'main' }));
   fireEvent.click(await screen.findByRole('button', { name: t('task.move.open') }));
   const target = await screen.findByLabelText(t('task.move.target'));
   fireEvent.change(target, { target: { value: 'release' } });
   fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
+  await waitFor(() =>
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: '/api/projects/AC/tasks/AC-27',
+      body: { stageId: 'release' },
+    }),
+  );
 }
 
 describe('a move refused for want of the merge, in the drawer (PM-453)', () => {
@@ -58,7 +68,7 @@ describe('a move refused for want of the merge, in the drawer (PM-453)', () => {
     const project = mockProject();
     project.backend.reconcileMerges();
     project.render(drawer, '/p/AC/tasks/AC-27');
-    await moveToRelease();
+    await moveToRelease(project, 'code-review');
     const text = t('task.merge.refused.notMerged', {
       merger: reviewerName(project),
       base: 'main',
@@ -75,7 +85,7 @@ describe('a move refused for want of the merge, in the drawer (PM-453)', () => {
     project.backend.config.team.merger = { kind: 'member', handle: 'owner' };
     project.backend.reconcileMerges();
     project.render(drawer, '/p/AC/tasks/AC-27');
-    await moveToRelease();
+    await moveToRelease(project, 'owner');
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('main');
     const start = within(alert.parentElement!).getByRole('button', { name: t('task.merge.button') });
@@ -86,9 +96,8 @@ describe('a move refused for want of the merge, in the drawer (PM-453)', () => {
   it('says it is the engine when the card’s machine cannot be reached', async () => {
     const project = mockProject();
     project.backend.reconcileMerges();
-    project.backend.setMergeRefusal('AC-27', 'engine_unavailable');
     project.render(drawer, '/p/AC/tasks/AC-27');
-    await moveToRelease();
+    await moveToRelease(project, 'code-review', 'engine_unavailable');
     expect(await screen.findByText(t('task.merge.refused.engine'))).toBeTruthy();
   });
 });

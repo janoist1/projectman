@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MockBackend } from './backend';
 
-const base = '/api/projects/AC/tasks';
-
 /** AC-25 is a collecting card of the review column; AC-26 and AC-21 are its subtasks. */
 function setup(statuses: {
   'AC-26': 'done' | 'cancelled' | 'active';
@@ -29,12 +27,6 @@ describe('the web fake: a collecting card whose subtasks are closed goes to Done
       to: 'done',
       partsClosed: { done: ['AC-26'], cancelled: ['AC-21'] },
     });
-  });
-
-  it('lets a stage change through the card update too', () => {
-    const backend = setup({ 'AC-26': 'done', 'AC-21': 'done' });
-    expect(backend.handle('PATCH', `${base}/AC-25`, { stageId: 'done' }).status).toBe(200);
-    expect(backend.findTask('AC-25')?.stageId).toBe('done');
   });
 
   it('keeps the gates while a subtask is open or when every subtask was cancelled', () => {

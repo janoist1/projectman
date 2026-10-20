@@ -9,19 +9,14 @@ export const RUNTIME_ENTRIES: Readonly<Record<string, readonly string[]>> = {
   // accept a caller's command/script; they deliberately retain the uncertain baseline.
   // Product code: git, file copies, service managers and machine probes are external programs.
   'apps/server/src/administration/service-control.ts': [],
-  'apps/server/src/config/git.ts': [],
-  'apps/server/src/engine-host/merge-git.ts': [],
-  'apps/server/src/engine-host/merge-input.ts': [],
   'apps/server/src/engine-link/version.ts': [],
   'apps/server/src/full-test/run-sandboxed.ts': [], // Resolves the sandbox-runtime package.
   'apps/server/src/machine/probe.ts': [],
   'apps/server/src/runner/providers/claude/trust.ts': [],
   'apps/server/src/runner/session.ts': [], // Loads node-pty; the configured agent is external.
   'apps/server/src/runner/terminal.ts': [], // Loads the xterm packages.
-  'apps/server/src/services/github/gh.ts': [],
   'apps/server/src/worktree/dependencies.ts': [],
   'apps/server/src/worktree/dependency-copy.ts': [],
-  'apps/server/src/worktree/git.ts': [],
 
   // Helpers and scripts with a fixed command set. Generic command runners stay unlisted.
   'apps/server/test/helpers/golden-path.ts': [],

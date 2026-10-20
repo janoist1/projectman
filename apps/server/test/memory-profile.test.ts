@@ -343,6 +343,8 @@ describe('memory-probe', () => {
           'arrayBuffers',
           'cpuSystemMs',
           'cpuUserMs',
+          'eventLoopMaxMs',
+          'eventLoopP95Ms',
           'external',
           'heapSizeLimit',
           'heapTotal',

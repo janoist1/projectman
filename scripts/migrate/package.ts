@@ -17,15 +17,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
+import { execCommand, ExecCommandError } from '../../apps/server/src/exec';
 import { backupDatabase, snapshotDatabase } from './database';
 import { git, isGitRepository } from './git';
 import { buildInventory, isDirty } from './inventory';
 import type { Finding, Inventory, RepoInventory, WorktreeInfo } from './inventory';
-
-const run = promisify(execFile);
 
 /**
  * The migration package (PM-143): everything that moves, in one directory, with a checksum for every
@@ -184,7 +181,14 @@ async function archiveFiles(dir: string, files: string[], destination: string): 
   try {
     const list = join(scratch, 'files');
     writeFileSync(list, files.map((f) => `${f}\0`).join(''));
-    await run('tar', ['-czf', destination, '-C', dir, '--null', '-T', list]);
+    try {
+      await execCommand('tar', ['-czf', destination, '-C', dir, '--null', '-T', list], {
+        env: { ...process.env },
+      });
+    } catch (error) {
+      if (!(error instanceof ExecCommandError)) throw error;
+      throw new Error(`tar failed: ${error.stderr.trim() || error.message}`);
+    }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

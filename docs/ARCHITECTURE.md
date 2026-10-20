@@ -1778,7 +1778,10 @@ workers follow the machine's size.
   signals and executables available on the supplied `PATH`. **Remote engine:** supported; the
   helper runs wherever its caller lives: worktree and merge git on the engine, configuration git
   and gh on the server. Later slices use it for engine probes, copies and trust, server version
-  checks, supervisor service control and host scripts (PM-911, PM-912). No new data crosses the
+  checks and supervisor service control (PM-911). Host scripts now use the helper for migration
+  git/tar, the administration builder's commit check and work-root move commands
+  (`scripts/migrate/{git,apply,package}.ts`, `scripts/administration/builder.ts`,
+  `scripts/engine/move-work-root.ts`, PM-912). No new data crosses the
   server/engine boundary; the change on each host is SIGKILL escalation after the grace period.
 
 - **Local history embeddings (PM-767)** — `apps/server/src/history-semantic/**` (module `history-semantic`, engine

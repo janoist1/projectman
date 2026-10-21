@@ -4345,6 +4345,10 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   The start round (`StartRound`) reads the whole active queue (`queue` read), assigned cards too (PM-879): an
   assigned card is offered to its own assignee when they are free and never pulled; the pm moves it, so the
   assignee starts it. Without this a card assigned in the queue stage was never offered and nobody was woken.
+  The round also offers a card that stands in the work stage with an AI assignee who has no session on it at all
+  (no open handoff, not held by the fix round limit): the offer asks for `start_task`, not a move (PM-556 stalled
+  this way, as a move forward starts nothing, PM-119). Assigned cards reserve their own developer before any other
+  card, a busy assignee gets no offer and no hold, and the `start` obligation ends once the assignee has a session.
 - **Targeted reads (PM-770).** The retry, the pull and the startup recovery do not read a project's whole card list.
   `TaskSchedulingReader.readSchedulingTasks(projectKey, query)` (`contracts/task-scheduling.ts`, implemented by
   `TaskService` over `TaskRepository.readScheduling` in `db/tasks.ts`) returns stored rows with their own links, in

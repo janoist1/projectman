@@ -11,6 +11,8 @@ export interface StartOfferText {
   /** The collector's other open parts and why each waits (`taskWaitShort`). */
   waiting: readonly { key: string; why: string }[];
   toStageId: string;
+  /** The cards are already in `toStageId` with an assignee who has no session on them: they are started, not moved (PM-879). */
+  inWork?: boolean;
   /** The first stage, where a card the owner holds goes back. */
   backStageId: string;
 }
@@ -23,6 +25,14 @@ export function startOfferText(input: StartOfferText): string {
   ];
   if (collector && waiting.length > 0)
     lines.push(`The other parts wait: ${waiting.map((part) => `${part.key} (${part.why})`).join(', ')}.`);
+  if (input.inWork) {
+    // The cards stand in the work stage with their assignee and no session: nothing to move, only to start.
+    lines.push(
+      `Each is already in ${toStageId} with its assignee, who has not started it: start it with start_task, do not move it. ` +
+        `Skip a card only if the owner's comment holds it now.`,
+    );
+    return lines.join('\n');
+  }
   lines.push(
     `Move each to ${toStageId} with update_task (stage_id ${toStageId}); the system picks the developer. ` +
       `Skip a card only if a frame or focus lock holds it now. ` +

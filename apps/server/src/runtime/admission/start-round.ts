@@ -18,6 +18,7 @@ import type {
   FocusPlace,
   ProjectConfig,
   StartPlanEntry,
+  Stage,
   Task,
   TaskReadyHold,
   TaskStartOffer,
@@ -34,6 +35,8 @@ import type { SeniorWaits } from './senior-waits';
 
 interface ProjectRound {
   sourceStageId: string;
+  /** The work stage, where an assigned card nobody started waits for its start (PM-879). */
+  workStageId: string;
   frame: TaskReadyHold | null;
   holds: Map<string, TaskReadyHold>;
   /** The cards the round offers or pulls: an open offer on one of them stands. */
@@ -74,9 +77,15 @@ export class StartRound implements StartRounding {
   private active: Promise<void> | null = null;
   private readonly deps: StartRoundDeps;
   private obligations: StartOfferObligations | undefined;
+  private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
 
   constructor(deps: StartRoundDeps) {
     this.deps = deps;
+  }
+
+  /** Binds the fix round limit (PM-262), which is built after the round: a card it holds is not offered. */
+  useFixLimit(fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean }): void {
+    this.fixLimit = fixLimit;
   }
 
   /** Binds the obligation tracking, which is built after the round (it asks the round about its offers). */
@@ -99,7 +108,7 @@ export class StartRound implements StartRounding {
 
   /** The open offer to start the card, while the round still stands behind it (a hold or a frame shows the hold). */
   startOfferOf(task: Task): TaskStartOffer | undefined {
-    const state = this.stateOfQueued(task);
+    const state = this.stateOfQueued(task, true);
     if (!state || state.frame || state.holds.has(task.key) || !state.wanted.has(task.key)) return undefined;
     return state.offers.get(task.key);
   }
@@ -112,6 +121,7 @@ export class StartRound implements StartRounding {
   offerState(projectKey: string, taskKey: string): 'offered' | 'paused' | 'ended' | null {
     const state = this.states.get(projectKey);
     if (!state) return null;
+    if (this.started(projectKey, taskKey, state)) return 'ended';
     if (state.frame || state.holds.has(taskKey)) return 'paused';
     return state.wanted.has(taskKey) ? 'offered' : 'ended';
   }
@@ -155,10 +165,50 @@ export class StartRound implements StartRounding {
     }
   }
 
-  private stateOfQueued(task: Task): ProjectRound | undefined {
+  /** The card is in the work stage and its assignee has a session on it: the offer to start it is answered (PM-879). */
+  private started(projectKey: string, taskKey: string, state: ProjectRound): boolean {
+    const { repos } = this.deps.ctx;
+    const task = repos.tasks.get(taskKey);
+    return (
+      !!task?.assignee &&
+      task.stageId === state.workStageId &&
+      !!repos.sessions.findByWorkItem(projectKey, task.assignee, { type: 'task', taskKey })
+    );
+  }
+
+  /** The round's view of a card in the source stage; with `inWork` also of one in the work stage (PM-879). */
+  private stateOfQueued(task: Task, inWork = false): ProjectRound | undefined {
     const state = this.states.get(task.projectKey);
-    if (!state || task.stageId !== state.sourceStageId || task.status !== 'active') return undefined;
-    return state;
+    if (!state || task.status !== 'active') return undefined;
+    if (task.stageId === state.sourceStageId || (inWork && task.stageId === state.workStageId)) return state;
+    return undefined;
+  }
+
+  /**
+   * The cards of the work stage whose assignee has not started them (PM-879): an AI member is the assignee,
+   * who has no session on the card at all, no handoff is open on it and the fix round limit does not hold
+   * it. Going forward into the work stage is the Start button's business (PM-119), so nothing else starts them.
+   */
+  private unstarted(config: ProjectConfig, work: Stage): Task[] {
+    const { ctx, tasks } = this.deps;
+    const projectKey = config.project.key;
+    const stored = tasks.readSchedulingTasks(projectKey, { kind: 'queue', stageId: work.id });
+    const mine = stored.filter((task) => task.assignee && memberOf(config, task.assignee)?.kind === 'ai');
+    if (mine.length === 0) return [];
+    const ofMine = new Set(mine.map((task) => task.key));
+    return startableCards({
+      config,
+      tasks: startContext(tasks, projectKey, mine),
+      fromStageId: work.id,
+      toStageId: work.id,
+      assigned: true,
+    }).filter(
+      (task) =>
+        ofMine.has(task.key) &&
+        !ctx.repos.sessions.findByWorkItem(projectKey, task.assignee!, { type: 'task', taskKey: task.key }) &&
+        !ctx.repos.taskHandoffs.open(task.key) &&
+        !this.fixLimit?.heldFor(task, config),
+    );
   }
 
   private async round(): Promise<void> {
@@ -196,6 +246,7 @@ export class StartRound implements StartRounding {
     const live = ctx.repos.obligations.listLive(key).filter((row) => row.kind === 'start');
     const state: ProjectRound = {
       sourceStageId: source.id,
+      workStageId: development.id,
       frame: null,
       holds: new Map(),
       wanted: new Set(),
@@ -224,13 +275,16 @@ export class StartRound implements StartRounding {
       return;
     }
     const queued = tasks.readSchedulingTasks(key, { kind: 'queue', stageId: source.id });
-    const cards = startableCards({
-      config,
-      tasks: startContext(tasks, key, queued),
-      fromStageId: source.id,
-      toStageId: development.id,
-      assigned: true,
-    });
+    const cards = [
+      ...startableCards({
+        config,
+        tasks: startContext(tasks, key, queued),
+        fromStageId: source.id,
+        toStageId: development.id,
+        assigned: true,
+      }),
+      ...this.unstarted(config, development),
+    ];
     const owners = stageOwners(config, development);
     const seniors = seniorsOf(config, development)
       .map((member) => member.handle)
@@ -283,18 +337,24 @@ export class StartRound implements StartRounding {
       .sort((a, b) => compareStartOrder(a, b, places));
     if (fresh.length === 0) return;
     // The parts of a collecting card go together, the other cards alone, in the order of their first card.
+    // The cards already in the work stage are started, not moved, so they have their own message.
     const groups = new Map<string, Task[]>();
+    const inWork = (card: Task) => card.stageId === toStageId;
+    const subjectOf = (card: Task) => card.parentKey ?? card.key;
     for (const card of fresh) {
-      const subject = card.parentKey ?? card.key;
-      groups.set(subject, [...(groups.get(subject) ?? []), card]);
+      const id = `${inWork(card) ? 'work' : 'queue'}:${subjectOf(card)}`;
+      groups.set(id, [...(groups.get(id) ?? []), card]);
     }
-    const parents = [...groups.keys()].filter((subject) => groups.get(subject)![0]!.parentKey);
+    const parents = [
+      ...new Set([...groups.values()].map((group) => group[0]!).filter((card) => card.parentKey)),
+    ].map((card) => card.parentKey!);
     const siblings =
       parents.length === 0
         ? []
         : tasks.readSchedulingTasks(projectKey, { kind: 'children', parentKeys: parents });
     const backStageId = config.pipeline.stages[0]?.id ?? toStageId;
-    for (const [subjectKey, group] of groups) {
+    for (const group of groups.values()) {
+      const subjectKey = subjectOf(group[0]!);
       const collector = group[0]!.parentKey === subjectKey;
       const at = isoNow(ctx);
       try {
@@ -335,6 +395,7 @@ export class StartRound implements StartRounding {
                 : [],
               toStageId,
               backStageId,
+              ...(inWork(group[0]!) ? { inWork: true } : {}),
             }),
           },
           { kind: 'action' },

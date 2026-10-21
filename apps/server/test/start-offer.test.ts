@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
-import { aiActor } from '../src/kernel';
+import { aiActor, SYSTEM_AUTHOR } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -268,6 +268,50 @@ describe('the start offer to the project manager', () => {
     await pmMove(key);
     await vi.waitFor(() => expect(task(key).stageId).toBe('development'));
     expect(task(key).assignee).toBe('dev-1');
+  });
+
+  describe('an assigned card in the work stage that nobody started (PM-879)', () => {
+    /** A card the owner moved forward with its assignee: going forward starts nothing (PM-119). */
+    const waitingInWork = async (title: string, assignee = 'dev-1') => {
+      const key = await idea(title);
+      h.domain.tasks.assign('AR', key, assignee, OWNER_ACTOR);
+      await h.domain.tasks.moveToStage('AR', key, 'development', OWNER_ACTOR);
+      return key;
+    };
+    const startText = (key: string) => offers().filter((m) => m.taskKey === key);
+
+    it('is offered once to be started with start_task, and the obligation ends when the session starts', async () => {
+      await harness();
+      const key = await waitingInWork('Moved forward');
+      await settle();
+      expect(startText(key)).toHaveLength(1);
+      expect(startText(key)[0]!.body).toContain('start_task');
+      expect(startRows(key)).toMatchObject([{ responsible: 'pm', state: 'open' }]);
+      const row = startRows(key)[0]!.id;
+      await settle();
+      expect(startText(key)).toHaveLength(1);
+      await h.domain.taskStarts.start('AR', key, {
+        actor: aiActor('pm'),
+        author: SYSTEM_AUTHOR,
+      });
+      await sweep();
+      expect(startRows(key)).toEqual([]);
+      expect(stateOf(row)).toBe('fulfilled');
+    });
+
+    it('is not offered while its assignee is busy, and keeps its assignee from other cards', async () => {
+      await harness();
+      const busy = await busyDevelopers();
+      const key = await waitingInWork('Moved forward');
+      const other = await create('Plain card');
+      await settle();
+      expect(startText(key)).toEqual([]);
+      const own = busy.find((card) => task(card).assignee === 'dev-1')!;
+      await h.domain.tasks.cancel('AR', own, { reason: 'Fictional.' }, OWNER_ACTOR);
+      await settle();
+      expect(startText(key)).toHaveLength(1);
+      expect(startText(other)).toEqual([]);
+    });
   });
 
   describe('urgent and focus cards', () => {

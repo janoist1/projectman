@@ -39,8 +39,10 @@ export function planStarts(input: {
   const { cards, places, seniors, anyDecided, offered } = input;
   let free = [...input.free];
   const plan = new Map<string, StartPlanEntry>();
+  // The assigned cards reserve their own developer first, so no other card takes the member they wait for.
   const ordered = [...cards].sort(
     (a, b) =>
+      Number(!!b.assignee) - Number(!!a.assignee) ||
       Number(offered?.has(b.key) ?? false) - Number(offered?.has(a.key) ?? false) ||
       compareStartOrder(a, b, places),
   );

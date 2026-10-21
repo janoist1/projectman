@@ -146,8 +146,8 @@ describe('Refinement line', () => {
       'AR',
       'owner',
       { to: ['ana'], text: 'Status?', taskKey: 'AR-1' },
-      // A message for a member who has no turn waits otherwise.
-      { duringRefinement: true },
+      // A message for a member who has no turn waits otherwise, but an answer does not.
+      { duringRefinement: true, origin: { kind: 'answer', inboxItemId: 'inb_status' } },
     );
     await vi.waitFor(() => expect(h.runner.started.length).toBeGreaterThan(before));
     expect(h.runner.started.at(-1)).toMatchObject({ sessionId: ana.id });
@@ -1046,7 +1046,7 @@ describe('Refinement line', () => {
       expect(firstInputs()[0]).toContain('Please look at the header.');
     });
 
-    it('leaves a deferred wake-up alone when a card that was never refined moves on', async () => {
+    it('keeps a deferred wake-up when a card that was never refined moves on', async () => {
       h = await createDomainHarness({
         persistent: true,
         adjust: (config) => {
@@ -1069,10 +1069,9 @@ describe('Refinement line', () => {
       await flush();
       expect(members()).toEqual(['ana']);
 
-      // Capacity frees up: the obsolete wake-up is not made again.
+      // Capacity frees up: the person's message still waits for the designer, and wakes it (it is queued, not deferred).
       await h.domain.sessions.stop('AR', sessionsOf()[0]!.id);
-      await flush();
-      expect(members()).toEqual(['ana']);
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
     });
   });
 });

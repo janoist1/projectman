@@ -193,6 +193,46 @@ export const MEMBER_QUEUE_CLOSED_LIMIT = 50;
 export const MEMBER_QUEUE_CLOSED_DEFAULT_MS = 24 * 60 * 60_000;
 
 /**
+ * How soon an item is looked at (PM-925), the smallest first: a member waits on a permission or a boundary
+ * decision, a held fix limit and a screening are the next, then todos, the starts, and the messages and signals last.
+ */
+export function memberQueueUrgency(kind: MemberQueueItemKind): number {
+  switch (kind) {
+    case 'permission':
+    case 'boundary':
+      return 0;
+    case 'fix_limit':
+    case 'screening':
+      return 1;
+    case 'todo':
+      return 2;
+    case 'start':
+      return 3;
+    case 'message':
+    case 'signal':
+      return 4;
+  }
+}
+
+/**
+ * Which start limits apply when an item wakes its member (PM-925): the member's capacity and the team's
+ * concurrent AI limit. Decisions the team waits on, and everything the Operator does, must not stand
+ * behind a full team; only the Operator's conversation with a person who is not an owner (PM-475) is
+ * counted in its capacity, as that one is the person's own.
+ */
+export function memberQueueStartLimits(
+  config: Pick<ProjectConfig, 'team'>,
+  member: string,
+  kind: MemberQueueItemKind,
+  place?: WorkItemRef,
+): { capacity: boolean; aiLimit: boolean } {
+  if (isOperator(memberOf(config, member)))
+    return { capacity: place?.type === 'general' && place.with !== undefined, aiLimit: false };
+  const free = kind === 'permission' || kind === 'boundary' || kind === 'fix_limit' || kind === 'screening';
+  return { capacity: !free, aiLimit: !free };
+}
+
+/**
  * The place a message is meant for, before running sessions count: the Operator's conversation with the
  * sender for the Operator, else the member's own work item (`sessionWorkItemOf`). `Messaging.place` starts with it.
  */

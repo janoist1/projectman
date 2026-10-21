@@ -829,8 +829,8 @@ describe('fix round limit', () => {
       await settle();
       expect(startsOfDev()).toBe(before);
       expect(stored('dev-1')).toHaveLength(1);
-      expect(h.repos.deferredStarts.list().map((record) => record.spec)).toContainEqual(
-        expect.objectContaining({ kind: 'message_wake', handle: 'dev-1', workItem: TASK }),
+      expect(h.repos.memberQueue.listOpen('AR', 'dev-1')).toContainEqual(
+        expect.objectContaining({ wait: expect.objectContaining({ code: 'plan_usage_paused' }) }),
       );
 
       h.runnerModule.planUsage.value = planUsage(30);

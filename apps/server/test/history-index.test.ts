@@ -361,6 +361,14 @@ describe('history index', () => {
         'member_queue_items',
       ])
         old.exec(`DROP TABLE ${table}`);
+      // Migration 99 (PM-925) dropped the pending recipients table, which version 83 still has and 84 to 98 read.
+      old.exec(`CREATE TABLE team_message_pending (
+        message_id TEXT NOT NULL REFERENCES team_messages(id) ON DELETE CASCADE,
+        project_key TEXT NOT NULL,
+        handle TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        PRIMARY KEY (message_id, handle)
+      )`);
       // The hot read indexes (migration 91) do not exist at version 83 either; migrating recreates them.
       for (const index of [
         'inbox_open',

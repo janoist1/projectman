@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../../../contracts';
 import type { MessageStateReport, ToolContext } from '../../../contracts';
@@ -128,7 +128,8 @@ describe('the Operator learns what became of its message (PM-543)', () => {
 
   it('reports a start that fails with its code and remembers it', async () => {
     await setup();
-    h.runner.failNextStart = new Error('the CLI cannot start');
+    // Every attempt fails: the queue's driver also tries on its own when the message is queued.
+    vi.spyOn(h.runner, 'start').mockRejectedValue(new Error('the CLI cannot start'));
     const result = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Please look at the open cards.',
@@ -221,8 +222,9 @@ describe('the Operator learns what became of its message (PM-543)', () => {
       {
         wake: async (projectKey, handle, workItem) => {
           await gate;
-          return h.domain.messageStarts.wake(projectKey, handle, workItem);
+          return h.domain.memberQueueDriver.wake(projectKey, handle, workItem);
         },
+        ensure: (projectKey, handle) => h.domain.memberQueueDriver.ensure(projectKey, handle),
       },
       20,
     );
@@ -263,6 +265,7 @@ describe('another sender is not slowed by the start (PM-543)', () => {
         calls++;
         return { state: 'starting' };
       },
+      ensure: async () => {},
     });
     const sent = await h.domain.messaging.sendReporting(
       'AR',

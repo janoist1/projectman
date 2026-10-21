@@ -3,7 +3,6 @@ import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/
 import { flush, planUsage } from './helpers/fakes';
 import { TEAM_TOOLS } from '../src/mcp';
 import { formatProjectState } from '../src/mcp/format';
-import { waitFor } from '../src/runner/test-helpers';
 
 let h: DomainHarness;
 afterEach(async () => {
@@ -286,8 +285,8 @@ describe('project state from server records', () => {
       text: 'First general note.',
     });
     await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Second general note.' });
-    await waitFor(async () =>
-      (await h.domain.projectState.overview('AR')).waitingStarts.find((s) => s.taskKey === null),
+    await vi.waitFor(async () =>
+      expect((await h.domain.projectState.overview('AR')).waitingStarts).toHaveLength(1),
     );
     const overview = await h.domain.projectState.overview('AR');
     expect(overview.waitingStarts).toEqual([{ taskKey: null, member: 'dev-1', reason: 'ai_disabled' }]);

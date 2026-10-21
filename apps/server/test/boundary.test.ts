@@ -263,7 +263,7 @@ describe('boundary requests', () => {
     const request = await submit();
     await flush();
     expect(h.repos.boundary.get(request.id)?.state).toBe('pending_lead');
-    expect(h.repos.deferredStarts.list()).not.toHaveLength(0);
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait).toMatchObject({ code: 'member_at_capacity' });
     now = new Date('2026-10-01T11:02:00.000Z');
     await h.domain.boundary.sweep();
     expect(h.repos.boundary.get(request.id)?.state).toBe('pending_owner');

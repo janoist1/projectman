@@ -82,6 +82,7 @@ import { createMemberQueueRepository } from './member-queue';
 export type {
   MemberQueueClose,
   MemberQueueSourceKey,
+  MemberQueueWaitDetails,
   NewMemberQueueItem,
   StoredMemberQueueItem,
 } from './member-queue';

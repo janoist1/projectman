@@ -78,7 +78,7 @@ describe('NanoGPT provider quota recovery', () => {
       taskKey: task.key,
       text: 'Wait for the reset',
     });
-    await waitFor(() => h.repos.deferredStarts.list().length >= 2);
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'dev-2')[0]?.wait);
     expect(h.runner.started).toHaveLength(started);
     now = new Date(reset);
     await h.domain.admission.retryDeferred();

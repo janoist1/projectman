@@ -1,0 +1,501 @@
+import type { AiMemberConfig, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
+import type { WakeStart } from '../../contracts';
+import {
+  MEMBER_QUEUE_MAX_ATTEMPTS,
+  MEMBER_QUEUE_STUCK_MS,
+  memberOf,
+  memberQueueStartLimits,
+  sessionWorkItemOf,
+} from '@projectman/shared';
+import { encodeWorkItem } from '../../db';
+import type { MemberQueueWaitDetails, StoredMemberQueueItem } from '../../db';
+import { isoNow } from '../../core/base';
+import type { DomainContext } from '../../core/base';
+import type { MemberQueue } from '../../core/member-queue';
+import { DomainError, KeyedMutex } from '../../kernel';
+import type { Admission } from '../admission';
+import { isDeferrable, waitingOf } from '../admission';
+import { LIVE_SESSION_STATES } from '../sessions';
+import type { SessionOrchestrator } from '../sessions';
+import type { MemberQueueDriver, MemberQueueLane } from './lane';
+
+/** What the driver needs of the rest of the server. */
+export interface MemberQueueDriverDeps {
+  ctx: DomainContext;
+  projects: {
+    config(projectKey: string): Promise<ProjectConfig>;
+  };
+  queue: Pick<MemberQueue, 'publish'>;
+  admission: Pick<Admission, 'exclusive' | 'start'>;
+  sessions: Pick<SessionOrchestrator, 'find' | 'findRunning' | 'isRunning' | 'close'>;
+  /** Types a rendered item into the idle session; false: the session did not take it. */
+  type(session: Session, item: StoredMemberQueueItem, text: string): Promise<boolean>;
+}
+
+/** An open, queued item of the member the driver looks at, with what was decided of it in this run. */
+interface Entry {
+  item: StoredMemberQueueItem;
+  lane: MemberQueueLane;
+  place: WorkItemRef;
+  /** The code of the hold that keeps it back, else null. */
+  held: string | null;
+  wakes: boolean;
+}
+
+/** What the last run did to start the member's session (the answer of `wake`). */
+type StartResult = Exclude<WakeStart, { state: 'starting' }>;
+
+/** What one attempt to start a session came to: the code that refuses it, and whether the start itself failed. */
+interface StartAttempt {
+  refused: string | null;
+  /** What the refusal said besides its code (the provider, the engine, …), kept with the wait. */
+  details?: MemberQueueWaitDetails;
+  failed?: true;
+}
+
+/** The wait an item is left with in a run: the code of what stops it, and what the refusal said. */
+interface Wait {
+  code: string;
+  details?: MemberQueueWaitDetails;
+}
+
+/** How long a failed start is left alone by every trigger but the sweep and a sender that waits for it. */
+const FAILED_START_PAUSE_MS = 5_000;
+
+const placeKeyOf = (member: AiMemberConfig, place: WorkItemRef): string => {
+  const encoded = encodeWorkItem(sessionWorkItemOf(member, place));
+  return `${encoded.type}:${encoded.ref}`;
+};
+
+/**
+ * The member queue's driver (PM-925): whatever happens that could give a member something to do (an item
+ * queued, a turn over, a hold lifted, a limit gone) comes here as `ensure`, and the member's queue is worked
+ * through level by level, not by the event: items that vanished from the queue are closed, the ones a session
+ * can take are delivered to it, and the first of the others starts the session it asks for. What cannot be
+ * done now stays queued with the code of what stops it (`wait`), and the sweep tries again.
+ */
+export class MemberQueueWorker implements MemberQueueDriver {
+  private readonly deps: MemberQueueDriverDeps;
+  private readonly lanes = new Map<string, MemberQueueLane>();
+  private readonly mutex = new KeyedMutex();
+  private readonly queuedRuns = new Map<string, { started: boolean; promise: Promise<void> }>();
+  private readonly results = new Map<string, StartResult>();
+  /**
+   * The last start of a member that failed for a reason no wait overcomes. A start fails after it has made and
+   * ended a session, which is an event that works the queue again: only the sweep and a sender that waits for the
+   * start try again at once, any other trigger within `FAILED_START_PAUSE_MS` does not.
+   */
+  private readonly failures = new Map<string, { at: number; code: string }>();
+  private readonly forced = new Set<string>();
+  /** The members whose next run is at a turn boundary: it types into their live sessions. */
+  private readonly boundaries = new Set<string>();
+  private begun = false;
+
+  constructor(deps: MemberQueueDriverDeps) {
+    this.deps = deps;
+  }
+
+  register(lane: MemberQueueLane): void {
+    for (const kind of lane.kinds) {
+      if (this.lanes.has(kind)) throw new Error(`the member queue has a lane for ${kind} already`);
+      this.lanes.set(kind, lane);
+    }
+  }
+
+  /**
+   * One run per member at a time; a call that comes while another run still waits for its turn joins that run.
+   * A live session takes its items at a turn boundary only: a change of the queue itself (`deliver: false`)
+   * wakes whoever has no session, and leaves the ones that have one to their next boundary.
+   */
+  ensure(
+    projectKey: string,
+    member: string,
+    options: { deliver?: boolean; net?: boolean } = {},
+  ): Promise<void> {
+    const key = `${projectKey}\n${member}`;
+    if (options.deliver !== false) this.boundaries.add(key);
+    if (options.net) this.forced.add(key);
+    const queued = this.queuedRuns.get(key);
+    if (queued && !queued.started) return queued.promise;
+    const run = { started: false, promise: Promise.resolve() };
+    run.promise = this.mutex.run(key, () => {
+      run.started = true;
+      return this.work(projectKey, member);
+    });
+    this.queuedRuns.set(key, run);
+    const forget = () => {
+      if (this.queuedRuns.get(key) === run) this.queuedRuns.delete(key);
+    };
+    run.promise.then(forget, forget);
+    return run.promise;
+  }
+
+  /** The timer's sweep tries a failed start again; a sweep an event asks for (`respectPause`) leaves it its pause. */
+  async sweep(options: { respectPause?: boolean } = {}): Promise<void> {
+    if (!this.begun) {
+      this.begun = true;
+      for (const lane of new Set(this.lanes.values()))
+        await lane.started?.().catch((err: unknown) => {
+          this.deps.ctx.logger.warn({ err }, 'a member queue lane could not start');
+        });
+    }
+    for (const { projectKey, member } of this.deps.ctx.repos.memberQueue.listOpenMembers()) {
+      if (!options.respectPause) this.forced.add(`${projectKey}\n${member}`);
+      await this.ensure(projectKey, member).catch((err: unknown) => {
+        this.deps.ctx.logger.warn({ err, projectKey, member }, 'working the member queue failed');
+      });
+    }
+  }
+
+  /** Works the queue, and says what became of the start of a session at `workItem`, for a sender that waits for it. */
+  async wake(projectKey: string, member: string, workItem: WorkItemRef): Promise<WakeStart> {
+    this.results.delete(`${projectKey}\n${member}`);
+    this.forced.add(`${projectKey}\n${member}`);
+    await this.ensure(projectKey, member);
+    const result = this.results.get(`${projectKey}\n${member}`);
+    if (result) return result;
+    const config = await this.deps.projects.config(projectKey);
+    const session = this.deps.ctx.repos.sessions.findByWorkItem(
+      projectKey,
+      member,
+      sessionWorkItemOf(memberOf(config, member), workItem),
+    );
+    return session && LIVE_SESSION_STATES.includes(session.state)
+      ? { state: 'started', sessionId: session.id }
+      : { state: 'failed', code: 'not_started' };
+  }
+
+  private laneOf(item: StoredMemberQueueItem): MemberQueueLane | undefined {
+    return this.lanes.get(item.kind);
+  }
+
+  private close(
+    item: StoredMemberQueueItem,
+    state: 'done' | 'handed_off' | 'cancelled',
+    reason: NonNullable<StoredMemberQueueItem['closeReason']>,
+    at: string,
+  ): void {
+    this.deps.ctx.repos.memberQueue.closeBySource(item.projectKey, item.source, {
+      state,
+      reason,
+      at,
+      member: item.member,
+    });
+  }
+
+  private async work(projectKey: string, member: string): Promise<void> {
+    const { ctx } = this.deps;
+    const config = await this.deps.projects.config(projectKey);
+    const memberConfig = memberOf(config, member);
+    if (memberConfig?.kind !== 'ai') return;
+    const repo = ctx.repos.memberQueue;
+    const at = isoNow(ctx);
+    let changed = await this.settleProcessing(projectKey, member, at);
+
+    const entries: Entry[] = [];
+    for (const item of repo.listOpenByUrgency(projectKey, member)) {
+      const lane = this.laneOf(item);
+      if (!lane || item.state !== 'queued') continue;
+      if (!lane.stillOwed(item)) {
+        this.close(item, 'cancelled', 'source_closed', at);
+        changed = true;
+        continue;
+      }
+      let place = item.place;
+      const relocated = lane.relocate?.(item) ?? null;
+      if (relocated === 'closed') {
+        this.close(item, 'cancelled', 'place_closed', at);
+        changed = true;
+        continue;
+      }
+      if (relocated) {
+        repo.move(item.id, relocated);
+        lane.moved?.(item, relocated);
+        place = relocated;
+        changed = true;
+      }
+      const held = await lane.hold(item).catch((err: unknown) => {
+        ctx.logger.warn({ err, itemId: item.id }, 'a member queue hold could not be decided');
+        return 'hold_unknown';
+      });
+      const wakes = lane.wakes?.(item, config) ?? item.wake;
+      if (wakes !== item.wake) repo.setWake(item.id, wakes);
+      entries.push({ item: { ...item, place, wake: wakes }, lane, place, held, wakes });
+    }
+
+    // Each wait is noted once per run: the first refusal of the run, else the hold, else none.
+    const waits = new Map<string, Wait>();
+    for (const entry of entries) if (entry.held) waits.set(entry.item.id, { code: entry.held });
+
+    const places = new Map<string, Entry[]>();
+    for (const entry of entries) {
+      const key = placeKeyOf(memberConfig, entry.place);
+      places.set(key, [...(places.get(key) ?? []), entry]);
+    }
+
+    const running = new Map<string, Session | null>();
+    for (const [key, group] of places)
+      running.set(
+        key,
+        this.deps.sessions.findRunning(projectKey, member, sessionWorkItemOf(memberConfig, group[0]!.place)),
+      );
+
+    const memberKey = `${projectKey}\n${member}`;
+    const atBoundary = this.boundaries.delete(memberKey);
+    const net = this.forced.has(memberKey);
+    for (const [key, group] of places) {
+      const session = running.get(key);
+      if (session && atBoundary)
+        changed =
+          (await this.deliver(
+            session,
+            group.filter((e) => !e.held),
+            at,
+            net,
+          )) || changed;
+    }
+
+    const waking = entries.filter(
+      (e) => e.wakes && !e.held && !running.get(placeKeyOf(memberConfig, e.place)),
+    );
+    // One session starts per run: a place whose start is refused lets the next place try (a refusal can be about
+    // the place: the owner's conversation with the Operator is not held back by a guest's), the first start ends it.
+    const failure = this.failures.get(memberKey);
+    const forced = this.forced.delete(memberKey);
+    const paused = !forced && !!failure && Date.now() - failure.at < FAILED_START_PAUSE_MS;
+    const tried = new Set<string>();
+    for (const first of waking) {
+      const key = placeKeyOf(memberConfig, first.place);
+      if (tried.has(key)) continue;
+      tried.add(key);
+      const batch = (places.get(key) ?? []).filter((e) => !e.held && e.item.state === 'queued');
+      const started: StartAttempt = paused
+        ? { refused: failure.code }
+        : await this.start(config, memberConfig, first, batch, at);
+      if (!paused) {
+        if (started.failed && started.refused)
+          this.failures.set(memberKey, { at: Date.now(), code: started.refused });
+        else this.failures.delete(memberKey);
+      }
+      changed = true;
+      // What would have gone in with the start waits for it too: it does not wake, but it is held back.
+      if (started.refused) {
+        const wait: Wait = {
+          code: started.refused,
+          ...(started.details ? { details: started.details } : {}),
+        };
+        for (const entry of batch) waits.set(entry.item.id, wait);
+        if (started.failed || paused) {
+          for (const entry of waking) waits.set(entry.item.id, wait);
+          break;
+        }
+        continue;
+      }
+      for (const entry of batch) waits.delete(entry.item.id);
+      break;
+    }
+
+    // What waits is told why, and what does not is told nothing: a lifted hold clears its code.
+    for (const entry of entries) {
+      const wait = waits.get(entry.item.id) ?? null;
+      const current = repo.get(entry.item.id);
+      if (!current || current.state !== 'queued') continue;
+      if (wait === null) {
+        if (current.wait && repo.clearWait(entry.item.id)) changed = true;
+      } else if (
+        current.wait?.code !== wait.code ||
+        (wait.details && JSON.stringify(wait.details) !== JSON.stringify(current.waitDetails))
+      ) {
+        // The time of a wait is when it began: the same code again keeps it.
+        repo.setWait(
+          entry.item.id,
+          wait.code,
+          current.wait?.code === wait.code ? current.wait.at : at,
+          wait.details,
+        );
+        changed = true;
+      }
+    }
+    if (changed) this.deps.queue.publish(projectKey, member);
+  }
+
+  /**
+   * The items a session was working (`processing`) whose session is gone go back to the queue with one attempt
+   * more, and the ones it has had for too long are taken from it first. The third attempt is the last.
+   */
+  private async settleProcessing(projectKey: string, member: string, at: string): Promise<boolean> {
+    const { ctx, sessions } = this.deps;
+    const repo = ctx.repos.memberQueue;
+    let changed = false;
+    for (const item of repo.listOpenByUrgency(projectKey, member)) {
+      if (item.state !== 'processing') continue;
+      const lane = this.laneOf(item);
+      if (!lane) continue;
+      const session = item.sessionId ? sessions.find(item.sessionId) : null;
+      const alive =
+        !!session && LIVE_SESSION_STATES.includes(session.state) && sessions.isRunning(session.id);
+      const since = Date.parse(item.startedAt ?? item.restartedAt ?? item.queuedAt);
+      if (alive && Date.parse(at) - since <= MEMBER_QUEUE_STUCK_MS) continue;
+      if (alive)
+        await sessions
+          .close(projectKey, session.id, { kind: 'failed', note: 'a work queue item was stuck' })
+          .catch((err: unknown) => {
+            ctx.logger.warn({ err, itemId: item.id }, 'could not stop the session of a stuck queue item');
+          });
+      changed = true;
+      if (item.attempts + 1 >= MEMBER_QUEUE_MAX_ATTEMPTS) {
+        if (lane.exhausted)
+          await lane.exhausted(item).catch((err: unknown) => {
+            ctx.logger.warn(
+              { err, itemId: item.id },
+              'a member queue lane could not settle an exhausted item',
+            );
+          });
+        // The lane may have closed the item itself.
+        if (repo.get(item.id)?.state === 'processing')
+          this.close(item, 'handed_off', 'attempts_exhausted', at);
+      } else repo.requeue(item.id, at);
+    }
+    return changed;
+  }
+
+  /**
+   * Types the items the session can take. A lane that renders nothing delivers its own: it has its own hooks
+   * at the turn boundary, and the driver asks it to only as a net (`net`: the sweep, a sender that waits).
+   * Returns whether anything changed.
+   */
+  private async deliver(session: Session, group: Entry[], at: string, net: boolean): Promise<boolean> {
+    const repo = this.deps.ctx.repos.memberQueue;
+    let changed = false;
+    const selfDelivering = new Map<MemberQueueLane, StoredMemberQueueItem[]>();
+    const busy = new Set<MemberQueueLane>();
+    for (const item of repo.listOpenByUrgency(session.projectKey, session.member))
+      if (item.state === 'processing' && item.sessionId === session.id) {
+        const lane = this.laneOf(item);
+        if (lane?.oneAtATime) busy.add(lane);
+      }
+    for (const { item, lane } of group) {
+      const text = lane.render(item);
+      if (text === null) {
+        selfDelivering.set(lane, [...(selfDelivering.get(lane) ?? []), item]);
+        continue;
+      }
+      // At the turn boundary only, and one at a time where the lane says so.
+      if (session.state !== 'idle' || busy.has(lane)) continue;
+      const claims = lane.completion === 'source' || lane.completion === 'finish';
+      if (claims && !repo.claim(item.id, session.id, at)) continue;
+      const taken = await this.deps.type(session, item, text).catch(() => false);
+      if (!taken) {
+        if (claims) repo.requeue(item.id, at);
+        continue;
+      }
+      this.deps.ctx.unitOfWork(() => {
+        lane.delivered?.(item, session.id, at);
+        if (!claims) this.close(item, 'done', lane.completion === 'start' ? 'started' : 'delivered', at);
+      });
+      changed = true;
+      if (lane.oneAtATime) busy.add(lane);
+    }
+    if (net) for (const [lane, items] of selfDelivering) lane.deliverLive?.(session, items);
+    return changed;
+  }
+
+  /**
+   * One attempt to start the session `first` asks for, with the items of its place that go in with it. A
+   * refusal a later attempt can overcome is the answer `refused`: the code every waking item waits with.
+   */
+  private async start(
+    config: ProjectConfig,
+    member: AiMemberConfig,
+    first: Entry,
+    batch: Entry[],
+    at: string,
+  ): Promise<StartAttempt> {
+    const { ctx, admission } = this.deps;
+    const repo = ctx.repos.memberQueue;
+    const resultKey = `${first.item.projectKey}\n${member.handle}`;
+    const lane = first.lane;
+    const entries = lane.oneAtATime ? [first] : batch.filter((e) => e.lane === lane || !e.lane.oneAtATime);
+    const items = entries.map((e) => e.item);
+    // The place as the member's session has it: the project manager has one conversation.
+    const place = sessionWorkItemOf(member, first.place);
+    const run = (messages: string[]) =>
+      admission.start({
+        config,
+        member,
+        workItem: place,
+        messages,
+        cause: lane.cause(first.item),
+        ...memberQueueStartLimits(config, member.handle, first.item.kind, first.place),
+      });
+    try {
+      await admission.exclusive(async () => {
+        if (lane.start) {
+          await lane.start({ config, member: member.handle, place, items, run });
+          return;
+        }
+        const texts = entries.flatMap((e) => {
+          const text = e.lane.render(e.item);
+          return text === null ? [] : [text];
+        });
+        const result = await run(texts);
+        if (result.messagesSent === 0 && texts.length > 0) return;
+        for (const entry of entries) {
+          const claims = entry.lane.completion === 'source' || entry.lane.completion === 'finish';
+          if (claims && !repo.claim(entry.item.id, result.session.id, at)) continue;
+          ctx.unitOfWork(() => {
+            entry.lane.delivered?.(entry.item, result.session.id, at);
+            if (!claims)
+              this.close(entry.item, 'done', entry.lane.completion === 'start' ? 'started' : 'delivered', at);
+          });
+        }
+      });
+    } catch (err) {
+      const code = err instanceof DomainError ? err.code : 'start_failed';
+      if (isDeferrable(err)) {
+        const waiting = waitingOf(err, { member: member.handle, at });
+        this.results.set(resultKey, { state: 'waiting', reason: waiting.reason });
+        for (const entry of entries) entry.lane.deferred?.(entry.item, waiting.reason, at);
+        // Said when the reason is new, not at every refusal that stays (as the deferred starts do).
+        if (entries.some((e) => e.item.wait?.code !== waiting.reason))
+          ctx.logger.info(
+            {
+              projectKey: first.item.projectKey,
+              member: member.handle,
+              reason: waiting.reason,
+              ...(err.code === 'workspace_codex_config'
+                ? { issues: (err.details as { issues?: unknown })?.issues }
+                : {}),
+            },
+            'a queued start is deferred',
+          );
+        // The card shows the member a wait is about (a handoff waits for the old assignee), the item has its own.
+        const { reason, since: _since, member: about, ...rest } = waiting;
+        return {
+          refused: reason,
+          details: about && about !== member.handle ? { ...rest, member: about } : rest,
+        };
+      }
+      ctx.logger.warn(
+        { err, projectKey: first.item.projectKey, member: member.handle },
+        'a queued session start failed',
+      );
+      this.results.set(resultKey, { state: 'failed', code });
+      let closed = false;
+      for (const entry of entries) {
+        const verdict = (await entry.lane.refused?.(entry.item, code)) ?? 'wait';
+        if (verdict === 'closed') {
+          this.close(entry.item, 'cancelled', 'source_closed', at);
+          closed = true;
+        }
+      }
+      return {
+        refused: closed && entries.every((e) => repo.get(e.item.id)?.state !== 'queued') ? null : code,
+        failed: true,
+      };
+    }
+    const session = this.deps.sessions.findRunning(first.item.projectKey, member.handle, place);
+    if (session) this.results.set(resultKey, { state: 'started', sessionId: session.id });
+    return { refused: null };
+  }
+}

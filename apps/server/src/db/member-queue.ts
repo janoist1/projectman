@@ -33,8 +33,12 @@ interface ItemRow {
   session_id: string | null;
   wait_code: string | null;
   wait_at: string | null;
+  wait_details: string | null;
   outcome: string | null;
 }
+
+/** What a refusal said besides its code and time (`waitingOf`): the provider, the engine, a threshold, … */
+export type MemberQueueWaitDetails = Record<string, unknown>;
 
 /** A source as the table keeps it: its type and its id within the type (`memberQueueSourceId`). */
 export interface MemberQueueSourceKey {
@@ -45,6 +49,8 @@ export interface MemberQueueSourceKey {
 /** A row as stored: the source in its table form (the internal `payload` column is the lanes' own). */
 export interface StoredMemberQueueItem extends Omit<MemberQueueItem, 'source'> {
   source: MemberQueueSourceKey;
+  /** What the refusal behind `wait` said besides its code; never shown as such. */
+  waitDetails: MemberQueueWaitDetails | null;
 }
 
 export interface NewMemberQueueItem {
@@ -94,6 +100,7 @@ const toItem = (row: ItemRow): StoredMemberQueueItem => ({
   restartedAt: row.restarted_at,
   sessionId: row.session_id,
   wait: row.wait_code && row.wait_at ? { code: row.wait_code, at: row.wait_at } : null,
+  waitDetails: parseJson<MemberQueueWaitDetails | null>(row.wait_details, null),
   outcome: parseJson<OperatorQueueOutcome | null>(row.outcome, null),
 });
 
@@ -141,23 +148,61 @@ export function createMemberQueueRepository(db: Db) {
        FROM member_queue_items WHERE project_key = ? AND state IN ('queued','processing') GROUP BY member`,
     ),
     everQueued: db.prepare('SELECT 1 FROM member_queue_items WHERE project_key = ? AND member = ? LIMIT 1'),
-    pendingWithoutItem: db.prepare(
-      `SELECT p.project_key AS projectKey, p.message_id AS messageId, p.handle AS handle
-       FROM team_message_pending AS p
-       LEFT JOIN member_queue_items AS q ON q.project_key = p.project_key AND q.member = p.handle
-         AND q.source_type = 'message' AND q.source_id = p.message_id
-       WHERE q.id IS NULL ORDER BY p.seq`,
-    ),
-    openMessageNotPending: db.prepare(
-      `SELECT q.* FROM member_queue_items AS q
-       WHERE q.source_type = 'message' AND q.state IN ('queued','processing')
-         AND NOT EXISTS (SELECT 1 FROM team_message_pending AS p WHERE p.message_id = q.source_id
-           AND p.project_key = q.project_key AND p.handle = q.member)
-       ORDER BY q.queued_at, q.rowid`,
-    ),
     openOfType: db.prepare(
       `SELECT * FROM member_queue_items WHERE source_type = ? AND state IN ('queued','processing')
        ORDER BY queued_at, rowid`,
+    ),
+    // The urgency order is `memberQueueUrgency`; the CASE keeps SQL and the rule in step (test/member-queue.test.ts checks them).
+    openByUrgency: db.prepare(
+      `SELECT * FROM member_queue_items
+       WHERE project_key = ? AND member = ? AND state IN ('queued','processing')
+       ORDER BY CASE kind WHEN 'permission' THEN 0 WHEN 'boundary' THEN 0 WHEN 'fix_limit' THEN 1
+         WHEN 'screening' THEN 1 WHEN 'todo' THEN 2 WHEN 'start' THEN 3 ELSE 4 END, queued_at, rowid`,
+    ),
+    openMembers: db.prepare(
+      `SELECT DISTINCT project_key AS projectKey, member FROM member_queue_items
+       WHERE state IN ('queued','processing') ORDER BY project_key, member`,
+    ),
+    claim: db.prepare(
+      `UPDATE member_queue_items SET state = 'processing', session_id = @sessionId, started_at = @at,
+         wait_code = NULL, wait_at = NULL, wait_details = NULL
+       WHERE id = @id AND state = 'queued'`,
+    ),
+    requeue: db.prepare(
+      `UPDATE member_queue_items SET state = 'queued', attempts = attempts + 1, restarted_at = @at,
+         session_id = NULL, started_at = NULL
+       WHERE id = @id AND state = 'processing'`,
+    ),
+    setWait: db.prepare(
+      `UPDATE member_queue_items SET wait_code = @code, wait_at = @at, wait_details = @details
+       WHERE id = @id AND state = 'queued'`,
+    ),
+    clearWait: db.prepare(
+      `UPDATE member_queue_items SET wait_code = NULL, wait_at = NULL, wait_details = NULL
+       WHERE id = @id AND wait_code IS NOT NULL`,
+    ),
+    move: db.prepare(
+      `UPDATE member_queue_items SET place = @place, place_task_key = @placeTaskKey
+       WHERE id = @id AND state IN ('queued','processing')`,
+    ),
+    wake: db.prepare(`UPDATE member_queue_items SET wake = @wake WHERE id = @id AND wake <> @wake`),
+    openMessagesOfTask: db.prepare(
+      `SELECT * FROM member_queue_items
+       WHERE project_key = ? AND source_type = 'message' AND state IN ('queued','processing')
+         AND (place_task_key = ? OR task_key = ?) ORDER BY queued_at, rowid`,
+    ),
+    openMessages: db.prepare(
+      `SELECT * FROM member_queue_items
+       WHERE source_type = 'message' AND state IN ('queued','processing') ORDER BY queued_at, rowid`,
+    ),
+    waitingOfTask: db.prepare(
+      `SELECT * FROM member_queue_items
+       WHERE project_key = ? AND state = 'queued' AND wake = 1 AND wait_code IS NOT NULL
+         AND (place_task_key = ? OR task_key = ?) ORDER BY wait_at, rowid`,
+    ),
+    waiting: db.prepare(
+      `SELECT * FROM member_queue_items
+       WHERE state = 'queued' AND wake = 1 AND wait_code IS NOT NULL ORDER BY wait_at, rowid`,
     ),
   };
   const all = (rows: unknown): StoredMemberQueueItem[] => (rows as ItemRow[]).map(toItem);
@@ -258,21 +303,58 @@ export function createMemberQueueRepository(db: Db) {
     everQueued(projectKey: string, member: string): boolean {
       return !!statements.everQueued.get(projectKey, member);
     },
-    /** Pending message receipts (`team_message_pending`) that have no item yet, oldest first, for every project. */
-    pendingMessagesWithoutItem(): Array<{ projectKey: string; messageId: string; handle: string }> {
-      return statements.pendingWithoutItem.all() as Array<{
-        projectKey: string;
-        messageId: string;
-        handle: string;
-      }>;
-    },
-    /** Open message items whose receipt is no longer pending, for every project. */
-    openMessageItemsNotPending(): StoredMemberQueueItem[] {
-      return all(statements.openMessageNotPending.all());
-    },
     /** The open items of one source type, for every project and member. */
     listOpenOfType(type: MemberQueueSource['type']): StoredMemberQueueItem[] {
       return all(statements.openOfType.all(type));
+    },
+    /** The member's open items, most urgent first, then the oldest (`memberQueueUrgency`). */
+    listOpenByUrgency(projectKey: string, member: string): StoredMemberQueueItem[] {
+      return all(statements.openByUrgency.all(projectKey, member));
+    },
+    /** Every member that has an open item, in every project. */
+    listOpenMembers(): Array<{ projectKey: string; member: string }> {
+      return statements.openMembers.all() as Array<{ projectKey: string; member: string }>;
+    },
+    /** The open message items of one card, for every member (the card's place, or its message's card). */
+    listOpenMessagesOfTask(projectKey: string, taskKey: string): StoredMemberQueueItem[] {
+      return all(statements.openMessagesOfTask.all(projectKey, taskKey, taskKey));
+    },
+    /** Every open message item, for every project and member. */
+    listOpenMessages(): StoredMemberQueueItem[] {
+      return all(statements.openMessages.all());
+    },
+    /** The queued items of a card (its place, or the card they are about) that wake a session and wait for a code. */
+    listWaitingOfTask(projectKey: string, taskKey: string): StoredMemberQueueItem[] {
+      return all(statements.waitingOfTask.all(projectKey, taskKey, taskKey));
+    },
+    /** Every queued item that wakes a session and waits for a code, for every project and member. */
+    listWaiting(): StoredMemberQueueItem[] {
+      return all(statements.waiting.all());
+    },
+    /**
+     * Takes a queued item for a session (compare and set): true for the one caller that got it; a second
+     * claimer, or an item that is no longer queued, gets false.
+     */
+    claim(id: string, sessionId: string, at: string): boolean {
+      return statements.claim.run({ id, sessionId, at }).changes > 0;
+    },
+    /** A processing item goes back to the queue, one attempt more (its session ended or got stuck). */
+    requeue(id: string, at: string): boolean {
+      return statements.requeue.run({ id, at }).changes > 0;
+    },
+    /** Notes why the queued item has not been started, and since when it was last seen so. */
+    setWait(id: string, code: string, at: string, details?: MemberQueueWaitDetails): boolean {
+      return statements.setWait.run({ id, code, at, details: details ? toJson(details) : null }).changes > 0;
+    },
+    clearWait(id: string): boolean {
+      return statements.clearWait.run({ id }).changes > 0;
+    },
+    /** Moves an open item to another place (a closed card's message goes to the member's desk). */
+    move(id: string, place: WorkItemRef): boolean {
+      return statements.move.run({ id, place: toJson(place), placeTaskKey: placeTaskKey(place) }).changes > 0;
+    },
+    setWake(id: string, wake: boolean): boolean {
+      return statements.wake.run({ id, wake: wake ? 1 : 0 }).changes > 0;
     },
   };
 }

@@ -208,7 +208,7 @@ describe('the first input of a resumed session', () => {
       const session = await stopped(member);
       const first = waiting(member, 'First: check the title.', 1);
       const second = waiting(member, 'Second: and the label.', 2);
-      await h.domain.messageStarts.wake('AR', member, task);
+      await h.domain.memberQueueDriver.wake('AR', member, task);
       await flush();
       expect(h.runner.started).toHaveLength(2);
       expect(h.runner.lastStarted()).toMatchObject({
@@ -235,7 +235,7 @@ describe('the first input of a resumed session', () => {
       const long = `Please work out the whole plan. ${'It has many details. '.repeat(30)}The last words.`;
       const one = waiting(member, long, 1);
       const two = waiting(member, 'And one more thing.', 2);
-      await h.domain.messageStarts.wake('AR', member, task);
+      await h.domain.memberQueueDriver.wake('AR', member, task);
       await flush();
       expect(h.runner.started).toHaveLength(1);
       expect(h.runner.lastStarted()).toMatchObject({
@@ -258,7 +258,7 @@ describe('the first input of a resumed session', () => {
     const a = waiting('dev-1', `A ${'a'.repeat(10_000)}`, 1);
     const b = waiting('dev-1', `B ${'b'.repeat(10_000)}`, 2);
     const c = waiting('dev-1', `C ${'c'.repeat(10_000)}`, 3);
-    await h.domain.messageStarts.wake('AR', 'dev-1', task);
+    await h.domain.memberQueueDriver.wake('AR', 'dev-1', task);
     await flush();
     expect(h.runner.lastStarted()).toMatchObject({
       initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${batchHeader(2)}${a}\n\n${b}`,
@@ -315,7 +315,7 @@ describe('the first input of a resumed session', () => {
       async (_provider, member) => {
         const one = waiting(member, 'First: check the title.', 1);
         const two = waiting(member, 'Second: and the label.', 2);
-        await h.domain.messageStarts.wake('AR', member, task);
+        await h.domain.memberQueueDriver.wake('AR', member, task);
         await flush();
         // Started with them, but not typed yet: they wait, and are not typed again.
         const session = h.repos.sessions.findByWorkItem('AR', member, task)!;
@@ -328,7 +328,7 @@ describe('the first input of a resumed session', () => {
         expect(h.repos.messages.pending('AR', member)).toHaveLength(2);
 
         // No conversation exists yet: the next start is a new one, and gets the messages in full.
-        await h.domain.messageStarts.wake('AR', member, task);
+        await h.domain.memberQueueDriver.wake('AR', member, task);
         await flush();
         expect(h.runner.started).toHaveLength(2);
         expect(h.runner.lastStarted()).toMatchObject({
@@ -379,7 +379,7 @@ describe('the first input of a resumed session', () => {
     it('keeps a typed first input the CLI never took waiting, and types it again later', async () => {
       h.runner.holdFirstInput = true;
       const one = waiting('dev-1', 'First: check the title.', 1);
-      await h.domain.messageStarts.wake('AR', 'dev-1', task);
+      await h.domain.memberQueueDriver.wake('AR', 'dev-1', task);
       await flush();
       const session = h.repos.sessions.findByWorkItem('AR', 'dev-1', task)!;
 
@@ -398,7 +398,7 @@ describe('the first input of a resumed session', () => {
       expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
     });
 
-    it('keeps a message typed into the running session waiting when the CLI did not take it, and types it again', async () => {
+    it('types a message again when the CLI did not take it, and never twice', async () => {
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
       h.runner.setState(session.id, 'idle');
       h.runner.failNextSend = new Error('Session did not take the typed message');
@@ -408,17 +408,15 @@ describe('the first input of a resumed session', () => {
         taskKey: 'AR-1',
       });
       await flush();
-      expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
-      expect(h.repos.messages.pending('AR', 'dev-1').map((m) => m.id)).toEqual([message.id]);
-
       await vi.advanceTimersByTimeAsync(10_000);
       await flush();
-      expect(h.runner.messages.map((m) => m.text).join('\n')).toContain('Please review.');
+      expect(h.runner.messages.filter((m) => m.text.includes('Please review.'))).toHaveLength(1);
       expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
+      expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
     });
   });
 
-  it('leaves the message waiting when the start that would carry it fails', async () => {
+  it('delivers the message with the next start when the start that would carry it fails', async () => {
     await stopped('dev-1');
     h.runner.failNextStart = new Error('Fictional runner failure');
     const message = await h.domain.messaging.send('AR', 'owner', {
@@ -427,10 +425,8 @@ describe('the first input of a resumed session', () => {
       taskKey: 'AR-1',
     });
     await flush();
-    expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
-    expect(h.repos.messages.pending('AR', 'dev-1').map((m) => m.id)).toEqual([message.id]);
-    // The next start (by anyone) delivers it, typed as usual or as the first input.
-    await h.domain.messageStarts.wake('AR', 'dev-1', task);
+    // The queue's driver starts again at once, not only with the sweep: nothing is lost on the way.
+    await h.domain.memberQueueDriver.wake('AR', 'dev-1', task);
     expect(h.runner.lastStarted()).toMatchObject({
       resume: true,
       initialMessage: expect.stringMatching(

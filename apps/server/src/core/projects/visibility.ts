@@ -51,7 +51,10 @@ export function visibleSession(
 /** Events of a subscribed project (everything but the connection and terminal events). */
 export type ProjectEvent = Exclude<
   ServerEvent,
-  { type: 'hello' | 'error' | 'terminal_data' | 'terminal_snapshot' | 'engine_changed' | 'operator_grant_changed' }
+  {
+    type:
+      'hello' | 'error' | 'terminal_data' | 'terminal_snapshot' | 'engine_changed' | 'operator_grant_changed';
+  }
 >;
 
 export function isClient(viewer: Viewer): boolean {

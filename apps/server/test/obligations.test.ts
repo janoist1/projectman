@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_ENGINE_ID, questionPayloadOf } from '@projectman/shared';
 import type { EngineId, ProjectConfig } from '@projectman/shared';
 import type { EngineHost } from '../src/contracts';
@@ -223,6 +223,8 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await requestMerge(key);
       await sweep();
       const row = rows(key)[0]!;
+      // The queue wakes a recipient as soon as a message is stored: hold the reminder back so it stays waiting.
+      vi.spyOn(h.domain.messaging, 'holdNameOf').mockReturnValue('handoff');
       const message = waitingReminder(key, row.id);
       const config = await h.domain.projects.config('AR');
 

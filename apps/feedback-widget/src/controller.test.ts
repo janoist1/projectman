@@ -44,11 +44,13 @@ const shot = {
   upload: { mediaType: 'image/jpeg' as const, dataBase64: 'AAAA' },
   preview: 'data:image/jpeg;base64,AAAA',
 };
+const madeShot = { ok: true as const, ...shot, missing: [] as string[] };
+const failedShot = { ok: false as const, failure: { kind: 'timeout' as const } };
 
 let controllers: Controller[] = [];
 function build(
   routes: Record<string, Handler>,
-  options: { capture?: () => Promise<typeof shot | null> } = {},
+  options: { capture?: () => Promise<typeof madeShot | typeof failedShot> } = {},
 ) {
   const server = fakeServer(routes);
   const controller = createController({
@@ -56,7 +58,7 @@ function build(
     base: API,
     projectKey: 'PM',
     fetchImpl: server.fetchImpl,
-    capture: (options.capture ?? (async () => shot)) as never,
+    capture: (options.capture ?? (async () => madeShot)) as never,
   });
   controllers.push(controller);
   return { controller, server };
@@ -226,7 +228,10 @@ describe('refreshing', () => {
 });
 
 describe('sending a mark', () => {
-  async function ready(extra: Record<string, Handler> = {}, capture?: () => Promise<typeof shot | null>) {
+  async function ready(
+    extra: Record<string, Handler> = {},
+    capture?: () => Promise<typeof madeShot | typeof failedShot>,
+  ) {
     window.localStorage.setItem(KEY, JSON.stringify(session()));
     const built = build(okRoutes(extra), { capture });
     await built.controller.start();
@@ -267,7 +272,7 @@ describe('sending a mark', () => {
   it('sends without a screenshot when none could be made', async () => {
     const { controller, server } = await ready(
       { 'POST /marks': () => reply(201, detail()) },
-      async () => null,
+      async () => failedShot,
     );
     expect(controller.getState().draft?.shot.status).toBe('failed');
     controller.setBody('x');
@@ -276,6 +281,18 @@ describe('sending a mark', () => {
       screenshot: null,
     });
     expect(controller.getState().flash).toContain('képernyőkép nem készült el');
+  });
+
+  it('writes the reason of a failed picture to the console once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { controller } = await ready(
+      {},
+      async () =>
+        ({ ok: false, failure: { kind: 'resource', urls: ['https://cdn.example/a.jpg'] } }) as never,
+    );
+    expect(controller.getState().draft?.shot.status).toBe('failed');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('https://cdn.example/a.jpg');
   });
 
   it('retries without the picture when the server rejects it', async () => {

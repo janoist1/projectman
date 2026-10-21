@@ -12,6 +12,7 @@ let controller: Controller;
 let posted: () => number;
 
 beforeEach(() => {
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined); // the failed picture says why
   window.localStorage.clear();
   setUrl(PAGE);
   container = document.createElement('div');
@@ -66,7 +67,7 @@ async function openCardWith(target: Target) {
     base: API,
     projectKey: 'PM',
     fetchImpl: server.fetchImpl,
-    capture: (async () => null) as never,
+    capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
   });
   await act(async () => {
     render(<App controller={controller} />, container);
@@ -156,7 +157,7 @@ describe('the new-mark card', () => {
       base: API,
       projectKey: 'PM',
       fetchImpl: server.fetchImpl,
-      capture: (async () => null) as never,
+      capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
     });
     const target = document.createElement('section');
     target.getBoundingClientRect = () => new DOMRect(10, 20, 100, 50);
@@ -199,7 +200,7 @@ describe('the new-mark card', () => {
         base: API,
         projectKey: 'PM',
         fetchImpl: server.fetchImpl,
-        capture: (async () => null) as never,
+        capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
       });
       await act(async () => {
         render(<App controller={controller} />, container);

@@ -17,8 +17,8 @@ import type { LaunchParams } from './code';
 import { collectEnvironment } from './environment';
 import { t } from './i18n';
 import { colorOf } from './palette';
-import { captureScreenshot } from './screenshot';
-import type { ShotHighlight } from './screenshot';
+import { captureScreenshot, shotFailureLine, shotMissingLine } from './screenshot';
+import type { ShotHighlight, ShotOutcome } from './screenshot';
 import * as storage from './storage';
 import type { StoredSession } from './storage';
 
@@ -222,7 +222,7 @@ export function createController(deps: Deps): Controller {
   const readHere = new Set<string>();
   let pendingLaunch: LaunchParams | null = null;
   let pendingOpen: string | null = null;
-  let shotPromise: Promise<{ upload: FeedbackScreenshotUpload; preview: string } | null> | null = null;
+  let shotPromise: Promise<ShotOutcome> | null = null;
   let draftToken = 0;
   let detached: Array<() => void> = [];
 
@@ -515,15 +515,22 @@ export function createController(deps: Deps): Controller {
     // The picture is taken as the card opens, so it is usually ready when the text is.
     shotPromise = Promise.race([
       capture(win, highlight),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), SHOT_TIMEOUT_MS)),
+      new Promise<ShotOutcome>((resolve) =>
+        setTimeout(() => resolve({ ok: false, failure: { kind: 'timeout' } }), SHOT_TIMEOUT_MS),
+      ),
     ]);
     void shotPromise.then((result) => {
       if (token !== draftToken || !state.draft) return;
+      // The reason goes to the page's console, once for each picture (PM-920).
+      if (!result.ok) console.warn(shotFailureLine(result.failure));
+      else if (result.missing.length > 0) console.warn(shotMissingLine(result.missing));
       set({
         draft: {
           ...state.draft,
-          shotEnabled: result ? state.draft.shotEnabled : false,
-          shot: result ? { status: 'ready', preview: result.preview } : { status: 'failed', preview: null },
+          shotEnabled: result.ok ? state.draft.shotEnabled : false,
+          shot: result.ok
+            ? { status: 'ready', preview: result.preview }
+            : { status: 'failed', preview: null },
         },
       });
     });
@@ -579,8 +586,8 @@ export function createController(deps: Deps): Controller {
     if (draft.shotEnabled) {
       const result = await shotPromise;
       if (token !== draftToken) return;
-      screenshot = result?.upload ?? null;
-      withoutShot = result === null;
+      screenshot = result?.ok ? result.upload : null;
+      withoutShot = !result?.ok;
     }
     // A failed picture also switches the switch off, so the branch above was skipped.
     if (state.draft?.shot.status === 'failed') withoutShot = true;

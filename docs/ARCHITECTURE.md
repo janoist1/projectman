@@ -3443,7 +3443,9 @@ assumption or remote-engine RPC.
   Lifecycle tests use `runner/test-helpers.ts` (`fixtureScopeProcesses`) and identity records from
   `test/fixtures/fake-tui.mjs`, with null-signal liveness checks limited to disposable fixture pids.
   This keeps pipe and PTY tests independent of host-wide `ps` permissions; production inspection
-  and the remote-engine boundary remain unchanged (PM-698).
+  and the remote-engine boundary remain unchanged (PM-698). The fake-CLI app harness
+  (`test/helpers/app-harness.ts`) uses the same fixture process source for its runner, so
+  conversation/resume tests do not depend on inspecting unrelated host processes (PM-928).
   **Module:** `runner`
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runner/providers/{claude,codex}/transcript.ts`

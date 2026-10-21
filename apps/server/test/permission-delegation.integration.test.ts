@@ -81,10 +81,14 @@ it.each([
     delegation: { state: 'pending_lead', leads: ['cr'] },
   });
   expect(domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
-  // The decider is woken for the task: it has a session of its own.
-  await waitFor(() => domain.sessions.list('AR', { member: 'cr', taskKey: key }).length > 0, {
-    what: 'the decider’s session',
-  });
+  // The decider is woken at the desk, with no card and no workspace: it has a session of its own.
+  await waitFor(
+    () => domain.sessions.list('AR', { member: 'cr' }).some((s) => s.workItem.type === 'general'),
+    {
+      what: 'the decider’s desk session',
+    },
+  );
+  expect(domain.sessions.list('AR', { member: 'cr', taskKey: key })).toHaveLength(0);
   const tool = TEAM_TOOLS.find((t) => t.name === 'decide_permission_request')!;
   const reason =
     decision === 'allow' ? 'A plain download inside the task.' : 'The task does not need this download.';

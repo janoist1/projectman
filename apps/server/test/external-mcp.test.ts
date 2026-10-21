@@ -637,7 +637,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       const rules = ingressRules(
         { ...config, cloudflare: { hostname: 'board.example.com' } } as unknown as CloudConfig,
         'team',
-        ['aud'],
+        { app: 'board-aud', engine: 'engine-aud', integrator: null },
       ) as { hostname?: string; path?: string; service: string }[];
       const rule = rules.find(
         (r) =>
@@ -647,10 +647,12 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     }
 
     it.each(['private', 'public'] as const)(
-      'lets the ingress pass the bare /mcp and nothing of the member door or the hooks (%s board)',
+      'keeps legacy private MCP access and closes the public board MCP door (%s board)',
       (boardMode) => {
         const config = { access: { boardMode } } as unknown as Pick<CloudConfig, 'access'>;
-        expect(reaches(config, '/mcp')).toBe('http://127.0.0.1:4700');
+        expect(reaches(config, '/mcp')).toBe(
+          boardMode === 'private' ? 'http://127.0.0.1:4700' : 'http_status:404',
+        );
         for (const path of [
           '/mcp/',
           '/mcp/token',

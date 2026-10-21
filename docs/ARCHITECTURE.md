@@ -2197,6 +2197,14 @@ workers follow the machine's size.
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
+  **Separate machine entrance (PM-675):** optional explicit `cloudflare.integratorHostname`, required
+  with a public integrator service token, has its own Service Auth application and audience on the same
+  tunnel. Only literal `/api/...` and exact `/mcp` reach the hub on that host. `edge` writes
+  `PROJECTMAN_INTEGRATOR_HOSTNAME`; `publish` verifies the running backend's `integratorHostIsolated`
+  result before making its DNS record, including during private staging. `check` tests both machine
+  audiences and deliberately sends a valid human cookie to the machine host (401). The CLI still runs
+  on the admin machine and sends credentials only through protected files/environments. The Mac engine's
+  `/engine`, key and outbound connection are unchanged; no new engine operation or inbound port exists.
   **Public board (PM-672):** with `access.boardMode: public` the same commands leave the main hostname
   without Access (one Bypass policy), keep `/engine` behind its own Access application (the engine service
   token only; the tunnel's `originRequest.access` for `/engine` names only that application's audience),
@@ -2765,6 +2773,13 @@ workers follow the machine's size.
   bucket's own encryption and a bucket-scoped key protect it. The Cloudflare Access service tokens
   of the engine (`linkHeadersFile`) and of the integrator are the only machine credentials that pass
   the edge.
+  **Integrator isolation (PM-675):** `start.ts` reads optional `PROJECTMAN_INTEGRATOR_HOSTNAME` into
+  `app.ts`; `http/integrator-host-guard.ts` runs on the hub before cookie/auth hooks, using the raw Host
+  with case/port/root-dot normalization shared with the feedback guard. It blocks board bearer requests
+  (403), board bare MCP (404), machine cookie-only requests (401) and machine non-API/MCP routes (404).
+  Host preservation by the tunnel is required; forwarded-host headers and loopback source addresses
+  confer no exception. The guard applies in private staging too; public mode without a hostname never
+  restores bearer access on the board. This is a hub-only boundary; the remote engine needs no change.
   **Does this work on a remote engine?** This is the cloud's side only; the container runs no
   engine, no session and no machine-dependent part. What must run on the engine: everything in the
   "Cloud composition" entry. What crosses the boundary: the engine's `cloudUrl`, machine key and
@@ -2859,6 +2874,10 @@ workers follow the machine's size.
   "Integrator access"); the key still works only over HTTPS, which the container sees as
   `x-forwarded-proto: https` from the tunnel's loopback connection. The service token is a second
   secret with the same rules: never in a message, task, commit, prompt or engine payload.
+  **PM-675:** when the explicit machine hostname is configured, the existing integrator client's
+  origin changes to it; REST `/api` and MCP `/mcp`, key scopes and audit stay the same. Its Access
+  token opens only that application's audience. Human key management, super audit and approval remain
+  on the board's own cookie API. The app-principal's direct domain calls are not HTTP entrances.
   **Integrator client (PM-765):** `scripts/projectman/**` (the `projectman` bin: REST, `events follow` and the
   stdio `mcp-proxy`), `packages/shared/src/api/client-config.ts` (`ClientConfig`, exit codes, the channel
   header), `runner/env.ts` (`ACCESS_ENV_PREFIXES`). It runs on the integrator's own machine, not on the

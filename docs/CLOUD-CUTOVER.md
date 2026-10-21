@@ -46,8 +46,10 @@ AI tagi sandboxnak nem adunk credentials-kivételt.
    engedélye már megvan; ezt nem kell újra kérni.
 4. Pause → Mac single és watcher stop → stopped-source package/verify → üres cloud
    seed → Mac engine ugyanazzal a SHA-val → privát ellenőrzés.
-5. A kész belépési és public edge változat független security eredménye után külön
-   hagyd jóvá a public deploy/edge/publish lépéseket. Backup, izolált restore,
+5. A kész belépési és public edge változat független security eredménye után az
+   integrátor végzi a kapcsolást a PM-675 aktuális tulajdonosi iránya szerint.
+   A PM-703/713-at tartalmazó verzión a nyilvános megnyitásra nem kérünk újabb igent.
+   Backup, izolált restore,
    Mac-off/on, valódi meghívott ügyfél és owner elfogadás zárja az átállást.
 6. Hibánál először edge-zár, majd cloud pause/stop és végleges adatletöltés;
    csak ennek visszahozása után indulhat újra a Mac single és watcher.
@@ -279,18 +281,25 @@ repo/teszt és egy próbamunka. A kézi pause átkerül a cloud DB-be: csak az o
 után resume a cloud UI-n. Offline feladatról bizonyíts tartós várakozást, majd egyszeri
 indulást. A login JSON mód 0600; jelszót/tokent ne csatolj, csak az eredményt.
 
-## 4. Nyilvános kapcsolás: külön, még függő kapu
+## 4. Saját webes belépés és nyilvános kapcsolás
 
-**A PM-674 alapjául szolgáló checkoutban PM-670/671/672 még nincs kész.** A jelenlegi
-config nem fogad `access.boardMode` mezőt; a privát publish nem saját belépéses public mód.
-Ez a szakasz STOP, amíg az elfogadott SHA-ban a három változás nincs beolvasztva,
-és a login/public határ független security átnézése nincs rendben. A végrehajtó a
-PM-672 végleges AWS.md/CLI szerződésével ellenőrizze az alábbi kapcsolást; ez nem
-vezet be új kapcsolót vagy kézi Bypass kerülőutat.
+A PM-670/671/672 saját belépése és `access.boardMode` kapcsolója már megvalósult.
+A PM-675 2026-10-19-i tulajdonosi iránya szerint az emberek számára a webes belépés
+az egyetlen belépés: a főoldal előtt nincs külön Cloudflare Access-forduló. A gépi
+hozzáférés védelmét a PM-675 végleges műszaki terve szerint kell megtartani.
 
-A kész PM-672-ben `<CONFIG>` `access.boardMode=public`, `<PRIVATE_CONFIG>` private.
-PM-675 új `ask_human`: konkrét SHA + public deploy/edge/publish, hostname/widget és rollback.
-Jóváhagyás előtt csak a végleges CLI read-only preview-ja:
+Az elfogadott SHA tartalmazza a belépési keményítéseket is: PM-703 (kódbeváltási
+időzítés és IPv6-korlát), PM-713 (biztonságos visszairányítás), valamint a PM-675
+végleges változtatását. A kártyák beolvasztása önmagában nem igazolja a telepített
+verziót: a cloud image forrás-SHA-ját és az engine SHA-ját külön rögzíteni kell.
+A login/public határ végleges változata független security-átnézést igényel.
+
+`<CONFIG>` `access.boardMode=public`, `<PRIVATE_CONFIG>` private. A PM-675 aktuális
+tulajdonosi iránya alapján a nyilvános megnyitásra nem kell külön ismételt igen,
+ha a futó kép tartalmazza a PM-703 és a PM-713 javításait. A kiadás a PM-735 útján
+megy; a konkrét SHA, képazonosító, hostname/widget, végrehajtó és rollback a
+végrehajtási csomagban legyen rögzítve. Az integrátor a lenti privát gépi próba után,
+a webes kapcsolás előtt végzi a teljes read-only preview-t (a publish már működő host-őrt követel):
 
 ```sh
 npm run cloud -- edge --dry-run --config <CONFIG>
@@ -298,7 +307,38 @@ npm run cloud -- deploy --ref <APPROVED_SHA> --dry-run --config <CONFIG>
 npm run cloud -- publish --feedback --dry-run --config <CONFIG>
 ```
 
-Külön elfogadott public kapcsolás után:
+### A gépi host előzetes, privát átállítása
+
+A külön integrátori hostname explicit érték a végrehajtási csomagban, ugyanazon tunnelhez.
+`<PRIVATE_CONFIG>` tartalmazza a `cloudflare.integratorHostname` értéket és
+`access.integratorServiceToken=true`-t, a board módja még private. A megmaradó engine-cím,
+Service Auth token és gépkulcs nem változik. A gépi hostot tartalmazó új backend előbb
+privátan induljon el; a régi integrátori board-cím ettől kezdve elutasítható, az admin
+SSM/SSH út megmarad.
+
+Az integrátor sorrendje:
+
+```sh
+npm run cloud -- edge --config <PRIVATE_CONFIG>
+npm run cloud -- deploy --ref <APPROVED_SHA> --config <PRIVATE_CONFIG>
+npm run cloud -- publish --config <PRIVATE_CONFIG>
+npm run cloud -- check --login-json <PROTECTED_LOGIN_JSON> --config <PRIVATE_CONFIG>
+```
+
+A `publish` a gépi DNS-t is kezeli. Előtte megköveteli a pontos Service Auth appot,
+saját audience-t, ingresst és a futó backend `integratorHostIsolated=true` próbáját.
+A gépi hoston a bearer nélküli API 401 és a WS 404; a boardon egy dummy bearer
+403 `integrator_host_required`. Ez a kapu private módban is kötelező, a public flag
+itt még nem feltétel. A `check` érvényes owner cookie-val is próbálja a gépi hostot (401).
+
+Ezután az integrátor meglévő kliensének `baseUrl` értéke az új gépi originre vált.
+Ugyanazzal a kulccsal és a saját Access tokennel pozitív REST `/api/...` és MCP
+`/mcp` próbát végez; az útvonalak nem változnak, nincs átirányítás vagy kulcsrotáció.
+A pozitív eredmény és a két külön origin a kártyára kerül, titok nélkül.
+
+### A webes Access-kapu levétele
+
+Csak a privát gépi próbák után az integrátor egy menetben futtatja:
 
 ```sh
 npm run cloud -- edge --config <CONFIG>
@@ -315,9 +355,35 @@ a publish meglévő public-check kapuján át futhat. Bármely hibánál azonnal
 Check: public=true, emailLoginEnabled=true, needsSetup=false; anonim auth/me 401,
 idegen Origin 403; fő Access Bypass/Everyone, **engine továbbra is csak Service Auth**,
 engine ingress audience-ellenőrzéssel, fő ingress saját loginhoz audience-zár nélkül.
-Widget csak saját útvonalai, hooks/mcp 404, anonim WS/API elutasítás. Valódi meghívott
+Widget csak saját útvonalai, hooks és a tagi `/mcp/<token>` 404, anonim WS/API elutasítás.
+A bare `/mcp` a boardon 404; csak a külön integrátori hoston érhető el (PM-760/PM-675).
+Az integrátori API ugyanott kizárólag saját Access tokennel és pmi_ kulccsal működik;
+owner saját auditja és emberi döntései a board cookie-s API-ján maradnak.
+Valódi meghívott
 ügyfél OTP-belépés siker; belső/másprojekt adat és owner/terminál művelet tiltott.
 Hibánál azonnal az 6. szakasz edge-zárja, ne hagyd public állapotban javítás közben.
+
+### Titokmentes elfogadási jegyzőkönyv (PM-675)
+
+Az integrátor a deploy után a kártyára írja minden próba nevét, időpontját,
+végrehajtóját, elvárt és tényleges eredményét, valamint PASS/FAIL állapotát.
+E-mail-címet, kódot, kulcsot, cookie-t vagy nyers választ nem csatol.
+Az automatizált teszt eredménye és az élő próba eredménye külön bizonyíték.
+
+| Próba                | Elvárt élő eredmény                                                                                                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `human-entry`        | Kijelentkezett böngészőben a saját webes belépés elérhető Access-átirányítás nélkül; anonim API/WS továbbra is 401.                                                                                         |
+| `owner-login`        | A tulajdonos belép, a tábla és a Rád vár látható.                                                                                                                                                           |
+| `client-email-login` | A tulajdonos próba-aliasára küldött meghívóval és valódi SES-kódlevéllel sikeres az ügyfélbelépés.                                                                                                          |
+| `client-visibility`  | Megosztott kártya és csatolmány olvasható; nem megosztott/belső, másprojektbeli és nem létező kártya vagy fájl, terminál és tulajdonosi művelet elutasítva. Az egyes tiltási próbák külön eredményt kapnak. |
+| `machine-engine`     | A `/engine` Access- és gépkulcsvédelme működik; az engine Service Auth token nem ad webes belépést.                                                                                                         |
+| `machine-integrator` | Az integrátor/super elérés megfelel a végleges gépi határtervnek; anonim és nem megfelelő hitelesítővel nem érhető el.                                                                                      |
+| `widget`             | A külön feedback hoston beküldött jelölés megjelenik a táblán; azon a hoston csak a widget útvonalai élnek.                                                                                                 |
+| `mac-off-on`         | Mac nélkül a belépés/tábla/Rád vár/widget működik, az AI-indítás és üzenet vár; az engine visszatérésekor egyszer indul vagy folytatódik.                                                                   |
+
+Az elfogadást az első FAIL-nél meg kell állítani a kártya rollback-szabálya szerint.
+A többi elfogadási feltétel (adatmegőrzés, egyetlen író, felhő-újraindítás,
+mentés/visszaállítás és restic-jelszó) bizonyítékai is szükségesek a PM-675 lezárásához.
 
 ## 5. Első backup, restore és elfogadás
 

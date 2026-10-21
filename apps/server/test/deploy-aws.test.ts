@@ -33,6 +33,47 @@ const withoutComments = (source: string) =>
     .join('\n');
 
 describe('deploy/aws/host.sh', () => {
+  it.each(['legacy', 'isolated', 'wrong-code', 'machine-open', 'ws-open', 'unavailable'])(
+    'probes the running integrator boundary with a %s backend',
+    (scenario) => {
+      const fixture = `
+CONTAINER=fixture
+board_running() { return 0; }
+die() { exit 1; }
+refuse() { exit 2; }
+docker() {
+  case "$*" in
+    *pmi_boundary_probe*)
+      if [ '${scenario}' = unavailable ]; then return 1; fi
+      if [ '${scenario}' = wrong-code ]; then printf '{"error":{"code":"integrator_key_invalid"}}\\n403';
+      else printf '{"error":{"code":"integrator_host_required"}}\\n403'; fi ;;
+    */api/setup) printf '{"publicBoard":true,"emailLoginEnabled":true,"needsSetup":false}' ;;
+    */api/auth/login) printf 403 ;;
+    */ws) if [ '${scenario}' = ws-open ]; then printf 200; else printf 404; fi ;;
+    */api/projects) if [ '${scenario}' = machine-open ]; then printf 200; else printf 401; fi ;;
+    *) printf 401 ;;
+  esac
+}
+${shellFunction(hostScript, 'public_check')}
+public_check board.example.com ${scenario === 'legacy' ? '' : 'machine.example.com'}
+`;
+      const result = spawnSync('bash', ['-c', fixture], {
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const answer = JSON.parse(result.stdout);
+      expect(answer).toMatchObject({
+        publicBoard: true,
+        emailLoginEnabled: true,
+        needsSetup: false,
+        apiStatus: 401,
+        crossOriginStatus: 403,
+      });
+      if (scenario === 'legacy') expect(answer).not.toHaveProperty('integratorHostIsolated');
+      else expect(answer.integratorHostIsolated).toBe(scenario === 'isolated');
+    },
+  );
   it.each([
     ['closed', 0],
     ['missing', 3],
@@ -125,8 +166,8 @@ if (operation === 'stat') {
     }
   });
 
-  it('parses', () => {
-    const result = spawnSync('bash', ['-n', join(root, 'deploy/aws/host.sh')], {
+  it.each(['deploy/aws/host.sh', 'deploy/cloudflare/check.sh'])('%s parses', (file) => {
+    const result = spawnSync('bash', ['-n', join(root, file)], {
       encoding: 'utf8',
       env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
     });

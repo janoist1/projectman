@@ -59,7 +59,7 @@ import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
 import type { TemplateRegistry } from './core/base';
 import { createGithubActionsClient, createGithubService } from './services/github';
-import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http';
+import { parseFeedbackPublicUrl, registerFeedbackHostGuard, registerIntegratorHostGuard } from './http';
 import { assertHomeMayStart, RUN_MODES } from './instance';
 import type { RunMode } from './instance';
 import { createMcpModule } from './mcp';
@@ -217,6 +217,8 @@ export interface BuildAppOptions {
    * (PM-672). Absent: false. It starts only in cloud mode, with an owner set up and a working e-mail login.
    */
   publicBoard?: boolean;
+  /** Explicit machine host (PM-675); isolates bearer authentication even before going public. */
+  integratorHostname?: string;
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
   /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
@@ -402,6 +404,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     // before the cookie, auth and every other hook, and a bad address stops the start.
     if (options.feedbackPublicUrl)
       registerFeedbackHostGuard(app, parseFeedbackPublicUrl(options.feedbackPublicUrl));
+    registerIntegratorHostGuard(app, {
+      integratorHostname: options.integratorHostname,
+      publicBoard: options.engineMode === 'cloud' && options.publicBoard === true,
+    });
     const secret = loadOrCreateSecret(home);
     await app.register(fastifyCookie, { secret });
     await app.register(fastifyWebsocket, {

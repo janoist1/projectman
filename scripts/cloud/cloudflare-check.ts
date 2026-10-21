@@ -11,7 +11,8 @@ import { secretFileProblem } from './secrets';
  * the three doors of the engine with the engine service token (it passes Access, and the board must still
  * refuse it), and, when there is an integrator token, `deploy/cloud/smoke.sh` with it. With
  * `access.boardMode: public` (PM-672) check.sh runs its public matrix (the board's own login is the boundary), the
- * engine token must also give no board rights, and the integrator smoke is skipped.
+ * engine token must also give no board rights. A separate integrator host is checked with its own token;
+ * the browser check deliberately presents a valid owner cookie there without an application bearer.
  */
 
 export interface CheckOptions {
@@ -110,6 +111,44 @@ async function checkEngineDoors(context: CloudContext, origin: string): Promise<
   };
 }
 
+function integratorHeaders(context: CloudContext): Record<string, string> {
+  const token = readTokenFile(path.join(context.secretsDir, INTEGRATOR_TOKEN_FILE));
+  if (!token) throw refused('the integrator service token file is missing or invalid');
+  context.report.protect(token.clientId);
+  context.report.protect(token.clientSecret);
+  return { 'CF-Access-Client-Id': token.clientId, 'CF-Access-Client-Secret': token.clientSecret };
+}
+
+async function checkIntegratorDoors(context: CloudContext, origin: string): Promise<StepResult> {
+  const machine = `https://${context.config.cloudflare.integratorHostname}`;
+  const own = integratorHeaders(context);
+  const engine = readTokenFile(path.join(context.secretsDir, ENGINE_TOKEN_FILE));
+  if (!engine) throw refused('the engine service token file is missing or invalid');
+  const wrong = { 'CF-Access-Client-Id': engine.clientId, 'CF-Access-Client-Secret': engine.clientSecret };
+  const problems: string[] = [];
+  for (const door of ['/api/projects', '/mcp']) {
+    for (const headers of [{}, wrong]) {
+      const answer = await engineDoor(context, `${machine}${door}`, headers);
+      if (!answer || !(accessRedirect(answer) || answer.status === 403))
+        problems.push(`${door} accepts a missing or wrong service token`);
+    }
+    const answer = await engineDoor(context, `${machine}${door}`, own);
+    if (!answer || answer.status !== 401) problems.push(`${door} is not 401 without an application key`);
+  }
+  const crossed = await engineDoor(context, `${origin}/engine/link`, own);
+  if (!crossed || !(accessRedirect(crossed) || crossed.status === 403))
+    problems.push('the integrator service token opens the engine application');
+  for (const door of ['/', '/ws', '/engine/link', '/feedback/widget.js', '/mcp/token', '/hooks/x']) {
+    const answer = await engineDoor(context, `${machine}${door}`, own);
+    if (!answer || answer.status !== 404) problems.push(`${door} is not closed on the machine host`);
+  }
+  if (problems.length) throw new CloudError(`the integrator boundary: ${problems.join('; ')}`);
+  return {
+    status: 'ok',
+    detail: 'separate Access audience, application key required, human and internal doors closed',
+  };
+}
+
 export async function runCheck(context: CloudContext, options: CheckOptions): Promise<void> {
   const { config, report, deps } = context;
   const login = path.resolve(options.loginJson);
@@ -119,6 +158,12 @@ export async function runCheck(context: CloudContext, options: CheckOptions): Pr
 
   await report.run('access-checks', async () => {
     const env: Record<string, string> = { LOGIN_JSON: login, BOARD_MODE: config.access.boardMode };
+    if (config.cloudflare.integratorHostname) {
+      const headers = integratorHeaders(context);
+      env.INTEGRATOR_ORIGIN = `https://${config.cloudflare.integratorHostname}`;
+      env.CF_ACCESS_CLIENT_ID = headers['CF-Access-Client-Id']!;
+      env.CF_ACCESS_CLIENT_SECRET = headers['CF-Access-Client-Secret']!;
+    }
     if (config.cloudflare.feedbackHostname)
       env.FEEDBACK_ORIGIN = `https://${config.cloudflare.feedbackHostname}`;
     const result = await deps.run(
@@ -141,12 +186,13 @@ export async function runCheck(context: CloudContext, options: CheckOptions): Pr
 
   await report.run('engine-doors', () => checkEngineDoors(context, origin));
 
-  if (!config.access.integratorServiceToken) {
-    report.step('skipped', 'integrator-smoke', 'access.integratorServiceToken is off');
+  if (config.cloudflare.integratorHostname) {
+    await report.run('integrator-doors', () => checkIntegratorDoors(context, origin));
     return;
   }
-  if (isPublicBoard(config)) {
-    report.step('skipped', 'integrator-smoke', 'public board: the main hostname is not behind Access');
+
+  if (!config.access.integratorServiceToken) {
+    report.step('skipped', 'integrator-smoke', 'access.integratorServiceToken is off');
     return;
   }
   await report.run('integrator-smoke', async () => {

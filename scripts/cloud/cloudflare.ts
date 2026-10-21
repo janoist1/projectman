@@ -125,6 +125,7 @@ export function shape<S extends z.ZodType>(schema: S, value: unknown, what: stri
 export interface Names {
   app: string;
   engineApp: string;
+  integratorApp: string;
   engineToken: string;
   integratorToken: string;
   allowPolicy: string;
@@ -139,6 +140,7 @@ export function namesOf(config: CloudConfig): Names {
   return {
     app: n,
     engineApp: `${n}-engine`,
+    integratorApp: `${n}-integrator`,
     engineToken: `${n}-engine`,
     integratorToken: `${n}-integrator`,
     allowPolicy: `${n}-allow-emails`,
@@ -156,6 +158,7 @@ const TRANSFORM_REF = 'projectman_frame_headers';
 const AUTH_DOMAIN_SUFFIX = '.cloudflareaccess.com';
 /** The server's switch for the public board (PM-672); `cloud.env` holds it only in public mode. */
 export const PUBLIC_BOARD_ENV = 'PROJECTMAN_PUBLIC_BOARD';
+export const INTEGRATOR_HOSTNAME_ENV = 'PROJECTMAN_INTEGRATOR_HOSTNAME';
 const TOKEN_DURATION = '8760h';
 export const TOKEN_WARNING_DAYS = 30;
 const DAY_MS = 86_400_000;
@@ -342,15 +345,21 @@ export function appPolicyIds(app: AccessApp): string[] {
 const ORIGIN = 'http://127.0.0.1:4700';
 
 /**
- * The tunnel's ingress. Private: the whole main hostname demands the Access audience of the main and the engine
- * application (`audTags` = both). Public (PM-672): only `/engine` demands the engine application's audience
- * (`audTags` = the engine one alone); the rest of the hostname reaches the board's own login with no audience
- * requirement. Both: the internal `/hooks` and the member door `/mcp/<token>` answer 404, nothing overrides the
- * Host header. The bare `/mcp` is the integrator's bearer endpoint (PM-760): it takes the same way in as `/api`.
+ * Each machine entrance requires its own Access audience (PM-675). The public board uses its own login;
+ * a staged private board still requires the human application. Legacy private configurations without a
+ * machine hostname keep their existing combined audience. No rule rewrites Host or exposes member doors.
  */
-export function ingressRules(config: CloudConfig, teamName: string, audTags: string[]): Json[] {
-  const { hostname, feedbackHostname } = config.cloudflare;
-  const access = { access: { required: true, teamName, audTag: audTags } };
+export function ingressRules(
+  config: CloudConfig,
+  teamName: string,
+  audiences: { app: string | null; engine: string; integrator: string | null },
+): Json[] {
+  const { hostname, feedbackHostname, integratorHostname } = config.cloudflare;
+  const access = (...tags: (string | null)[]) => {
+    if (tags.some((tag) => !tag)) throw refused('a configured ingress application has no audience');
+    return { access: { required: true, teamName, audTag: tags } };
+  };
+  const isolated = isPublicBoard(config) || !!integratorHostname;
   return [
     ...(feedbackHostname
       ? [
@@ -358,15 +367,37 @@ export function ingressRules(config: CloudConfig, teamName: string, audTags: str
           { hostname: feedbackHostname, service: 'http_status:404' },
         ]
       : []),
+    ...(integratorHostname
+      ? [
+          {
+            hostname: integratorHostname,
+            path: '^/api/',
+            service: ORIGIN,
+            originRequest: access(audiences.integrator),
+          },
+          {
+            hostname: integratorHostname,
+            path: '^/mcp$',
+            service: ORIGIN,
+            originRequest: access(audiences.integrator),
+          },
+          { hostname: integratorHostname, service: 'http_status:404' },
+        ]
+      : []),
     { hostname, path: '^/hooks', service: 'http_status:404' },
     // `/mcp/<token>` is the member door; the bare `/mcp` is the integrator's bearer endpoint (PM-760) and goes on.
     { hostname, path: '^/mcp/', service: 'http_status:404' },
-    ...(isPublicBoard(config)
+    ...(isolated ? [{ hostname, path: '^/mcp$', service: 'http_status:404' }] : []),
+    ...(isolated
       ? [
-          { hostname, path: '^/engine(/|$)', service: ORIGIN, originRequest: access },
-          { hostname, service: ORIGIN },
+          { hostname, path: '^/engine(/|$)', service: ORIGIN, originRequest: access(audiences.engine) },
+          {
+            hostname,
+            service: ORIGIN,
+            ...(isPublicBoard(config) ? {} : { originRequest: access(audiences.app) }),
+          },
         ]
-      : [{ hostname, service: ORIGIN, originRequest: access }]),
+      : [{ hostname, service: ORIGIN, originRequest: access(audiences.app, audiences.engine) }]),
     { service: 'http_status:404' },
   ];
 }
@@ -548,7 +579,7 @@ interface EdgeState {
     engine: string | null;
     integrator: string | null;
   };
-  audTags: { app: string | null; engine: string | null };
+  audTags: { app: string | null; engine: string | null; integrator: string | null };
 }
 
 const dry = (what: string): StepResult => ({ status: 'skipped', detail: `dry-run: would ${what}` });
@@ -584,7 +615,7 @@ export async function runEdge(context: CloudContext, options: EdgeOptions): Prom
     idpId: null,
     tokenIds: { engine: null, integrator: null },
     policyIds: { allow: null, public: null, engine: null, integrator: null },
-    audTags: { app: null, engine: null },
+    audTags: { app: null, engine: null, integrator: null },
   };
 
   await ensureZone(state);
@@ -947,7 +978,12 @@ async function ensureApps(state: EdgeState): Promise<void> {
   // Public: exactly the one bypass policy; the integrator policy is not attached (its token stays per config).
   const main = isPublicBoard(config)
     ? [state.policyIds.public]
-    : [state.policyIds.allow, ...(config.access.integratorServiceToken ? [state.policyIds.integrator] : [])];
+    : [
+        state.policyIds.allow,
+        ...(config.access.integratorServiceToken && !config.cloudflare.integratorHostname
+          ? [state.policyIds.integrator]
+          : []),
+      ];
   state.audTags.app = await ensureApp(state, {
     name: state.names.app,
     domain: hostname,
@@ -960,6 +996,13 @@ async function ensureApps(state: EdgeState): Promise<void> {
     policyIds: [state.policyIds.engine],
     autoRedirect: true,
   });
+  if (config.cloudflare.integratorHostname)
+    state.audTags.integrator = await ensureApp(state, {
+      name: state.names.integratorApp,
+      domain: config.cloudflare.integratorHostname,
+      policyIds: [state.policyIds.integrator],
+      autoRedirect: true,
+    });
 }
 
 /** With the integrator token switched off, its policy and token go (after the apps stopped using the policy). */
@@ -1034,11 +1077,6 @@ async function ensureTunnel(state: EdgeState): Promise<Tunnel | null> {
   return tunnel;
 }
 
-/** The audiences the tunnel demands: private, both applications; public, the engine application alone (PM-672). */
-export function ingressAudTags(config: CloudConfig, app: string, engine: string): string[] {
-  return isPublicBoard(config) ? [engine] : [app, engine];
-}
-
 /** What the comparison of an ingress rule looks at: the keys we set (an empty originRequest is none). */
 function normalizeIngress(rules: readonly unknown[]): unknown[] {
   return rules.map((rule) => {
@@ -1072,10 +1110,12 @@ function foreignConfigKeys(config: Record<string, unknown>): Record<string, unkn
 async function ensureTunnelConfig(state: EdgeState, tunnel: Tunnel | null): Promise<void> {
   const { config } = state.context;
   await runStep(state, 'tunnel-config', async () => {
-    const { app, engine } = state.audTags;
-    if (!tunnel || !app || !engine)
-      return dry('set the ingress once the tunnel and both Access applications exist');
-    const ingress = ingressRules(config, state.teamName, ingressAudTags(config, app, engine));
+    const { app, engine, integrator } = state.audTags;
+    if (!tunnel || !app || !engine || (config.cloudflare.integratorHostname && !integrator)) {
+      if (!state.options.dryRun) throw refused('a configured Access application has no audience');
+      return dry('set the ingress once the tunnel and all configured Access applications exist');
+    }
+    const ingress = ingressRules(config, state.teamName, { app, engine, integrator });
     const path = `/accounts/${state.accountId}/cfd_tunnel/${tunnel.id}/configurations`;
     const current = shape(
       tunnelConfigSchema,
@@ -1109,6 +1149,11 @@ async function ensureEnv(state: EdgeState, tunnel: Tunnel | null): Promise<void>
     const feedback = config.cloudflare.feedbackHostname;
     const current = readEnvFile(envFile);
     const changed: string[] = [];
+    const integratorHostname = config.cloudflare.integratorHostname;
+    if (integratorHostname) {
+      updates[INTEGRATOR_HOSTNAME_ENV] = integratorHostname;
+      if (current.get(INTEGRATOR_HOSTNAME_ENV) !== integratorHostname) changed.push(INTEGRATOR_HOSTNAME_ENV);
+    } else if (current.has(INTEGRATOR_HOSTNAME_ENV)) changed.push(INTEGRATOR_HOSTNAME_ENV);
     if (current.get('TUNNEL_TOKEN') !== token) changed.push('TUNNEL_TOKEN');
     if (feedback) {
       updates.PROJECTMAN_FEEDBACK_PUBLIC_URL = `https://${feedback}`;
@@ -1125,6 +1170,7 @@ async function ensureEnv(state: EdgeState, tunnel: Tunnel | null): Promise<void>
     if (state.options.dryRun) return dry(`change ${changed.join(', ')} in cloud.env`);
     updateEnvFile(envFile, updates);
     const gone = [
+      ...(integratorHostname ? [] : [INTEGRATOR_HOSTNAME_ENV]),
       ...(feedback ? [] : ['PROJECTMAN_FEEDBACK_PUBLIC_URL']),
       ...(publicBoard ? [] : [PUBLIC_BOARD_ENV]),
     ];
@@ -1198,9 +1244,16 @@ export async function verifyAccess(
     config.cloudflare.hostname,
     publicBoard
       ? [policies.public]
-      : [policies.allow, ...(config.access.integratorServiceToken ? [policies.integrator] : [])],
+      : [
+          policies.allow,
+          ...(config.access.integratorServiceToken && !config.cloudflare.integratorHostname
+            ? [policies.integrator]
+            : []),
+        ],
   );
   await appCheck(names.engineApp, `${config.cloudflare.hostname}/engine`, [policies.engine]);
+  if (config.cloudflare.integratorHostname)
+    await appCheck(names.integratorApp, config.cloudflare.integratorHostname, [policies.integrator]);
   return problems;
 }
 
@@ -1220,7 +1273,15 @@ export async function verifyPublicIngress(
   if (!engineApp?.aud)
     return [`the Access application ${names.engineApp} has no audience to check the ingress with`];
   const teamName = await teamNameOf(api, accountId);
-  const wanted = ingressRules(config, teamName, [engineApp.aud]);
+  const app = await findApp(api, accountId, names.app);
+  const integrator = config.cloudflare.integratorHostname
+    ? await findApp(api, accountId, names.integratorApp)
+    : null;
+  const wanted = ingressRules(config, teamName, {
+    app: app?.aud ?? null,
+    engine: engineApp.aud,
+    integrator: integrator?.aud ?? null,
+  });
   const current = shape(
     tunnelConfigSchema,
     (await withRight(RIGHT_TUNNEL, () =>

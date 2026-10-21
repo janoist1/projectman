@@ -268,6 +268,31 @@ else
 fi
 
 # End the session this script made.
+if [ -n "${INTEGRATOR_ORIGIN:-}" ]; then
+  echo '== Separate integrator host =='
+  if [ -z "${CF_ACCESS_CLIENT_ID:-}" ] || [ -z "${CF_ACCESS_CLIENT_SECRET:-}" ]; then
+    fail 'integrator service token is missing'
+  elif [ "$login_ok" -ne 0 ]; then
+    fail 'integrator cookie-only check requires a successful owner login'
+  else
+    # Deliberately present a valid human cookie on the machine host. A curl cookie jar would
+    # withhold it because its hostname differs, and would not prove the server's cookie refusal.
+    cookie=$(tr -d '\r' <"$tmp/login.headers" | grep -i '^set-cookie: pm_session=' | cut -d ' ' -f 2 | cut -d ';' -f 1)
+    if [ -z "$cookie" ]; then
+      fail 'integrator cookie-only check has no owner session cookie'
+    else
+      printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\nCookie: %s\n' \
+        "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" "$cookie" >"$tmp/integrator.headers"
+      code=$(curl -sS --max-time 15 -H "@$tmp/integrator.headers" -o /dev/null -w '%{http_code}' "${INTEGRATOR_ORIGIN%/}/api/projects")
+      if [ "$code" = 401 ]; then pass 'machine host refuses a valid human cookie without a bearer'; else fail "machine host accepts a human cookie (HTTP $code)"; fi
+    fi
+    code=$(acurl -o "$tmp/bearer.body" -w '%{http_code}' -H 'Authorization: Bearer pmi_boundary_probe' "$origin/api/projects")
+    if [ "$code" = 403 ] && grep -q '"code":"integrator_host_required"' "$tmp/bearer.body"; then pass 'board refuses integrator bearer authentication'; else fail "board bearer boundary is not isolated (HTTP $code)"; fi
+    code=$(acurl -o /dev/null -w '%{http_code}' "$origin/mcp")
+    if [ "$code" = 404 ]; then pass 'board bare /mcp is closed'; else fail "board bare /mcp is open (HTTP $code)"; fi
+  fi
+fi
+
 if [ "$login_ok" -eq 0 ]; then
   code=$(acurl -o /dev/null -w '%{http_code}' -b "$tmp/cookies" -X POST -H "Origin: $origin" \
     "$origin/api/auth/logout")

@@ -144,6 +144,17 @@ describe('the board that starts as public', () => {
     expect(after).toMatchObject({ needsSetup: false, emailLoginEnabled: true, publicBoard: true });
   });
 
+  it('has no bearer fallback on a public board without a configured machine hostname', async () => {
+    const key = await inject(app, 'POST', routes.integratorKey(), owner, {});
+    expect(key.statusCode).toBe(201);
+    await goPublic();
+    const headers = { ...TUNNEL_HEADERS, authorization: `Bearer ${key.json().secret}`, cookie: owner };
+    const api = await app.inject({ url: '/api/projects', headers });
+    expect(api.statusCode).toBe(403);
+    expect(api.json().error.code).toBe('integrator_host_required');
+    expect((await app.inject({ url: '/mcp', headers })).statusCode).toBe(404);
+  });
+
   it('keeps everything behind the login closed to an anonymous caller', async () => {
     await goPublic();
     for (const url of [

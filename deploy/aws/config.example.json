@@ -23,12 +23,13 @@
   "cloudflare": {
     "zone": "istvan.io",
     "hostname": "chopper.istvan.io",
-    "feedbackHostname": "feedback.istvan.io"
+    "feedbackHostname": "feedback.istvan.io",
+    "integratorHostname": "CHOOSE-INTEGRATOR-HOSTNAME"
   },
   "access": {
     "emails": ["owner@example.com"],
     "sessionDuration": "24h",
-    "integratorServiceToken": false,
+    "integratorServiceToken": true,
     "boardMode": "private"
   },
   "route53": { "profile": "i" },

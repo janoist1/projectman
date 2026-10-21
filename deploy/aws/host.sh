@@ -32,7 +32,7 @@
 #   send-data                 write the data directory as a tar stream (the container must stand)
 #   guard-check <hostname>    {"plain":"404","port":"404"}: the status codes the running board gives that hostname
 #                             (the feedback guard, PM-510); refused while the board is not running
-#   public-check <hostname>   {"publicBoard":b,"emailLoginEnabled":b,"needsSetup":b,"apiStatus":401,"crossOriginStatus":403}:
+#   public-check <hostname> [integratorHostname]  readiness and optional machine-host isolation probes:
 #                             what the running board says about itself as the public board (PM-672)
 #   release-control           one ControlRequest JSON line on stdin (at most 16 KiB), one ControlResponse JSON line
 #                             on stdout: the board's local control socket through the fixed client in the
@@ -546,7 +546,8 @@ guard_check() {
 # of an anonymous GET /api/auth/me, and of a POST /api/auth/login from a foreign Origin. `publish` allows a public
 # board only on true,true,false,401,403 (docs/AWS.md "Public board").
 public_check() {
-  local name=${1:-} setup api cross board=false email=false needs=false
+  local name=${1:-} integrator=${2:-} setup api cross board=false email=false needs=false
+  local probe machine ws isolated=false extra=''
   [[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || die "not a hostname: ${name:-<none>}"
   board_running || refuse "the board is not running; deploy it before the public board can be checked"
   setup=$(docker exec "$CONTAINER" curl -s --max-time 10 -H "Host: $name" http://127.0.0.1:4700/api/setup || true)
@@ -558,8 +559,16 @@ public_check() {
   [[ "$setup" == *'"needsSetup":true'* ]] && needs=true
   [[ "$api" =~ ^[0-9]{3}$ ]] || api=000
   [[ "$cross" =~ ^[0-9]{3}$ ]] || cross=000
-  printf '{"publicBoard":%s,"emailLoginEnabled":%s,"needsSetup":%s,"apiStatus":%s,"crossOriginStatus":%s}\n' \
-    "$board" "$email" "$needs" "$((10#$api))" "$((10#$cross))"
+  if [[ -n "$integrator" ]]; then
+    [[ "$integrator" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || die 'invalid integrator hostname'
+    probe=$(docker exec "$CONTAINER" curl -s --max-time 10 -w '\n%{http_code}' -H "Host: $name" -H 'Authorization: Bearer pmi_boundary_probe' http://127.0.0.1:4700/api/projects || true)
+    machine=$(docker exec "$CONTAINER" curl -s --max-time 10 -o /dev/null -w '%{http_code}' -H "Host: $integrator" http://127.0.0.1:4700/api/projects || true)
+    ws=$(docker exec "$CONTAINER" curl -s --max-time 10 -o /dev/null -w '%{http_code}' -H "Host: $integrator" http://127.0.0.1:4700/ws || true)
+    if [[ "$probe" == *$'\n403' && "$probe" == *'"code":"integrator_host_required"'* && "$machine" == 401 && "$ws" == 404 ]]; then isolated=true; fi
+    extra=",\"integratorHostIsolated\":$isolated"
+  fi
+  printf '{"publicBoard":%s,"emailLoginEnabled":%s,"needsSetup":%s,"apiStatus":%s,"crossOriginStatus":%s%s}\n' \
+    "$board" "$email" "$needs" "$((10#$api))" "$((10#$cross))" "$extra"
 }
 
 # The admin channel to the board's local control socket (PM-749): one request line (at most 16 KiB, read

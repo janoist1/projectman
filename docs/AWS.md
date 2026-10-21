@@ -860,14 +860,35 @@ What `edge` does differently with `boardMode: public` (the order of the steps is
   (Bypass, `include: everyone`, no exclude or require), and no automatic redirect to the identity
   provider. `<N>-allow-emails` is kept for the way back but attached to nothing. The engine application
   `<N>-engine` on `cloudflare.hostname/engine` stays exactly its service token. The service policies keep
-  their meaning; the integrator token (`access.integratorServiceToken`) has no use on the main name, so
-  `check` skips the integrator smoke test.
+  their meaning; with `access.integratorServiceToken`, an explicit `cloudflare.integratorHostname`
+  is required in public mode. Its `<N>-integrator` application has only the integrator Service Auth
+  policy. The token has no rights on the main or engine application.
 - **Ingress.** With a feedback name, its `^/feedback/` goes to `127.0.0.1:4700` and the rest of that name
-  is 404 (unchanged). On the main name: `^/hooks` and `^/mcp/` answer 404 (the webhook and member MCP doors never
-  open to the world; the bare `/mcp` is the integrator's bearer endpoint and takes the way of `/api`, PM-760); `^/engine(/|$)` goes to the port with `originRequest.access` required, the team
+  is 404 (unchanged). On the main name: `^/hooks`, `^/mcp/` and exact `/mcp` answer 404;
+  `^/engine(/|$)` goes to the port with `originRequest.access` required, the team
   name and **the audience tag of the engine application only**; everything else on the name goes to the
   port with no audience check (the board's login guards it); the last rule is 404.
 - **`cloud.env`** gets `PROJECTMAN_PUBLIC_BOARD=1`; in `private` mode `edge` removes the line.
+
+**Separate integrator host (PM-675).** `cloudflare.integratorHostname` has no default. Choose an
+explicit lowercase `<label>.<zone>` distinct from the board and widget; it requires
+`access.integratorServiceToken=true`. Private configurations without it remain compatible.
+The same tunnel serves only literal `/api/...` and exact `/mcp` there, with only the integrator
+application's audience; its catch-all is 404. There is no Host override or path alias.
+`edge` writes `PROJECTMAN_INTEGRATOR_HOSTNAME` to `cloud.env`. The server isolates this host in
+private mode too: bearer authentication on any other host is 403 `integrator_host_required`,
+the board's bare `/mcp` is 404, and the machine host refuses cookie-only requests (401) and
+non-machine routes (404). A valid `pmi_` key still needs its existing mode, scope and owner rights.
+The board's owner-only key management, audit and human decisions stay on the cookie API.
+
+Stage the new guard in private mode first: private `edge` → new-image `deploy` → `publish` → private
+`check`, then change the integrator client's `baseUrl` to the machine origin and prove its REST/MCP
+calls. `publish` also publishes this configured hostname, without a new flag, only after verifying
+its exact Access application, ingress, environment and running backend. `host.sh public-check
+<boardHostname> [integratorHostname]` retains its five fields and adds `integratorHostIsolated` when
+the second argument is present. It must be true: a dummy bearer on the board gets the host-required
+403, the machine API without a bearer gets 401 and machine `/ws` gets 404. This gate also applies to
+private staging; it does not require `publicBoard=true` until the subsequent public switch.
 
 The server side of the switch (`PROJECTMAN_PUBLIC_BOARD`, `0` default or `1`, anything else stops the
 start) adds no way in: the board's login is the same in both modes. It only refuses to start where the
@@ -994,8 +1015,12 @@ and never in an argument. It runs three groups:
    gets through Access and is refused by the board itself (a `GET` on these doors is never a
    success): a `2xx` means the door is open, a redirect to the Access login means the token is not
    accepted.
-3. **The integrator smoke test** with `access.integratorServiceToken`: `deploy/cloud/smoke.sh` with
-   the integrator token in its environment; without the setting the group is `skipped`.
+3. **The integrator boundary** with a configured machine hostname: absent and engine tokens cannot
+   enter, the integrator Access token without an application bearer gets 401, and non-machine
+   paths get 404. `check.sh` also deliberately sends a valid human cookie to the machine host
+   (401), and checks the board's bearer refusal and bare MCP closure. Secrets use protected files
+   and child environments, never command arguments. Legacy private configurations without the
+   hostname retain `deploy/cloud/smoke.sh`; with no integrator token that group is `skipped`.
 
 A line `FAIL …` exits 1; a missing file or tool exits 2. The service token's secret never reaches the
 output: it is masked if a script echoes it.

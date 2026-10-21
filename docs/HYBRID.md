@@ -197,7 +197,13 @@ Access applications, policies and service tokens, and writes `TUNNEL_TOKEN` to `
 `npm run cloud -- publish` makes the DNS record and `check` verifies the result. The list below is
 what those commands do, for another host (Fly.io) and for reading. With `access.boardMode: public`
 (PM-672, [AWS.md](AWS.md) "The public board") the main name has no Access application login and the
-board's own e-mail login is the boundary, while `/engine` keeps its own application. EC2 host operations use SSH
+board's own e-mail login is the boundary, while `/engine` keeps its own application. With an integrator
+service token, public mode requires an explicit separate `cloudflare.integratorHostname` (PM-675).
+Its Service Auth application and tunnel ingress accept only `/api/...` and exact `/mcp`, with their own
+audience. The hub's `PROJECTMAN_INTEGRATOR_HOSTNAME` guard refuses board bearer authentication and
+machine cookie-only authentication even in private staging. Move the existing client's origin after
+that staged deploy and check; the Mac engine's address, token and machine key stay unchanged.
+EC2 host operations use SSH
 through SSM with no inbound port; `cloud.env` and hybrid data travel only through encrypted SSH
 stdin/streams. The owner needs AWS CLI v2, session-manager-plugin and OpenSSH. The container,
 one-writer seed/pull guards and restore procedure are unchanged; see the EC2 live rehearsal in

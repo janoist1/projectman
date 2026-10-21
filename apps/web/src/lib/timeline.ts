@@ -889,6 +889,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       };
     }
     case 'question_recipient_escalated':
+      if (d.reason === 'integrator_unavailable')
+        return normal(t('timeline.events.question_recipient_escalated_unavailable'));
       return d.reason === 'integrator_passed_on'
         ? normal(
             t('timeline.events.question_recipient_escalated_passed_on', {
@@ -897,6 +899,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           )
         : normal(t('timeline.events.question_recipient_escalated'));
     case 'fix_limit_recipient_escalated':
+      if (d.reason === 'integrator_unavailable')
+        return normal(t('timeline.events.fix_limit_recipient_escalated_unavailable'));
       return d.reason === 'integrator_passed_on'
         ? normal(
             t('timeline.events.fix_limit_recipient_escalated_passed_on', {

@@ -1066,7 +1066,12 @@ export function wasIntegratorTodo(item: InboxItem): boolean {
 }
 
 /** Why a fix limit decision item went from the integrator to the owners (PM-714). */
-export const IntegratorEscalationReason = z.enum(['integrator_timeout', 'integrator_passed_on']);
+export const IntegratorEscalationReason = z.enum([
+  'integrator_timeout',
+  'integrator_passed_on',
+  // The Operator cannot process its queue any more (on leave, AI off, role gone): the item goes to the owners (PM-885).
+  'integrator_unavailable',
+]);
 export type IntegratorEscalationReason = z.infer<typeof IntegratorEscalationReason>;
 
 /**

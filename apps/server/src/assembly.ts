@@ -2681,6 +2681,15 @@ export function createDomain(opts: DomainOptions) {
           run: async () => operatorApprovals.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
         },
+        // An Operator that cannot process its queue any more leaves no one to look at its todos and held
+        // decisions: they go to the owners (PM-885). No timeout otherwise — the Operator's queue is the clock.
+        {
+          name: 'integrator-todos',
+          everyMs: 30_000,
+          atStart: true,
+          run: () => inbox.sweepIntegratorTodos(),
+          onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
+        },
         // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
         // people (PM-558). A question that waited through a restart is looked at now.
         {

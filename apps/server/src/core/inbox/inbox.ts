@@ -1066,6 +1066,27 @@ export class InboxService {
   }
 
   /**
+   * Gives every open integrator item (todos and the narrow fix limit decisions) to the owners when the
+   * Operator no longer processes its queue (on leave, AI off, role gone; PM-885): nobody else would look at it.
+   */
+  async sweepIntegratorTodos(): Promise<void> {
+    const open = [...this.ctx.repos.inbox.listOpen('question'), ...this.ctx.repos.inbox.listOpen('decision')];
+    for (const candidate of open) {
+      if (!isIntegratorInboxItem(candidate)) continue;
+      try {
+        await this.questionLock(candidate.id, async () => {
+          const config = await this.projects.config(candidate.projectKey);
+          if (this.integratorTodoAccess?.available(config) ?? false) return;
+          const current = this.ctx.repos.inbox.get(candidate.id);
+          if (current) this.escalateIntegratorItem(current, config, { reason: 'integrator_unavailable' });
+        });
+      } catch (error) {
+        this.ctx.logger.warn({ error, itemId: candidate.id }, 'integrator_todo_sweep_failed');
+      }
+    }
+  }
+
+  /**
    * The Operator passes its integrator todo or fix limit decision on to the owners (PM-885): the same open item
    * goes to them with the hand-off on its payload. Throws when the item is no longer the integrator's.
    */

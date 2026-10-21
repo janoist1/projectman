@@ -324,6 +324,20 @@ describe('Operator system signals', () => {
     expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
     expect(h.domain.operatorSignals.channel('AR').signals).toEqual([]);
   });
+  it('keeps the signal item queued when the coordinator session fails to start, and delivers it later', async () => {
+    await setup();
+    const signal = raise();
+    h.runner.failNextStart = new Error('Start failed');
+    await h.domain.operatorSignals.deliver('AR');
+    await flush();
+    expect(h.repos.memberQueue.listOpen('AR', 'pm')).toMatchObject([{ kind: 'signal', state: 'queued' }]);
+    expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
+
+    await h.domain.memberQueueDriver.ensure('AR', 'pm', { net: true });
+    await flush();
+
+    expect(get(signal.id).deliveredAt).not.toBeNull();
+  });
   it('starts one owner conversation without a request and suppresses duplicates until resolution', async () => {
     await setup();
     const signal = raise();

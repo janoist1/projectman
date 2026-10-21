@@ -44,8 +44,8 @@ export function signalLane(deps: { signals: SignalLaneSignals }): MemberQueueLan
     },
     hold: async (item) =>
       signals.holdsBack(item.projectKey, signalOf(item).signalId) ? SIGNAL_INTERVAL_HOLD : null,
-    // A start that fails for good closes the item: the signal stays pending, and the sweep makes a new item.
-    refused: async () => 'closed',
+    // No `refused`: a start that fails keeps the item queued for the next attempt. A closed item would keep the
+    // signal from ever being queued again (the source key is unique over closed rows too).
     delivered: (item) => {
       const { signalId, followUpAt } = signalOf(item);
       signals.markDelivered(item.projectKey, item.member, signalId, followUpAt);

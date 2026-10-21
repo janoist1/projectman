@@ -20,8 +20,12 @@ const operatorItems = (h: DomainHarness): MemberQueueItem[] =>
 
 describe('the Operator queue', () => {
   let h: DomainHarness;
+  let available = true;
   beforeEach(async () => {
-    h = await createDomainHarness({ integratorTodoAccess: { available: operatorQueueAvailable } });
+    available = true;
+    h = await createDomainHarness({
+      integratorTodoAccess: { available: (config) => available && operatorQueueAvailable(config) },
+    });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
   });
   afterEach(async () => {
@@ -271,6 +275,26 @@ describe('the Operator queue', () => {
       await settle();
 
       expect(h.runner.started.some((spec) => spec.member === 'operator')).toBe(false);
+    });
+  });
+
+  describe('when the Operator becomes unavailable', () => {
+    it('gives the open todo and its queue item to the owners at the next sweep', async () => {
+      const opened = await openTodo();
+      await settle();
+      available = false;
+
+      await h.domain.inbox.sweepIntegratorTodos();
+      await settle();
+
+      const moved = h.domain.inbox.get('AR', opened.itemId);
+      expect(moved.state).toBe('open');
+      expect(moved.assignees).toContain('owner');
+      expect(moved.payload).toMatchObject({
+        recipient: 'owner',
+        integratorEscalationReason: 'integrator_unavailable',
+      });
+      expect(operatorItems(h)).toEqual([]);
     });
   });
 

@@ -4822,6 +4822,10 @@ export const hu = {
       question_recipient_escalated:
         'Az integrátornak szóló teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
       question_recipient_escalated_passed_on: 'Az Operátor a teendőt a tulajdonosnak adta tovább.{note}',
+      question_recipient_escalated_unavailable:
+        'Az integrátornak szóló teendő a tulajdonoshoz került: az Operátor most nem dolgozza fel a sorát.',
+      fix_limit_recipient_escalated_unavailable:
+        'A javítási körök határáról szóló döntés a tulajdonoshoz került: az Operátor most nem dolgozza fel a sorát.',
       fix_limit_recipient_escalated_timeout:
         'A javítási körök határáról szóló döntés az integrátortól a tulajdonoshoz került: 24 óráig nem döntött.',
       fix_limit_recipient_escalated_passed_on:

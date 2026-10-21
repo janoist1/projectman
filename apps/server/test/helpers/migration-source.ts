@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { routes } from '@projectman/shared';
+import { copyTree } from '../../../../scripts/migrate/copy';
 import type { Task } from '@projectman/shared';
 import { createAppHarness, OWNER_LOGIN, setupOwner } from './app-harness';
 import type { AppHarness } from './app-harness';
@@ -212,9 +213,6 @@ export async function createSourceHome(): Promise<SourceHome> {
     },
   };
 }
-
-const copyTree = (from: string, to: string): void =>
-  cpSync(from, to, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
 
 /**
  * Stopped source homes from a copy: the first call builds one (`createSourceHome`, stopped, then

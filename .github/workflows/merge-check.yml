@@ -33,6 +33,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Install Bash 5
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew install bash
+          echo "$(brew --prefix bash)/bin" >> "$GITHUB_PATH"
       - name: npm ci
         run: npm ci
       - name: merge-test
@@ -43,5 +49,8 @@ jobs:
           VITEST_MAX_THREADS: '3'
           PROJECTMAN_HEAVY_LOCK_HELD: '1'
         run: |
+          bash -c 'test "${BASH_VERSINFO[0]}" -ge 5'
+          bash --version
+          node --version
           mkdir -p "$RUNNER_TEMP/h" "$RUNNER_TEMP/t"
           HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" npm run merge-test -- --no-cache --shard "$SHARD" --files-from-env

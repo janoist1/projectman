@@ -3813,10 +3813,14 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   check branches older than two hours. **Machine assumptions:** `gh` installed and logged in on the executing
   machine with the right to run workflows of the repository (`repos[].github`); the base's upstream remote
   is that repository on github.com and `git push` works to it unprompted; outbound HTTPS to GitHub. The
-  tests do not run on the machine: no macOS, no `srt`, no heavy-run queue, no step cache. **Remote engine:**
+  tests do not run on the machine: no macOS, no `srt`, no heavy-run queue, no step cache.
+  The `macos-15` workflow installs Homebrew Bash and puts its `bin` on `GITHUB_PATH` before the
+  tests: cloud scripts require Bash 5 (`local -n` is unavailable in the runner's `/bin/bash` 3.2).
+  CI stays on Node 22, also used by the cloud image; migration copies restore directory permissions
+  explicitly to handle its `cpSync` regression (nodejs/node#65488, PM-923). **Remote engine:**
   the same on the engine's machine with its own `gh` login and remote; the server sends only the existing
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
-  Related tasks: PM-900, PM-906, PM-907.
+  Related tasks: PM-900, PM-906, PM-907, PM-923.
   **Module:** `full-test`, `engine-host`, `services/github`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
@@ -3952,10 +3956,12 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   commit or merge id as a commit id. No new machine-dependent part is added (`engine-host/path-reads.ts`).
   **Module:** `services/merges`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
-  `scripts/migrate/{inventory,paths,database,git,apply,instance}.ts` (PM-270, PM-143).
+  `scripts/migrate/{inventory,paths,database,git,apply,instance,copy}.ts` (PM-270, PM-143, PM-923).
   Disposable instances reserve loopback ports, spawn local server/web process groups and
   use local temp homes; migration inventories local repositories, paths and database use,
-  packages data and remaps paths. Cross-machine activation already requires a person's
+  packages data and remaps paths. Home copies restore source directory modes after `cpSync`
+  (Node 22 can otherwise widen 0700 to 0755); the permission walk uses `lstat` and never follows
+  symlinks. This requires POSIX modes on both source and destination. Cross-machine activation already requires a person's
   confirmation that the source is retired. **Remote engine:** execute local probes and
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.

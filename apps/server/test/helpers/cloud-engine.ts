@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Socket as NetSocket } from 'node:net';
 import type { FastifyInstance } from 'fastify';
@@ -7,6 +7,7 @@ import { routes } from '@projectman/shared';
 import { decodeFrame, encodeFrame, ENGINE_PROTOCOL_VERSION } from '../../src/engine-link';
 import type { EngineFrame, Hello } from '../../src/engine-link';
 import { createHybridPackage } from '../../../../scripts/migrate/hybrid';
+import { copyTree } from '../../../../scripts/migrate/copy';
 import type { HybridPackageResult } from '../../../../scripts/migrate/hybrid';
 import { engineHome } from '../../../../scripts/migrate/instance';
 import { buildApp } from '../../src/app';
@@ -103,7 +104,7 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
     now: () => AT,
   });
   const cloudHome = join(src.root, 'cloud-data');
-  cpSync(join(out, 'home'), cloudHome, { recursive: true, verbatimSymlinks: true });
+  copyTree(join(out, 'home'), cloudHome);
   chmodSync(cloudHome, 0o700);
   // The move is complete: the Mac's home works as the engine's from now on.
   engineHome(src.home, 'hybrid', AT);

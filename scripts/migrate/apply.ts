@@ -14,6 +14,7 @@ import { openDatabase, schemaVersion } from '../../apps/server/src/db';
 import { execCommand, ExecCommandError } from '../../apps/server/src/exec';
 import { writeInstanceMarker } from '../../apps/server/src/instance';
 import { git } from './git';
+import { copyTree } from './copy';
 import { ORPHAN_REF_PREFIX, readPackage, STASH_REF_PREFIX } from './package';
 import type { PackageManifest, PackagedWork } from './package';
 import type { Finding } from './inventory';
@@ -123,11 +124,7 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
   };
 
   // --- the home
-  cpSync(join(packageDir, 'home'), target, {
-    recursive: true,
-    preserveTimestamps: true,
-    verbatimSymlinks: true,
-  });
+  copyTree(join(packageDir, 'home'), target);
   chmodSync(target, 0o700);
   // A packaged home that was itself a migrated copy brings its old report: this apply has not finished.
   rmSync(join(migrated, APPLY_REPORT_FILE), { force: true });

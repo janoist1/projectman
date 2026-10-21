@@ -7,9 +7,15 @@ import {
   InstancePauseView,
   LabelId,
   MemberHandle,
+  MemberQueueView,
+  MemberQueueQuery,
+  OperatorConfigPatch,
+  HireMemberRequest,
+  UpdateMemberRequest,
+  UpdateTaskRequest,
+  SuperCommand,
   MergeQueueOrder,
   PauseRequest,
-  ProjectPauseView,
   RelayOwnerAnswerRequest,
   ResolveIntegratorFixLimitRequest,
   fixLimitDecisionOf,
@@ -17,8 +23,6 @@ import {
   StartTaskRequest,
   SuperOperateResponse,
   SuperOperationDetail,
-  Task,
-  TaskDetail,
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
@@ -140,8 +144,26 @@ const COMMON = {
 } as const;
 const WRITE = { ...COMMON, 'request-id': { type: 'string' } } as const;
 
-function labelLine(detail: z.infer<typeof TaskDetail>): string {
-  return `${detail.task.key} ${detail.task.stageId} [${detail.task.labels.join(', ')}]`;
+async function operate(
+  ctx: CommandContext,
+  project: string,
+  command: SuperCommand,
+  taskKey?: string,
+): Promise<number> {
+  const parsed = SuperCommand.safeParse(command);
+  if (!parsed.success)
+    throw new UsageError(
+      `invalid command: ${parsed.error.issues.map((issue) => issue.path.join('.')).join(', ')}`,
+    );
+  const requestId = requestIdOf(ctx);
+  const response = await ctx.api.send({
+    method: 'POST',
+    path: routes.superOperations(project),
+    body: { requestId, ...(taskKey === undefined ? {} : { taskKey }), command: parsed.data },
+    write: true,
+    requestId,
+  });
+  return show(ctx, SuperOperateResponse, response.json, operationLine, true);
 }
 
 function labelsCommand(action: 'add' | 'remove'): CommandSpec {
@@ -162,14 +184,12 @@ function labelsCommand(action: 'add' | 'remove'): CommandSpec {
         ...(note === undefined ? {} : { comment: note }),
       });
       if (!body.success) throw new UsageError('the label change is not valid (is --note empty?)');
-      const response = await ctx.api.send({
-        method: 'POST',
-        path: routes.taskLabels(projectOfTask(ctx, taskKey), taskKey),
-        body: body.data,
-        write: true,
-        requestId: requestIdOf(ctx),
-      });
-      return show(ctx, TaskDetail, response.json, labelLine, true);
+      return operate(
+        ctx,
+        projectOfTask(ctx, taskKey),
+        { kind: 'task_labels', taskKey, request: body.data },
+        taskKey,
+      );
     },
   };
 }
@@ -195,13 +215,12 @@ function pauseCommand(action: 'pause' | 'resume'): CommandSpec {
       if (action === 'resume' && reason !== undefined) throw new UsageError('resume takes no --reason');
       const body = PauseRequest.safeParse(reason === undefined ? {} : { reason });
       if (!body.success) throw new UsageError('--reason must be 1 to 200 characters');
-      const target = instance
-        ? action === 'pause'
-          ? routes.instancePause()
-          : routes.instancePauseResume()
-        : action === 'pause'
-          ? routes.projectPause(projectOf(ctx))
-          : routes.projectPauseResume(projectOf(ctx));
+      if (!instance)
+        return operate(ctx, projectOf(ctx), {
+          kind: 'operate',
+          operation: action === 'pause' ? { op: 'project_pause', ...body.data } : { op: 'project_resume' },
+        });
+      const target = action === 'pause' ? routes.instancePause() : routes.instancePauseResume();
       const response = await ctx.api.send({
         method: 'POST',
         path: target,
@@ -211,7 +230,7 @@ function pauseCommand(action: 'pause' | 'resume'): CommandSpec {
       });
       return show(
         ctx,
-        instance ? InstancePauseView : ProjectPauseView,
+        InstancePauseView,
         response.json,
         (view) => `${action}: ${JSON.stringify(view)}`,
         true,
@@ -221,9 +240,217 @@ function pauseCommand(action: 'pause' | 'resume'): CommandSpec {
 }
 
 const operationLine = (response: z.infer<typeof SuperOperateResponse>): string =>
-  `operation ${response.operation.id} ${response.operation.state} (request ${response.operation.requestId})`;
+  `operation ${response.operation.id} ${response.operation.state} (request ${response.operation.requestId})${response.operation.taskKey ? ` <${response.operation.taskKey}>` : ''}${response.operation.state === 'waiting_owner' ? ' waiting for the owner’s approval' : ''}`;
 
 export const COMMANDS: CommandSpec[] = [
+  {
+    name: 'tasks update',
+    usage:
+      'tasks update TASK [--title TEXT] [--description-file FILE] [--priority urgent|high|normal|low|none] [--stage ID] [--assignee HANDLE|none] [--theme KEY|none] [--parent KEY|none] [--visibility internal|shared] [--add-relation KIND:KEY]… [--remove-relation KIND:KEY]…',
+    summary: 'Updates card fields and relations as the Operator',
+    options: {
+      ...WRITE,
+      project: { type: 'string' },
+      title: { type: 'string' },
+      'description-file': { type: 'string' },
+      priority: { type: 'string' },
+      stage: { type: 'string' },
+      assignee: { type: 'string' },
+      theme: { type: 'string' },
+      parent: { type: 'string' },
+      visibility: { type: 'string' },
+      'add-relation': { type: 'string', multiple: true },
+      'remove-relation': { type: 'string', multiple: true },
+    },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      const taskKey = taskKeyOf(ctx.positionals[0]);
+      const fields: Record<string, unknown> = {};
+      for (const [flag, field] of Object.entries({
+        title: 'title',
+        priority: 'priority',
+        stage: 'stageId',
+        assignee: 'assignee',
+        theme: 'themeKey',
+        parent: 'parentKey',
+        visibility: 'visibility',
+      })) {
+        const value = text(ctx, flag);
+        if (value !== undefined)
+          fields[field] =
+            value === 'none' && ['priority', 'assignee', 'theme', 'parent'].includes(flag) ? null : value;
+      }
+      if (text(ctx, 'description-file') !== undefined)
+        fields.description = await contentOf(ctx, 'description-file');
+      const relations: Record<string, unknown> = {};
+      for (const action of ['add', 'remove']) {
+        const values = ctx.values[`${action}-relation`];
+        if (Array.isArray(values))
+          relations[action] = values.map((value) => {
+            const parts = value.split(':');
+            if (parts.length !== 2) throw new UsageError('relations must be KIND:KEY');
+            return { kind: parts[0], key: parts[1] };
+          });
+      }
+      if (Object.keys(relations).length) fields.relations = relations;
+      if (!Object.keys(fields).length) throw new UsageError('give at least one field to update');
+      const request = UpdateTaskRequest.safeParse(fields);
+      if (!request.success)
+        throw new UsageError(
+          `invalid task fields: ${request.error.issues.map((issue) => issue.path.join('.')).join(', ')}`,
+        );
+      return operate(
+        ctx,
+        projectOfTask(ctx, taskKey),
+        { kind: 'task_update', taskKey, request: request.data },
+        taskKey,
+      );
+    },
+  },
+  {
+    name: 'inbox decide',
+    usage: 'inbox decide ITEM --option ID [--note TEXT] --project KEY',
+    summary: 'Resolves an inbox item as the Operator; owner decisions wait for approval',
+    options: { ...WRITE, project: { type: 'string' }, option: { type: 'string' }, note: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      const note = text(ctx, 'note');
+      return operate(ctx, projectOf(ctx), {
+        kind: 'inbox_resolve',
+        itemId: ctx.positionals[0]!,
+        request: { optionId: required(ctx, 'option'), ...(note === undefined ? {} : { note }) },
+      });
+    },
+  },
+  {
+    name: 'config set',
+    usage: 'config set --project KEY PATH VALUE',
+    summary: 'Sets a patchable dotted configuration path to a JSON value',
+    options: { ...WRITE, project: { type: 'string' } },
+    positionals: 2,
+    write: true,
+    async run(ctx) {
+      const parts = ctx.positionals[0]!.split('.');
+      const roots = Object.keys(OperatorConfigPatch.shape);
+      if (
+        !roots.includes(parts[0]!) ||
+        parts.some((part) => !part || ['__proto__', 'prototype', 'constructor'].includes(part))
+      )
+        throw new UsageError(`patchable roots: ${roots.join(', ')}`);
+      let patch: unknown = jsonOf(ctx.positionals[1]!, 'VALUE');
+      for (const part of parts.reverse()) patch = { [part]: patch };
+      const parsed = OperatorConfigPatch.safeParse(patch);
+      if (!parsed.success)
+        throw new UsageError(`invalid configuration patch; patchable roots: ${roots.join(', ')}`);
+      return operate(ctx, projectOf(ctx), {
+        kind: 'operate',
+        operation: { op: 'config_patch', patch: parsed.data },
+      });
+    },
+  },
+  {
+    name: 'config revert',
+    usage: 'config revert --project KEY VERSION',
+    summary: 'Reverts configuration to a recorded version',
+    options: { ...WRITE, project: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      return operate(ctx, projectOf(ctx), {
+        kind: 'operate',
+        operation: { op: 'config_revert', version: ctx.positionals[0]! },
+      });
+    },
+  },
+  {
+    name: 'members hire',
+    usage: 'members hire --project KEY --file FILE',
+    summary: 'Hires a member from a HireMemberRequest JSON file',
+    options: { ...WRITE, project: { type: 'string' }, file: { type: 'string' } },
+    positionals: 0,
+    write: true,
+    async run(ctx) {
+      const request = HireMemberRequest.safeParse(jsonOf(await contentOf(ctx), 'the file'));
+      if (!request.success) throw new UsageError('the file is not a HireMemberRequest');
+      return operate(ctx, projectOf(ctx), {
+        kind: 'operate',
+        operation: { op: 'member_hire', request: request.data },
+      });
+    },
+  },
+  {
+    name: 'members update',
+    usage: 'members update HANDLE --project KEY --file FILE',
+    summary: 'Updates a member from an UpdateMemberRequest JSON file',
+    options: { ...WRITE, project: { type: 'string' }, file: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      const request = UpdateMemberRequest.safeParse(jsonOf(await contentOf(ctx), 'the file'));
+      if (!request.success) throw new UsageError('the file is not an UpdateMemberRequest');
+      return operate(ctx, projectOf(ctx), {
+        kind: 'member_update',
+        handle: ctx.positionals[0]!,
+        request: request.data,
+      });
+    },
+  },
+  {
+    name: 'members retire',
+    usage: 'members retire HANDLE --project KEY',
+    summary: 'Retires a member after the owner approves (K3)',
+    options: { ...WRITE, project: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      return operate(ctx, projectOf(ctx), {
+        kind: 'operate',
+        operation: { op: 'member_retire', handle: ctx.positionals[0]! },
+      });
+    },
+  },
+  {
+    name: 'keys revoke',
+    usage: 'keys revoke KEY_ID --project KEY',
+    summary: 'Revokes a credential after the owner approves (K3)',
+    options: { ...WRITE, project: { type: 'string' } },
+    positionals: 1,
+    write: true,
+    async run(ctx) {
+      return operate(ctx, projectOf(ctx), { kind: 'credential_revoke', keyId: ctx.positionals[0]! });
+    },
+  },
+  {
+    name: 'queue',
+    usage: 'queue --project KEY [--closed-since ISO]',
+    summary: 'Lists the Operator queue, followed by recently closed items',
+    options: { ...COMMON, project: { type: 'string' }, 'closed-since': { type: 'string' } },
+    positionals: 0,
+    write: false,
+    async run(ctx) {
+      const closedSince = text(ctx, 'closed-since');
+      if (!MemberQueueQuery.safeParse(closedSince === undefined ? {} : { closedSince }).success)
+        throw new UsageError('--closed-since must be an ISO timestamp');
+      const response = await ctx.api.send({
+        method: 'GET',
+        path: `${routes.operatorQueue(projectOf(ctx))}${query({ closedSince })}`,
+        write: false,
+      });
+      return show(
+        ctx,
+        MemberQueueView,
+        response.json,
+        (view) => {
+          const line = (item: z.infer<typeof MemberQueueView>['items'][number]) =>
+            `${item.state} ${item.kind} ${item.title} ${item.taskKey ?? '-'} ${Math.max(0, Math.floor((Date.now() - Date.parse(item.queuedAt)) / 60000))}m`;
+          return [...view.items.map(line), 'closed:', ...view.closed.map(line)].join('\n');
+        },
+        false,
+      );
+    },
+  },
   {
     name: 'tasks create',
     usage: 'tasks create --project KEY --file FILE',
@@ -238,14 +465,7 @@ export const COMMANDS: CommandSpec[] = [
         throw new UsageError(
           `the file is not a card: ${body.error.issues.map((issue) => issue.path.join('.') || '(root)').join(', ')}`,
         );
-      const response = await ctx.api.send({
-        method: 'POST',
-        path: routes.tasks(project),
-        body: body.data,
-        write: true,
-        requestId: requestIdOf(ctx),
-      });
-      return show(ctx, Task, response.json, (task) => `${task.key} ${task.title}`, true);
+      return operate(ctx, project, { kind: 'task_create', request: body.data });
     },
   },
   {
@@ -261,14 +481,12 @@ export const COMMANDS: CommandSpec[] = [
       if (assignee !== undefined && !MemberHandle.safeParse(assignee).success)
         throw new UsageError('--assignee is not a member handle');
       const body = StartTaskRequest.parse(assignee === undefined ? {} : { assignee });
-      const response = await ctx.api.send({
-        method: 'POST',
-        path: routes.startTask(projectOfTask(ctx, taskKey), taskKey),
-        body,
-        write: true,
-        requestId: requestIdOf(ctx),
-      });
-      return show(ctx, TaskDetail, response.json, labelLine, true);
+      return operate(
+        ctx,
+        projectOfTask(ctx, taskKey),
+        { kind: 'task_start', taskKey, request: body },
+        taskKey,
+      );
     },
   },
   {
@@ -294,27 +512,20 @@ export const COMMANDS: CommandSpec[] = [
       const task = text(ctx, 'task');
       const message = (await contentOf(ctx)).trim();
       if (message === '') throw new UsageError('the message is empty');
-      const requestId = requestIdOf(ctx);
-      const response = await ctx.api.send({
-        method: 'POST',
-        path: routes.superOperations(project),
-        body: {
-          requestId,
-          ...(task === undefined ? {} : { taskKey: taskKeyOf(task) }),
-          command: {
-            kind: 'operate',
-            operation: {
-              op: 'message_send',
-              to: handles,
-              text: message,
-              ...(task === undefined ? {} : { taskKey: taskKeyOf(task) }),
-            },
+      return operate(
+        ctx,
+        project,
+        {
+          kind: 'operate',
+          operation: {
+            op: 'message_send',
+            to: handles,
+            text: message,
+            ...(task === undefined ? {} : { taskKey: taskKeyOf(task) }),
           },
         },
-        write: true,
-        requestId,
-      });
-      return show(ctx, SuperOperateResponse, response.json, operationLine, true);
+        task === undefined ? undefined : taskKeyOf(task),
+      );
     },
   },
   labelsCommand('add'),
@@ -452,15 +663,7 @@ export const COMMANDS: CommandSpec[] = [
     write: true,
     async run(ctx) {
       const taskKey = taskKeyOf(ctx.positionals[0]);
-      const requestId = requestIdOf(ctx);
-      const response = await ctx.api.send({
-        method: 'POST',
-        path: routes.superOperations(projectOfTask(ctx, taskKey)),
-        body: { requestId, taskKey, command: { kind: 'merge', taskKey, request: {} } },
-        write: true,
-        requestId,
-      });
-      return show(ctx, SuperOperateResponse, response.json, operationLine, true);
+      return operate(ctx, projectOfTask(ctx, taskKey), { kind: 'merge', taskKey, request: {} }, taskKey);
     },
   },
   {
@@ -500,24 +703,13 @@ export const COMMANDS: CommandSpec[] = [
       const project = projectOf(ctx);
       const revision = required(ctx, 'expected-revision');
       if (!/^\d{1,15}$/.test(revision)) throw new UsageError('--expected-revision must be a whole number');
-      const requestId = requestIdOf(ctx);
-      const response = await ctx.api.send({
-        method: 'POST',
-        path: routes.superOperations(project),
-        body: {
-          requestId,
-          command: {
-            kind: 'merge_order',
-            repo: required(ctx, 'repo'),
-            expectedRevision: Number(revision),
-            taskKeys: ctx.positionals.map((value) => taskKeyOf(value)),
-            reason: required(ctx, 'reason'),
-          },
-        },
-        write: true,
-        requestId,
+      return operate(ctx, project, {
+        kind: 'merge_order',
+        repo: required(ctx, 'repo'),
+        expectedRevision: Number(revision),
+        taskKeys: ctx.positionals.map((value) => taskKeyOf(value)),
+        reason: required(ctx, 'reason'),
       });
-      return show(ctx, SuperOperateResponse, response.json, operationLine, true);
     },
   },
   pauseCommand('pause'),

@@ -1926,6 +1926,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "const": "project_pause",
                           "type": "string",
                         },
+                        "reason": {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string",
+                        },
                       },
                       "required": [
                         "op",
@@ -5271,6 +5276,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                   "const": "project_pause",
                   "type": "string",
                 },
+                "reason": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string",
+                },
               },
               "required": [
                 "op",
@@ -6792,6 +6802,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 "properties": {
                   "op": {
                     "const": "project_pause",
+                    "type": "string",
+                  },
+                  "reason": {
+                    "maxLength": 200,
+                    "minLength": 1,
                     "type": "string",
                   },
                 },

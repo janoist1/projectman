@@ -670,10 +670,14 @@ export class OperatorActions implements OperatorConfigAuthorization {
           source: 'app' as const,
           check: () => this.approvals!.assertRuntimeFresh(approval.item),
         };
-        await pauses[operation.op === 'project_pause' ? 'pause' : 'resume'](
-          { scope: 'project', projectKey },
-          requester,
-        );
+        const target = { scope: 'project' as const, projectKey };
+        if (operation.op === 'project_pause')
+          await pauses.pause(
+            target,
+            requester,
+            operation.reason === undefined ? {} : { reason: operation.reason },
+          );
+        else await pauses.resume(target, requester);
         return null;
       }
     }

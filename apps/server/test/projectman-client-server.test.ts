@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLIENT_EXIT, CreatedIntegratorAccessKey, routes } from '@projectman/shared';
 import { main } from '../../../scripts/projectman/cli';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
@@ -42,7 +43,6 @@ describe('projectman CLI against the server (PM-765)', () => {
     cookie = await setupOwner(h.app);
     await createProject(h, cookie);
     userId = h.app.projectman.repos.users.list()[0]!.id;
-    h.app.projectman.domain.superHandoffs.registerExecutor('operate', async () => {});
     fx = createClientHome({ baseUrl: 'http://localhost:4700' });
   });
   afterEach(async () => {
@@ -65,6 +65,7 @@ describe('projectman CLI against the server (PM-765)', () => {
   const run = async (args: string[], options: TestIoOptions = {}) => {
     const t = createTestIo(fx.home, () => new Response(null, { status: 500 }), options);
     t.io.fetch = injectFetch(h);
+    t.io.newRequestId = randomUUID;
     const code = await main(args, t.io);
     return { code, out: t.stdout.join(''), err: t.stderr.join('') };
   };
@@ -75,14 +76,15 @@ describe('projectman CLI against the server (PM-765)', () => {
       stdin: JSON.stringify({ title: 'From the command line', description: 'one\n\ntwo' }),
     });
     expect(created.code, created.err).toBe(CLIENT_EXIT.ok);
-    expect(JSON.parse(created.out)).toMatchObject({
+    expect(JSON.parse(created.out)).toMatchObject({ operation: { state: 'succeeded', taskKey: 'AR-1' } });
+    expect(h.app.projectman.domain.tasks.get('AR', 'AR-1')).toMatchObject({
       title: 'From the command line',
       description: 'one\n\ntwo',
     });
     expect(channelOf()).toBe('cli');
 
     const sent = await run(
-      ['messages', 'send', '--project', 'AR', '--to', 'claude', '--file', '-', '--json'],
+      ['messages', 'send', '--project', 'AR', '--to', 'dev-1', '--file', '-', '--json'],
       {
         stdin: 'Please look at this.\n',
       },
@@ -109,6 +111,80 @@ describe('projectman CLI against the server (PM-765)', () => {
     expect(inbox.code, inbox.err).toBe(CLIENT_EXIT.ok);
     expect(JSON.parse(inbox.out)).toEqual({ items: [] });
     expect(channelOf()).toBe('cli');
+  });
+
+  it('runs the Operator workflow through CLI super operations without an owner cookie', async () => {
+    const { domain, repos } = h.app.projectman;
+    await domain.projects.update(
+      'AR',
+      {
+        actor: { kind: 'human', handle: 'owner' },
+        author: { name: 'Owner', email: 'owner@example.com' },
+      },
+      (draft) => {
+        draft.project.repos[0]!.requireMerge = true;
+        draft.team.merger = { kind: 'member', handle: 'owner' };
+        draft.pipeline.labels.push({
+          id: 'scope-ok',
+          name: 'Scope ready',
+          setBy: { members: ['owner'], humansOnly: true },
+        });
+        return 'Prepare the Operator workflow';
+      },
+    );
+    await useKey('super');
+    const change = async (args: string[], stdin?: string) => {
+      const result = await run([...args, '--json'], { stdin });
+      expect(result.code, result.err).toBe(0);
+      const operation = JSON.parse(result.out).operation;
+      expect(operation, result.out).toMatchObject({ state: 'succeeded', errorCode: null });
+      return operation;
+    };
+    const created = await change(
+      ['tasks', 'create', '--project', 'AR', '--file', '-'],
+      '{"title":"Refined card","labels":["refine"]}',
+    );
+    const taskKey = created.taskKey as string;
+    expect(domain.tasks.get('AR', taskKey).labels).toContain('refine');
+    await change(['labels', 'add', taskKey, 'scope-ok']);
+    await change(['tasks', 'update', taskKey, '--title', 'Ready card', '--priority', 'high']);
+    expect(domain.tasks.get('AR', taskKey)).toMatchObject({
+      title: 'Ready card',
+      priority: 'high',
+      labels: ['refine', 'scope-ok'],
+    });
+    const item = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Choose',
+      payload: { question: 'Which?', responsePurpose: 'owner_decision' },
+      options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
+    });
+    await change(['inbox', 'decide', item.id, '--project', 'AR', '--option', 'answer', '--note', 'Proceed']);
+    expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
+      via: 'integrator',
+      superDecision: true,
+      actor: { handle: 'operator' },
+    });
+    await change(['config', 'set', '--project', 'AR', 'limits.maxConcurrentAi', '2']);
+    expect((await domain.projects.config('AR')).team.limits.maxConcurrentAi).toBe(2);
+    // Seed approved work at the merge boundary; execution of engine git is covered by the merge API tests.
+    vi.spyOn(domain.merges, 'pump').mockImplementation(() => {});
+    const task = domain.tasks.get('AR', taskKey);
+    repos.tasks.update(task.id, { stageId: 'merge', labels: ['code-review-ok', 'merge-ok'] });
+    repos.taskHandovers.save({
+      projectKey: 'AR',
+      taskKey,
+      commit: 'approved',
+      branch: 'task-work',
+      stageId: 'code_review',
+      at: new Date().toISOString(),
+    });
+    await domain.merges.reconcile('AR', taskKey);
+    await change(['merges', 'enqueue', taskKey]);
+    expect(repos.taskMerges.open('AR', taskKey)).toMatchObject({ state: 'queued', startedBy: 'operator' });
   });
 
   it('a read key reads, and every change is refused by the server as before', async () => {

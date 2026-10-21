@@ -207,6 +207,254 @@ describe('projectman CLI (PM-765)', () => {
   });
 
   describe('commands', () => {
+    it.each([
+      {
+        args: [
+          'tasks',
+          'update',
+          'PM-1',
+          '--title',
+          'Changed',
+          '--priority',
+          'none',
+          '--assignee',
+          'none',
+          '--theme',
+          'none',
+          '--parent',
+          'none',
+          '--stage',
+          'ready',
+          '--visibility',
+          'shared',
+          '--add-relation',
+          'related:PM-2',
+          '--add-relation',
+          'prerequisite:PM-3',
+          '--remove-relation',
+          'has_part:PM-4',
+          '--description-file',
+          '-',
+        ],
+        stdin: 'Details',
+        taskKey: 'PM-1',
+        command: {
+          kind: 'task_update',
+          taskKey: 'PM-1',
+          request: {
+            title: 'Changed',
+            priority: null,
+            assignee: null,
+            themeKey: null,
+            parentKey: null,
+            stageId: 'ready',
+            visibility: 'shared',
+            description: 'Details',
+            relations: {
+              add: [
+                { kind: 'related', key: 'PM-2' },
+                { kind: 'prerequisite', key: 'PM-3' },
+              ],
+              remove: [{ kind: 'has_part', key: 'PM-4' }],
+            },
+          },
+        },
+      },
+      {
+        args: ['inbox', 'decide', 'item_1', '--project', 'PM', '--option', 'accept', '--note', 'Agreed'],
+        command: { kind: 'inbox_resolve', itemId: 'item_1', request: { optionId: 'accept', note: 'Agreed' } },
+      },
+      {
+        args: ['config', 'set', '--project', 'PM', 'limits.maxConcurrentAi', '2'],
+        command: {
+          kind: 'operate',
+          operation: { op: 'config_patch', patch: { limits: { maxConcurrentAi: 2 } } },
+        },
+      },
+      {
+        args: ['config', 'revert', '--project', 'PM', 'abc123'],
+        command: { kind: 'operate', operation: { op: 'config_revert', version: 'abc123' } },
+      },
+      {
+        args: ['members', 'hire', '--project', 'PM', '--file', '-'],
+        stdin: '{"role":"developer","handle":"new-dev"}',
+        command: {
+          kind: 'operate',
+          operation: { op: 'member_hire', request: { role: 'developer', handle: 'new-dev' } },
+        },
+      },
+      {
+        args: ['members', 'update', 'dev', '--project', 'PM', '--file', '-'],
+        stdin: '{"displayName":"Developer"}',
+        command: { kind: 'member_update', handle: 'dev', request: { displayName: 'Developer' } },
+      },
+      {
+        args: ['members', 'retire', 'dev', '--project', 'PM'],
+        command: { kind: 'operate', operation: { op: 'member_retire', handle: 'dev' } },
+        waiting: true,
+      },
+      {
+        args: ['keys', 'revoke', 'key_1', '--project', 'PM'],
+        command: { kind: 'credential_revoke', keyId: 'key_1' },
+        waiting: true,
+      },
+      {
+        args: ['tasks', 'create', '--project', 'PM', '--file', '-'],
+        stdin: '{"title":"Card","labels":["refine"]}',
+        command: { kind: 'task_create', request: { title: 'Card', labels: ['refine'] } },
+      },
+      {
+        args: ['tasks', 'start', 'PM-1'],
+        taskKey: 'PM-1',
+        command: { kind: 'task_start', taskKey: 'PM-1', request: {} },
+      },
+      {
+        args: ['labels', 'add', 'PM-1', 'scope-ok'],
+        taskKey: 'PM-1',
+        command: { kind: 'task_labels', taskKey: 'PM-1', request: { add: ['scope-ok'] } },
+      },
+      {
+        args: ['labels', 'remove', 'PM-1', 'scope-ok'],
+        taskKey: 'PM-1',
+        command: { kind: 'task_labels', taskKey: 'PM-1', request: { remove: ['scope-ok'] } },
+      },
+      {
+        args: ['pause', '--project', 'PM', '--reason', 'Deploy preview'],
+        command: { kind: 'operate', operation: { op: 'project_pause', reason: 'Deploy preview' } },
+      },
+      {
+        args: ['resume', '--project', 'PM'],
+        command: { kind: 'operate', operation: { op: 'project_resume' } },
+      },
+      {
+        args: [
+          'merges',
+          'reorder',
+          '--project',
+          'PM',
+          '--repo',
+          'repo',
+          '--expected-revision',
+          '1',
+          '--reason',
+          'Order',
+          'PM-1',
+        ],
+        command: {
+          kind: 'merge_order',
+          repo: 'repo',
+          expectedRevision: 1,
+          reason: 'Order',
+          taskKeys: ['PM-1'],
+        },
+      },
+    ])(
+      'sends and repeats the exact super command: $args',
+      async ({ args, command, stdin, taskKey, waiting }) => {
+        const requestId = '11111111-2222-4333-8444-555555555555';
+        const handler: Handler = () => {
+          const response = operationBody(command, requestId);
+          if (waiting) response.operation.state = 'waiting_owner';
+          return jsonResponse(response, 202);
+        };
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const result = await run([...args, '--request-id', requestId], handler, { stdin: stdin ?? '' });
+          expect(result.code, result.stderr.join('')).toBe(0);
+          expect(result.requests).toHaveLength(1);
+          expect(result.requests[0]?.url.pathname).toBe('/api/projects/PM/operator-super/operations');
+          expect(result.requests[0]?.headers['x-request-id']).toBe(requestId);
+          expect(bodyOf(result.requests[0])).toEqual({ requestId, ...(taskKey ? { taskKey } : {}), command });
+          expect(result.stdout.join('')).toContain(waiting ? 'waiting_owner' : 'succeeded');
+          if (waiting) expect(result.stdout.join('')).toContain('approval');
+        }
+      },
+    );
+
+    it.each([
+      ['tasks', 'update', 'PM-1'],
+      ['tasks', 'update', 'PM-1', '--priority', 'invalid'],
+      ['tasks', 'update', 'PM-1', '--add-relation', 'invalid:PM-2'],
+      ['tasks', 'update', 'PM-1', '--remove-relation', 'related:PM-2:extra'],
+      ['config', 'set', '--project', 'PM', 'security', 'true'],
+      ['config', 'set', '--project', 'PM', 'limits.__proto__.x', '1'],
+      ['config', 'set', '--project', 'PM', 'limits.maxConcurrentAi', 'invalid'],
+      ['config', 'set', '--project', 'PM', 'limits.maxConcurrentAi', '"two"'],
+      ['queue', '--project', 'PM', '--closed-since', 'yesterday'],
+    ])('rejects invalid new arguments: %j', async (...args) => {
+      const result = await run(args, accepted);
+      expect(result.code).toBe(CLIENT_EXIT.usage);
+      expect(result.requests).toEqual([]);
+    });
+
+    it('reports an inactive grant as authentication failure with an actionable message', async () => {
+      const result = await run(['members', 'retire', 'dev', '--project', 'PM'], () =>
+        jsonResponse({ error: { code: 'operator_grant_inactive', message: 'inactive' } }, 403),
+      );
+      expect(result.code).toBe(CLIENT_EXIT.auth);
+      expect(result.stderr.join('')).toContain('Settings › Operator');
+    });
+
+    it('prints the created task key in the operation line', async () => {
+      const command = { kind: 'task_create', request: { title: 'Card' } };
+      const result = await run(
+        ['tasks', 'create', '--project', 'PM', '--file', '-'],
+        () => {
+          const response = operationBody(command);
+          return jsonResponse({ operation: { ...response.operation, taskKey: 'PM-12' } });
+        },
+        { stdin: '{"title":"Card"}' },
+      );
+      expect(result.stdout.join('')).toContain('<PM-12>');
+    });
+
+    it('prints open queue items before closed ones with state, kind, title, card and age', async () => {
+      const item = {
+        id: 'queue_1',
+        projectKey: 'PM',
+        member: 'operator',
+        kind: 'message',
+        source: { type: 'message', messageId: 'msg_1' },
+        place: { type: 'general' },
+        wake: true,
+        state: 'queued',
+        title: 'Review work',
+        from: 'dev',
+        taskKey: 'PM-1',
+        queuedAt: new Date(Date.now() - 120000).toISOString(),
+        startedAt: null,
+        closedAt: null,
+        closeReason: null,
+        attempts: 0,
+        restartedAt: null,
+        sessionId: null,
+        wait: null,
+        outcome: null,
+      };
+      const result = await run(['queue', '--project', 'PM'], () =>
+        jsonResponse({
+          member: 'operator',
+          items: [item],
+          closed: [{ ...item, id: 'queue_2', state: 'done', title: 'Completed work', taskKey: null }],
+          everQueued: true,
+        }),
+      );
+      expect(result.code).toBe(0);
+      expect(result.stdout.join('')).toBe(
+        'queued message Review work PM-1 2m\nclosed:\ndone message Completed work - 2m\n',
+      );
+    });
+
+    it('reads the Operator queue and forwards closedSince with typed JSON output', async () => {
+      const view = { member: 'operator', items: [], closed: [], everQueued: false };
+      const result = await run(
+        ['queue', '--project', 'PM', '--closed-since', '2026-10-20T00:00:00Z', '--json'],
+        () => jsonResponse(view),
+      );
+      expect(result.code).toBe(0);
+      expect(result.requests[0]?.url.pathname).toBe('/api/projects/PM/operator/queue');
+      expect(result.requests[0]?.url.searchParams.get('closedSince')).toBe('2026-10-20T00:00:00Z');
+      expect(JSON.parse(result.stdout.join(''))).toEqual(view);
+    });
     it('every request carries the bearer key, the Access headers and the CLI channel header', async () => {
       const result = await run(['tasks', 'start', 'PM-12'], accepted);
       const [request] = result.requests;
@@ -230,15 +478,18 @@ describe('projectman CLI (PM-765)', () => {
       );
       expect(fromFile.code).toBe(0);
       expect(fromFile.requests[0]).toMatchObject({ method: 'POST' });
-      expect(fromFile.requests[0]?.url.pathname).toBe('/api/projects/PM/tasks');
-      expect(bodyOf(fromFile.requests[0])).toEqual(card);
+      expect(fromFile.requests[0]?.url.pathname).toBe('/api/projects/PM/operator-super/operations');
+      expect(bodyOf(fromFile.requests[0])).toEqual({
+        requestId: REQUEST_1,
+        command: { kind: 'task_create', request: card },
+      });
 
       const json = JSON.stringify(card);
       const fromStdin = await run(['tasks', 'create', '--project', 'PM', '--file', '-'], accepted, {
         stdin: [json.slice(0, 10), json.slice(10)],
       });
       expect(fromStdin.code).toBe(0);
-      expect(bodyOf(fromStdin.requests[0])).toEqual(card);
+      expect(bodyOf(fromStdin.requests[0])).toEqual(bodyOf(fromFile.requests[0]));
 
       const invalid = await run(['tasks', 'create', '--project', 'PM', '--file', '-'], accepted, {
         stdin: '{"description":"no title"}',
@@ -253,13 +504,19 @@ describe('projectman CLI (PM-765)', () => {
 
     it('tasks start: starts the card of the project in its key, with an optional assignee', async () => {
       const plain = await run(['tasks', 'start', 'PM-12'], accepted);
-      expect(plain.requests[0]?.url.pathname).toBe('/api/projects/PM/tasks/PM-12/start');
-      expect(bodyOf(plain.requests[0])).toEqual({});
+      expect(plain.requests[0]?.url.pathname).toBe('/api/projects/PM/operator-super/operations');
+      expect(bodyOf(plain.requests[0])).toEqual({
+        requestId: REQUEST_1,
+        taskKey: 'PM-12',
+        command: { kind: 'task_start', taskKey: 'PM-12', request: {} },
+      });
       const assigned = await run(
         ['tasks', 'start', 'PM-12', '--project', 'PM', '--assignee', 'dev'],
         accepted,
       );
-      expect(bodyOf(assigned.requests[0])).toEqual({ assignee: 'dev' });
+      expect(bodyOf(assigned.requests[0])).toMatchObject({
+        command: { kind: 'task_start', request: { assignee: 'dev' } },
+      });
     });
 
     it('messages send: an operation with the request id; text is trimmed, multiline text stays', async () => {
@@ -315,10 +572,20 @@ describe('projectman CLI (PM-765)', () => {
 
     it('labels add and remove: one change with the note as the comment', async () => {
       const add = await run(['labels', 'add', 'PM-4', 'code-review-ok', '--note', 'checked'], accepted);
-      expect(add.requests[0]?.url.pathname).toBe('/api/projects/PM/tasks/PM-4/labels');
-      expect(bodyOf(add.requests[0])).toEqual({ add: ['code-review-ok'], comment: 'checked' });
+      expect(add.requests[0]?.url.pathname).toBe('/api/projects/PM/operator-super/operations');
+      expect(bodyOf(add.requests[0])).toEqual({
+        requestId: REQUEST_1,
+        taskKey: 'PM-4',
+        command: {
+          kind: 'task_labels',
+          taskKey: 'PM-4',
+          request: { add: ['code-review-ok'], comment: 'checked' },
+        },
+      });
       const remove = await run(['labels', 'remove', 'PM-4', 'waiting-answer'], accepted);
-      expect(bodyOf(remove.requests[0])).toEqual({ remove: ['waiting-answer'] });
+      expect(bodyOf(remove.requests[0])).toMatchObject({
+        command: { kind: 'task_labels', request: { remove: ['waiting-answer'] } },
+      });
     });
 
     it('inbox list: a read of the open items, or of a state, with --json', async () => {
@@ -494,11 +761,16 @@ describe('projectman CLI (PM-765)', () => {
 
     it('pause and resume: a project or the instance, with an optional reason', async () => {
       const pause = await run(['pause', '--project', 'PM', '--reason', 'deploy'], accepted);
-      expect(pause.requests[0]?.url.pathname).toBe('/api/projects/PM/pause');
-      expect(bodyOf(pause.requests[0])).toEqual({ reason: 'deploy' });
+      expect(pause.requests[0]?.url.pathname).toBe('/api/projects/PM/operator-super/operations');
+      expect(bodyOf(pause.requests[0])).toMatchObject({
+        command: { kind: 'operate', operation: { op: 'project_pause' } },
+      });
       const resume = await run(['resume', '--project', 'PM'], accepted);
-      expect(resume.requests[0]?.url.pathname).toBe('/api/projects/PM/pause/resume');
-      expect(bodyOf(resume.requests[0])).toEqual({});
+      expect(resume.requests[0]?.url.pathname).toBe('/api/projects/PM/operator-super/operations');
+      expect(bodyOf(resume.requests[0])).toEqual({
+        requestId: REQUEST_1,
+        command: { kind: 'operate', operation: { op: 'project_resume' } },
+      });
       const instance = await run(['pause', '--instance'], accepted);
       expect(instance.requests[0]?.url.pathname).toBe('/api/pause');
       const instanceResume = await run(['resume', '--instance'], accepted);

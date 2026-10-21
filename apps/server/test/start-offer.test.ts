@@ -265,9 +265,15 @@ describe('the start offer to the project manager', () => {
     expect(startRows(key)).toMatchObject([{ responsible: 'pm', state: 'open' }]);
     await settle();
     expect(offers().filter((m) => m.taskKey === key)).toHaveLength(1);
-    await pmMove(key);
-    await vi.waitFor(() => expect(task(key).stageId).toBe('development'));
-    expect(task(key).assignee).toBe('dev-1');
+    expect(offers().find((m) => m.taskKey === key)!.body).toContain('start_task');
+    // A plain move starts nobody, so it does not answer the offer; start_task starts the assignee.
+    const row = startRows(key)[0]!.id;
+    await h.domain.taskStarts.start('AR', key, { actor: aiActor('pm'), author: SYSTEM_AUTHOR });
+    await sweep();
+    expect(task(key)).toMatchObject({ stageId: 'development', assignee: 'dev-1' });
+    expect(h.repos.sessions.findByWorkItem('AR', 'dev-1', { type: 'task', taskKey: key })).not.toBeNull();
+    expect(startRows(key)).toEqual([]);
+    expect(stateOf(row)).toBe('fulfilled');
   });
 
   describe('an assigned card in the work stage that nobody started (PM-879)', () => {

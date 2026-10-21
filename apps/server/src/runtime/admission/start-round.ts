@@ -337,12 +337,11 @@ export class StartRound implements StartRounding {
       .sort((a, b) => compareStartOrder(a, b, places));
     if (fresh.length === 0) return;
     // The parts of a collecting card go together, the other cards alone, in the order of their first card.
-    // The cards already in the work stage are started, not moved, so they have their own message.
+    // An assigned card is started with start_task, not moved (a move starts nobody), so it has its own message.
     const groups = new Map<string, Task[]>();
-    const inWork = (card: Task) => card.stageId === toStageId;
     const subjectOf = (card: Task) => card.parentKey ?? card.key;
     for (const card of fresh) {
-      const id = `${inWork(card) ? 'work' : 'queue'}:${subjectOf(card)}`;
+      const id = `${card.assignee ? 'assigned' : 'free'}:${subjectOf(card)}`;
       groups.set(id, [...(groups.get(id) ?? []), card]);
     }
     const parents = [
@@ -395,7 +394,7 @@ export class StartRound implements StartRounding {
                 : [],
               toStageId,
               backStageId,
-              ...(inWork(group[0]!) ? { inWork: true } : {}),
+              ...(group[0]!.assignee ? { assigned: true } : {}),
             }),
           },
           { kind: 'action' },

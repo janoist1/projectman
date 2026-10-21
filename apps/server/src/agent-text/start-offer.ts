@@ -11,8 +11,8 @@ export interface StartOfferText {
   /** The collector's other open parts and why each waits (`taskWaitShort`). */
   waiting: readonly { key: string; why: string }[];
   toStageId: string;
-  /** The cards are already in `toStageId` with an assignee who has no session on them: they are started, not moved (PM-879). */
-  inWork?: boolean;
+  /** The cards have an assignee who has no session on them: they are started with start_task, not moved (PM-879). */
+  assigned?: boolean;
   /** The first stage, where a card the owner holds goes back. */
   backStageId: string;
 }
@@ -25,11 +25,12 @@ export function startOfferText(input: StartOfferText): string {
   ];
   if (collector && waiting.length > 0)
     lines.push(`The other parts wait: ${waiting.map((part) => `${part.key} (${part.why})`).join(', ')}.`);
-  if (input.inWork) {
-    // The cards stand in the work stage with their assignee and no session: nothing to move, only to start.
+  if (input.assigned) {
+    // Moving an assigned card starts nobody (PM-119): start_task keeps the assignee, moves the card and starts the session.
     lines.push(
-      `Each is already in ${toStageId} with its assignee, who has not started it: start it with start_task, do not move it. ` +
-        `Skip a card only if the owner's comment holds it now.`,
+      `Each has an assignee who has not started it: start it with start_task, which keeps the assignee and moves the card to ${toStageId} if it is not there yet. ` +
+        `Do not move it with update_task: that starts nobody. ` +
+        `If the owner's comment holds a card, do not start it: open an integrator todo to move it back to ${backStageId}.`,
     );
     return lines.join('\n');
   }

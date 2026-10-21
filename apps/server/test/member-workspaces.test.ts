@@ -157,6 +157,97 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(h.domain.tasks.get('AR', 'AR-2').startWaiting).toBeUndefined();
   });
 
+  it.each([false, true])(
+    'yields an idle review workspace to its queue after two minutes (dirty: %s)',
+    async (dirty) => {
+      let clock = new Date('2026-10-21T12:00:00.000Z');
+      await setup({
+        now: () => clock,
+        adjust: (config) => {
+          twoTasks(config);
+          const reviewer = config.team.members.find((member) => member.handle === 'cr')!;
+          if (reviewer.kind === 'ai') reviewer.capacity = 2;
+        },
+      });
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await startedCount(1);
+      const first = h.runner.lastStarted();
+      h.runner.emit({
+        type: 'transcript_path',
+        sessionId: first.sessionId,
+        path: '/tmp/fictional-review.jsonl',
+      });
+      h.runner.setState(first.sessionId, 'working');
+      h.runner.setState(first.sessionId, 'idle');
+      await commitFile(h.workspace, 'next.txt', 'next review base\n');
+      await h.domain.tasks.moveToStage('AR', 'AR-2', 'code_review', OWNER_ACTOR);
+      await vi.waitFor(() =>
+        expect(h.repos.memberQueue.listOpen('AR', 'cr')).toContainEqual(
+          expect.objectContaining({
+            kind: 'start',
+            taskKey: 'AR-2',
+            wait: expect.objectContaining({ code: 'workspace_busy' }),
+          }),
+        ),
+      );
+      clock = new Date(clock.getTime() + 119_999);
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.stopped).not.toContain(first.sessionId);
+      if (dirty) await writeFile(path.join(await workspaceOf('cr'), 'draft.txt'), 'uncommitted review\n');
+      clock = new Date(clock.getTime() + 1);
+      await h.domain.admission.retryDeferred();
+      if (dirty) {
+        expect(h.repos.memberQueue.listOpen('AR', 'cr')).toContainEqual(
+          expect.objectContaining({
+            taskKey: 'AR-2',
+            wait: expect.objectContaining({ code: 'workspace_dirty' }),
+          }),
+        );
+        expect(await readFile(path.join(await workspaceOf('cr'), 'draft.txt'), 'utf8')).toBe(
+          'uncommitted review\n',
+        );
+        expect(h.runner.started).toHaveLength(1);
+      } else {
+        expect(h.runner.stopped).toContain(first.sessionId);
+        expect(h.runner.lastStarted().member).toBe('cr');
+        expect(h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-2' })).not.toBeNull();
+        expect(h.domain.sessions.get('AR', first.sessionId).transcriptPath).toBe(
+          '/tmp/fictional-review.jsonl',
+        );
+        expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('code_review');
+      }
+    },
+  );
+
+  it('keeps an idle workspace while its member has an open queue item on its card', async () => {
+    let clock = new Date('2026-10-21T12:00:00.000Z');
+    await setup({ now: () => clock });
+    await startTask('AR-1', 'dev-1');
+    const first = h.runner.lastStarted();
+    h.runner.setState(first.sessionId, 'idle');
+    h.domain.messages.record({
+      projectKey: 'AR',
+      from: 'owner',
+      to: ['dev-1'],
+      taskKey: 'AR-1',
+      body: 'Pending work',
+      kind: 'info',
+      actor: OWNER_ACTOR,
+    });
+    h.domain.messages.record({
+      projectKey: 'AR',
+      from: 'owner',
+      to: ['dev-1'],
+      taskKey: 'AR-2',
+      body: 'Other work',
+      kind: 'action',
+      actor: OWNER_ACTOR,
+    });
+    clock = new Date(clock.getTime() + 2 * 60_000);
+    await expect(ensure('dev-1', 'AR-2')).rejects.toMatchObject({ code: 'workspace_busy' });
+    expect(h.runner.stopped).not.toContain(first.sessionId);
+  });
+
   it('lets another repository of the same member run in parallel', async () => {
     await setup({
       adjust: (c) => {

@@ -396,6 +396,22 @@ export class Admission {
         // The previous deferral of this start stays stored until the attempt settles.
         const previous = this.deferred.take(start.key);
         const since = previous?.start.stillValid(this.taskOf(start)) ? previous.waiting : undefined;
+        if (!start.stillValid(this.taskOf(start))) {
+          this.deferred.drop(start.key);
+          return { kind: 'done' };
+        }
+        if (this.deferred.held(start)) {
+          const waiting: TaskStartWaiting = {
+            reason: 'waiting_answer',
+            since: since?.reason === 'waiting_answer' ? since.since : isoNow(this.ctx),
+            member: start.waitsFor() ?? since?.member,
+          };
+          this.deferred.keep({
+            start: { ...start, waitsFor: () => start.waitsFor() ?? since?.member },
+            waiting,
+          });
+          return { kind: 'deferred', waiting };
+        }
         try {
           await start.run();
         } catch (err) {
@@ -420,7 +436,7 @@ export class Admission {
           return { kind: 'deferred', waiting };
         }
         // The start happened, or it no longer applies.
-        this.deferred.drop(start.key);
+        this.deferred.started(start.key);
         return { kind: 'done' };
       }),
     );
@@ -504,47 +520,14 @@ export class Admission {
     for (const entry of this.retryOrder()) {
       if (!this.deferred.holds(entry)) continue;
       const { start } = entry;
+      if (this.deferred.queued(start.key)) continue;
       const task = this.taskOf(start);
       if (start.taskKey !== null && (!task || !start.stillValid(task))) {
         this.deferred.drop(start.key);
         if (task) this.tasks.publish(task);
         continue;
       }
-      const { reason, member } = entry.waiting;
-      // Nothing starts while the project is paused: resuming retries them.
-      if (reason === 'team_paused' && isWorkPaused(this.ctx.repos.pauses.open(), start.projectKey)) continue;
-      if (reason === 'ai_disabled' || reason === 'member_on_leave') {
-        const config = await this.configOf(start.projectKey, configs);
-        if (
-          config &&
-          (reason === 'ai_disabled' ? !config.team.limits.aiEnabled : isHandleOnLeave(config, member))
-        )
-          continue;
-      }
-      // A start that waits for an assignee handoff (PM-342) is retried when the handoff is over.
-      if (
-        reason === 'handoff_open' &&
-        start.taskKey !== null &&
-        this.ctx.repos.taskHandoffs.open(start.taskKey)
-      )
-        continue;
-      // A start that waits for prerequisites is retried when the open ones change (one closed, a
-      // relation removed): with the same ones open, a retry could only be refused again.
-      if (reason === 'prerequisite_open' && task) {
-        const open = openPrerequisites(task, prerequisiteCards(this.tasks, task.projectKey, task)).map(
-          (card) => card.key,
-        );
-        const waiting = entry.waiting.prerequisites ?? [];
-        if (open.length > 0 && open.length === waiting.length && open.every((key) => waiting.includes(key)))
-          continue;
-      }
-      // A start that waits for labels is retried once the gate lets the card through (the labels are
-      // on, or the gate no longer asks for them), and one that waits for the full test of the pinned
-      // commit (PM-217) once its result is in.
-      if ((reason === 'label_missing' || reason === 'full_test_pending') && task && start.blocked) {
-        const config = await this.configOf(start.projectKey, configs);
-        if (config && start.blocked(task, config)) continue;
-      }
+      if (await this.retryHoldOf(entry, task, configs)) continue;
       try {
         await start.retry();
       } catch (err) {
@@ -562,6 +545,49 @@ export class Admission {
     } catch (err) {
       this.ctx.logger.warn({ err }, 'start round failed');
     }
+  }
+
+  /** Both retry stores leave an unchanged blocker alone; its existing refusal code remains visible. */
+  retryHold(entry: DeferredStart): Promise<string | null> {
+    return this.retryHoldOf(entry, this.taskOf(entry.start), new Map());
+  }
+
+  private async retryHoldOf(
+    { start, waiting }: DeferredStart,
+    task: Task | null,
+    configs: Map<string, ProjectConfig | null>,
+  ): Promise<string | null> {
+    const { reason, member } = waiting;
+    if (this.deferred.held(start)) return 'hold_waiting_answer';
+    if (reason === 'team_paused' && isWorkPaused(this.ctx.repos.pauses.open(), start.projectKey))
+      return reason;
+    if (reason === 'ai_disabled' || reason === 'member_on_leave') {
+      const config = await this.configOf(start.projectKey, configs);
+      if (
+        config &&
+        (reason === 'ai_disabled' ? !config.team.limits.aiEnabled : isHandleOnLeave(config, member))
+      )
+        return reason;
+    }
+    if (
+      reason === 'handoff_open' &&
+      start.taskKey !== null &&
+      this.ctx.repos.taskHandoffs.open(start.taskKey)
+    )
+      return reason;
+    if (reason === 'prerequisite_open' && task) {
+      const open = openPrerequisites(task, prerequisiteCards(this.tasks, task.projectKey, task)).map(
+        (card) => card.key,
+      );
+      const previous = waiting.prerequisites ?? [];
+      if (open.length > 0 && open.length === previous.length && open.every((key) => previous.includes(key)))
+        return reason;
+    }
+    if ((reason === 'label_missing' || reason === 'full_test_pending') && task && start.blocked) {
+      const config = await this.configOf(start.projectKey, configs);
+      if (config && start.blocked(task, config)) return reason;
+    }
+    return null;
   }
 
   /**

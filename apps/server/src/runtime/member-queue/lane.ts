@@ -17,8 +17,15 @@ export interface MemberQueueLane {
   readonly oneAtATime: boolean;
   /** Why the session that the item wakes starts. */
   cause(item: StoredMemberQueueItem): SessionStartCause;
+  /**
+   * Several lanes may serve one kind: the first whose `appliesTo` does not say false takes the item. Absent:
+   * the lane takes every item of its kinds.
+   */
+  appliesTo?(item: StoredMemberQueueItem, config: ProjectConfig): boolean;
   /** The text the member is given; null: the lane delivers its items itself (`deliverLive`, `start`). */
   render(item: StoredMemberQueueItem): string | null;
+  /** The text of the items that go in together (a lane that is not `oneAtATime`); absent: each item's `render`. */
+  renderBatch?(items: StoredMemberQueueItem[]): string;
   /** False: the source no longer asks for the item; it is closed as cancelled. */
   stillOwed(item: StoredMemberQueueItem): boolean;
   /** A code while something holds the item back (it is neither delivered nor woken for), else null. */
@@ -45,8 +52,15 @@ export interface MemberQueueLane {
   refused?(item: StoredMemberQueueItem, code: string): Promise<'wait' | 'closed'>;
   /** The item was started `MEMBER_QUEUE_MAX_ATTEMPTS` times in vain; absent: it is handed off. */
   exhausted?(item: StoredMemberQueueItem): Promise<void>;
-  /** The start was deferred for `code` (a limit, a pause, a login): the item's source can show why. */
-  deferred?(item: StoredMemberQueueItem, code: string, at: string): void;
+  /**
+   * The start was deferred for `code` (a limit, a pause, a login): the item's source can show why. `closed`: the
+   * lane closed the item itself and it does not wait (default `wait`).
+   */
+  deferred?(
+    item: StoredMemberQueueItem,
+    code: string,
+    at: string,
+  ): void | 'wait' | 'closed' | Promise<void | 'wait' | 'closed'>;
   /** Once, when the driver first looks at the queues (the server started). */
   started?(): Promise<void>;
 }

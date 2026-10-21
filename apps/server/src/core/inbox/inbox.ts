@@ -69,6 +69,7 @@ import type {
   InboxResolutionRule,
   InboxState,
   ObligationRef,
+  OperatorHandoff,
   ProjectConfig,
   QuestionCloseRule,
   QuestionRecipient,
@@ -826,32 +827,21 @@ export class InboxService {
       ).length;
   }
 
-  /** Gives every open integrator item (todos and the narrow fix limit decisions) that waited 24 hours to the owners. */
-  async sweepIntegratorTodos(): Promise<void> {
-    const open = [...this.ctx.repos.inbox.listOpen('question'), ...this.ctx.repos.inbox.listOpen('decision')];
-    for (const candidate of open) {
-      if (!isIntegratorInboxItem(candidate)) continue;
-      try {
-        await this.questionLock(candidate.id, async () => {
-          const config = await this.projects.config(candidate.projectKey);
-          const current = this.ctx.repos.inbox.get(candidate.id);
-          if (current) this.escalateIntegratorItem(current, config);
-        });
-      } catch (error) {
-        this.ctx.logger.warn({ error, itemId: candidate.id }, 'integrator_todo_sweep_failed');
-      }
-    }
-  }
-
   /**
-   * Gives an open integrator item to the owners: the 24 hour timeout (the system), or for a fix limit decision
-   * the integrator's explicit pass-on (`how.actor` is its authenticated super actor, `how.note` the reason). The
-   * same item stays open with its payload and options; only the addressing changes. False when it stays.
+   * Gives an open integrator item to the owners: the integrator's explicit pass-on (`how.actor` is its
+   * authenticated super actor or the Operator, `how.note` the reason). The same item stays open with its payload
+   * and options; only the addressing changes. False when it stays.
    */
   private escalateIntegratorItem(
     item: InboxItem,
     config: ProjectConfig,
-    how: { reason?: IntegratorEscalationReason; actor?: Actor; note?: string } = {},
+    how: {
+      reason?: IntegratorEscalationReason;
+      actor?: Actor;
+      note?: string;
+      /** The Operator's hand-off (PM-885): kept on the payload for the owner who gets the item. */
+      handoff?: OperatorHandoff;
+    } = {},
   ): boolean {
     const at = isoNow(this.ctx);
     const reason = how.reason ?? 'integrator_timeout';
@@ -864,7 +854,7 @@ export class InboxService {
     const updated = this.ctx.unitOfWork(() => {
       const row = this.ctx.repos.inbox.updateOpen(
         item.id,
-        patch.payload,
+        how.handoff ? { ...patch.payload, operatorHandoff: how.handoff } : patch.payload,
         patch.assignees,
         at,
         item.kind === 'decision' ? (bodyForOwners(config, item.body) ?? undefined) : undefined,
@@ -892,7 +882,7 @@ export class InboxService {
         projectKey: item.projectKey,
         taskKey: item.taskKey,
         sessionId: item.sessionId,
-        actor: SYSTEM_ACTOR,
+        actor: how.actor ?? SYSTEM_ACTOR,
         type: 'question_recipient_escalated',
         createdAt: at,
         data: {
@@ -901,7 +891,8 @@ export class InboxService {
           from: 'integrator',
           to: 'owner',
           openedAt: questionPayloadOf(item)!.integratorOpenedAt!,
-          reason: 'integrator_timeout',
+          reason,
+          ...(how.note ? { note: how.note } : {}),
         },
       });
       return row;
@@ -940,7 +931,7 @@ export class InboxService {
       if (by.access !== 'owner')
         throw forbidden('insufficient_access', 'a current project owner is required');
       if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
-      if (this.escalateIntegratorItem(item, config) || !isIntegratorFixLimitDecision(item))
+      if (!isIntegratorFixLimitDecision(item))
         throw forbidden('super_relay_refused', 'only a current integrator fix limit decision may be decided');
       const record = item.taskKey ? this.ctx.repos.taskFixLimits.get(item.taskKey) : null;
       if (!record || record.inboxItemId !== id || record.holdPhase !== 'owner')
@@ -994,6 +985,164 @@ export class InboxService {
     return this.questionLock(id, () => this.resolveLocked(projectKey, id, parsed.data, by, true));
   }
 
+  /**
+   * The Operator closes the integrator todo or fix limit decision its queue item is of (PM-885), in its own name:
+   * it is a member of the team, so no super credential is involved. A todo takes `todo_done` or `todo_cannot`
+   * (the summary is the note), a fix limit decision one of its three options; the closing runs the same
+   * application as an owner's choice. The item must still be addressed to the integrator.
+   */
+  async resolveForOperatorQueue(
+    projectKey: string,
+    id: string,
+    optionId: string,
+    note: string,
+    operator: string,
+  ): Promise<InboxItem> {
+    return this.questionLock(id, async () => {
+      const item = this.get(projectKey, id);
+      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
+      const at = isoNow(this.ctx);
+      if (isIntegratorTodo(item)) {
+        if (optionId !== TODO_DONE_OPTION.id && optionId !== TODO_CANNOT_OPTION.id)
+          throw invalid('invalid_request', 'only todo result options are accepted');
+        const resolution = {
+          optionId,
+          by: operator,
+          at,
+          note,
+          integratorTodo: true as const,
+          operatorQueue: true as const,
+        };
+        const close = (): InboxItem => {
+          const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
+          if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
+          this.publish(resolved);
+          this.timeline.append({
+            projectKey,
+            taskKey: resolved.taskKey,
+            sessionId: resolved.sessionId,
+            actor: aiActor(operator),
+            type: 'question_answered',
+            data: {
+              inboxItemId: id,
+              answer: answerText(resolved),
+              integratorTodo: {
+                optionId: optionId === TODO_DONE_OPTION.id ? 'todo_done' : 'todo_cannot',
+                note,
+              },
+            },
+          });
+          return resolved;
+        };
+        const answered = this.questionAnswer
+          ? await this.questionAnswer({ ...item, state: 'resolved', resolution }, [], close)
+          : null;
+        const resolved = answered ?? this.ctx.unitOfWork(close);
+        this.waiters.get(id)?.(resolved);
+        await this.ctx.events.emit('inbox_resolved', resolved);
+        return resolved;
+      }
+      if (!isIntegratorFixLimitDecision(item))
+        throw forbidden('super_relay_refused', 'only a current integrator item may be closed this way');
+      const record = item.taskKey ? this.ctx.repos.taskFixLimits.get(item.taskKey) : null;
+      if (!record || record.inboxItemId !== id || record.holdPhase !== 'owner')
+        throw conflict('fix_limit_not_held', `${item.taskKey} is not held for this fix limit decision`);
+      if (!item.options.some((option) => option.id === optionId))
+        throw invalid('unknown_option', `unknown option: ${optionId}`);
+      const resolved = this.ctx.unitOfWork(() =>
+        this.ctx.repos.inbox.close(
+          id,
+          'resolved',
+          { optionId, by: operator, at, note, integratorFixLimit: true, operatorQueue: true },
+          at,
+        ),
+      );
+      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
+      this.publish(resolved);
+      this.waiters.get(id)?.(resolved);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    });
+  }
+
+  /**
+   * The Operator passes its integrator todo or fix limit decision on to the owners (PM-885): the same open item
+   * goes to them with the hand-off on its payload. Throws when the item is no longer the integrator's.
+   */
+  async passOnToOwners(
+    projectKey: string,
+    id: string,
+    operator: string,
+    how: { note: string; handoff: OperatorHandoff },
+  ): Promise<InboxItem> {
+    return this.questionLock(id, async () => {
+      const item = this.get(projectKey, id);
+      const config = await this.projects.config(projectKey);
+      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
+      if (!isIntegratorInboxItem(item))
+        throw forbidden('super_relay_refused', 'only a current integrator item may be passed on');
+      const moved = this.escalateIntegratorItem(item, config, {
+        reason: 'integrator_passed_on',
+        actor: aiActor(operator),
+        note: how.note,
+        handoff: how.handoff,
+      });
+      if (!moved) throw forbidden('super_relay_refused', 'the item cannot be handed to the owners');
+      return this.get(projectKey, id);
+    });
+  }
+
+  /**
+   * The owners get a todo the Operator could not do for a message (PM-885): there is no integrator item to pass
+   * on, so it opens one for them. `todo` says what to do; the Operator is its asker and no answer is delivered.
+   */
+  async openOperatorHandoffTodo(input: {
+    projectKey: string;
+    taskKey: string | null;
+    operator: string;
+    title: string;
+    todo: QuestionTodo;
+    handoff: OperatorHandoff;
+  }): Promise<InboxItem> {
+    const config = await this.projects.config(input.projectKey);
+    const owners = ownerHandles(config);
+    if (owners.length === 0) throw invalid('no_assignees', 'the project has no owner to give a todo to');
+    const at = isoNow(this.ctx);
+    const draft: InboxItem = {
+      id: newId('inb'),
+      projectKey: input.projectKey,
+      kind: 'question',
+      assignees: owners,
+      source: input.operator,
+      sessionId: null,
+      taskKey: input.taskKey,
+      title: input.title,
+      body: null,
+      payload: { question: input.title, requestedRecipient: 'owner', recipient: 'owner' },
+      options: [],
+      state: 'open',
+      resolution: null,
+      createdAt: at,
+    };
+    const { payload, options } = this.releaseFields(
+      draft,
+      { outcome: 'todo', by: input.operator, todo: { ...input.todo, recipient: 'owner' } },
+      config,
+      at,
+    );
+    return this.create({
+      id: draft.id,
+      projectKey: draft.projectKey,
+      kind: 'question',
+      assignees: owners,
+      source: draft.source,
+      taskKey: draft.taskKey,
+      title: draft.title,
+      payload: { ...payload, operatorHandoff: input.handoff },
+      options,
+    });
+  }
+
   openPermissionOf(projectKey: string, sessionId: string): InboxItem | null {
     return (
       this.ctx.repos.inbox
@@ -1039,7 +1188,7 @@ export class InboxService {
       if (item.state !== 'open') throw conflict('inbox_item_closed', 'the inbox item is closed');
       if (hasProtectedQuestionPayload(item))
         throw forbidden('owner_approval_required', 'only a person may approve');
-      if (this.escalateIntegratorItem(item, initialConfig) || !isIntegratorTodo(item))
+      if (!isIntegratorTodo(item))
         throw forbidden('super_relay_refused', 'only a current integrator todo may be resolved');
       if (req.optionId !== 'todo_done' && req.optionId !== 'todo_cannot')
         throw invalid('invalid_request', 'only todo result options are accepted');

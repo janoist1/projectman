@@ -437,7 +437,9 @@ export interface TimelineEventData {
     from: 'integrator';
     to: 'owner';
     openedAt: string;
-    reason: 'integrator_timeout';
+    reason: 'integrator_timeout' | 'integrator_passed_on';
+    /** The Operator's hand-off action (PM-885). */
+    note?: string;
   };
   /**
    * A fix round limit decision item went from the integrator to the owners (PM-714): after 24 hours

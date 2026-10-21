@@ -160,6 +160,8 @@ describe('refinement_stalled signal', () => {
     expect(stallAlerts()).toEqual([]);
 
     later(OPERATOR_SIGNAL_WAKE_INTERVAL_MS);
+    for (const session of h.domain.sessions.list('AR', { member: 'pm' }))
+      h.runner.setState(session.id, 'idle');
     await h.domain.operatorSignals.sweep('AR');
     await flush();
     expect(signals()[0]!.deliveredAt).not.toBeNull();

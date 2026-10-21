@@ -172,6 +172,8 @@ export interface TemplateLocale {
   webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */
   fixLimitItem: FixLimitItemText;
+  /** What the owner's todo says when the Operator could not finish a queue item (PM-885). */
+  operatorQueue: { failedAction(title: string): string; failedSummary: string };
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
   stageApproval: (stageName: string) => string;
   /** Display name of a specialist, e.g. ("Frontend", "Developer") -> "Frontend developer". */

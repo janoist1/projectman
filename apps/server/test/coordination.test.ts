@@ -42,6 +42,17 @@ async function internal(member = 'pm'): Promise<ToolContext> {
   await flush();
   return { projectKey: 'AR', member, sessionId: session.id, taskKey: null };
 }
+/** The coordinators end their turn first: the queue types a notice into a running session at its turn boundary. */
+async function deliverSignals(): Promise<void> {
+  // Twice: a session another input has just started ends its turn before the queue can type the notice.
+  for (let round = 0; round < 2; round++) {
+    for (const session of h.domain.sessions.list('AR', {}))
+      if (session.member.startsWith('pm') && (session.state === 'starting' || session.state === 'working'))
+        h.runner.setState(session.id, 'idle');
+    await h.domain.operatorSignals.deliver('AR');
+    await flush();
+  }
+}
 async function ownerMessage(member: string) {
   const running = h.domain.sessions.list('AR', { member })[0];
   if (running) h.runner.setState(running.id, 'idle');
@@ -339,7 +350,7 @@ describe('persisted coordination signal bindings', () => {
         h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),
       ).rejects.toThrow('operator_signal_closed');
       const oldSteps = h.repos.operatorRequests.stepsOfSignal(signal.id);
-      await h.domain.operatorSignals.deliver('AR');
+      await deliverSignals();
       expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({
         id: signal.id,
         caseKey: signal.caseKey,
@@ -363,7 +374,7 @@ describe('persisted coordination signal bindings', () => {
     await expect(
       h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),
     ).rejects.toThrow('operator_signal_closed');
-    await h.domain.operatorSignals.deliver('AR');
+    await deliverSignals();
     expect(h.repos.operatorSignals.get(signal.id)?.deliveredTo).toBe('pm');
     await expect(
       h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),
@@ -386,7 +397,7 @@ describe('persisted coordination signal bindings', () => {
       messageId: sent.message.id,
       actionable: true,
     });
-    await h.domain.operatorSignals.deliver('AR');
+    await deliverSignals();
     expect(h.repos.operatorSignals.get(signal.id)?.messageId).toBe(sent.message.id);
     await h.domain.messaging.sendReporting(
       'AR',
@@ -404,7 +415,7 @@ describe('persisted coordination signal bindings', () => {
     });
     const { card, signal, pm } = await idleSignal();
     await h.domain.members.update('AR', 'pm', { onLeave: true }, by);
-    await h.domain.operatorSignals.deliver('AR');
+    await deliverSignals();
     expect(h.repos.operatorSignals.get(signal.id)?.deliveredTo).toBe('pm-2');
     await expect(
       h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),

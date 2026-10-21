@@ -1370,6 +1370,7 @@ export const hu = {
       owner_approval_required:
         'Ez emberi jóváhagyás: csak a tulajdonos adhatja meg, a saját bejelentkezésével.',
       owner_login_required: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével.',
+      queue_item_not_processing: 'Ez a sorelem már nincs feldolgozás alatt, nem lehet lezárni.',
       too_many_attempts: 'Túl sok próbálkozás. Várj egy kicsit, és próbáld újra.',
       not_an_assignee: 'Ez a tétel nem neked szól.',
       unknown_repo: 'Ismeretlen repó.',
@@ -4820,6 +4821,7 @@ export const hu = {
       question_screened_integrator: 'Teendőként az integrátornak adta: {note}',
       question_recipient_escalated:
         'Az integrátornak szóló teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
+      question_recipient_escalated_passed_on: 'Az Operátor a teendőt a tulajdonosnak adta tovább.{note}',
       fix_limit_recipient_escalated_timeout:
         'A javítási körök határáról szóló döntés az integrátortól a tulajdonoshoz került: 24 óráig nem döntött.',
       fix_limit_recipient_escalated_passed_on:

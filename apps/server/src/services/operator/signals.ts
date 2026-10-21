@@ -1,10 +1,4 @@
-import type {
-  OperatorSessions,
-  OperatorAdmission,
-  OperatorDelivery,
-  OperatorReleases,
-  OperatorWakeStart,
-} from './ports';
+import type { OperatorSessions, OperatorAdmission, OperatorReleases } from './ports';
 import {
   answerStallEvidence,
   conditionHolds,
@@ -22,7 +16,7 @@ import {
   refinementStallRefusal,
   refinementTurn,
   turnStalled,
-  formatInjectedTeamMessage,
+  memberQueueSourceId,
   isOperator,
   coordinationMemberOf,
   projectManagersOf,
@@ -72,6 +66,7 @@ import type { StructuralEvaluation, StructuralFacts } from './structural-pattern
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import { answerEvidenceOf } from '../../core/messages';
+import type { MemberQueue } from '../../core/member-queue';
 import type { ProjectService } from '../../core/projects';
 import { prerequisiteCards } from '../../core/tasks';
 import type { TaskWaits } from '../../core/tasks';
@@ -119,6 +114,9 @@ const MEMBER_WORK_EVENTS: ReadonlySet<TimelineEvent['type']> = new Set([
   'team_message',
 ]);
 const CARD_EVENTS_READ = 300;
+
+/** The queue item of a signal shown before to another binding (or after a leave) is a new item: this marks its source. */
+const REBOUND_PREFIX = 'rebound:';
 
 const WAKE_NEVER =
   "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human; a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
@@ -173,14 +171,13 @@ const ENGAGED_STATES: ReadonlySet<string> = new Set([
 
 /** One notice per system problem episode; notices never authorize a write. */
 export class OperatorSignals {
-  private readonly waking = new Set<string>();
-  private readonly firstDeliveries = new Map<string, Promise<void>>();
   constructor(privateDeps: {
     ctx: DomainContext;
     projects: ProjectService;
     sessions: OperatorSessions;
     admission: OperatorAdmission;
-    delivery: OperatorDelivery;
+    queue: Pick<MemberQueue, 'add'>;
+    wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
@@ -193,7 +190,10 @@ export class OperatorSignals {
     projects: ProjectService;
     sessions: OperatorSessions;
     admission: OperatorAdmission;
-    delivery: OperatorDelivery;
+    /** The coordinator's work queue: a pending signal is an item of it. */
+    queue: Pick<MemberQueue, 'add'>;
+    /** Works the member's queue (the driver's `ensure`). */
+    wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
@@ -648,12 +648,8 @@ export class OperatorSignals {
         )
           this.resolve(key, signal.caseKey);
       }
-      await this.deliverPending(key, structural);
+      await this.deliver(key, structural);
     }
-  }
-
-  rebuild(spec: { kind: 'operator_signals'; projectKey: string }): OperatorWakeStart | null {
-    return this.pending(spec.projectKey).length ? this.start(spec.projectKey) : null;
   }
 
   /** A recipient change or leave invalidates unpresented delivery, without touching earlier human decisions. */
@@ -677,25 +673,144 @@ export class OperatorSignals {
       if (signal.state === 'pending' && signal.deliveredAt) this.save({ ...signal, state: 'open' });
   }
 
-  async deliver(projectKey: string): Promise<void> {
-    return this.deliverPending(projectKey);
-  }
-
-  private async deliverPending(
+  /**
+   * Gives the coordinator the signals it is owed (PM-885): each pending signal is an item of its work queue, and
+   * the queue's driver delivers it, holding it back until the wake interval allows (`holdsBack`).
+   */
+  async deliver(
     projectKey: string,
     structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
   ): Promise<void> {
-    if (this.waking.has(projectKey) || !this.wakeable(projectKey, structural).length) return;
-    this.waking.add(projectKey);
-    try {
-      await this.deps.admission.attempt(this.start(projectKey));
-      // The CLI may still wait for its first input. Waiting must release admission's lock so
-      // permission decisions, pause and the rest of the project's starts can proceed.
-      await this.firstDeliveries.get(projectKey);
-    } finally {
-      this.firstDeliveries.delete(projectKey);
-      this.waking.delete(projectKey);
+    const config = this.deps.projects.cachedConfig(projectKey);
+    const member = config && coordinationMemberOf(config);
+    if (!member || member.kind !== 'ai') return;
+    const now = this.deps.ctx.now().getTime();
+    for (const signal of this.pending(projectKey, structural)) {
+      // A new item for a signal shown before: its follow-up time came, or it was shown to another binding.
+      const due = signal.followUpAt !== null && Date.parse(signal.followUpAt) <= now;
+      const followUpAt = due
+        ? signal.followUpAt
+        : signal.deliveredAt
+          ? `${REBOUND_PREFIX}${signal.deliveredAt}`
+          : null;
+      this.deps.queue.add({
+        projectKey,
+        member: member.handle,
+        kind: 'signal',
+        source: {
+          type: 'signal',
+          id: memberQueueSourceId({ type: 'signal', signalId: signal.id, followUpAt }),
+        },
+        place: { type: 'general' },
+        taskKey: signal.taskKey,
+        wake: true,
+        title: `${signal.kind}${signal.taskKey ? ` ${signal.taskKey}` : ''}`,
+        from: null,
+      });
     }
+    await this.deps.wake(projectKey, member.handle);
+  }
+
+  /**
+   * Whether the signal of a queue item is still owed to the coordinator: not closed, addressed to that member, and
+   * not yet shown to it (a follow-up: shown again once its time came).
+   */
+  owed(projectKey: string, member: string, signalId: string, followUpAt: string | null): boolean {
+    const signal = this.deps.ctx.repos.operatorSignals.get(signalId);
+    const config = this.deps.projects.cachedConfig(projectKey);
+    const recipient = config && coordinationMemberOf(config)?.handle;
+    if (!signal || signal.resolvedAt || recipient !== member) return false;
+    const open = signal.state === 'pending' || signal.state === 'open';
+    if (signal.messageId && signal.deliveredTo !== recipient) return false;
+    const rebound = !signal.messageId && open && signal.deliveredTo !== recipient;
+    if (followUpAt?.startsWith(REBOUND_PREFIX)) return rebound;
+    if (followUpAt !== null) return open && signal.followUpAt === followUpAt;
+    return rebound || (signal.state === 'pending' && !signal.deliveredAt);
+  }
+
+  /** Whether the wake interval (or the structural window) still holds the signal back from the coordinator. */
+  holdsBack(projectKey: string, signalId: string): boolean {
+    return !this.wakeable(projectKey).some((signal) => signal.id === signalId);
+  }
+
+  /** The input that gives the coordinator these signals: the wake-up text of its level, one JSON line each. */
+  noticeText(projectKey: string, signalIds: string[]): string {
+    const { ctx, projects } = this.deps;
+    const config = projects.cachedConfig(projectKey);
+    if (!config) return '';
+    const structural = this.lazyStructuralEvaluation(config);
+    const signals = signalIds.flatMap((id) => {
+      const signal = ctx.repos.operatorSignals.get(id);
+      return signal ? [signal] : [];
+    });
+    const level = operatorWatchOf(config);
+    const now = isoNow(ctx);
+    return (
+      `${WAKE_HEADERS[level]} ${WAKE_LOOP}\n` +
+      signals
+        .map((s) => {
+          const steps = ctx.repos.operatorRequests.stepsOfSignal(s.id);
+          const budget =
+            s.kind === 'loop_suspected'
+              ? { left: 0, nextAt: null }
+              : operatorSignalBudget(
+                  level,
+                  steps.filter((step) => step.status !== 'refused').map((step) => step.at),
+                  now,
+                );
+          return JSON.stringify({
+            ...OperatorSignal.parse(s),
+            facts: structuralKind(s.kind)
+              ? structural()!.facts(s)
+              : s.kind === 'loop_suspected'
+                ? LoopTriageFacts.parse(JSON.parse(s.subject!))
+                : s.kind === 'ready_waiting'
+                  ? this.readyFacts(s)
+                  : s.kind === 'answer_stalled'
+                    ? this.answerStalledFacts(s)
+                    : s.kind === 'refinement_stalled'
+                      ? { refinement: this.refinementStallFacts(config, s) }
+                      : s.inboxItemId
+                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                        : s.subject
+                          ? ctx.repos.sessions.get(s.subject)?.activity
+                          : null,
+            step: this.stepOf(level, config, s),
+            steps_left: structuralKind(s.kind) ? 0 : budget.left,
+            next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
+            steps: steps.map((step) => ({
+              at: step.at,
+              by:
+                ctx.repos.sessions.get(ctx.repos.operatorRequests.get(step.requestId)?.sessionId ?? '')
+                  ?.member ?? null,
+              member: step.member,
+              task_key: step.taskKey,
+              status: step.status,
+            })),
+            follow_up: steps.length > 0,
+          });
+        })
+        .join('\n')
+    );
+  }
+
+  /**
+   * The coordinator got the signal (the item reached its session). A signal shown again after an own step is
+   * shown from the start (PM-545): the coordinator may present it anew. A session that already ended its turn
+   * has seen it: the signal is open at once.
+   */
+  markDelivered(projectKey: string, member: string, signalId: string, followUpAt: string | null): void {
+    const { ctx, projects, sessions } = this.deps;
+    const config = projects.cachedConfig(projectKey);
+    if (!config || coordinationMemberOf(config)?.handle !== member) return;
+    const current = ctx.repos.operatorSignals.get(signalId);
+    if (!current) return;
+    const at = isoNow(ctx);
+    if (followUpAt === null || followUpAt.startsWith(REBOUND_PREFIX))
+      ctx.repos.operatorSignals.delivered([signalId], at, member);
+    else if (current.followUpAt === followUpAt) ctx.repos.operatorSignals.redelivered([signalId], at, member);
+    // The turn ended before the receipt was written (the session is gone): nothing will close the signal later.
+    if (!sessions.findRunning(projectKey, member, { type: 'general' })) this.finish(projectKey);
   }
 
   private pending(
@@ -1121,137 +1236,5 @@ export class OperatorSignals {
         projectKey: signal.projectKey,
         signal: OperatorSignal.parse(signal),
       });
-  }
-  private start(projectKey: string): OperatorWakeStart {
-    const { ctx, projects, sessions, admission, delivery } = this.deps;
-    return {
-      key: `operator-signals:${projectKey}`,
-      projectKey,
-      taskKey: null,
-      spec: () => ({ kind: 'operator_signals', projectKey }),
-      stillValid: () => this.pending(projectKey).length > 0,
-      waitsFor: () => coordinationMemberOf(projects.cachedConfig(projectKey)!)?.handle,
-      retry: () => this.deliver(projectKey),
-      log: {
-        deferred: 'operator signal start deferred',
-        retryFailed: 'operator signal retry failed',
-        fields: () => ({ projectKey }),
-      },
-      run: async () => {
-        if (!this.wakeable(projectKey).length) return;
-        const config = await projects.config(projectKey);
-        const member = coordinationMemberOf(config);
-        if (!member) return;
-        if (isWorkPaused(ctx.repos.pauses.open(), projectKey))
-          throw conflict('team_paused', 'the team is paused');
-        const structural = this.lazyStructuralEvaluation(config);
-        const signals = this.wakeable(projectKey, structural);
-        if (!signals.length) return;
-        const level = operatorWatchOf(config);
-        const now = isoNow(ctx);
-        const text =
-          `${WAKE_HEADERS[level]} ${WAKE_LOOP}\n` +
-          signals
-            .map((s) => {
-              const steps = ctx.repos.operatorRequests.stepsOfSignal(s.id);
-              const budget =
-                s.kind === 'loop_suspected'
-                  ? { left: 0, nextAt: null }
-                  : operatorSignalBudget(
-                      level,
-                      steps.filter((step) => step.status !== 'refused').map((step) => step.at),
-                      now,
-                    );
-              return JSON.stringify({
-                ...OperatorSignal.parse(s),
-                facts: structuralKind(s.kind)
-                  ? structural()!.facts(s)
-                  : s.kind === 'loop_suspected'
-                    ? LoopTriageFacts.parse(JSON.parse(s.subject!))
-                    : s.kind === 'ready_waiting'
-                      ? this.readyFacts(s)
-                      : s.kind === 'answer_stalled'
-                        ? this.answerStalledFacts(s)
-                        : s.kind === 'refinement_stalled'
-                          ? { refinement: this.refinementStallFacts(config, s) }
-                          : s.inboxItemId
-                            ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                            : s.subject
-                              ? ctx.repos.sessions.get(s.subject)?.activity
-                              : null,
-                step: this.stepOf(level, config, s),
-                steps_left: structuralKind(s.kind) ? 0 : budget.left,
-                next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
-                steps: steps.map((step) => ({
-                  at: step.at,
-                  by:
-                    ctx.repos.sessions.get(ctx.repos.operatorRequests.get(step.requestId)?.sessionId ?? '')
-                      ?.member ?? null,
-                  member: step.member,
-                  task_key: step.taskKey,
-                  status: step.status,
-                })),
-                follow_up: steps.length > 0,
-              });
-            })
-            .join('\n');
-        const workItem = { type: 'general' } as const;
-        // A signal shown again after an own step is shown from the start (PM-545): the coordinator may present it anew.
-        const markDelivered = () =>
-          ctx.unitOfWork(() => {
-            if (coordinationMemberOf(projects.cachedConfig(projectKey)!)?.handle !== member.handle) return;
-            const at = isoNow(ctx);
-            ctx.repos.operatorSignals.delivered(
-              signals.filter((s) => s.followUpAt === null).map((s) => s.id),
-              at,
-              member.handle,
-            );
-            ctx.repos.operatorSignals.redelivered(
-              signals
-                .filter((s) => {
-                  const current = ctx.repos.operatorSignals.get(s.id);
-                  return (
-                    s.followUpAt !== null &&
-                    current?.followUpAt === s.followUpAt &&
-                    current.messageId === s.messageId &&
-                    current.deliveredTo === s.deliveredTo
-                  );
-                })
-                .map((s) => s.id),
-              at,
-              member.handle,
-            );
-          });
-        const running = sessions.findRunning(projectKey, member.handle, workItem);
-        if (running && !sessions.isPaused(running)) {
-          if (!(await delivery.notice(running, 'projectman', text, null)))
-            throw new Error('operator signal delivery failed');
-        } else {
-          let firstInput: Promise<boolean> | undefined;
-          await delivery.startAndDeliver(projectKey, member.handle, workItem, async (messages) => {
-            const result = await admission.start({
-              config,
-              member,
-              workItem,
-              cause: { kind: 'operator_signal' },
-              messages: [...messages, formatInjectedTeamMessage('projectman', text, null)],
-            });
-            firstInput = result.firstInput;
-            return result;
-          });
-          const delivered = firstInput!.then((typed) => {
-            if (!typed) throw new Error('operator signal first input was not delivered');
-            markDelivered();
-            const current = sessions.findRunning(projectKey, member.handle, workItem);
-            if (!current || current.state === 'idle') this.finish(projectKey);
-          });
-          // Install a rejection handler before the admission attempt releases its lock.
-          void delivered.catch(() => undefined);
-          this.firstDeliveries.set(projectKey, delivered);
-          return;
-        }
-        markDelivered();
-      },
-    };
   }
 }

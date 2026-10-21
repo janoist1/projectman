@@ -1,4 +1,9 @@
-import { coordinationActorRefusal, coordinationMemberOf, LoopTriageFacts } from '@projectman/shared';
+import {
+  coordinationActorRefusal,
+  coordinationMemberOf,
+  LoopTriageFacts,
+  memberQueueSourceId,
+} from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import { conflict, forbidden, invalid } from '../../kernel';
@@ -38,10 +43,14 @@ export class LoopTriages {
       if (signal.deliveredAt && signal.deliveredTo === member.handle) return { state: 'delivered', signalId };
       await this.deps.signals.deliver(input.projectKey);
       const current = this.deps.ctx.repos.operatorSignals.get(signal.id);
-      return {
-        state: current?.deliveredAt && current.deliveredTo === member.handle ? 'delivered' : 'queued',
-        signalId,
-      };
+      if (current?.deliveredAt && current.deliveredTo === member.handle)
+        return { state: 'delivered', signalId };
+      // The queue closes the item of a start that failed for good (a wait is no failure).
+      const item = this.deps.ctx.repos.memberQueue.findBySource(input.projectKey, member.handle, {
+        type: 'signal',
+        id: memberQueueSourceId({ type: 'signal', signalId: signal.id, followUpAt: null }),
+      });
+      return { state: item?.closeReason === 'source_closed' ? 'failed' : 'queued', signalId };
     } catch (err) {
       this.deps.ctx.logger.warn({ err, taskKey: input.taskKey }, 'could not report a suspected loop');
       return { state: 'failed', signalId };

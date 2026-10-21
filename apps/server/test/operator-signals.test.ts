@@ -298,11 +298,13 @@ describe('Operator system signals', () => {
   });
   it('keeps a failed notice pending and retries without spending the wake interval', async () => {
     await setup();
-    await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    h.runner.setState(session.id, 'idle');
     const signal = raise();
     vi.spyOn(h.runner, 'sendUserMessage').mockRejectedValueOnce(new Error('Delivery failed'));
-    await expect(h.domain.operatorSignals.deliver('AR')).rejects.toThrow('delivery failed');
+    await h.domain.operatorSignals.deliver('AR');
     expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
+    expect(h.repos.memberQueue.listOpen('AR', 'pm')).toMatchObject([{ kind: 'signal', state: 'queued' }]);
     expect(h.domain.operatorSignals.channel('AR').signals).toEqual([]);
     await deliver();
     expect(get(signal.id).state).toBe('open');
@@ -313,12 +315,12 @@ describe('Operator system signals', () => {
     h.runner.holdFirstInput = true;
     const signal = raise();
     const wake = h.domain.operatorSignals.deliver('AR');
-    const failure = expect(wake).rejects.toThrow('first input was not delivered');
     await flush();
     expect(get(signal.id).deliveredAt).toBeNull();
     await expect(h.domain.admission.exclusive(async () => true)).resolves.toBe(true);
     h.runner.setState((await tool()).sessionId, 'failed');
-    await failure;
+    await wake;
+    await flush();
     expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
     expect(h.domain.operatorSignals.channel('AR').signals).toEqual([]);
   });

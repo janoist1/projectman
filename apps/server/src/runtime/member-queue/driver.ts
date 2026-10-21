@@ -76,7 +76,8 @@ const placeKeyOf = (member: AiMemberConfig, place: WorkItemRef): string => {
  */
 export class MemberQueueWorker implements MemberQueueDriver {
   private readonly deps: MemberQueueDriverDeps;
-  private readonly lanes = new Map<string, MemberQueueLane>();
+  /** The lanes of each kind in the order they were registered: a lane with an `appliesTo` goes before the general one. */
+  private readonly lanes = new Map<string, MemberQueueLane[]>();
   private readonly mutex = new KeyedMutex();
   private readonly queuedRuns = new Map<string, { started: boolean; promise: Promise<void> }>();
   private readonly results = new Map<string, StartResult>();
@@ -97,8 +98,11 @@ export class MemberQueueWorker implements MemberQueueDriver {
 
   register(lane: MemberQueueLane): void {
     for (const kind of lane.kinds) {
-      if (this.lanes.has(kind)) throw new Error(`the member queue has a lane for ${kind} already`);
-      this.lanes.set(kind, lane);
+      const same = this.lanes.get(kind) ?? [];
+      // A lane that takes everything would shadow the ones after it.
+      if (same.some((other) => !other.appliesTo))
+        throw new Error(`the member queue has a lane for ${kind} already`);
+      this.lanes.set(kind, [...same, lane]);
     }
   }
 
@@ -134,7 +138,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
   async sweep(options: { respectPause?: boolean } = {}): Promise<void> {
     if (!this.begun) {
       this.begun = true;
-      for (const lane of new Set(this.lanes.values()))
+      for (const lane of new Set([...this.lanes.values()].flat()))
         await lane.started?.().catch((err: unknown) => {
           this.deps.ctx.logger.warn({ err }, 'a member queue lane could not start');
         });
@@ -165,8 +169,8 @@ export class MemberQueueWorker implements MemberQueueDriver {
       : { state: 'failed', code: 'not_started' };
   }
 
-  private laneOf(item: StoredMemberQueueItem): MemberQueueLane | undefined {
-    return this.lanes.get(item.kind);
+  private laneOf(item: StoredMemberQueueItem, config: ProjectConfig): MemberQueueLane | undefined {
+    return this.lanes.get(item.kind)?.find((lane) => lane.appliesTo?.(item, config) !== false);
   }
 
   private close(
@@ -190,11 +194,11 @@ export class MemberQueueWorker implements MemberQueueDriver {
     if (memberConfig?.kind !== 'ai') return;
     const repo = ctx.repos.memberQueue;
     const at = isoNow(ctx);
-    let changed = await this.settleProcessing(projectKey, member, at);
+    let changed = await this.settleProcessing(config, member, at);
 
     const entries: Entry[] = [];
     for (const item of repo.listOpenByUrgency(projectKey, member)) {
-      const lane = this.laneOf(item);
+      const lane = this.laneOf(item, config);
       if (!lane || item.state !== 'queued') continue;
       if (!lane.stillOwed(item)) {
         this.close(item, 'cancelled', 'source_closed', at);
@@ -248,6 +252,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
       if (session && atBoundary)
         changed =
           (await this.deliver(
+            config,
             session,
             group.filter((e) => !e.held),
             at,
@@ -323,13 +328,14 @@ export class MemberQueueWorker implements MemberQueueDriver {
    * The items a session was working (`processing`) whose session is gone go back to the queue with one attempt
    * more, and the ones it has had for too long are taken from it first. The third attempt is the last.
    */
-  private async settleProcessing(projectKey: string, member: string, at: string): Promise<boolean> {
+  private async settleProcessing(config: ProjectConfig, member: string, at: string): Promise<boolean> {
     const { ctx, sessions } = this.deps;
     const repo = ctx.repos.memberQueue;
+    const projectKey = config.project.key;
     let changed = false;
     for (const item of repo.listOpenByUrgency(projectKey, member)) {
       if (item.state !== 'processing') continue;
-      const lane = this.laneOf(item);
+      const lane = this.laneOf(item, config);
       if (!lane) continue;
       const session = item.sessionId ? sessions.find(item.sessionId) : null;
       const alive =
@@ -364,17 +370,28 @@ export class MemberQueueWorker implements MemberQueueDriver {
    * at the turn boundary, and the driver asks it to only as a net (`net`: the sweep, a sender that waits).
    * Returns whether anything changed.
    */
-  private async deliver(session: Session, group: Entry[], at: string, net: boolean): Promise<boolean> {
+  private async deliver(
+    config: ProjectConfig,
+    session: Session,
+    group: Entry[],
+    at: string,
+    net: boolean,
+  ): Promise<boolean> {
     const repo = this.deps.ctx.repos.memberQueue;
     let changed = false;
     const selfDelivering = new Map<MemberQueueLane, StoredMemberQueueItem[]>();
+    const batches = new Map<MemberQueueLane, StoredMemberQueueItem[]>();
     const busy = new Set<MemberQueueLane>();
     for (const item of repo.listOpenByUrgency(session.projectKey, session.member))
       if (item.state === 'processing' && item.sessionId === session.id) {
-        const lane = this.laneOf(item);
+        const lane = this.laneOf(item, config);
         if (lane?.oneAtATime) busy.add(lane);
       }
     for (const { item, lane } of group) {
+      if (lane.renderBatch) {
+        batches.set(lane, [...(batches.get(lane) ?? []), item]);
+        continue;
+      }
       const text = lane.render(item);
       if (text === null) {
         selfDelivering.set(lane, [...(selfDelivering.get(lane) ?? []), item]);
@@ -382,22 +399,44 @@ export class MemberQueueWorker implements MemberQueueDriver {
       }
       // At the turn boundary only, and one at a time where the lane says so.
       if (session.state !== 'idle' || busy.has(lane)) continue;
-      const claims = lane.completion === 'source' || lane.completion === 'finish';
-      if (claims && !repo.claim(item.id, session.id, at)) continue;
-      const taken = await this.deps.type(session, item, text).catch(() => false);
-      if (!taken) {
-        if (claims) repo.requeue(item.id, at);
-        continue;
+      if (await this.typeItems(session, lane, [item], () => text, at)) {
+        changed = true;
+        if (lane.oneAtATime) busy.add(lane);
       }
-      this.deps.ctx.unitOfWork(() => {
-        lane.delivered?.(item, session.id, at);
-        if (!claims) this.close(item, 'done', lane.completion === 'start' ? 'started' : 'delivered', at);
-      });
-      changed = true;
-      if (lane.oneAtATime) busy.add(lane);
+    }
+    // The items of a lane that is given its text together go in as one input.
+    for (const [lane, items] of batches) {
+      if (session.state !== 'idle' || busy.has(lane)) continue;
+      if (await this.typeItems(session, lane, items, lane.renderBatch!, at)) changed = true;
     }
     if (net) for (const [lane, items] of selfDelivering) lane.deliverLive?.(session, items);
     return changed;
+  }
+
+  /** Types the items (claimed first where the lane's items stay open) as one input; false: the session did not take it. */
+  private async typeItems(
+    session: Session,
+    lane: MemberQueueLane,
+    items: StoredMemberQueueItem[],
+    render: (items: StoredMemberQueueItem[]) => string,
+    at: string,
+  ): Promise<boolean> {
+    const repo = this.deps.ctx.repos.memberQueue;
+    const claims = lane.completion === 'source' || lane.completion === 'finish';
+    const taken = claims ? items.filter((item) => repo.claim(item.id, session.id, at)) : items;
+    if (taken.length === 0) return false;
+    const typed = await this.deps.type(session, taken[0]!, render(taken)).catch(() => false);
+    if (!typed) {
+      if (claims) for (const item of taken) repo.requeue(item.id, at);
+      return false;
+    }
+    this.deps.ctx.unitOfWork(() => {
+      for (const item of taken) {
+        lane.delivered?.(item, session.id, at);
+        if (!claims) this.close(item, 'done', lane.completion === 'start' ? 'started' : 'delivered', at);
+      }
+    });
+    return true;
   }
 
   /**
@@ -428,34 +467,54 @@ export class MemberQueueWorker implements MemberQueueDriver {
         cause: lane.cause(first.item),
         ...memberQueueStartLimits(config, member.handle, first.item.kind, first.place),
       });
+    // The first input of the session the start made: the items count as delivered only when it was typed.
+    const started: { firstInput?: Promise<boolean>; sessionId?: string } = {};
     try {
       await admission.exclusive(async () => {
         if (lane.start) {
           await lane.start({ config, member: member.handle, place, items, run });
           return;
         }
-        const texts = entries.flatMap((e) => {
+        const texts: string[] = [];
+        const batches = new Map<MemberQueueLane, StoredMemberQueueItem[]>();
+        for (const e of entries) {
+          if (e.lane.renderBatch) {
+            batches.set(e.lane, [...(batches.get(e.lane) ?? []), e.item]);
+            continue;
+          }
           const text = e.lane.render(e.item);
-          return text === null ? [] : [text];
-        });
+          if (text !== null) texts.push(text);
+        }
+        for (const [batchLane, batchItems] of batches) texts.push(batchLane.renderBatch!(batchItems));
         const result = await run(texts);
         if (result.messagesSent === 0 && texts.length > 0) return;
+        started.firstInput = result.firstInput;
+        started.sessionId = result.session.id;
+      });
+      // Outside the admission lock: a first input that does not arrive keeps the items queued.
+      if (started.firstInput && started.sessionId && (await started.firstInput.catch(() => false))) {
+        const sessionId = started.sessionId;
         for (const entry of entries) {
           const claims = entry.lane.completion === 'source' || entry.lane.completion === 'finish';
-          if (claims && !repo.claim(entry.item.id, result.session.id, at)) continue;
+          if (claims && !repo.claim(entry.item.id, sessionId, at)) continue;
           ctx.unitOfWork(() => {
-            entry.lane.delivered?.(entry.item, result.session.id, at);
+            entry.lane.delivered?.(entry.item, sessionId, at);
             if (!claims)
               this.close(entry.item, 'done', entry.lane.completion === 'start' ? 'started' : 'delivered', at);
           });
         }
-      });
+      }
     } catch (err) {
       const code = err instanceof DomainError ? err.code : 'start_failed';
       if (isDeferrable(err)) {
         const waiting = waitingOf(err, { member: member.handle, at });
         this.results.set(resultKey, { state: 'waiting', reason: waiting.reason });
-        for (const entry of entries) entry.lane.deferred?.(entry.item, waiting.reason, at);
+        for (const entry of entries) {
+          const verdict = await entry.lane.deferred?.(entry.item, waiting.reason, at);
+          // The lane closed the item through its source (or asks to): it does not wait for the next attempt.
+          if (verdict === 'closed' && repo.get(entry.item.id)?.state === 'queued')
+            this.close(entry.item, 'cancelled', 'source_closed', at);
+        }
         // Said when the reason is new, not at every refusal that stays (as the deferred starts do).
         if (entries.some((e) => e.item.wait?.code !== waiting.reason))
           ctx.logger.info(

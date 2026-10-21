@@ -131,9 +131,11 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
 export interface OpenOperatorRequest {
   projectKey: string;
   sessionId: string;
-  source: 'message' | 'answer' | 'approval';
+  source: 'message' | 'answer' | 'approval' | 'queue';
   messageId: string | null;
   inboxItemId?: string | null;
+  /** The member queue item a `queue` request works on (PM-885). */
+  queueItemId?: string | null;
   from: string;
   text: string;
 }
@@ -169,6 +171,7 @@ export class OperatorRequests {
         source: input.source,
         messageId: input.messageId,
         inboxItemId: input.inboxItemId ?? null,
+        queueItemId: input.queueItemId ?? null,
         fromHandle: input.from,
         quote: operatorQuoteOf(input.text),
         openedAt: now,
@@ -245,6 +248,7 @@ export class OperatorRequests {
       source: 'signal' as const,
       messageId: null,
       inboxItemId: null,
+      queueItemId: null,
       fromHandle: OPERATOR_SIGNAL_ROUND_FROM,
       quote: '',
       openedAt: isoNow(this.ctx),

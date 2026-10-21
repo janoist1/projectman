@@ -3074,6 +3074,92 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
+      "title": "End an item of your work queue",
+    },
+    "description": "The Operator ends the work queue item it was given (the message names its id). outcome "done": you did what it asked; summary says what you did, and operation_ids names the operations you ran (execute_operation). A held fix round decision also needs fix_limit_option (replan, reassign or another_round); a todo is closed as done with your summary. outcome "handed_off": the owner has to do it; handoff.reason is owner_reserved (the action is reserved to the owner; with operation_id when the operation already asks the owner), no_typed_operation (no typed operation does this) or no_grant (you have no grant for it), handoff.action is the imperative step the owner takes (one sentence), handoff.detail the context. Nothing waits for the owner here: the item ends at once and the owner gets a todo. Only the item your session is working on can be ended (409 queue_item_not_processing otherwise).",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "fix_limit_option": {
+          "enum": [
+            "replan",
+            "reassign",
+            "another_round",
+          ],
+          "type": "string",
+        },
+        "handoff": {
+          "properties": {
+            "action": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string",
+            },
+            "detail": {
+              "maxLength": 2000,
+              "type": "string",
+            },
+            "operation_id": {
+              "maxLength": 100,
+              "type": "string",
+            },
+            "reason": {
+              "enum": [
+                "owner_reserved",
+                "no_typed_operation",
+                "no_grant",
+              ],
+              "type": "string",
+            },
+          },
+          "required": [
+            "reason",
+            "action",
+          ],
+          "type": "object",
+        },
+        "item_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string",
+        },
+        "operation_ids": {
+          "items": {
+            "maxLength": 100,
+            "type": "string",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "outcome": {
+          "enum": [
+            "done",
+            "handed_off",
+          ],
+          "type": "string",
+        },
+        "summary": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "item_id",
+        "outcome",
+        "summary",
+      ],
+      "type": "object",
+    },
+    "name": "finish_queue_item",
+    "title": "End an item of your work queue",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
       "title": "Forward a feedback mark to the owner",
     },
     "description": "Pass a feedback mark you cannot or should not decide on to the owners (a decision of theirs, a matter beyond the project, something unclear): they get an alert with your reason, and the mark waits for them. After this you do not act on the mark again; the owner or a person who processes feedback settles it. The reason is for the owners only; the reply goes to the marker.",
@@ -3966,7 +4052,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Open a todo for the integrator",
     },
-    "description": "Only the selected PM in its internal general conversation; needs no owner request. When a stalled, silent, outage or nobody signal needs someone to act, open a todo in the integrator's queue instead of asking the owners: what to do, where, and what is expected. The integrator's answer (done, or cannot do it) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. When a stalled, silent, outage or nobody signal needs someone to act, open a todo in the integrator's queue instead of asking the owners: what to do, where, and what is expected. The Operator takes the todos from its queue one at a time and wakes for each; use this tool, not a message to the Operator, for a step that needs its hands. Its answer (done, or handed to the owners with the reason) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

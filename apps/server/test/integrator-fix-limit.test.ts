@@ -341,27 +341,25 @@ describe('integrator fix limit decision', () => {
   });
 
   it('goes straight to the owners when no integrator access is available', async () => {
-    h.app.projectman.auth.revokeIntegratorAccessKey(repos().users.list()[0]!.id, superKey.key.id);
-    const created = await passedOn();
+    await heldAtLimit();
+    await domain().projects.update('AR', { actor: humanActor('owner'), author: OWNER_LOGIN }, (draft) => {
+      draft.team.limits.aiEnabled = false;
+      return 'Switch AI work off';
+    });
+    await domain().fixLimit.decide('lead', 'AR', 'AR-1', 'to_owner', 'Not my call.', ASSESSMENT);
+    const created = item(record()!.inboxItemId!);
     expect(created.payload).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
     expect(created.payload.integratorOpenedAt).toBeUndefined();
     expect(domain().inbox.countOpenFor('AR', 'owner')).toBe(1);
-    expect((await decide(created.id, 'another_round')).statusCode).toBe(401);
+    expect((await decide(created.id, 'another_round')).json().error.code).toBe('super_relay_refused');
   });
 
-  it('gives the item to the owners after 24 hours, and refuses a late integrator answer', async () => {
+  it('keeps the item for the integrator after 24 hours: the Operator’s queue has no escalation', async () => {
     const created = await passedOn();
     now = new Date(now.getTime() + INTEGRATOR_TODO_TIMEOUT_MS);
-    expect((await decide(created.id, 'another_round')).json().error.code).toBe('super_relay_refused');
-    expect(item(created.id).payload).toMatchObject({ recipient: 'owner', integratorOpenedAt: START });
-    expect(escalations()).toHaveLength(1);
-    expect(escalations()[0]).toMatchObject({
-      actor: { kind: 'system' },
-      data: { reason: 'integrator_timeout' },
-    });
-    await domain().inbox.sweepIntegratorTodos();
-    expect(escalations()).toHaveLength(1);
-    expect(record()).toMatchObject({ holdPhase: 'owner', inboxItemId: created.id });
+    expect(item(created.id).payload).toMatchObject({ recipient: 'integrator' });
+    expect(escalations()).toHaveLength(0);
+    expect((await decide(created.id, 'another_round')).statusCode).toBe(200);
   });
 
   it('lets one of two simultaneous decisions win', async () => {

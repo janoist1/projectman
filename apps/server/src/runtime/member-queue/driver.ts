@@ -335,7 +335,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
       const alive =
         !!session && LIVE_SESSION_STATES.includes(session.state) && sessions.isRunning(session.id);
       const since = Date.parse(item.startedAt ?? item.restartedAt ?? item.queuedAt);
-      if (alive && Date.now() - since <= MEMBER_QUEUE_STUCK_MS) continue;
+      if (alive && Date.parse(at) - since <= MEMBER_QUEUE_STUCK_MS) continue;
       if (alive)
         await sessions
           .close(projectKey, session.id, { kind: 'failed', note: 'a work queue item was stuck' })
@@ -456,10 +456,19 @@ export class MemberQueueWorker implements MemberQueueDriver {
         const waiting = waitingOf(err, { member: member.handle, at });
         this.results.set(resultKey, { state: 'waiting', reason: waiting.reason });
         for (const entry of entries) entry.lane.deferred?.(entry.item, waiting.reason, at);
-        ctx.logger.info(
-          { projectKey: first.item.projectKey, member: member.handle, reason: waiting.reason },
-          'a queued start is deferred',
-        );
+        // Said when the reason is new, not at every refusal that stays (as the deferred starts do).
+        if (entries.some((e) => e.item.wait?.code !== waiting.reason))
+          ctx.logger.info(
+            {
+              projectKey: first.item.projectKey,
+              member: member.handle,
+              reason: waiting.reason,
+              ...(err.code === 'workspace_codex_config'
+                ? { issues: (err.details as { issues?: unknown })?.issues }
+                : {}),
+            },
+            'a queued start is deferred',
+          );
         // The card shows the member a wait is about (a handoff waits for the old assignee), the item has its own.
         const { reason, since: _since, member: about, ...rest } = waiting;
         return {

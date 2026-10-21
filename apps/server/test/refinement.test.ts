@@ -5,6 +5,7 @@ import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * Decision 31: a card that is being refined (label `refine`, or standing in the refinement stage
@@ -519,7 +520,7 @@ describe('Refinement line', () => {
       await h.domain.sessions.ensureSession('AR', 'ana2', { type: 'task', taskKey: 'AR-3' });
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([refineSpec]),
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([refineSpec]),
       );
       expect(sessionsOf()).toEqual([]);
       expect(turn()).toBeNull();
@@ -538,12 +539,12 @@ describe('Refinement line', () => {
       h.runnerModule.planUsage.value = planUsage(95);
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([refineSpec]),
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([refineSpec]),
       );
       expect(members()).toEqual([]);
 
       h = await restartDomainHarness(h, { planUsagePercent: 95 });
-      expect(h.repos.deferredStarts.list().map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
+      expect(deferredStartRecords(h.repos).map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
       await h.domain.admission.retryDeferred();
       expect(members()).toEqual([]);
 
@@ -566,7 +567,7 @@ describe('Refinement line', () => {
       await h.domain.pauses.pause(PAUSED_PROJECT, BY);
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([
           {
             kind: 'refinement_turn',
             projectKey: 'AR',
@@ -784,7 +785,7 @@ describe('Refinement line', () => {
     await label({ add: ['refine'] });
 
     await vi.waitFor(() =>
-      expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([
+      expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([
         { kind: 'refinement_turn', projectKey: 'AR', taskKey: 'AR-1', stageId: 'backlog', label: 'scope-ok' },
       ]),
     );
@@ -806,10 +807,10 @@ describe('Refinement line', () => {
       return 'Switch AI off';
     });
     await label({ add: ['refine'] });
-    await vi.waitFor(() => expect(h.repos.deferredStarts.list()).toHaveLength(1));
+    await vi.waitFor(() => expect(deferredStartRecords(h.repos)).toHaveLength(1));
 
     h = await restartDomainHarness(h);
-    expect(h.repos.deferredStarts.list().map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
+    expect(deferredStartRecords(h.repos).map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       draft.team.limits.aiEnabled = true;
       return 'Switch AI on';

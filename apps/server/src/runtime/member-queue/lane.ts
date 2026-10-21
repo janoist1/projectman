@@ -41,6 +41,10 @@ export interface MemberQueueLane {
     items: StoredMemberQueueItem[];
     run(messages: string[]): Promise<EnsureSessionResult>;
   }): Promise<void>;
+  /** Starts a null-rendering item through admission.attempt, outside the driver's admission lock (PM-927). */
+  attemptStart?(
+    item: StoredMemberQueueItem,
+  ): Promise<{ kind: 'started' } | { kind: 'deferred'; code: string } | { kind: 'closed' }>;
   /** The item reached the session: runs in the transaction that closes it (or claims it). */
   delivered?(item: StoredMemberQueueItem, sessionId: string, at: string): void;
   /** The start was refused for good: wait for the next attempt (default), or close the item. */

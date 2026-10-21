@@ -117,6 +117,10 @@ export function createMemberQueueRepository(db: Db) {
          'queued', @title, @from, @queuedAt, @payload)`,
     ),
     get: db.prepare('SELECT * FROM member_queue_items WHERE id = ?'),
+    payload: db.prepare('SELECT payload FROM member_queue_items WHERE id = ?'),
+    setPayload: db.prepare(
+      `UPDATE member_queue_items SET payload = @payload WHERE id = @id AND state IN ('queued','processing')`,
+    ),
     bySource: db.prepare(
       `SELECT * FROM member_queue_items
        WHERE project_key = ? AND member = ? AND source_type = ? AND source_id = ?`,
@@ -234,6 +238,14 @@ export function createMemberQueueRepository(db: Db) {
     get(id: string): StoredMemberQueueItem | null {
       const row = statements.get.get(id) as ItemRow | undefined;
       return row ? toItem(row) : null;
+    },
+    /** Internal lane data, deliberately absent from the queue view. */
+    payload(id: string): unknown {
+      const row = statements.payload.get(id) as { payload: string | null } | undefined;
+      return row?.payload ? parseJson<unknown>(row.payload, null) : null;
+    },
+    setPayload(id: string, payload: unknown): boolean {
+      return statements.setPayload.run({ id, payload: toJson(payload) }).changes > 0;
     },
     /** The member's item of this source, open or closed. */
     findBySource(

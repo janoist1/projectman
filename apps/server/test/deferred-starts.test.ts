@@ -4,6 +4,8 @@ import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage, settle } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
+import { conflict } from '../src/kernel';
 
 /**
  * The automatic session starts admission refused (a stage hand-over, a message wake-up) are kept
@@ -26,7 +28,7 @@ const reviewersBesidesCr = (config: ProjectConfig) => {
 };
 
 /** The keys of the starts SQLite holds, oldest first. */
-const stored = (h: DomainHarness) => h.repos.deferredStarts.list().map((record) => record.key);
+const stored = (h: DomainHarness) => deferredStartRecords(h.repos).map((record) => record.key);
 
 /**
  * The sessions started on a card. The Operator may be woken about a long-idle imported card (an
@@ -53,6 +55,12 @@ describe('deferred starts across a restart', () => {
     const waiting = await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting);
     expect(waiting).toMatchObject({ reason: 'ai_disabled', member: 'cr', since: expect.any(String) });
     expect(stored(h)).toEqual(['hand-over:AR:AR-1']);
+    expect(h.repos.deferredStarts.list()).toEqual([]);
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')[0]).toMatchObject({
+      kind: 'start',
+      source: { type: 'start', id: expect.stringMatching(/^hand-over:AR:AR-1#mqi_/) },
+      wait: { code: 'ai_disabled' },
+    });
 
     h = await restartDomainHarness(h);
     // The same task shows the same reason since the same time, and nothing has started.
@@ -99,6 +107,205 @@ describe('deferred starts across a restart', () => {
     expect(h.repos.memberQueue.listOpen('AR', 'dev-1')).toEqual([]);
     await h.domain.memberQueueDriver.sweep();
     expect(h.runner.started).toHaveLength(1);
+  });
+
+  it('migrates a legacy known-member deferral into the queue on restart and starts it', async () => {
+    h = await createDomainHarness({ persistent: true, adjust: aiOff });
+    const task = await h.domain.tasks.create(
+      'AR',
+      {
+        title: 'Legacy review',
+        stageId: 'code_review',
+        importedAt: new Date().toISOString(),
+      },
+      OWNER_ACTOR,
+    );
+    h.repos.deferredStarts.save({
+      key: `hand-over:AR:${task.key}`,
+      projectKey: 'AR',
+      taskKey: task.key,
+      spec: {
+        kind: 'hand_over',
+        projectKey: 'AR',
+        taskKey: task.key,
+        from: 'development',
+        to: 'code_review',
+        actor: OWNER_ACTOR,
+      },
+      waiting: { reason: 'ai_disabled', member: 'cr', since: new Date().toISOString() },
+    });
+    h = await restartDomainHarness(h);
+    expect(h.repos.deferredStarts.list()).toEqual([]);
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')).toContainEqual(
+      expect.objectContaining({ kind: 'start', taskKey: task.key }),
+    );
+    await setEnabled(h, true);
+    await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: task.key }));
+    expect(h.domain.memberQueue.view('AR', 'cr').closed).toContainEqual(
+      expect.objectContaining({ closeReason: 'started' }),
+    );
+  });
+
+  it('rekeys a restored queued start without auditing a source closure', async () => {
+    h = await createDomainHarness({ persistent: true, adjust: aiOff });
+    const task = await h.domain.tasks.create('AR', { title: 'Renamed start key' }, OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
+    const item = await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr')[0]);
+    const payload = h.repos.memberQueue.payload(item.id) as { spec: unknown; waiting: unknown };
+    h.repos.memberQueue.setPayload(item.id, { ...payload, key: 'legacy-hand-over-key' });
+    h = await restartDomainHarness(h);
+    expect(h.repos.memberQueue.get(item.id)).toMatchObject({ state: 'cancelled', closeReason: 'stale' });
+    expect(stored(h)).toEqual([`hand-over:AR:${task.key}`]);
+    expect(
+      h.domain.timeline
+        .list('AR', { taskKey: task.key })
+        .filter((event) => event.type === 'member_queue_item_closed'),
+    ).toEqual([]);
+  });
+
+  it('audits a queued start cancelled by a non-deferrable refusal', async () => {
+    h = await createDomainHarness({ adjust: aiOff });
+    const task = await h.domain.tasks.create('AR', { title: 'Refused review' }, OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr')[0]);
+    vi.spyOn(h.domain.admission, 'start').mockRejectedValue(
+      conflict('repo_required', 'No repository selected'),
+    );
+    await setEnabled(h, true);
+    await waitFor(() => h.domain.memberQueue.view('AR', 'cr').closed[0]);
+    expect(h.domain.memberQueue.view('AR', 'cr').closed[0]).toMatchObject({
+      state: 'cancelled',
+      closeReason: 'source_closed',
+    });
+    expect(
+      h.domain.timeline
+        .list('AR', { taskKey: task.key })
+        .filter((event) => event.type === 'member_queue_item_closed'),
+    ).toHaveLength(1);
+  });
+
+  it('recovers a start known only to the queue without starting it twice', async () => {
+    h = await createDomainHarness();
+    const task = await h.domain.tasks.create(
+      'AR',
+      {
+        title: 'Lost retry',
+        stageId: 'code_review',
+        importedAt: new Date().toISOString(),
+      },
+      OWNER_ACTOR,
+    );
+    const key = `hand-over:AR:${task.key}`;
+    const id = 'mqi_lost_retry';
+    h.repos.memberQueue.insert({
+      id,
+      projectKey: 'AR',
+      member: 'cr',
+      kind: 'start',
+      source: { type: 'start', id: `${key}#${id}` },
+      place: { type: 'task', taskKey: task.key },
+      taskKey: task.key,
+      wake: true,
+      title: task.title,
+      from: null,
+      queuedAt: new Date().toISOString(),
+      payload: {
+        key,
+        spec: {
+          kind: 'hand_over',
+          projectKey: 'AR',
+          taskKey: task.key,
+          from: 'development',
+          to: 'code_review',
+          actor: OWNER_ACTOR,
+        },
+        waiting: { reason: 'ai_disabled', member: 'cr', since: new Date().toISOString() },
+      },
+    });
+    await Promise.all([h.domain.memberQueueDriver.sweep(), h.domain.memberQueueDriver.ensure('AR', 'cr')]);
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.repos.memberQueue.get(id)).toMatchObject({ state: 'done', closeReason: 'started' });
+  });
+
+  it('keeps the closed history when another round reuses the same automatic start key', async () => {
+    h = await createDomainHarness({ adjust: aiOff });
+    const task = await h.domain.tasks.create('AR', { title: 'Review rounds' }, OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
+    const first = await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr')[0]);
+    await h.domain.tasks.moveToStage('AR', task.key, 'development', OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
+    const second = await waitFor(() =>
+      h.repos.memberQueue.listOpen('AR', 'cr').find((item) => item.id !== first.id),
+    );
+    expect(second.source.id).not.toBe(first.source.id);
+    expect(h.repos.memberQueue.get(first.id)).toMatchObject({
+      state: 'cancelled',
+      closeReason: 'source_closed',
+    });
+    await setEnabled(h, true);
+    await waitFor(() => h.repos.memberQueue.get(second.id)?.state === 'done');
+    expect(h.domain.memberQueue.view('AR', 'cr').closed.filter((item) => item.kind === 'start')).toHaveLength(
+      2,
+    );
+  });
+
+  it('holds a queued start while waiting-answer is present and wakes it when the label is removed', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        aiOff(config);
+        config.pipeline.labels.push({
+          id: 'waiting-answer',
+          name: 'Waiting for an answer',
+          blocks: true,
+          setBy: 'anyone',
+        });
+      },
+    });
+    const task = await h.domain.tasks.create('AR', { title: 'Held review' }, OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr')[0]);
+    h.domain.tasks.changeLabels('AR', task.key, { add: ['waiting-answer'] }, OWNER_ACTOR);
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait?.code === 'hold_waiting_answer');
+    const attempt = vi.spyOn(h.domain.admission, 'attempt');
+    await setEnabled(h, true);
+    await h.domain.admission.retryDeferred();
+    await h.domain.memberQueueDriver.sweep();
+    expect(attempt.mock.calls.filter(([start]) => start.taskKey === task.key)).toHaveLength(0);
+    expect(h.runner.started).toHaveLength(0);
+    h.domain.tasks.changeLabels('AR', task.key, { remove: ['waiting-answer'] }, OWNER_ACTOR);
+    await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: task.key }));
+    expect(h.domain.memberQueue.view('AR', 'cr').closed[0]).toMatchObject({ closeReason: 'started' });
+  });
+
+  it('stores the real reason for a fresh start already held for an answer', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        config.pipeline.labels.push({
+          id: 'waiting-answer',
+          name: 'Waiting for an answer',
+          blocks: true,
+          setBy: 'anyone',
+        });
+      },
+    });
+    const task = await h.domain.tasks.create(
+      'AR',
+      {
+        title: 'Held before admission',
+        stageId: 'code_review',
+        importedAt: new Date().toISOString(),
+        labels: ['waiting-answer'],
+      },
+      OWNER_ACTOR,
+    );
+    await h.domain.handOver.handOff({ task, from: 'development', to: 'code_review', actor: OWNER_ACTOR });
+    const item = h.repos.memberQueue.listOpen('AR', 'cr')[0]!;
+    expect(item.wait?.code).toBe('hold_waiting_answer');
+    expect(h.repos.memberQueue.payload(item.id)).toMatchObject({
+      waiting: { reason: 'waiting_answer', member: 'cr' },
+    });
+    expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+    expect(h.runner.started).toHaveLength(0);
   });
 
   it('retries what was deferred at startup when AI is on, without waiting for the timer', async () => {
@@ -154,9 +361,9 @@ describe('deferred starts across a restart', () => {
     h = await restartDomainHarness(h, { planUsagePercent: 90 });
     await settle();
     expect(stored(h)).toEqual(['hand-over:AR:AR-2', 'hand-over:AR:AR-1']);
-    const handOff = vi.spyOn(h.domain.handOver, 'handOff');
+    const attempt = vi.spyOn(h.domain.admission, 'attempt');
     await h.domain.admission.retryDeferred();
-    expect(handOff.mock.calls.map(([change]) => change.task.key)).toEqual(['AR-2', 'AR-1']);
+    expect(attempt.mock.calls.map(([start]) => start.taskKey)).toEqual(['AR-2', 'AR-1']);
   });
 
   it.each(['moved', 'cancelled'] as const)('forgets a stored start when its task is %s', async (how) => {
@@ -171,6 +378,18 @@ describe('deferred starts across a restart', () => {
     await settle();
     expect(stored(h)).toEqual([]);
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+    expect(h.domain.memberQueue.view('AR', 'cr').closed).toContainEqual(
+      expect.objectContaining({
+        kind: 'start',
+        state: 'cancelled',
+        closeReason: 'source_closed',
+      }),
+    );
+    expect(
+      h.domain.timeline
+        .list('AR', { taskKey: task.key })
+        .filter((event) => event.type === 'member_queue_item_closed'),
+    ).toHaveLength(1);
 
     h = await restartDomainHarness(h);
     await setEnabled(h, true);
@@ -283,7 +502,7 @@ describe('the retry timer', () => {
     await settle();
   }
 
-  it('neither retries nor logs a start that waits for the AI switch, while a capacity refusal is retried', async () => {
+  it('retries queued refusals without repeating their logs', async () => {
     h = await createDomainHarness();
     await h.domain.projects.create(
       { key: 'BR', name: 'Fictional second project', workspacePath: h.workspace, templateId: 'test' },
@@ -304,13 +523,14 @@ describe('the retry timer', () => {
     expect(h.domain.tasks.get('AR', off.key).startWaiting).toMatchObject({ reason: 'ai_disabled' });
     expect(h.domain.tasks.get('BR', full.key).startWaiting).toMatchObject({ reason: 'member_at_capacity' });
 
-    const handOff = vi.spyOn(h.domain.handOver, 'handOff');
+    const attempt = vi.spyOn(h.domain.admission, 'attempt');
     const info = vi.spyOn(h.log.logger, 'info');
     await tick();
     await tick();
-    // Two ticks: the capacity refusal was retried each time, the other start not at all. The
-    // refusal was logged when it began (above the spy), not again while it stays the same.
-    expect(handOff.mock.calls.map(([change]) => change.task.key)).toEqual(['BR-2', 'BR-2']);
+    expect(attempt.mock.calls.filter(([start]) => start.projectKey === 'AR')).toHaveLength(0);
+    expect(
+      attempt.mock.calls.some(([start]) => start.projectKey === 'BR' && start.taskKey === full.key),
+    ).toBe(true);
     expect(logged(info, 'stage hand-over deferred')).toEqual([]);
     expect(h.domain.tasks.get('AR', off.key).startWaiting).toMatchObject({ reason: 'ai_disabled' });
     expect(stored(h)).toEqual(['hand-over:AR:AR-1', 'hand-over:BR:BR-2']);
@@ -321,10 +541,9 @@ describe('the retry timer', () => {
     await setEnabled(h, true, 'AR');
     await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: off.key }));
     expect(h.domain.tasks.get('AR', off.key).startWaiting).toBeUndefined();
-    expect(handOff.mock.calls.filter(([change]) => change.task.key === 'AR-1')).toHaveLength(1);
   });
 
-  it('retries a start once when the switch went off after it was deferred, then leaves it alone', async () => {
+  it('updates the queued wait when the switch turns off and logs the new refusal once', async () => {
     h = await createDomainHarness();
     const busy = await h.domain.tasks.create('AR', { title: 'Keeps the reviewer busy' }, OWNER_ACTOR);
     await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: busy.key });
@@ -333,17 +552,14 @@ describe('the retry timer', () => {
     await waitFor(() => h.domain.tasks.get('AR', full.key).startWaiting);
     expect(h.domain.tasks.get('AR', full.key).startWaiting).toMatchObject({ reason: 'member_at_capacity' });
 
-    await setEnabled(h, false);
-    const handOff = vi.spyOn(h.domain.handOver, 'handOff');
     const info = vi.spyOn(h.log.logger, 'info');
+    await setEnabled(h, false);
     await tick();
-    expect(handOff).toHaveBeenCalledTimes(1);
     expect(logged(info, 'stage hand-over deferred')).toHaveLength(1);
     expect(h.domain.tasks.get('AR', full.key).startWaiting).toMatchObject({ reason: 'ai_disabled' });
 
     await tick();
     await tick();
-    expect(handOff).toHaveBeenCalledTimes(1);
     expect(logged(info, 'stage hand-over deferred')).toHaveLength(1);
     expect(h.domain.tasks.get('AR', full.key).startWaiting).toMatchObject({ reason: 'ai_disabled' });
   });

@@ -88,6 +88,7 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   prerequisite_open: 'A prerequisite is still open.',
   no_free_member: 'No eligible member is free.',
   label_missing: 'The start waits for labels.',
+  waiting_answer: 'The card waits for an answer to an open question.',
   full_test_pending: 'The pinned commit full test has not finished.',
   provider_not_logged_in: 'The provider is not logged in.',
   nanogpt_key_missing: 'The managed NanoGPT key is missing.',

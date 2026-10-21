@@ -25,6 +25,7 @@ import type {
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
+import type { MemberQueue } from '../../core/member-queue';
 import { staleReasonFor } from '../../core/messages';
 import type { MessageService, Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
@@ -62,6 +63,7 @@ export interface ObligationsDeps {
   messaging: Pick<Messaging, 'send'>;
   messages: Pick<MessageService, 'markRecipientDelivered'>;
   timeline: Pick<TimelineService, 'append'>;
+  memberQueue: Pick<MemberQueue, 'remindObligation'>;
   sessions: ObligationSessions;
   admission: ObligationAdmission;
   refinement: ObligationRefinement;
@@ -99,6 +101,7 @@ export class ObligationsService {
   private readonly messaging: ObligationsDeps['messaging'];
   private readonly messages: ObligationsDeps['messages'];
   private readonly timeline: ObligationsDeps['timeline'];
+  private readonly memberQueue: ObligationsDeps['memberQueue'];
   private readonly sessions: ObligationSessions;
   private readonly admission: ObligationAdmission;
   private readonly sources: ObligationSource[];
@@ -113,6 +116,7 @@ export class ObligationsService {
     this.messaging = deps.messaging;
     this.messages = deps.messages;
     this.timeline = deps.timeline;
+    this.memberQueue = deps.memberQueue;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
     this.sources = obligationSources({
@@ -434,8 +438,11 @@ export class ObligationsService {
     at: string,
     view: ProjectView,
   ): Promise<void> {
+    const text = this.sourceOf(row.kind).wakeText(row, minutes, minutesBetween(row.openedAt, at), view);
+    const ai = memberOf(view.config, row.responsible)?.kind === 'ai';
     this.ctx.unitOfWork(() => {
       this.ctx.repos.obligations.update(row.id, { wokenAt: at, dueAt }, at);
+      if (ai) this.memberQueue.remindObligation(row, text);
       this.timeline.append({
         projectKey: row.projectKey,
         taskKey: row.taskKey,
@@ -451,6 +458,7 @@ export class ObligationsService {
         },
       });
     });
+    if (ai) return;
     try {
       await this.messaging.send(
         row.projectKey,
@@ -458,7 +466,7 @@ export class ObligationsService {
         {
           to: [row.responsible],
           taskKey: row.taskKey,
-          text: this.sourceOf(row.kind).wakeText(row, minutes, minutesBetween(row.openedAt, at), view),
+          text,
         },
         // The subject lets the delivery see that the reminder is out of date once the step is done (PM-813).
         {

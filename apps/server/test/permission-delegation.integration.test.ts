@@ -113,6 +113,7 @@ it.each([
     by: 'cr',
     note: reason,
   });
+  expect(domain.memberQueue.view('AR', 'cr').closed).toMatchObject([{ kind: 'permission', state: 'done' }]);
 });
 
 it(
@@ -122,7 +123,8 @@ it(
     const { app, cookie, domain, key, item, chat } = await startAsking('git push origin main');
     expect(item).toMatchObject({ assignees: ['owner'], payload: { ownerCategory: 'production' } });
     expect(item.payload).not.toHaveProperty('delegation');
-    expect(domain.sessions.list('AR', { member: 'cr', taskKey: key })).toHaveLength(0);
+    expect(domain.sessions.list('AR', { member: 'cr' })).toHaveLength(0);
+    expect(domain.memberQueue.view('AR', 'cr').items).toEqual([]);
     const resolved = await app.inject({
       method: 'POST',
       url: routes.resolveInbox('AR', item.id),

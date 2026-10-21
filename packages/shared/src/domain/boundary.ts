@@ -109,6 +109,8 @@ export const BoundaryRequest = z.object({
   reason: BoundaryAuditReason.nullable(),
   /** Separate grant lifecycle from the original decision (older records omit these fields). */
   consumedAt: z.string().datetime().nullable().optional(),
+  /** When the request first reached a decider's session (PM-926); the decider's time counts from it. Older records omit it. */
+  deliveredAt: z.string().datetime().nullable().optional(),
   invalidation: z
     .object({ actor: Actor, reason: BoundaryAuditReason, at: z.string().datetime() })
     .nullable()

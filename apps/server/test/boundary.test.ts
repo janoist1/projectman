@@ -4,7 +4,7 @@ import type { BoundaryRequester, ToolContext } from '../src/contracts';
 import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { FakeBoundaryAdapter, fakeBoundaryTarget } from './helpers/fake-boundary';
-import { flush } from './helpers/fakes';
+import { flush, planUsage } from './helpers/fakes';
 
 const allow = { decision: 'allow', reason: 'scope_verified' } as const;
 const deny = { decision: 'deny', reason: 'unsafe_target' } as const;
@@ -58,11 +58,17 @@ describe('boundary requests', () => {
     return h.domain.boundary.submit(asker, { operationId: key, deduplicationKey: key });
   }
 
-  it('routes a custom-duty request, wakes the lead through messaging and records the AI decision for the owner', async () => {
+  it('routes a custom-duty request, wakes the lead at the desk and records the AI decision for the owner', async () => {
     const request = await submit();
     expect(request).toMatchObject({ state: 'pending_lead', assignees: ['cr'], category: 'delegable' });
     await flush();
-    expect(h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })).toHaveLength(1);
+    expect(h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })).toHaveLength(0);
+    expect(h.domain.sessions.list('AR', { member: 'cr' }).map((s) => s.workItem)).toEqual([
+      { type: 'general' },
+    ]);
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')).toMatchObject([
+      { kind: 'boundary', state: 'processing' },
+    ]);
     const decided = await h.domain.teamTools.decideBoundaryRequest(
       { ...toolContext(requester), member: 'cr' },
       { requestId: request.id, ...allow },
@@ -192,6 +198,7 @@ describe('boundary requests', () => {
 
   it('refuses unauthorized, self, double and late decisions without issuing a grant', async () => {
     const request = await submit();
+    await flush();
     await expect(h.domain.boundary.decide('AR', request.id, 'dev-1', allow)).rejects.toMatchObject({
       code: 'not_an_assignee',
     });
@@ -243,12 +250,14 @@ describe('boundary requests', () => {
 
   it('escalates persisted absolute deadlines on restart and refuses the late lead', async () => {
     const request = await submit();
+    await flush();
+    const { leadDeadline } = h.repos.boundary.get(request.id)!;
     now = new Date('2026-10-01T11:02:00.000Z');
     h = await restartDomainHarness(h, { now: () => now, boundaryAdapter: adapter });
     expect(h.repos.boundary.get(request.id)).toMatchObject({
       state: 'pending_owner',
       assignees: ['owner'],
-      leadDeadline: request.leadDeadline,
+      leadDeadline,
     });
     await expect(h.domain.boundary.decide('AR', request.id, 'cr', allow)).rejects.toMatchObject({
       code: 'not_an_assignee',
@@ -256,18 +265,44 @@ describe('boundary requests', () => {
     expect((await h.domain.boundary.decide('AR', request.id, 'owner', allow)).state).toBe('allowed');
   });
 
-  it('escalates when admission cannot wake a busy lead without keeping the submission open', async () => {
-    // All capacity is occupied by other running general chats; notification stays deferred.
-    const lead = h.domain.sessions;
-    await lead.ensureSession('AR', 'cr', { type: 'general' });
+  it('escalates unreached, five minutes after the request, when the plan limit holds the lead back', async () => {
+    h.runnerModule.planUsage.value = planUsage(95);
     const request = await submit();
     await flush();
     expect(h.repos.boundary.get(request.id)?.state).toBe('pending_lead');
-    expect(h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait).toMatchObject({ code: 'member_at_capacity' });
-    now = new Date('2026-10-01T11:02:00.000Z');
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait).not.toBeNull();
+    now = new Date('2026-10-01T11:04:59.000Z');
+    await h.domain.boundary.sweep();
+    expect(h.repos.boundary.get(request.id)?.state).toBe('pending_lead');
+    now = new Date('2026-10-01T11:05:00.000Z');
     await h.domain.boundary.sweep();
     expect(h.repos.boundary.get(request.id)?.state).toBe('pending_owner');
     expect(h.repos.boundary.grant(request.id)).toBeNull();
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')).toEqual([]);
+  });
+
+  it('starts the lead at the desk even when the team and the lead are at capacity', async () => {
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      config.team.limits.maxConcurrentAi = 1;
+      return 'One AI slot';
+    });
+    const request = await submit();
+    await flush();
+    expect(h.repos.boundary.get(request.id)?.state).toBe('pending_lead');
+    expect(h.domain.sessions.list('AR', { member: 'cr' }).map((s) => s.workItem)).toEqual([
+      { type: 'general' },
+    ]);
+  });
+
+  it('sends the request to the owners at once when no decider can be started any more', async () => {
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      const cr = config.team.members.find((m) => m.handle === 'cr')!;
+      if (cr.kind === 'ai') cr.onLeave = true;
+      return 'Send lead on leave';
+    });
+    const request = await submit();
+    expect(request).toMatchObject({ state: 'pending_owner', assignees: ['owner'] });
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')).toEqual([]);
   });
 
   it('expires unanswered owner requests, including after restart', async () => {
@@ -297,6 +332,8 @@ describe('boundary requests', () => {
 
   it('keeps an unexpired pending request and delegation settings across restart without restarting its deadline', async () => {
     const request = await submit();
+    await flush();
+    const { leadDeadline } = h.repos.boundary.get(request.id)!;
     now = new Date('2026-10-01T11:01:00.000Z');
     h = await restartDomainHarness(h, { now: () => now, boundaryAdapter: adapter });
     expect((await h.domain.projects.config('AR')).team.boundary).toEqual({
@@ -305,7 +342,7 @@ describe('boundary requests', () => {
     });
     expect((await h.domain.boundary.read('AR', request.id, 'owner')).request).toMatchObject({
       state: 'pending_lead',
-      leadDeadline: request.leadDeadline,
+      leadDeadline,
     });
   });
 

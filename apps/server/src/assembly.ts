@@ -60,7 +60,6 @@ import {
   operatorOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationMessageId,
-  permissionDelegationOf,
   pullSourceStage,
   routeFor,
   seniorWaitMinutesOf,
@@ -141,13 +140,13 @@ import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
 import { ProjectState } from './services/operator';
 import { PmReplyRelay } from './services/operator';
-import { BoundaryService } from './services/boundary';
+import { BoundaryService, boundaryNotice } from './services/boundary';
 import { CardQuestions } from './core/inbox';
 import { createDomainContext, defaultTemplateRegistry, isoNow } from './core/base';
 import type { DomainContext, TemplateRegistry } from './core/base';
 import { createEventBus } from './core/base';
 import { GithubSync } from './services/github';
-import { InboxService, delegatedPermissionPrompt } from './core/inbox';
+import { InboxService } from './core/inbox';
 import { OperatorActions, OperatorApprovals } from './services/operator';
 import { FixLimitWatch } from './runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from './services/full-tests';
@@ -172,7 +171,7 @@ import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
 import { MemberQueue } from './core/member-queue';
 import { MessageDelivery } from './runtime/delivery';
-import { MemberQueueWorker, messageLane } from './runtime/member-queue';
+import { MemberQueueWorker, decisionLane, messageLane } from './runtime/member-queue';
 import { PlanUsageMonitor } from './runtime/usage';
 import { PresenceService } from './core/members';
 import { OWNER_HANDLE, ProjectService } from './core/projects';
@@ -906,7 +905,7 @@ export function createDomain(opts: DomainOptions) {
               {
                 to: agents,
                 taskKey: request.taskKey,
-                text: `Boundary request ${request.id}: ${request.state}. Operation: ${request.target.operation}; resource: ${request.target.resource}. Inspect with get_boundary_request. Delegated approvers use decide_boundary_request; owner exceptions require the owner's inbox decision.`,
+                text: boundaryNotice(request),
               },
               { actor: SYSTEM_ACTOR },
             )
@@ -914,24 +913,6 @@ export function createDomain(opts: DomainOptions) {
         () => opts.logger.warn({ requestId: request.id }, 'boundary notification failed'),
       );
     },
-  });
-  // A member's tool question went to its AI decider: wake it like a boundary request's lead. The
-  // sponsor and owners are not told; they hear of it only if it comes to them.
-  events.on('permission_delegated', (item) => {
-    const leads = permissionDelegationOf(item)?.leads ?? [];
-    if (!leads.length) return;
-    background.run(
-      () =>
-        messaging
-          .send(
-            item.projectKey,
-            'system',
-            { to: leads, taskKey: item.taskKey, text: delegatedPermissionPrompt(item) },
-            { actor: SYSTEM_ACTOR, kind: 'action', subject: { type: 'permission', inboxItemId: item.id } },
-          )
-          .then(() => undefined),
-      () => opts.logger.warn({ itemId: item.id }, 'permission decider notification failed'),
-    );
   });
   // The wait of a card recommended for the Senior (PM-348); an answer tries the deferred starts again.
   const seniorWaits = new SeniorWaits({
@@ -987,6 +968,7 @@ export function createDomain(opts: DomainOptions) {
     admission,
     delivery,
     starts: taskStarts,
+    queue: memberQueue,
   });
   messaging.registerCardHold('fix_limit', { holds: (task, config) => fixLimit.heldFor(task, config) });
   taskStarts.useFixLimit(fixLimit);
@@ -1004,6 +986,40 @@ export function createDomain(opts: DomainOptions) {
     type: (session, item, text) => delivery.notice(session, item.from ?? SYSTEM_SENDER, text, item.taskKey),
   });
   memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messaging, delivery }));
+  // What an AI member decides at its desk (PM-926): the lane never waits for a workspace, and the time to decide
+  // counts from the delivery. Each source tells what its request needs of the lane.
+  const heldAtOf = (item: { source: { id: string } }): string =>
+    item.source.id.slice(item.source.id.lastIndexOf('@') + 1);
+  memberQueueDriver.register(
+    decisionLane({
+      ctx,
+      permission: {
+        prompt: (item) => inbox.delegatedPromptOf(item.source.id),
+        owed: (item) => inbox.delegationWaitsFor(item.source.id, item.member),
+        delivered: (item, at) => inbox.recordDelegationDelivered(item.source.id, at),
+        unreachable: (item) => inbox.escalateUnreached(item.projectKey, item.source.id, 'unavailable'),
+        exhausted: (item) => inbox.escalateUnreached(item.projectKey, item.source.id, 'timeout'),
+      },
+      boundary: {
+        prompt: (item) => boundary.decisionPromptOf(item.source.id),
+        owed: (item) => boundary.waitsFor(item.source.id, item.member),
+        delivered: (item, at) => boundary.recordDelivered(item.source.id, at),
+        unreachable: (item) => boundary.escalateUnreached(item.projectKey, item.source.id),
+        exhausted: (item) => boundary.escalateUnreached(item.projectKey, item.source.id),
+      },
+      fixLimit: {
+        prompt: (item) => fixLimit.leadPromptOf(item.taskKey ?? '', heldAtOf(item), item.member),
+        owed: (item) => fixLimit.leadWaitsFor(item.taskKey ?? '', heldAtOf(item), item.member),
+        delivered: () => undefined,
+        unreachable: async (item) => {
+          await fixLimit.timeOut(item.projectKey, item.taskKey ?? '', item.member, 'no_ai_decider');
+        },
+        exhausted: async (item) => {
+          await fixLimit.timeOut(item.projectKey, item.taskKey ?? '', item.member);
+        },
+      },
+    }),
+  );
   messaging.registerWaker({
     wake: (projectKey, handle, workItem) => memberQueueDriver.wake(projectKey, handle, workItem),
     // A hold lifted by the messaging (a release, a resumed session) is no turn boundary of its own: the lane
@@ -1277,6 +1293,18 @@ export function createDomain(opts: DomainOptions) {
     fixLimit,
     startOffers: { stateOf: (projectKey, taskKey) => startRound.offerState(projectKey, taskKey) },
     sessions: {
+      atWork: (sessionId) => {
+        const session = sessions.find(sessionId);
+        return (
+          !!session &&
+          sessions.isRunning(sessionId) &&
+          isSessionAtWork(session, {
+            awaitsFirstTurn: false,
+            pendingInput: false,
+            messageOnItsWay: false,
+          })
+        );
+      },
       ofMember: (projectKey, taskKey, member) =>
         sessions.list(projectKey, { member, taskKey }).map((session) => {
           const running = sessions.isRunning(session.id);

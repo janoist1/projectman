@@ -76,7 +76,7 @@ const placeKeyOf = (member: AiMemberConfig, place: WorkItemRef): string => {
  */
 export class MemberQueueWorker implements MemberQueueDriver {
   private readonly deps: MemberQueueDriverDeps;
-  private readonly lanes = new Map<string, MemberQueueLane>();
+  private readonly lanes = new Map<string, MemberQueueLane[]>();
   private readonly mutex = new KeyedMutex();
   private readonly queuedRuns = new Map<string, { started: boolean; promise: Promise<void> }>();
   private readonly results = new Map<string, StartResult>();
@@ -97,8 +97,11 @@ export class MemberQueueWorker implements MemberQueueDriver {
 
   register(lane: MemberQueueLane): void {
     for (const kind of lane.kinds) {
-      if (this.lanes.has(kind)) throw new Error(`the member queue has a lane for ${kind} already`);
-      this.lanes.set(kind, lane);
+      const taken = this.lanes.get(kind) ?? [];
+      // Lanes share a kind only by telling their items apart (`owns`): the last one registered is the catch-all.
+      if (taken.some((other) => !other.owns) && !lane.owns)
+        throw new Error(`the member queue has a lane for ${kind} already`);
+      this.lanes.set(kind, [...taken, lane]);
     }
   }
 
@@ -134,7 +137,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
   async sweep(options: { respectPause?: boolean } = {}): Promise<void> {
     if (!this.begun) {
       this.begun = true;
-      for (const lane of new Set(this.lanes.values()))
+      for (const lane of new Set([...this.lanes.values()].flat()))
         await lane.started?.().catch((err: unknown) => {
           this.deps.ctx.logger.warn({ err }, 'a member queue lane could not start');
         });
@@ -166,7 +169,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
   }
 
   private laneOf(item: StoredMemberQueueItem): MemberQueueLane | undefined {
-    return this.lanes.get(item.kind);
+    return this.lanes.get(item.kind)?.find((lane) => !lane.owns || lane.owns(item));
   }
 
   private close(

@@ -38,8 +38,6 @@ export interface DomainEventMap {
   inbox_resolved: InboxItem;
   /** Open items of a retired member were cancelled without a decision (questions among them). */
   inbox_cancelled: InboxItem;
-  /** A member's tool question went to its AI decider (PM-169): the decider is woken to answer it. */
-  permission_delegated: InboxItem;
   /** A release was proposed (PM-497), after its record and approval request committed. */
   release_proposed: { release: Release };
   /** A task entered another stage (after the change committed). */

@@ -389,15 +389,21 @@ on its own only where the CLI does not cover a case or the owner asked for it.
   changes of the host, a file tool writing outside the session's directories); it is a cautious
   filter, not proof, and the decider's duty text sends doubtful cases to a person anyway. The
   item is a `permission` item assigned to the decider, with `payload.delegation` (`pending_lead`,
-  `leads`, `leadDeadline` after `team.boundary.leadTimeoutSeconds`); the owner does not see it as
-  waiting, may still answer it, and sees the decision under the recent items. The decider is woken
-  by a team message with the exact input (`permission_delegated` domain event) and answers with the
+  `leads`, `deliveredAt`, `leadDeadline`); the owner does not see it as
+  waiting, may still answer it, and sees the decision under the recent items. The decider gets a
+  `permission` item in its member queue (the decision lane, PM-926: its session works at the desk,
+  in a general session with no card workspace, outside the AI and capacity limits) with the exact
+  input. The deadline is 5 minutes from the request until the item is delivered; from the delivery
+  it is `team.boundary.leadTimeoutSeconds`, at most 8 minutes after the request
+  (`deliveredLeadDeadline`). The decider answers with the
   team tool `decide_permission_request` (`allow`, `deny` or `escalate`, a reason is required;
   `InboxService.resolveDelegated`, the one way an AI resolves an inbox item, only for a delegated
   permission item and only for a chosen, live, independent decider before the deadline,
   `canDecidePermission`). The hook keeps waiting up to `permissionTimeoutMs`; an `escalate`, the
   deadline, a decider that went on leave or delegation switched off hand the item to the
-  sponsor or owners (`payload.delegation.state` `pending_owner`, a `permission_escalated` event;
+  sponsor or owners (`payload.delegation.state` `pending_owner`, a `permission_escalated` event
+  whose cause is `lead`, `timeout` after a delivery, `undelivered` before one, or `unavailable`
+  when no decider can be started any more;
   `InboxService.sweepDelegations` runs every second and on configuration changes). Nothing
   here is ever an allowance by itself. The decision is a `permission_resolved` event in the
   decider's name with `delegated: true` and the reason, and the inbox item's resolution carries

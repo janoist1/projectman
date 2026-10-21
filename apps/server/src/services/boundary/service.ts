@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto';
 import { assertOwnApproval } from '../../kernel';
 import {
   BoundaryTarget,
+  DELEGATION_DELIVERY_TIMEOUT_MS,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
   boundaryCategory,
+  deliveredLeadDeadline,
   boundaryLeads,
   boundaryOwners,
   boundaryWaitingState,
@@ -36,6 +38,14 @@ const requesterOf = (r: BoundaryRequest): BoundaryRequester => ({
   sessionId: r.sessionId,
   taskKey: r.taskKey,
 });
+
+/**
+ * The agent prompt about a request (English, like every prompt for AI members): sent to the requester when it is
+ * decided, and the text that wakes a decider (PM-926).
+ */
+export function boundaryNotice(request: BoundaryRequest): string {
+  return `Boundary request ${request.id}: ${request.state}. Operation: ${request.target.operation}; resource: ${request.target.resource}. Inspect with get_boundary_request. Delegated approvers use decide_boundary_request; owner exceptions require the owner's inbox decision.`;
+}
 
 /** Durable asynchronous requests. No permission-hook waiter and no runner permission changes. */
 export class BoundaryService {
@@ -160,8 +170,9 @@ export class BoundaryService {
       policyVersion: this.policy(project, target),
       state: leads.length ? 'pending_lead' : 'pending_owner',
       assignees: leads.length ? leads : boundaryOwners(project.config),
+      // Until a decider has it: the delivery limit. Its own time counts from the delivery (`recordDelivered`).
       leadDeadline: new Date(
-        now.getTime() + (project.config.team.boundary?.leadTimeoutSeconds ?? 120) * 1000,
+        Math.min(now.getTime() + DELEGATION_DELIVERY_TIMEOUT_MS, Date.parse(target.expiresAt)),
       ).toISOString(),
       expiresAt: target.expiresAt,
       createdAt: now.toISOString(),
@@ -188,8 +199,70 @@ export class BoundaryService {
       });
       this.audit(request, { kind: 'ai', handle: requester.member });
     });
-    this.notify(request, request.assignees);
+    // The AI deciders have their items in the member queue, which came with the inbox item.
+    if (request.state !== 'pending_lead') this.notify(request, request.assignees);
     return request;
+  }
+
+  /**
+   * The request first reached a decider's session (PM-926): the decider's own time (`leadTimeoutSeconds`)
+   * counts from now, at most until the request expires. Runs in the delivering transaction; later
+   * deliveries change nothing.
+   */
+  recordDelivered(id: string, at: string): void {
+    const request = this.ctx.repos.boundary.get(id);
+    if (!request || request.state !== 'pending_lead' || request.deliveredAt) return;
+    const seconds = this.projects.cachedConfig(request.projectKey)?.team.boundary?.leadTimeoutSeconds ?? 120;
+    const next: BoundaryRequest = {
+      ...request,
+      deliveredAt: at,
+      leadDeadline: deliveredLeadDeadline({
+        deliveredAt: at,
+        leadTimeoutSeconds: seconds,
+        capAt: request.expiresAt,
+      }),
+      updatedAt: at,
+    };
+    this.ctx.repos.boundary.update(next);
+    const item = this.ctx.repos.inbox.get(id);
+    if (item && item.state === 'open') {
+      this.ctx.repos.inbox.updateBoundary(id, { boundary: next }, item.assignees, at);
+      this.ctx.bus.publish({
+        type: 'inbox_upserted',
+        projectKey: request.projectKey,
+        item: this.ctx.repos.inbox.get(id)!,
+      });
+    }
+  }
+
+  /** Whether the request still waits for `handle` to decide it (the member queue's item is owed). */
+  waitsFor(id: string, handle: string): boolean {
+    const request = this.ctx.repos.boundary.get(id);
+    return request?.state === 'pending_lead' && request.assignees.includes(handle);
+  }
+
+  /** What the AI decider is told when the request comes to its desk. */
+  decisionPromptOf(id: string): string | null {
+    const request = this.ctx.repos.boundary.get(id);
+    return request ? boundaryNotice(request) : null;
+  }
+
+  /**
+   * Hands a request to the owners because its deciders cannot be reached, or were started in vain
+   * (`lead_unavailable`). No-op when it no longer waits for a decider.
+   */
+  async escalateUnreached(projectKey: string, id: string): Promise<void> {
+    const project = await this.projects.load(projectKey);
+    const request = this.ctx.repos.boundary.get(id);
+    if (!request || request.projectKey !== projectKey || request.state !== 'pending_lead') return;
+    const escalated = this.transition(
+      request,
+      'pending_owner',
+      'lead_unavailable',
+      SYSTEM_ACTOR,
+      project.config,
+    );
+    this.notify(escalated, escalated.assignees);
   }
 
   async read(

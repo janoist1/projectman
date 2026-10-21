@@ -4804,6 +4804,7 @@ export const hu = {
       permission_refused_classifier: 'A Claude Code elutasította: {summary}',
       permission_escalated_lead: 'Továbbküldve emberi döntésre',
       permission_escalated_timeout: 'A döntnök nem döntött időben, emberi döntésre vár',
+      permission_escalated_unreached: 'A döntnököt nem sikerült elérni, emberi döntésre vár',
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
       question_asked_screening: 'Kérdés: {question} · az Operátornál',

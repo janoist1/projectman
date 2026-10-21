@@ -121,6 +121,17 @@ export class ObligationsService {
       fixLimit: deps.fixLimit,
       startOffers: deps.startOffers,
       fixLimits: deps.ctx.repos.taskFixLimits,
+      decidingAtDesk: (projectKey, taskKey, member) =>
+        deps.ctx.repos.memberQueue
+          .listOpen(projectKey, member)
+          .some(
+            (i) =>
+              i.kind === 'fix_limit' &&
+              i.taskKey === taskKey &&
+              i.state === 'processing' &&
+              !!i.sessionId &&
+              deps.sessions.atWork(i.sessionId),
+          ),
       roundsOf: (projectKey, taskKey) => deps.tasks.find(projectKey, taskKey)?.fixLimit?.rounds ?? 0,
       mergeState: (mergeId) => deps.ctx.repos.taskMerges.get(mergeId)?.state ?? null,
       labelsAddedSince: (projectKey, taskKey, labels, since) =>

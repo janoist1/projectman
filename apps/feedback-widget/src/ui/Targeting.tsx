@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Controller, Mode, Target } from '../controller';
-import { snippetOf } from '../anchor';
+import { containsRect, fractionsIn, isReliableContainer, snippetOf } from '../anchor';
 import type { Point, Rect } from '../anchor';
 import { HOST_ATTRIBUTE } from '../screenshot';
 import { describeElement, selectorFor } from '../selector';
@@ -46,21 +46,23 @@ function elementUnder(overlay: HTMLElement, point: Point): Element | null {
   return found;
 }
 
+const offsetIn = (box: DOMRect, click: Point): Point => ({
+  x: box.width > 0 ? clamp01((click.x - box.left) / box.width) : 0.5,
+  y: box.height > 0 ? clamp01((click.y - box.top) / box.height) : 0.5,
+});
+
 function elementTarget(element: Element, click: Point): Target {
   const box = element.getBoundingClientRect();
   const selector = selectorFor(element);
   const pagePoint = { x: click.x + window.scrollX, y: click.y + window.scrollY };
-  if (!selector) return pointTarget(click); // an element no selector can name is marked as a point
+  if (!selector) return pointTarget(click, null); // an element no selector can name is marked as a point
   return {
     kind: 'element',
     anchor: {
       kind: 'element',
       selector,
       textSnippet: snippetOf(element),
-      elementOffset: {
-        x: box.width > 0 ? clamp01((click.x - box.left) / box.width) : 0.5,
-        y: box.height > 0 ? clamp01((click.y - box.top) / box.height) : 0.5,
-      },
+      elementOffset: offsetIn(box, click),
       pagePoint,
       rect: null,
     },
@@ -70,14 +72,36 @@ function elementTarget(element: Element, click: Point): Target {
   };
 }
 
-function pointTarget(click: Point): Target {
+const documentSize = () => ({
+  width: Math.max(document.documentElement.scrollWidth, window.innerWidth),
+  height: Math.max(document.documentElement.scrollHeight, window.innerHeight),
+});
+
+/** The element's box in document coordinates, or null when it cannot hold a pinned mark. */
+function reliableBox(element: Element | null): { selector: string; box: DOMRect } | null {
+  if (!element) return null;
+  const box = element.getBoundingClientRect();
+  const inDocument = {
+    x: box.left + window.scrollX,
+    y: box.top + window.scrollY,
+    width: box.width,
+    height: box.height,
+  };
+  if (!isReliableContainer(element, inDocument, documentSize())) return null;
+  const selector = selectorFor(element);
+  return selector ? { selector, box } : null;
+}
+
+/** A point is pinned to the element under it when there is a reliable one (PM-917); else it is just a coordinate. */
+function pointTarget(click: Point, under: Element | null): Target {
+  const pinned = reliableBox(under);
   return {
     kind: 'point',
     anchor: {
       kind: 'point',
-      selector: null,
-      textSnippet: null,
-      elementOffset: null,
+      selector: pinned?.selector ?? null,
+      textSnippet: under && pinned ? snippetOf(under) : null,
+      elementOffset: pinned ? offsetIn(pinned.box, click) : null,
       pagePoint: { x: click.x + window.scrollX, y: click.y + window.scrollY },
       rect: null,
     },
@@ -87,13 +111,25 @@ function pointTarget(click: Point): Target {
   };
 }
 
-function areaTarget(rect: Rect): Target {
+/** The smallest element around the middle of the area that holds the whole area. */
+function containerOf(under: Element | null, rect: Rect): Element | null {
+  for (let element = under; element; element = element.parentElement) {
+    if (element === document.body || element === document.documentElement) return null;
+    if (containsRect(toBox(element.getBoundingClientRect()), rect)) return element;
+  }
+  return null;
+}
+
+/** An area is pinned to the smallest element that holds it, with its rectangle as fractions of that element. */
+function areaTarget(rect: Rect, under: Element | null): Target {
+  const container = containerOf(under, rect);
+  const pinned = reliableBox(container);
   return {
     kind: 'area',
     anchor: {
       kind: 'area',
-      selector: null,
-      textSnippet: null,
+      selector: pinned?.selector ?? null,
+      textSnippet: container && pinned ? snippetOf(container) : null,
       elementOffset: null,
       pagePoint: null,
       rect: {
@@ -102,6 +138,7 @@ function areaTarget(rect: Rect): Target {
         width: rect.width,
         height: rect.height,
       },
+      elementRect: pinned ? fractionsIn(toBox(pinned.box), rect) : null,
     },
     label: t('new.whatArea'),
     viewportRect: rect,
@@ -157,20 +194,28 @@ export function Targeting({ controller, mode }: { controller: Controller; mode: 
   const onUp = (event: PointerEvent): void => {
     if (event.button !== 0) return;
     const at = pointOf(event);
+    const underAt = (point: Point): Element | null =>
+      overlay.current ? elementUnder(overlay.current, point) : null;
     if (mode === 'area') {
       if (!drag) return;
       const rect = rectOf(drag.from, at);
       setDrag(null);
-      if (rect.width < MIN_AREA && rect.height < MIN_AREA) controller.chooseTarget(pointTarget(at));
-      else controller.chooseTarget(areaTarget(atLeastMin(rect)));
+      if (rect.width < MIN_AREA && rect.height < MIN_AREA)
+        controller.chooseTarget(pointTarget(at, underAt(at)));
+      else {
+        const area = atLeastMin(rect);
+        controller.chooseTarget(
+          areaTarget(area, underAt({ x: area.x + area.width / 2, y: area.y + area.height / 2 })),
+        );
+      }
       return;
     }
     if (mode === 'point') {
-      controller.chooseTarget(pointTarget(at));
+      controller.chooseTarget(pointTarget(at, underAt(at)));
       return;
     }
-    const found = overlay.current ? elementUnder(overlay.current, at) : null;
-    controller.chooseTarget(found ? elementTarget(found, at) : pointTarget(at));
+    const found = underAt(at);
+    controller.chooseTarget(found ? elementTarget(found, at) : pointTarget(at, null));
   };
 
   const dragged = drag ? rectOf(drag.from, drag.to) : null;

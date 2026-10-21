@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { createController } from '../controller';
-import type { Controller, Target } from '../controller';
+import type { Controller, Deps, Target } from '../controller';
 import { API, PAGE, fakeServer, flush, pointAnchor, reply, session, setUrl } from '../test/helpers';
+import { ShareRefused } from '../display-capture';
 import { sessionKey } from '../storage';
 import { App } from './App';
 
@@ -12,6 +13,7 @@ let controller: Controller;
 let posted: () => number;
 
 beforeEach(() => {
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined); // the failed picture says why
   window.localStorage.clear();
   setUrl(PAGE);
   container = document.createElement('div');
@@ -54,7 +56,7 @@ const elementTarget = (): Target => ({
   viewportPoint: { x: 120, y: 240 },
 });
 
-async function openCardWith(target: Target) {
+async function openCardWith(target: Target, display?: Deps['display']) {
   window.localStorage.setItem(sessionKey({ apiOrigin: API, projectKey: 'PM' }), JSON.stringify(session()));
   const server = fakeServer({
     'GET /marks': () => reply(200, { marks: [], markers: [], cursor: 'c', me: session().me }),
@@ -66,7 +68,8 @@ async function openCardWith(target: Target) {
     base: API,
     projectKey: 'PM',
     fetchImpl: server.fetchImpl,
-    capture: (async () => null) as never,
+    capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
+    display,
   });
   await act(async () => {
     render(<App controller={controller} />, container);
@@ -156,7 +159,7 @@ describe('the new-mark card', () => {
       base: API,
       projectKey: 'PM',
       fetchImpl: server.fetchImpl,
-      capture: (async () => null) as never,
+      capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
     });
     const target = document.createElement('section');
     target.getBoundingClientRect = () => new DOMRect(10, 20, 100, 50);
@@ -185,6 +188,31 @@ describe('the new-mark card', () => {
     target.remove();
   });
 
+  describe('the browser picture offer (PM-921)', () => {
+    const refusing = (can: boolean): Deps['display'] => ({
+      can: () => can,
+      start: vi.fn(async () => {
+        throw new ShareRefused('denied');
+      }),
+    });
+
+    it('offers the browser picture as a button when the automatic one failed and sharing is possible', async () => {
+      await openCardWith(pointTarget(), refusing(true));
+      const button = container.querySelector<HTMLButtonElement>('.shot-offer.strong button');
+      expect(button).not.toBeNull();
+      await act(async () => {
+        button?.click();
+        await flush();
+      });
+      expect(container.querySelector('.shot-note.warn')).not.toBeNull();
+    });
+
+    it('offers nothing when the browser cannot share the screen', async () => {
+      await openCardWith(pointTarget(), refusing(false));
+      expect(container.querySelector('.shot-offer')).toBeNull();
+    });
+  });
+
   describe('the area drag', () => {
     async function drag(from: [number, number], to: [number, number]) {
       window.localStorage.setItem(
@@ -199,7 +227,7 @@ describe('the new-mark card', () => {
         base: API,
         projectKey: 'PM',
         fetchImpl: server.fetchImpl,
-        capture: (async () => null) as never,
+        capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
       });
       await act(async () => {
         render(<App controller={controller} />, container);
@@ -236,6 +264,56 @@ describe('the new-mark card', () => {
     it('marks a point when the drag is tiny on both sides', async () => {
       const target = await drag([100, 100], [101, 101]);
       expect(target?.kind).toBe('point');
+    });
+
+    describe('pinned to the element under it (PM-917)', () => {
+      let section: HTMLElement;
+      const place = (box: DOMRect): void => {
+        section = document.createElement('section');
+        section.id = 'card';
+        section.textContent = 'Product card';
+        section.getBoundingClientRect = () => box;
+        document.body.append(section);
+        vi.spyOn(document, 'elementFromPoint').mockReturnValue(section);
+      };
+      afterEach(() => {
+        vi.restoreAllMocks();
+        section.remove();
+      });
+
+      it('pins an area to the smallest element that holds it, as fractions of that element', async () => {
+        place(new DOMRect(100, 100, 400, 200));
+        const target = await drag([200, 150], [300, 250]);
+        expect(target?.anchor).toMatchObject({
+          kind: 'area',
+          selector: '#card',
+          textSnippet: 'Product card',
+          elementRect: { x: 0.25, y: 0.25, width: 0.25, height: 0.5 },
+        });
+      });
+
+      it('pins a point to the element under it with its place inside that element', async () => {
+        place(new DOMRect(100, 100, 400, 200));
+        const target = await drag([200, 150], [200, 150]);
+        expect(target?.anchor).toMatchObject({
+          kind: 'point',
+          selector: '#card',
+          elementOffset: { x: 0.25, y: 0.25 },
+          pagePoint: { x: 200, y: 150 },
+        });
+      });
+
+      it('keeps the coordinates only when the element covers most of the page', async () => {
+        place(new DOMRect(0, 0, window.innerWidth, window.innerHeight));
+        const target = await drag([200, 150], [300, 250]);
+        expect(target?.anchor).toMatchObject({ kind: 'area', selector: null, elementRect: null });
+      });
+
+      it('keeps the coordinates only when no element holds the whole area', async () => {
+        place(new DOMRect(100, 100, 150, 100));
+        const target = await drag([200, 150], [400, 250]);
+        expect(target?.anchor).toMatchObject({ kind: 'area', selector: null, elementRect: null });
+      });
     });
   });
 

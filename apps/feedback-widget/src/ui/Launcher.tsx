@@ -65,7 +65,7 @@ export function Launcher({ controller, state }: { controller: Controller; state:
         >
           <i class="live" aria-hidden="true" />
           <span aria-hidden="true">{t('launcher.share')}</span>
-          <span class="x" aria-hidden="true">
+          <span class="l-x" aria-hidden="true">
             ✕
           </span>
         </button>

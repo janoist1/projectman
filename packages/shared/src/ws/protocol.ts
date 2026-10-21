@@ -17,6 +17,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('engine_changed'), engine: EngineStatusView }),
   /** The Operator's grant for machine operations was given, replaced or revoked (PM-881); not project-bound. */
   z.object({ type: z.literal('operator_grant_changed') }),
+  /** A member's queue changed (PM-894): an item came, was taken or was closed; refetch the queue. */
+  z.object({ type: z.literal('member_queue_changed'), projectKey: z.string(), member: MemberHandle }),
   z.object({ type: z.literal('hello'), serverTime: z.string() }),
   z.object({ type: z.literal('task_upserted'), projectKey: z.string(), task: Task }),
   z.object({ type: z.literal('timeline_appended'), projectKey: z.string(), event: TimelineEvent }),

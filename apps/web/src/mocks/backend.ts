@@ -2366,6 +2366,11 @@ export class MockBackend {
     }
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     if (rest === '/operator' && method === 'GET') return this.operatorChannel();
+    if (rest === '/member-queues' && method === 'GET') return this.memberQueue(null);
+    if (rest === '/operator/queue' && method === 'GET')
+      return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator');
+    const queueMatch = /^\/members\/([\w-]+)\/queue$/.exec(rest);
+    if (queueMatch && method === 'GET') return this.memberQueue(queueMatch[1]!);
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
@@ -5717,6 +5722,7 @@ export class MockBackend {
       readOnly,
       signals: readOnly ? [] : clone(signals),
       openSignals: readOnly ? 0 : signals.filter((s) => s.state === 'open' && !s.resolvedAt).length,
+      queue: { open: 0, current: null },
     };
     if (!operator) return ok({ member: null, state: 'missing', sessionId, ...rest });
     const member = {
@@ -5736,6 +5742,29 @@ export class MockBackend {
     if (session?.state === 'working' || session?.state === 'waiting_permission')
       return ok({ member, state: 'working', sessionId, ...rest });
     return ok({ member, state: 'available', sessionId, ...rest });
+  }
+
+  /**
+   * The member queues (PM-894): the fake keeps no queue, so every AI member's is empty (`handle` null: the
+   * summaries of all of them). Access and the unknown-member answer follow the server.
+   */
+  private memberQueue(handle: string | null): MockResponse {
+    const viewer = memberOf(this.config, this.viewerHandle);
+    if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
+      return error(403, 'insufficient_access', 'Requires developer access');
+    const ai = this.config.team.members.filter((m) => m.kind === 'ai');
+    if (handle === null)
+      return ok({
+        members: ai.map((m) => ({
+          member: m.handle,
+          queued: 0,
+          processing: 0,
+          waking: 0,
+          oldestQueuedAt: null,
+        })),
+      });
+    if (!ai.some((m) => m.handle === handle)) return error(404, 'unknown_member', 'Unknown AI member');
+    return ok({ member: handle, items: [], closed: [], everQueued: false });
   }
 
   /** "Most ne": only the owner sets an open signal aside; a closed one is a 409 the card shows. */

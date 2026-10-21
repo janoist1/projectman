@@ -28,6 +28,7 @@ export * from './domain/attachment';
 export * from './domain/message';
 export * from './domain/message-attachment';
 export * from './domain/message-wake';
+export * from './domain/member-queue';
 export * from './domain/inbox';
 export * from './domain/loop-watch';
 export * from './domain/fix-limit';

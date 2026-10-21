@@ -106,6 +106,7 @@ describe('Operator operation contracts', () => {
         readOnly: false,
         signals: [signal],
         openSignals: 1,
+        queue: { open: 0, current: null },
       }).signals,
     ).toHaveLength(1);
     expect(

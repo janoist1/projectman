@@ -14,6 +14,12 @@ export const routes = {
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
   operator: (key: string) => `/api/projects/${key}/operator`,
+  /** GET the Operator's member queue (`MemberQueueView`, PM-894); `?closedSince=<iso>`. */
+  operatorQueue: (key: string) => `/api/projects/${key}/operator/queue`,
+  /** GET the open and closed counts of every AI member's queue (`MemberQueuesView`, PM-894). */
+  memberQueues: (key: string) => `/api/projects/${key}/member-queues`,
+  /** GET one AI member's queue (`MemberQueueView`, PM-894); `?closedSince=<iso>`. */
+  memberQueue: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/queue`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
   operatorApprovalWaiver: (key: string) => `/api/projects/${key}/operator/approval-waiver`,

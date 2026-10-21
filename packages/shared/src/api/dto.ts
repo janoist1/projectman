@@ -258,6 +258,11 @@ export const OperatorChannel = ProjectManagerChannel.extend({
   readOnly: z.boolean(),
   signals: z.array(OperatorSignal),
   openSignals: z.number().int(),
+  /** The Operator's member queue (PM-894): the open items and the one being processed. */
+  queue: z.object({
+    open: z.number().int().min(0),
+    current: z.object({ id: z.string(), title: z.string() }).nullable(),
+  }),
 });
 export type OperatorChannel = z.infer<typeof OperatorChannel>;
 

@@ -169,6 +169,7 @@ import { QuestionClosing } from './core/inbox';
 import { InvitationService } from './core/members';
 import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
+import { MemberQueue } from './core/member-queue';
 import { MessageDelivery } from './runtime/delivery';
 import { PlanUsageMonitor } from './runtime/usage';
 import { PresenceService } from './core/members';
@@ -586,6 +587,8 @@ export function createDomain(opts: DomainOptions) {
         opts.logger,
       ),
     );
+  // Registers itself with the message and inbox repositories: every write of a source reaches it (PM-894).
+  const memberQueue = new MemberQueue({ ctx, projects });
   const inbox = createInboxService({
     ctx,
     timeline,
@@ -2314,6 +2317,7 @@ export function createDomain(opts: DomainOptions) {
     presence,
     superAudit,
     messages,
+    memberQueue,
     messaging,
     sessionCloser,
     operatorActions,
@@ -2395,6 +2399,8 @@ export function createDomain(opts: DomainOptions) {
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
       await messageAttachments.recover();
+      // The member queue holds an item for every pending message and Operator todo (PM-894).
+      await memberQueue.recover();
       // A standby copy only shows its data: nothing below acts on the outside world or starts a session.
       if (opts.standby) {
         opts.logger.warn(

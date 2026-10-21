@@ -291,6 +291,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       void client.invalidateQueries({ queryKey: queryKeys.feedback(event.projectKey) });
       return;
     }
+    case 'member_queue_changed': {
+      // An item came, was taken or was closed: the Operator's corner shows its count (PM-894).
+      void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
+      return;
+    }
     case 'operator_signal': {
       // A signal opened or was decided or resolved: the corner's channel carries it (PM-476).
       void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });

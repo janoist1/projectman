@@ -44,6 +44,10 @@ export class ProjectManagerChannels {
     const conversation = operatorConversationOf(config, viewer);
     const channel = await this.channelOf(projectKey, operator, conversation);
     const readOnly = conversation.type === 'general' && conversation.with !== undefined;
+    // Like the signals, the queue is the owners' business: a person reading along sees it empty.
+    const queued =
+      operator && !readOnly ? this.deps.ctx.repos.memberQueue.listOpen(projectKey, operator.handle) : [];
+    const current = queued.find((item) => item.state === 'processing');
     return {
       ...channel,
       // The owners' channel also lists the rounds of the Operator's own steps on signals (PM-545).
@@ -55,6 +59,7 @@ export class ProjectManagerChannels {
       readOnly,
       // The system signals are the owners' business (a card key, a subject): a person reading along sees none.
       ...(readOnly ? { signals: [], openSignals: 0 } : this.deps.operatorSignals.channel(projectKey)),
+      queue: { open: queued.length, current: current ? { id: current.id, title: current.title } : null },
     };
   }
 

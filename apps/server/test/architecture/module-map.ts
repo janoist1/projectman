@@ -8,6 +8,7 @@ import { coreMembers } from './modules/core-members';
 import { coreTimeline } from './modules/core-timeline';
 import { coreMessages } from './modules/core-messages';
 import { coreInbox } from './modules/core-inbox';
+import { coreMemberQueue } from './modules/core-member-queue';
 import { coreAttachments } from './modules/core-attachments';
 
 export type Layer =
@@ -126,6 +127,7 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
   coreTimeline,
   coreMessages,
   coreInbox,
+  coreMemberQueue,
   coreAttachments,
   {
     id: 'runtime/admission',

@@ -145,6 +145,9 @@ export const ERROR_CODES = [
   'theme_closed',
   'gate_blocked',
   'approval_requested',
+  // A super-mode card update left the requested stage or assignee unchanged (PM-929).
+  'hand_on_requested',
+  'update_not_applied',
   'label_not_allowed',
   'comment_required',
   // The recommended developer of a card (PM-347)

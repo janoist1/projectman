@@ -1158,6 +1158,8 @@ export const hu = {
       invite_password_account_required: 'Ezt a meghívót csak jelszavas fiókkal lehet elfogadni.',
       gate_blocked: 'A kapu még nem enged tovább.',
       approval_requested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
+      hand_on_requested: 'A kártyát nem mozgattuk: a kártyamozgatót kértük meg, hogy lépje tovább.',
+      update_not_applied: 'A módosítás nem érvényesült: a szakasz vagy a felelős nem változott.',
       not_a_member: 'Nem vagy tagja ennek a projektnek.',
       insufficient_access: 'Ehhez nincs elég jogod.',
       owner_only: 'Ezt csak a tulajdonos teheti meg.',

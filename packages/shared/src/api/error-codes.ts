@@ -25,6 +25,7 @@ export const ERROR_CODES = [
   'merge_fix_engine_mismatch',
   'task_not_merged',
   'integrator_key_invalid',
+  'integrator_host_required',
   'integrator_https_required',
   'invalid_event_cursor',
   'event_cursor_expired',

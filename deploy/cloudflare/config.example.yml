@@ -31,15 +31,37 @@ ingress:
   - hostname: <FEEDBACK-HOSTNAME>
     service: http_status:404
 
-  # The agents' internal endpoints (/hooks, and /mcp/<token>) are for processes on this Mac only. They would
-  # refuse a remote request anyway; the entrance does not even pass it on. The bare /mcp (no slash, no
-  # token) is the integrator's bearer endpoint (PM-760): it is NOT blocked, and it goes through the
-  # Access application below like /api does. Keep the slash in `^/mcp/`.
+  # Optional separate machine hostname (PM-675). Configure PROJECTMAN_INTEGRATOR_HOSTNAME
+  # on the server and create its own Service Auth application first. Its audience is never
+  # the human application's or the engine's. EC2 uses the generated config on port 4700.
+  - hostname: <INTEGRATOR-HOSTNAME>
+    path: ^/api/
+    service: http://127.0.0.1:4800
+    originRequest:
+      access:
+        required: true
+        teamName: <TEAM>
+        audTag: [<INTEGRATOR-AUD-TAG>]
+  - hostname: <INTEGRATOR-HOSTNAME>
+    path: ^/mcp$
+    service: http://127.0.0.1:4800
+    originRequest:
+      access:
+        required: true
+        teamName: <TEAM>
+        audTag: [<INTEGRATOR-AUD-TAG>]
+  - hostname: <INTEGRATOR-HOSTNAME>
+    service: http_status:404
+
+  # Internal member doors and the integrator's old board door stay closed.
   - hostname: chopper.istvan.io
     path: ^/hooks
     service: http_status:404
   - hostname: chopper.istvan.io
     path: ^/mcp/
+    service: http_status:404
+  - hostname: chopper.istvan.io
+    path: ^/mcp$
     service: http_status:404
 
   # The live instance, and only it (never the development ports, 4700 or 5173).

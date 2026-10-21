@@ -201,7 +201,7 @@ export function registerAuth(
       return reply.code(403).send(apiError('invalid_origin', 'same-origin request required'));
     }
     const bearer = request.headers.authorization;
-    const path = request.url.split('?')[0]!;
+    const path = request.routeOptions.url ?? request.url.split('?')[0]!;
     if ((request.url.startsWith('/api/') || path === '/mcp') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
       if (!(isLocalRequest(request) || requestProtocol(request) === 'https'))
         return reply

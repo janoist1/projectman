@@ -1360,6 +1360,7 @@ export const hu = {
       history_source_changed: 'A dokumentum közben megváltozott: keress újra.',
       history_stats_forbidden: 'A keresési statisztikát ez a kérés nem olvashatja.',
       integrator_https_required: 'Az integrátori kulcs csak HTTPS-en vagy ezen a gépen használható.',
+      integrator_host_required: 'Az integrátori kulcsot a külön gépi címen kell használni.',
       invalid_event_cursor: 'A változáskövetési kurzor érvénytelen, vagy másik projekté.',
       event_cursor_expired:
         'A változásnapló újrakezdődött (például visszaállítás után); az állapotot újra kell olvasni.',

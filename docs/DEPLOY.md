@@ -769,6 +769,16 @@ sessions that were working go on after the start.
 
 # Integrator access
 
+Cloud installations with the separate machine entrance (PM-675) use the explicit
+`cloudflare.integratorHostname` as the integrator's origin. Set the existing client's `baseUrl`
+to `https://<integratorHostname>`; `/api/...` and `/mcp` and the existing key files do not change.
+The host requires its own Access Service Auth token and the application's `pmi_` key. A human
+cookie alone gets 401 there; the board refuses bearer authentication with 403
+`integrator_host_required` and closes bare `/mcp`. Human login, key management, super audit and
+owner decisions remain on the board's cookie API. Stage the server with
+`PROJECTMAN_INTEGRATOR_HOSTNAME` while the board is private, verify and move the client, then
+switch the board to public; see [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md#4-saját-webes-belépés-és-nyilvános-kapcsolás).
+
 The host owner can create an integrator key in Settings → Integrator. The secret is shown once;
 save it as `~/.config/projectman/integrator-key` on the integrator's machine, with directory mode
 700 and file mode 600. Never put it in a message, task, commit, member prompt or engine payload.
@@ -881,7 +891,7 @@ It holds paths and an origin, never a secret:
 ```json
 {
   "version": 1,
-  "baseUrl": "https://projectman.example.com",
+  "baseUrl": "https://CHOOSE-INTEGRATOR-HOSTNAME",
   "keyFile": "~/.config/projectman/integrator-key",
   "accessHeadersFile": "~/.config/projectman/cloud/integrator-access-token.json"
 }

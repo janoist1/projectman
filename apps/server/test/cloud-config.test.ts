@@ -77,6 +77,43 @@ describe('the defaults', () => {
 });
 
 describe('the validation', () => {
+  it('requires explicit, distinct integrator hostnames and a service token', () => {
+    const configured = config((value) => {
+      value.cloudflare.integratorHostname = 'machine.example.com';
+      value.access.integratorServiceToken = true;
+    });
+    expect(parseConfig(configured, HOME).cloudflare.integratorHostname).toBe('machine.example.com');
+    for (const hostname of [
+      'board.example.com',
+      '*.example.com',
+      'x.y.example.com',
+      'machine.example.com:443',
+      'MACHINE.example.com',
+    ])
+      expect(
+        refusal(
+          config((value) => {
+            value.cloudflare.integratorHostname = hostname;
+            value.access.integratorServiceToken = true;
+          }),
+        ),
+      ).toContain('cloudflare.integratorHostname');
+    expect(
+      refusal(
+        config((value) => {
+          value.cloudflare.integratorHostname = 'machine.example.com';
+        }),
+      ),
+    ).toContain('access.integratorServiceToken');
+    expect(
+      refusal(
+        config((value) => {
+          value.access.integratorServiceToken = true;
+          value.access.boardMode = 'public';
+        }),
+      ),
+    ).toContain('cloudflare.integratorHostname');
+  });
   it('requires a bundle for ARM without requiring built files during config parsing', () => {
     const raw = config((value) => {
       value.aws = {

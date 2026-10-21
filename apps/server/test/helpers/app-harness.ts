@@ -57,6 +57,7 @@ export interface AppHarnessOptions {
     | 'logger'
     | 'engineMode'
     | 'publicBoard'
+    | 'integratorHostname'
     | 'setupCode'
     | 'appVersion'
     | 'claudeTmpRoots'

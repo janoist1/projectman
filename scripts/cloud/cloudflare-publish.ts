@@ -9,6 +9,7 @@ import {
   isPublicBoard,
   namesOf,
   PUBLIC_BOARD_ENV,
+  INTEGRATOR_HOSTNAME_ENV,
   recordSchema,
   resolveAccount,
   shape,
@@ -58,13 +59,17 @@ const publicCheckSchema = z.looseObject({
   needsSetup: z.boolean(),
   apiStatus: z.number(),
   crossOriginStatus: z.number(),
+  integratorHostIsolated: z.boolean().optional(),
 });
 export type PublicCheck = z.output<typeof publicCheckSchema>;
 
 /** What `host.sh public-check` reports: the running board as the public board (PM-672). */
 export async function readPublicCheck(context: CloudContext, hostname: string): Promise<PublicCheck> {
   return withHost(context, async (host) => {
-    const text = await host.call('public-check', [hostname]);
+    const text = await host.call('public-check', [
+      hostname,
+      ...(context.config.cloudflare.integratorHostname ? [context.config.cloudflare.integratorHostname] : []),
+    ]);
     try {
       return publicCheckSchema.parse(JSON.parse(text));
     } catch {
@@ -131,7 +136,7 @@ async function publishRecord(
 
 export async function runPublish(context: CloudContext, options: PublishOptions): Promise<void> {
   const { config, report } = context;
-  const { hostname, feedbackHostname } = config.cloudflare;
+  const { hostname, feedbackHostname, integratorHostname } = config.cloudflare;
   if (options.feedback && !feedbackHostname)
     throw refused('--feedback needs cloudflare.feedbackHostname in the configuration');
   const api = cloudflareApi(context, options.dryRun);
@@ -182,6 +187,23 @@ export async function runPublish(context: CloudContext, options: PublishOptions)
   });
 
   const publicBoard = isPublicBoard(config);
+  let checked: PublicCheck | undefined;
+  if (integratorHostname) {
+    await report.run('integrator-isolation', async () => {
+      if (readEnvFile(context.envFile).get(INTEGRATOR_HOSTNAME_ENV) !== integratorHostname)
+        throw refused('cloud.env does not configure the integrator hostname; run edge and deploy');
+      if (!publicBoard) {
+        const problems = await verifyPublicIngress(context, api, account.id, tunnel);
+        if (problems.length) throw refused(`the integrator ingress is not ready: ${problems.join('; ')}`);
+      }
+      checked = await readPublicCheck(context, hostname);
+      if (checked.integratorHostIsolated !== true)
+        throw refused(
+          'the running board does not isolate the integrator host; deploy the host guard before publishing',
+        );
+      return { status: 'ok', detail: 'machine bearer and human cookie authentication are isolated' };
+    });
+  }
   if (publicBoard) {
     // The board's own login is the browser boundary: the ingress, the running server and its flag must all agree.
     await report.run('public-board-ingress', async () => {
@@ -200,7 +222,7 @@ export async function runPublish(context: CloudContext, options: PublishOptions)
       return { status: 'ok', detail: `${PUBLIC_BOARD_ENV}=1` };
     });
     await report.run('public-board-check', async () => {
-      const problems = publicCheckProblems(await readPublicCheck(context, hostname));
+      const problems = publicCheckProblems(checked ?? (await readPublicCheck(context, hostname)));
       if (problems.length > 0)
         throw refused(`the running board is not ready to be public: ${problems.join('; ')}`);
       return {
@@ -210,7 +232,7 @@ export async function runPublish(context: CloudContext, options: PublishOptions)
     });
   }
 
-  const targets = [hostname];
+  const targets = [hostname, ...(integratorHostname ? [integratorHostname] : [])];
   // The feedback widget's guard is a condition of a public board whenever the widget hostname is configured.
   if ((options.feedback || publicBoard) && feedbackHostname) {
     await report.run('feedback-guard', async () => {

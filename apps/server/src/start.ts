@@ -9,7 +9,7 @@ import type { BuildAppOptions, LoopbackHost } from './app';
 import type { RunMode } from './instance';
 import { buildEngineApp, ENGINE_DEFAULT_PORT } from './engine-app';
 import { defaultSessionTmpRoot } from './engine-host';
-import { parseFeedbackPublicUrl } from './http';
+import { parseFeedbackPublicUrl, parseIntegratorHostname } from './http';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import {
   createServerLogStream,
@@ -192,6 +192,9 @@ async function configFromEnv(
   // because the host guard (http/feedback-host-guard) is built from it.
   const feedbackPublicUrl = env.PROJECTMAN_FEEDBACK_PUBLIC_URL?.trim() || undefined;
   if (feedbackPublicUrl) parseFeedbackPublicUrl(feedbackPublicUrl);
+  const integratorHostname = env.PROJECTMAN_INTEGRATOR_HOSTNAME?.trim()
+    ? parseIntegratorHostname(env.PROJECTMAN_INTEGRATOR_HOSTNAME)
+    : undefined;
   const memoryLogSeconds = parseMemoryLogSeconds(env.PROJECTMAN_MEMORY_LOG_SECONDS);
   // Cloning node_modules into task worktrees (PM-332): on unless turned off; anything else stops the start.
   const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
@@ -226,6 +229,7 @@ async function configFromEnv(
     app: {
       engineMode,
       publicBoard,
+      integratorHostname,
       ...(emailLogin ? { emailCodeMailer: createSesEmailCodeMailer(emailLogin) } : {}),
       appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
       appTag: createAppTagReader(installDir, env.PROJECTMAN_VERSION),

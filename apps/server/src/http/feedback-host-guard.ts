@@ -41,7 +41,7 @@ export function parseFeedbackPublicUrl(raw: string): FeedbackPublicAddress {
   if (url.pathname !== '/') throw invalid('no path allowed, only the host name');
   const loopback = isLoopbackHostname(url.hostname);
   if (url.protocol === 'http:' && !loopback) throw invalid('http is allowed only on a loopback host');
-  return { origin: url.origin, host: hostOf(url.host), loopback };
+  return { origin: url.origin, host: hostnameOf(url.host), loopback };
 }
 
 /** What the widget needs: the script and its API segments. A strict list, matched on the raw URL. */
@@ -64,7 +64,7 @@ export function isPublicFeedbackPath(rawUrl: string): boolean {
  * public name (Cloudflare's hostname rule does not look at it), so it must not slip past the guard.
  * An IPv6 literal keeps its brackets.
  */
-function hostOf(header: string | undefined): string {
+export function hostnameOf(header: string | undefined): string {
   const value = (header ?? '').trim().toLowerCase();
   const name = value.startsWith('[')
     ? value.slice(0, value.indexOf(']') + 1 || undefined)
@@ -79,7 +79,7 @@ function hostOf(header: string | undefined): string {
 export function registerFeedbackHostGuard(app: FastifyInstance, address: FeedbackPublicAddress): void {
   if (address.loopback) return;
   app.addHook('onRequest', async (request, reply) => {
-    if (hostOf(request.headers.host) !== address.host) return;
+    if (hostnameOf(request.headers.host) !== address.host) return;
     if (isPublicFeedbackPath(request.raw.url ?? '')) return;
     // The same answer the not-found handler gives an unknown server route (http/errors).
     reply.header('cache-control', 'no-store');

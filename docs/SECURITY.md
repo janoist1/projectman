@@ -1058,8 +1058,9 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   The engine service token is no board login: `/api/auth/me` with it answers 401.
 - **The engine door stays closed.** `/engine` keeps its own Access application (the engine service token
   only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp/` (the member door)
-  answer 404 at the tunnel, as before. The bare `/mcp` is the integrator's bearer endpoint (PM-760) and passes
-  like `/api`. The main Access application has exactly one Bypass/Everyone policy and no other
+  answer 404 at the tunnel, as before. The board's bare `/mcp` is also 404. The integrator's `/api`
+  and `/mcp` use a separate explicit host with only its own Service Auth audience (PM-675).
+  The main Access application has exactly one Bypass/Everyone policy and no other
   rule; any other policy on it is removed by `edge` and refused by `publish`.
 - **The tunnel rule is not the only lock on `/engine`.** The tunnel's ingress rule and the Access
   application match the raw path, but the board's router decodes it: `/%65ngine/link` would skip the rule
@@ -1400,9 +1401,14 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   by default until they carry an explicit external binding; the member's session, decision, file and merge
   tools are not offered, and `tools/list` follows the key's mode while a direct call is checked against the
   same table. An unknown project and one the holder does not own get the same refusal, so the answer does
-  not tell which project keys exist. On the public board `/mcp` has no Access audience (like `/api`), so the
-  key is the only lock there: keep the expiry short, revoke at once on a suspicion, and read the `mcp_<tool>`
-  rows of the super audit. The member door `/mcp/<token>` is unchanged and stays closed at the tunnel.
+  not tell which project keys exist. With the PM-675 separate machine entrance, its own Access audience
+  and the bearer key are both required. The hub checks raw Host before resolving a cookie or a key:
+  cookie-only machine requests are 401, board API bearer attempts are 403 `integrator_host_required`,
+  and board bare `/mcp` is 404. The same guard is enabled during private staging; a public cloud with
+  no machine hostname has no bearer fallback. Forwarded-host headers and the tunnel's loopback source
+  cannot bypass it. Legacy private installations without a configured hostname retain their previous
+  transport. Keep the expiry short, revoke on suspicion and read the `mcp_<tool>` super audit rows.
+  The member door `/mcp/<token>` is unchanged and stays closed at the tunnel.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
   every change and rerun `check.sh`. On the public board there is no second lock by design: the

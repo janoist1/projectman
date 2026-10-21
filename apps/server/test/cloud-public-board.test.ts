@@ -28,7 +28,10 @@ const AWS = {
 
 const publicConfig = (extra: Record<string, unknown> = {}, cloudflare: object = CLOUDFLARE) => ({
   aws: AWS,
-  cloudflare,
+  cloudflare: {
+    ...cloudflare,
+    ...(extra.integratorServiceToken ? { integratorHostname: 'machine.example.com' } : {}),
+  },
   access: { emails: ['owner@example.com'], boardMode: 'public', ...extra },
   ses: SES,
 });
@@ -53,6 +56,8 @@ async function ready(config: Record<string, unknown>): Promise<void> {
   world.cf.zones[0]!.status = 'active';
   world.cf.tunnels[0]!.status = 'healthy';
   world.machine.preload(SHA_NEW, 'v2026.10.15');
+  if ((config.cloudflare as { integratorHostname?: string }).integratorHostname)
+    world.machine.publicCheck.integratorHostIsolated = true;
   world.lines.length = 0;
   world.cf.calls.length = 0;
 }
@@ -129,6 +134,7 @@ describe('edge for the public board', () => {
       { hostname: 'mark.example.com', service: 'http_status:404' },
       { hostname: 'board.example.com', path: '^/hooks', service: 'http_status:404' },
       { hostname: 'board.example.com', path: '^/mcp/', service: 'http_status:404' },
+      { hostname: 'board.example.com', path: '^/mcp$', service: 'http_status:404' },
       {
         hostname: 'board.example.com',
         path: '^/engine(/|$)',
@@ -178,6 +184,63 @@ describe('edge for the public board', () => {
     expect(await edge()).toBe(0);
     expect(policyIds(MAIN)).toEqual([cf.policy(PUBLIC_POLICY)!.id]);
     expect(world.output).toContain(`updated access-app ${MAIN}`);
+  });
+});
+
+describe('the separate integrator host', () => {
+  it('uses its own service policy and audience while keeping the private board human-only', async () => {
+    await ready({
+      ...privateConfig({ integratorServiceToken: true }),
+      cloudflare: { ...CLOUDFLARE, integratorHostname: 'machine.example.com' },
+    });
+    const { cf } = world;
+    expect(policyIds(MAIN)).toEqual([cf.policy(ALLOW_POLICY)!.id]);
+    expect(policyIds('projectman-cloud-integrator')).toEqual([
+      cf.policy('projectman-cloud-integrator-service')!.id,
+    ]);
+    const machineRules = ingressOf().filter((rule) => rule.hostname === 'machine.example.com');
+    expect(machineRules.map((rule) => rule.path)).toEqual(['^/api/', '^/mcp$', undefined]);
+    for (const rule of machineRules.slice(0, 2))
+      expect(rule.originRequest).toEqual({
+        access: {
+          required: true,
+          teamName: 'janoist1',
+          audTag: [cf.app('projectman-cloud-integrator')!.aud],
+        },
+      });
+    expect(env()).toContain('PROJECTMAN_INTEGRATOR_HOSTNAME=machine.example.com');
+    world.machine.publicCheck.publicBoard = false;
+    expect(await publish()).toBe(0);
+    expect(world.cf.records.map((record) => record.name)).toContain('machine.example.com');
+    expect(world.hostCalls.find((call) => call.subcommand === 'public-check')!.args).toEqual([
+      'board.example.com',
+      'machine.example.com',
+    ]);
+  });
+
+  it.each([undefined, false])(
+    'refuses publication when the running backend isolation is %s',
+    async (isolated) => {
+      await ready(publicConfig({ integratorServiceToken: true }));
+      world.machine.publicCheck.integratorHostIsolated = isolated;
+      expect(await publish()).toBe(2);
+      expect(dnsMutations()).toEqual([]);
+      expect(world.output).toContain('does not isolate the integrator host');
+    },
+  );
+
+  it('refuses an integrator application that also allows a human policy', async () => {
+    await ready(publicConfig({ integratorServiceToken: true }));
+    world.cf.app('projectman-cloud-integrator')!.policies.push({ id: world.cf.policy(ALLOW_POLICY)!.id });
+    expect(await publish()).toBe(2);
+    expect(dnsMutations()).toEqual([]);
+  });
+
+  it('refuses a missing integrator audience without falling back to another application', async () => {
+    await ready(publicConfig({ integratorServiceToken: true }));
+    delete world.cf.app('projectman-cloud-integrator')!.aud;
+    expect(await publish()).toBe(2);
+    expect(dnsMutations()).toEqual([]);
   });
 });
 
@@ -386,6 +449,13 @@ describe('check for the public board', () => {
   const goodDoors = (tokenOnBoard = 401) => {
     world.doors = (url, init) => {
       const headers = new Headers(init.headers);
+      const target = new URL(url);
+      const integrator = headers.get('cf-access-client-id') === 'integrator-id.access';
+      if (target.hostname === 'machine.example.com')
+        return new Response('', {
+          status: !integrator ? 403 : ['/api/projects', '/mcp'].includes(target.pathname) ? 401 : 404,
+        });
+      if (integrator && target.pathname.startsWith('/engine/')) return new Response('', { status: 403 });
       if (headers.has('cf-access-client-id') && String(url).includes('%65'))
         return new Response('', { status: 404 });
       if (!headers.has('cf-access-client-id'))
@@ -402,6 +472,14 @@ describe('check for the public board', () => {
   beforeEach(() => {
     world.writeConfig(publicConfig({ integratorServiceToken: true }));
     writeFileSync(
+      path.join(world.secretsDir, 'integrator-access-token.json'),
+      JSON.stringify({
+        'CF-Access-Client-Id': 'integrator-id.access',
+        'CF-Access-Client-Secret': 'integrator-secret-value',
+      }),
+      { mode: 0o600 },
+    );
+    writeFileSync(
       path.join(world.secretsDir, 'engine-access-token.json'),
       `${JSON.stringify({ 'CF-Access-Client-Id': 'engine-id.access', 'CF-Access-Client-Secret': ENGINE_SECRET })}\n`,
       { mode: 0o600 },
@@ -412,17 +490,21 @@ describe('check for the public board', () => {
     goodDoors();
   });
 
-  it('runs check.sh in public mode, tries the engine token on the board and skips the integrator smoke', async () => {
+  it('checks the public board and both isolated machine audiences', async () => {
     expect(await check()).toBe(0);
     const script = world.scriptCalls.find((call) => call.script === 'check.sh')!;
-    expect(script.env).toEqual({ LOGIN_JSON: loginFile, BOARD_MODE: 'public' });
-    expect(world.doorCalls.map((call) => new URL(call.url).pathname)).toEqual([
+    expect(script.env).toMatchObject({
+      LOGIN_JSON: loginFile,
+      BOARD_MODE: 'public',
+      INTEGRATOR_ORIGIN: 'https://machine.example.com',
+    });
+    expect(world.doorCalls.slice(0, 9).map((call) => new URL(call.url).pathname)).toEqual([
       ...DOORS.flatMap((door) => [door, door]),
       '/%65ngine/link',
       '/%65ngine/link',
       '/api/auth/me',
     ]);
-    expect(world.output).toContain('skipped integrator-smoke: public board');
+    expect(world.output).toContain('ok integrator-doors');
     expect(world.scriptCalls.some((call) => call.script === 'smoke.sh')).toBe(false);
   });
 

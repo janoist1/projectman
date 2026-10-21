@@ -30,6 +30,76 @@ describe('explicit integrator access key API', () => {
     return CreatedIntegratorAccessKey.parse(response.json());
   };
 
+  it.each(['super', 'read'] as const)(
+    'isolates %s bearer keys from human cookies before the public switch',
+    async (mode) => {
+      await h.close();
+      h = await createAppHarness({ now: () => now, real: { mcp: true } });
+      cookie = await setupOwner(h.app);
+      await createProject(h, cookie);
+      const { secret } = await create(mode);
+      const app = await h.relaunch({ integratorHostname: 'machine.example.com' });
+      const authorization = `Bearer ${secret}`;
+      const request = (host: string, url = '/api/projects', extra = {}) =>
+        app.inject({ url, headers: { host, 'x-forwarded-proto': 'https', ...extra } });
+      const board = await request('board.example.com', '/api/projects', {
+        authorization,
+        cookie,
+        'x-forwarded-host': 'machine.example.com',
+        'cf-access-client-id': 'forged',
+        'x-projectman-client': 'cli',
+      });
+      expect(board.statusCode).toBe(403);
+      expect(board.json().error.code).toBe('integrator_host_required');
+      expect(board.headers['cache-control']).toBe('no-store');
+      expect(
+        (await request('MACHINE.EXAMPLE.COM.:443', '/api/projects', { authorization, cookie })).statusCode,
+      ).toBe(200);
+      expect((await request('machine.example.com', '/api/projects', { cookie })).statusCode).toBe(401);
+      expect((await request('board.example.com', '/api/projects', { cookie })).statusCode).toBe(200);
+      expect(
+        (await request('machine.example.com', '/api/auth/integrator-keys', { authorization })).statusCode,
+      ).toBe(403);
+      expect(
+        (await request('machine.example.com', '/api/%61uth/integrator-keys', { authorization })).statusCode,
+      ).toBe(403);
+      for (const url of [
+        '/',
+        '/ws',
+        '/engine/link',
+        '/feedback/widget.js',
+        '/hooks/x',
+        '/mcp/token',
+        '/%61pi/projects',
+        '/%6dcp',
+        '/api/../ws',
+      ])
+        expect((await request('machine.example.com', url, { authorization, cookie })).statusCode, url).toBe(
+          404,
+        );
+      for (const host of ['board.example.com', 'other.example.com'])
+        expect((await request(host, '/mcp', { authorization, cookie })).statusCode).toBe(404);
+      expect((await request('machine.example.com', '/mcp', { cookie })).statusCode).toBe(401);
+      expect((await request('machine.example.com', '/mcp', { authorization })).statusCode).toBe(405);
+      expect(
+        (await request('board.example.com', routes.operatorSuperAudit('AR'), { cookie })).statusCode,
+      ).toBe(200);
+      const mcp = await app.inject({
+        method: 'POST',
+        url: '/mcp',
+        headers: {
+          host: 'machine.example.com',
+          'x-forwarded-proto': 'https',
+          authorization,
+          cookie,
+          accept: 'application/json, text/event-stream',
+        },
+        payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+      });
+      expect(mcp.statusCode, mcp.body).toBe(200);
+    },
+  );
+
   it('creates expiring keys, lists newest first, and preserves the singular legacy API', async () => {
     const legacy = await h.app.inject({
       method: 'POST',

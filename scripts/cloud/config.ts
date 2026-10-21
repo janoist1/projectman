@@ -94,6 +94,7 @@ const cloudflareSchema = z.strictObject({
   zone: z.string().regex(ZONE, 'a lowercase domain name such as example.com'),
   hostname: z.string().min(1),
   feedbackHostname: z.string().min(1).optional(),
+  integratorHostname: z.string().min(1).optional(),
   tunnelName: z.string().min(1).optional(),
 });
 
@@ -116,7 +117,7 @@ const accessSchema = z.strictObject({
   /**
    * `private`: Cloudflare Access (the listed e-mail addresses) is in front of the whole board.
    * `public` (PM-672): the board's own login (the owner's password, the clients' e-mail code) is the
-   * browser boundary; only the engine path keeps a Cloudflare Access service-token guard.
+   * browser boundary; the engine path and configured integrator hostname retain their own guards.
    */
   boardMode: z.enum(['private', 'public']).default('private'),
 });
@@ -184,7 +185,7 @@ const configSchema = z
       issue(['aws', 'backupBucket'], 'must differ from databaseBucket');
     if (aws.availabilityZone && !aws.availabilityZone.startsWith(aws.region))
       issue(['aws', 'availabilityZone'], `must be in the region ${aws.region}`);
-    const firstLevel = (field: 'hostname' | 'feedbackHostname', value: string) => {
+    const firstLevel = (field: 'hostname' | 'feedbackHostname' | 'integratorHostname', value: string) => {
       const label = value.endsWith(`.${cloudflare.zone}`) ? value.slice(0, -cloudflare.zone.length - 1) : '';
       if (!DNS_LABEL.test(label)) issue(['cloudflare', field], `must be <label>.${cloudflare.zone}`);
     };
@@ -194,6 +195,15 @@ const configSchema = z
       if (cloudflare.feedbackHostname === cloudflare.hostname)
         issue(['cloudflare', 'feedbackHostname'], 'must differ from hostname');
     }
+    if (cloudflare.integratorHostname !== undefined) {
+      firstLevel('integratorHostname', cloudflare.integratorHostname);
+      if ([cloudflare.hostname, cloudflare.feedbackHostname].includes(cloudflare.integratorHostname))
+        issue(['cloudflare', 'integratorHostname'], 'must differ from the board and feedback hostnames');
+      if (!access.integratorServiceToken)
+        issue(['access', 'integratorServiceToken'], 'required with integratorHostname');
+    }
+    if (access.boardMode === 'public' && access.integratorServiceToken && !cloudflare.integratorHostname)
+      issue(['cloudflare', 'integratorHostname'], 'required for public integrator access');
     if (access.boardMode === 'public' && !config.ses)
       issue(['access', 'boardMode'], 'public needs the ses block: clients log in with an e-mailed code');
     const seen = new Set<string>();
@@ -233,6 +243,7 @@ export interface CloudConfig {
     zone: string;
     hostname: string;
     feedbackHostname?: string;
+    integratorHostname?: string;
     tunnelName: string;
   };
   access: {

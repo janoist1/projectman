@@ -151,11 +151,15 @@ function report(error: unknown, secrets: string[], io: CliIo, first: string): nu
     return CLIENT_EXIT.auth;
   }
   if (error instanceof ApiError) {
+    if (error.status === 403 && error.code === 'operator_grant_inactive') {
+      line('super grant is not active: ask the owner to grant it in Settings › Operator');
+      return CLIENT_EXIT.auth;
+    }
     line(`${error.message} [${error.code}]`);
     if (error.uncertain)
       line(
         `the outcome of this change is unknown${error.requestId ? ` (request id ${error.requestId})` : ''}; read the state before you repeat it. ` +
-          'An operation (messages send, merges enqueue, merges reorder) can be repeated with the same --request-id: the server runs it once.',
+          'A super operation can be repeated with the same --request-id: the server runs it once.',
       );
     return error.kind === 'auth' ? CLIENT_EXIT.auth : CLIENT_EXIT.failed;
   }

@@ -2913,7 +2913,13 @@ workers follow the machine's size.
   on the board's own cookie API. The app-principal's direct domain calls are not HTTP entrances.
   **Integrator client (PM-765):** `scripts/projectman/**` (the `projectman` bin: REST, `events follow` and the
   stdio `mcp-proxy`), `packages/shared/src/api/client-config.ts` (`ClientConfig`, exit codes, the channel
-  header), `runner/env.ts` (`ACCESS_ENV_PREFIXES`). It runs on the integrator's own machine, not on the
+  header). Project writes use the common super-operation endpoint (PM-889), with the same request id in
+  the body and header: task creation, fields, labels and starting; inbox decisions; configuration and
+  member edits; credential revocation; project pause/resume and merge ordering. K3 operations return
+  `waiting_owner` successfully; an inactive machine grant exits with status 3. Legacy inbox answer and
+  fix-limit commands, instance pause/resume and merge prioritization retain their dedicated REST routes
+  (no corresponding super command). `queue` reads the Operator's `MemberQueueView`, including closed items.
+  `runner/env.ts` (`ACCESS_ENV_PREFIXES`) strips its credentials. It runs on the integrator's own machine, not on the
   server's or an engine's, and reads `~/.config/projectman/client.json` (paths and an origin only) with the key
   file and the optional Access service-token file it names. Machine assumptions: a home directory with
   `~/.config/projectman` (mode 700, files of the user with mode 600, no links; checked before any request), Node

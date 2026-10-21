@@ -28,7 +28,11 @@ export interface OperateExecutorDeps extends Pick<SuperCommandDeps, 'projects' |
     ): Promise<TeamMessage>;
   };
   pauses: {
-    pause(target: { scope: 'project'; projectKey: string }, by: OperatePauseRequester): Promise<void>;
+    pause(
+      target: { scope: 'project'; projectKey: string },
+      by: OperatePauseRequester,
+      options?: { reason?: string },
+    ): Promise<void>;
     resume(target: { scope: 'project'; projectKey: string }, by: OperatePauseRequester): Promise<void>;
   };
   sessions: {
@@ -78,7 +82,8 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
           credential: { ...superActor.credential },
         };
         const target = { scope: 'project' as const, projectKey };
-        if (op.op === 'project_pause') await deps.pauses.pause(target, requester);
+        if (op.op === 'project_pause')
+          await deps.pauses.pause(target, requester, op.reason === undefined ? {} : { reason: op.reason });
         else await deps.pauses.resume(target, requester);
         return;
       }

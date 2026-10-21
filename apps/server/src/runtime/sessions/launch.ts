@@ -995,12 +995,8 @@ export class SessionLauncher {
       related.set(card.key, card.key === task.parentKey ? 'parent' : 'subtask');
     for (const link of task.links)
       if (link.kind === 'prerequisite' && !related.has(link.ref)) related.set(link.ref, 'prerequisite');
-    for (const card of this.deps.tasks.list(projectKey))
-      if (
-        !related.has(card.key) &&
-        card.links.some((link) => link.kind === 'prerequisite' && link.ref === task.key)
-      )
-        related.set(card.key, 'prerequisite_of');
+    for (const card of this.deps.tasks.relationsOf(projectKey, task.key))
+      if (card.kind === 'prerequisite_of' && !related.has(card.key)) related.set(card.key, 'prerequisite_of');
     const found: RelatedSession[] = [];
     for (const [taskKey, relation] of related) {
       if (taskKey === task.key) continue;

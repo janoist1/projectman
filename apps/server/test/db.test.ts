@@ -211,6 +211,58 @@ function sampleTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('database', () => {
+  it('lists only unresolved signals of the project in raised time and insertion order', () => {
+    const db = openDatabase(':memory:');
+    try {
+      const repos = createRepositories(db);
+      for (const key of ['AR', 'XY'])
+        repos.projects.insert({
+          key,
+          name: key,
+          templateId: null,
+          configVersion: 'v1',
+          createdAt: now,
+          updatedAt: now,
+        });
+      const insert = (id: string, projectKey: string, raisedAt: string, resolvedAt: string | null = null) => {
+        repos.operatorSignals.insert({
+          id,
+          projectKey,
+          raisedAt,
+          resolvedAt,
+          caseKey: id,
+          kind: 'outage',
+          state: resolvedAt ? 'resolved' : 'pending',
+          actionable: false,
+          taskKey: null,
+          subject: null,
+          inboxItemId: null,
+          messageId: null,
+          decidedBy: null,
+          decidedAt: null,
+          deliveredAt: null,
+          deliveredTo: null,
+          followUpAt: null,
+          decisionNote: null,
+        });
+      };
+      insert('later', 'AR', '2026-09-30T10:00:00.000Z');
+      insert('tie-z', 'AR', now);
+      insert('closed', 'AR', now, now);
+      insert('other-project', 'XY', now);
+      insert('tie-a', 'AR', now);
+      expect(repos.operatorSignals.listOpen('AR').map((s) => s.id)).toEqual(['tie-z', 'tie-a', 'later']);
+      expect(repos.operatorSignals.list('AR').map((s) => s.id)).toEqual([
+        'tie-z',
+        'closed',
+        'tie-a',
+        'later',
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   it('persists stable priority numbers and reads unknown stored levels as unset', () => {
     const db = openDatabase(':memory:');
     const repos = createRepositories(db);

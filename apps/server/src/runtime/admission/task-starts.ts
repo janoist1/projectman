@@ -182,6 +182,12 @@ export class TaskStarts {
   private labelWait: LabelWait | undefined;
   private seniorWait: SeniorWait | undefined;
   private fixLimit: FixLimitStart | undefined;
+  private readonly moving = new Set<string>();
+
+  /** The Start button itself starts this move; a delayed hand-over must not start it a second time. */
+  ownsMove(change: StageChange): boolean {
+    return this.moving.has(`${change.task.projectKey}:${change.task.key}`);
+  }
 
   constructor(deps: {
     projects: ProjectService;
@@ -330,14 +336,20 @@ export class TaskStarts {
       opts.onAssigned?.(member.handle);
     }
     if (needsMove) {
-      const result = await this.tasks.moveToStage(
-        projectKey,
-        taskKey,
-        workStage.id,
-        opts.actor,
-        opts.pulled ? { pulled: opts.pulled } : {},
-      );
-      if (!result.moved) throw approvalRequestedError(result.pendingApproval);
+      const key = `${projectKey}:${taskKey}`;
+      this.moving.add(key);
+      try {
+        const result = await this.tasks.moveToStage(
+          projectKey,
+          taskKey,
+          workStage.id,
+          opts.actor,
+          opts.pulled ? { pulled: opts.pulled } : {},
+        );
+        if (!result.moved) throw approvalRequestedError(result.pendingApproval);
+      } finally {
+        this.moving.delete(key);
+      }
     }
     let session: Session | null = null;
     // The old assignee's note comes first (PM-342): the receiver is started when the handoff is over.

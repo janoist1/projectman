@@ -1,6 +1,7 @@
 export { Admission } from './admission';
 export type { AdmissionRequest } from './admission';
 export { DeferredStarts, queueItemWaiting, StartSpec } from './deferred-starts';
+export { StartQueue } from './start-queue';
 export type {
   AutomaticStart,
   DeferredStart,

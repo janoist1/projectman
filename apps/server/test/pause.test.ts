@@ -306,7 +306,13 @@ describe('pause of the team', () => {
   });
 
   it('defers a message wake-up and a work start while paused, and goes on once the team is resumed', async () => {
-    h = await createDomainHarness();
+    // Allow both deferred starts to pick the same member after resuming.
+    h = await createDomainHarness({
+      adjust: (config) => {
+        const member = config.team.members.find((member) => member.handle === 'dev-1');
+        if (member?.kind === 'ai') member.capacity = 2;
+      },
+    });
     const woken = await h.domain.tasks.create('AR', { title: 'Fictional wake-up' }, OWNER_ACTOR);
     const moved = await h.domain.tasks.create('AR', { title: 'Fictional work' }, OWNER_ACTOR);
     await h.domain.pauses.pause(PROJECT, BY);

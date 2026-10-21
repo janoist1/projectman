@@ -5,6 +5,7 @@ import { conflict } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /** PM-119: a card moved into a work stage without an assignee starts like the Start button starts it. */
 describe('automatic start of unassigned cards moved into a work stage', () => {
@@ -21,7 +22,7 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
   const setLeave = (handle: string, leave: boolean) =>
     h.domain.members.update('AR', handle, { onLeave: leave }, by());
   const sessionsOf = (key: string) => h.domain.sessions.list('AR', { taskKey: key });
-  const storedKeys = () => h.repos.deferredStarts.list().map((r) => r.key);
+  const storedKeys = () => deferredStartRecords(h.repos).map((r) => r.key);
   /** Room for every session, so that the developers' capacity is what decides. */
   const roomy = (c: ProjectConfig) => void (c.team.limits.maxConcurrentAi = 10);
   const temp = (c: ProjectConfig) => {
@@ -276,14 +277,14 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     },
   );
 
-  it('leaves a card that has an assignee alone: it is only told, as before', async () => {
+  it('leaves an assigned card to the hand-over, which starts or notifies its assignee', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const key = await create();
     await h.domain.tasks.update('AR', key, { assignee: 'dev-2' }, OWNER_ACTOR);
     await move(key);
     await flush();
     await h.domain.admission.retryDeferred();
-    expect(h.runner.started).toHaveLength(0);
+    expect(h.runner.started).toHaveLength(1);
     expect(task(key).assignee).toBe('dev-2');
     expect(storedKeys()).toEqual([]);
 
@@ -402,9 +403,9 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
   it('carries on with its own half-done attempt, but not with an assignment somebody else made', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const ensure = h.domain.sessions.ensureSession.bind(h.domain.sessions);
-    let failures = 1;
+    let dirty = true;
     vi.spyOn(h.domain.sessions, 'ensureSession').mockImplementation(async (...args) => {
-      if (failures-- > 0) throw conflict('workspace_dirty', 'the workspace holds unfinished work');
+      if (dirty) throw conflict('workspace_dirty', 'the workspace holds unfinished work');
       return ensure(...args);
     });
     const key = await create();
@@ -414,19 +415,21 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
       expect(waiting(key)).toMatchObject({ reason: 'workspace_dirty', member: 'dev-1' }),
     );
     expect(task(key).assignee).toBe('dev-1');
+    dirty = false;
     await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(1);
     expect(sessionsOf(key)[0]!.member).toBe('dev-1');
     expect(waiting(key)).toBeUndefined();
 
     // The same wait, but somebody else assigns the card meanwhile: nothing starts for it.
-    failures = 1;
+    dirty = true;
     const other = await create('Other');
     await move(other);
     await vi.waitFor(() => expect(waiting(other)).toMatchObject({ reason: 'workspace_dirty' }));
     const owner = task(other).assignee!;
     const rest = owner === 'dev-1' ? 'dev-2' : 'dev-1';
     await h.domain.tasks.update('AR', other, { assignee: rest }, OWNER_ACTOR);
+    dirty = false;
     await h.domain.admission.retryDeferred();
     expect(sessionsOf(other)).toEqual([]);
     expect(storedKeys()).toEqual([]);

@@ -4,6 +4,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * PM-348: a card recommended for the Senior waits for the Senior, the owners are asked once after the
@@ -43,7 +44,7 @@ describe('the Senior card: assignment, wait and the question', () => {
     h.domain.tasks.moveToStage('AR', key, stage, OWNER_ACTOR);
   const task = (key: string) => h.domain.tasks.get('AR', key);
   const waiting = (key: string) => task(key).startWaiting;
-  const storedKeys = () => h.repos.deferredStarts.list().map((r) => r.key);
+  const storedKeys = () => deferredStartRecords(h.repos).map((r) => r.key);
   const waitRow = (key: string) => h.repos.seniorWaits.open('AR', key);
   const questions = () => h.domain.inbox.list('AR', { kind: 'decision' }).filter(seniorWaitDecisionOf);
   const waitEvents = (key: string) =>

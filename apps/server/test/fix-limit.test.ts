@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { obligationReminders } from './helpers/deferred-starts';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import { SYSTEM_ACTOR, aiActor } from '../src/kernel';
 import { questionPayloadOf } from '@projectman/shared';
@@ -131,7 +132,9 @@ describe('fix round limit', () => {
       await settle();
     };
     const reminders = () =>
-      h.repos.messages.list('AR').filter((m) => m.body.startsWith('projectman reminder: AR-1 is held'));
+      obligationReminders(h.repos, 'AR', 'AR-1').filter(
+        (item) => h.repos.obligations.get(item.source.id)?.kind === 'fix_limit',
+      );
     const todos = () =>
       h.domain.inbox.list('AR', {}).filter((i) => questionPayloadOf(i)?.obligation?.kind === 'fix_limit');
     const prepareHold = async (integrator = true) => {
@@ -150,7 +153,7 @@ describe('fix round limit', () => {
       advance(30);
       await sweep();
       expect(reminders()).toHaveLength(1);
-      expect(reminders()[0]!.body).toContain('round 3');
+      expect(reminders()[0]).toMatchObject({ member: 'lead', kind: 'start', wake: true });
       expect(items()).toHaveLength(0);
       await stop();
       advance(30);

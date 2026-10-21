@@ -1,5 +1,6 @@
 import type {
   InboxItem,
+  Obligation,
   MemberQueueCloseReason,
   MemberQueueItem,
   MemberQueueSummary,
@@ -23,12 +24,14 @@ import {
   pendingRecipientsOf,
   permissionDelegationOf,
   SYSTEM_SENDER,
+  stageOf,
 } from '@projectman/shared';
 import type { MemberQueueSourceKey, StoredMemberQueueItem } from '../../db';
-import { excerpt, newId } from '../../kernel';
+import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import { wakeFactsFor } from '../messages';
+import type { TimelineService } from '../timeline';
 
 /** What the queue reads of the projects: the loaded configuration, and the loading of every project's. */
 export interface MemberQueueProjects {
@@ -60,10 +63,16 @@ const toView = (item: StoredMemberQueueItem): MemberQueueItem => ({
 export class MemberQueue {
   private readonly ctx: DomainContext;
   private readonly projects: MemberQueueProjects;
+  private readonly timeline: Pick<TimelineService, 'append'>;
 
-  constructor(deps: { ctx: DomainContext; projects: MemberQueueProjects }) {
+  constructor(deps: {
+    ctx: DomainContext;
+    projects: MemberQueueProjects;
+    timeline: Pick<TimelineService, 'append'>;
+  }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
+    this.timeline = deps.timeline;
     this.ctx.repos.messages.onPendingChange((message) =>
       this.guarded('message', message.id, () => this.syncMessage(message)),
     );
@@ -102,6 +111,56 @@ export class MemberQueue {
   /** The driver changed the member's items (claimed, moved, closed, a wait code): the views hear of it, nobody is woken. */
   publish(projectKey: string, member: string): void {
     this.ctx.bus.publish({ type: 'member_queue_changed', projectKey, member });
+  }
+
+  /** A lane inserted an item: the driver hears of it after the synchronous source write. */
+  enqueued(projectKey: string, member: string): void {
+    this.changed([{ projectKey, member }]);
+  }
+
+  /** A start settles with its audit entry, so an obsolete or refused start never disappears silently. */
+  closeStart(item: StoredMemberQueueItem, reason: 'started' | 'source_closed'): void {
+    this.ctx.unitOfWork(() => {
+      const closed = this.ctx.repos.memberQueue.closeBySource(item.projectKey, item.source, {
+        member: item.member,
+        state: reason === 'started' ? 'done' : 'cancelled',
+        reason,
+        at: isoNow(this.ctx),
+      });
+      for (const row of closed) {
+        if (reason === 'source_closed' && row.source.type === 'start' && row.taskKey)
+          this.timeline.append({
+            projectKey: row.projectKey,
+            taskKey: row.taskKey,
+            actor: SYSTEM_ACTOR,
+            type: 'member_queue_item_closed',
+            data: { itemId: row.id, kind: row.kind, reason },
+          });
+      }
+      if (closed.length) this.publish(item.projectKey, item.member);
+    });
+  }
+
+  /** The obligation's one reminder is committed with the deadline and wakes through the start lane. */
+  remindObligation(row: Obligation, text: string): void {
+    const task = this.ctx.repos.tasks.get(row.taskKey);
+    const config = this.projects.cachedConfig(row.projectKey);
+    const stage = task && config ? stageOf(config, task.stageId) : null;
+    const item = {
+      id: newId('mqi'),
+      projectKey: row.projectKey,
+      member: row.responsible,
+      kind: 'start' as const,
+      source: { type: 'obligation' as const, id: row.id },
+      place: { type: 'task' as const, taskKey: row.taskKey },
+      taskKey: row.taskKey,
+      wake: true,
+      title: `${row.taskKey} · ${task?.title ?? ''} · ${stage?.name ?? ''}`.slice(0, TITLE_MAX),
+      from: null,
+      queuedAt: isoNow(this.ctx),
+      payload: { text },
+    };
+    if (this.ctx.repos.memberQueue.insert(item)) this.changed([item]);
   }
 
   /**

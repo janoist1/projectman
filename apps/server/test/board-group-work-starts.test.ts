@@ -3,6 +3,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * PM-121 with PM-119: a collecting card dropped on the work column with its subtasks enters the work
@@ -15,7 +16,7 @@ describe('a group move into the work column', () => {
   const roomy = (c: ProjectConfig) => void (c.team.limits.maxConcurrentAi = 10);
   const task = (key: string) => h.domain.tasks.get('AR', key);
   const sessionsOf = (key: string) => h.domain.sessions.list('AR', { taskKey: key });
-  const storedKeys = () => h.repos.deferredStarts.list().map((r) => r.key);
+  const storedKeys = () => deferredStartRecords(h.repos).map((r) => r.key);
   const family = async () => {
     await h.domain.tasks.create('AR', { title: 'Collecting' }, OWNER_ACTOR);
     for (const title of ['One', 'Two'])

@@ -2754,7 +2754,8 @@ workers follow the machine's size.
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
 
-- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs}`,
+- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
+  `.github/workflows/history-semantic-profile.yml` (the release measurement on a GitHub-hosted `ubuntu-24.04-arm` runner, PM-913),
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
   PM-719's trial reset (admin `scripts/cloud/trial-reset.ts`, EC2 `deploy/aws/host.sh`) refuses
   active unit/container/backup writers, bucket versioning including Suspended, Object Lock,

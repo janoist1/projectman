@@ -3450,10 +3450,16 @@ assumption or remote-engine RPC.
   The optional `sinceAgeMs` lower bound is an age derived from stored server-side start/failure
   times. The engine computes `clock.now() - sinceAgeMs - SCOPE_SINCE_MARGIN_MS` on its own clock;
   differing server/engine wall clocks therefore do not affect attribution. The 60 s margin covers
-  transport delay and process-list time precision. Older unrelated unreadable processes cannot hold
-  the workspace forever; newer unreadable candidates stay unverified. Without an age (an older
-  server), every unreadable recovery candidate remains unverified. Explicit marker matches are
-  checked regardless of age.
+  transport delay and process-list time precision. PM-933 restricts unreadable candidates to those
+  potentially related to the scope: they share the known leader's or an identified member's process
+  group, or their parent chain reaches an identified member before a different scope marker or an
+  ancestor older than the bound. Readable ancestors without markers are traversed. Parent chains
+  use the same process snapshot, with cycle detection and a 256-ancestor limit; unresolved cycles
+  or depth limits remain unverified. Unrelated orphans (launchd/XPC helpers on macOS included) and
+  missing parents outside the scope's groups do not block best-effort cleanup. Without an age
+  (an older server), ancestry has no time bound. Explicit marker matches are checked regardless of
+  age. Failed and unverified closes retain known identities and the leader group for later retries;
+  only clean closes discard them. Entire process/environment probe failures remain unverified.
   Dismissing an Operator notification cannot clear this fact. Session folders and task worktrees
   stay while cleanup is unresolved.
   Resume is refused while cleanup failed; only a matching clean generation releases the holder.

@@ -65,7 +65,7 @@ function harness(initialNow = 10_000) {
 }
 
 describe('engine process groups', () => {
-  it.each(['throw', 'foreign unreadable'] as const)(
+  it.each(['throw', 'unreadable descendant'] as const)(
     'signals the verified leader with TERM and KILL when inspection fails due to %s',
     async (failure) => {
       const h = harness();
@@ -75,7 +75,7 @@ describe('engine process groups', () => {
       await Promise.resolve();
       if (failure === 'throw') h.envValues.mockRejectedValue(new Error('environment unavailable'));
       else {
-        h.add(21, 'scp_1111111111111111');
+        h.add(21, 'scp_1111111111111111', { ppid: 20 });
         h.marks.delete(21);
       }
       expect(await scope.close('stop', { force: false })).toMatchObject({
@@ -106,7 +106,7 @@ describe('engine process groups', () => {
     expect(h.signal).toHaveBeenCalledWith(21, 'SIGTERM');
     expect(h.signal).toHaveBeenCalledWith(21, 'SIGKILL');
   });
-  it('does not signal a reused known leader when another unreadable process prevents verification', async () => {
+  it('does not signal a reused known leader or an unrelated unreadable process', async () => {
     const h = harness();
     const scope = await h.driver.open('ses_a');
     h.add(20, scope.scopeId);
@@ -116,7 +116,7 @@ describe('engine process groups', () => {
     h.add(20, scope.scopeId, { startedAt: 11_000 });
     h.add(21, 'scp_1111111111111111');
     h.marks.delete(21);
-    expect(await scope.close('stop', { force: false })).toMatchObject({ outcome: 'unverified' });
+    expect(await scope.close('stop', { force: false })).toMatchObject({ outcome: 'clean' });
     expect(h.signal).not.toHaveBeenCalled();
   });
   it.each([NaN, Infinity, -Infinity])(
@@ -124,14 +124,15 @@ describe('engine process groups', () => {
     async (sinceAgeMs) => {
       const h = harness();
       const scopeId = 'scp_0000000000000001';
-      h.add(21, scopeId, { startedAt: 1000 });
+      h.add(20, scopeId, { startedAt: 1000 });
+      h.add(21, scopeId, { startedAt: 1000, ppid: 20 });
       h.marks.delete(21);
       expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs }])).toMatchObject([
         { cleanup: { outcome: 'unverified' } },
       ]);
     },
   );
-  it.each(['throw', 'omit', 'transient'] as const)(
+  it.each(['throw', 'transient'] as const)(
     'never reports a detached live child clean when environment reads %s',
     async (failure) => {
       const h = harness();
@@ -139,7 +140,6 @@ describe('engine process groups', () => {
       h.add(21, scope.scopeId);
       h.signal.mockImplementation(() => {});
       if (failure === 'throw') h.envValues.mockRejectedValue(new Error('environment unavailable'));
-      else if (failure === 'omit') h.envValues.mockResolvedValue(new Map());
       else {
         let calls = 0;
         h.envValues.mockImplementation(async (pids) => {
@@ -237,7 +237,7 @@ describe('engine process groups', () => {
     expect(cleanup).toMatchObject({ outcome: 'clean', killed: true, durationMs: 5000 });
     expect(h.signal).toHaveBeenCalledWith(21, 'SIGKILL');
   });
-  it('reports survivors at seven seconds and retries only failed scopes', async () => {
+  it('reports survivors at seven seconds and retries failed scopes', async () => {
     const h = harness();
     const scope = await h.driver.open('ses_a');
     h.add(20, scope.scopeId);
@@ -248,12 +248,34 @@ describe('engine process groups', () => {
       durationMs: 7000,
     });
     h.setList([]);
+    h.add(21, 'scp_1111111111111111');
+    h.marks.delete(21);
     expect(await h.driver.closeScopes([{ sessionId: 'ses_a', scopeId: scope.scopeId }])).toEqual([
       expect.objectContaining({
         sessionId: 'ses_a',
         cleanup: expect.objectContaining({ outcome: 'clean', reason: 'recovery' }),
       }),
     ]);
+  });
+  it('retains the known process group across unverified retries until cleanup is clean', async () => {
+    const h = harness();
+    const scope = await h.driver.open('ses_a');
+    h.add(20, scope.scopeId);
+    scope.attached(20);
+    h.envValues.mockRejectedValue(new Error('environment unavailable'));
+    expect(await scope.close('exit', { force: false })).toMatchObject({ outcome: 'unverified' });
+    h.envValues.mockImplementation(
+      async (pids) => new Map([...h.marks].filter(([pid]) => pids.includes(pid))),
+    );
+    h.setList([]);
+    h.add(21, scope.scopeId, { pgid: 20 });
+    h.marks.delete(21);
+    const request = [{ sessionId: 'ses_a', scopeId: scope.scopeId }];
+    expect(await h.driver.closeScopes(request)).toMatchObject([{ cleanup: { outcome: 'unverified' } }]);
+    expect(await h.driver.closeScopes(request)).toMatchObject([{ cleanup: { outcome: 'unverified' } }]);
+    expect(h.signal).not.toHaveBeenCalledWith(21, expect.anything());
+    h.setList([]);
+    expect(await h.driver.closeScopes(request)).toMatchObject([{ cleanup: { outcome: 'clean' } }]);
   });
   it('force skips TERM and the grace interval', async () => {
     const h = harness();
@@ -392,16 +414,64 @@ describe('engine process groups', () => {
       { cleanup: { outcome: 'unverified' } },
     ]);
   });
-  it('keeps an unknown scope unverified when a recent candidate environment cannot be read', async () => {
-    const h = harness(100_000);
-    const scopeId = 'scp_0000000000000001';
-    h.add(20, scopeId);
-    h.marks.delete(20);
-    expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }])).toMatchObject(
-      [{ cleanup: { outcome: 'unverified' } }],
-    );
-    expect(h.signal).not.toHaveBeenCalled();
-  });
+  it.each(['orphan', 'missing parent', 'foreign parent'] as const)(
+    'releases an absent scope after restart despite a recent unreadable process with %s',
+    async (relation) => {
+      const h = harness(100_000);
+      const scopeId = 'scp_0000000000000001';
+      h.add(20, scopeId, { ppid: relation === 'orphan' ? 1 : 21 });
+      h.marks.delete(20);
+      if (relation === 'foreign parent') h.add(21, 'scp_1111111111111111');
+      expect(
+        await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }]),
+      ).toMatchObject([{ cleanup: { outcome: 'clean', killed: false } }]);
+      expect(h.signal).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['group', 'parent', 'unmarked ancestor', 'cycle', 'depth limit'] as const)(
+    'keeps recovery unverified for an unreadable process related through %s',
+    async (relation) => {
+      const h = harness(100_000);
+      const scopeId = 'scp_0000000000000001';
+      h.add(20, scopeId);
+      h.add(21, scopeId, {
+        pgid: relation === 'group' ? 20 : 21,
+        ppid: relation === 'group' ? 1 : relation === 'parent' ? 20 : 22,
+      });
+      h.marks.delete(21);
+      if (relation === 'unmarked ancestor' || relation === 'cycle') {
+        h.add(22, scopeId, { ppid: relation === 'cycle' ? 21 : 20 });
+        h.marks.set(22, {});
+      }
+      if (relation === 'depth limit') {
+        for (let pid = 22; pid < 279; pid++) {
+          h.add(pid, scopeId, { ppid: pid + 1 });
+          h.marks.set(pid, {});
+        }
+      }
+      expect(
+        await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }]),
+      ).toMatchObject([{ cleanup: { outcome: 'unverified' } }]);
+      expect(h.signal).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['foreign generation', 'older process'] as const)(
+    'stops ancestry attribution at a %s before reaching a scope member',
+    async (anchor) => {
+      const h = harness(100_000);
+      const scopeId = 'scp_0000000000000001';
+      h.add(20, scopeId);
+      h.add(21, scopeId, { ppid: 22 });
+      h.marks.delete(21);
+      h.add(22, 'scp_1111111111111111', { ppid: 20, startedAt: anchor === 'older process' ? 1000 : 100_000 });
+      if (anchor === 'older process') h.marks.delete(22);
+      expect(
+        await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }]),
+      ).toMatchObject([{ cleanup: { outcome: 'clean' } }]);
+      expect(h.signal).not.toHaveBeenCalledWith(21, expect.anything());
+      expect(h.signal).not.toHaveBeenCalledWith(22, expect.anything());
+    },
+  );
   it('ignores older unreadable processes when verifying an unknown scope after restart', async () => {
     const h = harness(100_000);
     const scopeId = 'scp_0000000000000001';
@@ -416,7 +486,8 @@ describe('engine process groups', () => {
     const h = harness(100_000);
     const scopeId = 'scp_0000000000000001';
     h.add(20, scopeId, { startedAt: 1000 });
-    h.marks.delete(20);
+    h.add(21, scopeId, { ppid: 20, startedAt: 1000 });
+    h.marks.delete(21);
     expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId }])).toMatchObject([
       { cleanup: { outcome: 'unverified' } },
     ]);
@@ -431,7 +502,8 @@ describe('engine process groups', () => {
       [{ cleanup: { outcome: 'clean' } }],
     );
     h.setList([]);
-    h.add(21, scopeId);
+    h.add(20, scopeId);
+    h.add(21, scopeId, { ppid: 20 });
     h.marks.delete(21);
     expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }])).toMatchObject(
       [{ cleanup: { outcome: 'unverified' } }],

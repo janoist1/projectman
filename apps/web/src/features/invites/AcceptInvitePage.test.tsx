@@ -1,6 +1,6 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { maskEmail } from '@projectman/shared';
 import type { CreatedInvitation } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
@@ -26,7 +26,10 @@ function renderInvite(backend: MockBackend, path: string) {
   );
   return project;
 }
-afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+afterEach(() => {
+  vi.useRealTimers();
+  setFetchImplementation((input, init) => globalThis.fetch(input, init));
+});
 
 describe('AcceptInvitePage', () => {
   it('shows the project, offered access and roles, creates a new account and enters the project', async () => {
@@ -227,6 +230,33 @@ describe('AcceptInvitePage with the e-mail code login', () => {
     renderInvite(backend, path);
     expect(await screen.findByRole('button', { name: t('invites.accept') })).toBeTruthy();
     expect(screen.queryByRole('button', { name: t('auth.emailLogin.sendCode') })).toBeNull();
+  });
+
+  it('keeps the focus on a wrong code, selects it and offers a new code after the wait', async () => {
+    const backend = enabled();
+    const path = create(backend);
+    backend.auth = 'login';
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    renderInvite(backend, path);
+    fireEvent.click(await screen.findByRole('button', { name: t('auth.emailLogin.sendCode') }));
+    const codeInput = (await screen.findByLabelText(t('auth.emailLogin.codeLabel'))) as HTMLInputElement;
+    const first = backend.emailLogin.lastCodeTo(input.email)!;
+    const wrong = first === '000000' ? '111111' : '000000';
+    fireEvent.change(codeInput, { target: { value: wrong } });
+    fireEvent.click(screen.getByRole('button', { name: t('auth.emailLogin.verify') }));
+    expect(await screen.findByText(t('auth.emailLogin.codeInvalid'))).toBeTruthy();
+    expect(document.activeElement).toBe(codeInput);
+    expect(codeInput.selectionEnd).toBe(wrong.length);
+    expect(screen.queryByRole('button', { name: t('auth.emailLogin.resend') })).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    fireEvent.click(await screen.findByRole('button', { name: t('auth.emailLogin.resend') }));
+    await waitFor(() => expect(backend.emailLogin.outbox).toHaveLength(2));
+    const second = backend.emailLogin.lastCodeTo(input.email)!;
+    fireEvent.change(screen.getByLabelText(t('auth.emailLogin.codeLabel')), { target: { value: second } });
+    fireEvent.click(screen.getByRole('button', { name: t('auth.emailLogin.verify') }));
+    await screen.findByText(t('team.title'));
   });
 
   it('says so when the invitation was revoked while the code was on its way', async () => {

@@ -4,7 +4,11 @@
 // machine, so this builds one from a seeded generator: the same seed and the same docs give the same file.
 // No dependencies.
 //
-//   node history-semantic-fixture.mjs --docs <repo docs dir> --out <json file> [--seed 913]
+//   node history-semantic-fixture.mjs --docs <repo docs dir> --out <json file> [--seed 913] [--scale 1]
+//
+// --scale multiplies the counts below. The card (PM-913) wants a corpus of at least 50 717 chunks (the detailed size
+// of the PM-767 test); the live counts give fewer, so the workflow scales them (the report's `corpus.chunks` says
+// what the run really had).
 //
 // The shape follows the live history counted on 2026-10-21 (the integrator, PM-913): 17 955 sources of about
 // 1 000 characters each (a source's length is spread from a quarter to one and three quarters of its type's
@@ -359,20 +363,27 @@ export function buildFixture({ docsDir, seed = DEFAULT_SEED, counts = LIVE_COUNT
 
 // ---------- the command line ----------
 
+/** The live counts times `scale` (the card asks for at least 50 717 chunks; the report states how many it got). */
+export function scaleCounts(counts, scale) {
+  return Object.fromEntries(Object.entries(counts).map(([name, n]) => [name, Math.round(n * scale)]));
+}
+
 export function parseArgs(argv) {
-  const values = { seed: String(DEFAULT_SEED) };
+  const values = { seed: String(DEFAULT_SEED), scale: '1' };
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if (!['--docs', '--out', '--seed'].includes(flag) || value === undefined)
+    if (!['--docs', '--out', '--seed', '--scale'].includes(flag) || value === undefined)
       throw new Error(
-        `usage: history-semantic-fixture.mjs --docs <dir> --out <file> [--seed <integer>] (got ${flag})`,
+        `usage: history-semantic-fixture.mjs --docs <dir> --out <file> [--seed <integer>] [--scale <number>] (got ${flag})`,
       );
     values[flag.slice(2)] = value;
   }
   if (!values.docs || !values.out) throw new Error('--docs and --out are required');
   if (!/^\d+$/.test(values.seed)) throw new Error('--seed must be a non-negative integer');
-  return { docsDir: resolve(values.docs), out: resolve(values.out), seed: Number(values.seed) };
+  const scale = Number(values.scale);
+  if (!(scale >= 0.01 && scale <= 10)) throw new Error('--scale must be a number from 0.01 to 10');
+  return { docsDir: resolve(values.docs), out: resolve(values.out), seed: Number(values.seed), scale };
 }
 
 export function main(argv) {
@@ -384,7 +395,11 @@ export function main(argv) {
     return 64;
   }
   if (!isAbsolute(options.out)) return 64;
-  const fixture = buildFixture({ docsDir: options.docsDir, seed: options.seed });
+  const fixture = buildFixture({
+    docsDir: options.docsDir,
+    seed: options.seed,
+    counts: scaleCounts(LIVE_COUNTS, options.scale),
+  });
   writeFileSync(options.out, JSON.stringify(fixture), { mode: 0o600 });
   const bytes = fixture.sources.reduce((sum, s) => sum + s.title.length + s.body.length, 0);
   process.stdout.write(

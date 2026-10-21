@@ -17,6 +17,11 @@ on:
         required: false
         default: '600'
         type: string
+      fixture_scale:
+        description: Multiplier of the synthetic history's live size (17 955 sources); the run needs at least 50 717 chunks
+        required: false
+        default: '2'
+        type: string
 permissions:
   contents: read
 jobs:
@@ -50,9 +55,11 @@ jobs:
           docker run --rm --network none -v "$PWD/deploy/cloud/history-semantic-image-check.mjs:/check.mjs:ro" \
             -w /app --entrypoint node "$IMAGE" /check.mjs --arch arm64
       - name: Make the synthetic fixture
+        env:
+          FIXTURE_SCALE: ${{ inputs.fixture_scale }}
         run: |
           mkdir -p "$RUNNER_TEMP/in"
-          node deploy/cloud/history-semantic-fixture.mjs --docs docs --out "$RUNNER_TEMP/in/fixture.json"
+          node deploy/cloud/history-semantic-fixture.mjs --docs docs --out "$RUNNER_TEMP/in/fixture.json" --scale "$FIXTURE_SCALE"
           chmod 0644 "$RUNNER_TEMP/in/fixture.json"
       - name: Run the profile
         id: profile
@@ -100,3 +107,5 @@ jobs:
         run: |
           echo "profile exit status: ${STATUS:-none}"
           test "$STATUS" = "0"
+          # The card (PM-913) wants a corpus of at least 50 717 chunks (the detailed size of the PM-767 test).
+          jq -e '.corpus.chunks >= 50717' "$RUNNER_TEMP/report/report.json"

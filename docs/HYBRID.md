@@ -583,9 +583,11 @@ with `gh workflow run history-semantic-profile.yml [-f mixed_seconds=600]`. In o
    `history-semantic-profile-report`; the job fails unless the exit status is 0 (`outcome: pass`).
 
 **The synthetic fixture.** No live history text leaves the owner's machine, so the run uses a seeded synthetic one
-(seed 913, the same file every time). It is sized after the live history counted on 2026-10-21: 17 955 sources of
+(seed 913, the same file every time). Its base is the live history counted on 2026-10-21: 17 955 sources of
 about 1 000 characters (1 000 cards, 9 200 team messages, 7 000 task notes, 753 answered questions, the two project
-documents) of mixed Hungarian and English filler about everyday product work. The ~48 000 timeline events of the live
+documents) of mixed Hungarian and English filler about everyday product work. The workflow multiplies those counts
+(`fixture_scale`, default 2) so the corpus has at least 50 717 chunks, the detailed size of the PM-767 test; the job
+fails when the report's `corpus.chunks` is lower, and then the scale is raised. The ~48 000 timeline events of the live
 database are mostly not history sources and are not made. The 20 questions are the PM-767 recall set; each target is
 a note holding the text of one decision of the public `docs/DECISIONS.md`, and the 5 negative controls are
 off-topic. The fixture's `origin` says all this, and it is copied to the report. It tests the memory and the time of

@@ -729,6 +729,16 @@ describe('the synthetic fixture of the release run (PM-913)', () => {
   it('refuses a missing option on the command line', async () => {
     const generator = await loadGenerator();
     expect(() => generator.parseArgs(['--docs', docsDir])).toThrow(/required/);
-    expect(generator.parseArgs(['--docs', docsDir, '--out', join(temp, 'f.json')]).seed).toBe(913);
+    expect(generator.parseArgs(['--docs', docsDir, '--out', join(temp, 'f.json')])).toMatchObject({
+      seed: 913,
+      scale: 1,
+    });
+    expect(() => generator.parseArgs(['--docs', docsDir, '--out', 'f.json', '--scale', '0'])).toThrow(
+      /scale/,
+    );
+    expect(generator.scaleCounts({ tasks: 1000, messages: 9200 }, 2)).toEqual({
+      tasks: 2000,
+      messages: 18400,
+    });
   });
 });

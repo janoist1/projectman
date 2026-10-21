@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { createController } from '../controller';
-import type { Controller, Target } from '../controller';
+import type { Controller, Deps, Target } from '../controller';
 import { API, PAGE, fakeServer, flush, pointAnchor, reply, session, setUrl } from '../test/helpers';
+import { ShareRefused } from '../display-capture';
 import { sessionKey } from '../storage';
 import { App } from './App';
 
@@ -55,7 +56,7 @@ const elementTarget = (): Target => ({
   viewportPoint: { x: 120, y: 240 },
 });
 
-async function openCardWith(target: Target) {
+async function openCardWith(target: Target, display?: Deps['display']) {
   window.localStorage.setItem(sessionKey({ apiOrigin: API, projectKey: 'PM' }), JSON.stringify(session()));
   const server = fakeServer({
     'GET /marks': () => reply(200, { marks: [], markers: [], cursor: 'c', me: session().me }),
@@ -68,6 +69,7 @@ async function openCardWith(target: Target) {
     projectKey: 'PM',
     fetchImpl: server.fetchImpl,
     capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
+    display,
   });
   await act(async () => {
     render(<App controller={controller} />, container);
@@ -184,6 +186,31 @@ describe('the new-mark card', () => {
     expect(container.querySelector('.target-frame')).toBeNull();
     under.mockRestore();
     target.remove();
+  });
+
+  describe('the browser picture offer (PM-921)', () => {
+    const refusing = (can: boolean): Deps['display'] => ({
+      can: () => can,
+      start: vi.fn(async () => {
+        throw new ShareRefused('denied');
+      }),
+    });
+
+    it('offers the browser picture as a button when the automatic one failed and sharing is possible', async () => {
+      await openCardWith(pointTarget(), refusing(true));
+      const button = container.querySelector<HTMLButtonElement>('.shot-offer.strong button');
+      expect(button).not.toBeNull();
+      await act(async () => {
+        button?.click();
+        await flush();
+      });
+      expect(container.querySelector('.shot-note.warn')).not.toBeNull();
+    });
+
+    it('offers nothing when the browser cannot share the screen', async () => {
+      await openCardWith(pointTarget(), refusing(false));
+      expect(container.querySelector('.shot-offer')).toBeNull();
+    });
   });
 
   describe('the area drag', () => {

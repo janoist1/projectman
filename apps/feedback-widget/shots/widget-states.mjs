@@ -124,6 +124,21 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       outcome: 'answered',
       commentCount: 1,
     }),
+    // An area pinned to its element (PM-917): it follows the element at every window width.
+    mark('fbm_pinned00001', {
+      author: anna,
+      kind: 'area',
+      body: 'Ez a cím eleje legyen kiemelve.',
+      anchor: anchorOf({
+        kind: 'area',
+        selector: '#hero-title',
+        textSnippet: 'Kézzel készült',
+        elementOffset: { x: 0.05, y: 0.1 },
+        elementRect: { x: 0.05, y: 0.1, width: 0.45, height: 0.8 },
+        pagePoint: { x: 610, y: 140 },
+        rect: { x: 560, y: 120, width: 200, height: 50 },
+      }),
+    }),
     mark('fbm_whole000001', {
       author: bela,
       kind: 'page',
@@ -284,6 +299,33 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     });
   });
 
+  // The browser's screen sharing (PM-921) is faked: a canvas stream stands for the shared tab, so that no
+  // permission prompt is needed. `__share` is 'tab' (the page itself), 'window' or 'deny'.
+  await app.addInitScript(() => {
+    window.__share = 'tab';
+    window.__shareCalls = 0;
+    if (!navigator.mediaDevices) return;
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      window.__shareCalls += 1;
+      if (window.__share === 'deny') throw new DOMException('denied', 'NotAllowedError');
+      const canvas = document.createElement('canvas');
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#eef2f7';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = '#334155';
+      context.font = '28px sans-serif';
+      context.fillText('Megosztott kép (próba)', 40, 80);
+      const stream = canvas.captureStream(5);
+      const track = stream.getVideoTracks()[0];
+      const surface = window.__share === 'window' ? 'window' : 'browser';
+      const settings = track.getSettings.bind(track);
+      track.getSettings = () => ({ ...settings(), displaySurface: surface });
+      return stream;
+    };
+  });
+
   // --- helpers
   const widgetReady = (page) => page.waitForSelector('[role="toolbar"]:not([aria-busy])', { timeout: 15000 });
   const settle = (page, ms = 400) => page.waitForTimeout(ms);
@@ -403,6 +445,85 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       window.__shotFails = false;
     });
     normal();
+  });
+
+  await step('browser picture: offer, share, denied (PM-921)', async () => {
+    const say = async (name) => {
+      await settle(app, 500);
+      await shoot(app, name, { widths: [1512, 390] });
+    };
+    const text = () => app.locator('textarea').fill('A kép nem mutatja, amit látok.');
+
+    // The automatic picture failed: the browser picture is the main button.
+    await app.evaluate(() => {
+      window.__shotFails = true;
+    });
+    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await text();
+    await settle(app, 1500);
+    await shoot(app, 'widget-browser-offer-failed', { widths: [1512, 390] });
+    await app.locator('.shot-offer .btn').click();
+    await app.waitForSelector('.preview img', { timeout: 15000 }).catch(() => log('no browser picture'));
+    await say('widget-browser-picture');
+    await shoot(app, 'widget-launcher-sharing', { widths: [1512, 390] });
+    await cancelCard(app);
+
+    // The share stays open: the next mark takes its picture from it without asking.
+    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await text();
+    await app.waitForSelector('.preview img', { timeout: 15000 }).catch(() => log('no shared picture'));
+    await say('widget-browser-picture-next');
+    await app.locator('.l-share').click();
+    await settle(app, 400);
+    await shoot(app, 'widget-share-stopped', { widths: [1512, 390] });
+    await cancelCard(app);
+
+    // A shared window cannot show the marked place: the picture says so and offers another try.
+    await app.evaluate(() => {
+      window.__shotFails = false;
+      window.__share = 'window';
+    });
+    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await text();
+    await app.waitForSelector('.preview img', { timeout: 15000 }).catch(() => log('no preview'));
+    await app.locator('.shot-offer .link').click();
+    await app.waitForSelector('.preview img', { timeout: 15000 }).catch(() => log('no window picture'));
+    await say('widget-browser-picture-window');
+    await app.locator('.l-share').click();
+    await cancelCard(app);
+
+    // Denied: the automatic picture stays, with a plain line about it; and with nothing at all.
+    await app.evaluate(() => {
+      window.__share = 'deny';
+    });
+    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await text();
+    await app.waitForSelector('.preview img', { timeout: 15000 }).catch(() => log('no preview'));
+    await app.locator('.shot-offer .link').click();
+    await say('widget-browser-denied-auto');
+    await cancelCard(app);
+    await app.evaluate(() => {
+      window.__shotFails = true;
+    });
+    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await text();
+    await settle(app, 1500);
+    await app.locator('.shot-offer .btn').click();
+    await say('widget-browser-denied-none');
+    await cancelCard(app);
+    await app.evaluate(() => {
+      window.__shotFails = false;
+      window.__share = 'tab';
+    });
+  });
+
+  await step('area pinned to its element at two window widths (PM-917)', async () => {
+    await refresh(app);
+    await app.locator('.pin[aria-label*="cím eleje"]').click();
+    await app.waitForSelector('[role="dialog"]');
+    await settle(app);
+    await shoot(app, 'widget-pinned-area', { widths: [1512, 390] });
+    await cancelCard(app);
   });
 
   await step('threads', async () => {

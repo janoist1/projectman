@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedbackMarkDetail } from '@projectman/shared';
 import { createController } from './controller';
-import type { Controller, Target } from './controller';
+import type { Controller, Deps, Target } from './controller';
+import { ShareRefused } from './display-capture';
+import type { DisplayShare } from './display-capture';
 import { sessionKey } from './storage';
 import {
   API,
@@ -47,10 +49,40 @@ const shot = {
 const madeShot = { ok: true as const, ...shot, missing: [] as string[] };
 const failedShot = { ok: false as const, failure: { kind: 'timeout' as const } };
 
+const browserShot = {
+  upload: { mediaType: 'image/jpeg' as const, dataBase64: 'BBBB' },
+  preview: 'data:image/jpeg;base64,BBBB',
+};
+
+/** A screen share that needs no real media: `end()` is the browser's sharing bar stopping it. */
+function fakeDisplay(options: { refuse?: 'denied' | 'error'; marked?: boolean } = {}) {
+  const stop = vi.fn();
+  let ended: (() => void) | null = null;
+  const share: DisplayShare = {
+    surface: 'browser',
+    grab: vi.fn(async () => ({
+      outcome: { ok: true as const, ...browserShot, missing: [] as string[] },
+      marked: options.marked ?? true,
+    })),
+    stop,
+    onEnded: (listener) => {
+      ended = listener;
+    },
+  };
+  const start = vi.fn(async () => {
+    if (options.refuse) throw new ShareRefused(options.refuse);
+    return share;
+  });
+  return { display: { can: () => true, start }, share, start, stop, end: () => ended?.() };
+}
+
 let controllers: Controller[] = [];
 function build(
   routes: Record<string, Handler>,
-  options: { capture?: () => Promise<typeof madeShot | typeof failedShot> } = {},
+  options: {
+    capture?: () => Promise<typeof madeShot | typeof failedShot>;
+    display?: Deps['display'];
+  } = {},
 ) {
   const server = fakeServer(routes);
   const controller = createController({
@@ -59,6 +91,10 @@ function build(
     projectKey: 'PM',
     fetchImpl: server.fetchImpl,
     capture: (options.capture ?? (async () => madeShot)) as never,
+    display: options.display ?? {
+      can: () => false,
+      start: async () => Promise.reject(new Error('no share')),
+    },
   });
   controllers.push(controller);
   return { controller, server };
@@ -356,6 +392,170 @@ describe('sending a mark', () => {
     };
     expect(body.kind).toBe('page');
     expect(body.anchor).toEqual(pageAnchor());
+  });
+});
+
+describe('the browser picture (PM-921)', () => {
+  const posts = (server: ReturnType<typeof build>['server']) =>
+    server.calls.filter((c) => c.method === 'POST' && c.path === '/marks');
+
+  async function open(
+    fake: ReturnType<typeof fakeDisplay>,
+    capture?: () => Promise<typeof madeShot | typeof failedShot>,
+  ) {
+    window.localStorage.setItem(KEY, JSON.stringify(session()));
+    const built = build(okRoutes({ 'POST /marks': () => reply(201, detail()) }), {
+      display: fake.display,
+      capture,
+    });
+    await built.controller.start();
+    await flush();
+    built.controller.chooseTarget(pointTarget());
+    await flush();
+    return built;
+  }
+
+  it('replaces a ready automatic picture and the mark is sent with it', async () => {
+    const fake = fakeDisplay();
+    const { controller, server } = await open(fake);
+    await controller.captureWithBrowser();
+    expect(controller.getState()).toMatchObject({ sharing: true });
+    expect(controller.getState().draft?.shot).toMatchObject({
+      status: 'ready',
+      source: 'browser',
+      unmarked: false,
+      browser: 'idle',
+      preview: browserShot.preview,
+    });
+    controller.setBody('x');
+    await controller.sendMark();
+    expect(posts(server)[0]?.body).toMatchObject({ screenshot: browserShot.upload });
+  });
+
+  it('drops an automatic picture that arrives after the browser one', async () => {
+    let finishAuto: (shot: typeof madeShot) => void = () => undefined;
+    const fake = fakeDisplay();
+    const { controller, server } = await open(
+      fake,
+      () => new Promise<typeof madeShot>((resolve) => (finishAuto = resolve)),
+    );
+    await controller.captureWithBrowser();
+    finishAuto(madeShot);
+    await flush();
+    expect(controller.getState().draft?.shot).toMatchObject({
+      source: 'browser',
+      preview: browserShot.preview,
+    });
+    controller.setBody('x');
+    await controller.sendMark();
+    expect(posts(server)[0]?.body).toMatchObject({ screenshot: browserShot.upload });
+  });
+
+  it('marks a picture of a shared window as unmarked: the place is not on it', async () => {
+    const { controller } = await open(fakeDisplay({ marked: false }));
+    await controller.captureWithBrowser();
+    expect(controller.getState().draft?.shot).toMatchObject({ source: 'browser', unmarked: true });
+  });
+
+  it('asks once and takes the next mark picture from the open share without the automatic one', async () => {
+    const fake = fakeDisplay();
+    const capture = vi.fn(async () => madeShot);
+    const { controller } = await open(fake, capture);
+    await controller.captureWithBrowser();
+    controller.cancelDraft();
+    controller.chooseTarget(pointTarget());
+    await flush();
+    expect(fake.start).toHaveBeenCalledTimes(1);
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(controller.getState().draft?.shot).toMatchObject({ status: 'ready', source: 'browser' });
+  });
+
+  it('stops the share on logout, and without it the next mark picture is automatic again', async () => {
+    const fake = fakeDisplay();
+    const { controller } = await open(fake);
+    await controller.captureWithBrowser();
+    await controller.logout();
+    expect(fake.stop).toHaveBeenCalledTimes(1);
+    expect(controller.getState().sharing).toBe(false);
+  });
+
+  it('returns to the automatic picture after the share is stopped, and says so', async () => {
+    const fake = fakeDisplay();
+    const capture = vi.fn(async () => madeShot);
+    const { controller } = await open(fake, capture);
+    await controller.captureWithBrowser();
+    controller.stopSharing();
+    expect(fake.stop).toHaveBeenCalledTimes(1);
+    expect(controller.getState()).toMatchObject({ sharing: false });
+    expect(controller.getState().flash).toContain('megosztás leállt');
+    controller.cancelDraft();
+    controller.chooseTarget(pointTarget());
+    await flush();
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(controller.getState().draft?.shot.source).toBe('auto');
+  });
+
+  it('notices when the browser ends the share from its sharing bar', async () => {
+    const fake = fakeDisplay();
+    const { controller } = await open(fake);
+    await controller.captureWithBrowser();
+    fake.end();
+    expect(controller.getState().sharing).toBe(false);
+    expect(controller.getState().flash).toContain('megosztás leállt');
+  });
+
+  it('ends the share quietly when the page is left', async () => {
+    const fake = fakeDisplay();
+    const { controller } = await open(fake);
+    await controller.captureWithBrowser();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(fake.stop).toHaveBeenCalledTimes(1);
+    expect(controller.getState()).toMatchObject({ sharing: false, flash: null });
+  });
+
+  it('keeps the share when the marks are hidden', async () => {
+    const fake = fakeDisplay();
+    const { controller } = await open(fake);
+    await controller.captureWithBrowser();
+    controller.toggleHidden();
+    expect(fake.stop).not.toHaveBeenCalled();
+    expect(controller.getState().sharing).toBe(true);
+  });
+
+  it.each(['denied', 'error'] as const)(
+    'sends the automatic picture when the share is %s',
+    async (reason) => {
+      const fake = fakeDisplay({ refuse: reason });
+      const { controller, server } = await open(fake);
+      await controller.captureWithBrowser();
+      expect(controller.getState().draft?.shot).toMatchObject({ source: 'auto', browser: reason });
+      expect(controller.getState().sharing).toBe(false);
+      controller.setBody('x');
+      await controller.sendMark();
+      expect(posts(server)[0]?.body).toMatchObject({ screenshot: shot.upload });
+    },
+  );
+
+  it('sends without a picture when the share is denied and the automatic one failed too', async () => {
+    const fake = fakeDisplay({ refuse: 'denied' });
+    const { controller, server } = await open(fake, async () => failedShot);
+    await controller.captureWithBrowser();
+    expect(controller.getState().draft?.shot).toMatchObject({ status: 'failed', browser: 'denied' });
+    controller.setBody('x');
+    await controller.sendMark();
+    expect(posts(server)[0]?.body).toMatchObject({ screenshot: null });
+  });
+
+  it('does not ask again while an answer is awaited', async () => {
+    let answer: (share: DisplayShare) => void = () => undefined;
+    const fake = fakeDisplay();
+    fake.start.mockImplementation(() => new Promise<DisplayShare>((resolve) => (answer = resolve)));
+    const { controller } = await open(fake);
+    const first = controller.captureWithBrowser();
+    await controller.captureWithBrowser();
+    expect(fake.start).toHaveBeenCalledTimes(1);
+    answer(fake.share);
+    await first;
   });
 });
 

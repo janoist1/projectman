@@ -55,6 +55,21 @@ export function Launcher({ controller, state }: { controller: Controller; state:
           <span class="sr">{t('launcher.new')}</span>
         </button>
       )}
+      {!busy && state.sharing && (
+        <button
+          type="button"
+          class="l-share"
+          aria-label={t('launcher.shareStop')}
+          title={t('launcher.shareStopTitle')}
+          onClick={() => controller.stopSharing()}
+        >
+          <i class="live" aria-hidden="true" />
+          <span aria-hidden="true">{t('launcher.share')}</span>
+          <span class="x" aria-hidden="true">
+            ✕
+          </span>
+        </button>
+      )}
       {!busy && (
         <>
           <button type="button" class="l-list" aria-label={listLabel} onClick={() => controller.openPanel()}>

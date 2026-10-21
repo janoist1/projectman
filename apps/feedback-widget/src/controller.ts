@@ -14,6 +14,8 @@ import type { Api } from './api';
 import { isWellFormedCode, takeLaunchParams } from './code';
 import { safeHttpUrl } from './links';
 import type { LaunchParams } from './code';
+import { canShareDisplay, ShareRefused, startShare } from './display-capture';
+import type { DisplayShare } from './display-capture';
 import { collectEnvironment } from './environment';
 import { t } from './i18n';
 import { colorOf } from './palette';
@@ -50,6 +52,19 @@ export interface Target {
 export interface ShotState {
   status: 'pending' | 'ready' | 'failed';
   preview: string | null;
+  /** Where the picture comes from: the automatic render, or the browser's screen sharing (PM-921). */
+  source: 'auto' | 'browser';
+  /** A browser picture of a window or a screen: the marked place is not on it. */
+  unmarked: boolean;
+  /** The last try of the browser picture on this card. */
+  browser: 'idle' | 'asking' | 'denied' | 'error';
+}
+
+/** A finished picture and where it came from; what the mark is sent with. */
+interface Picture {
+  outcome: ShotOutcome;
+  source: ShotState['source'];
+  unmarked: boolean;
 }
 
 export interface Draft {
@@ -98,6 +113,10 @@ export interface State {
   /** Marks that appeared since the last list (they get the "pop"). */
   fresh: string[];
   flash: string | null;
+  /** This browser can share the screen here, so the browser picture is offered. */
+  canShare: boolean;
+  /** A screen share is open: the pictures come from it. */
+  sharing: boolean;
 }
 
 export interface Deps {
@@ -108,6 +127,8 @@ export interface Deps {
   fetchImpl?: typeof fetch;
   refreshMs?: number;
   capture?: typeof captureScreenshot;
+  /** The screen-sharing seam (the display-capture module by default). */
+  display?: { can(win: Window): boolean; start(win: Window): Promise<DisplayShare> };
 }
 
 export interface Controller {
@@ -126,6 +147,10 @@ export interface Controller {
   // new mark
   setBody(body: string): void;
   setShotEnabled(enabled: boolean): void;
+  /** Takes the picture of the open card with the browser's screen sharing; asks once, then reuses the share. */
+  captureWithBrowser(): Promise<void>;
+  /** Ends the screen share (the sharing button). */
+  stopSharing(): void;
   sendMark(): Promise<void>;
   cancelDraft(): void;
   // threads and lists
@@ -152,7 +177,7 @@ export interface Controller {
   appLink(markId?: string): string | null;
 }
 
-const initialState = (hidden: boolean): State => ({
+const initialState = (hidden: boolean, canShare: boolean): State => ({
   phase: 'off',
   notice: null,
   session: null,
@@ -173,6 +198,8 @@ const initialState = (hidden: boolean): State => ({
   threads: {},
   fresh: [],
   flash: null,
+  canShare,
+  sharing: false,
 });
 
 const LOCATION_EVENT = 'pm-feedback:location';
@@ -198,8 +225,11 @@ export function createController(deps: Deps): Controller {
   const { win, projectKey } = deps;
   const scope: storage.Scope = { apiOrigin: deps.base, projectKey };
   const capture = deps.capture ?? captureScreenshot;
+  const display = deps.display ?? { can: canShareDisplay, start: startShare };
+  // What the browser can do does not change while the page is open.
+  const canShare = display.can(win);
 
-  let state: State = { ...initialState(storage.isHidden(scope)), place: placeOf(win) };
+  let state: State = { ...initialState(storage.isHidden(scope), canShare), place: placeOf(win) };
   const listeners = new Set<() => void>();
   const set = (patch: Partial<State>): void => {
     state = { ...state, ...patch };
@@ -222,8 +252,13 @@ export function createController(deps: Deps): Controller {
   const readHere = new Set<string>();
   let pendingLaunch: LaunchParams | null = null;
   let pendingOpen: string | null = null;
-  let shotPromise: Promise<ShotOutcome> | null = null;
+  let shotPromise: Promise<Picture> | null = null;
   let draftToken = 0;
+  /** The picture of the open card: a late automatic result is dropped once the browser picture won. */
+  let shotToken = 0;
+  /** Changes when the session ends, so a share that was granted meanwhile is stopped at once. */
+  let epoch = 0;
+  let share: DisplayShare | null = null;
   let detached: Array<() => void> = [];
 
   const reducedMotion = (): boolean => win.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -255,15 +290,27 @@ export function createController(deps: Deps): Controller {
     for (const off of detached) off();
     detached = [];
     draftToken++;
+    epoch++;
     shotPromise = null;
+    share?.stop();
+    share = null;
     cursor = null;
     failures = 0;
     pendingOpen = null;
   }
 
+  /** The share ends: the pictures are made automatically again. `notify` says so (not on leaving). */
+  function endShare(which: DisplayShare, notify: boolean): void {
+    if (share !== which) return;
+    share = null;
+    which.stop();
+    set({ sharing: false });
+    if (notify) flash(t('notice.shareStopped'));
+  }
+
   function deactivate(notice: NoticeKind | null): void {
     teardown();
-    state = { ...initialState(state.hidden), place: placeOf(win), notice };
+    state = { ...initialState(state.hidden, canShare), place: placeOf(win), notice };
     for (const listener of [...listeners]) listener();
   }
 
@@ -410,13 +457,19 @@ export function createController(deps: Deps): Controller {
         deactivate('signedOut');
       }
     };
+    // Leaving the page ends the share without a message: nobody is left to read it.
+    const onLeave = (): void => {
+      if (share) endShare(share, false);
+    };
     watchHistory(win);
+    win.addEventListener('pagehide', onLeave);
     win.document.addEventListener('visibilitychange', onVisible);
     win.addEventListener('popstate', onPlace);
     win.addEventListener('hashchange', onPlace);
     win.addEventListener(LOCATION_EVENT, onPlace);
     win.addEventListener('storage', onStorage);
     detached.push(
+      () => win.removeEventListener('pagehide', onLeave),
       () => win.document.removeEventListener('visibilitychange', onVisible),
       () => win.removeEventListener('popstate', onPlace),
       () => win.removeEventListener('hashchange', onPlace),
@@ -488,16 +541,42 @@ export function createController(deps: Deps): Controller {
   }
   const cancelMode = (): void => set({ mode: null });
 
+  const highlightOf = (target: Target): ShotHighlight | null =>
+    target.viewportRect || target.viewportPoint
+      ? {
+          rect: target.viewportRect,
+          point: target.viewportPoint,
+          color: colorOf(state.me ?? state.session?.me ?? null),
+        }
+      : null;
+
+  /** The automatic picture, with a limit on the whole of it. */
+  const autoPicture = async (highlight: ShotHighlight | null): Promise<Picture> => ({
+    outcome: await Promise.race([
+      capture(win, highlight),
+      new Promise<ShotOutcome>((resolve) =>
+        setTimeout(() => resolve({ ok: false, failure: { kind: 'timeout' } }), SHOT_TIMEOUT_MS),
+      ),
+    ]),
+    source: 'auto',
+    unmarked: false,
+  });
+
+  /** One picture from the open share; null when it could not be made (the share may be gone). */
+  async function sharedPicture(live: DisplayShare, highlight: ShotHighlight | null): Promise<Picture | null> {
+    try {
+      const { outcome, marked } = await live.grab(win, highlight);
+      if (!outcome.ok) return null;
+      return { outcome, source: 'browser', unmarked: highlight !== null && !marked };
+    } catch {
+      return null;
+    }
+  }
+
   function openDraft(target: Target): void {
     const token = ++draftToken;
-    const highlight: ShotHighlight | null =
-      target.viewportRect || target.viewportPoint
-        ? {
-            rect: target.viewportRect,
-            point: target.viewportPoint,
-            color: colorOf(state.me ?? state.session?.me ?? null),
-          }
-        : null;
+    const picture = ++shotToken;
+    const highlight = highlightOf(target);
     set({
       mode: null,
       panel: null,
@@ -507,32 +586,92 @@ export function createController(deps: Deps): Controller {
         target,
         body: '',
         shotEnabled: true,
-        shot: { status: 'pending', preview: null },
+        shot: { status: 'pending', preview: null, source: 'auto', unmarked: false, browser: 'idle' },
         sending: false,
         error: null,
       },
     });
-    // The picture is taken as the card opens, so it is usually ready when the text is.
-    shotPromise = Promise.race([
-      capture(win, highlight),
-      new Promise<ShotOutcome>((resolve) =>
-        setTimeout(() => resolve({ ok: false, failure: { kind: 'timeout' } }), SHOT_TIMEOUT_MS),
-      ),
-    ]);
+    // The picture is taken as the card opens, so it is usually ready when the text is. While a share is
+    // open it comes from there; when that fails, the automatic picture is the fallback.
+    const live = share;
+    shotPromise = (async () =>
+      (live ? await sharedPicture(live, highlight) : null) ?? autoPicture(highlight))();
     void shotPromise.then((result) => {
-      if (token !== draftToken || !state.draft) return;
+      if (token !== draftToken || picture !== shotToken || !state.draft) return;
+      const { outcome } = result;
       // The reason goes to the page's console, once for each picture (PM-920).
-      if (!result.ok) console.warn(shotFailureLine(result.failure));
-      else if (result.missing.length > 0) console.warn(shotMissingLine(result.missing));
+      if (!outcome.ok) console.warn(shotFailureLine(outcome.failure));
+      else if (outcome.missing.length > 0) console.warn(shotMissingLine(outcome.missing));
       set({
         draft: {
           ...state.draft,
-          shotEnabled: result.ok ? state.draft.shotEnabled : false,
-          shot: result.ok
-            ? { status: 'ready', preview: result.preview }
-            : { status: 'failed', preview: null },
+          shotEnabled: outcome.ok ? state.draft.shotEnabled : false,
+          shot: {
+            ...state.draft.shot,
+            status: outcome.ok ? 'ready' : 'failed',
+            preview: outcome.ok ? outcome.preview : null,
+            source: result.source,
+            unmarked: result.unmarked,
+          },
         },
       });
+    });
+  }
+
+  /** Asks for the share once; a refusal says why. The share then stays open until the marking ends. */
+  async function ensureShare(): Promise<DisplayShare | 'denied' | 'error'> {
+    if (share) return share;
+    const mine = epoch;
+    let started: DisplayShare;
+    try {
+      started = await display.start(win);
+    } catch (error) {
+      return error instanceof ShareRefused ? error.reason : 'error';
+    }
+    if (mine !== epoch) {
+      started.stop(); // the session ended while the browser was asking
+      return 'error';
+    }
+    share = started;
+    started.onEnded(() => endShare(started, true));
+    set({ sharing: true });
+    return started;
+  }
+
+  async function captureWithBrowser(): Promise<void> {
+    const draft = state.draft;
+    if (!draft || draft.sending || draft.shot.browser === 'asking') return;
+    const token = draftToken;
+    const highlight = highlightOf(draft.target);
+    const earlier = shotPromise;
+    updateDraft({ shot: { ...draft.shot, browser: 'asking' } });
+
+    const attempt = (async (): Promise<Picture | 'denied' | 'error'> => {
+      const live = await ensureShare();
+      if (typeof live === 'string') return live;
+      return (await sharedPicture(live, highlight)) ?? 'error';
+    })();
+    // Sending waits for the browser picture and falls back to the earlier one, so it never gets half of it.
+    shotPromise = attempt.then(async (result) =>
+      typeof result === 'string' ? ((await earlier) ?? autoPicture(highlight)) : result,
+    );
+    const result = await attempt;
+    if (token !== draftToken || !state.draft) return;
+    if (typeof result === 'string') {
+      updateDraft({ shot: { ...state.draft.shot, browser: result } });
+      return;
+    }
+    shotToken++;
+    const { outcome } = result;
+    updateDraft({
+      shotEnabled: true,
+      shot: {
+        status: 'ready',
+        preview: outcome.ok ? outcome.preview : null,
+        source: 'browser',
+        unmarked: result.unmarked,
+        browser: 'idle',
+      },
     });
   }
 
@@ -584,10 +723,10 @@ export function createController(deps: Deps): Controller {
     let screenshot: FeedbackScreenshotUpload | null = null;
     let withoutShot = false;
     if (draft.shotEnabled) {
-      const result = await shotPromise;
+      const outcome = (await shotPromise)?.outcome;
       if (token !== draftToken) return;
-      screenshot = result?.ok ? result.upload : null;
-      withoutShot = !result?.ok;
+      screenshot = outcome?.ok ? outcome.upload : null;
+      withoutShot = !outcome?.ok;
     }
     // A failed picture also switches the switch off, so the branch above was skipped.
     if (state.draft?.shot.status === 'failed') withoutShot = true;
@@ -826,6 +965,10 @@ export function createController(deps: Deps): Controller {
     choosePage,
     setBody,
     setShotEnabled,
+    captureWithBrowser,
+    stopSharing: () => {
+      if (share) endShare(share, true);
+    },
     sendMark,
     cancelDraft,
     openMark,

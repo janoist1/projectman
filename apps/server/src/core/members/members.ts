@@ -26,6 +26,7 @@ import {
   stagesToJoin,
   taskSeq,
   taskWorkOf,
+  LIVE_SESSION_STATES,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -126,10 +127,13 @@ export class MemberService {
   }
 
   rosterForViewer(config: ProjectConfig, viewer: Viewer): MemberView[] {
-    const tasks = new Map(this.ctx.repos.tasks.list(config.project.key).map((t) => [t.key, t]));
+    const tasks = new Map<string, boolean>();
     const canSeeKey = (key: string) => {
-      const task = tasks.get(key);
-      return !!task && canSeeTask(viewer, task);
+      if (!tasks.has(key)) {
+        const task = this.ctx.repos.tasks.get(key);
+        tasks.set(key, !!task && task.projectKey === config.project.key && canSeeTask(viewer, task));
+      }
+      return tasks.get(key)!;
     };
     return this.rosterFor(config).map((member) => memberForViewer(viewer, member, canSeeKey));
   }
@@ -145,7 +149,9 @@ export class MemberService {
         .filter((t) => isOpenTask(t) && !isTheme(t))
         .map((t) => [t.key, t]),
     );
-    const sessions = this.ctx.repos.sessions.list(projectKey);
+    const sessions = this.ctx.repos.sessions
+      .listInStates([...LIVE_SESSION_STATES])
+      .filter((s) => s.projectKey === projectKey);
     const states = new Map(this.ctx.repos.memberState.list(projectKey).map((s) => [s.handle, s]));
 
     return config.team.members.map((m): MemberView => {

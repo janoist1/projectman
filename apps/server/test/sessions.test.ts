@@ -207,6 +207,48 @@ describe('session orchestrator', () => {
     expect(await workOf()).toEqual([]);
   });
 
+  it('builds the roster from live sessions of its own project without reading ended history', async () => {
+    await h.domain.tasks.create('AR', { title: 'Ended review' }, OWNER_ACTOR);
+    const live = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    const ended = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-2' });
+    h.runner.setState(live.session.id, 'working');
+    h.runner.emit({ type: 'exit', sessionId: ended.session.id, exitCode: 0, signal: null });
+    const list = vi.spyOn(h.repos.sessions, 'list');
+    const readLive = h.repos.sessions.listInStates;
+    const listInStates = vi.spyOn(h.repos.sessions, 'listInStates');
+    const foreign = {
+      ...live.session,
+      id: 'ses_foreign',
+      projectKey: 'XY',
+      workItem: { type: 'task' as const, taskKey: 'AR-2' },
+    };
+    listInStates.mockImplementation((states) => [...readLive(states), foreign]);
+    const member = (await h.domain.members.roster('AR')).find((m) => m.handle === 'cr');
+    expect(member?.currentTaskKeys).toEqual(['AR-1']);
+    expect(member?.taskWork).toMatchObject([{ sessionId: live.session.id, taskKey: 'AR-1' }]);
+    expect(list).not.toHaveBeenCalled();
+    list.mockRestore();
+    listInStates.mockRestore();
+  });
+
+  it('reads roster visibility lazily and reuses the lookup for a card shared by members', async () => {
+    await h.domain.tasks.update('AR', 'AR-1', { visibility: 'shared' }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'cr', task);
+    await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+    const config = await h.domain.projects.config('AR');
+    const list = vi.spyOn(h.repos.tasks, 'list');
+    const get = vi.spyOn(h.repos.tasks, 'get');
+    const roster = h.domain.members.rosterForViewer(config, { access: 'client', handle: 'client' });
+    expect(roster.filter((m) => ['cr', 'dev-1'].includes(m.handle)).map((m) => m.currentTaskKeys)).toEqual([
+      ['AR-1'],
+      ['AR-1'],
+    ]);
+    expect(list).not.toHaveBeenCalled();
+    expect(get.mock.calls).toEqual([['AR-1']]);
+    list.mockRestore();
+    get.mockRestore();
+  });
+
   it('keeps the sentence a member gives with set_current_work until the round or the session ends (PM-238)', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     h.runner.setState(session.id, 'working', 'Bash: npm test');

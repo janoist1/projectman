@@ -1,4 +1,4 @@
-import type { Me } from '@projectman/shared';
+import type { Me, Task } from '@projectman/shared';
 import { randomUUID } from 'node:crypto';
 import type { RunnerModule, EventBus } from '../contracts';
 import type { TaskService } from '../core/tasks';
@@ -114,6 +114,11 @@ export function registerWebsocket(
     delivery = delivery
       .then(async () => {
         if (event.type === 'hello' || event.type === 'error') return;
+        const tasks = new Map<string, Task | null>();
+        const taskOf = (projectKey: string, taskKey: string) => {
+          if (!tasks.has(taskKey)) tasks.set(taskKey, domain.tasks.find(projectKey, taskKey));
+          return tasks.get(taskKey) ?? null;
+        };
         for (const client of clients) {
           // Not bound to a project: every logged-in client reads the grant's state again.
           if (event.type === 'operator_grant_changed') {
@@ -143,11 +148,15 @@ export function registerWebsocket(
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
             if (!access) client.projects.delete(event.projectKey);
             else {
-              const taskOf = (taskKey: string) => domain.tasks.find(event.projectKey, taskKey);
-              if (canSeeProjectEvent(access, event, taskOf, (id) => domain.sessions.isOperatorSession(id)))
+              const projectTaskOf = (taskKey: string) => taskOf(event.projectKey, taskKey);
+              if (
+                canSeeProjectEvent(access, event, projectTaskOf, (id) =>
+                  domain.sessions.isOperatorSession(id),
+                )
+              )
                 send(
                   client,
-                  visibleProjectEvent(access, event, taskOf, (id) => domain.messages.get(id)),
+                  visibleProjectEvent(access, event, projectTaskOf, (id) => domain.messages.get(id)),
                 );
             }
           }

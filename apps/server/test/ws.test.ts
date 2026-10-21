@@ -1,7 +1,7 @@
 import { waitForSession } from './helpers/domain-harness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
-import type { ServerEvent, TaskDetail } from '@projectman/shared';
+import type { ServerEvent, Task, TaskDetail } from '@projectman/shared';
 import {
   addHumanAndLogin,
   createAppHarness,
@@ -332,6 +332,62 @@ describe('websocket', () => {
         expect.objectContaining({ projectKey: 'AR', provider: 'codex', usage: null }),
       ]),
     );
+  });
+
+  it('shares task reads across clients for each event while preserving client visibility', async () => {
+    const clientCookie = await addHumanAndLogin(h.app, {
+      handle: 'client',
+      name: 'Client',
+      access: 'client',
+    });
+    const created = await h.app.inject({
+      method: 'POST',
+      url: routes.tasks('AR'),
+      headers: { cookie },
+      payload: { title: 'Shared', visibility: 'shared' },
+    });
+    const task = created.json<Task>();
+    const connections = await Promise.all([
+      connect({ cookie: clientCookie }),
+      connect({ cookie: clientCookie }),
+      connect(),
+    ]);
+    for (const { ws, events } of connections) {
+      ws.send(JSON.stringify({ type: 'subscribe_project', projectKey: 'AR' }));
+      ws.send('not json');
+      await waitFor(events, ofType('error'));
+    }
+    const find = vi.spyOn(h.app.projectman.domain.tasks, 'find');
+    const event = {
+      type: 'task_upserted' as const,
+      projectKey: 'AR',
+      task: {
+        ...task,
+        links: [
+          { kind: 'prerequisite' as const, ref: task.key },
+          { kind: 'prerequisite' as const, ref: 'AR-999' },
+        ],
+      },
+    };
+    h.app.projectman.domain.bus.publish(event);
+    for (const { events } of connections) await waitFor(events, ofType('task_upserted'));
+    expect(find.mock.calls).toEqual([
+      ['AR', task.key],
+      ['AR', 'AR-999'],
+    ]);
+    for (const { events } of connections.slice(0, 2))
+      expect(events.find(ofType('task_upserted'))?.task.links).toEqual([
+        { kind: 'prerequisite', ref: task.key },
+      ]);
+    expect(connections[2]!.events.find(ofType('task_upserted'))).toEqual(event);
+    find.mockClear();
+    h.app.projectman.domain.bus.publish({
+      type: 'task_attachments_changed',
+      projectKey: 'AR',
+      taskKey: task.key,
+    });
+    for (const { events } of connections) await waitFor(events, ofType('task_attachments_changed'));
+    expect(find.mock.calls).toEqual([['AR', task.key]]);
   });
 
   it.each(['https://evil.example', 'http://localhost:5173', 'https://localhost:4700'])(

@@ -51,6 +51,18 @@ export function findFiles(dir, pattern) {
   return found;
 }
 
+/**
+ * The native file better-sqlite3 loads on Linux of `arch` (lib/binding.js): a compiled `build/Release` one wins, else
+ * the shipped `prebuilds/linux-<arch>.node` (glibc; the musl ones are not this image's). The prebuilds folder holds
+ * every platform, so only this CPU's file counts.
+ */
+export function betterSqliteFiles(packageDir, arch) {
+  const built = findFiles(join(packageDir, 'build', 'Release'), /\.node$/);
+  if (built.length > 0) return built;
+  const prebuilt = join(packageDir, 'prebuilds', `linux-${arch}.node`);
+  return existsSync(prebuilt) ? [prebuilt] : [];
+}
+
 /** Checks the model folder: a valid manifest and every file with its pinned size and SHA-256. */
 export function checkModel(modelDir) {
   const problems = [];
@@ -143,7 +155,7 @@ export async function main(argv, cwd = process.cwd()) {
     onnxruntime: onnxFolders.flatMap((folder) => findFiles(folder, /\.(node|so[\d.]*)$/)),
     sharp: sharpScopes.flatMap((folder) => findFiles(folder, /\.(node|so[\d.]*)$/)),
     sqliteVec: findFiles(join(nodeModules, `sqlite-vec-linux-${options.arch}`), /\.so$/),
-    betterSqlite: findFiles(join(nodeModules, 'better-sqlite3', 'build', 'Release'), /\.node$/),
+    betterSqlite: betterSqliteFiles(join(nodeModules, 'better-sqlite3'), options.arch),
   };
   facts.native = {};
   for (const [name, paths] of Object.entries(native)) {

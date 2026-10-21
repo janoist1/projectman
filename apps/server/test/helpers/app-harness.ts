@@ -13,7 +13,13 @@ import { createTemplateRegistry } from '../../src/core/base';
 import { humanActor } from '../../src/kernel';
 import type { ScheduleTimer } from '../../src/services/schedules';
 import { createRunnerModule } from '../../src/runner';
-import { FAKE_CLAUDE, FAKE_CODEX, FAKE_GEMINI, freePort } from '../../src/runner/test-helpers';
+import {
+  FAKE_CLAUDE,
+  FAKE_CODEX,
+  FAKE_GEMINI,
+  fixtureScopeProcesses,
+  freePort,
+} from '../../src/runner/test-helpers';
 import {
   createFakeMcp,
   createFakeRunnerModule,
@@ -162,6 +168,8 @@ export async function createAppHarness(
   const port = cli ? await freePort() : 0;
   if (cli) {
     mkdirSync(userHome);
+    const scopeRecords = join(home, 'scope-records');
+    mkdirSync(scopeRecords);
     const projects = opts.trustAll ? { [home]: { hasTrustDialogAccepted: true } } : {};
     writeFileSync(claudeConfig, JSON.stringify({ numStartups: 1, projects }));
     // The fake CLIs read their locations from the environment they inherit.
@@ -169,8 +177,10 @@ export async function createAppHarness(
     vi.stubEnv('CODEX_HOME', codexHome);
     vi.stubEnv('FAKE_CLAUDE_CONFIG_FILE', claudeConfig);
     vi.stubEnv('FAKE_CLAUDE_TRANSCRIPT_DIR', join(userHome, 'transcripts'));
+    vi.stubEnv('FAKE_SCOPE_RECORDS_DIR', scopeRecords);
     modules.createRunnerModule = (options) => {
-      const module = createRunnerModule(options);
+      // Inspect only the disposable fake processes, independently of host-wide ps/env access.
+      const module = createRunnerModule({ ...options, scopeProcesses: fixtureScopeProcesses(scopeRecords) });
       // Fake CLI tests must not probe real subscription accounts or usage endpoints.
       return {
         ...module,

@@ -41,7 +41,12 @@ describe('process group execution', () => {
     expect(getEventListeners(signal, 'abort')).toEqual([]);
   });
   it('terminates on timeout', async () => {
-    expect(await run('sleep 30', { timeoutMs: 50 })).toMatchObject({ timedOut: true, signal: 'SIGTERM' });
+    // With a 50 ms budget the guard may be killed before it can relay the command's TERM exit.
+    // Both TERM and the grace-period KILL terminate the timed-out process group.
+    expect(await run('sleep 30', { timeoutMs: 50 })).toMatchObject({
+      timedOut: true,
+      signal: expect.stringMatching(/^SIG(?:TERM|KILL)$/),
+    });
   });
   it('kills a group that ignores TERM after the grace period', async () => {
     const started = Date.now();

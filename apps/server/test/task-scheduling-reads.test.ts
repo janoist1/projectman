@@ -120,7 +120,7 @@ describe('focus', () => {
 });
 
 describe('pull', () => {
-  it('reads all priorities for the queue, excluding assigned, inactive and other-stage cards and themes', () => {
+  it('reads all priorities and assigned cards for the queue, excluding inactive and other-stage cards and themes', () => {
     add(1, { priority: 'urgent' });
     add(2, { stageId: 'other' });
     add(3, { assignee: 'dev' });
@@ -128,7 +128,7 @@ describe('pull', () => {
     add(5);
     add(6, { priority: 'high' });
     add(7, { kind: 'theme' });
-    expect(keys(read({ kind: 'queue', stageId: 'ready' }))).toEqual(['PM-1', 'PM-5', 'PM-6']);
+    expect(keys(read({ kind: 'queue', stageId: 'ready' }))).toEqual(['PM-1', 'PM-3', 'PM-5', 'PM-6']);
   });
   it('returns the active unassigned cards of the stage that are urgent or focused', () => {
     add(1, { priority: 'urgent' });

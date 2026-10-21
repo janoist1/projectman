@@ -34,6 +34,12 @@ export interface EnginePaths {
 
 export const MERGE_CHECK_DIR = '_merge';
 
+/**
+ * The age (by mtime) from which a `pmft-*` run directory or a `_merge/<mergeId>` check checkout is a
+ * leftover of a crash and the engine's startup sweep removes it (PM-837). A run lasts about an hour at most.
+ */
+export const STALE_LEFTOVER_MS = 24 * 60 * 60 * 1000;
+
 /** The merge check checkout of a merge or a train on its engine: `<worktreesRoot>/_merge/<mergeId>`. */
 export function mergeCheckPath(worktreesRoot: string, mergeId: string): string {
   return path.join(worktreesRoot, MERGE_CHECK_DIR, mergeId);

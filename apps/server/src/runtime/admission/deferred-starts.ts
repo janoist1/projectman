@@ -336,7 +336,10 @@ export class DeferredStarts {
       this.keep(entry);
       if (start.key !== record.key) {
         // The key is made up differently than when the start was stored.
-        this.drop(record.key);
+        this.entries.delete(record.key);
+        this.inFlight.delete(record.key);
+        this.store?.remove(record.key);
+        this.queue?.retire(record.key);
       }
       restored++;
     }

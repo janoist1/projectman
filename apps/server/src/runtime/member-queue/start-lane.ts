@@ -11,8 +11,8 @@ interface StartLaneDeps {
   ctx: DomainContext;
   queue: StartQueue;
   deferred: DeferredStarts;
-  admission: Pick<Admission, 'attempt'>;
-  projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
+  admission: Pick<Admission, 'attempt' | 'retryHold'>;
+  projects: Pick<ProjectService, 'cachedConfig'>;
   rebuild(spec: StartSpec): AutomaticStart | null;
 }
 
@@ -81,16 +81,8 @@ export function startLane(deps: StartLaneDeps): MemberQueueLane {
       const task = taskOf(item);
       if (task?.labels.includes('waiting-answer')) return 'hold_waiting_answer';
       const payload = deps.queue.payload(item);
-      if (
-        task &&
-        payload &&
-        (payload.waiting.reason === 'label_missing' || payload.waiting.reason === 'full_test_pending')
-      ) {
-        const start = startOf(item);
-        if (start?.blocked && start.blocked(task, await deps.projects.config(item.projectKey)))
-          return `hold_${payload.waiting.reason}`;
-      }
-      return null;
+      const start = payload ? startOf(item) : null;
+      return start && payload ? deps.admission.retryHold({ start, waiting: payload.waiting }) : null;
     },
     attemptStart: async (item) => {
       const start = startOf(item);

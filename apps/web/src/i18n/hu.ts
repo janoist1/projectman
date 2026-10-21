@@ -1735,6 +1735,7 @@ export const hu = {
       no_free_member: 'Szabad fejlesztőre vár',
       senior_busy: 'A Seniorra vár',
       label_missing: '{name} munkájára vár: {labels}',
+      waiting_answer: 'Válaszra vár',
       full_test_pending: 'Az átnézés a teljes tesztre vár',
       handoff_open: 'Átadásra vár: {name} leadására',
       provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
@@ -1803,6 +1804,7 @@ export const hu = {
         'Úgy döntöttél, hogy a kártya megvárja a Seniort. Erről többet nem kérdezünk; kézzel bármikor kioszthatod.',
       label_missing:
         'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
+      waiting_answer: 'Az indítás a kártyán nyitott kérdés megválaszolása után folytatódik.',
       full_test_pending:
         'A szerver lefuttatja az átadott commit teljes tesztjét (a PTY-tesztekkel együtt). Zöld eredménynél az átnéző magától indul; bukásnál a kártya visszamegy a fejlesztőhöz.',
       handoff_open:
@@ -1860,6 +1862,7 @@ export const hu = {
         no_free_member: 'mindenki mással foglalkozik',
         senior_busy: 'mással foglalkozik, utána sorra kerül',
         label_missing: 'előbb ő dolgozik rajta: {labels}',
+        waiting_answer: 'válaszra vár',
         full_test_pending: 'fut, utána indul az átnézés',
         handoff_open: 'leadja a munkát',
         provider_not_logged_in: 'a {provider} nincs bejelentkezve',

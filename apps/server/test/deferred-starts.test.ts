@@ -146,6 +146,23 @@ describe('deferred starts across a restart', () => {
     );
   });
 
+  it('rekeys a restored queued start without auditing a source closure', async () => {
+    h = await createDomainHarness({ persistent: true, adjust: aiOff });
+    const task = await h.domain.tasks.create('AR', { title: 'Renamed start key' }, OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
+    const item = await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr')[0]);
+    const payload = h.repos.memberQueue.payload(item.id) as { spec: unknown; waiting: unknown };
+    h.repos.memberQueue.setPayload(item.id, { ...payload, key: 'legacy-hand-over-key' });
+    h = await restartDomainHarness(h);
+    expect(h.repos.memberQueue.get(item.id)).toMatchObject({ state: 'cancelled', closeReason: 'stale' });
+    expect(stored(h)).toEqual([`hand-over:AR:${task.key}`]);
+    expect(
+      h.domain.timeline
+        .list('AR', { taskKey: task.key })
+        .filter((event) => event.type === 'member_queue_item_closed'),
+    ).toEqual([]);
+  });
+
   it('audits a queued start cancelled by a non-deferrable refusal', async () => {
     h = await createDomainHarness({ adjust: aiOff });
     const task = await h.domain.tasks.create('AR', { title: 'Refused review' }, OWNER_ACTOR);
@@ -258,6 +275,37 @@ describe('deferred starts across a restart', () => {
     h.domain.tasks.changeLabels('AR', task.key, { remove: ['waiting-answer'] }, OWNER_ACTOR);
     await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: task.key }));
     expect(h.domain.memberQueue.view('AR', 'cr').closed[0]).toMatchObject({ closeReason: 'started' });
+  });
+
+  it('stores the real reason for a fresh start already held for an answer', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        config.pipeline.labels.push({
+          id: 'waiting-answer',
+          name: 'Waiting for an answer',
+          blocks: true,
+          setBy: 'anyone',
+        });
+      },
+    });
+    const task = await h.domain.tasks.create(
+      'AR',
+      {
+        title: 'Held before admission',
+        stageId: 'code_review',
+        importedAt: new Date().toISOString(),
+        labels: ['waiting-answer'],
+      },
+      OWNER_ACTOR,
+    );
+    await h.domain.handOver.handOff({ task, from: 'development', to: 'code_review', actor: OWNER_ACTOR });
+    const item = h.repos.memberQueue.listOpen('AR', 'cr')[0]!;
+    expect(item.wait?.code).toBe('hold_waiting_answer');
+    expect(h.repos.memberQueue.payload(item.id)).toMatchObject({
+      waiting: { reason: 'waiting_answer', member: 'cr' },
+    });
+    expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+    expect(h.runner.started).toHaveLength(0);
   });
 
   it('retries what was deferred at startup when AI is on, without waiting for the timer', async () => {
@@ -479,6 +527,7 @@ describe('the retry timer', () => {
     const info = vi.spyOn(h.log.logger, 'info');
     await tick();
     await tick();
+    expect(attempt.mock.calls.filter(([start]) => start.projectKey === 'AR')).toHaveLength(0);
     expect(
       attempt.mock.calls.some(([start]) => start.projectKey === 'BR' && start.taskKey === full.key),
     ).toBe(true);

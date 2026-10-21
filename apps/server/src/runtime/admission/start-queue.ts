@@ -79,7 +79,7 @@ export class StartQueue {
         stored = ctx.repos.memberQueue.get(id)!;
       }
       ctx.repos.memberQueue.setPayload(stored.id, item.payload);
-      const { reason, since, ...details } = waiting;
+      const { reason, since, member: _member, ...details } = waiting;
       ctx.repos.memberQueue.setWait(
         stored.id,
         task?.labels.includes('waiting-answer') ? 'hold_waiting_answer' : reason,
@@ -107,7 +107,8 @@ export class StartQueue {
       .filter((item) => (this.payload(item)?.key ?? item.source.id) === key);
   }
 
-  private retire(key: string): void {
+  /** The start continues under another key or in the legacy store; this is not source closure. */
+  retire(key: string): void {
     const { ctx, queue } = this.deps;
     for (const item of this.items(key)) {
       ctx.repos.memberQueue.closeBySource(item.projectKey, item.source, {

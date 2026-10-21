@@ -921,8 +921,8 @@ Every AI member has one durable queue of what is waiting for them: a message, an
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
   changes nothing. The pending counts, `get_project_state` and the diagnostics read the queue.
-- **Driver** (PM-925, `apps/server/src/runtime/member-queue/`): `MemberQueueDriver { ensure(projectKey, member), sweep(),
-register(lane) }`. Everything that could give a member work (an item queued, a turn over, a hold lifted, a limit gone)
+- **Driver** (PM-925, `apps/server/src/runtime/member-queue/`): `MemberQueueDriver` exposes `ensure(projectKey, member)`,
+  `sweep()` and `register(lane)`. Everything that could give a member work (an item queued, a turn over, a hold lifted, a limit gone)
   calls `ensure`, which works the member's queue by level under a keyed mutex (idempotent, one run at a time): items
   whose source no longer owes them are cancelled, items on a closed card go to the desk or end (`place_closed`), a hold
   puts its code on the item, a live session gets its items at the turn boundary, and the first waking item without a

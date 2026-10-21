@@ -11,6 +11,7 @@ import { aiActor, conflict } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { capturingLogger, FakeWorktreeManager, flush } from './helpers/fakes';
+import { obligationReminders } from './helpers/deferred-starts';
 
 /**
  * PM-806: an open step of an AI member has a responsible and a deadline. At the first deadline the
@@ -84,17 +85,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
   };
   const rows = (key: string) => h.repos.obligations.listLive('AR', key);
   const events = (type: string) => h.domain.timeline.list('AR').filter((e) => e.type === type);
-  const reminders = (key: string) =>
-    (
-      h.repos.db
-        .prepare(
-          "SELECT id FROM member_queue_items WHERE project_key = 'AR' AND task_key = ? AND source_type = 'obligation' ORDER BY rowid",
-        )
-        .all(key) as Array<{ id: string }>
-    ).map(({ id }) => ({
-      ...h.repos.memberQueue.get(id)!,
-      text: (h.repos.memberQueue.payload(id) as { text: string }).text,
-    }));
+  const reminders = (key: string) => obligationReminders(h.repos, 'AR', key);
   const todos = () =>
     h.domain.inbox.list('AR', {}).filter((i) => questionPayloadOf(i)?.obligation !== undefined);
   const ownerCount = () => h.domain.inbox.countOpenFor('AR', 'owner');

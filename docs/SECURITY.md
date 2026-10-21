@@ -704,11 +704,15 @@ process scope before reporting exit or releasing its folder/workspace: TERM for 
 then KILL for at most 2 s, with fresh uid, pid/start-time and scope generation checks. This also
 stops background tests and development servers at session end; an idle turn is not session end.
 The process-group driver is explicitly `best_effort`: a process that leaves its group and clears
-its marker can escape attribution. Environment read failures instead remain `unverified`; a recent
-unreadable process is never treated as proof of an empty scope. Previously verified pid/start-time
-pairs remain tracked. Recovery uses a server-derived age and the engine's own clock, with a 60 s
-transport margin, to exclude unrelated older unreadable processes. A missing age keeps the strict
-unverified fallback. A TERM that finds an empty unverified group (ESRCH) never schedules a later KILL.
+its marker can escape attribution. Entire process/environment probe failures remain `unverified`.
+Since PM-933, unreadable processes block cleanup only if they share a known scope group or their
+parent chain reaches an identified scope member before a foreign scope marker or an older ancestor.
+Readable unmarked ancestors are traversed; cycles and the 256-ancestor limit remain unverified.
+Unrelated orphans and missing parents outside scope groups do not block best-effort cleanup.
+Previously verified pid/start-time pairs and leader groups remain tracked across failed and
+unverified retries until clean. Recovery uses a server-derived age and the engine's own clock,
+with a 60 s transport margin, to exclude older unreadable processes. A missing age removes only
+the ancestry time bound. A TERM that finds an empty unverified group (ESRCH) never schedules a later KILL.
 It is not a containment guarantee; PM-701 supplies
 that with Linux cgroup v2. Failed cleanup reserves the workspace and raises an owner-facing
 Operator signal; the Operator never stops another member's process on its own.

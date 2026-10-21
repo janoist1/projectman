@@ -544,6 +544,43 @@ describe('session orchestrator', () => {
     h.domain.sessions.reconcileAfterRestart();
     expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
   });
+
+  it('ends a live row with no running process after two sweep rounds', async () => {
+    const at = new Date(0).toISOString();
+    h.repos.sessions.insert({
+      id: 'ses_ghost',
+      projectKey: 'AR',
+      member: 'cr',
+      workItem: task,
+      claudeSessionId: 'ghost-conversation',
+      cwd: h.workspace,
+      branch: null,
+      transcriptPath: null,
+      state: 'working',
+      activity: null,
+      startedAt: at,
+      lastActivityAt: at,
+      endedAt: null,
+    });
+
+    await h.domain.sessions.sweepLive();
+    expect(h.domain.sessions.get('AR', 'ses_ghost').state).toBe('working');
+    await h.domain.sessions.sweepLive();
+    expect(h.domain.sessions.get('AR', 'ses_ghost')).toMatchObject({
+      state: 'exited',
+      lastStop: { kind: 'exited' },
+      endedAt: expect.any(String),
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'session_upserted',
+        session: expect.objectContaining({ id: 'ses_ghost', state: 'exited' }),
+      }),
+    );
+    expect(h.domain.timeline.list('AR', { taskKey: 'AR-1' })).toContainEqual(
+      expect.objectContaining({ type: 'session_ended', sessionId: 'ses_ghost' }),
+    );
+  });
 });
 
 describe("a developer's sandbox reads only its own work (PM-153)", () => {

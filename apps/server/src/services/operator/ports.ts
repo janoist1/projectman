@@ -114,6 +114,10 @@ export interface OperatorPauseRequester {
 /** Pauses (PauseService in runtime/sessions); the Operator pauses and resumes one project. */
 export interface OperatorPauses {
   projectView(projectKey: string): ProjectPauseView;
-  pause(target: { scope: 'project'; projectKey: string }, by: OperatorPauseRequester): Promise<void>;
+  pause(
+    target: { scope: 'project'; projectKey: string },
+    by: OperatorPauseRequester,
+    options?: { reason?: string },
+  ): Promise<void>;
   resume(target: { scope: 'project'; projectKey: string }, by: OperatorPauseRequester): Promise<void>;
 }

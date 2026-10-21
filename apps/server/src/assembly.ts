@@ -392,6 +392,8 @@ export interface DomainOptions {
   closedWorktreeKeepMs?: number;
   /** How often the idle sessions are looked at for a close (default 1 min, PM-295). */
   idleCloseSweepMs?: number;
+  /** How often the live sessions are compared with the running processes (default 1 min). */
+  liveSessionSweepMs?: number;
   /** How often the open assignee handoffs are looked at for a late note (default 15 s, PM-342). */
   handoffSweepMs?: number;
   /** How often the member queues are worked through for what an event missed (default 30 s, PM-925). */
@@ -2682,6 +2684,12 @@ export function createDomain(opts: DomainOptions) {
           everyMs: opts.idleCloseSweepMs ?? 60_000,
           run: () => sessionCloser.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
+        },
+        {
+          name: 'live-sessions',
+          everyMs: opts.liveSessionSweepMs ?? 60_000,
+          run: () => sessions.sweepLive(),
+          onError: (err) => opts.logger.warn({ err }, 'live session sweep failed'),
         },
       ]);
     },

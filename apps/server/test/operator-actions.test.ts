@@ -1011,10 +1011,11 @@ describe('Operator actions and owner approvals (PM-464)', () => {
 
   it('pauses only after approval and resumes an approved matching pause', async () => {
     await setup();
-    const pause = await operate({ op: 'project_pause' });
+    const pause = await operate({ op: 'project_pause', reason: 'Deploy preview' });
     expect(h.domain.pauses.isPaused('AR')).toBe(false);
     await resolve(pause.inbox_item_id!);
     expect(h.domain.pauses.isPaused('AR')).toBe(true);
+    expect(h.domain.pauses.projectView('AR').project?.reason).toBe('Deploy preview');
     const resume = await operate({ op: 'project_resume' });
     await resolve(resume.inbox_item_id!);
     expect(h.domain.pauses.isPaused('AR')).toBe(false);

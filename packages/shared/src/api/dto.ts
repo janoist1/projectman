@@ -33,7 +33,7 @@ import { SessionState } from '../domain/session';
 import { TeamMessage } from '../domain/message';
 import { MAX_MESSAGE_ATTACHMENTS, MessageAttachmentId } from '../domain/message-attachment';
 import { LabelDefinition, LabelId } from '../domain/label';
-import { ProjectPauseView } from '../domain/pause';
+import { PauseRequest, ProjectPauseView } from '../domain/pause';
 import { BoardColumn, GateCondition, Stage, StageId } from '../domain/pipeline';
 import { BuiltInRoleId, CustomRoleDefinition, RoleBundle, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
@@ -702,7 +702,7 @@ export const OperatorOperation = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('member_retire'), handle: MemberHandle }),
   z.strictObject({ op: z.literal('config_revert'), version: z.string() }),
   z.strictObject({ op: z.literal('session_stop'), sessionId: z.string() }),
-  z.strictObject({ op: z.literal('project_pause') }),
+  z.strictObject({ op: z.literal('project_pause'), reason: PauseRequest.shape.reason }),
   z.strictObject({ op: z.literal('project_resume') }),
   z.strictObject({
     op: z.literal('message_send'),

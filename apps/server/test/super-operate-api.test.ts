@@ -243,7 +243,10 @@ describe('the wired operate executor in super mode (PM-831)', () => {
   });
 
   it('pauses and resumes the project as the Operator with the key’s data', async () => {
-    expect(await operate({ op: 'project_pause' })).toMatchObject({ state: 'succeeded' });
+    expect(await operate({ op: 'project_pause', reason: 'Deploy preview' })).toMatchObject({
+      state: 'succeeded',
+    });
+    expect(app.app.projectman.domain.pauses.projectView('AR').project?.reason).toBe('Deploy preview');
     expect(await operate({ op: 'project_resume' })).toMatchObject({ state: 'succeeded' });
     const events = app.app.projectman.domain.timeline
       .list('AR')

@@ -507,7 +507,7 @@ export class OperatorSignals {
   /** Delivered, unresolved signals still awaiting presentation or a decision, oldest first. */
   active(projectKey: string): OperatorSignal[] {
     return this.deps.ctx.repos.operatorSignals
-      .list(projectKey)
+      .listOpen(projectKey)
       .filter(
         (s) =>
           s.deliveredAt !== null && s.resolvedAt === null && (s.state === 'pending' || s.state === 'open'),
@@ -621,7 +621,7 @@ export class OperatorSignals {
         this.raise(input);
       }
       const outages = this.deps.activeOutageIds(key);
-      for (const signal of this.deps.ctx.repos.operatorSignals.list(key)) {
+      for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(key)) {
         if (
           structuralKind(signal.kind) &&
           !signal.resolvedAt &&
@@ -660,7 +660,7 @@ export class OperatorSignals {
   recheckRecipients(projectKey: string): void {
     const config = this.deps.projects.cachedConfig(projectKey);
     const recipient = config && coordinationMemberOf(config)?.handle;
-    for (const signal of this.deps.ctx.repos.operatorSignals.list(projectKey))
+    for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(projectKey))
       if (
         !signal.resolvedAt &&
         !signal.messageId &&
@@ -673,7 +673,7 @@ export class OperatorSignals {
 
   /** The coordinator finished its turn, or startup recovered a turn that ended before being recorded. */
   finish(projectKey: string): void {
-    for (const signal of this.deps.ctx.repos.operatorSignals.list(projectKey))
+    for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(projectKey))
       if (signal.state === 'pending' && signal.deliveredAt) this.save({ ...signal, state: 'open' });
   }
 
@@ -705,7 +705,7 @@ export class OperatorSignals {
     const { ctx, projects } = this.deps;
     const now = ctx.now().getTime();
     let board: Map<string, SignalInput> | undefined;
-    return ctx.repos.operatorSignals.list(projectKey).filter((s) => {
+    return ctx.repos.operatorSignals.listOpen(projectKey).filter((s) => {
       if (s.resolvedAt) return false;
       // A signal the coordinator took a step on is shown again once its follow-up time has come (PM-545).
       const config = projects.cachedConfig(projectKey);

@@ -513,6 +513,52 @@ describe('Operator system signals', () => {
     expect(h.runner.started).toHaveLength(1);
   });
 
+  it('makes a due follow-up a new queue item of the same signal', async () => {
+    await setup();
+    const signal = raise();
+    await deliver();
+    const queueItems = () =>
+      h.repos.db
+        .prepare("SELECT id, state FROM member_queue_items WHERE kind = 'signal' AND member = 'pm'")
+        .all() as Array<{ id: string; state: string }>;
+    expect(queueItems()).toHaveLength(1);
+
+    now = new Date(now.getTime() + 60_000);
+    h.repos.operatorSignals.followUp(signal.id, now.toISOString());
+    await deliver();
+
+    expect(queueItems()).toHaveLength(2);
+    expect(get(signal.id).followUpAt).toBe(now.toISOString());
+  });
+
+  it('drops the old deferred rows of signals and screening at a restart and works the PM queue', async () => {
+    now = new Date('2026-10-11T10:00:00Z');
+    h = await createDomainHarness({
+      persistent: true,
+      now: () => now,
+      adjust: (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm')!;
+        if (pm.kind === 'ai') pm.onLeave = false;
+      },
+    });
+    const signal = raise();
+    for (const kind of ['operator_signals', 'question_screening'] as const)
+      h.repos.deferredStarts.save({
+        key: `${kind}:AR`,
+        projectKey: 'AR',
+        taskKey: null,
+        spec: { kind, projectKey: 'AR' },
+        waiting: null,
+      });
+
+    h = await restartDomainHarness(h, { now: () => now });
+
+    await vi.waitFor(() => expect(h.repos.deferredStarts.list()).toEqual([]));
+    await deliver();
+    expect(h.runner.started).toHaveLength(1);
+    expect(get(signal.id)).toMatchObject({ state: 'open', deliveredTo: 'pm' });
+  });
+
   it('detects a card with no eligible label setter and resolves it when the label arrives', async () => {
     await setup();
     const task = await h.domain.tasks.create('AR', { title: 'Nobody can approve this' }, OWNER_ACTOR);

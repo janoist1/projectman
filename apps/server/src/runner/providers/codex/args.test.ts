@@ -30,7 +30,7 @@ const spec: StartSessionSpec = {
 
 const input = {
   spec,
-  hookUrl: 'http://127.0.0.1:4700/hooks/secret',
+  hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
   permissionTimeoutMs: 40_000,
   realCwd: '/Users/anna/.projectman/worktrees/AR/AR-1',
   nodePath: '/usr/local/bin/node',
@@ -363,18 +363,19 @@ describe('buildCodexArgs', () => {
     const c = overrides(buildCodexArgs(input).args);
     const permission = c.get('hooks.PermissionRequest')!;
     expect(permission).toContain('timeout=70}');
-    expect(permission).toContain("curl -q --noproxy '*' -sSf -m 70");
+    expect(permission).toContain("curl -q --config '/run/ses_1.0123456789abcdef/hook.curl' --noproxy '*' -sSf -m 70");
     expect(permission).not.toContain('-o /dev/null');
     const stop = c.get('hooks.Stop')!;
     expect(stop).toContain('timeout=10}');
     expect(stop).toContain('-o /dev/null');
-    expect(stop).toContain("'http://127.0.0.1:4700/hooks/secret'");
+    expect(stop).toContain("--config '/run/ses_1.0123456789abcdef/hook.curl'");
+    expect(stop).not.toContain('/hooks/');
   });
 
   it('allows dependency preparation before a tool in the CLI and its forwarder', () => {
     const hook = overrides(buildCodexArgs(input).args).get('hooks.PreToolUse')!;
     expect(hook).toContain('timeout=120}');
-    expect(hook).toContain("curl -q --noproxy '*' -sS -m 120");
+    expect(hook).toContain("--noproxy '*' -sS -m 120");
     expect(hook).toContain('Number(process.argv[2])*1000');
   });
 
@@ -494,6 +495,46 @@ describe('buildCodexArgs', () => {
       expect(
         profile(policy('workspace-write', { kind: 'task_worktree', path: '/work', gitDir })),
       ).not.toContain(gitDir);
+    });
+
+    describe('an independent clone of a member workspace (PM-138)', () => {
+      const clone = {
+        kind: 'task_worktree' as const,
+        path: '/work',
+        workspace: { branch: 'PM-1-work', baseCommit: null },
+      };
+      const own = '/work/.git';
+
+      it('opens its own git directory, with the configuration, hooks, alternates and links closed', () => {
+        const rendered = profile(policy('workspace-write', clone));
+        expect(rendered).toContain(`"${own}"="write"`);
+        for (const name of [
+          'config',
+          'config.lock',
+          'config.worktree',
+          'commondir',
+          'gitdir',
+          'hooks',
+          'modules',
+          'objects/info',
+        ])
+          expect(rendered).toContain(`"${own}/${name}"="read"`);
+        expect(rendered).not.toContain(gitDir);
+      });
+
+      it('opens nothing in a read-only sandbox or without the member workspace marker', () => {
+        expect(profile(policy('read-only', clone))).not.toContain(own);
+        const { workspace: _workspace, ...plain } = clone;
+        expect(profile(policy('workspace-write', plain))).not.toContain(own);
+        expect(profile(policy('workspace-write', { kind: 'read_only', path: '/work' }))).not.toContain(own);
+      });
+
+      it('leaves the shared worktree rules as they were when there is a shared git directory', () => {
+        const rendered = profile(policy('workspace-write', { ...clone, gitDir, worktreeGitDir: adminDir }));
+        expect(rendered).not.toContain(`"${own}"="write"`);
+        expect(rendered).toContain(`"${gitDir}/refs"="write"`);
+        expect(rendered).toContain(`"${adminDir}"="write"`);
+      });
     });
 
     it('does not open the git directories when they lie in a denied path', () => {

@@ -10,7 +10,12 @@ import {
 } from './format';
 import { sampleTaskDetail } from './testing';
 import { TaskStartWaiting } from '@projectman/shared';
-import type { MessageAttachmentReading, MessageStateReport, TaskStateReport } from '../contracts';
+import type {
+  MessageAttachmentReading,
+  MessageStateReport,
+  TaskStateReport,
+  TaskToolDetail,
+} from '../contracts';
 import { formatMessageAttachment, formatProjectState, recipientLine } from './format';
 
 describe('formatMessageAttachment (PM-518)', () => {
@@ -282,6 +287,39 @@ describe('formatTaskDetail', () => {
 
     detail.wait = { ...detail.wait, reason: 'prerequisite', next: [], labels: [], prerequisites: ['AR-3'] };
     expect(waitingLine(detail)).toBe('Waiting: open prerequisite: AR-3.');
+  });
+  it('lists the latest merge checks of the card with their steps, and no section without any (PM-876)', () => {
+    const detail: TaskToolDetail = sampleTaskDetail();
+    expect(formatTaskDetail(detail)).not.toContain('Merge checks');
+    detail.mergeChecks = [
+      {
+        id: 'mc_1',
+        projectKey: 'AR',
+        repo: 'web',
+        kind: 'train',
+        trainId: 'mrg_1',
+        taskKeys: ['AR-21', 'AR-22'],
+        commit: 'a'.repeat(40),
+        base: null,
+        status: 'failed',
+        reason: null,
+        maxWorkers: 4,
+        requestedAt: '2026-10-20T10:00:00.000Z',
+        startedAt: null,
+        finishedAt: '2026-10-20T10:02:00.000Z',
+        durationMs: 120_000,
+        report: null,
+        runner: 'github_actions',
+        url: 'https://github.com/o/r/actions/runs/1',
+      },
+    ];
+    const text = formatTaskDetail(detail);
+    expect(text).toContain('Merge checks');
+    expect(text).toContain('train (AR-21, AR-22)');
+    expect(text).toContain('workers 4 (seen unknown)');
+    expect(text).toContain('steps: unknown');
+    expect(text).toContain('runner: github_actions');
+    expect(text).toContain('url: https://github.com/o/r/actions/runs/1');
   });
   it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {
     const lineOf = (detail: Parameters<typeof formatTaskDetail>[0]) =>

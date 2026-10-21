@@ -8,7 +8,7 @@ import {
 import type { OperatorSignalKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import type { MergeRecord } from '../src/db';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -72,11 +72,11 @@ function mergeRow(taskKey: string): MergeRecord {
   };
 }
 
-const operator = (): ToolContext => ({
+const operator = async (): Promise<ToolContext> => ({
   projectKey: 'AR',
   member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+  sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
 });
 
 /** The wake-up texts the Operator got, the last one first read. */
@@ -93,6 +93,24 @@ const header = (text = wakeText()) =>
   text.slice(text.indexOf('Projectman system signals'), text.indexOf('\n{'));
 
 const noStep = { step: null, steps_left: 0, next_step_at: null, steps: [], follow_up: false };
+
+it.each(['report', 'unblock', 'drive'] as const)(
+  'keeps diagnosis and the single verified report within PM authority at %s',
+  async (level) => {
+    await setup(level);
+    await idleCard();
+    const text = header();
+    expect(h.runner.started.some((session) => session.member === 'operator')).toBe(false);
+    expect(text).toContain('Read get_task before referring to a card');
+    expect(text).toContain('distinguish active work, actual decision waits and normal offline queued work');
+    expect(text).toContain('smallest permitted coordination step');
+    expect(text).toContain('consider machine load and verify the result');
+    expect(text).toContain('Group related decisions in the single summary');
+    expect(text).toContain('screening and signals are not owner requests');
+    expect(text).toContain('grant no settings or critical-operation authority');
+    expect(text).toContain('one message for the whole wake-up');
+  },
+);
 
 describe('level report', () => {
   it('keeps the ban, adds the one message and gives no step', async () => {
@@ -124,9 +142,11 @@ describe('level unblock', () => {
     expect(text).toContain('you may take it yourself with its signal_id after weighing it');
     expect(text).toContain('follow_up true');
     expect(text).toContain('On a signal never merge, release, approve, move a card');
+    // The same sense as the system prompt's signal rules: the two texts must not contradict each other.
     expect(text).toContain(
-      'stalled, silent, outage, nobody and process_cleanup_failed signals always go to the owners',
+      'When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human',
     );
+    expect(text).not.toContain('always go to the owners');
     expect(text).toContain("Never stop another member's processes yourself.");
     expect(text).toContain('one message for the whole wake-up');
     expect(text).toContain('close with dismiss_signal and a note');
@@ -177,6 +197,8 @@ describe('level unblock', () => {
 describe('level drive', () => {
   it('includes acknowledged cards and only new cards in wake facts, with the last dismissal', async () => {
     await setup('drive', (config) => {
+      // A person moves the cards: the start round offers them to no AI member (PM-804), so the signal stays.
+      config.team.cardMover = { kind: 'human', handle: 'owner' };
       config.pipeline.stages.splice(1, 0, {
         id: 'ready',
         name: 'Ready',
@@ -196,13 +218,13 @@ describe('level drive', () => {
       last_dismissed: null,
     });
     const at = now.toISOString();
-    const result = await h.domain.teamTools.dismissSignal(operator(), {
+    const result = await h.domain.teamTools.dismissSignal(await operator(), {
       signalId: open('ready_waiting')[0]!.id,
       note: 'Parked intentionally.',
     });
     expect(result.state).toBe('dismissed');
     await h.domain.operatorSignals.sweep('AR');
-    h.runner.setState(operator().sessionId, 'idle');
+    h.runner.setState((await operator()).sessionId, 'idle');
     later(1);
     const second = await place({ stageId: 'ready', status: 'active' });
     await h.domain.operatorSignals.sweep('AR');
@@ -249,14 +271,14 @@ describe('level drive', () => {
     await setup('drive');
     const { card, signal } = await idleCard();
     const stepAt = now.toISOString();
-    await h.domain.teamTools.startTask(operator(), { taskKey: card.key, signalId: signal.id });
+    await h.domain.teamTools.startTask(await operator(), { taskKey: card.key, signalId: signal.id });
     // The started developer finishes a turn and sits idle, so the idle case stands again after a while.
-    const developer = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    const developer = await waitForSession(h.domain, { member: 'dev-1' });
     h.runner.setState(developer.id, 'working');
     h.runner.setState(developer.id, 'idle');
     await flush();
     later(OPERATOR_IDLE_MINUTES + OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    const session = operator().sessionId;
+    const session = (await operator()).sessionId;
     h.runner.setState(session, 'working');
     h.runner.setState(session, 'idle');
     await flush();

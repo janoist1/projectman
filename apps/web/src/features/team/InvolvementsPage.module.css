@@ -53,6 +53,13 @@
   margin-bottom: 10px;
   font-size: var(--text-xl);
 }
+.page > .section {
+  margin-top: 20px;
+}
+.clearFilter {
+  display: inline-block;
+  margin-top: 16px;
+}
 .line a {
   color: var(--c-ink);
 }

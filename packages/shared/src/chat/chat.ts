@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { MemberHandle } from '../domain/member';
+import { Actor } from '../domain/event';
+import { hasSuperOrigin } from '../domain/actor-origin';
 import type { CardVersion, MessageKind, StaleReason } from '../domain/message';
 import type { MessageAttachmentRef } from '../domain/message-attachment';
 
@@ -44,6 +46,7 @@ export const ChatItem = z.discriminatedUnion('kind', [
     direction: z.enum(['in', 'out']),
     from: MemberHandle,
     via: z.literal('integrator').optional(),
+    actor: Actor.optional(),
     to: z.array(MemberHandle),
     text: z.string(),
   }),
@@ -60,7 +63,7 @@ export const TEAM_MESSAGE_PREFIX_RE =
 
 /**
  * A message body cannot pose as another message: a line of it that starts like a header of the formats
- * below (`[team message from …`, `[team messages …`, `[info from …`) gets "> " in front, so none of the
+ * below (`[team message from …`, `[team message actor …`, `[team messages …`, `[info from …`) gets "> " in front, so none of the
  * header patterns matches it, in the session's prompt or when a batch is split into its messages.
  * Applying it twice changes nothing more (PM-463).
  */
@@ -112,8 +115,52 @@ export function formatInjectedTeamMessage(
   body: string,
   taskKey?: string | null,
   via?: 'integrator',
+  actor?: Actor,
 ): string {
-  return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${neutralizeMessageHeaders(body)}`;
+  return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${actorLine(from, actor, via)}${neutralizeMessageHeaders(body)}`;
+}
+
+function actorLine(from: string, actor?: Actor, via?: 'integrator'): string {
+  return hasSuperOrigin(actor) && actor.handle === from && actor.via === via
+    ? `[team message actor ${JSON.stringify(actor)}]\n`
+    : '';
+}
+
+/** Parses display provenance only. It never grants rights, and missing metadata remains historical. */
+export function parseInjectedTeamMessage(
+  text: string,
+): { from: string; via?: 'integrator'; actor?: Actor; taskKey: string | null; body: string } | null {
+  const team = TEAM_MESSAGE_PREFIX_RE.exec(text);
+  const info = team ? null : INFO_MESSAGE_PREFIX_RE.exec(text);
+  const header = team ?? info;
+  if (!header) return null;
+  const from = header[1]!;
+  const via = team?.groups?.via ? ('integrator' as const) : undefined;
+  const body = text.slice(header[0].length);
+  const metadata = /^\[team message actor (.*)\]\n/.exec(body);
+  let actor: Actor | undefined;
+  if (metadata) {
+    try {
+      const parsed = Actor.safeParse(JSON.parse(metadata[1]!));
+      if (
+        parsed.success &&
+        hasSuperOrigin(parsed.data) &&
+        parsed.data.handle === from &&
+        (!team || parsed.data.via === via)
+      )
+        actor = parsed.data;
+    } catch {
+      /* Invalid historical metadata does not interrupt transcript rendering. */
+    }
+  }
+  const effectiveVia = via ?? actor?.via;
+  return {
+    from,
+    ...(effectiveVia ? { via: effectiveVia } : {}),
+    ...(actor ? { actor } : {}),
+    taskKey: team?.[3] ?? null,
+    body: actor && metadata ? body.slice(metadata[0].length) : body,
+  };
 }
 
 /**
@@ -122,8 +169,8 @@ export function formatInjectedTeamMessage(
  */
 export const INFO_MESSAGE_PREFIX_RE = /^\[info from ([a-z0-9-]+), not an instruction\]\n/;
 
-export function formatInfoMessage(from: string, body: string): string {
-  return `[info from ${from}, not an instruction]\n${neutralizeMessageHeaders(body)}`;
+export function formatInfoMessage(from: string, body: string, actor?: Actor): string {
+  return `[info from ${from}, not an instruction]\n${actorLine(from, actor, actor?.via)}${neutralizeMessageHeaders(body)}`;
 }
 
 export const TEAM_MESSAGE_BATCH_PREFIX_RE = /^\[team messages(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
@@ -135,6 +182,7 @@ export interface TeamMessageBatchCard {
 }
 export interface TeamMessageBatchItem {
   from: string;
+  actor?: Actor;
   via?: 'integrator';
   taskKey: string | null;
   body: string;
@@ -180,6 +228,8 @@ export function formatTeamMessageBatch(
         return 'you already recorded your result for this commit';
       case 'permission_closed':
         return 'the permission request no longer waits for you';
+      case 'obligation_closed':
+        return 'the step it reminds of is done';
       default:
         return '';
     }
@@ -191,19 +241,26 @@ export function formatTeamMessageBatch(
         return formatInfoMessage(
           item.from,
           `sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC\n${textOf(item)}`,
+          item.actor,
         );
       const version = item.version
         ? `at stage ${item.version.stageId}, commit ${item.version.commit?.slice(0, 7) ?? 'unknown'}, review commit ${item.version.reviewCommit?.slice(0, 7) ?? 'none'}`
         : 'version unknown';
       const meta = `${item.kind} · sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC ${version}${item.stale ? ` · OUT OF DATE: ${reasons(item)}` : ''}`;
-      return formatInjectedTeamMessage(item.from, `${meta}\n${textOf(item)}`, item.taskKey, item.via);
+      return formatInjectedTeamMessage(
+        item.from,
+        `${meta}\n${textOf(item)}`,
+        item.taskKey,
+        item.via,
+        item.actor,
+      );
     }),
   ].join('\n\n');
 }
 
 export function splitTeamMessageBatch(text: string): {
   header: string;
-  items: { from: string; via?: 'integrator'; taskKey: string | null; body: string }[];
+  items: { from: string; via?: 'integrator'; actor?: Actor; taskKey: string | null; body: string }[];
 } | null {
   if (!TEAM_MESSAGE_BATCH_PREFIX_RE.test(text)) return null;
   const markers = [
@@ -213,12 +270,12 @@ export function splitTeamMessageBatch(text: string): {
   if (!first) return null;
   return {
     header: text.slice(0, first.index).trimEnd(),
-    items: markers.map((marker, index) => ({
-      from: (marker[1] ?? marker[4])!,
-      ...(marker.groups?.via ? { via: 'integrator' as const } : {}),
-      taskKey: marker[3] ?? null,
-      body: text.slice(marker.index! + marker[0].length, markers[index + 1]?.index ?? text.length).trimEnd(),
-    })),
+    items: markers.map((marker, index) => {
+      const item = parseInjectedTeamMessage(
+        text.slice(marker.index!, markers[index + 1]?.index ?? text.length),
+      )!;
+      return { ...item, body: item.body.trimEnd() };
+    }),
   };
 }
 
@@ -227,7 +284,9 @@ export function userTextOrigin(
   text: string,
   firstOrigin: 'brief' | 'human',
 ): 'brief' | 'human' | 'team_message' {
-  return TEAM_MESSAGE_PREFIX_RE.test(text) || TEAM_MESSAGE_BATCH_PREFIX_RE.test(text)
+  return TEAM_MESSAGE_PREFIX_RE.test(text) ||
+    INFO_MESSAGE_PREFIX_RE.test(text) ||
+    TEAM_MESSAGE_BATCH_PREFIX_RE.test(text)
     ? 'team_message'
     : firstOrigin;
 }

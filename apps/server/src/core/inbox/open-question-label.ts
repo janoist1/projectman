@@ -1,5 +1,6 @@
 import {
   isRefining,
+  isPendingQuestion,
   labelDefinition,
   PENDING_INBOX_STATES,
   stageOf,
@@ -10,7 +11,7 @@ import type { DomainContext } from '../base';
 import type { InboxService } from './inbox';
 import type { ProjectService } from '../projects';
 import type { TaskService } from '../tasks';
-import { excerpt, SYSTEM_ACTOR } from '../../kernel';
+import { excerpt, SYSTEM_ACTOR, withoutIntegratorExecution } from '../../kernel';
 
 /**
  * The waiting label of an open AI question (PM-185, rule 3 of PM-176). While an AI member's
@@ -78,17 +79,20 @@ export class OpenQuestionLabel {
       if (this.openAutoQuestions(projectKey, taskKey).length > 0) return;
       const task = this.tasks.find(projectKey, taskKey);
       if (!task?.labels.includes(WAITING_ANSWER_LABEL)) return;
-      await this.tasks.changeLabels(projectKey, taskKey, { remove: [WAITING_ANSWER_LABEL] }, SYSTEM_ACTOR, {
-        reason: 'open_question',
-      });
+      // This exact automatic cleanup is system work; it grants no caller permission to edit labels.
+      await withoutIntegratorExecution(() =>
+        this.tasks.changeLabels(projectKey, taskKey, { remove: [WAITING_ANSWER_LABEL] }, SYSTEM_ACTOR, {
+          reason: 'open_question',
+        }),
+      );
     } catch (err) {
       this.ctx.logger.warn({ err, taskKey: item.taskKey }, 'could not take the waiting label off the card');
     }
   }
 
   private openAutoQuestions(projectKey: string, taskKey: string): InboxItem[] {
-    return this.inbox
+    return this.ctx.repos.inbox
       .list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question', taskKey })
-      .filter((item) => item.payload.autoLabel === true);
+      .filter((item) => item.payload.autoLabel === true && isPendingQuestion(item));
   }
 }

@@ -1,4 +1,4 @@
-import { hasAccess, memberOf } from '@projectman/shared';
+import { hasAccess, memberOf, superActorOf } from '@projectman/shared';
 export { hasAccess, ownerHandles } from '@projectman/shared';
 import type {
   Actor,
@@ -8,12 +8,20 @@ import type {
   HumanMemberConfig,
   MemberConfig,
   ProjectConfig,
+  SuperActor,
 } from '@projectman/shared';
-import { forbidden, invalid, notFound } from '../../kernel';
+import type { IntegratorPrincipal } from '../../contracts';
+import { assertIntegratorAccess, forbidden, invalid, notFound } from '../../kernel';
 
 /** A logged-in user's membership in one project. */
 export interface ProjectAccess {
   via?: 'integrator';
+  /**
+   * What a step of this request is recorded as in the Operator's super mode (PM-757): set only by
+   * `bindSuperPrincipal`, from an authenticated principal. The step's authority is still the owner's access
+   * above.
+   */
+  superActor?: SuperActor;
   projectKey: string;
   handle: string;
   access: HumanAccess;
@@ -44,8 +52,9 @@ export function requireHuman(
   minimum: HumanAccess,
   refusal: AccessRefusal = {},
 ): HumanMemberConfig {
+  const owner = assertIntegratorAccess(config as ProjectConfig, 'write', actor);
   return requireMemberAccess(
-    actor.kind === 'human' ? memberOf(config, actor.handle) : undefined,
+    owner ?? (actor.kind === 'human' ? memberOf(config, actor.handle) : undefined),
     minimum,
     refusal,
   );
@@ -71,4 +80,24 @@ export function projectAccessFor(config: ProjectConfig, email: string): ProjectA
   const member = findHumanByEmail(config, email);
   if (!member) return null;
   return { projectKey: config.project.key, handle: member.handle, access: member.access, member };
+}
+
+/**
+ * Binds a super principal to a project (PM-757): the token owner's membership now is the access basis (it
+ * must be an owner's, checked again here, not at the time the key was made), and the actor is the project's
+ * Operator, computed from the configuration. `handle` and `access` stay the owner's, because the authority
+ * of a step is the token owner's; what a step is recorded as is `superActor`. Refuses a principal that is
+ * not in the super mode, an owner who is no longer one, and a project without an Operator.
+ */
+export function bindSuperPrincipal(
+  config: ProjectConfig,
+  access: ProjectAccess,
+  principal: IntegratorPrincipal,
+): ProjectAccess {
+  if (principal.mode !== 'super') throw forbidden('insufficient_access', 'not a super-mode credential');
+  if (access.access !== 'owner' || access.projectKey !== config.project.key)
+    throw forbidden('insufficient_access', 'the credential owner is no longer an owner of the project');
+  const superActor = superActorOf(config, { id: principal.keyId, prefix: principal.prefix });
+  if (!superActor) throw forbidden('insufficient_access', 'the project has no Operator');
+  return { ...access, via: 'integrator', superActor };
 }

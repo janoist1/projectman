@@ -5,7 +5,7 @@ import { TeamToolError } from '../src/contracts';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
 import { formatTaskDetail } from '../src/mcp/format';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { flush, pullRequest } from './helpers/fakes';
@@ -45,7 +45,7 @@ describe('team tools', () => {
     expect(result.deliveredTo).toEqual(['cr']);
     await flush();
 
-    const crSession = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
+    const crSession = await waitForSession(h.domain, { member: 'cr', taskKey: 'AR-1' });
     expect(crSession).toBeDefined();
     // The recipient's new session takes the whole message in its first input, behind its brief.
     expect(h.runner.started.find((spec) => spec.sessionId === crSession.id)?.initialMessage).toContain(
@@ -324,6 +324,8 @@ describe('team tools', () => {
     ]);
     expect(item.payload).toEqual({
       question,
+      requestedRecipient: 'owner',
+      recipient: 'owner',
       options: ['Under the field', 'Pop-up', 'Nowhere'],
       recommended: 'option_2',
       recommendationReason: 'It is easier to read on a phone.',
@@ -357,6 +359,8 @@ describe('team tools', () => {
     const item = h.domain.inbox.get('AR', inboxItemId);
     expect(item.payload).toEqual({
       question: 'Which font should the login page use?',
+      requestedRecipient: 'owner',
+      recipient: 'owner',
       options: ['Inter', 'Roboto'],
     });
     // The first option is the primary button when nothing is recommended.
@@ -367,6 +371,8 @@ describe('team tools', () => {
     ]);
     expect(questionPayloadOf(item)).toEqual({
       question: 'Which font should the login page use?',
+      requestedRecipient: 'owner',
+      recipient: 'owner',
       options: ['Inter', 'Roboto'],
     });
   });
@@ -636,7 +642,15 @@ describe('team tools', () => {
     expect(events.slice(-3)).toEqual([
       ['task_updated', { fields: ['title', 'description'] }, 'ses_cr'],
       ['task_note', { text: 'Specified the acceptance criteria', mentions: [] }, 'ses_cr'],
-      ['task_stage_changed', { from: 'development', to: 'code_review' }, null],
+      [
+        'task_stage_changed',
+        {
+          from: 'development',
+          to: 'code_review',
+          noteExcerpt: 'Specified the acceptance criteria',
+        },
+        null,
+      ],
     ]);
     expect(
       (await toolError(h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', title: ' ' }))).code,

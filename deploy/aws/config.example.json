@@ -33,7 +33,8 @@
   },
   "route53": { "profile": "i" },
   "ses": {
-    "region": "CHOOSE-SES-REGION",
+    "profile": "i",
+    "region": "eu-west-1",
     "domain": "istvan.io",
     "from": "CHOOSE-SENDER@istvan.io"
   }

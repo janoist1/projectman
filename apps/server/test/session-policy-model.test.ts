@@ -1,7 +1,12 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
+import { SANDBOX_HOME_READS } from '../src/contracts';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
+import { userExcludesFile } from '../src/engine-host';
+import { createEngineLimit } from '../src/engine-link';
 import { attachmentToolRules, sensitivePaths, sessionSandbox } from '../src/runtime/sessions';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER, tomlValue } from '../src/runner/providers/codex/args';
@@ -9,6 +14,7 @@ import { decideToolCall } from '../src/runner/tool-decision';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
+const HOOK_CONFIG = '/run/ses_1.0123456789abcdef/hook.curl';
 const source = '/fictional/source';
 const copy = '/fictional/reviews/round-1';
 const sharedGit = '/fictional/repo/.git';
@@ -121,7 +127,7 @@ describe('provider-neutral session policy', () => {
           spec: s,
           provider: provider === 'nanogpt' ? NANOGPT_CODEX_PROVIDER : undefined,
           realCwd: s.cwd,
-          hookUrl: 'http://fake/hooks',
+          hookConfigPath: HOOK_CONFIG,
           permissionTimeoutMs: 1000,
         }).args,
       );
@@ -140,6 +146,39 @@ describe('provider-neutral session policy', () => {
     },
   );
 
+  it('protects server-managed workspace snapshot refs in both provider sandboxes', () => {
+    const p = policy('developer', {
+      kind: 'task_worktree',
+      path: source,
+      gitDir: sharedGit,
+      worktreeGitDir: `${sharedGit}/worktrees/fix`,
+    });
+    const sandbox = sessionSandbox(p, { userHome: '/fictional/user', defaultBranch: 'main' })!;
+    const snapshots = `${sharedGit}/refs/projectman`;
+    expect(sandbox.denyWrite).toContain(snapshots);
+    const settings = buildSettings({
+      hookUrl: 'http://fake/hooks',
+      hookConfigPath: HOOK_CONFIG,
+      permissionTimeoutMs: 1000,
+      allowedTools: [],
+      policy: p,
+      sandbox,
+    });
+    expect(settings.sandbox?.filesystem.denyWrite).toContain(snapshots);
+    expect(settings.permissions.deny).toContain(`Edit(/${snapshots}/**)`);
+    const s = { ...spec(p, false), sandbox };
+    const args = buildCodexArgs({
+      spec: s,
+      realCwd: s.cwd,
+      hookConfigPath: HOOK_CONFIG,
+      permissionTimeoutMs: 1000,
+    }).args;
+    const profile = codexOverrides(args).get('permissions.projectman');
+    expect(profile).toContain(`"${sharedGit}/refs"="write"`);
+    expect(profile).toContain(`"${snapshots}"="read"`);
+    expect(profile).not.toContain(`"${snapshots}"="write"`);
+  });
+
   it('does not share denied member directories or give readers member-cache writes', () => {
     const memberDir = '/fictional/app/member-caches/PM/dev';
     const p = development();
@@ -157,11 +196,17 @@ describe('provider-neutral session policy', () => {
   it('refuses unsupported strict enforcement instead of rendering a weaker profile', () => {
     const p: SessionPolicy = { ...development(), enforcement: 'strict', outsideSandbox: 'deny' };
     expect(() =>
-      buildSettings({ hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000, allowedTools: [], policy: p }),
+      buildSettings({
+        hookUrl: 'http://fake/hooks',
+        hookConfigPath: HOOK_CONFIG,
+        permissionTimeoutMs: 1000,
+        allowedTools: [],
+        policy: p,
+      }),
     ).toThrow(/refusing to start/);
     const s = spec(p, false);
     expect(() =>
-      buildCodexArgs({ spec: s, realCwd: s.cwd, hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000 }),
+      buildCodexArgs({ spec: s, realCwd: s.cwd, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 }),
     ).toThrow(/refusing to start/);
   });
   it('isolates placement intent and records independent review metadata', () => {
@@ -218,8 +263,13 @@ describe('provider-neutral session policy', () => {
     expect(sandbox.denyWrite).toEqual([source, '/fictional/home', '/fictional/live']);
     // The file tools get an `Edit` deny rule for each of them.
     expect(
-      buildSettings({ hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000, allowedTools: [], sandbox })
-        .permissions.deny,
+      buildSettings({
+        hookUrl: 'http://fake/hooks',
+        hookConfigPath: HOOK_CONFIG,
+        permissionTimeoutMs: 1000,
+        allowedTools: [],
+        sandbox,
+      }).permissions.deny,
     ).toEqual([
       'Edit(//fictional/source)',
       'Edit(//fictional/source/**)',
@@ -254,8 +304,13 @@ describe('provider-neutral session policy', () => {
     expect(sandbox.excludedCommands).toEqual(['gh pr view', 'gh pr diff']);
     // Claude Code takes them with any arguments, and only as a command of their own.
     expect(
-      buildSettings({ hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000, allowedTools: [], sandbox })
-        .sandbox?.excludedCommands,
+      buildSettings({
+        hookUrl: 'http://fake/hooks',
+        hookConfigPath: HOOK_CONFIG,
+        permissionTimeoutMs: 1000,
+        allowedTools: [],
+        sandbox,
+      }).sandbox?.excludedCommands,
     ).toEqual(['gh pr view:*', 'gh pr diff:*']);
   });
 
@@ -300,6 +355,122 @@ describe('provider-neutral session policy', () => {
     expect(withDir.env).toMatchObject({ GIT_CONFIG_SYSTEM: '/pm/m/AR/dev/gitconfig' });
     expect(withDir.allowRead).toContain('/pm/m/AR/dev/gitconfig');
     expect(withDir.allowWrite).not.toContain('/pm/m/AR/dev/gitconfig');
+  });
+
+  it('keeps the app home closed and opens only its own worktree when the worktrees lie on a work volume below the home (PM-846)', () => {
+    const appHome = '/fictional/user/.projectman';
+    const own = `${appHome}/work/worktrees/AR/AR-1-web`;
+    const sandbox = sessionSandbox(
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: { kind: 'task_worktree', path: own, gitDir: sharedGit },
+        permissionMode: 'acceptEdits',
+      }),
+      { userHome: '/fictional/user', appHome, defaultBranch: 'main' },
+    )!;
+    // The user's home is denied and contains the app home, so the work volume below it is denied with it.
+    expect(sandbox.denyRead).toContain('/fictional/user');
+    expect(sandbox.allowRead).toContain(own);
+    for (const open of [`${appHome}/work`, `${appHome}/work/worktrees`, `${appHome}/work/workspaces`, appHome])
+      expect(sandbox.allowRead).not.toContain(open);
+  });
+
+  it("lets the engine's limit pass a worktree sandbox, which reads the user's files and writes none of them (PM-731)", async () => {
+    const base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'policy-limit-')));
+    try {
+      const home = path.join(base, 'home');
+      const userHome = path.join(base, 'user');
+      const workspace = path.join(base, 'work');
+      const repo = path.join(workspace, 'projectman');
+      const excludes = path.join(userHome, 'global-ignore');
+      for (const dir of [
+        home,
+        repo,
+        path.join(home, 'member-caches'),
+        path.join(userHome, '.config', 'git'),
+        path.join(userHome, '.claude', 'shell-snapshots'),
+      ])
+        mkdirSync(dir, { recursive: true });
+      writeFileSync(excludes, '*.log\n');
+      writeFileSync(path.join(userHome, '.gitconfig'), `[core]\n\texcludesfile = ${excludes}\n`);
+      const clone = buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: {
+          kind: 'task_worktree',
+          path: repo,
+          workspace: { branch: 'AR-1-work', baseCommit: null },
+        },
+        permissionMode: 'acceptEdits',
+        deniedPaths: sensitivePaths({ userHome, appHome: home }),
+      });
+      const sandbox = sessionSandbox(clone, {
+        userHome,
+        appHome: home,
+        defaultBranch: 'main',
+        excludesFile: userExcludesFile(userHome),
+      })!;
+      const reads = [...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)), excludes];
+      expect(sandbox.allowRead).toEqual(expect.arrayContaining(reads));
+      for (const file of [...reads, userHome, path.join(userHome, '.claude')]) {
+        expect(sandbox.allowWrite).not.toContain(file);
+        expect(clone.filesystem.writableRoots).not.toContain(file);
+      }
+      const limit = createEngineLimit({
+        config: {
+          schemaVersion: 1,
+          cloudUrl: 'https://cloud.example.com',
+          engineId: 'eng_aaaaaaaaaaaa',
+          name: 'mac',
+          keyFile: path.join(home, 'engine.key'),
+          projects: [{ project: 'AR', workspacePath: workspace }],
+          repos: [],
+          maxPermissionMode: 'auto',
+          allowRemoteTerminalInput: true,
+        },
+        home,
+        userHome,
+        paths: {
+          userHome,
+          home,
+          worktreesRoot: path.join(home, 'worktrees'),
+          workspacesRoot: null,
+          installDir: null,
+          sessionFoldersRoot: path.join(home, 'session-folders'),
+          sessionTmpRoot: path.join(home, 'tmp'),
+          claudeTmpRoots: [],
+          browsersDir: path.join(home, 'browsers'),
+          heavyLockDir: path.join(home, 'heavy', 'lock'),
+          gitExcludesFile: excludes,
+        },
+        instanceTag: 'a'.repeat(16),
+        transcriptRoots: [],
+        tmpdir: path.join(base, 'os-tmp'),
+        probe: {} as never,
+        sessionPids: () => [],
+        selfPid: 99,
+        selfUid: 501,
+      });
+      const checked = (await limit.check('session.start', {
+        sessionId: 's1',
+        provider: 'claude',
+        cwd: repo,
+        policy: clone,
+        sandbox,
+      } as never)) as { sandbox: { denyWrite: string[]; allowRead: string[] } };
+      expect(checked.sandbox.allowRead).toEqual(expect.arrayContaining(reads));
+      expect(checked.sandbox.denyWrite).toEqual(
+        expect.arrayContaining(
+          ['', '-wal', '-shm', '-journal'].map((end) => path.join(home, `db.sqlite${end}`)),
+        ),
+      );
+      expect(checked.sandbox.denyWrite.filter((entry) => entry.includes('*'))).toEqual([]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it('resolves mixed/custom duty bundles instead of role names', () => {
@@ -403,6 +574,7 @@ describe('provider-neutral session policy', () => {
         expect(() =>
           buildSettings({
             hookUrl: 'http://fake/hooks',
+            hookConfigPath: HOOK_CONFIG,
             permissionTimeoutMs: 1000,
             allowedTools: [],
             policy: p,
@@ -412,7 +584,7 @@ describe('provider-neutral session policy', () => {
           buildCodexArgs({
             spec: s,
             realCwd: s.cwd,
-            hookUrl: 'http://fake/hooks',
+            hookConfigPath: HOOK_CONFIG,
             permissionTimeoutMs: 1000,
           }),
         ).toThrow(/refusing to start/);
@@ -488,8 +660,13 @@ describe('provider-neutral session policy', () => {
     });
     expect(p.deniedOperations).toEqual(['git_push', 'pull_request_create', 'pull_request_merge']);
     expect(
-      buildSettings({ hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000, allowedTools: [], policy: p })
-        .permissions.deny,
+      buildSettings({
+        hookUrl: 'http://fake/hooks',
+        hookConfigPath: HOOK_CONFIG,
+        permissionTimeoutMs: 1000,
+        allowedTools: [],
+        policy: p,
+      }).permissions.deny,
     ).toEqual([
       'Bash(git push:*)',
       'Bash(gh pr create:*)',
@@ -547,6 +724,7 @@ describe('provider-neutral session policy', () => {
       });
       const deny = buildSettings({
         hookUrl: 'http://fake/hooks',
+        hookConfigPath: HOOK_CONFIG,
         permissionTimeoutMs: 1000,
         allowedTools: [],
         policy: p,
@@ -613,6 +791,7 @@ describe('provider-neutral session policy', () => {
     // Claude: the permission rules for the file tools, and the decision of the hook for every tool.
     const deny = buildSettings({
       hookUrl: 'http://fake/hooks',
+      hookConfigPath: HOOK_CONFIG,
       permissionTimeoutMs: 1000,
       allowedTools: [],
       policy: p,
@@ -638,7 +817,7 @@ describe('provider-neutral session policy', () => {
       buildCodexArgs({
         spec: spec(p, false),
         realCwd: source,
-        hookUrl: 'http://fake/hooks',
+        hookConfigPath: HOOK_CONFIG,
         permissionTimeoutMs: 1000,
       }).args,
     ).get('permissions.projectman');
@@ -652,6 +831,7 @@ describe('provider-neutral session policy', () => {
     const s = spec(p, resume);
     const settings = buildSettings({
       hookUrl: 'http://fake/hooks',
+      hookConfigPath: HOOK_CONFIG,
       permissionTimeoutMs: 1000,
       allowedTools: s.allowedTools,
       policy: p,
@@ -660,13 +840,16 @@ describe('provider-neutral session policy', () => {
     expect(settings.permissions.allow).toContain('Bash(git diff:*)');
     expect(settings.permissions.allow).not.toContain('Bash(*)');
     expect(settings.permissions.allow).not.toContain('mcp__team__*');
-    const args = buildClaudeArgs(s, settings);
+    const args = buildClaudeArgs(s, {
+      settingsPath: '/run/ses_1.0123456789abcdef/claude-settings.json',
+      mcpConfigPath: '/run/ses_1.0123456789abcdef/claude-mcp.json',
+    });
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('acceptEdits');
     // Codex keeps its read-only sandbox in a reading placement.
     const codex = buildCodexArgs({
       spec: s,
       realCwd: s.cwd,
-      hookUrl: 'http://fake/hooks',
+      hookConfigPath: HOOK_CONFIG,
       permissionTimeoutMs: 1000,
     }).args;
     expect(codex).not.toContain('--sandbox');
@@ -674,7 +857,7 @@ describe('provider-neutral session policy', () => {
       ['--ask-for-approval', 'on-request'],
     );
     const c = codexOverrides(
-      buildCodexArgs({ spec: s, realCwd: s.cwd, hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000 })
+      buildCodexArgs({ spec: s, realCwd: s.cwd, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 })
         .args,
     );
     expect(c.get('default_permissions')).toBe('"projectman"');

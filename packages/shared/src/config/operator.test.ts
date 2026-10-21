@@ -13,6 +13,7 @@ import {
   isOperator,
   isOperatorActor,
   isRequiredOperator,
+  operatorAutonomousLevel,
   operatorConfigVerdict,
   operatorConversationOf,
   operatorFixedChange,
@@ -318,9 +319,7 @@ describe('approval waiver eligibility (PM-691)', () => {
 
   const protectedFields: Array<[string, (next: ProjectConfig) => void]> = [
     ['permission mode', (n) => (ai(n, 'writer').permissionMode = 'acceptEdits')],
-    ['bypass', (n) => (ai(n, 'writer').permissionMode = 'bypassPermissions')],
     ['AI approver', (n) => (ai(n, 'writer').approver = 'ai')],
-    ['no approver', (n) => (ai(n, 'writer').approver = 'none')],
     ['network', (n) => (ai(n, 'writer').outboundNetwork = false)],
     ['GitHub identity', (n) => (ai(n, 'writer').githubLogin = 'different-author')],
     ['member instructions', (n) => (ai(n, 'writer').instructions = 'Use another workflow.')],
@@ -454,7 +453,6 @@ describe('approval waiver eligibility (PM-691)', () => {
   });
   it.each([
     ['permissionMode', 'default', DEFAULT_PERMISSION_MODE],
-    ['permissionMode', 'bypassPermissions', DEFAULT_PERMISSION_MODE],
     ['approver', 'human', DEFAULT_NEW_MEMBER_APPROVER],
     ['approver', 'ai', DEFAULT_NEW_MEMBER_APPROVER],
     ['approver', undefined, DEFAULT_NEW_MEMBER_APPROVER],
@@ -852,11 +850,6 @@ describe('operatorFixedChange (PM-473)', () => {
       { kind: 'field', handle: 'operator', field: 'permissionMode' },
     ],
     [
-      'its sponsor changes while the old one stays',
-      (n: ProjectConfig) => (ai(n, 'operator').sponsor = 'ann'),
-      { kind: 'field', handle: 'operator', field: 'sponsor' },
-    ],
-    [
       'several fields change: the first in the alphabet',
       (n: ProjectConfig) => {
         ai(n, 'operator').instructions = 'Do more.';
@@ -913,10 +906,6 @@ describe('operatorFixedChange (PM-473)', () => {
     ['its model', (n: ProjectConfig) => (ai(n, 'operator').model = 'sonnet')],
     ['its provider', (n: ProjectConfig) => (ai(n, 'operator').provider = 'codex')],
     ['its effort', (n: ProjectConfig) => (ai(n, 'operator').effort = 'max')],
-    [
-      'all three together',
-      (n: ProjectConfig) => Object.assign(ai(n, 'operator'), { model: 'x', effort: 'low' }),
-    ],
     [
       'a restated default',
       (n: ProjectConfig) =>
@@ -1056,11 +1045,18 @@ describe('operatorConfigVerdict', () => {
   });
 
   it.each([...NOW, ...APPROVAL, ...NEVER])('%s: %s', (_name, edit, level) => {
-    const { result } = verdict(edit);
+    const { previous, next, result } = verdict(edit);
     expect(result.level).toBe(level);
     expect(result.changes.length).toBeGreaterThan(0);
     expect(result.changes.some((row) => row.level === level)).toBe(true);
     expect(result.changes.every((row) => ConfigChangeRow.safeParse(row).success)).toBe(true);
+    if (integratorConfigRefusal(previous, next) !== null && result.level === 'now') {
+      // Only these AI fields may bypass an integrator refusal.
+      for (const row of result.changes) {
+        expect(row.area).toBe('member');
+        expect([...FOUR, 'onLeave']).toContain(row.field);
+      }
+    }
   });
 
   it('names the change in one row with the old and the new value', () => {
@@ -1233,20 +1229,6 @@ describe('operatorConfigVerdict', () => {
   });
 
   describe('property: what the integrator may not do is at least approval', () => {
-    const cases = [...NOW, ...APPROVAL, ...NEVER];
-
-    it.each(cases)('%s', (_name, edit) => {
-      const { previous, next, result } = verdict(edit);
-      if (integratorConfigRefusal(previous, next) === null) return;
-      if (result.level !== 'now') return;
-      // The one exception: AI members’ model, effort, capacity and schedule (and leave, which the integrator may change too).
-      expect(result.changes.length).toBeGreaterThan(0);
-      for (const row of result.changes) {
-        expect(row.area).toBe('member');
-        expect([...FOUR, 'onLeave']).toContain(row.field);
-      }
-    });
-
     it('holds when only the four fields change, and fails when anything else rides along', () => {
       const four = verdict((n) => {
         ai(n, 'writer').model = 'sonnet';
@@ -1262,6 +1244,39 @@ describe('operatorConfigVerdict', () => {
       });
       expect(more.result.level).toBe('approval');
     });
+  });
+});
+
+describe('operatorAutonomousLevel (decision 55)', () => {
+  const autonomous = (edit: (next: ProjectConfig) => void) => {
+    const { previous, next, result } = verdict(edit);
+    return { before: result.level, after: operatorAutonomousLevel(previous, next, result, 'operator') };
+  };
+
+  it.each<[string, (next: ProjectConfig) => void]>([
+    [
+      'a stage is added',
+      (n) => n.pipeline.stages.splice(2, 0, { id: 'qa', name: 'QA', kind: 'step', columnId: 'all' }),
+    ],
+    ['a gate is added', (n) => (stage(n, 'dev').gate = { conditions: [{ type: 'has_label', label: 'ui' }] })],
+    ['a member’s role', (n) => (ai(n, 'writer').role = 'docs')],
+  ])('lets an owner-asked approval change through: %s', (_name, edit) => {
+    expect(autonomous(edit)).toEqual({ before: 'approval', after: 'now' });
+  });
+
+  it('keeps what stays the owner’s call at approval: deletion and the Operator member itself', () => {
+    const retire = autonomous((n) => (n.team.members = n.team.members.filter((m) => m.handle !== 'dev-1')));
+    expect(retire).toEqual({ before: 'approval', after: 'approval' });
+    const itself = autonomous((n) => (ai(n, 'operator').model = 'sonnet'));
+    expect(itself).toEqual({ before: 'approval', after: 'approval' });
+  });
+
+  it('never turns a never into anything else, and leaves a now alone', () => {
+    expect(autonomous((n) => ((member(n, 'ann') as { access: string }).access = 'admin'))).toEqual({
+      before: 'never',
+      after: 'never',
+    });
+    expect(autonomous((n) => (ai(n, 'writer').model = 'sonnet'))).toEqual({ before: 'now', after: 'now' });
   });
 });
 

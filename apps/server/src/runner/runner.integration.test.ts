@@ -21,6 +21,7 @@ import type {
 import { createRunnerModule } from './index';
 import {
   FAKE_CLAUDE,
+  claudeLoadedFile,
   fixtureScopeProcesses,
   freePort,
   silentLogger,
@@ -74,6 +75,7 @@ async function setup(
   runner = createRunnerModule({
     claudeBin: FAKE_CLAUDE,
     publicBaseUrl: `http://127.0.0.1:${port}`,
+    sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
     broker,
     permissionTimeoutMs: options.permissionTimeoutMs ?? 10_000,
     logger: silentLogger(),
@@ -103,6 +105,7 @@ beforeEach(async () => {
   process.env.FAKE_CLAUDE_TRANSCRIPT_DIR = transcriptDir;
   process.env.FAKE_CLAUDE_CONFIG_FILE = configFile;
   process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;
+  process.env.FAKE_CLAUDE_LOADED_FILE = claudeLoadedFile(argsFile);
   process.env.ANTHROPIC_API_KEY = 'sk-ant-must-not-leak';
   process.env.NANOGPT_API_KEY = 'inherited-nanogpt-must-not-leak';
   // A dead proxy: the SessionStart forwarder (curl honours http_proxy) only reaches the
@@ -118,6 +121,14 @@ afterEach(async () => {
   for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
   Object.assign(process.env, savedEnv);
 });
+
+/**
+ * What the fake claude loaded from `--settings` and `--mcp-config`: the runner passes them as private
+ * files that are gone once the session ends (PM-156).
+ */
+async function loadedConfig(): Promise<{ settings: any; mcpConfig: any[] }> {
+  return JSON.parse(await readFile(claudeLoadedFile(argsFile), 'utf8'));
+}
 
 function spec(extra: Partial<StartSessionSpec> = {}): StartSessionSpec {
   return {
@@ -224,8 +235,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await setup();
     const started = await runner.runner.start(spec());
     await waitFor(() => stateOf(started.sessionId) === 'idle', { what: 'fake session ready' });
-    const { argv: args } = JSON.parse(await readFile(argsFile, 'utf8')) as { argv: string[] };
-    const settings = JSON.parse(args[args.indexOf('--settings') + 1]!);
+    const { settings } = await loadedConfig();
     const hook = new URL(settings.hooks.Stop[0].hooks[0].url);
     await runner.runner.stop(started.sessionId, { force: true });
     await waitFor(() => !runner.runner.isRunning(started.sessionId), { what: 'fake session stopped' });
@@ -312,10 +322,12 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(childCwd).toBe(cwd);
     expect(flag('--session-id')).toBe(s.claudeSessionId);
     expect(flag('--append-system-prompt')).toBe('You are fe-1, a developer.');
-    expect(JSON.parse(flag('--mcp-config'))).toEqual({
-      mcpServers: { team: { type: 'http', url: s.mcpUrl } },
-    });
-    const settings = JSON.parse(flag('--settings'));
+    // Files, not JSON on the command line (PM-156): the team token is not in the argv.
+    expect(flag('--mcp-config')).toMatch(/\/claude-mcp\.json$/);
+    expect(flag('--settings')).toMatch(/\/claude-settings\.json$/);
+    expect(argv.join(' ')).not.toContain(s.mcpUrl);
+    const { settings, mcpConfig } = await loadedConfig();
+    expect(mcpConfig).toEqual([{ mcpServers: { team: { type: 'http', url: s.mcpUrl } } }]);
     expect(settings.permissions.allow).toEqual(['mcp__team']);
     expect(settings.hooks.Stop[0].hooks[0].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\/[\w-]{20,}$/);
     expect(flag('--model')).toBe('opus');
@@ -343,7 +355,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await waitState(s.sessionId, 'idle');
     const settingsOf = async () => {
       const { argv } = JSON.parse(await readFile(argsFile, 'utf8')) as { argv: string[] };
-      return { argv, settings: JSON.parse(argv[argv.indexOf('--settings') + 1]!) };
+      return { argv, settings: (await loadedConfig()).settings };
     };
     const fresh = await settingsOf();
     expect(fresh.argv).toContain('--session-id');
@@ -963,6 +975,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     const missingCli = createRunnerModule({
       claudeBin: '/nonexistent/claude',
       publicBaseUrl: 'http://127.0.0.1:1',
+      sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
       broker,
       permissionTimeoutMs: 1000,
       logger: silentLogger(),

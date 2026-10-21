@@ -135,7 +135,8 @@ rm -f login.json headers.txt cookies.txt
 If HTTPS login fails origin validation or lacks Secure, upgrade Tailscale and recheck.
 An additional loopback proxy must preserve Host, overwrite `X-Forwarded-Proto: https`,
 retain forwarding/identity headers, and support websocket upgrades. Do not weaken the
-origin check. Deny `/hooks` and `/mcp` at that proxy where possible.
+origin check. Deny `/hooks` and `/mcp/` (with the slash: the member door `/mcp/<token>`) at that
+proxy where possible; the bare `/mcp` is the integrator's bearer endpoint (see "Integrator access").
 
 ## Client address behind a public entrance (PM-211)
 
@@ -167,7 +168,7 @@ Behind `tailscale serve` there is no such header: leave the variable unset.
 > is no longer the public entrance. The cloud board's Cloudflare side is made by
 > `npm run cloud -- edge`, `publish` and `check` ([AWS.md](AWS.md), "Cloudflare" and
 > "Verification"). The security conditions below stay binding there: the Access application before the
-> hostname, the exact e-mail list, no `/hooks` or `/mcp` through the tunnel, no edge caching or
+> hostname, the exact e-mail list, no `/hooks` or `/mcp/` through the tunnel, no edge caching or
 > rewriting, no framing. The steps below describe the old Mac setup and remain as the reasoning for it.
 
 The owner's live instance (the Mac, `127.0.0.1:4800`) is reached publicly at
@@ -241,7 +242,8 @@ again when you need it.
 Copy [config.example.yml](../deploy/cloudflare/config.example.yml) to
 `~/.cloudflared/config.yml` and fill in the tunnel UUID, the credentials file's absolute path,
 the team name and the AUD tag. It has one hostname rule (`chopper.istvan.io` to
-`http://127.0.0.1:4800`), in front of it `404` rules for `^/hooks` and `^/mcp`, and a final
+`http://127.0.0.1:4800`), in front of it `404` rules for `^/hooks` and `^/mcp/` (the slash keeps the
+integrator's bare `/mcp` open, PM-760), and a final
 catch-all `404`. Its `originRequest.access` block makes `cloudflared` verify the Access token
 before it passes a request on. Do not add `httpHostHeader` or any other Host rewrite (the server
 computes the expected origin from the Host header, and with a loopback Host a remote request
@@ -560,12 +562,170 @@ gui/$(id -u) ~/Library/LaunchAgents/com.projectman.live.plist`; `npm run control
 `switch-live.sh` and `config-dry-run.ts` of the integrator's folder are retired by this: the watcher does
 the switch, the backup, the rollback and the configuration check.
 
+## The hybrid release watcher (PM-751, part of PM-735)
+
+In hybrid mode (the board on the EC2 machine, the engine on the Mac) the release is not the watcher above but
+`npm run release`, the **hybrid release coordinator**. One release that the owner approved in the app is built and
+checked once, then moved to the cloud and to the Mac engine so that both run the same commit, or it ends in a
+program rollback that is verified, or in a recovery state that waits for a person. There is no command chain to
+run by hand. The owner's approval covers the whole chain and the program rollback; **restoring data is a separate
+decision** and the coordinator never does it. It runs only on the administration Mac, from a stable checkout
+that is not a member workspace; the cloud and AWS credentials stay in `~/.config/projectman/cloud/`, which no
+member session can read.
+
+```
+npm run release -- plan      --config <abs-file>   # read-only: what the next round would do
+npm run release -- watch     --config <abs-file>   # one round in the foreground
+npm run release -- install   --config <abs-file>   # the LaunchAgent: one round a minute
+npm run release -- status    --config <abs-file>   # one JSON line, no secrets
+npm run release -- uninstall --config <abs-file>   # removes the job, keeps the state
+```
+
+The configuration (version 1, mode 0600, under the protected cloud folder) names the controller id (a UUID that
+the cloud keeps as the owner of the deployment), the cloud configuration file, the state directory, the expected
+AWS account and EC2 instance, the board's https origin, the engine's id (a remote one, never `local`), the engine
+home and the folder of the prepared engine releases. A configuration that does not load arms nothing (exit 2).
+The AWS account and the instance are checked before every round, and the cloud's own `hybrid` target (PM-752)
+must carry the hash of this configuration's target.
+
+### What a round does
+
+1. **claim and prepare.** The next approved release is claimed through the cloud's deployment protocol
+   (`release_deploy_begin`, the one place that holds the attempt). The commit is built into one verified image
+   and engine package (the preparation check of PM-750); nothing is changed yet, and a failure here ends the
+   attempt with the live system untouched.
+2. **quiesce and drain.** The cloud pauses the work and the maintenance fence closes; the coordinator takes the
+   heavy-run queue lock and waits (up to the drain limit) until the cloud reports no running work. A timeout goes
+   back to the previous version.
+3. **import and cloud start.** The image reaches the machine over the verified SSH session and the cloud starts
+   it; `deploy` stops on the machine's own checks.
+4. **verify the cloud.** The cloud must report the new commit and its database schema must be one the engine can
+   use; an incompatible schema is `database_incompatible` and a recovery state, never an automatic restore.
+5. **the engine.** The engine's service is stopped (`bootout`, then proof that the process is gone: it is
+   **never killed**), its plist is saved first, the engine service is installed for the prepared checkout and
+   started, and the cloud must see the engine online with the new version. A job that is out of launchd proves
+   nothing about its process: after an interrupted stop, the recorded pid and the pid of the status file must be
+   gone too (waited for up to 2 minutes), or the attempt stops in `recovery_required` rather than start a second
+   engine on the same home. The same holds before the previous engine is loaded again.
+6. **live.** The coordinator reports the deployment live, resumes the work, and publishes the tag and the GitHub
+   release (`vYYYY.M.D[.N]`, annotated, pushed, `--verify-tag`). A publish that fails is retried by the next
+   rounds; the release stays live meanwhile.
+7. **rollback.** From the pause on, a refusal, a failed verification or a timeout puts the engine back (the saved
+   plist, byte for byte, with its hash checked) and then the cloud (its previous image), verifies both, resumes
+   and reports the release failed. If a step cannot be proved, the state is `recovery_required`.
+
+Every step is written in the journal (`<stateDir>/journal.json`, 0600) before it starts, and a round that was
+stopped (a reboot, a kill) continues from it; every part of the rollback can be repeated. Only one round runs at
+a time (`watch.lock`); a second one exits 2 and changes nothing. A corrupt or unreadable journal counts as an
+unfinished release: `install` and `uninstall` refuse, and the watcher touches nothing.
+
+### Exit codes and status
+
+`0` success, or no work (also a live release whose publish is still pending); `1` an operational failure or a
+verified rollback; `2` a safety, precondition or recovery refusal (also a bad configuration or another watcher);
+`64` a wrong command line. `status` prints `{installed, loaded, running, releaseId, phase, lastError}`;
+`lastError` is `{code, message}` with a fixed text from the coordinator's vocabulary, never a raw error, a path or
+an answer of the cloud. The same file (`last-error.json`) is cleared by the next successful round.
+
+### The LaunchAgent
+
+`install` writes `~/Library/LaunchAgents/com.projectman.hybrid-release-watcher.plist` for the stable checkout it
+runs from (it refuses a member workspace), with this node and `tsx`, the configuration argument and
+`StartInterval` 60. The job's environment is `HOME`, `PATH`, `LANG` and `TZ` only: no provider key and no AWS
+variable (the AWS profile comes from the cloud configuration). A job that is loaded and the same is `unchanged`; a
+different one is booted out first, and nothing is replaced while a round or a journal is active. It is **not** run
+by any card: the owner installs it, after the first hybrid release has been rehearsed.
+
+### When it stops
+
+- **`recovery_required`**: the coordinator proved nothing more it may do. Read `npm run release -- status`, the
+  release in the app (its deployment shows the phase) and the cloud with `npm run cloud -- release-control`
+  (`release_deploy_get`). Decide, as a person, whether the data must be restored (a separate decision with its
+  own approval). The coordinator never leaves `recovery_required` by itself and never deletes the journal: while
+  it stays, new releases are refused (`release_recovery_required`).
+- **A pause that was left open** after an interrupted round belongs to the deployment (`release <id>`); the
+  coordinator resumes it when it finishes the attempt. Do not resume it by hand while the journal is active.
+- **An engine that does not stop**: the coordinator waits 60 seconds and stops with a fixed code. It does not kill
+  the process; find out why it does not exit.
+
+## Separate work volume on a Mac (PM-846)
+
+macOS keeps a log of every file change in the `fseventsd` daemon. Task worktrees, member workspaces,
+`node_modules` installs change so many files that the daemon grew to 17 GB of memory. A separate APFS volume
+with an empty `.fseventsd/no_log` file is not logged. The engine puts `worktrees/` and `workspaces/` below one
+**work root** on that volume.
+
+The volume is **mounted inside the engine home** (`~/.projectman/work`), not under `/Volumes`. The sandboxes keep
+the other members' work unreadable by denying the home; a root outside it would make every checkout readable to
+every session, so the engine refuses to start with one (`work_root_invalid`, reason `outside_home`). Not moved:
+the sessions' `$TMPDIR` (`/private/tmp/projectman-<uid>-tmp`: it holds Unix sockets with a path length limit),
+the Claude temp directory, `member-caches` and the full test's `pmft-*` run directories (PM-848: the full test
+sandbox denies the home for reading and allows only the run's own directory, so a run directory inside the home
+would leave its parents unreadable; it stays in `os.tmpdir()`). Measure first (step 8); a follow-up card handles them if the daemon
+still grows.
+
+The owner does these steps once (the commands need `sudo`; replace `disk3` with the container `diskutil list`
+shows for the Data volume, and `<user>` with the account):
+
+1. `diskutil list`: find the APFS container that holds "Macintosh HD - Data".
+2. `sudo diskutil apfs addVolume disk3 APFS projectman-work -nomount`. The volume shares the container's free
+   space; no size is needed.
+3. Mount it inside the home, and make the mount survive a restart:
+   `mkdir -p ~/.projectman/work`, `diskutil info projectman-work` (note the Volume UUID), `sudo vifs` and add
+   `UUID=<uuid> /Users/<user>/.projectman/work apfs rw,nobrowse`. Then
+   `sudo diskutil mount -mountPoint ~/.projectman/work projectman-work`,
+   `sudo diskutil enableOwnership ~/.projectman/work`,
+   `sudo chown <user>:staff ~/.projectman/work && chmod 700 ~/.projectman/work`.
+4. Switch the file log off: `sudo mkdir ~/.projectman/work/.fseventsd && sudo touch ~/.projectman/work/.fseventsd/no_log`,
+   then unmount and mount the volume again so that `fseventsd` reads it.
+5. Keep Spotlight and Time Machine away: `sudo mdutil -i off ~/.projectman/work`,
+   `sudo tmutil addexclusion ~/.projectman/work`.
+6. Mark the volume as the work root: `touch ~/.projectman/work/.projectman-work-root`. The engine starts only when
+   this file is a regular file in the root, so an unmounted volume (an empty directory on the system volume) stops
+   it instead of silently filling the system volume.
+7. Move the existing directories. Pause the team (see "Pausing the team for an update"), stop the engine
+   (`npm run engine -- service uninstall`; `move-work-root` also refuses while the status file names a live process or the
+   service runs), then:
+
+   ```sh
+   npm run engine -- move-work-root ~/.projectman/work
+   npm run engine -- service install        # or: npm run engine -- start
+   ```
+
+   The command copies `worktrees/` and `workspaces/` (`ditto`; it does not move, the old directories are the way
+   back), runs `git worktree repair` in every copied worktree, checks with `git worktree list` in every registered
+   repository that none still points at the old place, renames the old directories to `worktrees.pre-PM-846` and
+   `workspaces.pre-PM-846`, and only then writes `workRoot` into `engine.json`. It refuses a root that is already
+   set, a non-empty target, an engine that runs, and a volume with less than 1.1 times the data free. If it fails
+   half-way, `engine.json` and the old directories are untouched; delete what it copied below the work root and
+   run it again. After the start the running sessions go on in a new conversation with a summary (their files, commits
+   and uncommitted changes stay). Delete `~/.projectman/{worktrees,workspaces}.pre-PM-846` when the team works.
+
+   The first worktree on the new volume installs its dependencies in full: a `node_modules` clone
+   (`cp -c`) works only inside one volume, and the repository is on another one. The next ones clone from it.
+
+8. Measure: `ps -o rss= -p $(pgrep fseventsd)` once a day for three days. It should not grow at the earlier
+   pace (about 6 GB a day).
+9. Encryption is the owner's choice at step 2. Without `-passphrase` the volume is not locked at login. If client
+   secrets (`.env`) may lie in the checkouts, create it with `-passphrase`: the mount then happens only after login,
+   and the engine does not start (`work_root_invalid`) until the volume is mounted.
+
+By hand, without the command (the single-mode server, or a failed run): copy with
+`ditto ~/.projectman/worktrees ~/.projectman/work/worktrees` (and `workspaces`), run
+`git -C <each worktree> worktree repair`, rename the old directories, and set `workRoot` in `engine.json`
+(engine mode) or `PROJECTMAN_WORK_ROOT=<path>` (single mode). To go back, remove `workRoot`, rename the
+`.pre-PM-846` directories back and run `git worktree repair` in each worktree.
+
+On a remote engine the same steps run on the engine's machine and `workRoot` is in that machine's `engine.json`;
+nothing new crosses the server and engine boundary.
+
 ## Cloud deployment of the hybrid mode (PM-317)
 
 The EC2 cutover from the owner's Mac, including stopping both live LaunchAgents,
 separate public approval and the data-preserving rollback, is in
-[CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The live watcher continues to support
-single mode only; cloud and engine updates are separate owner-approved operations.
+[CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The live watcher above continues to support
+single mode only; a hybrid installation is updated by the hybrid release watcher (PM-751, the
+section above).
 
 The cloud side of a hybrid installation (`PROJECTMAN_MODE=cloud`, no AI session of its own, the
 engine on your Mac does the work) is a container: `deploy/cloud/Dockerfile`, with the Cloudflare
@@ -643,3 +803,167 @@ set temporary workers, or create or accept invitations; listing and revoking inv
 allowed. Such a request fails with 403 `owner_login_required` and `details.category`
 (`approval_rules`, `owner_settings`, `members`, `invitations`), and nothing is written. Every key operation remains attributed to
 the integrator (`via: integrator`), even after revocation.
+
+## The integrator's MCP endpoint (PM-760)
+
+An MCP client (an AI tool working for the owner) can use the same keys over MCP at
+`POST /mcp`, with no login, no session and no running engine:
+
+- Every HTTP request carries `Authorization: Bearer <key>` and is checked afresh: expiry, revoke and the
+  owner's membership take effect on the next request. A missing, wrong, expired or revoked key is an
+  HTTP `401` with `integrator_key_invalid` (never a `404` and never a `200` with an error text); a
+  connection that is neither HTTPS nor local is `integrator_https_required`. `GET` and `DELETE` are
+  `405` with `Allow: POST`. There is no OAuth flow and no `Mcp-Session-Id`; the login cookie is not a
+  credential here.
+- Every project tool takes a required `project_key` (and a card key where it works on a card), and
+  works only in projects where the key's holder is an owner right now. `list_projects` lists them.
+- `tools/list` follows the key's mode. A `super` key gets the shared project tools and the super tools
+  (hand-offs, `super_operate`, diagnostics, administration status and logs, `relay_owner_answer`); a
+  `read` key gets the read tools only; a `legacy` key gets the shared project tools and no super tool. A
+  tool called directly that the mode does not allow is refused (`integrator_not_allowed`,
+  `integrator_read_only`), and the member's session, decision and file tools are never offered.
+  `super` and `read` keys use the same scope as over REST, and a `super` key's calls are audited as
+  `mcp_<tool>`.
+- The member MCP, `/mcp/<token>`, is unchanged: for the agents on the same machine only.
+
+Client configuration (no secret in it; the key is read from the file above when the client starts):
+
+```json
+{
+  "mcpServers": {
+    "projectman": {
+      "type": "http",
+      "url": "https://projectman.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${PROJECTMAN_INTEGRATOR_KEY}",
+        "CF-Access-Client-Id": "${PROJECTMAN_ACCESS_CLIENT_ID}",
+        "CF-Access-Client-Secret": "${PROJECTMAN_ACCESS_CLIENT_SECRET}"
+      }
+    }
+  }
+}
+```
+
+Export the three variables from the files in `~/.config/projectman/` (mode 600) in the shell that starts
+the client. Locally the URL is `http://localhost:4800/mcp` and the two `CF-Access-*` headers are left out.
+
+Behind a proxy or the Cloudflare tunnel the entrance must pass `/mcp` and refuse `/mcp/` and `/hooks`:
+
+```yaml
+ingress:
+  - hostname: projectman.example.com
+    path: ^/hooks
+    service: http_status:404
+  - hostname: projectman.example.com
+    path: ^/mcp/ # the member door; the slash keeps the bare /mcp open
+    service: http_status:404
+  - hostname: projectman.example.com
+    service: http://127.0.0.1:4800
+  - service: http_status:404
+```
+
+A reverse proxy does the same: `location = /mcp` goes to the service with `Host` kept and
+`X-Forwarded-Proto: https` set; `location ^~ /mcp/` and `location ^~ /hooks` answer `404`. The check
+script (`deploy/cloudflare/check.sh`) still expects `/mcp/x` and `/hooks/x` to be `404`; a
+`POST /mcp` without a key must be `401` with `integrator_key_invalid`.
+
+## The `projectman` command and the MCP proxy (PM-765)
+
+`projectman` is a thin client of the REST API and the change journal above, and `projectman mcp-proxy` is a
+stdio shim for MCP clients that cannot send an HTTP header. Both use the same key, the same rights and the
+same audit as the endpoints; the command never decides anything the server does not. It runs on the
+integrator's machine only (`npm run projectman -- <command>` in a checkout, or `projectman` once the
+package is linked with `npm link`).
+
+The client has one configuration file, `~/.config/projectman/client.json` (`--config FILE` names another).
+It holds paths and an origin, never a secret:
+
+```json
+{
+  "version": 1,
+  "baseUrl": "https://projectman.example.com",
+  "keyFile": "~/.config/projectman/integrator-key",
+  "accessHeadersFile": "~/.config/projectman/cloud/integrator-access-token.json"
+}
+```
+
+- `baseUrl` is an origin: HTTPS, or HTTP to this machine (`localhost`, `127.x`, `[::1]`). No user name,
+  path, query or fragment. A redirect is never followed, so the key never goes to another origin.
+- `keyFile` is the file of "Integrator access" above. `accessHeadersFile` (cloud only) is the
+  integrator's service-token file made by `npm run cloud -- edge` (`CF-Access-Client-Id`,
+  `CF-Access-Client-Secret`). A relative path is relative to the configuration file's directory.
+- The configuration, the key file and the Access file must be regular files of your user with mode 600,
+  in a directory of your user with mode 700, and none may be a symbolic link; otherwise the command
+  stops with status 3 before it sends anything.
+- There is no `--token` and no environment variable for a secret. The key and the Access values appear
+  in no argument, no environment, no output and no log: error text and `--verbose` lines (method, path,
+  status only) are redacted.
+- A file given with `--file` (`-` is standard input) must be a regular file, at most 1 MiB, and never a
+  credential or configuration file or anything in their directories.
+
+Commands (`--json` prints the typed answer; every command takes `--config`, `--verbose`, `--help`):
+
+```sh
+projectman tasks create --project PM --file card.json        # CreateTaskRequest as JSON
+projectman tasks start PM-12
+projectman messages send --project PM --to dev --task PM-12 --file message.txt
+projectman labels add PM-12 waiting-answer --note "Waiting for the reply"
+projectman inbox list --project PM [--state open|all|…]
+projectman inbox answer ITEM --project PM --file answer.txt   # relays the owner's words; no decision
+projectman inbox fix-limit ITEM --project PM --option replan|reassign|another_round|to_owner [--note TEXT]   # only the item addressed to the integrator
+projectman merges list --project PM --repo web
+projectman merges enqueue PM-12
+projectman merges prioritize PM-12 --reason "release blocker"
+projectman merges reorder --project PM --repo web --expected-revision 7 --reason "…" PM-3 PM-12
+projectman pause --project PM [--reason TEXT]    # or: --instance
+projectman resume --project PM                   # or: --instance
+projectman events follow --project PM [--cursor-file FILE]
+projectman operations get OPERATION --project PM
+```
+
+Exit status: `0` done, `1` the operation failed (any server refusal other than a bad key, and a network
+failure), `2` wrong arguments, `3` a bad key or Access token, or a credential file that is not private.
+A `read` key reads and follows; a change is refused by the server with 403 `integrator_read_only`, as over REST.
+
+Changes and retries. Every change carries a fresh request id (`--request-id UUID` supplies one) in the
+`x-request-id` header. Only the operations (`messages send`, `merges enqueue`, `merges reorder`) are
+idempotent on that id: repeating one with the same `--request-id` runs it once and answers with the same
+operation. Every other change is not repeated by the server's id. When a change's outcome is unknown (the
+connection broke after the request left), the command prints the request id, exits with `1` and never
+repeats the change itself; read the state first (`operations get`, `inbox list`, the card) and then decide.
+`inbox answer` calls the relay endpoint only; a question that needs the owner's decision stays with the
+owner's own login.
+
+`events follow` long-polls `GET /api/projects/:key/events` and prints one line per event (`--json`: one
+JSON object). `--cursor-file` holds the cursor of the last event written to standard output (it is not a
+secret). It is replaced atomically after each written event, so a consumer that goes away loses nothing:
+the next run starts behind the last event that was written, and an event that was not written comes again.
+An expired or foreign cursor is the server's `event_cursor_expired` / `invalid_event_cursor`; delete the
+file to start from the current state. Ctrl-C ends the command with `0` and keeps the file. A network failure
+and a gateway answer without a server error code (502, 503, 504, for example while the server restarts) are
+retried with a pause of 1 s growing to 30 s; any other refusal ends the command. For a change, a gateway 502 or
+504 counts as an unknown outcome (above), and a 503 as not served.
+
+The REST and events requests carry the non-secret header `X-Projectman-Client: cli`, so the key's list
+shows the use as the CLI channel. The header is a label, not a credential: it grants nothing, and the server
+decides the channel by the path (`/mcp` is always the MCP channel).
+
+MCP proxy. An MCP client that starts a local command takes this configuration; it has no secret in it, because
+the proxy reads `client.json` and the files it names:
+
+```json
+{
+  "mcpServers": {
+    "projectman": { "command": "projectman", "args": ["mcp-proxy"] }
+  }
+}
+```
+
+The proxy turns each JSON line on its standard input into one `POST {baseUrl}/mcp` with the key and the Access
+headers, and writes the protocol messages of the answer to its standard output, one per line (an event-stream
+answer is split into its messages; a notification gets an empty answer and writes nothing). It is a transport
+only: it does not read, filter or change a message, chooses no project, and logs no message body; standard
+output carries protocol lines and nothing else, standard error redacted status lines. A request it cannot
+serve gets a JSON-RPC error (`-32000`) so the client does not wait, and the proxy ends with `3` after a refused
+key or `1` after another failure. For a client that can send its own headers, the direct configuration above
+is the same thing without the proxy.

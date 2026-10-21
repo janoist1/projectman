@@ -1,12 +1,94 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../contracts';
-import { createDomainHarness } from '../../test/helpers/domain-harness';
+import { createDomainHarness, waitForSession } from '../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../test/helpers/domain-harness';
 import { settle } from '../../test/helpers/fakes';
 import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
+  it('reads a required built-in role through a strict read-only tool', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'get_role_configuration')!;
+    const handler = createFakeTeamToolsHandler();
+    expect(tool.annotations.readOnlyHint).toBe(true);
+    const args = tool.inputSchema.parse({ role: 'developer' });
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      version: 'v1',
+      role: 'developer',
+      override: null,
+      effective: { duties: ['implementation'], instructions: '' },
+    });
+    expect(handler.calls).toEqual([{ method: 'getRoleConfiguration', ctx: devContext, args }]);
+    for (const input of [{}, { role: null }, { role: 'custom_writer' }, { role: 'developer', project: 'BR' }])
+      expect(tool.inputSchema.safeParse(input).success).toBe(false);
+    const operation = TEAM_TOOLS.find((t) => t.name === 'operate')!;
+    expect(
+      operation.inputSchema.parse({
+        title: 'Reset',
+        operation: {
+          op: 'config_patch',
+          patch: { roleOverrides: { developer: null } },
+        },
+      }),
+    ).toMatchObject({ operation: { patch: { roleOverrides: { developer: null } } } });
+  });
+  it('triage_loop is strict, validates evidence and forwards only assessment fields', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'triage_loop')!;
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({
+      signal_id: 'ops_loop',
+      outcome: 'progress',
+      note: '  Review is advancing.  ',
+    });
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      state: 'observing',
+      loop_id: 'loop_1',
+      inbox_item_id: null,
+    });
+    expect(handler.calls[0]).toMatchObject({
+      method: 'triageLoop',
+      args: {
+        signalId: 'ops_loop',
+        outcome: 'progress',
+        note: 'Review is advancing.',
+        evidenceIds: [],
+      },
+    });
+    for (const change of [
+      { note: ' ' },
+      { note: 'x'.repeat(2001) },
+      { outcome: 'let_run' },
+      { outcome: 'stop_work' },
+      { loop_id: 'other' },
+      { member: 'owner' },
+      { evidence_ids: ['same', 'same'] },
+      { evidence_ids: Array(21).fill('event') },
+    ])
+      expect(
+        tool.inputSchema.safeParse({ signal_id: 'ops_loop', outcome: 'progress', note: 'Review.', ...change })
+          .success,
+      ).toBe(false);
+  });
+  it('combine_questions validates distinct bounded ids and preserves the public argument names', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'combine_questions')!;
+    const handler = createFakeTeamToolsHandler();
+    const input = { item_ids: ['q1', 'q2'], question: '  Shared decision?  ', note: '  Same decision  ' };
+    const args = tool.inputSchema.parse(input);
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      primary_item_id: 'q1',
+      linked_item_ids: ['q2'],
+    });
+    expect(handler.calls[0]).toMatchObject({
+      method: 'combineQuestions',
+      args: {
+        itemIds: ['q1', 'q2'],
+        question: 'Shared decision?',
+        note: 'Same decision',
+      },
+    });
+    for (const item_ids of [['q1'], ['q1', 'q1'], Array.from({ length: 11 }, (_, i) => `q${i}`)])
+      expect(tool.inputSchema.safeParse({ ...input, item_ids }).success).toBe(false);
+  });
   it('dismiss_signal validates its bounds, trims the note and returns the dismissal', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'dismiss_signal')!;
     const handler = createFakeTeamToolsHandler();
@@ -26,6 +108,30 @@ describe('Operator MCP tools', () => {
       { signal_id: 'ops_1', note: 'x'.repeat(1001) },
     ])
       expect(tool.inputSchema.safeParse(input).success).toBe(false);
+  });
+  it('open_integrator_todo forwards the todo fields and tells who got it', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'open_integrator_todo')!;
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({
+      task_key: 'AR-1',
+      question: ' The merge stands still ',
+      what: 'Merge AR-1',
+      where: 'The repo',
+      expected: 'AR-1 in Done',
+    });
+    expect(toolOutputText(await tool.run({ ctx: devContext, args, handler }))).toBe(
+      'Integrator todo inb_todo_1 opened for integrator.',
+    );
+    expect(handler.calls[0]).toMatchObject({
+      method: 'openIntegratorTodo',
+      args: {
+        taskKey: 'AR-1',
+        question: 'The merge stands still',
+        what: 'Merge AR-1',
+        where: 'The repo',
+        expected: 'AR-1 in Done',
+      },
+    });
   });
   it.each(['send_message', 'start_member'])(
     '%s describes and forwards the parallel-work confirmation',
@@ -191,11 +297,17 @@ describe('Operator MCP tools', () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'screen_question')!;
     expect(tool.annotations.readOnlyHint).toBe(false);
     const handler = createFakeTeamToolsHandler();
-    const todo = { what: 'Renew the certificate', where: 'Hosting panel', expected: 'The new expiry date' };
+    const todo = {
+      what: 'Renew the certificate',
+      where: 'Hosting panel',
+      expected: 'The new expiry date',
+      recipient: 'owner',
+    };
     const args = tool.inputSchema.parse({ item_id: 'inb_1', outcome: 'todo', note: 'Needs a login', todo });
     expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
       inboxItemId: 'inb_1',
       outcome: 'todo',
+      recipient: 'owner',
     });
     expect(handler.calls[0]).toMatchObject({
       method: 'screenQuestion',
@@ -320,7 +432,7 @@ describe('dismiss_signal authorization and domain errors', () => {
   });
 
   it('rejects guest conversations even for the Operator', async () => {
-    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const session = await waitForSession(h.domain, { member: 'pm' });
     const guest = { ...session, id: 'ses_pm_guest', workItem: { type: 'general', with: 'guest' } as const };
     h.repos.sessions.insert(guest);
     await expect(

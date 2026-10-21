@@ -104,6 +104,43 @@ describe('pause of the team', () => {
     expect(h.domain.pauses.projectView('AR')).toEqual({ project: null, instance: null });
   });
 
+  it('counts the sessions that have not stopped, and owns an instance pause for a release', async () => {
+    h = await createDomainHarness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+    // A running session with no pause row is unstopped.
+    expect(h.domain.pauses.unstoppedSessions()).toBe(1);
+    h.runner.pauseOutcomes.set(session.id, { point: 'after_tool', tool: 'Bash' });
+    const recorded: string[] = [];
+    const pauseId = await h.domain.pauses.acquireOwnedInstancePause('release rel_1', (id) =>
+      recorded.push(id),
+    );
+    expect(recorded).toEqual([pauseId]);
+    expect(h.repos.pauses.findOpen('instance', null)).toMatchObject({ id: pauseId, source: 'system' });
+    await waitFor(() => h.domain.pauses.unstoppedSessions() === 0);
+
+    // Nobody else's pause is the release's: a second instance pause is refused, and the callback never runs.
+    await expect(
+      h.domain.pauses.acquireOwnedInstancePause('again', (id) => recorded.push(id)),
+    ).rejects.toMatchObject({ code: 'release_pause_conflict' });
+    expect(recorded).toEqual([pauseId]);
+
+    const done: string[] = [];
+    await h.domain.pauses.resumeOwnedInstancePause(pauseId, () => done.push('resumed'));
+    expect(done).toEqual(['resumed']);
+    expect(h.repos.pauses.findOpen('instance', null)).toBeNull();
+    expect(h.runner.releases.map((r) => r.sessionId)).toEqual([session.id]);
+  });
+
+  it('refuses to end an instance pause a release does not own, and a person’s pause is not the release’s', async () => {
+    h = await createDomainHarness();
+    await h.domain.pauses.pause(INSTANCE, BY, { reason: 'Fictional freeze' });
+    const open = h.repos.pauses.findOpen('instance', null)!;
+    await expect(h.domain.pauses.resumeOwnedInstancePause('pau_other', () => {})).rejects.toMatchObject({
+      code: 'release_pause_conflict',
+    });
+    expect(h.repos.pauses.findOpen('instance', null)?.id).toBe(open.id);
+  });
+
   it('lets a session cut at a tool go on with a nudge, and one stopped between turns without', async () => {
     h = await createDomainHarness();
     const { session: cut } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);

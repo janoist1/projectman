@@ -4,11 +4,14 @@ import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
 import {
   BoundaryReason,
+  fixLimitDecisionOf,
+  isIntegratorInboxItem,
   alertPayloadOf,
   handOnRequestOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   releaseApprovalOf,
+  questionPayloadOf,
 } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
@@ -57,8 +60,12 @@ import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
 import { ReleaseAlertBody, ReleaseInboxActions, ReleaseInboxBody, isReleaseDown } from './ReleaseInbox';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
-import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails } from './Question';
+import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails, showInboxItem } from './Question';
+import { generalQuestionSources, QuestionSources, QuestionSourcesLine } from './QuestionSources';
 import { QuestionAttachments } from './QuestionAttachments';
+import { IntegratorTodoClock } from './IntegratorTodos';
+import { FixLimitDetails } from './FixLimitDetails';
+import type { QuestionChoice } from './Question';
 import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
 import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
 import { useFileDrop } from '../board/useFileDrop';
@@ -196,17 +203,47 @@ export function InboxCard({
 }: InboxCardProps) {
   const operatorApproval = operatorApprovalOf(item);
   const operatorKnowledge = operatorKnowledgeApprovalOf(item);
+  const question = questionPayloadOf(item);
+  const group = question?.group;
+  const grouped = !!group?.sources && group.primaryItemId === item.id;
+  const groupAskers = [...new Set(group?.sources?.map((source) => source.asker) ?? [])];
+  const groupLiveCount = group?.sources?.filter((source) => source.state === 'live').length ?? 0;
+  const hasLiveGeneral = group
+    ? generalQuestionSources(group).some((source) => source.state === 'live')
+    : false;
   const handOn = handOnRequestOf(item);
   // A question the Operator made a todo of (PM-556): the result field is always open, with two buttons.
   const todo = isTodo(item);
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
-  const choices = withConsequences(
+  const fixLimit = fixLimitDecisionOf(item);
+  const availableChoices = withConsequences(
     item,
     item.options.filter((option) => option.id !== FREE_ANSWER_OPTION_ID),
   );
+  const choices: QuestionChoice[] = fixLimit
+    ? ['replan', 'reassign', 'another_round'].map((id) => {
+        const option = availableChoices.find((option) => option.id === id);
+        const recommended = fixLimit.assessment?.recommendation.optionId === id;
+        return option
+          ? { ...option, style: recommended ? 'primary' : 'secondary' }
+          : {
+              id,
+              label: t(`inbox.options.${id as 'replan' | 'reassign' | 'another_round'}`),
+              style: 'secondary',
+              unavailable: t(
+                id === 'replan'
+                  ? 'inbox.fixLimit.unavailable.replan'
+                  : id === 'reassign'
+                    ? 'inbox.fixLimit.unavailable.reassign'
+                    : 'inbox.fixLimit.unavailable.other',
+              ),
+            };
+      })
+    : availableChoices;
   const allowsFreeAnswer =
     item.kind === 'question' && (answerOption !== undefined || item.options.length === 0);
   const [answering, setAnswering] = useState(todo || (allowsFreeAnswer && choices.length === 0));
+  const [pendingOptionId, setPendingOptionId] = useState<string | null>(null);
   const cardRef = useRef<HTMLElement>(null);
   const [leaving, setLeaving] = useState(false);
   const [answer, setAnswer] = useState('');
@@ -273,23 +310,25 @@ export function InboxCard({
   const source = members.get(item.source);
   const code = payloadCode(item);
   const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline, labels) : null;
-  const heading = gateMove ?? inboxHeading(item);
+  const questionTitle = grouped ? group.combinedQuestion : item.title;
+  const heading = gateMove ?? inboxHeading({ ...item, title: questionTitle });
   // An approval a merge follows says that one click is enough (PM-484).
   const thenMerge = gateMove ? gateThenMergeText(item, pipeline, members, myHandle) : null;
   // What follows the short heading of a long question.
-  const questionBody = item.kind === 'question' ? splitQuestion(item.title).body : null;
+  const questionBody = item.kind === 'question' ? splitQuestion(questionTitle).body : null;
   // The tool line is redundant when the heading already names the tool.
   const tool = item.kind === 'permission' && heading === item.title ? permissionTool(item) : null;
   // The task the request is about: the most useful background of the decision, under the header row.
   // A "Vidd tovább" item names the card in its own heading.
   const contextTitle = handOn ? null : taskTitle || (gateMove && item.title ? item.title : null);
   // The card row names the card by its key; it is a link where the page gives an address (never in the drawer).
-  const taskRow =
-    !handOn && item.taskKey && taskHref !== undefined ? (
-      <TaskRow taskKey={item.taskKey} title={taskTitle || null} href={compact ? null : taskHref} />
-    ) : contextTitle ? (
-      <p className={styles.task}>{contextTitle}</p>
-    ) : null;
+  const taskRow = grouped ? (
+    <QuestionSourcesLine group={group} projectKey={item.projectKey} />
+  ) : !handOn && item.taskKey && taskHref !== undefined ? (
+    <TaskRow taskKey={item.taskKey} title={taskTitle || null} href={compact ? null : taskHref} />
+  ) : contextTitle ? (
+    <p className={styles.task}>{contextTitle}</p>
+  ) : null;
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
@@ -301,7 +340,7 @@ export function InboxCard({
   const steps = todo ? todoRows(item) : [];
   const fallback = open ? operatorFallbackOf(item) : null;
   const rerouted = open ? rerouteReasonOf(item) : null;
-  const startNote = open && !assignedToOthers ? askerStartNote(item, members, myHandle) : null;
+  const startNote = open && !assignedToOthers && !grouped ? askerStartNote(item, members, myHandle) : null;
   const boundary = boundaryOf(item);
   const delegation = delegationNote(item, members, myHandle);
   // The system is no member (disk space, loops): it shows as the timeline shows it.
@@ -356,15 +395,33 @@ export function InboxCard({
   const headRow = (
     <div className={styles.head}>
       <Chip tone="kind">{t(`inbox.kinds.${displayKind}`)}</Chip>
-      {fromSystem ? (
-        <span className={styles.systemIcon} aria-hidden="true">
-          <Icon name="layers" size={13} strokeWidth={2} />
+      {isIntegratorInboxItem(item) ? (
+        <Chip tone="outline" icon="terminal">
+          {t('inbox.integrator.chip')}
+        </Chip>
+      ) : null}
+      <span className={styles.requester}>
+        {grouped ? (
+          <span className={styles.groupAvatars} aria-hidden="true">
+            {groupAskers.slice(0, 3).map((asker) => (
+              <Avatar key={asker} member={members.get(asker)} handle={asker} size="sm" />
+            ))}
+            {groupAskers.length > 3 ? <span>+{groupAskers.length - 3}</span> : null}
+          </span>
+        ) : fromSystem ? (
+          <span className={styles.systemIcon} aria-hidden="true">
+            <Icon name="layers" size={13} strokeWidth={2} />
+          </span>
+        ) : (
+          <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
+        )}
+        <span className={styles.source}>
+          {grouped
+            ? joinNames(namesOf(groupAskers, members, myHandle))
+            : fromSystem
+              ? t('common.system')
+              : nameOf(item.source, members, myHandle)}
         </span>
-      ) : (
-        <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
-      )}
-      <span className={styles.source}>
-        {fromSystem ? t('common.system') : nameOf(item.source, members, myHandle)}
       </span>
       <span className={styles.spacer} />
       <time className={styles.time} dateTime={item.createdAt}>
@@ -388,6 +445,7 @@ export function InboxCard({
           mobile && styles.mobile,
         )}
         data-kind={displayKind}
+        data-recipient={isIntegratorInboxItem(item) ? 'integrator' : undefined}
       >
         {headRow}
         {taskRow}
@@ -409,7 +467,33 @@ export function InboxCard({
     );
   }
 
-  // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
+  if (group && !grouped) {
+    const primaryKey = group.primaryTaskKey;
+    return (
+      <article id={inboxItemDomId(item.id)} className={clsx(styles.card, styles.groupPointer)}>
+        <p>
+          {primaryKey
+            ? t('inbox.group.pointer', { asker: nameOf(item.source, members, myHandle) })
+            : t('inbox.group.pointerPlain')}
+        </p>
+        {primaryKey ? (
+          <Link
+            to={`/p/${item.projectKey}/tasks/${primaryKey}#${inboxItemDomId(group.primaryItemId)}`}
+            onClick={(event) => {
+              const target = document.getElementById(inboxItemDomId(group.primaryItemId));
+              if (target) {
+                event.preventDefault();
+                showInboxItem(target);
+              }
+            }}
+          >
+            {t('inbox.group.pointerJump', { key: primaryKey })}
+          </Link>
+        ) : null}
+      </article>
+    );
+  }
+
   if (operatorKnowledge)
     return (
       <article
@@ -445,6 +529,7 @@ export function InboxCard({
         ) : null}
       </article>
     );
+  // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
   if (operatorApproval) {
     const isStale = operatorApproval.stale !== null || stale;
     return (
@@ -509,10 +594,17 @@ export function InboxCard({
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={displayKind}
       data-alert={outageAlert ? 'work_outage' : releaseAlert ? 'release_failed' : undefined}
+      data-recipient={isIntegratorInboxItem(item) ? 'integrator' : undefined}
       data-severity={releaseAlert && isReleaseDown(releaseAlert) ? 'down' : undefined}
     >
       {headRow}
       {taskRow}
+      {question?.integratorEscalatedAt || (fixLimit && item.payload.integratorEscalatedAt) ? (
+        <p className={styles.integratorMoved}>
+          <Icon name="handoff" size={16} />
+          {t('inbox.integrator.moved')}
+        </p>
+      ) : null}
       <Heading className={styles.title} tabIndex={-1} data-inbox-title="">
         {heading}
       </Heading>
@@ -570,6 +662,7 @@ export function InboxCard({
       {releaseItem ? <ReleaseInboxBody item={item} /> : null}
       {releaseAlert ? <ReleaseAlertBody alert={releaseAlert} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
+      {fixLimit ? <FixLimitDetails limit={fixLimit} members={members} myHandle={myHandle} /> : null}
       {outageAlert ? (
         <OutageAlert alert={outageAlert} members={members} myHandle={myHandle} mobile={mobile} />
       ) : null}
@@ -603,7 +696,21 @@ export function InboxCard({
           </dl>
         </section>
       ) : null}
-      {operatorNote ? (
+      {isIntegratorInboxItem(item) ? <IntegratorTodoClock item={item} /> : null}
+      {grouped && group.note ? (
+        <p className={styles.operatorNote}>
+          <span aria-hidden="true">
+            <Avatar
+              member={members.get(question?.screening?.by ?? '')}
+              handle={question?.screening?.by ?? ''}
+              size="xs"
+            />
+          </span>
+          <span>
+            <strong>{nameOf(question?.screening?.by ?? '', members, myHandle)}:</strong> {group.note}
+          </span>
+        </p>
+      ) : operatorNote ? (
         <p className={styles.operatorNote}>
           <span className={styles.operatorAvatar} aria-hidden="true">
             OP
@@ -612,6 +719,9 @@ export function InboxCard({
             <strong>{t('inbox.operatorNote')}</strong> {operatorNote}
           </span>
         </p>
+      ) : null}
+      {grouped ? (
+        <QuestionSources group={group} projectKey={item.projectKey} members={members} myHandle={myHandle} />
       ) : null}
       {fallback ? <p className={styles.note}>{t(`inbox.operatorFallback.${fallback}`)}</p> : null}
       {rerouted ? <p className={styles.note}>{t('inbox.rerouted', { reason: rerouted })}</p> : null}
@@ -633,18 +743,37 @@ export function InboxCard({
           {t('inbox.assignedTo', { names: joinNames(namesOf(item.assignees, members, myHandle)) })}
         </p>
       ) : null}
+      {grouped ? (
+        <p id={`${answerId}-fanout`} className={styles.note}>
+          {t(
+            groupLiveCount === 1
+              ? 'inbox.group.fanoutOne'
+              : hasLiveGeneral
+                ? 'inbox.group.fanoutMixed'
+                : 'inbox.group.fanout',
+            {
+              count: groupLiveCount,
+            },
+          )}
+        </p>
+      ) : null}
       {describesChoices && !assignedToOthers ? (
         <QuestionChoices
+          describedBy={grouped ? `${answerId}-fanout` : undefined}
           choices={choices}
-          recommendedOptionId={extras.recommendedOptionId}
-          recommendationReason={extras.recommendationReason}
+          recommendedOptionId={fixLimit?.assessment?.recommendation.optionId ?? extras.recommendedOptionId}
+          recommendationReason={fixLimit?.assessment?.recommendation.reason ?? extras.recommendationReason}
           size={buttonSize}
           mobile={mobile}
           disabled={answerBlocked}
+          pendingOptionId={fixLimit && pending ? pendingOptionId : null}
           variantOf={(option) =>
             answering ? 'secondary' : option.style === 'danger' ? 'dangerSolid' : variantFor[option.style]
           }
-          onPick={(option) => resolveAnswer({ optionId: option.id })}
+          onPick={(option) => {
+            setPendingOptionId(option.id);
+            resolveAnswer({ optionId: option.id });
+          }}
         />
       ) : null}
       {answering ? (
@@ -722,7 +851,12 @@ export function InboxCard({
         <p className={styles.others}>{t('inbox.loop.footer')}</p>
       ) : null}
       {fixLimitText !== null && !assignedToOthers ? (
-        <p className={styles.others}>{t('inbox.fixLimit.footer')}</p>
+        <>
+          {choices.every((option) => option.unavailable) ? (
+            <p className={styles.others}>{t('inbox.fixLimit.unavailable.none')}</p>
+          ) : null}
+          <p className={styles.others}>{t('inbox.fixLimit.footer')}</p>
+        </>
       ) : null}
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
@@ -763,6 +897,8 @@ export function InboxCard({
         </div>
       ) : (
         <div
+          role={grouped ? 'group' : undefined}
+          aria-describedby={grouped ? `${answerId}-fanout` : undefined}
           className={clsx(
             styles.actions,
             item.kind === 'permission' && styles.actionsTop,

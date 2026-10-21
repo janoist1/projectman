@@ -1,3 +1,11 @@
+import {
+  V83_CHANGE_TRIGGER_TABLES,
+  V92_CHANGE_TRIGGER_TABLES,
+  changeTriggerSql,
+  changeTriggersSql,
+} from './change-triggers';
+import { PENDING_MESSAGE_RECIPIENTS } from './message-pending';
+
 /**
  * Versioned schema migrations. The applied version is stored in `PRAGMA user_version`;
  * each migration runs once, inside a transaction. Never edit a released migration: add a
@@ -1323,5 +1331,728 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, config_version TEXT NULL, refusal TEXT NULL
     );`,
   },
+  {
+    // PM-702: the kind CHECK grows by 'refinement_stalled', so the table is rebuilt as in version 66; the
+    // columns, rows and the open-case index stay as they are.
+    version: 71,
+    name: 'refinement stalled signals',
+    sql: `DROP INDEX operator_signals_open;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled','process_cleanup_failed','refinement_stalled')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT, delivered_to TEXT
+    );
+    INSERT INTO operator_signals SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
+  },
 ];
+// PM-695 retains the original inbox rows, including their question text and provenance.
+migrations.push({
+  version: 72,
+  name: 'shared owner questions',
+  sql: `CREATE TABLE question_groups (
+    primary_item_id TEXT PRIMARY KEY, project_key TEXT NOT NULL, question TEXT NOT NULL,
+    created_at TEXT NOT NULL, by_handle TEXT NOT NULL, note TEXT NOT NULL
+  );
+  CREATE TABLE question_group_items (
+    item_id TEXT NOT NULL UNIQUE, primary_item_id TEXT NOT NULL REFERENCES question_groups(primary_item_id)
+  );
+  CREATE INDEX question_group_members ON question_group_items(primary_item_id);
+  CREATE INDEX team_messages_question_answer ON team_messages(project_key, json_extract(origin, '$.inboxItemId'))
+    WHERE json_extract(origin, '$.kind') = 'answer';`,
+});
+migrations.push({
+  version: 73,
+  name: 'PM loop triage',
+  sql: `ALTER TABLE task_loops ADD COLUMN triage_json TEXT NULL;
+    DROP INDEX operator_signals_open;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled','process_cleanup_failed','refinement_stalled','loop_suspected')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT, delivered_to TEXT
+    );
+    INSERT INTO operator_signals SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
+});
+migrations.push({
+  version: 74,
+  name: 'report only structural review signals',
+  sql: `DROP INDEX operator_signals_open;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled','process_cleanup_failed','refinement_stalled','loop_suspected','structural_pattern','milestone_closed')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT, delivered_to TEXT
+    );
+    INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to)
+      SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
+});
+migrations.push({
+  version: 75,
+  name: 'hybrid release deployments',
+  // One row per release attempt. `phase`, `maintenance` and `revision` repeat what `data_json` holds so the
+  // database itself can enforce the one active deployment of the instance and the fence can be read without
+  // parsing; the repository writes them in one statement. Requests are kept to answer a repeat the same way.
+  sql: `CREATE TABLE release_deployments (
+      release_id TEXT PRIMARY KEY REFERENCES releases(id),
+      attempt_id TEXT NOT NULL UNIQUE,
+      controller_id TEXT NOT NULL,
+      phase TEXT NOT NULL CHECK (phase IN ('preparing','prepared','quiescing','switching','live','failed','published','recovery_required')),
+      maintenance INTEGER NOT NULL CHECK (maintenance IN (0,1)),
+      revision INTEGER NOT NULL,
+      data_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX release_deployments_active ON release_deployments((1))
+      WHERE maintenance = 1 OR phase IN ('preparing','prepared','quiescing','switching','recovery_required');
+    CREATE TABLE release_deployment_requests (
+      request_id TEXT PRIMARY KEY,
+      release_id TEXT NOT NULL REFERENCES releases(id),
+      attempt_id TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      resulting_revision INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX release_deployment_requests_release ON release_deployment_requests(release_id);`,
+});
+migrations.push({
+  version: 76,
+  name: 'super mode actor origin and operation audit',
+  // PM-757: the Operator's super mode keeps its origin (operatorMode, credential id and prefix) in a nullable
+  // JSON column next to the old actor columns, which stay as they are; every old row has NULL. The audit is
+  // append-only and holds only an operation's name and target, never a request or a raw error.
+  sql: `ALTER TABLE timeline_events ADD COLUMN actor_meta TEXT;
+    ALTER TABLE team_messages ADD COLUMN actor_meta TEXT;
+    CREATE TABLE super_operation_audit (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE,
+      project_key TEXT NOT NULL,
+      task_key TEXT,
+      key_id TEXT NOT NULL,
+      prefix TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      handoff_id TEXT,
+      operation TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK (outcome IN ('started','succeeded','refused','failed','unknown')),
+      error_code TEXT,
+      settles_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX super_operation_audit_settles ON super_operation_audit(settles_id);
+    CREATE INDEX super_operation_audit_project ON super_operation_audit(project_key, seq);
+    CREATE INDEX super_operation_audit_prefix ON super_operation_audit(project_key, prefix, seq);`,
+});
+migrations.push({
+  version: 77,
+  name: 'pending message recipients',
+  sql: `CREATE TABLE team_message_pending (
+      message_id TEXT NOT NULL REFERENCES team_messages(id) ON DELETE CASCADE,
+      project_key TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      PRIMARY KEY (message_id, handle)
+    );
+    CREATE INDEX team_message_pending_recipient ON team_message_pending(project_key, handle, seq);
+    INSERT INTO team_message_pending (message_id, project_key, handle, seq)
+      ${PENDING_MESSAGE_RECIPIENTS};`,
+});
+migrations.push({
+  version: 78,
+  name: 'task scheduling read indexes',
+  // PM-770: the narrow sets the scheduler reads by (`TaskSchedulingQuery`): the cards a free developer
+  // may pull, the open cards, and the closed cards whose worktree may be swept. Each stays small while
+  // the closed history grows. Additive: nothing is rewritten.
+  sql: `CREATE INDEX tasks_scheduling_pull
+      ON tasks(project_key, stage_id, priority, seq)
+      WHERE kind = 'task' AND status = 'active' AND assignee IS NULL;
+    CREATE INDEX tasks_scheduling_open
+      ON tasks(project_key, seq)
+      WHERE status NOT IN ('done', 'cancelled');
+    CREATE INDEX tasks_scheduling_closed
+      ON tasks(project_key, seq)
+      WHERE kind = 'task' AND status IN ('done', 'cancelled') AND closed_at IS NOT NULL;`,
+});
+migrations.push({
+  version: 79,
+  name: 'explicit integrator key modes and lifecycle audit',
+  sql: `ALTER TABLE integrator_keys ADD COLUMN mode TEXT NOT NULL DEFAULT 'legacy'
+      CHECK (mode IN ('legacy','super','read'));
+    ALTER TABLE integrator_keys ADD COLUMN last_used_channel TEXT
+      CHECK (last_used_channel IN ('mcp','cli','rest'));
+    CREATE UNIQUE INDEX integrator_keys_active_mode ON integrator_keys(user_id, mode)
+      WHERE revoked_at IS NULL;
+    CREATE TABLE integrator_key_audit (
+      seq INTEGER PRIMARY KEY,
+      key_id TEXT NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('created','revoked')),
+      prefix TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK (mode IN ('legacy','super','read')),
+      at TEXT NOT NULL
+    );
+    CREATE INDEX integrator_key_audit_owner ON integrator_key_audit(owner_user_id, seq);`,
+});
+migrations.push({
+  version: 80,
+  name: 'timeline task state before index',
+  // PM-771: `latestTaskStatesBefore` finds a card's last state-setting event before a time (the starting
+  // state of a sibling reconstruction) from the state events alone, never walking its notes and messages.
+  // The structural evidence of the fixed seven-day window (`structuralEvidence`) is found by the creation
+  // time of its six detector event types instead of a walk of the project's whole timeline.
+  // Partial and additive: only those event types are indexed; nothing is rewritten.
+  sql: `CREATE INDEX timeline_task_state_before
+      ON timeline_events(project_key, task_key, created_at, seq)
+      WHERE type IN ('task_stage_changed', 'task_updated');
+    CREATE INDEX timeline_structural_window
+      ON timeline_events(project_key, created_at)
+      WHERE type IN ('task_merge_requested', 'task_merge_failed', 'task_full_test',
+        'task_stage_changed', 'task_labels_changed', 'task_updated');`,
+});
+migrations.push({
+  version: 81,
+  name: 'durable project change journal',
+  // PM-761: change signals scripts and the integrator can read again with a cursor. The journal starts
+  // empty (no history is made up); triggers on the state tables write it in the changing transaction
+  // (db/change-triggers.ts). `project_change_generation` is made once with the database; a restore from a
+  // snapshot must replace it (docs/ARCHITECTURE.md "Project change journal").
+  sql: `CREATE TABLE instance_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    INSERT INTO instance_meta (key, value)
+      SELECT 'project_change_generation',
+        lower(substr(h, 1, 8) || '-' || substr(h, 9, 4) || '-4' || substr(h, 14, 3) || '-' ||
+          substr('89ab', 1 + abs(random()) % 4, 1) || substr(h, 18, 3) || '-' || substr(h, 21, 12))
+      FROM (SELECT hex(randomblob(16)) AS h);
+    CREATE TABLE project_change_events (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_key TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      entity_id TEXT,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX project_change_events_project ON project_change_events(project_key, seq);
+    ${changeTriggersSql()}`,
+});
+migrations.push({
+  version: 82,
+  name: 'repository merge queue revisions and order',
+  sql: `CREATE TABLE merge_queue_revisions (
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (project_key, repo)
+    );
+    INSERT INTO merge_queue_revisions (project_key, repo)
+      SELECT DISTINCT project_key, repo FROM task_merges;
+    ALTER TABLE task_merges ADD COLUMN queue_rank INTEGER;`,
+});
+migrations.push({
+  version: 83,
+  name: 'super mode durable handoffs and operations',
+  // PM-762: what the base Operator hands over to the super-mode integrator survives a restart, and what the
+  // integrator starts from it is one record per (project, token, request id). `revision` is the CAS counter of
+  // the state machine; `command_hash` pins the exact command the owner's yes was given for.
+  sql: `CREATE TABLE super_handoffs (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      task_key TEXT,
+      request_id TEXT NOT NULL,
+      requested_by TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      command TEXT NOT NULL,
+      command_hash TEXT NOT NULL,
+      expected_config_version TEXT,
+      state TEXT NOT NULL,
+      operation_id TEXT,
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (project_key, request_id)
+    );
+    CREATE INDEX super_handoffs_state ON super_handoffs(project_key, state, created_at);
+    CREATE TABLE super_operations (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      task_key TEXT,
+      key_id TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      handoff_id TEXT,
+      command TEXT NOT NULL,
+      command_hash TEXT NOT NULL,
+      expected_config_version TEXT,
+      state TEXT NOT NULL,
+      owner_question_id TEXT,
+      expires_at TEXT,
+      error_code TEXT,
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (project_key, key_id, request_id)
+    );
+    CREATE INDEX super_operations_state ON super_operations(project_key, state);
+    CREATE INDEX super_operations_handoff ON super_operations(handoff_id);
+    ${V83_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
+});
+/** One trigger of a history source table: record that the source changed (never decide anything about it). */
+function historyDirtyTrigger(
+  name: string,
+  when: string,
+  on: string,
+  row: 'new' | 'old',
+  type: string,
+  id: string,
+) {
+  return `CREATE TRIGGER history_dirty_${name} AFTER ${on} BEGIN
+      INSERT INTO history_dirty (project_key, source_type, entity_id)
+        SELECT ${row}.project_key, '${type}', ${row}.${id} WHERE ${when}
+        ON CONFLICT (project_key, source_type, entity_id) DO UPDATE SET revision = revision + 1;
+    END;`;
+}
+const NOTE_ROW = "type = 'task_note'";
+const HISTORY_DIRTY_TRIGGERS_SQL = [
+  historyDirtyTrigger('task_ai', '1', 'INSERT ON tasks', 'new', 'task', 'id'),
+  historyDirtyTrigger(
+    'task_au',
+    '1',
+    'UPDATE OF title, description, created_by, updated_at ON tasks',
+    'new',
+    'task',
+    'id',
+  ),
+  historyDirtyTrigger('task_ad', '1', 'DELETE ON tasks', 'old', 'task', 'id'),
+  historyDirtyTrigger('note_ai', `new.${NOTE_ROW}`, 'INSERT ON timeline_events', 'new', 'note', 'id'),
+  historyDirtyTrigger(
+    'note_au',
+    `new.${NOTE_ROW}`,
+    'UPDATE OF type, task_key, actor_handle, data, created_at ON timeline_events',
+    'new',
+    'note',
+    'id',
+  ),
+  historyDirtyTrigger(
+    'note_au_old',
+    `old.${NOTE_ROW} AND new.type <> 'task_note'`,
+    'UPDATE OF type ON timeline_events',
+    'old',
+    'note',
+    'id',
+  ),
+  historyDirtyTrigger('note_ad', `old.${NOTE_ROW}`, 'DELETE ON timeline_events', 'old', 'note', 'id'),
+  historyDirtyTrigger('question_ai', '1', 'INSERT ON inbox_items', 'new', 'question', 'id'),
+  historyDirtyTrigger('question_au', '1', 'UPDATE ON inbox_items', 'new', 'question', 'id'),
+  historyDirtyTrigger('question_ad', '1', 'DELETE ON inbox_items', 'old', 'question', 'id'),
+  historyDirtyTrigger('message_ai', '1', 'INSERT ON team_messages', 'new', 'message', 'id'),
+  // A delivery receipt (`delivered_at`, `receipts`) changes no searchable text.
+  historyDirtyTrigger(
+    'message_au',
+    '1',
+    'UPDATE OF body, answer, origin, from_handle, to_handles, task_key, created_at ON team_messages',
+    'new',
+    'message',
+    'id',
+  ),
+  historyDirtyTrigger('message_ad', '1', 'DELETE ON team_messages', 'old', 'message', 'id'),
+].join('\n    ');
+migrations.push({
+  version: 84,
+  name: 'history search index',
+  // PM-786: a durable full-text index of the project history (cards, notes, closed questions, team messages and
+  // the two project documents). `history_documents` holds the searchable projection only, never an access copy:
+  // who may read a hit is decided from the live source at query time. The triggers on the four source tables
+  // only record WHICH source changed (`history_dirty`, in the writing transaction); the indexer reads the
+  // current source and updates the projection. `history_index_state` is the backfill's checkpoint.
+  sql: `CREATE TABLE history_documents (
+      id INTEGER PRIMARY KEY,
+      source_id TEXT NOT NULL UNIQUE,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      source_type TEXT NOT NULL CHECK (source_type IN ('task', 'note', 'question', 'message', 'document')),
+      entity_id TEXT NOT NULL,
+      task_key TEXT,
+      author TEXT,
+      at TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      repo TEXT,
+      path TEXT,
+      commit_sha TEXT
+    );
+    CREATE INDEX history_documents_type_at ON history_documents(project_key, source_type, at);
+    CREATE INDEX history_documents_task ON history_documents(project_key, task_key);
+    CREATE UNIQUE INDEX history_documents_entity ON history_documents(project_key, source_type, entity_id);
+    CREATE VIRTUAL TABLE history_fts USING fts5(
+      title, body,
+      content='history_documents', content_rowid='id',
+      tokenize='unicode61 remove_diacritics 2', prefix='3 4 5'
+    );
+    CREATE TRIGGER history_documents_ai AFTER INSERT ON history_documents BEGIN
+      INSERT INTO history_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+    END;
+    CREATE TRIGGER history_documents_ad AFTER DELETE ON history_documents BEGIN
+      INSERT INTO history_fts(history_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+    END;
+    CREATE TRIGGER history_documents_au AFTER UPDATE OF title, body ON history_documents BEGIN
+      INSERT INTO history_fts(history_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+      INSERT INTO history_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+    END;
+    CREATE TABLE history_dirty (
+      project_key TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (project_key, source_type, entity_id)
+    );
+    CREATE TABLE history_index_state (
+      project_key TEXT PRIMARY KEY,
+      version INTEGER NOT NULL,
+      complete INTEGER NOT NULL DEFAULT 0,
+      source_type TEXT,
+      last_id TEXT
+    );
+    CREATE TABLE history_doc_state (
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      path TEXT NOT NULL,
+      commit_sha TEXT,
+      checked_at TEXT,
+      indexed_at TEXT,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'stale', 'unavailable', 'missing')),
+      PRIMARY KEY (project_key, repo, path)
+    );
+    ${HISTORY_DIRTY_TRIGGERS_SQL}`,
+});
+migrations.push({
+  version: 85,
+  name: 'history search log',
+  // PM-787: the private measurement of the history search. One row per authenticated, authorized, valid search,
+  // with the text of the request: it lives in this table only (never in the index, the timeline or a log) and
+  // is purged after 90 days. `via` is 'integrator' for a search made through an integrator key.
+  sql: `CREATE TABLE history_searches (
+      id TEXT PRIMARY KEY,
+      at TEXT NOT NULL,
+      member TEXT NOT NULL,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      via TEXT,
+      query TEXT NOT NULL,
+      filters TEXT NOT NULL,
+      result_count INTEGER,
+      has_more INTEGER,
+      outcome TEXT NOT NULL CHECK (outcome IN ('ok', 'error')),
+      error_code TEXT
+    );
+    CREATE INDEX history_searches_project_at ON history_searches(project_key, at, id);
+    CREATE INDEX history_searches_member_at ON history_searches(project_key, member, at);`,
+});
+migrations.push({
+  version: 86,
+  name: 'arm coordinator-only signals without retroactive notifications',
+  sql: `CREATE TABLE operator_signal_arms (
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      armed_at TEXT NOT NULL,
+      PRIMARY KEY (project_key, kind)
+    );
+    UPDATE operator_signals SET state = 'resolved',
+      resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+      decision_note = 'PM-780: retroactive report-only signal closed at upgrade'
+      WHERE kind IN ('structural_pattern', 'milestone_closed')
+        AND resolved_at IS NULL AND state IN ('pending', 'open');`,
+});
+migrations.push({
+  version: 87,
+  name: 'external origin of document writes',
+  // PM-784: a document write made through the bearer MCP has no Operator request, step or requesting owner;
+  // it carries the verified external origin instead (`external_origin`, JSON). The three old columns become
+  // nullable, so an old row stays as it is (origin NULL) and a new external row leaves them NULL. The table
+  // is rebuilt, which drops its journal triggers and its open-write index: both are created again.
+  sql: `DROP TRIGGER doc_writes_change_insert;
+    DROP TRIGGER doc_writes_change_update;
+    DROP INDEX doc_writes_open;
+    ALTER TABLE doc_writes RENAME TO doc_writes_old;
+    CREATE TABLE doc_writes (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      base TEXT NOT NULL,
+      base_commit TEXT NOT NULL,
+      edits TEXT NOT NULL,
+      message TEXT NOT NULL,
+      author TEXT NOT NULL,
+      requested_by TEXT,
+      request_id TEXT,
+      step_id TEXT,
+      engine_id TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('queued','running','published','stale','failed')),
+      commit_sha TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      external_origin TEXT
+    );
+    INSERT INTO doc_writes (id, project_key, repo, base, base_commit, edits, message, author, requested_by,
+        request_id, step_id, engine_id, state, commit_sha, error, created_at, updated_at, external_origin)
+      SELECT id, project_key, repo, base, base_commit, edits, message, author, requested_by,
+        request_id, step_id, engine_id, state, commit_sha, error, created_at, updated_at, NULL
+      FROM doc_writes_old ORDER BY rowid;
+    DROP TABLE doc_writes_old;
+    CREATE UNIQUE INDEX doc_writes_open ON doc_writes(project_key) WHERE state IN ('queued','running');
+    ${changeTriggerSql({
+      table: 'doc_writes',
+      kind: 'operation',
+      on: ['INSERT', 'UPDATE'],
+      project: (row) => `${row}.project_key`,
+      entity: (row) => `${row}.id`,
+    })}`,
+});
+migrations.push({
+  version: 88,
+  name: 'obligations',
+  // PM-806: an open step with a responsible and a deadline (merge, work, review step, refinement turn). It has
+  // at most one reminder (`woken_at`) and at most one integrator todo (`inbox_item_id`), also after a restart.
+  // Bookkeeping only: its wake and hand-over are timeline events, so the table is not in the change journal.
+  sql: `CREATE TABLE obligations (
+      id              TEXT PRIMARY KEY,
+      project_key     TEXT NOT NULL,
+      task_key        TEXT NOT NULL,
+      kind            TEXT NOT NULL CHECK (kind IN ('merge','fix_limit','refinement_turn','review_step','work')),
+      responsible     TEXT NOT NULL,
+      subject         TEXT NOT NULL,
+      opened_at       TEXT NOT NULL,
+      due_at          TEXT NOT NULL,
+      paused_since    TEXT,
+      pause_reason    TEXT CHECK (pause_reason IN ('held','inbox','permission','start_refused')),
+      woken_at        TEXT,
+      handed_over_at  TEXT,
+      inbox_item_id   TEXT,
+      state           TEXT NOT NULL CHECK (state IN ('open','handed_over','fulfilled','cancelled')),
+      closed_at       TEXT,
+      updated_at      TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, responsible, subject);
+    CREATE INDEX obligations_state ON obligations(state);`,
+});
+migrations.push({
+  version: 89,
+  name: 'obligation reminders carry their obligation',
+  // PM-813: a reminder that waits undelivered is dropped once its obligation is closed. The reminders written
+  // before this carry no subject; the obligation of each waiting one is its row on the same card and
+  // responsible that was woken last before the message (the only reminder one row ever sends). The sweep
+  // then discards the waiting reminders whose obligation is closed. A reminder with no such row is left alone.
+  sql: `UPDATE team_messages SET subject = json_object('type', 'obligation', 'obligationId',
+        (SELECT o.id FROM obligations AS o
+          WHERE o.project_key = team_messages.project_key AND o.task_key = team_messages.task_key
+            AND o.responsible = json_extract(team_messages.to_handles, '$[0]')
+            AND o.woken_at IS NOT NULL AND o.woken_at <= team_messages.created_at
+          ORDER BY o.woken_at DESC LIMIT 1))
+    WHERE from_handle = 'system' AND subject IS NULL AND task_key IS NOT NULL
+      AND body LIKE 'projectman reminder:%'
+      AND json_valid(to_handles) AND json_array_length(to_handles) = 1
+      AND id IN (SELECT message_id FROM team_message_pending)
+      AND EXISTS (SELECT 1 FROM obligations AS o
+          WHERE o.project_key = team_messages.project_key AND o.task_key = team_messages.task_key
+            AND o.responsible = json_extract(team_messages.to_handles, '$[0]')
+            AND o.woken_at IS NOT NULL AND o.woken_at <= team_messages.created_at);`,
+});
+migrations.push({
+  version: 90,
+  name: 'start obligation kind',
+  // PM-804: the kind CHECK grows by 'start' (the offer to start a ready card), so the table is rebuilt as in
+  // version 63; the rows and the indexes stay as they are.
+  sql: `DROP INDEX obligations_unique;
+    DROP INDEX obligations_state;
+    ALTER TABLE obligations RENAME TO obligations_old;
+    CREATE TABLE obligations (
+      id              TEXT PRIMARY KEY,
+      project_key     TEXT NOT NULL,
+      task_key        TEXT NOT NULL,
+      kind            TEXT NOT NULL CHECK (kind IN ('merge','fix_limit','refinement_turn','review_step','work','start')),
+      responsible     TEXT NOT NULL,
+      subject         TEXT NOT NULL,
+      opened_at       TEXT NOT NULL,
+      due_at          TEXT NOT NULL,
+      paused_since    TEXT,
+      pause_reason    TEXT CHECK (pause_reason IN ('held','inbox','permission','start_refused')),
+      woken_at        TEXT,
+      handed_over_at  TEXT,
+      inbox_item_id   TEXT,
+      state           TEXT NOT NULL CHECK (state IN ('open','handed_over','fulfilled','cancelled')),
+      closed_at       TEXT,
+      updated_at      TEXT NOT NULL
+    );
+    INSERT INTO obligations SELECT id, project_key, task_key, kind, responsible, subject, opened_at, due_at, paused_since, pause_reason, woken_at, handed_over_at, inbox_item_id, state, closed_at, updated_at FROM obligations_old ORDER BY rowid;
+    DROP TABLE obligations_old;
+    CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, responsible, subject);
+    CREATE INDEX obligations_state ON obligations(state);`,
+});
+migrations.push({
+  version: 91,
+  name: 'hot read indexes',
+  // PM-834: additive indexes for frequent reads in sweeps, board cards and session lifecycle management
+  // (`inbox.listOpen`, `inbox.listOpenOfKind`, `taskMerges.latestMerged`, `taskLoops.open`,
+  // `taskLoops.lastEndedAt`, `timeline.ofProjectType`, `sessions.listInStates`).
+  sql: `CREATE INDEX inbox_open ON inbox_items(seq) WHERE state = 'open';
+    CREATE INDEX task_merges_task ON task_merges(project_key, task_key, state, finished_at);
+    CREATE INDEX task_loops_task_key ON task_loops(task_key, ended_at);
+    CREATE INDEX timeline_project_type ON timeline_events(project_key, type, seq);
+    CREATE INDEX sessions_state ON sessions(state);`,
+});
+migrations.push({
+  version: 92,
+  name: 'merge check runs',
+  // PM-876: every merge check (a card's merge, a train's group check, a member's diagnosis) with the time and
+  // worker count the hub passed and the step measurements the engine reported (`report_json`, null: unknown).
+  // The task rows hold the cards of a run in train order and are written in the run's transaction.
+  sql: `CREATE TABLE merge_check_runs (
+      id           TEXT PRIMARY KEY,
+      project_key  TEXT NOT NULL REFERENCES projects(key),
+      repo         TEXT NOT NULL,
+      kind         TEXT NOT NULL CHECK (kind IN ('merge','train','diagnose')),
+      train_id     TEXT,
+      commit_sha   TEXT NOT NULL,
+      base         TEXT,
+      status       TEXT NOT NULL CHECK (status IN ('running','passed','failed','error','cancelled')),
+      reason       TEXT,
+      max_workers  INTEGER NOT NULL,
+      requested_at TEXT NOT NULL,
+      started_at   TEXT,
+      finished_at  TEXT,
+      duration_ms  INTEGER,
+      report_json  TEXT
+    );
+    CREATE INDEX merge_check_runs_project ON merge_check_runs(project_key, requested_at);
+    CREATE TABLE merge_check_run_tasks (
+      run_id   TEXT NOT NULL REFERENCES merge_check_runs(id) ON DELETE CASCADE,
+      task_key TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      PRIMARY KEY (run_id, task_key)
+    );
+    CREATE INDEX merge_check_run_tasks_task ON merge_check_run_tasks(task_key);
+    ${V92_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
+});
+migrations.push({
+  version: 93,
+  name: 'operator grants',
+  // PM-881: the host owner's grant that lets the Operator run machine operations. At most one is active at
+  // a time (the service closes the old row as 'replaced' in the same transaction); the audit is read from the rows.
+  sql: `CREATE TABLE operator_grants (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL,
+      granted_at      TEXT NOT NULL,
+      expires_at      TEXT,
+      revoked_at      TEXT,
+      revoked_reason  TEXT CHECK (revoked_reason IN ('revoked', 'replaced')),
+      last_used_at    TEXT
+    );`,
+});
+migrations.push({
+  version: 94,
+  name: 'web push notifications',
+  sql: `CREATE TABLE web_push_devices (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT, endpoint_hash TEXT NOT NULL UNIQUE, p256dh TEXT, auth TEXT,
+    vapid_key_id TEXT NOT NULL, origin TEXT, browser TEXT NOT NULL, os TEXT NOT NULL,
+    form TEXT NOT NULL CHECK (form IN ('desktop','phone')),
+    installed INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+    state TEXT NOT NULL CHECK (state IN ('active','expired')),
+    last_sent_at TEXT, last_result TEXT CHECK (last_result IN ('ok','failed','expired')), last_failure TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX web_push_devices_user ON web_push_devices(user_id);
+  CREATE TABLE web_push_settings (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    categories TEXT NOT NULL, quiet_enabled INTEGER NOT NULL, quiet_start TEXT NOT NULL,
+    quiet_end TEXT NOT NULL, time_zone TEXT NOT NULL, digest_due_at TEXT, updated_at TEXT NOT NULL);
+  CREATE INDEX web_push_settings_digest ON web_push_settings(digest_due_at) WHERE digest_due_at IS NOT NULL;
+  CREATE TABLE web_push_items (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    inbox_item_id TEXT NOT NULL, project_key TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('sent','quiet','digested','skipped')),
+    skip_reason TEXT CHECK (skip_reason IN ('category_off','viewing')),
+    created_at TEXT NOT NULL, PRIMARY KEY (user_id, inbox_item_id));
+  CREATE INDEX web_push_items_outcome ON web_push_items(user_id, outcome);`,
+});
+migrations.push({
+  version: 95,
+  name: 'merge check runner',
+  // PM-906: where a merge check ran (the card's engine, or the repository's GitHub Actions workflow) and, for
+  // a GitHub run, its run page.
+  sql: `ALTER TABLE merge_check_runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'engine'
+      CHECK (runner IN ('engine','github_actions'));
+    ALTER TABLE merge_check_runs ADD COLUMN url TEXT;`,
+});
+migrations.push({
+  version: 96,
+  name: 'operator step operation',
+  // PM-888: an `operation` step names the super operation the Operator started on the shared path.
+  sql: 'ALTER TABLE operator_steps ADD COLUMN operation_id TEXT NULL;',
+});
+migrations.push({
+  version: 97,
+  name: 'semantic history search',
+  // PM-767: a derived vector index beside the full-text one. Plain tables: the sqlite-vec extension is loaded
+  // only by the embedding worker's own connection, so this migration, the source writes and the full-text search
+  // work without it. A vector is 384 float32 values (1536 bytes) of one chunk of one source's text;
+  // `content_hash` and `index_key` say which text and which model generation it was made from, and a vector of
+  // another text or generation is never a hit. `history_semantic_dirty` is this index's own queue (the full-text
+  // indexer acknowledges `history_dirty`; the two never acknowledge each other's rows).
+  sql: `CREATE TABLE history_semantic_sources (
+      source_id TEXT PRIMARY KEY REFERENCES history_documents(source_id) ON DELETE CASCADE,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      index_key TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      next_char INTEGER NOT NULL DEFAULT 0 CHECK (next_char >= 0),
+      complete INTEGER NOT NULL DEFAULT 0 CHECK (complete IN (0, 1))
+    );
+    CREATE INDEX history_semantic_sources_scan ON history_semantic_sources(project_key, index_key, complete, source_id);
+    CREATE TABLE history_semantic_chunks (
+      id INTEGER PRIMARY KEY,
+      source_id TEXT NOT NULL REFERENCES history_semantic_sources(source_id) ON DELETE CASCADE,
+      chunk_no INTEGER NOT NULL CHECK (chunk_no >= 0),
+      start_char INTEGER NOT NULL CHECK (start_char >= 0),
+      end_char INTEGER NOT NULL CHECK (end_char > start_char),
+      from_line INTEGER NOT NULL CHECK (from_line >= 1),
+      to_line INTEGER NOT NULL CHECK (to_line >= from_line),
+      embedding BLOB NOT NULL CHECK (length(embedding) = 1536),
+      UNIQUE (source_id, chunk_no)
+    );
+    CREATE TABLE history_semantic_dirty (
+      source_id TEXT PRIMARY KEY REFERENCES history_documents(source_id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+      next_attempt_at TEXT
+    );
+    CREATE INDEX history_semantic_dirty_due ON history_semantic_dirty(next_attempt_at, source_id);
+    CREATE TABLE history_semantic_state (
+      project_key TEXT PRIMARY KEY REFERENCES projects(key) ON DELETE CASCADE,
+      index_key TEXT NOT NULL,
+      last_source_id TEXT NOT NULL DEFAULT '',
+      complete INTEGER NOT NULL DEFAULT 0 CHECK (complete IN (0, 1))
+    );
+    CREATE TRIGGER history_semantic_dirty_ai AFTER INSERT ON history_documents BEGIN
+      INSERT INTO history_semantic_dirty (source_id) VALUES (new.source_id)
+      ON CONFLICT (source_id) DO UPDATE SET revision = revision + 1, attempts = 0, next_attempt_at = NULL;
+    END;
+    CREATE TRIGGER history_semantic_dirty_au AFTER UPDATE OF title, body, commit_sha ON history_documents BEGIN
+      INSERT INTO history_semantic_dirty (source_id) VALUES (new.source_id)
+      ON CONFLICT (source_id) DO UPDATE SET revision = revision + 1, attempts = 0, next_attempt_at = NULL;
+    END;
+    ALTER TABLE history_searches ADD COLUMN semantic_status TEXT NOT NULL DEFAULT 'not_run'
+      CHECK (semantic_status IN ('not_run', 'used', 'disabled', 'loading', 'backfill', 'unavailable', 'busy', 'timeout', 'resource_limit', 'error'));
+    ALTER TABLE history_searches ADD COLUMN semantic_duration_ms INTEGER
+      CHECK (semantic_duration_ms IS NULL OR semantic_duration_ms >= 0);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -128,8 +128,8 @@ export interface CodexArgsInput {
   disabledMcpServers?: readonly string[];
   provider?: CodexModelProvider;
   spec: StartSessionSpec;
-  /** POST target of the hooks. */
-  hookUrl: string;
+  /** The private file holding the hooks' POST target (`writeHookConfig`, PM-156). */
+  hookConfigPath: string;
   permissionTimeoutMs: number;
   /** The session's directory, resolved (Codex looks its trust up by the resolved path). */
   realCwd: string;
@@ -228,13 +228,26 @@ export function codexSharedGitAccess(
   const placement = policy?.placement;
   const gitDir = placement?.kind === 'task_worktree' ? placement.gitDir : undefined;
   const adminDir = placement?.kind === 'task_worktree' ? placement.worktreeGitDir : undefined;
-  // An independent clone (a member workspace on an engine, PM-138) keeps its git directory inside the
-  // checkout, where Codex makes `.git` read-only: open it the same way, its config and hooks still closed.
-  if (placement?.kind === 'task_worktree' && !gitDir) {
+  // An independent clone (a member workspace, PM-138) keeps its git directory inside the checkout, where
+  // Codex makes `.git` read-only: open it the same way, with what the host's git would run or follow
+  // outside the sandbox (configuration, hooks, alternates, and the `commondir` / `gitdir` links that
+  // redirect git to a directory the session wrote, and the submodule directories under `modules` with
+  // their own configuration) still closed. Only a member workspace counts as a clone: a placement
+  // without a shared git directory and without that marker gets nothing.
+  if (placement?.kind === 'task_worktree' && placement.workspace && !gitDir) {
     const ownGitDir = path.join(placement.path, '.git');
     return {
       writable: [ownGitDir],
-      readOnly: ['config', 'config.lock', 'hooks'].map((name) => path.join(ownGitDir, name)),
+      readOnly: [
+        'config',
+        'config.lock',
+        'config.worktree',
+        'commondir',
+        'gitdir',
+        'hooks',
+        'modules',
+        path.join('objects', 'info'),
+      ].map((name) => path.join(ownGitDir, name)),
     };
   }
   if (!gitDir || !adminDir) return { writable: [], readOnly: [] };
@@ -287,7 +300,7 @@ export function codexPermissionProfile(input: {
 
 /** Full argument list for `codex` (interactive TUI). */
 export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
-  const { spec, hookUrl } = input;
+  const { spec, hookConfigPath } = input;
   if (spec.policy?.enforcement === 'strict')
     throw new Error('Strict Codex sandbox enforcement is not available yet; refusing to start.');
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
@@ -350,7 +363,7 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       : event === 'PreToolUse'
         ? TOOL_PREPARE_HOOK_TIMEOUT_S
         : FAST_HOOK_TIMEOUT_S;
-    const command = forwarderCommand(hookUrl, input.nodePath, {
+    const command = forwarderCommand(hookConfigPath, input.nodePath, {
       printResponse: decides,
       maxTimeS: timeoutS,
     });

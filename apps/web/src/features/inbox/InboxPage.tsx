@@ -1,16 +1,22 @@
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
-import { Outlet, useMatch } from 'react-router';
+import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import {
   InboxKind,
+  fixLimitDecisionOf,
   handOnRequestOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
+  questionPayloadOf,
+  isLinkedQuestion,
+  isIntegratorInboxItem,
+  wasIntegratorInboxItem,
 } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
 import { Button } from '../../components/Button';
+import { ActorName } from '../../components/ActorName';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
@@ -49,13 +55,16 @@ import { errorMessage } from '../../lib/errors';
 import { refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { PushNudge } from '../notifications/PushNudge';
 import { DrawerBaseContext } from '../board/drawerBase';
 import type { DrawerBase } from '../board/drawerBase';
 import { moveErrorText } from '../board/moveTask';
 import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
+import { IntegratorTodos } from './IntegratorTodos';
 import { OperatorTrail } from './OperatorTrail';
 import { FoldedCommand } from './PermissionParts';
+import { QuestionSources } from './QuestionSources';
 import { ReleaseSubject } from './ReleaseInbox';
 import styles from './InboxPage.module.css';
 
@@ -95,6 +104,7 @@ function RecentRow({
   onRevoke?: ((id: string) => void) | undefined;
 }) {
   const mark = resolutionMark(item);
+  const group = questionPayloadOf(item)?.group;
   const note = resolutionNote(item);
   const delivery = answerDeliveryText(item, members, myHandle);
   const boundary = boundaryOf(item);
@@ -107,7 +117,7 @@ function RecentRow({
       <span className={clsx(styles.recentIcon, MARK_STYLE[mark])} aria-hidden="true">
         <Icon name={MARK_ICON[mark]} size={12} strokeWidth={3} />
       </span>
-      <span className={styles.recentText}>
+      <div className={styles.recentText}>
         <span className={styles.recentLine}>{decisionLine(item, members, myHandle)}</span>
         {item.kind === 'permission' ? (
           <FoldedCommand text={subject} className={styles.recentCode} lines={1} />
@@ -119,13 +129,32 @@ function RecentRow({
           <span className={styles.recentSubject}>{subject}</span>
         )}
         <span className={styles.recentMeta}>
-          {item.resolution
-            ? t('inbox.resolvedBy', {
-                who: resolverName(item, members, myHandle),
-                time: formatAgo(item.resolution.at),
-              })
-            : formatAgo(item.createdAt)}
+          {item.resolution?.actor?.operatorMode === 'super' ? (
+            <>
+              <ActorName
+                actor={item.resolution.actor}
+                members={members}
+                myHandle={myHandle}
+                projectKey={item.projectKey}
+              />{' '}
+              · {formatAgo(item.resolution.at)}
+            </>
+          ) : item.resolution ? (
+            t('inbox.resolvedBy', {
+              who: resolverName(item, members, myHandle),
+              time: formatAgo(item.resolution.at),
+            })
+          ) : (
+            formatAgo(item.createdAt)
+          )}
+          {wasIntegratorInboxItem(item) ? ` · ${t('inbox.integrator.wasForIntegrator')}` : null}
+          {group?.sources && item.state === 'resolved'
+            ? ` · ${t('inbox.group.answeredCount', { count: group.answeredCount ?? group.sources.filter((s) => s.state === 'live').length })}`
+            : null}
         </span>
+        {group?.sources ? (
+          <QuestionSources group={group} projectKey={item.projectKey} members={members} myHandle={myHandle} />
+        ) : null}
         {note ? <span className={styles.recentNote}>{note}</span> : null}
         {delivery ? <span className={styles.recentNote}>{delivery}</span> : null}
         {boundary ? (
@@ -139,7 +168,7 @@ function RecentRow({
             {t('boundary.revoke')}
           </Button>
         ) : null}
-      </span>
+      </div>
     </li>
   );
 }
@@ -216,15 +245,49 @@ export function InboxPage() {
   useDocumentTitle(t('inbox.title'), board.data?.project.name);
 
   const items = inbox.data?.items;
+  const { hash, search, pathname } = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!hash.startsWith('#inbox-item-')) return;
+    const target = document.getElementById(hash.slice(1));
+    if (!target) return;
+    target.scrollIntoView({ block: 'center' });
+    target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+  }, [hash, items]);
+
+  // A tap on a push notification (PM-815) opens `…/inbox?via=push#inbox-item-<id>`; when that item has been
+  // handled in the meantime (by someone else, or on another device) the person is told, once, why it is not open.
+  const viaPush = new URLSearchParams(search).get('via') === 'push';
+  const announcedPush = useRef<string | null>(null);
+  useEffect(() => {
+    if (!viaPush || !hash.startsWith('#inbox-item-') || !items || inbox.isFetching) return;
+    if (announcedPush.current === hash) return;
+    announcedPush.current = hash;
+    const itemId = hash.slice('#inbox-item-'.length);
+    const item = items.find((candidate) => candidate.id === itemId);
+    if (!item || item.state !== 'open') toast.show(t('notifications.alreadyHandled'), 'info');
+    // The marker has done its work: a reload or a shared link must not say it again.
+    const rest = new URLSearchParams(search);
+    rest.delete('via');
+    navigate({ pathname, search: rest.size ? `?${rest}` : '', hash }, { replace: true });
+  }, [viaPush, hash, search, pathname, items, inbox.isFetching, toast, navigate]);
   const mine = useMemo(
-    () => newestFirst((items ?? []).filter((item) => item.state === 'open' && isAssignedTo(item, myHandle))),
+    () =>
+      newestFirst(
+        (items ?? []).filter(
+          (item) => item.state === 'open' && !isLinkedQuestion(item) && isAssignedTo(item, myHandle),
+        ),
+      ),
     [items, myHandle],
   );
   const { recent, automatic } = useMemo(() => {
     const decided = (items ?? [])
       .filter(
         (item) =>
-          isRecentDecision(item) && (item.resolution?.by === myHandle || isAssignedTo(item, myHandle)),
+          !isLinkedQuestion(item) &&
+          isRecentDecision(item) &&
+          (item.resolution?.by === myHandle || isAssignedTo(item, myHandle)),
       )
       .sort((a, b) => (b.resolution?.at ?? b.createdAt).localeCompare(a.resolution?.at ?? a.createdAt));
     return {
@@ -253,8 +316,16 @@ export function InboxPage() {
         for (const item of gone) if (!next.has(item.id)) next.set(item.id, 'closed');
         return next.size === current.size ? current : next;
       });
-    shownOpen.current = new Set(mine.map((item) => item.id));
-  }, [items, mine, myHandle]);
+    shownOpen.current = new Set(
+      (items ?? [])
+        .filter(
+          (item) =>
+            item.state === 'open' &&
+            (isAssignedTo(item, myHandle) || (isOwner && isIntegratorInboxItem(item))),
+        )
+        .map((item) => item.id),
+    );
+  }, [items, mine, myHandle, isOwner]);
   const dismissGone = (id: string) => {
     // The focus goes on to the title of the next card (the previous one when it was the last), so it does not
     // fall to the page. A notice that goes away on its own, with the focus elsewhere, leaves the focus alone.
@@ -333,9 +404,16 @@ export function InboxPage() {
   // A pill per kind that has something waiting (and the one picked, so its empty text can say so).
   const pillKinds = FILTER_KINDS.filter((kind) => (counts.get(kind) ?? 0) > 0 || kind === filter);
   const filtered = filter === 'all' ? mine : mine.filter((item) => displayKindOf(item) === filter);
+  // Keep an edited integrator card mounted in the render that first observes its external closure.
+  const displayedLingering = new Map(lingering);
+  for (const item of items ?? []) {
+    if (isIntegratorInboxItem(item) && shownOpen.current.has(item.id) && closedBySomeoneElse(item, myHandle))
+      displayedLingering.set(item.id, lingering.get(item.id) ?? 'closed');
+  }
   // A question that closed while open keeps its place as a notice, whatever the filter.
   const gone = (items ?? []).filter(
-    (item) => lingering.has(item.id) && !filtered.some((f) => f.id === item.id),
+    (item) =>
+      lingering.has(item.id) && !isIntegratorInboxItem(item) && !filtered.some((f) => f.id === item.id),
   );
   const visible = gone.length > 0 ? newestFirst([...filtered, ...gone]) : filtered;
   const todoCount = visible.filter((item) => displayKindOf(item) === 'todo').length;
@@ -363,7 +441,7 @@ export function InboxPage() {
       })}
       cardHref={item.taskKey ? `/p/${key}/tasks/${item.taskKey}` : null}
       pending={resolve.isPending && resolve.variables?.item.id === item.id}
-      closedWhileOpen={lingering.get(item.id) ?? null}
+      closedWhileOpen={displayedLingering.get(item.id) ?? null}
       onDismissGone={() => dismissGone(item.id)}
       error={
         // A refused "Tovább" says why on its card (the gate), not in a toast.
@@ -382,10 +460,12 @@ export function InboxPage() {
           : // A refused release decision (the integrator's key is no approval) says why on its card.
             item.kind === 'release' && resolve.isError && resolve.variables?.item.id === item.id
             ? errorMessage(resolve.error)
-            : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
-              displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
-              ? errorMessage(resolveFailedFor(item))
-              : null
+            : fixLimitDecisionOf(item) && resolveFailedFor(item) && !lingering.has(item.id)
+              ? t('inbox.fixLimit.error')
+              : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
+                displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
+                ? errorMessage(resolveFailedFor(item))
+                : null
       }
       stale={
         // A stale Operator approval says so on its card, not in a toast.
@@ -417,6 +497,7 @@ export function InboxPage() {
               if (
                 target.kind !== 'hand_on' &&
                 target.kind !== 'release' &&
+                !fixLimitDecisionOf(target) &&
                 displayKindOf(target) !== 'todo' &&
                 !isStaleError(error)
               )
@@ -444,6 +525,7 @@ export function InboxPage() {
                 : t('inbox.subtitle')
           }
         />
+        <PushNudge />
         {isMobile || mine.length === 0 ? null : (
           <SegmentedControl<KindFilter>
             label={t('inbox.filtersLabel')}
@@ -488,6 +570,15 @@ export function InboxPage() {
             />
           ) : null}
         </div>
+        {isOwner && (filter === 'all' || filter === 'todo') ? (
+          <IntegratorTodos
+            items={items ?? []}
+            lingering={displayedLingering}
+            renderCard={renderCard}
+            members={members}
+            myHandle={myHandle}
+          />
+        ) : null}
         {isMobile ? (
           <>
             <RecentDecisions

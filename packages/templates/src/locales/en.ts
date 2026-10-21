@@ -2,6 +2,24 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** English default display names and role texts. */
 export const en: TemplateLocale = {
+  webPush: {
+    title: {
+      question: 'A new question awaits you',
+      decision: 'A new decision awaits you',
+      approval: 'An approval awaits you',
+      permission: 'A permission request awaits you',
+      release: 'A release awaits your approval',
+    },
+    digest: { title: '{n} items await you', body: 'They arrived during quiet hours.' },
+    test: { title: 'Test notification', body: 'If you see this, it works.' },
+  },
+  structuralReview: {
+    details:
+      'After approval the PM rechecks the evidence and selects a technical direction holder with free capacity. The review re-reads the affected cards and responsibility boundaries and reports a few suggestions, including no change when appropriate. It never creates cards or starts a refactor automatically.',
+    question: 'Start an occasional architecture review?',
+    approve: 'Approve review',
+    reject: 'No review needed now',
+  },
   language: 'en',
   timezone: 'UTC',
   columns: {
@@ -154,9 +172,9 @@ export const en: TemplateLocale = {
     ai_operator: {
       name: 'Operator',
       summary:
-        "At the owner's request changes how the project works: the members' models, leave, stage names and role instructions. What needs an approval it prepares, and waits for the owner.",
+        "The owner's right hand: inside the app it handles whatever the owner could, from the team's models, leave and role instructions to the board. What needs the owner's own yes (deleting members, keys, the project or a repository; the owner's login and security settings; paid cost) it prepares, and waits.",
       notTheirJob:
-        "Does not work on its own, does not develop, and does not give approvals in the owner's place. Does not change a person.",
+        "Does not develop, and does not decide in the owner's place. Works only when a person writes to it, not on an AI member's message.",
       whenToAsk:
         'When you want to change how the project works (who uses which model, who is on leave), or want to know why a card is stuck.',
     },
@@ -374,6 +392,74 @@ export const en: TemplateLocale = {
     subject: 'Your login code',
     text: ({ code, validUntil }) =>
       `Your login code: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message.\n`,
+  },
+  fixLimitItem: {
+    title: 'Fix round limit: {key}',
+    summary: '{key} did not pass after {rounds} fix rounds ({parts}). {reason}',
+    parts: {
+      changes: '{count} code review',
+      design: '{count} UI/UX review',
+      testsFailed: '{count} failed full test',
+      sendBacks: '{count} manual send-back',
+    },
+    reasons: {
+      no_ai_decider: 'No AI member can decide it (technical direction and code review).',
+      passed_on: '{name} passed it on.',
+      extra_exhausted: 'The 3 extra rounds are used up and it reached the limit again.',
+      decider_timeout: 'The AI decider did not decide before the deadline.',
+      again: 'It reached the limit again after one more round.',
+    },
+    extras: {
+      left: 'Extra rounds: {used} of 3 given, {left} left.',
+      none: 'Extra rounds: {used} of 3 given, none left.',
+      over: 'Extra rounds: {used} given (the limit is 3), none left.',
+    },
+    verdict: { title: "{name}'s assessment", repeat: 'Does it recur?', now: 'Where is it now?' },
+    rounds: {
+      heading: 'Rounds ({count}):',
+      technicalCount: '{count} technical re-handover does not count',
+      counted: '{n}.',
+      technicalMarker: '-',
+      grantMarker: '+{n}',
+      kind: {
+        code_review: 'Code review · {name}',
+        design_review: 'UI/UX review · {name}',
+        tests_failed: 'Failed full test',
+        tests_failed_command: 'Failed full test: {command}',
+        tests_failed_commit: 'Failed full test ({commit})',
+        send_back: 'Sent back · {name}',
+        send_back_no_note: 'Sent back · {name} (no note)',
+        branch_moved: 'Technical re-handover: the branch moved',
+        branch_moved_moves: 'Technical re-handover: the branch moved ({from} -> {to})',
+        extra_round: 'One more round ({index}/3) · {name}',
+        extra_round_over: 'One more round ({index}, over the 3) · {name}',
+      },
+      notCounted: ' (does not count as a round)',
+      note: ': "{note}"',
+    },
+    options: {
+      heading: 'Options:',
+      recommended: 'recommended: {reason}',
+      unavailable: {
+        replan: 'not available now: no other AI member could make the plan more exact.',
+        reassign: 'not available now: no other AI developer could take the card.',
+      },
+      label: { replan: 'More exact plan', reassign: 'Another developer', another_round: 'One more round' },
+      consequence: {
+        replan:
+          'Another technical direction AI member makes the plan more exact or splits the card; when it lets go, the count begins again.',
+        reassign:
+          'Another developer takes the card with a fresh session; the count begins again. The current developer session stops.',
+        another_round: 'The developer gets the waiting messages and one more round.',
+        another_round_over:
+          'The developer gets the waiting messages and one more round. If it reaches the limit again, a person must decide again.',
+      },
+    },
+    footer: {
+      integrator:
+        'This item is for the integrator: it picks one of the options above, or passes it to the owner with a reason. After 24 hours it goes to the owner by itself.',
+      owner: 'This item is for the owner.',
+    },
   },
   stageApproval: (stageName) => `${stageName}: approved`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,

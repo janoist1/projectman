@@ -40,6 +40,10 @@ const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage')
 const involvementsPage = lazyPage(() => import('../features/team/InvolvementsPage'), 'InvolvementsPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
 const feedbackPage = lazyPage(() => import('../features/feedback/FeedbackPage'), 'FeedbackPage');
+const notificationsPage = lazyPage(
+  () => import('../features/notifications/NotificationsPage'),
+  'NotificationsPage',
+);
 const howWeWorkPage = lazyPage(() => import('../features/how-we-work/HowWeWorkPage'), 'HowWeWorkPage');
 const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
 
@@ -91,6 +95,7 @@ export function AppRoutes() {
           <Route path="messages/all" element={messagesPage} />
           <Route path="feedback" element={feedbackPage} />
           <Route path="feedback/:markId" element={feedbackPage} />
+          <Route path="notifications" element={notificationsPage} />
           <Route path="how-we-work" element={howWeWorkPage} />
           <Route path="settings" element={settingsPage} />
           <Route path="settings/:section" element={settingsPage} />

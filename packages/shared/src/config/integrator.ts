@@ -5,6 +5,36 @@ import { isOwnerApprovalLabel, labelHolders } from './labels';
 import { ownerOnlyChanges } from './owner-only';
 import { DEFAULT_MAX_FIX_ROUNDS } from './schema';
 import type { ProjectConfig } from './schema';
+import { operatorOf } from './operator-member';
+
+export type SuperAccessVerdict =
+  | { allowed: true }
+  | {
+      allowed: false;
+      code:
+        'integrator_read_only' | 'owner_approval_required' | 'insufficient_access' | 'integrator_not_allowed';
+    };
+
+/** Credential policy, independent of HTTP verbs. Domain operations classify reads and decisions (PM-759). */
+export function superAccessVerdict(
+  config: ProjectConfig,
+  facts: {
+    mode: 'legacy' | 'super' | 'read';
+    operation: 'read' | 'write' | 'approval' | 'key_management';
+    ownerMembership: boolean;
+  },
+): SuperAccessVerdict {
+  if (facts.mode === 'read' && facts.operation !== 'read')
+    return { allowed: false, code: 'integrator_read_only' };
+  if (facts.operation === 'key_management') return { allowed: false, code: 'integrator_not_allowed' };
+  // The super key decides approvals in the Operator's own name (PM-870); the legacy key never does.
+  if (facts.operation === 'approval' && facts.mode !== 'super')
+    return { allowed: false, code: 'owner_approval_required' };
+  if (!facts.ownerMembership) return { allowed: false, code: 'insufficient_access' };
+  if (facts.mode === 'super' && !operatorOf(config))
+    return { allowed: false, code: 'integrator_not_allowed' };
+  return { allowed: true };
+}
 
 /** What the integrator key may not change (PM-418), in the order integratorConfigRefusal checks them. */
 export const IntegratorRefusal = z.enum([
@@ -17,7 +47,7 @@ export const IntegratorRefusal = z.enum([
 export type IntegratorRefusal = z.infer<typeof IntegratorRefusal>;
 
 /**
- * Why the integrator key may not commit `next` over `previous`, or null when it may. Compares the
+ * Why the legacy integrator key may not commit `next` over `previous`, or null when it may. Compares the
  * end result, so PUT, PATCH, roles, members and revert are decided alike. Never 'invitations'.
  *
  * The key is the owner's actor for everything but approvals and owner-only rules: a rule that

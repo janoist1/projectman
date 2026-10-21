@@ -155,6 +155,15 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'timeline_appended': {
       const { projectKey: key, event: entry } = event;
+      if (
+        entry.actor.operatorMode === 'super' ||
+        entry.type === 'super_handoff_changed' ||
+        entry.type === 'super_operation_changed'
+      ) {
+        void client.invalidateQueries({ queryKey: ['project', key, 'super-audit'] });
+        void client.invalidateQueries({ queryKey: ['project', key, 'super-handoffs'] });
+        void client.invalidateQueries({ queryKey: ['project', key, 'super-operation'] });
+      }
       if (entry.type === 'operator_knowledge_changed')
         void client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });
       if (entry.type === 'session_started' || entry.type === 'session_ended')
@@ -309,6 +318,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       return;
     // The focus panel (PM-427 4/4) reads it; nothing in the cache holds the focus yet.
     case 'project_focus_changed':
+    // The Settings section of the Operator's grant (PM-881) reads it when the interface card lands.
+    case 'operator_grant_changed':
     case 'hello':
     case 'terminal_data':
     case 'terminal_snapshot':

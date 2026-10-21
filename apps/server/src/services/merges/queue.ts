@@ -1,8 +1,10 @@
 import { Data, Effect, FiberMap } from 'effect';
 import type { Scope } from 'effect';
 import { openPrerequisites } from '@projectman/shared';
+import { prerequisiteCards } from '../../core/tasks';
 import type { Task } from '@projectman/shared';
-import type { BranchMerger } from '../../contracts';
+import { OPEN_RELEASE_WORK_ADMISSION } from '../../contracts';
+import type { BranchMerger, ReleaseWorkAdmission, TaskSchedulingReader } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { abortable, runFork } from '../../kernel';
 import type { MergeRun } from './deps';
@@ -11,9 +13,8 @@ import type { MergeSteps } from './steps';
 
 export type MergeQueueDeps = {
   ctx: Pick<DomainContext, 'repos' | 'logger'>;
-  tasks: {
+  tasks: TaskSchedulingReader & {
     find(projectKey: string, taskKey: string): Task | null | undefined;
-    list(projectKey: string): Task[];
   };
   steps: Pick<MergeSteps, 'run' | 'release'> & {
     engine(task: Task): { merger?: BranchMerger } | null | undefined;
@@ -22,6 +23,8 @@ export type MergeQueueDeps = {
   peer: () => MergeSlotPeer | null;
   /** Whether the server is stopping: nothing new starts. */
   stopped: () => boolean;
+  /** The release gate (PM-752): a merge starts only with a permit. */
+  work?: ReleaseWorkAdmission;
 };
 
 export interface MergeQueueEffects {
@@ -95,16 +98,20 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
           !row.trainId &&
           row.landed !== 'remote' &&
           task &&
-          openPrerequisites(task, deps.tasks.list(row.projectKey)).length > 0
+          openPrerequisites(task, prerequisiteCards(deps.tasks, row.projectKey, task)).length > 0
         )
           continue;
         if (active.has(key) || deps.peer()?.busy(row.projectKey, row.repo)) continue;
+        // A hybrid release's maintenance fence (PM-752): the queued merge waits until the fence is down.
+        const permit = (deps.work ?? OPEN_RELEASE_WORK_ADMISSION).tryAcquire('merge', row.id);
+        if (!permit) continue;
         const run: MergeRun = { row, pushing: row.landed === 'remote' };
         active.set(key, run);
         const fiber = yield* FiberMap.run(slots, key, program(run), { onlyIfMissing: true });
         // The slot frees when the fiber is gone (the FiberMap's own observer, added first, has
         // dropped the key by then, so the pump can use it again).
         fiber.addObserver(() => {
+          permit.release();
           active.delete(key);
           // A waiting document write takes the free slot before the next merge.
           deps.peer()?.pump();

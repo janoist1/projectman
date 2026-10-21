@@ -1,5 +1,8 @@
 import {
   coordinationMemberOf,
+  hasSuperOrigin,
+  structuralReviewOf,
+  structuralReviewContinuation,
   isOperator,
   isProjectManager,
   isUnreadBy,
@@ -14,6 +17,7 @@ import {
 import type {
   Actor,
   AnswerDelivery,
+  InboxItem,
   MessageAttachmentRef,
   ProjectConfig,
   TeamMessage,
@@ -64,6 +68,10 @@ export interface RecordMessageInput {
  * read (by a human recipient).
  */
 export class MessageService {
+  private questionProjection: (item: InboxItem) => InboxItem = (item) => item;
+  registerQuestionProjection(project: (item: InboxItem) => InboxItem): void {
+    this.questionProjection = project;
+  }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
@@ -94,6 +102,9 @@ export class MessageService {
   }
 
   record(input: RecordMessageInput): TeamMessage {
+    // A super-mode origin names the Operator: a message from anyone else cannot carry it (PM-757).
+    if (hasSuperOrigin(input.actor) && input.actor.handle !== input.from)
+      throw new Error('a super-mode message must be sent from its actor');
     const at = isoNow(this.ctx);
     const message: TeamMessage = {
       id: input.id ?? newId('msg'),
@@ -117,6 +128,7 @@ export class MessageService {
       ...(input.answer ? { answer: input.answer } : {}),
       ...(input.relayed ? { relayed: input.relayed } : {}),
       ...(input.actor.via ? { via: input.actor.via } : {}),
+      ...(hasSuperOrigin(input.actor) ? { actor: input.actor } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
       ...(input.operatorRequest ? { operatorRequest: input.operatorRequest } : {}),
       ...(input.operatorSignal ? { operatorSignal: input.operatorSignal } : {}),
@@ -218,7 +230,11 @@ export class MessageService {
       at,
     );
     if (!updated) return;
-    this.ctx.bus.publish({ type: 'inbox_upserted', projectKey: item.projectKey, item: updated });
+    this.ctx.bus.publish({
+      type: 'inbox_upserted',
+      projectKey: item.projectKey,
+      item: this.questionProjection(updated),
+    });
     if (delivery.state === 'waiting' || previous?.state === 'waiting')
       this.timeline.append({
         projectKey: item.projectKey,
@@ -332,10 +348,13 @@ export class MessageService {
     if (route.type === 'general' && route.with) return;
     const session = this.ctx.repos.sessions.findByWorkItem(message.projectKey, handle, { type: 'general' });
     if (!session || session.workItem.type !== 'general' || session.workItem.with) return;
+    const answerItem = message.answer && this.ctx.repos.inbox.get(message.answer.inboxItemId);
+    const structural = answerItem && structuralReviewOf(answerItem);
+    if (structural && !structuralReviewContinuation(answerItem, message, handle, true)) return;
     this.coordinationRequests.open({
       projectKey: message.projectKey,
       sessionId: session.id,
-      source: message.answer ? 'answer' : 'message',
+      source: structural ? 'approval' : message.answer ? 'answer' : 'message',
       messageId: message.id,
       inboxItemId: message.answer?.inboxItemId ?? null,
       from: message.from,

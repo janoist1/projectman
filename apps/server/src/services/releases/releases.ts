@@ -1,5 +1,18 @@
-import { ALERT_SEEN_OPTION, dutyMembers, releaseApprovalOf, releaseApprovers } from '@projectman/shared';
+import {
+  ALERT_SEEN_OPTION,
+  dutyMembers,
+  externalOriginActor,
+  releaseApprovalOf,
+  releaseApprovers,
+} from '@projectman/shared';
+import {
+  assertIntegratorAccess,
+  assertOwnOrSuperApproval,
+  attributedActor,
+  externalToolOrigin,
+} from '../../kernel';
 import type {
+  Actor,
   EngineId,
   ErrorCode,
   InboxItem,
@@ -20,7 +33,7 @@ import { DECISION_OPTIONS } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
-import { aiActor, humanActor, KeyedMutex, newId, SYSTEM_ACTOR } from '../../kernel';
+import { aiActor, KeyedMutex, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** The project and repository that are the instance itself (`PROJECTMAN_RELEASE_TARGET`, `<project key>/<repository>`). */
 export interface ReleaseTarget {
@@ -44,6 +57,12 @@ export interface ReleaseCheck {
   refusal: { code: ErrorCode; message: string } | null;
   /** The members with the deployment duty: they may propose the release. */
   proposers: string[];
+}
+
+/** `ReleaseService.reporter`: the synchronous report and alert, to run inside the caller's unit of work. */
+export interface ReleaseReporter {
+  report(id: string, report: ReleaseReport): Release;
+  alert(release: Release, failure: ReleaseFailure): void;
 }
 
 export interface ProposeReleaseInput {
@@ -106,6 +125,24 @@ export class ReleaseService {
   /** The project the control socket's operations are about: the release target, or `release_not_configured`. */
   controlProject(): string {
     return this.requireTarget(this.deps.target?.projectKey ?? '').projectKey;
+  }
+
+  /**
+   * A release the control socket may act on (PM-749): in any state, but only one of the instance's own
+   * target, project and repository alike; a release of another target is `release_not_configured`, an
+   * unknown id the usual not-found error. Terminal states are returned too: a lost claim or report answer
+   * is reconciled by reading the release again.
+   */
+  getForControl(id: string): Release {
+    const { target } = this.deps;
+    this.controlProject();
+    const release = this.get(id);
+    if (!target || release.projectKey !== target.projectKey || release.repo !== target.repo)
+      throw conflict(
+        'release_not_configured',
+        `this instance does not release ${release.projectKey}/${release.repo}`,
+      );
+    return release;
   }
 
   private requireTarget(projectKey: string): ReleaseTarget {
@@ -218,7 +255,7 @@ export class ReleaseService {
     this.requireNoOpenRelease(projectKey);
   }
 
-  /** One release at a time: a release in progress refuses another. */
+  /** One release at a time: a release in progress, or a deployment that still holds the instance, refuses another. */
   private requireNoOpenRelease(projectKey: string): void {
     const open = this.deps.ctx.repos.releases.open(projectKey);
     if (open)
@@ -226,6 +263,7 @@ export class ReleaseService {
         id: open.id,
         state: open.state,
       });
+    this.requireNoActiveDeployment();
   }
 
   /**
@@ -321,12 +359,50 @@ export class ReleaseService {
     by: string,
     input: ProposeReleaseInput,
   ): Promise<{ release: Release; candidate: ReleaseCandidate }> {
+    return this.write(projectKey, input, (config) => {
+      this.requireProposer(config, projectKey, by);
+      return { by, actor: aiActor(by) };
+    });
+  }
+
+  /** The candidate of a release the integrator in super mode may propose (PM-784); no record is made. */
+  async previewExternal(projectKey: string, commit?: string): Promise<ReleaseCandidate> {
+    this.requireTarget(projectKey);
+    externalToolOrigin(await this.deps.projects.config(projectKey));
+    this.requireNoOpenRelease(projectKey);
+    return this.candidate(projectKey, commit);
+  }
+
+  /**
+   * The integrator in super mode proposes a release (PM-784): the same proposal as the Devops' - the card, the
+   * record and the owners' approval request - made as the project's Operator through the key, whose full
+   * actor the events carry. Only the proposal: nobody approves, claims or deploys through it. The scope is
+   * checked again inside the proposal's lock, where the writes begin.
+   */
+  async proposeExternal(
+    projectKey: string,
+    input: ProposeReleaseInput,
+  ): Promise<{ release: Release; candidate: ReleaseCandidate }> {
+    return this.write(projectKey, input, (config) => {
+      const actor = externalOriginActor(externalToolOrigin(config));
+      this.requireNoOpenRelease(projectKey);
+      return { by: actor.handle, actor };
+    });
+  }
+
+  private async write(
+    projectKey: string,
+    input: ProposeReleaseInput,
+    authorize: (config: ProjectConfig) => { by: string; actor: Actor },
+  ): Promise<{ release: Release; candidate: ReleaseCandidate }> {
     this.requireTarget(projectKey);
     return this.proposals.run(projectKey, async () => {
       const { ctx, tasks, inbox, timeline } = this.deps;
       const config = await this.deps.projects.config(projectKey);
-      this.requireProposer(config, projectKey, by);
+      const { by, actor } = authorize(config);
       const candidate = await this.candidate(projectKey, input.commit);
+      // The candidate came from the engine: the proposer is checked again before the first write.
+      authorize(await this.deps.projects.config(projectKey));
       const description = [
         input.summary,
         '',
@@ -336,11 +412,7 @@ export class ReleaseService {
         `Commit: ${candidate.commit}`,
         `Base: ${candidate.baseCommit ?? 'unknown'}`,
       ].join('\n');
-      const card = await tasks.create(
-        projectKey,
-        { title: input.title, description, kind: 'theme' },
-        aiActor(by),
-      );
+      const card = await tasks.create(projectKey, { title: input.title, description, kind: 'theme' }, actor);
       try {
         const at = isoNow(ctx);
         const release: Release = {
@@ -387,7 +459,7 @@ export class ReleaseService {
             },
             options: DECISION_OPTIONS,
           });
-          this.record(release, null, aiActor(by));
+          this.record(release, null, actor);
         });
         await ctx.events.emit('release_proposed', { release });
         return { release, candidate };
@@ -411,7 +483,15 @@ export class ReleaseService {
    * that still waits for the decision can be decided.
    */
   decide(item: InboxItem, by: Resolver, optionId: string, note: string | null): void {
+    assertOwnOrSuperApproval(by);
     const { ctx, tasks, inbox } = this.deps;
+    const owner = assertIntegratorAccess(
+      this.deps.projects.cachedConfig(item.projectKey)!,
+      'write',
+      by.superActor,
+    );
+    if (owner && by.superActor && owner.handle !== by.handle)
+      throw forbidden('insufficient_access', 'the resolver must be the authenticated owner');
     const payload = releaseApprovalOf(item);
     const release = payload ? ctx.repos.releases.get(payload.releaseId) : null;
     if (!release || release.state !== 'proposed')
@@ -426,8 +506,8 @@ export class ReleaseService {
     };
     ctx.unitOfWork(() => {
       ctx.repos.releases.save(next, at);
-      this.record(next, release.state, humanActor(by.handle), approved ? undefined : note);
-      if (!approved) tasks.closeThemeBySystem(release.projectKey, release.taskKey, humanActor(by.handle));
+      this.record(next, release.state, attributedActor(by), approved ? undefined : note);
+      if (!approved) tasks.closeThemeBySystem(release.projectKey, release.taskKey, attributedActor(by));
       inbox.resolveRelease(item.id, by.handle, optionId, note);
     });
   }
@@ -439,9 +519,8 @@ export class ReleaseService {
 
   /** The watcher starts the deploy of an approved release; `previousCommit` is where a rollback goes. */
   claim(id: string, previousCommit: string | null): Release {
-    this.controlProject();
     const { ctx } = this.deps;
-    const release = this.get(id);
+    const release = this.getForControl(id);
     this.requireState(release, ['approved'], 'claim');
     const at = isoNow(ctx);
     const next: Release = { ...release, state: 'deploying', deployStartedAt: at, previousCommit };
@@ -454,10 +533,36 @@ export class ReleaseService {
 
   /** The watcher's result: live, failed, published or the failure to publish. */
   async report(id: string, report: ReleaseReport): Promise<Release> {
-    const projectKey = this.controlProject();
-    const config = await this.deps.projects.config(projectKey);
+    const reporter = await this.reporter();
+    return this.deps.ctx.unitOfWork(() => reporter.report(id, report));
+  }
+
+  /**
+   * The report and the alert with the project's configuration already read, so that a caller can make them part of
+   * its own unit of work (PM-752: the release and the deployment change together). Both run synchronously.
+   */
+  async reporter(): Promise<ReleaseReporter> {
+    const config = await this.deps.projects.config(this.controlProject());
+    return {
+      report: (id, report) => this.reportNow(config, id, report),
+      alert: (release, failure) => this.alert(config, release, failure),
+    };
+  }
+
+  /** Whether a hybrid deployment still holds the instance, though no release is open (its fence is up). */
+  private requireNoActiveDeployment(): void {
+    const active = this.deps.ctx.repos.releaseDeployments.active();
+    if (active)
+      throw conflict(
+        'release_deployment_conflict',
+        `the deployment of release ${active.releaseId} still holds the instance`,
+        { releaseId: active.releaseId, phase: active.phase },
+      );
+  }
+
+  private reportNow(config: ProjectConfig, id: string, report: ReleaseReport): Release {
     const { ctx, tasks } = this.deps;
-    const release = this.get(id);
+    const release = this.getForControl(id);
     const at = isoNow(ctx);
     switch (report.outcome) {
       case 'live': {

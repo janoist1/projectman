@@ -2,6 +2,7 @@ import { developerLevelText, isCardLink, isTheme, QUESTION_SCREENING_MINUTES } f
 import type {
   Attachment,
   MemberView,
+  MergeCheckRun,
   QuestionAttachment,
   Task,
   TimelineEvent,
@@ -37,6 +38,7 @@ import type {
   FeedbackToolMark,
   FeedbackToolResult,
   LocatedAttachmentForTool,
+  MergeCheckList,
   MessageAttachmentReading,
   ScreenshotFailure,
   ScreenshotRun,
@@ -81,6 +83,8 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   workspace_busy: 'Another session holds the workspace.',
   workspace_dirty: 'The workspace has unfinished changes.',
   workspace_fetch_failed: 'The workspace could not fetch the default branch.',
+  workspace_dependencies_pending: 'Workspace dependency preparation is still running.',
+  workspace_dependencies_failed: 'Workspace dependency preparation failed.',
   prerequisite_open: 'A prerequisite is still open.',
   no_free_member: 'No eligible member is free.',
   label_missing: 'The start waits for labels.',
@@ -237,6 +241,12 @@ export function formatReleaseCheck(check: ReleaseCheckResult): string {
 
 function signalLine(signal: OperatorSignal): string {
   const explanations: Record<OperatorSignal['kind'], string> = {
+    structural_pattern:
+      'Repeated structured evidence across independent cards; coordinator only, never put in signal_ids. Weigh request_structural_review (owner approval required); otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
+    milestone_closed:
+      'A theme or collecting milestone closed; coordinator only, never put in signal_ids. Consider request_structural_review; otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
+    loop_suspected:
+      'A suspected loop awaits PM assessment with triage_loop; report only, no stop or approval authority.',
     process_cleanup_failed:
       "An ended session still has running processes; its workspace remains reserved. Bring this to the owners; never stop another member's processes yourself.",
     outage: 'A provider or engine outage needs attention.',
@@ -250,6 +260,8 @@ function signalLine(signal: OperatorSignal): string {
     ready_waiting: 'Startable cards (subject) wait while a developer has free capacity.',
     answer_stalled:
       'An answer or request reached the assignee (subject: the message), but no work followed; report only, it has no step.',
+    refinement_stalled:
+      "A member's refinement turn ended without its label (subject: the label); report only, it has no step. Check the card first; close an intermediate or resolved case with dismiss_signal.",
   };
   return `- signal_${signal.kind}: ${explanations[signal.kind]} ${signal.id}, ${signal.state}, task ${signal.taskKey ?? 'none'}, subject ${signal.subject ?? 'none'}, since ${signal.raisedAt}; actionable ${signal.actionable}.`;
 }
@@ -430,10 +442,65 @@ export function formatTaskDetail(
   if (workers.length > 0) lines.push('', `Working on it now: ${workers.map(sessionText).join(', ')}`);
   if (others.length > 0)
     lines.push(...(workers.length > 0 ? [] : ['']), `Other sessions: ${others.map(sessionText).join(', ')}`);
+  if (detail.mergeChecks?.length)
+    lines.push('', 'Merge checks (latest 3, newest first):', ...detail.mergeChecks.flatMap(mergeCheckLines));
   if (detail.cardQuestions?.length)
     lines.push('', 'Questions to people on this card:', ...cardQuestionLines(detail.cardQuestions, task.key));
   lines.push('', ...timelineLines(timeline, detail.undeliveredMessageIds, detail.pendingSentMessages));
   return lines.join('\n');
+}
+
+/* ---------- merge checks ---------- */
+
+const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
+
+/** One merge check (PM-876): its head line, then one line per measured step; what was not measured says so. */
+function mergeCheckLines(run: MergeCheckRun): string[] {
+  const { report } = run;
+  const queueWait =
+    run.startedAt !== null
+      ? ` · queue wait ${Math.max(0, Math.round((Date.parse(run.startedAt) - Date.parse(run.requestedAt)) / 1000))} s`
+      : '';
+  const head = [
+    run.id,
+    `${run.kind} (${run.taskKeys.join(', ')})`,
+    run.repo,
+    run.commit.slice(0, 8),
+    run.reason ? `${run.status}/${run.reason}` : run.status,
+    run.durationMs === null ? 'duration unknown' : seconds(run.durationMs),
+    `workers ${run.maxWorkers} (seen ${report ? (report.workers ?? 'unset') : 'unknown'})`,
+    `scope ${report?.scope ?? 'unknown'}`,
+    ...(report
+      ? [report.commandMs === null ? 'command unknown' : `command ${seconds(report.commandMs)}`]
+      : []),
+    `requested ${formatTimestamp(run.requestedAt)}`,
+    ...(run.startedAt ? [`started ${formatTimestamp(run.startedAt)}`] : []),
+    ...(run.finishedAt ? [`finished ${formatTimestamp(run.finishedAt)}`] : []),
+  ].join(' · ');
+  const headLines = [head + queueWait, `  runner: ${run.runner}`, ...(run.url ? [`  url: ${run.url}`] : [])];
+  if (!report) return [...headLines, '  steps: unknown (no step report from the engine)'];
+  if (report.steps.length === 0) return [...headLines, '  steps: none reported'];
+  return [
+    ...headLines,
+    ...report.steps.map((step) => {
+      const took =
+        step.durationMs === null
+          ? 'cached (not measured)'
+          : step.result === 'rerun_passed' || step.result === 'rerun_failed'
+            ? `${step.result} ${seconds(step.durationMs)}${step.rerunMs === undefined ? '' : ` + rerun ${seconds(step.rerunMs)}`}`
+            : `${step.result} ${seconds(step.durationMs)}`;
+      return `  ${step.index + 1}. ${step.kind} ${step.workspace} — ${took}`;
+    }),
+  ];
+}
+
+/** list_merge_checks: the runs with the count and whether more match. */
+export function formatMergeChecks(list: MergeCheckList): string {
+  if (list.runs.length === 0) return 'No merge checks match.';
+  return [
+    `${list.runs.length} merge checks, newest first${list.hasMore ? ' (has_more: true, ask again with until set to the oldest requested time)' : ' (has_more: false)'}:`,
+    ...list.runs.flatMap(mergeCheckLines),
+  ].join('\n');
 }
 
 /* ---------- attachments ---------- */
@@ -731,6 +798,7 @@ const staleExplanations: Record<StaleReason, string> = {
   sender_result: "already has the sender's result",
   result_recorded: 'already has a result for that commit',
   permission_closed: 'is decided',
+  obligation_closed: 'has its step done',
 };
 
 /**

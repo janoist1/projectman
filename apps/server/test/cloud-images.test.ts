@@ -7,7 +7,9 @@ import {
   archiveDigest,
   bundleSchema,
   runImageBuild,
+  platformSchema,
   selectedImage,
+  targetPlatform,
   verifyImage,
 } from '../../../scripts/cloud/images';
 import type { CloudContext } from '../../../scripts/cloud/context';
@@ -20,6 +22,7 @@ import { EC2_CONFIG } from './helpers/fake-ec2';
 
 const ID = `sha256:${'1'.repeat(64)}`;
 const OLD_ID = `sha256:${'2'.repeat(64)}`;
+const ALL_PLATFORMS = platformSchema.options;
 let world: HostWorld;
 let directory: string;
 beforeEach(() => {
@@ -95,13 +98,39 @@ describe('image bundles and pinned deployment', () => {
         fs.renameSync(path.join(directory, 'linux-amd64.tar'), path.join(directory, 'other.tar'));
         fs.symlinkSync('other.tar', path.join(directory, 'linux-amd64.tar'));
       }
-      if (scenario === 'partial') value.images.pop();
+      // The default (non-ARM) config deploys the amd64 image: a bundle without it is refused (PM-916).
+      if (scenario === 'partial') value.images.shift();
       fs.writeFileSync(path.join(directory, 'manifest.json'), JSON.stringify(value));
       expect(await runCloud(['deploy', '--ref', SHA_NEW], world.deps())).toBe(2);
       expect(world.hostCalls).toEqual([]);
       expect(world.machine.built).toEqual([]);
     },
   );
+  it('selects the target platform from a single-image bundle and from a legacy two-image bundle', () => {
+    arm();
+    const manifest = path.join(directory, 'manifest.json');
+    const value = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    expect(selectedImage(context(), SHA_NEW)).toMatchObject({ platform: 'linux/arm64' });
+    value.images = value.images.filter((image: { platform: string }) => image.platform === 'linux/arm64');
+    fs.writeFileSync(manifest, JSON.stringify(value));
+    expect(selectedImage(context(), SHA_NEW)).toMatchObject({ platform: 'linux/arm64' });
+  });
+  it('refuses a bundle without the target platform image before any host call', async () => {
+    arm();
+    const manifest = path.join(directory, 'manifest.json');
+    const value = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+    value.images = value.images.filter((image: { platform: string }) => image.platform === 'linux/amd64');
+    fs.writeFileSync(manifest, JSON.stringify(value));
+    expect(() => selectedImage(context(), SHA_NEW)).toThrow('image bundle has no linux/arm64 image');
+    expect(await runCloud(['deploy', '--ref', SHA_NEW], world.deps())).toBe(2);
+    expect(world.hostCalls).toEqual([]);
+  });
+  it('derives the target platform from the cloud config', () => {
+    bundle();
+    expect(targetPlatform(context().config)).toBe('linux/amd64');
+    arm();
+    expect(targetPlatform(context().config)).toBe('linux/arm64');
+  });
   it('validates the artifact in deploy dry-run without host access', async () => {
     bundle();
     expect(await runCloud(['deploy', '--ref', SHA_NEW, '--dry-run'], world.deps())).toBe(0);
@@ -225,7 +254,7 @@ describe('builder', () => {
     else Object.assign(value[0]!, { [field]: 'wrong' });
     expect(() => verifyImage(value, ID, 'linux/amd64', SHA_NEW)).toThrow();
   });
-  function fakeBuilder(scenario = '') {
+  function fakeBuilder(scenario = '', builderPlatforms = 'linux/amd64, linux/arm64') {
     const ctx = context();
     const commands: string[][] = [];
     let platform = 'linux/amd64';
@@ -244,8 +273,8 @@ describe('builder', () => {
       if (args[0] === 'buildx' && args[1] === 'inspect')
         stdout =
           scenario === 'driver'
-            ? 'Driver: docker\nPlatforms: linux/amd64, linux/arm64\n'
-            : 'Driver: docker-container\nPlatforms: linux/amd64, linux/arm64\n';
+            ? `Driver: docker\nPlatforms: ${builderPlatforms}\n`
+            : `Driver: docker-container\nPlatforms: ${builderPlatforms}\n`;
       if (args[0] === 'buildx' && args[1] === 'build') {
         platform = args[args.indexOf('--platform') + 1]!;
         if (scenario === 'partial' && platform === 'linux/arm64')
@@ -278,10 +307,31 @@ describe('builder', () => {
     };
     return { ctx, commands };
   }
+  it('builds one export for one platform and publishes a single-image manifest', async () => {
+    const { ctx, commands } = fakeBuilder('', 'linux/arm64');
+    const out = path.join(fs.realpathSync(world.home), 'new-output');
+    await runImageBuild(ctx, SHA_NEW, out, false, ['linux/arm64']);
+    const builds = commands.filter((entry) => entry[1] === 'buildx' && entry[2] === 'build');
+    expect(builds).toHaveLength(1);
+    expect(builds[0]).toEqual(expect.arrayContaining(['--platform', 'linux/arm64']));
+    const manifest = bundleSchema.parse(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')));
+    expect(manifest.images.map((image) => image.platform)).toEqual(['linux/arm64']);
+  });
+  it.each([[[]], [['linux/arm64', 'linux/arm64']]] as const)(
+    'refuses the platform list %j as usage before any command',
+    async (platforms) => {
+      const { ctx, commands } = fakeBuilder();
+      const out = path.join(fs.realpathSync(world.home), 'new-output');
+      await expect(runImageBuild(ctx, SHA_NEW, out, false, platforms)).rejects.toMatchObject({
+        exitCode: 64,
+      });
+      expect(commands).toEqual([]);
+    },
+  );
   it('builds both exports at one SHA and only then publishes a strict manifest', async () => {
     const { ctx, commands } = fakeBuilder();
     const out = path.join(fs.realpathSync(world.home), 'new-output');
-    await runImageBuild(ctx, SHA_NEW, out, false);
+    await runImageBuild(ctx, SHA_NEW, out, false, ALL_PLATFORMS);
     const builds = commands.filter((entry) => entry[1] === 'buildx' && entry[2] === 'build');
     expect(builds).toHaveLength(2);
     for (const [index, platform] of ['linux/amd64', 'linux/arm64'].entries()) {
@@ -307,14 +357,14 @@ describe('builder', () => {
     async (scenario) => {
       const { ctx } = fakeBuilder(scenario);
       const out = path.join(fs.realpathSync(world.home), 'new-output');
-      await expect(runImageBuild(ctx, SHA_NEW, out, false)).rejects.toThrow();
+      await expect(runImageBuild(ctx, SHA_NEW, out, false, ALL_PLATFORMS)).rejects.toThrow();
       expect(fs.existsSync(path.join(out, 'manifest.json'))).toBe(false);
     },
   );
   it('dry-run never exports, builds or creates output', async () => {
     const { ctx, commands } = fakeBuilder();
     const out = path.join(fs.realpathSync(world.home), 'new-output');
-    await runImageBuild(ctx, SHA_NEW, out, true);
+    await runImageBuild(ctx, SHA_NEW, out, true, ALL_PLATFORMS);
     expect(fs.existsSync(out)).toBe(false);
     expect(commands.filter((entry) => entry[1] === 'buildx')).toHaveLength(1);
   });
@@ -328,7 +378,9 @@ describe('builder', () => {
       path.join(directory, 'missing', 'new-output'),
       path.join(link, 'new-output'),
     ]) {
-      await expect(runImageBuild(ctx, SHA_NEW, out, true)).rejects.toMatchObject({ exitCode: 2 });
+      await expect(runImageBuild(ctx, SHA_NEW, out, true, ALL_PLATFORMS)).rejects.toMatchObject({
+        exitCode: 2,
+      });
     }
     expect(commands).toEqual([]);
   });

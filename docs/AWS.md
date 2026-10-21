@@ -16,16 +16,24 @@ npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout 
 npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout
 ```
 
-Docker and an already configured Buildx `docker-container` driver must support linux/amd64 and
-linux/arm64 through native builders or emulation. The command does not create a builder, fetch,
-switch branches or publish. Two sequential, single-platform Docker exports use the same SHA and
+By default only the target machine's platform is built (PM-916): linux/arm64 for an EC2 config with
+`architecture: "arm64"`, linux/amd64 otherwise, the same rule `deploy` uses to pick its archive.
+`--all-platforms` builds both. Emulated builds (amd64 on an ARM Mac or arm64 on x86) are slow and
+can fail inside QEMU, so build the other platform only when a machine needs it.
+
+Docker and an already configured Buildx `docker-container` driver must support the requested
+platform(s) through native builders or emulation. The command does not create a builder, fetch,
+switch branches or publish. Sequential, single-platform Docker exports use the same SHA and
 tracked source context, then load/inspect verifies config digest, Linux architecture, revision
-LABEL and PROJECTMAN_VERSION. The bundle becomes valid only when both exports pass and its
+LABEL and PROJECTMAN_VERSION. The bundle becomes valid only when every requested export passes and its
 strict `manifest.json` is atomically published. Dry-run only checks/plans and creates no output.
 See the [Buildx build reference](https://docs.docker.com/reference/cli/docker/buildx/build/) and
 [Docker exporter documentation](https://docs.docker.com/build/exporters/oci-docker/).
 
-Keep `manifest.json`, `linux-amd64.tar` and `linux-arm64.tar` together. Output must be a new
+Keep `manifest.json` and the archives it lists (`linux-amd64.tar`, `linux-arm64.tar`) together. A
+manifest holds one or two images; older two-image bundles stay valid, and `deploy` refuses a bundle
+without the target platform's image (`image bundle has no <platform> image`). Code from before
+PM-916 does not read a one-image bundle: the same checkout builds and uses a bundle. Output must be a new
 directory outside the repository with no symlink components, NUL/newline or comma in its path.
 The manifest records sourceSha and each archive's SHA-256, bytes and image config ID. It is
 integrity metadata, not a signature: the owner approves the specific builder output and digests.
@@ -44,7 +52,7 @@ ARM refuses a legacy record without its digest/platform. Old amd64 records and d
 an imageBundle retain the existing host-build path. Rollback does not undo DB migrations: keep
 the existing point-in-time recovery gate. No image import prunes current/previous images.
 
-Real two-platform builds and disposable runtime smoke (Node/better-sqlite3, cloudflared,
+Real builds of the target platform and disposable runtime smoke (Node/better-sqlite3, cloudflared,
 litestream, restic and cloud server), plus 1 GiB RAM and import disk headroom checks, are PM-675
 release artifact evidence. This implementation does not provision resources or authorize cutover.
 
@@ -139,7 +147,8 @@ tag-on-create `CreateTags`, `RunInstances`; IAM `GetRole`, `CreateRole`, `ListRo
 `AddRoleToInstanceProfile`, tag-on-create `TagRole`/`TagInstanceProfile`, and `PassRole` restricted to
 the host role and EC2 service. S3 and backup-user permissions are listed in the legacy/common
 resource guide below. The `i` login needs only the registrar/Route 53 rights for the requested
-DNS reads; it receives no EC2, S3, host IAM or SES provisioning call.
+DNS reads; it receives no EC2, S3 or host IAM call. SES provisioning uses `ses.profile` (PM-729), which
+may be `i`, and only its SES and narrow-user IAM calls.
 
 ## EC2 host operation through SSM (PM-677)
 
@@ -195,6 +204,48 @@ The connection sequence is:
    prints the public instance id/reasons for manual inspection. Other operators' sessions are untouched.
    This observation window does not guarantee AWS consistency; failed verification needs the manual
    inspection below.
+
+### Failure tolerance and load diagnostics (PM-748)
+
+Under load the EC2 Instance Connect authorized-keys helper on the host can time out
+(`eic_run_authorized_keys failed, status 124`), and the client then sees only
+`Permission denied (publickey)` (ssh status 255). The transport handles this inside the same boundary:
+empty inbound rules, SSH over SSM, the pinned host key. It adds no instance resizing, reboot, network
+access, sshd/EIC timeout change, durable SSH key or host build.
+
+- **Fixed read-only diagnostics.** A second fixed `AWS-RunShellScript` command (instance-scoped, same
+  `CommandId`/instance checks and bounded poll as the host key read, output limit 512 characters, strict
+  seven-line parse, no raw output on failure) returns `Ec2HostDiagnostics`: `sampledAt`, `cpuCount`,
+  `load1`, `availableMemoryBytes`, `freeDiskBytes`, `oomKills` and `eicTimeouts10m`. It takes no
+  parameter and returns no credential, environment or journal text. `oomKills` is the kernel counter since
+  boot: it shows that something was killed, not when or why. `eicTimeouts10m` counts only the journal lines
+  of the last 10 minutes that match `eic_run_authorized_keys` with status 124. A missing or unreadable
+  measurement (for example an unreadable journal) is an error, never a guessed zero. It works while SSH
+  authentication fails.
+- **Reads retry, writes never.** Only `status` and the pre-change connection probe (`ssh … true`) may be
+  repeated: at most 3 attempts, waiting 5 s and then 15 s, inside one 120-second wall-clock budget that
+  includes stopping the child process and reserves time for the diagnosis. Each attempt publishes a fresh
+  EIC key. Ctrl-C and identity, ownership, host-key and schema errors stop at once with no retry. The
+  explicit lists are `RETRYABLE_READS` and `READ_ONLY_SUBCOMMANDS` in `scripts/cloud/host.ts`; a new
+  subcommand is neither retried nor treated as read-only. A state-changing command or a tar/secret stream
+  (`bootstrap`, `receive-env`, `receive-image`, `build`, `start`, `stop`, `receive-data`, …) is never
+  repeated by the transport.
+- **Load check before the first change.** Once per session, before its first state-changing subcommand,
+  the diagnostics must not show `load1 > 2 × cpuCount` or less than 128 MiB available memory, and a
+  connection probe must succeed; otherwise the same bounded wait runs, then the change is refused
+  (`cloud_host_busy`, exit 2). Unreachable diagnostics are a refusal too, never leave for a blind change.
+  The check is not repeated mid-session, because the session's own build would otherwise block its `start`.
+  Interactive `ssh` is not gated.
+- **Errors.** `CloudTransportError` (`scripts/cloud/errors.ts`, internal; the CLI still exits 0/1/2/64)
+  carries `code` (`cloud_ssh_auth_timeout`, `cloud_ssh_unavailable`, `cloud_host_busy`,
+  `cloud_host_identity_mismatch`), `commandStarted` (`no` or `unknown`) and `retryable`. After a lost
+  answer to a state change `commandStarted` is `unknown` and `retryable` is `false`: the PM-735 coordinator
+  reconciles the machine's state (`status`) before it acts again. Status 255/124 alone never proves EIC:
+  `cloud_ssh_auth_timeout` is used only when SSH rejected the key **and** the host journal shows EIC
+  status 124 events in the last 10 minutes. The message keeps the _connection diagnosis_ (what the logs
+  prove) apart from the _suspected cause_ (what load, memory and OOM measurements hint at, not proven).
+  A failed cleanup keeps the main failure visible (`FAIL operation before SSM cleanup`), and only
+  the sessions with this invocation's reasons are terminated.
 
 ### Owner/integrator live rehearsal
 
@@ -319,28 +370,31 @@ name, so a second run changes nothing.
 The file is validated strictly (`version: 1`, no unknown field). A wrong field exits with status 2
 and names the field's path. `deploy/aws/config.example.json` has every field you usually set.
 
-| Field                                    | Default                                      | Meaning                                                                                             |
-| ---------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `aws.compute`                            | `lightsail`                                  | `ec2` selects EC2 provisioning and SSH over SSM; existing version-1 files keep Lightsail            |
-| `aws.profile`                            | `i`                                          | the AWS CLI profile                                                                                 |
-| `aws.ec2`                                | none                                         | required for EC2: explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)        |
-| `aws.region`                             | required                                     | for example `eu-west-1`                                                                             |
-| `aws.availabilityZone`                   | `<region>a`                                  |                                                                                                     |
-| `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                    |
-| `aws.bundleId`, `aws.blueprintId`        | `small_3_0`, `ubuntu_24_04`                  | machine size and image (must be active)                                                             |
-| `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                        |
-| `aws.sshIdentityFile`                    | none                                         | a private key for ssh instead of Lightsail's temporary one                                          |
-| `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                             |
-| `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone) |
-| `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's               |
-| `cloudflare.accountId`                   | the only account the token sees              | needed when the token sees more than one account                                                    |
-| `cloudflare.tunnelName`                  | `aws.instanceName`                           | the tunnel's name, and the prefix of the Access applications, policies and service tokens (`<N>`)   |
-| `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                           |
-| `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                  |
-| `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                   |
-| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                         |
-| `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                    |
-| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                         |
+| Field                                    | Default                                      | Meaning                                                                                                |
+| ---------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `aws.compute`                            | `lightsail`                                  | `ec2` selects EC2 provisioning and SSH over SSM; existing version-1 files keep Lightsail               |
+| `aws.profile`                            | `i`                                          | the AWS CLI profile                                                                                    |
+| `aws.ec2`                                | none                                         | required for EC2: explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)           |
+| `aws.region`                             | required                                     | for example `eu-west-1`                                                                                |
+| `aws.availabilityZone`                   | `<region>a`                                  |                                                                                                        |
+| `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                       |
+| `aws.bundleId`, `aws.blueprintId`        | `small_3_0`, `ubuntu_24_04`                  | machine size and image (must be active)                                                                |
+| `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                           |
+| `aws.sshIdentityFile`                    | none                                         | a private key for ssh instead of Lightsail's temporary one                                             |
+| `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                                |
+| `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone)    |
+| `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's                  |
+| `cloudflare.accountId`                   | the only account the token sees              | needed when the token sees more than one account                                                       |
+| `cloudflare.tunnelName`                  | `aws.instanceName`                           | the tunnel's name, and the prefix of the Access applications, policies and service tokens (`<N>`)      |
+| `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                              |
+| `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                     |
+| `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                      |
+| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                            |
+| `releaseTarget`                          | none                                         | `{projectKey, repo}` the board releases; `deploy` sends it as `PROJECTMAN_RELEASE_TARGET`              |
+| `hybrid`                                 | none                                         | `{engineId, targetHash}` of a hybrid release (needs `releaseTarget`); `deploy` sends the two env lines |
+| `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                       |
+| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                            |
+| `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account         |
 
 `cloud.env` is a docker env-file: `NAME=value`, one per line, no quotes. `npm run cloud` sets only
 the names it owns and keeps every other line and comment: `aws` writes the S3 names and keys,
@@ -545,6 +599,62 @@ mode 700. The board must be stopped first (`npm run cloud -- stop`): a copy of a
 copy. A failed download removes the folder. The command prints what in the copy the way back would
 refuse.
 
+### Release control (PM-749, part of PM-735)
+
+`npm run cloud -- release-control [--config <file>]` is how the release watcher on your Mac reaches the cloud
+board's local control socket (`/data/control.sock` in the container) over the same verified SSH session (Lightsail
+or EC2/SSM) that `deploy` uses. No port is published and no live home is mounted: the machine runs one fixed
+command, `docker exec -i -u 10001:10001 projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin
+LANG=C.UTF-8 /usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock`, and nothing from the
+request becomes a command, a path, a container or a user. `env -i` runs before Node and clears the environment
+`docker exec` would inherit from the container (PM-754): the relay sees only `PATH` and `LANG`, never the
+board's `NODE_OPTIONS`, `NODE_PATH`, AWS, backup or provider settings, and there is no fallback to the inherited
+environment. It relies on `/usr/bin/env` and `/usr/local/bin/node` of the official Node-based image; if either is
+missing the call fails as a transport error. What the channel does and does not protect is in
+[SECURITY.md](SECURITY.md) "The control socket and the admin channel".
+
+- **Input.** Exactly one `ControlRequest` JSON line on the standard input: UTF-8, at most 16 KiB, ending in a
+  newline, then end of input. Anything else (two lines, text after the newline, broken JSON, an unknown or
+  malformed operation) is refused locally before any connection, with status 2. There is no approval,
+  proposal or rejection operation: those stay with the person in the board.
+- **Output.** The standard output is the one `ControlResponse` line (at most 64 KiB), re-serialised from the
+  parsed value. Diagnostics and the firewall/session report go to the standard error and hold no secret. A
+  domain refusal such as `{"ok":false,"error":{"code":"release_state_conflict",…}}` is an answer: it is passed
+  on unchanged and the exit status is 0.
+- **Exit status.** `0` the machine answered (the answer may say `ok:false`); `1` the transport failed (SSH/SSM,
+  the relay, no or half an answer, a timeout); `2` refused before or by the machine (invalid input, no
+  `releaseTarget` for a `release_*` operation, the board is not running); `64` a wrong flag or argument.
+- **No retry.** A request is sent once. When the answer of a `release_claim` or `release_report` is lost (status
+  1), do not send it again blindly: read the release with `{"op":"release_get","releaseId":"…"}` (it returns
+  every state, terminal ones too) and decide from the state. A claim is only approved → deploying, and a report
+  cannot skip a state, so a repeated request is refused rather than applied twice.
+- **Operations.** `release_next`, `release_get`, `release_claim`, `release_report` and `status` as on the local
+  socket; `engine_status` answers `{"ok":true,"pause":…,"engines":[{id,online,version,lastSeenAt}]}` from the
+  cloud engine registry (`[]` in single mode), which is how the watcher sees which engine runs which version.
+- **Release target.** The optional `releaseTarget: {"projectKey": "PM", "repo": "projectman"}` of `config.json`
+  becomes `PROJECTMAN_RELEASE_TARGET=PM/projectman` in the `cloud.env` that `deploy` sends (your local file is
+  not changed). `release_get`, `release_claim` and `release_report` all refuse a release whose project or
+  repository is not exactly that target (`release_not_configured`). Without the field nothing changes: the board
+  does not release, and `release-control` refuses release operations locally.
+- **Hybrid release (PM-752).** The optional `hybrid: {"engineId": "eng_…", "targetHash": "<64 hex>"}` (a remote
+  engine, never `local`; refused without `releaseTarget`) becomes `PROJECTMAN_RELEASE_ENGINE_ID` and
+  `PROJECTMAN_RELEASE_TARGET_HASH` in the sent `cloud.env`, replacing any such line; your local file is not
+  changed. The server then keeps the deployment attempt and the maintenance fence, takes the
+  `release_deploy_get`, `release_deploy_begin` and `release_deploy_change` operations on this channel (the
+  request must stay within 16 KiB and the answer within 64 KiB), and refuses the single-target `release_claim` and
+  `release_report` (`release_protocol_unavailable`). The first hybrid release cannot be driven by a build without
+  this protocol.
+
+The hybrid release coordinator (PM-751, `npm run release`, [DEPLOY.md](DEPLOY.md) "The hybrid release watcher")
+is the caller of this channel: it uses `release_next`, `release_get`, `engine_status` and the PM-752
+`release_deploy_*` operations through this relay, never the single-target `release_claim` and `release_report`.
+Its configuration names the same `hybrid` target (`engineId`, `targetHash`) that `deploy` sends.
+
+Does this work on a remote engine? The control socket and the release records are the cloud server's; the
+engines are not involved. What crosses the Mac/machine boundary is one request line and one response line over
+the existing host session, nothing more. An engine's version reaches the server through the engine registry, and
+`engine_status` only reports it.
+
 ### What was not tried
 
 The team could not run any of this against a real AWS account. `deploy/aws/host.sh` is checked for
@@ -691,8 +801,8 @@ at the first refused change, name the right they lack and change nothing further
    policy only). Their policy lists must be exactly these: an extra policy is removed. With the
    integrator token switched off, its policy, token and file are deleted.
 8. **The tunnel** `<N>` (managed from Cloudflare, `config_src: cloudflare`; a tunnel that is configured
-   from a local file exits 2) and its **ingress**: `/hooks*` and `/mcp*` answer 404 (the board's
-   webhook and MCP doors stay closed to the world), the board's name goes to `127.0.0.1:4700` with the
+   from a local file exits 2) and its **ingress**: `/hooks*` and `/mcp/*` answer 404 (the board's
+   webhook and member MCP doors stay closed to the world; the bare `/mcp` is the integrator's bearer endpoint, PM-760), the board's name goes to `127.0.0.1:4700` with the
    `access.required` check against the audience tags of both applications (the origin checks the
    Access JWT itself), with a feedback name the `/feedback/` path of it goes to the same port and the
    rest is 404, everything else 404.
@@ -753,8 +863,8 @@ What `edge` does differently with `boardMode: public` (the order of the steps is
   their meaning; the integrator token (`access.integratorServiceToken`) has no use on the main name, so
   `check` skips the integrator smoke test.
 - **Ingress.** With a feedback name, its `^/feedback/` goes to `127.0.0.1:4700` and the rest of that name
-  is 404 (unchanged). On the main name: `^/hooks` and `^/mcp` answer 404 (the webhook and MCP doors never
-  open to the world); `^/engine(/|$)` goes to the port with `originRequest.access` required, the team
+  is 404 (unchanged). On the main name: `^/hooks` and `^/mcp/` answer 404 (the webhook and member MCP doors never
+  open to the world; the bare `/mcp` is the integrator's bearer endpoint and takes the way of `/api`, PM-760); `^/engine(/|$)` goes to the port with `originRequest.access` required, the team
   name and **the audience tag of the engine application only**; everything else on the name goes to the
   port with no audience check (the board's login guards it); the last rule is 404.
 - **`cloud.env`** gets `PROJECTMAN_PUBLIC_BOARD=1`; in `private` mode `edge` removes the line.
@@ -947,6 +1057,16 @@ stopped before the update; that is the last moment the old build's database was 
    sudo install -o 10001 -g 10001 -m 600 /var/lib/projectman/restore/db.sqlite db.sqlite
    ```
 
+   Give the restored database a new event generation, so that no reader continues a cursor it got from
+   the journal that was lost (the database in place keeps its old one, and its cursors would otherwise
+   point into a different history; they are then refused with `event_cursor_expired` and the reader
+   starts again from the beginning of the journal):
+
+   ```sh
+   sudo sqlite3 /var/lib/projectman/data/db.sqlite \
+     "UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'project_change_generation'"
+   ```
+
 4. `npm run cloud -- start`.
 
 What the board wrote after that moment (cards, messages) is lost; the files restic holds are not
@@ -1003,19 +1123,35 @@ address or a code; a provider failure becomes an `EmailCodeDeliveryError` (`code
 `email_code_delivery_failed`) with a fixed message and a coarse `reason` (`rejected`, `throttled`,
 `credentials`, `unavailable`), and the caller decides the HTTP answer.
 
-**Scripted SES provisioning (PM-678).** Add the optional version-1 configuration explicitly:
+**Scripted SES provisioning (PM-678, own account PM-729).** Add the optional version-1 configuration explicitly:
 
 ```json
-"ses": { "region": "eu-central-1", "domain": "istvan.io", "from": "login@istvan.io" }
+"ses": { "profile": "i", "region": "eu-west-1", "domain": "istvan.io", "from": "login@istvan.io" }
 ```
 
-Choose the region and sender before running; this is an example, not a default. The address must belong
-to exactly `ses.domain`, and that domain must be in the configured Cloudflare zone. Without `ses`, every
-SES command refuses (exit 2) and email login stays unchanged. Use `aws.profile: "aroom"` for identity and
-sender IAM and `route53.profile: "i"` for the registrar. The SES commands never use the registrar profile,
-move the domain or change delegation. A default/explicit `i` central profile is refused. Every AWS call
-uses explicit `--profile` and `--region` (the SES region may differ from the compute region). Cloudflare's
-existing active zone proves the identity; no cross-account sending authorization is needed.
+Choose the profile, region and sender before running; this is an example, not a default. The address must
+belong to exactly `ses.domain`, and that domain must be in the configured Cloudflare zone. Without `ses`,
+every SES command refuses (exit 2) and email login stays unchanged. `ses.profile` is optional and names the
+AWS account that owns the SES identity, the production access and the narrow sender IAM user; absent, it is
+`aws.profile`, so an older configuration resolves to the same account as before (the file is never
+rewritten). The PM-729 layout keeps the domain, its mail sending and `ses.profile: "i"` together, while
+`aws.profile: "aroom"` stays the account of the server (EC2, S3, host IAM). These are two separate purposes:
+the compute/S3/host IAM rights belong to `aws.profile`, the SES identity and the `<instanceName>-ses` user
+to `ses.profile`; `route53.profile` is not a SES fallback. The SES commands never move the domain or change
+delegation. The EC2 rule that `aws.profile` is explicit and not `i` is unchanged. Every AWS call uses
+explicit `--profile <ses.profile>` and `--region <ses.region>` (the SES region may differ from the compute
+region). Cloudflare's existing active zone proves the identity; no cross-account sending authorization is
+needed. An existing identity and its DKIM tokens in that account and region are recognised and kept;
+identities and DKIM records of other accounts or regions are left alone (cleaning them up is a separate
+owner action, not part of configure).
+
+**Moving SES to another account (PM-729).** The old SES key in `cloud.env` belongs to the former account, so
+`ses configure` refuses it (exit 2, nothing changed) when it finds no matching key in the new account. The
+integrator therefore first makes a protected mode-600 copy of the config and `cloud.env`, removes only
+`PROJECTMAN_SES_ACCESS_KEY_ID`, `PROJECTMAN_SES_SECRET_ACCESS_KEY` and `PROJECTMAN_SES_SESSION_TOKEN` from the
+local env and sets `PROJECTMAN_EMAIL_LOGIN_ENABLED=0` (do not deploy that intermediate env), then runs
+`ses plan`, `ses configure --dry-run`, `ses configure` and `ses check` with the new profile. Old-account
+resources are removed only after the new path is green and the backend uses the new env.
 
 **The owner's steps**, run outside AI member sessions, each live change approved separately:
 

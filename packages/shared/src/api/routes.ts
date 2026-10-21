@@ -5,12 +5,45 @@
  * per-session token.
  */
 export const routes = {
+  push: () => '/api/me/push',
+  pushSettings: () => '/api/me/push/settings',
+  pushDevices: () => '/api/me/push/devices',
+  pushDevice: (id: string) => `/api/me/push/devices/${id}`,
+  pushDeviceTest: (id: string) => `/api/me/push/devices/${id}/test`,
+  pushUnsubscribe: () => '/api/me/push/unsubscribe',
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
   operator: (key: string) => `/api/projects/${key}/operator`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
   operatorApprovalWaiver: (key: string) => `/api/projects/${key}/operator/approval-waiver`,
+  /** GET the super mode's audit (`SuperAuditPage`, PM-757), newest first; the owner's own login only. */
+  operatorSuperAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,
+  /** GET the project's super-mode handoffs (`ListSuperHandoffsResponse`, PM-762); the integrator and the owner. */
+  superHandoffs: (key: string) => `/api/projects/${key}/operator-super/handoffs`,
+  superHandoff: (key: string, handoffId: string) =>
+    `/api/projects/${key}/operator-super/handoffs/${handoffId}`,
+  /** POST `ExecuteSuperHandoffRequest`: starts (or resumes) the handoff's operation; 202 `{operation}`. */
+  executeSuperHandoff: (key: string, handoffId: string) =>
+    `/api/projects/${key}/operator-super/handoffs/${handoffId}/execute`,
+  /** POST `SuperOperateRequest`: starts a command without a handoff; 202 `{operation}` (PM-764). */
+  superOperations: (key: string) => `/api/projects/${key}/operator-super/operations`,
+  /** GET `{operation, result}`: the operation and the administration result recorded for it, if any. */
+  superOperation: (key: string, operationId: string) =>
+    `/api/projects/${key}/operator-super/operations/${operationId}`,
+  /** GET `?target=hub|<engineId>`: `{status}` of the hub's or an engine's supervisor. */
+  superAdministrationStatus: (key: string) => `/api/projects/${key}/operator-super/administration/status`,
+  /** GET `?target=…&limit=50`: `{entries}`, the supervisor's diagnostics (a known code and scalars only). */
+  superAdministrationLogs: (key: string) => `/api/projects/${key}/operator-super/administration/logs`,
+  /** POST `SuperDiagnosticsRequest`: `{columns, rows, truncated}` from a closed catalogue of the project's records. */
+  superDiagnosticsQuery: (key: string) => `/api/projects/${key}/operator-super/diagnostics/query`,
+  /** POST `RelayOwnerAnswerRequest`: the integrator relays the owner's answer to a simple information question. */
+  relayOwnerAnswer: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/relay-answer`,
+  resolveIntegratorTodo: (key: string, itemId: string) =>
+    `/api/projects/${key}/inbox/${itemId}/resolve-integrator-todo`,
+  /** POST `ResolveIntegratorFixLimitRequest`: the integrator decides a fix round limit item addressed to it (PM-714). */
+  resolveIntegratorFixLimit: (key: string, itemId: string) =>
+    `/api/projects/${key}/inbox/${itemId}/resolve-integrator-fix-limit`,
   operatorPreferenceMe: (key: string) => `/api/projects/${key}/operator/preferences/me`,
   dismissOperatorSignal: (key: string, signalId: string) =>
     `/api/projects/${key}/operator/signals/${signalId}/dismiss`,
@@ -24,6 +57,12 @@ export const routes = {
   /** The engine fetches an attachment from here (PM-314): `GET`; the token comes with the request. */
   engineDownload: (token: string) => `/engine/files/downloads/${token}`,
   integratorKey: () => '/api/auth/integrator-key',
+  integratorKeys: () => '/api/auth/integrator-keys',
+  integratorAccessKey: (id: string) => `/api/auth/integrator-keys/${id}`,
+  integratorKeyAudit: () => '/api/auth/integrator-keys/audit',
+  /** GET the state, POST grants, DELETE revokes the Operator's grant for machine operations (PM-881). */
+  operatorGrant: () => '/api/auth/operator-grant',
+  operatorGrantAudit: () => '/api/auth/operator-grant/audit',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   /** GET the project's focus (`ProjectFocusView`, PM-427); internal members only. */
   projectFocus: (key: string) => `/api/projects/${key}/focus`,
@@ -34,6 +73,11 @@ export const routes = {
   projectFocusItem: (key: string, taskKey: string) => `/api/projects/${key}/focus/items/${taskKey}`,
   /** GET (`?limit=`, 1 to 200, default 50): the project's `focus_changed` events (`ProjectFocusChanges`). */
   projectFocusChanges: (key: string) => `/api/projects/${key}/focus/changes`,
+  /**
+   * GET (`ProjectChangeEventsQuery`: `after` cursor, `limit` 1..500, `waitMs` 0..25000): the project's durable
+   * change journal (`ProjectChangeEventsResponse`, PM-761), waiting up to `waitMs` for a new entry. Internal members only.
+   */
+  projectEvents: (key: string) => `/api/projects/${key}/events`,
   boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,
   decideBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/decide`,
   revokeBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/revoke`,
@@ -60,6 +104,7 @@ export const routes = {
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
   taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,
+  mergeQueueOrder: (key: string) => `/api/projects/${key}/merge-queue/order`,
   /** POST: puts the card's queued merge at the front of its repository's queue (`PrioritizeMergeRequest`, PM-576). */
   taskMergePrioritize: (key: string, taskKey: string) =>
     `/api/projects/${key}/tasks/${taskKey}/merge/prioritize`,

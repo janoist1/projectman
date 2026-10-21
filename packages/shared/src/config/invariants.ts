@@ -39,6 +39,7 @@ export interface ConfigIssue {
     | 'last_stage_not_done'
     | 'duplicate_stage'
     | 'duplicate_repo'
+    | 'review_test_runner_github'
     | 'duplicate_feedback_surface'
     | 'sponsor_not_human'
     | 'codex_bypass_not_allowed'
@@ -151,6 +152,12 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     if (repoNames.has(repo.name))
       issues.push({ code: 'duplicate_repo', path: `project.repos[${i}].name`, detail: repo.name });
     repoNames.add(repo.name);
+    if (repo.reviewTest?.runner === 'github_actions' && !repo.github)
+      issues.push({
+        code: 'review_test_runner_github',
+        path: `project.repos[${i}].reviewTest.runner`,
+        detail: repo.name,
+      });
   });
 
   const surfaceIds = new Set<string>();

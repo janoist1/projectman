@@ -1,15 +1,30 @@
-import { isOperator, memberOf } from '@projectman/shared';
+import {
+  isOperator,
+  memberOf,
+  roleBundle,
+  ScreeningTodo as ScreeningTodoSchema,
+  questionPayloadOf,
+} from '@projectman/shared';
+import type { QuestionRecipient, QuestionRecipientRefusal } from '@projectman/shared';
 import type {
+  AdministrationTarget,
   OperatorOperation,
+  BuiltInRoleId,
+  RoleConfigurationRead,
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
   OperatorPreferenceData,
   ScreeningOutcome,
-  QuestionTodo,
+  ScreeningTodo,
   Task,
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
-import type { OperatorToolsHandler, MemberStartResult, ToolContext } from '../../contracts';
+import type {
+  AdministrationLogsOptions,
+  OperatorToolsHandler,
+  MemberStartResult,
+  ToolContext,
+} from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
@@ -25,8 +40,19 @@ import type {
   OperatorSignals,
   OperatorPreferences,
   OperatorKnowledge,
+  StructuralReviews,
+  LoopTriages,
 } from '../../services/operator';
+import type { ObligationsService } from '../../services/obligations';
+import { appRequestId } from '../../services/super-operator';
+import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
+
+/** What the Operator's super-operation tools stand on (PM-888). */
+export interface SuperPath {
+  operations: OperatorAppOperations;
+  administration: Pick<SuperAdministration, 'status' | 'logs' | 'machine' | 'operation'>;
+}
 
 export class OperatorTools implements OperatorToolsHandler {
   private readonly calls: ToolCaller;
@@ -34,6 +60,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly inbox: InboxService;
+  private readonly obligations: Pick<ObligationsService, 'listOpen'>;
   private readonly messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
   private readonly projectState: ProjectState;
   private readonly operatorActions: OperatorActions;
@@ -41,6 +68,9 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
   private readonly operatorPreferences: OperatorPreferences;
   private readonly operatorKnowledge: OperatorKnowledge;
+  private readonly structuralReviews: StructuralReviews;
+  private readonly loopTriages: LoopTriages;
+  private readonly superPath: () => SuperPath;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -48,6 +78,7 @@ export class OperatorTools implements OperatorToolsHandler {
     projects: ProjectService;
     tasks: TaskService;
     inbox: InboxService;
+    obligations: Pick<ObligationsService, 'listOpen'>;
     messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
     projectState: ProjectState;
     operatorActions: OperatorActions;
@@ -55,12 +86,17 @@ export class OperatorTools implements OperatorToolsHandler {
     operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
     operatorPreferences: OperatorPreferences;
     operatorKnowledge: OperatorKnowledge;
+    structuralReviews: StructuralReviews;
+    loopTriages: LoopTriages;
+    /** The shared super-operation path; read at the call, because it is composed after the tools. */
+    superPath: () => SuperPath;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.inbox = deps.inbox;
+    this.obligations = deps.obligations;
     this.messaging = deps.messaging;
     this.projectState = deps.projectState;
     this.operatorActions = deps.operatorActions;
@@ -68,6 +104,48 @@ export class OperatorTools implements OperatorToolsHandler {
     this.operatorSignals = deps.operatorSignals;
     this.operatorPreferences = deps.operatorPreferences;
     this.operatorKnowledge = deps.operatorKnowledge;
+    this.structuralReviews = deps.structuralReviews;
+    this.loopTriages = deps.loopTriages;
+    this.superPath = deps.superPath;
+  }
+
+  async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'request_structural_review');
+      return this.structuralReviews.request(ctx, args.signalId, args.note, (member, text) =>
+        this.startMember(ctx, { member, text }),
+      );
+    });
+  }
+
+  async getRoleConfiguration(
+    ctx: ToolContext,
+    args: { role: BuiltInRoleId },
+  ): Promise<RoleConfigurationRead> {
+    return this.calls.guard(async () => {
+      const config = await this.calls.caller(ctx, 'get_role_configuration');
+      if (!isOperator(memberOf(config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may read role configuration.');
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (
+        !session ||
+        session.projectKey !== ctx.projectKey ||
+        session.member !== ctx.member ||
+        session.workItem.type !== 'general' ||
+        session.workItem.with
+      )
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: role configuration requires your own owner general conversation.',
+        );
+      const loaded = await this.projects.load(ctx.projectKey);
+      return {
+        version: loaded.version,
+        role: args.role,
+        override: loaded.config.team.roleOverrides?.[args.role] ?? null,
+        effective: roleBundle(loaded.config, args.role),
+      };
+    });
   }
 
   async getOperatorKnowledge(ctx: ToolContext) {
@@ -118,6 +196,21 @@ export class OperatorTools implements OperatorToolsHandler {
     }
   }
 
+  async triageLoop(
+    ctx: ToolContext,
+    args: {
+      signalId: string;
+      outcome: 'progress' | 'loop';
+      note: string;
+      evidenceIds: string[];
+    },
+  ) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'triage_loop');
+      return this.loopTriages.assess({ ...args, projectKey: ctx.projectKey, by: ctx.member });
+    });
+  }
+
   async dismissSignal(
     ctx: ToolContext,
     args: { signalId: string; note: string },
@@ -136,6 +229,50 @@ export class OperatorTools implements OperatorToolsHandler {
         if (err instanceof DomainError) throw toToolError(err);
         throw err;
       }
+    });
+  }
+
+  async openIntegratorTodo(
+    ctx: ToolContext,
+    args: { taskKey?: string; question: string; what: string; where: string; expected: string },
+  ): Promise<{
+    itemId: string;
+    recipient: QuestionRecipient;
+    recipientRefusal: QuestionRecipientRefusal | null;
+  }> {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'open_integrator_todo');
+      const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : null;
+      // A followed step has its own wake-up and its own todo: the PM does not open a second one (PM-796 R2.7).
+      const tracked = taskKey ? this.obligations.listOpen(ctx.projectKey, taskKey)[0] : undefined;
+      if (tracked)
+        throw new TeamToolError(
+          'invalid',
+          `obligation_tracked: ${taskKey} is followed by projectman (${tracked.kind}, ${tracked.responsible}): it wakes the responsible and hands the step to the integrator itself`,
+        );
+      try {
+        return await this.inbox.openIntegratorTodo({
+          projectKey: ctx.projectKey,
+          taskKey,
+          askedBy: ctx.member,
+          question: args.question,
+          todo: { what: args.what, where: args.where, expected: args.expected },
+        });
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
+  }
+
+  async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
+    return this.calls.guard(async () => {
+      await this.calls.caller(ctx, 'get_operator_diagnostics');
+      return this.projectState.diagnostics(ctx, args.taskKey, args.limit).catch((err: unknown) => {
+        if (err instanceof DomainError && err.status === 403)
+          throw new TeamToolError('forbidden', `${err.code}: ${err.message}`);
+        throw err;
+      });
     });
   }
 
@@ -176,10 +313,118 @@ export class OperatorTools implements OperatorToolsHandler {
   }
 
   /**
+   * The Operator's own call on the shared super-operation path (PM-888): the base Operator, in its own general
+   * conversation, during a direct internal owner request (a message or an answer; not an approval continuation,
+   * a signal or a guest). Returns the caller whose request the credential of the call stands on.
+   */
+  private async appCaller(ctx: ToolContext, tool: string) {
+    const caller = await this.calls.callerWithRequest(ctx, tool);
+    if (!isOperator(memberOf(caller.config, ctx.member)))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator may use the super operations.');
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    if (
+      !caller.request ||
+      caller.guest ||
+      (caller.request.source !== 'message' && caller.request.source !== 'answer') ||
+      !session ||
+      session.projectKey !== ctx.projectKey ||
+      session.member !== ctx.member ||
+      session.workItem.type !== 'general' ||
+      session.workItem.with
+    )
+      throw new TeamToolError(
+        'forbidden',
+        'operator_owner_only: a super operation needs your own general conversation and an open request of an owner.',
+      );
+    return caller;
+  }
+
+  /** A refusal of the shared path keeps its code in the message, like `operate`'s. */
+  private appFailure(err: unknown): unknown {
+    if (err instanceof DomainError)
+      return new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
+    return toToolError(err);
+  }
+
+  async executeOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['executeOperation']>[1]) {
+    try {
+      const caller = await this.appCaller(ctx, 'execute_operation');
+      // `operate` and `member_update` have their own tool; the direct path takes the rest.
+      if (args.command.kind === 'operate' || args.command.kind === 'member_update')
+        throw new TeamToolError(
+          'invalid',
+          `super_operation_unsupported: a ${args.command.kind} command is not run here; use operate.`,
+        );
+      const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : undefined;
+      const requestId = appRequestId(caller.request!.id, args.requestKey);
+      return await this.calls.recorded(
+        caller,
+        {
+          action: 'operation',
+          taskKey: taskKey ?? null,
+          madeOperation: (result) => ({
+            id: result.operation.id,
+            awaitsOwner: result.operation.state === 'waiting_owner',
+          }),
+        },
+        async () => ({
+          operation: await this.superPath().operations.execute(ctx.projectKey, ctx.sessionId, {
+            requestId,
+            command: args.command,
+            ...(taskKey ? { taskKey } : {}),
+          }),
+        }),
+      );
+    } catch (err) {
+      throw this.appFailure(err);
+    }
+  }
+
+  async getOperation(ctx: ToolContext, args: { operationId: string }) {
+    try {
+      await this.appCaller(ctx, 'get_operation');
+      return await this.superPath().administration.operation(ctx.projectKey, args.operationId);
+    } catch (err) {
+      throw this.appFailure(err);
+    }
+  }
+
+  async getMachineStatus(ctx: ToolContext, args: { target: AdministrationTarget }) {
+    try {
+      await this.appCaller(ctx, 'get_machine_status');
+      const { administration } = this.superPath();
+      const status = await administration.status(ctx.projectKey, args.target);
+      const machine = status.capabilities.includes('machine')
+        ? await administration.machine(ctx.projectKey, args.target)
+        : null;
+      return { status, machine };
+    } catch (err) {
+      throw this.appFailure(err);
+    }
+  }
+
+  async getMachineLogs(ctx: ToolContext, args: { target: AdministrationTarget } & AdministrationLogsOptions) {
+    try {
+      await this.appCaller(ctx, 'get_machine_logs');
+      const { target, ...options } = args;
+      return await this.superPath().administration.logs(ctx.projectKey, target, options);
+    } catch (err) {
+      throw this.appFailure(err);
+    }
+  }
+
+  /**
    * The PM settles a question it screens: it answers it, passes it to a member, closes it as
    * moot, or sends it on to the people as a decision or a todo. Only the selected PM, never from a guest
    * conversation. Throws before anything changes when the fields do not fit the outcome.
    */
+  async combineQuestions(ctx: ToolContext, args: { itemIds: string[]; question: string; note: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'combine_questions');
+      return this.inbox.combineQuestions(ctx.projectKey, args, ctx.member);
+    });
+  }
+
   async screenQuestion(
     ctx: ToolContext,
     args: {
@@ -188,9 +433,14 @@ export class OperatorTools implements OperatorToolsHandler {
       note: string;
       answer?: string;
       forwardTo?: string;
-      todo?: QuestionTodo;
+      todo?: ScreeningTodo;
     },
-  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }> {
+  ): Promise<{
+    inboxItemId: string;
+    outcome: ScreeningOutcome;
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
+  }> {
     return this.calls.guard(async () => {
       const { config } = await this.calls.callerWithRequest(ctx, 'screen_question');
       const { outcome } = args;
@@ -212,16 +462,23 @@ export class OperatorTools implements OperatorToolsHandler {
         throw fieldError(
           outcome === 'todo' ? 'todo needs the todo fields.' : 'only todo takes the todo fields.',
         );
+      if (args.todo && !ScreeningTodoSchema.safeParse(args.todo).success)
+        throw fieldError('todo needs valid what, where, expected and recipient fields.');
       const item = this.ctx.repos.inbox.get(args.itemId);
       if (!item || item.projectKey !== ctx.projectKey || item.kind !== 'question')
         throw new TeamToolError('not_found', `No question ${args.itemId} in this project.`);
       const asker = memberOf(config, item.source);
+      const group = this.ctx.repos.inbox.groupOf(item.id);
+      const primary = group ? this.ctx.repos.inbox.get(group.primaryItemId) : null;
       // A moot question may also be one that already went to the people, if an AI member asked it.
       const mootOpen =
-        outcome === 'moot' && item.state === 'open' && asker?.kind === 'ai' && item.source !== ctx.member;
+        outcome === 'moot' &&
+        (item.state === 'open' || (item.state === 'screening' && primary?.state === 'open')) &&
+        asker?.kind === 'ai' &&
+        item.source !== ctx.member;
       if (item.source === ctx.member)
         throw new TeamToolError('forbidden', 'project_manager_only: the PM cannot screen its own question.');
-      if (item.state !== 'screening' && !mootOpen)
+      if ((item.state !== 'screening' || (group && primary?.state !== 'screening')) && !mootOpen)
         throw new TeamToolError(
           'invalid',
           `question_not_screening: ${item.id} is not waiting for the PM (it is ${item.state}).`,
@@ -263,7 +520,19 @@ export class OperatorTools implements OperatorToolsHandler {
           'invalid',
           `question_not_screening: ${item.id} is not waiting for the PM any more.`,
         );
-      return { inboxItemId: item.id, outcome };
+      const payload = questionPayloadOf(settled);
+      return {
+        inboxItemId: item.id,
+        outcome,
+        ...(outcome === 'todo'
+          ? {
+              recipient: payload?.recipient ?? 'owner',
+              ...(payload?.screening?.recipientRefusal
+                ? { recipientRefusal: payload.screening.recipientRefusal }
+                : {}),
+            }
+          : {}),
+      };
     });
   }
 
@@ -359,6 +628,7 @@ export class OperatorTools implements OperatorToolsHandler {
         { action: 'task_start', taskKey: args.taskKey ?? null, member: args.member },
         async () => {
           // The message is the card's: the member needs a role on it (PM-545).
+          this.structuralReviews.assertStart(ctx, args);
           const card = args.taskKey
             ? this.tasks.get(ctx.projectKey, this.calls.validTaskKey(ctx, args.taskKey))
             : null;
@@ -388,7 +658,10 @@ export class OperatorTools implements OperatorToolsHandler {
                 operatorRequest: who.request!.id,
                 awaitWake: true,
                 workerCheck: !args.despiteWorkers,
-                beforeRecord: who.beforeRecord,
+                beforeRecord: () => {
+                  who.beforeRecord?.();
+                  this.structuralReviews.assertStart(ctx, args);
+                },
               },
             )
             .catch((err: unknown) => {

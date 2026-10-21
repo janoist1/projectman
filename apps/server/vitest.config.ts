@@ -1,7 +1,10 @@
 import os from 'node:os';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn } from '@lydell/node-pty';
 import { defaultTestWorkers } from '@projectman/shared';
 import { configDefaults, defineConfig } from 'vitest/config';
+import { PTY_TESTS, pooledTests } from './test/isolation';
 
 /**
  * The tests that run real agent sessions (the fake CLIs in pseudo-terminals) need to open a PTY.
@@ -13,9 +16,9 @@ import { configDefaults, defineConfig } from 'vitest/config';
  * full run outside a sandbox never passes with the 11 files silently missing. The integrating
  * session runs the full suite before a merge. From PM-217 the server also runs the full suite itself
  * (`reviewTest`, `src/full-test`) when a card enters review, in its own sandbox that allows PTYs; it
- * does not set the variable.
+ * does not set the variable. `PTY_TESTS` lives in `test/isolation.ts`, which keeps these files out
+ * of the `pooled` project too.
  */
-const PTY_TESTS = ['**/*.integration.test.ts', 'test/golden-path-*.test.ts'];
 const SKIP_VARIABLE = 'PROJECTMAN_SKIP_PTY_TESTS';
 
 function ptyError(): string | undefined {
@@ -43,9 +46,46 @@ if (skip) {
   );
 }
 
+const root = dirname(fileURLToPath(import.meta.url));
+const rootExclude = [...configDefaults.exclude, ...(skip ? PTY_TESTS : [])];
+// The files that share one module graph per worker (`test/isolation.ts`); everything else is isolated.
+const pooled = pooledTests(root);
+const workers = defaultTestWorkers({ cpus: os.availableParallelism(), memoryBytes: os.totalmem() });
+// VITEST_MAX_FORKS used to cap every worker, and the `pooled` project's are threads: it caps those
+// too, VITEST_MAX_THREADS (which vitest also applies itself) first.
+const cap = (name: string) => {
+  const value = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+};
+const threadsMax = cap('VITEST_MAX_THREADS') ?? cap('VITEST_MAX_FORKS') ?? workers;
+
 export default defineConfig({
   test: {
-    exclude: [...configDefaults.exclude, ...(skip ? PTY_TESTS : [])],
+    // Two projects (PM-865). `isolated` is the plain vitest behaviour: a fresh module graph per file.
+    // `pooled` runs the files `pooledTests` picks without isolation: the modules, the process and
+    // the globals are shared by the files of a worker, which saves loading the server for each.
+    // The options below are the root's and both projects inherit them (`extends: true`).
+    projects: [
+      {
+        extends: true,
+        test: { name: 'isolated', exclude: [...rootExclude, ...pooled] },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'pooled',
+          include: pooled,
+          pool: 'threads',
+          // The two projects use different pools, which vitest would run at the same time (twice
+          // the workers); a later group waits for the earlier one.
+          sequence: { groupOrder: 1 },
+          setupFiles: ['test/setup/wait-for-timeout.ts', 'test/setup/unstub-after-file.ts'],
+        },
+      },
+    ],
+    // `vi.waitFor` waits 15 s instead of 1 s unless a test says otherwise (see the file).
+    setupFiles: ['test/setup/wait-for-timeout.ts'],
+    exclude: rootExclude,
     // Many tests start git or other child processes and write files; a test that takes under a
     // second alone (config-store "never reads a project while a save rewrites its files": 0.7 s)
     // took over 5 s when the whole repository's tests ran in parallel (PM-215). The GitHub
@@ -55,7 +95,16 @@ export default defineConfig({
     hookTimeout: 20_000,
     // A worker is about 150 MB and the default is every core: three runs at once took the load to 80
     // (PM-332). VITEST_MAX_FORKS/THREADS, which the server's full test sets, still win over this.
-    maxWorkers: defaultTestWorkers({ cpus: os.availableParallelism(), memoryBytes: os.totalmem() }),
+    maxWorkers: workers,
     minWorkers: 1,
+    // The pool, not the project, decides whether a worker is recycled after each file (a project's
+    // own `isolate` only resets its modules), so the `threads` pool (the `pooled` project's) is set to
+    // share its workers here, while the `forks` pool (the `isolated` project's) keeps its default: a
+    // new process for each file. The threads' minimum is their maximum: with fewer, tinypool ends an
+    // idle worker thread before it has finished a file when `isolate` is off, and the run dies with
+    // "Terminating worker thread".
+    poolOptions: {
+      threads: { isolate: false, maxThreads: threadsMax, minThreads: threadsMax },
+    },
   },
 });

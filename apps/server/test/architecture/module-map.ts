@@ -54,6 +54,15 @@ const structureModules = new Map(structure.modules.map((module) => [module.id, m
 const SERVER_SRC = 'apps/server/src/';
 
 const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
+  { id: 'exec', layer: 'infra', target: 'exec', pass: 'none', sealed: true },
+  { id: 'services/web-push', layer: 'service', target: 'services/web-push', pass: 'none', sealed: true },
+  {
+    id: 'services/super-operator',
+    layer: 'service',
+    target: 'services/super-operator',
+    pass: 'none',
+    sealed: true,
+  },
   {
     id: 'services/structure',
     layer: 'service',
@@ -224,9 +233,23 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     sealed: true,
   },
   {
+    id: 'services/obligations',
+    layer: 'service',
+    target: 'services/obligations',
+    pass: 'none',
+    sealed: true,
+  },
+  {
     id: 'services/email-login',
     layer: 'service',
     target: 'services/email-login',
+    pass: 'split',
+    sealed: true,
+  },
+  {
+    id: 'services/history',
+    layer: 'service',
+    target: 'services/history',
     pass: 'split',
     sealed: true,
   },
@@ -273,9 +296,23 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     sealed: true,
   },
   {
+    id: 'administration',
+    layer: 'engine',
+    target: 'administration',
+    pass: 'none',
+    sealed: true,
+  },
+  {
     id: 'engine-link',
     layer: 'engine',
     target: 'engine-link',
+    pass: 'none',
+    sealed: true,
+  },
+  {
+    id: 'history-semantic',
+    layer: 'engine',
+    target: 'history-semantic',
     pass: 'none',
     sealed: true,
   },

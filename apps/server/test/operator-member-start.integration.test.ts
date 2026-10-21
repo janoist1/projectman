@@ -1,3 +1,4 @@
+import { waitForSession } from './helpers/domain-harness';
 import { afterEach, expect, it, vi } from 'vitest';
 import { memberOf } from '@projectman/shared';
 import type { AiMemberConfig } from '@projectman/shared';
@@ -50,7 +51,7 @@ it(
       { awaitWake: true },
     );
     expect(ownerMessage.recipients[0]!.start?.state).toBe('started');
-    const operator = domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const operator = await waitForSession(domain, { member: 'pm' });
     // The fake CLI finishes the owner's turn itself. Open a request fixture after that turn,
     // so the tool call does not race the Stop hook that closes the original request.
     await vi.waitFor(
@@ -83,7 +84,7 @@ it(
       },
       { member: 'devops', text },
     );
-    const session = domain.sessions.list('AR', { member: 'devops' })[0]!;
+    const session = await waitForSession(domain, { member: 'devops' });
     expect(session.workItem).toEqual({ type: 'general' });
     expect(result.recipient).toEqual({
       handle: 'devops',

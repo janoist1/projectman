@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { isMergeFixer, isMergeRunningFor, MergeFailure, TaskMergeState, TaskMerged } from './merge';
+import {
+  isMergeFixer,
+  isMergeRunningFor,
+  mergeQueueOrderRefusal,
+  MergeFailure,
+  TaskMergeState,
+  TaskMerged,
+} from './merge';
 
 describe('member merge contracts', () => {
+  it('accepts only complete permutations at the current queue revision', () => {
+    const current = { revision: 3, taskKeys: ['AR-1', 'AR-2'] };
+    expect(mergeQueueOrderRefusal(current, { expectedRevision: 3, taskKeys: ['AR-2', 'AR-1'] })).toBeNull();
+    expect(mergeQueueOrderRefusal(current, { expectedRevision: 3, taskKeys: current.taskKeys })).toBeNull();
+    expect(
+      mergeQueueOrderRefusal({ revision: 0, taskKeys: [] }, { expectedRevision: 0, taskKeys: [] }),
+    ).toBeNull();
+    for (const request of [
+      { expectedRevision: 2, taskKeys: current.taskKeys },
+      ...[[], ['AR-1'], ['AR-1', 'AR-1'], ['AR-1', 'AR-3'], ['AR-1', 'BR-1'], ['AR-1', 'AR-2', 'AR-3']].map(
+        (taskKeys) => ({ expectedRevision: 3, taskKeys }),
+      ),
+    ])
+      expect(mergeQueueOrderRefusal(current, request)).toBe('merge_queue_conflict');
+  });
   it('has the merger waiting only while the server queues or runs the merge', () => {
     const merge = TaskMergeState.parse({
       id: 'm',

@@ -4,6 +4,7 @@ import { getTemplate, templates } from '@projectman/templates';
 import type { ProjectTemplate } from '@projectman/templates';
 import type { EventBus } from '../../contracts';
 import type { Repositories } from '../../db';
+import { ChangeJournal } from './change-journal';
 import { createDomainEvents } from './events';
 import type { DomainEvents } from './events';
 
@@ -16,6 +17,8 @@ export interface DomainContext {
   events: DomainEvents;
   logger: FastifyBaseLogger;
   now: () => Date;
+  /** The durable change journal (PM-761); `journal.record` belongs inside the unit of work of the change. */
+  journal: ChangeJournal;
   /**
    * Runs `fn` as one unit of work: its writes are one SQLite transaction and the events it
    * publishes go out only once that commits (a failure rolls back both). `fn` is synchronous
@@ -46,6 +49,7 @@ export function createDomainContext(deps: {
     events: createDomainEvents(deps.logger),
     logger: deps.logger,
     now: deps.now,
+    journal: new ChangeJournal(deps.repos, deps.now),
     unitOfWork<T>(fn: () => T): T {
       const buffer: ServerEvent[] = [];
       pending.push(buffer);

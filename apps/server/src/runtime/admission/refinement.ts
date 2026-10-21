@@ -12,6 +12,7 @@ import {
   operatorOf,
   projectManagerOf,
   PENDING_INBOX_STATES,
+  refinementStallRefusal,
   refinementTurn,
   turnStalled,
 } from '@projectman/shared';
@@ -33,6 +34,7 @@ import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
+import type { RefinementStallNotices, RefinementStallReport } from './ports';
 
 type RefinementSpec = Extract<StartSpec, { kind: 'refinement_turn' }>;
 type Step = Extract<NonNullable<ReturnType<typeof refinementTurn>>, { kind: 'step' }>;
@@ -60,7 +62,8 @@ const ENGAGED = new Set<Session['state']>(['starting', 'working', 'waiting_permi
  * session already works the card), a person gets an alert, since only they can do it. Nothing
  * happens while a session is in the middle of a turn on the card: the next step is looked at when it
  * ends. A step that was handed to a member is not handed again (no restart for the same step): when
- * its turn ends without the label, the owners get one `stalled` alert. When every label is on, the
+ * its turn ends without the label, the project manager gets a report-only signal (PM-702); the owners
+ * get one `stalled` alert only when that report is unavailable or fails. When every label is on, the
  * card leaves refinement: the system takes `refine` off, moves it to the stage before development and
  * tells the configured card mover, project manager or Operator (`done`) through a team message.
  * Every change of turn is a `refinement_turn` event on the
@@ -76,6 +79,7 @@ export class RefinementSteps {
   private readonly inbox: InboxService;
   private readonly timeline: TimelineService;
   private notifyDone?: (task: Task, recipient: string) => Promise<void>;
+  private stallNotices?: RefinementStallNotices;
   /** One look at a card at a time, so that two events do not hand the same step out twice. */
   private readonly cards = new KeyedMutex();
 
@@ -97,6 +101,11 @@ export class RefinementSteps {
     this.timeline = deps.timeline;
   }
 
+  /** Bound by assembly: the services side that tells the project manager about a stalled turn (PM-702). */
+  useStallNotices(notices: RefinementStallNotices): void {
+    this.stallNotices = notices;
+  }
+
   /** Bound after Messaging, which depends on this service's turnMember. */
   useNotify(notify: (task: Task, recipient: string) => Promise<void>): void {
     this.notifyDone = notify;
@@ -104,7 +113,7 @@ export class RefinementSteps {
 
   /** Retire old acknowledgement-only items at startup without altering the timeline. */
   reconcile(projectKey: string): void {
-    for (const item of this.inbox.list(projectKey, { kind: 'alert', state: 'open', limit: 100_000 })) {
+    for (const item of this.inbox.list(projectKey, { kind: 'alert', state: 'open' })) {
       if (isInformationalAlert(item)) this.inbox.cancel(item.id);
     }
   }
@@ -133,8 +142,15 @@ export class RefinementSteps {
    * turn is a person's, blocked, over, or the card was never refined.
    */
   turnMember(projectKey: string, taskKey: string): string | null {
+    return this.openTurn(projectKey, taskKey)?.member ?? null;
+  }
+
+  /** The turn that is on a member now (PM-806): its label, member and the time its event was recorded. */
+  openTurn(projectKey: string, taskKey: string): { label: string | null; member: string; at: string } | null {
     const turn = this.recorded(projectKey, taskKey);
-    return turn && !isClosedTurn(turn.reason) ? turn.member : null;
+    return turn && !isClosedTurn(turn.reason) && turn.member
+      ? { label: turn.label, member: turn.member, at: turn.at }
+      : null;
   }
 
   /**
@@ -168,15 +184,16 @@ export class RefinementSteps {
     }
     const taken = this.recorded(projectKey, taskKey);
     if (taken && taken.label === turn.label && taken.member !== null && !isClosedTurn(taken.reason)) {
-      // Handed out already: not again. Its member's turn having ended without the label is told once.
-      // An open question of an AI member is no stall: it waits for the answer.
-      const items = this.inbox.list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question', taskKey });
-      if (
-        endedMember === taken.member &&
-        turnStalled(items, config) &&
-        !this.alerted(task, 'stalled', turn.label, taken.at)
-      )
-        this.alert(config, task, turn.label, 'stalled', []);
+      // Handed out already: not again. Its member's turn having ended without the label goes to the
+      // project manager once (PM-702); the owners' alert is only the fallback when it cannot take it.
+      if (endedMember === taken.member && !this.alerted(task, 'stalled', turn.label, taken.at))
+        await this.reportStall(config, {
+          projectKey,
+          taskKey,
+          label: turn.label,
+          member: taken.member,
+          turnAt: taken.at,
+        });
       return;
     }
     await this.admission.attempt(
@@ -188,6 +205,58 @@ export class RefinementSteps {
         label: turn.label,
       }),
     );
+  }
+
+  /**
+   * A stalled turn is told to the project manager (`stallNotices`) after a fresh source guard; when it
+   * cannot take it (`unavailable`, `failed` or a thrown error) the guard is read again and the owners get
+   * today's `stalled` alert, once. `delivered` and `queued` are no fallback: the signal is stored.
+   */
+  private async reportStall(config: ProjectConfig, report: RefinementStallReport): Promise<void> {
+    if (this.stallRefusal(config, report)) return;
+    let outcome: Awaited<ReturnType<RefinementStallNotices['report']>> = 'unavailable';
+    if (this.stallNotices) {
+      try {
+        outcome = await this.stallNotices.report(report);
+      } catch {
+        outcome = 'failed';
+      }
+    }
+    if (outcome !== 'unavailable' && outcome !== 'failed') return;
+    // The report took time: the card, the turn and the member's session are read again.
+    const fresh = await this.projects.config(report.projectKey);
+    const task = this.tasks.find(report.projectKey, report.taskKey);
+    if (!task || this.stallRefusal(fresh, report)) return;
+    if (!this.alerted(task, 'stalled', report.label, report.turnAt))
+      this.alert(fresh, task, report.label, 'stalled', []);
+  }
+
+  /** The one rule (`refinementStallRefusal`) applied to what the card, its turn and its sessions say now. */
+  private stallRefusal(config: ProjectConfig, report: RefinementStallReport) {
+    const { projectKey, taskKey, label, member, turnAt } = report;
+    const task = this.tasks.find(projectKey, taskKey);
+    const turn = this.recorded(projectKey, taskKey);
+    const step = task ? refinementTurn(task, config) : null;
+    const items = this.inbox.list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question', taskKey });
+    return refinementStallRefusal({
+      taskOpen: !!task && isOpenTask(task),
+      sameTurn:
+        step?.kind === 'step' &&
+        step.label === label &&
+        !!turn &&
+        !isClosedTurn(turn.reason) &&
+        turn.label === label &&
+        turn.member === member &&
+        turn.at === turnAt,
+      labelMissing: !!task && !task.labels.includes(label),
+      memberActive: this.sessions
+        .list(projectKey, { taskKey, member })
+        .some(
+          (s) =>
+            this.sessions.isRunning(s.id) && (ENGAGED.has(s.state) || this.sessions.awaitsFirstTurn(s.id)),
+        ),
+      hasOpenQuestion: !turnStalled(items, config),
+    });
   }
 
   private startFor(spec: RefinementSpec): AutomaticStart {

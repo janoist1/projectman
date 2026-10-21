@@ -57,7 +57,8 @@ describe('the full test executor in the heavy-run queue', () => {
     expect(Date.now() - waitStarted).toBeGreaterThanOrEqual(600);
     // `started` (the duration, and with it the timeout, 100 ms here) begins when the lock is held.
     expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
-    expect(result.durationMs).toBeLessThan(400);
+    // Independent of the load: the time spent leaves out at least 600 ms of waiting.
+    expect(result.durationMs).toBeLessThanOrEqual(Date.now() - waitStarted - 600);
     expect((await readHeavyQueue(dir)).holder).toBeNull();
   });
 
@@ -136,6 +137,31 @@ describe('the full test executor in the heavy-run queue', () => {
     await executor.run(spec, controller.signal, onStarted);
     expect(onStarted).not.toHaveBeenCalled();
     await other.release();
+  });
+
+  it('refuses a GitHub Actions descriptor without starting, taking the lock or making a run directory (PM-900)', async () => {
+    const onStarted = vi.fn();
+    const github: FullTestSpec = {
+      ...spec,
+      cwd: 'github-actions:acme/web',
+      githubActions: {
+        ref: { projectKey: 'PM', repo: 'projectman' },
+        mergeId: 'merge_1',
+        repo: 'acme/web',
+        base: 'main',
+        commit: 'a'.repeat(40),
+        workflow: 'merge-check.yml',
+      },
+    };
+    const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir }).run(
+      github,
+      new AbortController().signal,
+      onStarted,
+    );
+    expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable', durationMs: 0 });
+    expect(onStarted).not.toHaveBeenCalled();
+    expect(await readHeavyQueue(dir)).toEqual({ holder: null, waiting: [] });
+    expect(warn).not.toHaveBeenCalled();
   });
 
   describe('when the run requires the queue (PM-658)', () => {

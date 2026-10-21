@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import {
   chmodSync,
   cpSync,
@@ -10,9 +9,9 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { promisify } from 'node:util';
 import { parseDocument } from 'yaml';
 import { openDatabase, schemaVersion } from '../../apps/server/src/db';
+import { execCommand, ExecCommandError } from '../../apps/server/src/exec';
 import { writeInstanceMarker } from '../../apps/server/src/instance';
 import { git } from './git';
 import { ORPHAN_REF_PREFIX, readPackage, STASH_REF_PREFIX } from './package';
@@ -29,8 +28,6 @@ import { MigrationRefused } from './package';
  * conversation (the history stays, the new conversation starts from the task brief and the memory)
  * and never makes itself the active instance: that is `instance activate`, a person's step.
  */
-
-const run = promisify(execFile);
 
 export const MIGRATED_DIR = 'migrated';
 export const PENDING_WORK_FILE = 'pending-work.json';
@@ -415,14 +412,18 @@ export async function applyPendingWork(home: string, id: string, into: string): 
     );
   const status = (await git(dir, ['status', '--porcelain=v1', '-uall'])).stdout.trim();
   if (status) throw new MigrationRefused(`${dir} is not clean: the work is never mixed into other changes`);
-  if (item.archive)
-    await run('tar', [
-      '-xzf',
-      join(home, MIGRATED_DIR, 'pending-work', id, 'files.tar.gz'),
-      '-C',
-      dir,
-      '--no-same-owner',
-    ]);
+  if (item.archive) {
+    try {
+      await execCommand(
+        'tar',
+        ['-xzf', join(home, MIGRATED_DIR, 'pending-work', id, 'files.tar.gz'), '-C', dir, '--no-same-owner'],
+        { env: { ...process.env } },
+      );
+    } catch (error) {
+      if (!(error instanceof ExecCommandError)) throw error;
+      throw new Error(`tar failed: ${error.stderr.trim() || error.message}`);
+    }
+  }
   for (const path of item.deleted) {
     const file = resolve(dir, path);
     if (file.startsWith(dir + sep)) rmSync(file, { force: true });

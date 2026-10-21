@@ -40,6 +40,9 @@ export type FeedbackSurfaceId = z.infer<typeof FeedbackSurfaceId>;
 
 const frac = z.number().min(0).max(1);
 const coord = z.number().min(0).max(1_000_000);
+/** A rectangle as fractions of a box (x/y from its corner; the far edge may sit a rounding hair past 1). */
+const fracRect = z.strictObject({ x: frac, y: frac, width: frac, height: frac });
+const FRAC_ROUNDING = 1.001;
 
 /** Where on the page a mark sits; which fields are set depends on the kind (see the refinement). */
 export const FeedbackAnchor = z
@@ -52,33 +55,54 @@ export const FeedbackAnchor = z
     /** Document coordinates. */
     pagePoint: z.strictObject({ x: coord, y: coord }).nullable(),
     rect: z.strictObject({ x: coord, y: coord, width: coord, height: coord }).nullable(),
+    /**
+     * An area's rectangle within its element's box, as fractions of the box (PM-917). Absent in older
+     * marks: absent counts as null.
+     */
+    elementRect: fracRect.nullable().optional(),
   })
   .superRefine((anchor, ctx) => {
-    const need = (field: 'selector' | 'elementOffset' | 'pagePoint' | 'rect') => {
-      if (anchor[field] === null) ctx.addIssue({ code: 'custom', path: [field], message: 'required' });
+    type Field = 'selector' | 'elementOffset' | 'pagePoint' | 'rect' | 'elementRect';
+    const need = (field: Field) => {
+      if (anchor[field] == null) ctx.addIssue({ code: 'custom', path: [field], message: 'required' });
     };
-    const forbid = (field: 'selector' | 'elementOffset' | 'pagePoint' | 'rect') => {
-      if (anchor[field] !== null) ctx.addIssue({ code: 'custom', path: [field], message: 'not allowed' });
+    const forbid = (field: Field) => {
+      if (anchor[field] != null) ctx.addIssue({ code: 'custom', path: [field], message: 'not allowed' });
+    };
+    // Both or neither: a point or area is pinned to an element only with all of the element's fields.
+    const together = (present: Field, partner: Field) => {
+      if (anchor[present] != null) need(partner);
     };
     switch (anchor.kind) {
       case 'point':
         need('pagePoint');
+        together('selector', 'elementOffset');
+        together('elementOffset', 'selector');
+        forbid('elementRect');
         break;
-      case 'area':
+      case 'area': {
         need('rect');
         if (anchor.rect && (anchor.rect.width < 4 || anchor.rect.height < 4))
           ctx.addIssue({ code: 'custom', path: ['rect'], message: 'too small' });
+        together('selector', 'elementRect');
+        together('elementRect', 'selector');
+        const inside = anchor.elementRect;
+        if (inside && (inside.x + inside.width > FRAC_ROUNDING || inside.y + inside.height > FRAC_ROUNDING))
+          ctx.addIssue({ code: 'custom', path: ['elementRect'], message: 'outside element' });
         break;
+      }
       case 'element':
         need('selector');
         need('elementOffset');
         need('pagePoint');
+        forbid('elementRect');
         break;
       case 'page':
         forbid('selector');
         forbid('elementOffset');
         forbid('pagePoint');
         forbid('rect');
+        forbid('elementRect');
         if (anchor.textSnippet !== null)
           ctx.addIssue({ code: 'custom', path: ['textSnippet'], message: 'not allowed' });
         break;

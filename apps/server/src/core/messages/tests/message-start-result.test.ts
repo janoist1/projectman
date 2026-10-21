@@ -5,7 +5,7 @@ import type { MessageStateReport, ToolContext } from '../../../contracts';
 import { aiActor } from '../../../kernel';
 import { WAKE_REPLY_WAIT_MS } from '../messaging';
 import { formatProjectState, formatSentMessage } from '../../../mcp/format';
-import { createDomainHarness, OWNER_ACTOR } from '../../../../test/helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from '../../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../../test/helpers/domain-harness';
 import { flush } from '../../../../test/helpers/fakes';
 
@@ -27,25 +27,43 @@ async function setup(adjust?: (config: ProjectConfig) => void): Promise<void> {
   await flush();
 }
 
-const operatorTool = (): ToolContext => ({
+const operatorTool = async (): Promise<ToolContext> => ({
   projectKey: 'AR',
   member: 'operator',
-  sessionId: h.domain.sessions.list('AR', { member: 'operator' })[0]!.id,
+  sessionId: (await waitForSession(h.domain, { member: 'operator' })).id,
   taskKey: null,
 });
 
 const stateOf = async (messageId: string): Promise<MessageStateReport> =>
-  (await h.domain.teamTools.getProjectState(operatorTool(), { messageId })) as MessageStateReport;
+  (await h.domain.teamTools.getProjectState(await operatorTool(), { messageId })) as MessageStateReport;
 
 describe('the Operator learns what became of its message (PM-543)', () => {
+  it('waits for the requested member when its session starts after the wait begins', async () => {
+    h = await createDomainHarness();
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+    let resolved = false;
+    const pending = waitForSession(h.domain, { member: 'operator' }).then((session) => {
+      resolved = true;
+      return session;
+    });
+    await flush();
+    expect(resolved).toBe(false);
+
+    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'Check the team.' });
+    const session = await pending;
+    expect(session.member).toBe('operator');
+    expect(session.workItem).toEqual({ type: 'general' });
+    expect(h.domain.sessions.get('AR', session.id)).toMatchObject({ member: 'operator' });
+  });
+
   it('starts the general session of a member without one, and reports it', async () => {
     await setup();
-    const result = await h.domain.teamTools.sendMessage(operatorTool(), {
+    const result = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Please look at the open cards.',
       kind: 'action',
     });
-    const session = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    const session = await waitForSession(h.domain, { member: 'dev-1' });
     expect(session.workItem).toEqual({ type: 'general' });
     expect(result.recipients).toEqual([
       { handle: 'dev-1', delivery: 'wake', start: { state: 'started', sessionId: session.id } },
@@ -68,7 +86,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
     await setup((config) => {
       ai(config, 'dev-1').onLeave = true;
     });
-    const result = await h.domain.teamTools.sendMessage(operatorTool(), {
+    const result = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Please look at the open cards.',
       kind: 'action',
@@ -92,7 +110,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
   it('says a paused project waits', async () => {
     await setup();
     await h.domain.pauses.pause(PROJECT, BY);
-    const result = await h.domain.teamTools.sendMessage(operatorTool(), {
+    const result = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Please look at the open cards.',
       kind: 'action',
@@ -111,7 +129,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
   it('reports a start that fails with its code and remembers it', async () => {
     await setup();
     h.runner.failNextStart = new Error('the CLI cannot start');
-    const result = await h.domain.teamTools.sendMessage(operatorTool(), {
+    const result = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Please look at the open cards.',
       kind: 'action',
@@ -127,7 +145,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
 
   it('says an info message and a message about a closed card start nothing', async () => {
     await setup();
-    const info = await h.domain.teamTools.sendMessage(operatorTool(), {
+    const info = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Just so you know.',
       kind: 'info',
@@ -136,7 +154,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
     expect((await stateOf(info.messageId)).recipients[0]).toMatchObject({ noWake: 'info', stale: null });
 
     h.domain.tasks.cancel('AR', 'AR-1', { reason: 'Fictional scope change.' }, OWNER_ACTOR);
-    const closed = await h.domain.teamTools.sendMessage(operatorTool(), {
+    const closed = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Please finish the login page.',
       kind: 'action',
@@ -155,7 +173,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
 
   it('never sends the Operator to a person for a member without a role on the card', async () => {
     await setup();
-    const result = await h.domain.teamTools.sendMessage(operatorTool(), {
+    const result = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Please look at this card.',
       kind: 'action',
@@ -208,7 +226,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
       },
       20,
     );
-    const result = await h.domain.teamTools.sendMessage(operatorTool(), {
+    const result = await h.domain.teamTools.sendMessage(await operatorTool(), {
       to: ['dev-1'],
       text: 'Please look at the open cards.',
       kind: 'action',
@@ -225,10 +243,10 @@ describe('the Operator learns what became of its message (PM-543)', () => {
   it('refuses message_id together with task_key, and an unknown message', async () => {
     await setup();
     await expect(
-      h.domain.teamTools.getProjectState(operatorTool(), { messageId: 'msg_x', taskKey: 'AR-1' }),
+      h.domain.teamTools.getProjectState(await operatorTool(), { messageId: 'msg_x', taskKey: 'AR-1' }),
     ).rejects.toBeInstanceOf(TeamToolError);
     await expect(
-      h.domain.teamTools.getProjectState(operatorTool(), { messageId: 'msg_unknown' }),
+      h.domain.teamTools.getProjectState(await operatorTool(), { messageId: 'msg_unknown' }),
     ).rejects.toMatchObject({ code: 'not_found' });
   });
 });

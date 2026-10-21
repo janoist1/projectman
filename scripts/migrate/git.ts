@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
 import { devNull } from 'node:os';
+import { execCommand, ExecCommandError } from '../../apps/server/src/exec';
 
 /**
  * git for the move tool (PM-143). It only reads the owner's repositories, except where a command
@@ -19,32 +19,31 @@ function gitEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 }
 
 /** Runs git without a shell; a non-zero exit rejects unless `okCodes` lists it. */
-export function git(
+export async function git(
   cwd: string,
   args: string[],
   opts: { okCodes?: number[]; env?: Record<string, string>; timeoutMs?: number } = {},
 ): Promise<GitResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
+  try {
+    const { stdout, stderr, exitCode } = await execCommand(
       'git',
       ['-c', `core.hooksPath=${devNull}`, '-c', 'commit.gpgSign=false', ...args],
       {
         cwd,
         env: gitEnv(opts.env ?? {}),
-        maxBuffer: 256 * 1024 * 1024,
-        timeout: opts.timeoutMs ?? 300_000,
-        encoding: 'utf8',
-      },
-      (error, stdout, stderr) => {
-        const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0;
-        if (code !== 0 && !(opts.okCodes ?? []).includes(code))
-          return reject(
-            new Error(`git ${args[0] ?? ''} failed (${code}) in ${cwd}: ${stderr.trim() || error?.message}`),
-          );
-        resolve({ stdout, stderr, code });
+        maxOutputBytes: 256 * 1024 * 1024,
+        timeoutMs: opts.timeoutMs ?? 300_000,
+        okExitCodes: [0, ...(opts.okCodes ?? [])],
       },
     );
-  });
+    return { stdout, stderr, code: exitCode };
+  } catch (error) {
+    if (!(error instanceof ExecCommandError)) throw error;
+    const code = error.reason === 'exit_code' ? error.exitCode : 1;
+    throw new Error(
+      `git ${args[0] ?? ''} failed (${code}) in ${cwd}: ${error.stderr.trim() || error.message}`,
+    );
+  }
 }
 
 /** Whether `dir` is inside a git work tree (or is a repository). */

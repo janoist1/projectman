@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import type { CloudConfig } from './config';
 import type { CloudContext } from './context';
+import type { CloudDeps } from './deps';
 import { badUsage, CloudError, refused } from './errors';
 import type { HostSession } from './host';
 
@@ -31,17 +33,25 @@ export const bundleSchema = z
   .strictObject({
     version: z.literal(1),
     sourceSha: sourceShaSchema,
-    images: z.array(imageSchema).length(2),
+    images: z.array(imageSchema).min(1).max(2),
   })
-  .refine((bundle) => new Set(bundle.images.map((image) => image.platform)).size === 2);
+  .refine((bundle) => new Set(bundle.images.map((image) => image.platform)).size === bundle.images.length);
 export type BundleImage = z.output<typeof imageSchema>;
+export type Platform = z.output<typeof platformSchema>;
+
+/** The platform of the target machine, by the same rule the deploy uses to pick its image (PM-916). */
+export function targetPlatform(config: CloudConfig): Platform {
+  return config.aws.compute === 'ec2' && config.aws.ec2?.architecture === 'arm64'
+    ? 'linux/arm64'
+    : 'linux/amd64';
+}
 export interface SelectedImage extends BundleImage {
   file: string;
   sourceSha: string;
 }
 
 /** No symlink component may redirect a bundle or an output to another directory. */
-function noSymlinks(file: string): void {
+export function noSymlinks(file: string): void {
   for (let current = path.resolve(file); ; current = path.dirname(current)) {
     if (fs.lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink())
       throw refused('image paths must not contain symlinks');
@@ -95,11 +105,9 @@ export function selectedImage(context: CloudContext, sha?: string): SelectedImag
     const bundle = bundleSchema.parse(JSON.parse(fs.readFileSync(manifestFile, 'utf8')));
     if (sha !== undefined && bundle.sourceSha !== sha)
       throw refused('bundle source SHA differs from the deployment target');
-    const platform =
-      context.config.aws.compute === 'ec2' && context.config.aws.ec2?.architecture === 'arm64'
-        ? 'linux/arm64'
-        : 'linux/amd64';
-    const image = bundle.images.find((entry) => entry.platform === platform)!;
+    const platform = targetPlatform(context.config);
+    const image = bundle.images.find((entry) => entry.platform === platform);
+    if (!image) throw refused(`image bundle has no ${platform} image`);
     const file = path.join(directory, image.archive);
     const digest = archiveDigest(file);
     if (digest.archiveBytes !== image.archiveBytes || digest.archiveSha256 !== image.archiveSha256)
@@ -134,6 +142,10 @@ export async function receiveImage(
   ]);
   const result = await context.deps.pipe({ command: 'cat', args: [image.file] }, command);
   if (result.code === 3) throw refused('the host refused the image import');
+  // A lost answer: the import may have happened; the caller reconciles instead of streaming again.
+  const lost =
+    result.code !== 0 && !host.signal.aborted ? host.transportError('receive-image', result) : null;
+  if (lost) throw lost;
   if (result.code !== 0 || host.signal.aborted) throw new CloudError('image stream or import failed');
   const schema = z.strictObject({
     imageId: imageIdSchema,
@@ -153,10 +165,124 @@ export async function receiveImage(
   }
 }
 
-async function checked(context: CloudContext, command: string, args: string[]): Promise<string> {
-  const result = await context.deps.run(command, args);
+/** What an image build needs of its environment: running a command and piping two. */
+export interface ImageBuildTools {
+  deps: Pick<CloudDeps, 'run' | 'pipe'>;
+}
+
+async function checked(
+  context: ImageBuildTools,
+  command: string,
+  args: string[],
+  signal?: AbortSignal,
+): Promise<string> {
+  const result = await context.deps.run(command, args, signal ? { signal } : undefined);
   if (result.code !== 0) throw new CloudError(`${command} ${args[0]} failed (status ${result.code})`);
   return result.stdout;
+}
+
+/** The exported tracked sources hold no symlink and no runtime data, whatever the commit tracked. */
+export function inspectSource(directory: string): void {
+  for (const name of fs.readdirSync(directory)) {
+    const file = path.join(directory, name);
+    const stat = fs.lstatSync(file);
+    if (
+      stat.isSymbolicLink() ||
+      /^(cloud\.env|\.env(?:\..*)?|\.aws|\.ssh|\.projectman|secrets|db\.sqlite(?:-.*)?)$/.test(name)
+    )
+      throw refused('source context contains a symlink or runtime data');
+    if (stat.isDirectory()) inspectSource(file);
+  }
+}
+
+/** Only the tracked files at `ref` enter the context: ignored or untracked runtime files never do. */
+async function exportTrackedSource(
+  context: ImageBuildTools,
+  root: string,
+  ref: string,
+  source: string,
+): Promise<void> {
+  const exported = await context.deps.pipe(
+    { command: 'git', args: ['-C', root, 'archive', '--format=tar', ref] },
+    { command: 'tar', args: ['-x', '-f', '-', '-C', source] },
+  );
+  if (exported.code !== 0) throw new CloudError('source archive export failed');
+  inspectSource(source);
+}
+
+async function buildArchive(
+  context: ImageBuildTools,
+  input: {
+    source: string;
+    ref: string;
+    platform: string;
+    file: string;
+    metadata: string;
+    signal?: AbortSignal;
+  },
+): Promise<{ imageId: string; archiveSha256: string; archiveBytes: number }> {
+  await checked(
+    context,
+    'docker',
+    [
+      'buildx',
+      'build',
+      '--platform',
+      input.platform,
+      '--build-arg',
+      `PROJECTMAN_VERSION=${input.ref}`,
+      '--tag',
+      `projectman-cloud:${input.ref}`,
+      '--output',
+      `type=docker,dest=${input.file}`,
+      '--metadata-file',
+      input.metadata,
+      '-f',
+      path.join(input.source, 'deploy/cloud/Dockerfile'),
+      input.source,
+    ],
+    input.signal,
+  );
+  const imageId = imageIdSchema.parse(
+    JSON.parse(fs.readFileSync(input.metadata, 'utf8'))['containerimage.config.digest'],
+  );
+  const digest = archiveDigest(input.file);
+  await verifyArchive(context, input.file, imageId, input.platform, input.ref);
+  return { imageId, ...digest };
+}
+
+/**
+ * The administration adapter's image build (PM-764): one platform of the tracked sources of `ref` in the
+ * repository at `repo`, built into a throwaway directory under `workDir`. The archive is verified against
+ * the Buildx metadata and hashed; it is neither loaded into Docker nor pushed anywhere, and the sources and
+ * the archive are removed again — only the digests leave. No working tree is read: `git archive` exports the
+ * commit, so an untracked file of the builder's tree cannot reach the build context.
+ */
+export async function buildPinnedImage(
+  context: ImageBuildTools,
+  input: { repo: string; ref: string; platform: string; workDir: string; signal?: AbortSignal },
+): Promise<{ platform: string; imageId: string; archiveSha256: string; archiveBytes: number }> {
+  if (!sourceShaSchema.safeParse(input.ref).success)
+    throw badUsage('an image build needs a 40 lowercase hexadecimal commit');
+  const platform = platformSchema.parse(input.platform);
+  fs.mkdirSync(input.workDir, { recursive: true, mode: 0o700 });
+  const out = fs.mkdtempSync(path.join(input.workDir, 'build-'));
+  try {
+    const source = path.join(out, 'source');
+    fs.mkdirSync(source, { mode: 0o700 });
+    await exportTrackedSource(context, input.repo, input.ref, source);
+    const built = await buildArchive(context, {
+      source,
+      ref: input.ref,
+      platform,
+      file: path.join(out, 'image.tar'),
+      metadata: path.join(out, 'metadata.json'),
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    return { platform, ...built };
+  } finally {
+    fs.rmSync(out, { recursive: true, force: true });
+  }
 }
 
 /** Validate loaded image content, never trust a tag or Buildx's platform declaration alone. */
@@ -185,7 +311,7 @@ export function verifyImage(value: unknown, imageId: string, platform: string, s
 }
 
 async function verifyArchive(
-  context: CloudContext,
+  context: ImageBuildTools,
   file: string,
   imageId: string,
   platform: string,
@@ -220,7 +346,12 @@ export async function runImageBuild(
   ref: string,
   output: string,
   dryRun: boolean,
+  requested: readonly Platform[],
 ): Promise<void> {
+  if (!requested.length || new Set(requested).size !== requested.length)
+    throw badUsage('image-build needs one or two different platforms');
+  // The manifest order is fixed, whatever order the caller asked in.
+  const platforms = platformSchema.options.filter((platform) => requested.includes(platform));
   if (!sourceShaSchema.safeParse(ref).success)
     throw badUsage('image-build --ref needs 40 lowercase hexadecimal characters');
   if (/[\0\r\n,]/.test(output)) throw badUsage('image-build --out contains an invalid character');
@@ -243,65 +374,32 @@ export async function runImageBuild(
   const builder = await checked(context, 'docker', ['buildx', 'inspect']);
   if (!/^Driver:\s+docker-container\s*$/m.test(builder))
     throw refused('a pre-existing docker-container Buildx builder is required');
-  for (const arch of ['amd64', 'arm64'])
-    if (!new RegExp(`linux/${arch}(?:/v[0-9]+)?(?:[*,\\s]|$)`).test(builder))
-      throw refused(`builder does not support linux/${arch}`);
+  for (const platform of platforms)
+    if (!new RegExp(`${platform}(?:/v[0-9]+)?(?:[*,\\s]|$)`).test(builder))
+      throw refused(`builder does not support ${platform}`);
   context.report.step(
     'ok',
     'image-build',
-    `${ref}: linux/amd64 and linux/arm64 to ${out}${dryRun ? ' (dry-run)' : ''}`,
+    `${ref}: ${platforms.join(' and ')} to ${out}${dryRun ? ' (dry-run)' : ''}`,
   );
   if (dryRun) return;
   fs.mkdirSync(out, { mode: 0o700 });
   const source = path.join(out, 'source');
   fs.mkdirSync(source, { mode: 0o700 });
   try {
-    // Only tracked files at the checked SHA enter the context: ignored runtime files never enter it.
-    const exported = await context.deps.pipe(
-      { command: 'git', args: ['-C', root, 'archive', '--format=tar', ref] },
-      { command: 'tar', args: ['-x', '-f', '-', '-C', source] },
-    );
-    if (exported.code !== 0) throw new CloudError('source archive export failed');
-    const inspectSource = (directory: string) => {
-      for (const name of fs.readdirSync(directory)) {
-        const file = path.join(directory, name);
-        const stat = fs.lstatSync(file);
-        if (
-          stat.isSymbolicLink() ||
-          /^(cloud\.env|\.env(?:\..*)?|\.aws|\.ssh|\.projectman|secrets|db\.sqlite(?:-.*)?)$/.test(name)
-        )
-          throw refused('source context contains a symlink or runtime data');
-        if (stat.isDirectory()) inspectSource(file);
-      }
-    };
-    inspectSource(source);
+    await exportTrackedSource(context, root, ref, source);
     const images: BundleImage[] = [];
-    for (const platform of platformSchema.options) {
+    for (const platform of platforms) {
       const archive = `${platform.replace('/', '-')}.tar` as BundleImage['archive'];
       const file = path.join(out, archive);
-      const metadata = path.join(out, `${platform.replace('/', '-')}.metadata.json`);
-      await checked(context, 'docker', [
-        'buildx',
-        'build',
-        '--platform',
-        platform,
-        '--build-arg',
-        `PROJECTMAN_VERSION=${ref}`,
-        '--tag',
-        `projectman-cloud:${ref}`,
-        '--output',
-        `type=docker,dest=${file}`,
-        '--metadata-file',
-        metadata,
-        '-f',
-        path.join(source, 'deploy/cloud/Dockerfile'),
+      const built = await buildArchive(context, {
         source,
-      ]);
-      const imageId = imageIdSchema.parse(
-        JSON.parse(fs.readFileSync(metadata, 'utf8'))['containerimage.config.digest'],
-      );
-      const digest = archiveDigest(file);
-      await verifyArchive(context, file, imageId, platform, ref);
+        ref,
+        platform,
+        file,
+        metadata: path.join(out, `${platform.replace('/', '-')}.metadata.json`),
+      });
+      const { imageId, ...digest } = built;
       await checked(context, 'docker', ['load', '--input', file]);
       verifyImage(
         JSON.parse(await checked(context, 'docker', ['image', 'inspect', imageId])),

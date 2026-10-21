@@ -77,6 +77,7 @@ async function setup(
     nanogptKey: options.nanogptKey,
     nanogptCodexHome: options.nanogptCodexHome,
     publicBaseUrl: `http://127.0.0.1:${port}`,
+    sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
     broker,
     permissionTimeoutMs: options.permissionTimeoutMs ?? 10_000,
     logger: silentLogger(),

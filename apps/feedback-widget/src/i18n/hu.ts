@@ -11,6 +11,9 @@ export const hu = {
   'launcher.list': 'Jelölések listája, {count} nyitott',
   'launcher.listUnread': 'Jelölések listája, {count} nyitott, új válasz',
   'launcher.more': 'További lehetőségek',
+  'launcher.share': 'Megosztás',
+  'launcher.shareStop': 'A képernyőmegosztás él. Leállítás',
+  'launcher.shareStopTitle': 'Megosztás leállítása',
 
   'mode.element': 'Elem',
   'mode.point': 'Pont',
@@ -35,6 +38,21 @@ export const hu = {
   'new.screenshotWait': 'Kép készül…',
   'new.screenshotFailed': 'A képernyőkép nem készült el, kép nélkül küldjük.',
   'new.screenshotPreview': 'A képernyőkép előnézete',
+  'new.screenshotFailedOffer':
+    'Az automatikus kép nem készült el. Készítsd a böngészővel, vagy küldd kép nélkül.',
+  'new.browserShot': 'Képernyőkép a böngészővel',
+  'new.browserShotHint': 'A böngésző egyszer engedélyt kér, és amíg a megosztás él, nem kérdez újra.',
+  'new.browserShotAskReady': 'Nem jó a kép?',
+  'new.browserShotAskWait': 'Lassú?',
+  'new.browserShotAction': 'Készítsd a böngészővel',
+  'new.browserShotAsking': 'Engedélyre vár…',
+  'new.shotFromBrowser': 'A böngészővel készült, a jelöléssel kiemelve.',
+  'new.shotFromWindow':
+    'A böngészővel készült. A jelölés helye nem került rá, mert nem ezt a lapot osztottad meg.',
+  'new.browserDeniedAuto': 'Nem kaptunk engedélyt, ezért az automatikus képet küldjük.',
+  'new.browserDeniedNone': 'Nem kaptunk engedélyt, ezért kép nélkül küldjük.',
+  'new.browserErrorAuto': 'A böngészős kép nem készült el, ezért az automatikus képet küldjük.',
+  'new.browserErrorNone': 'A böngészős kép nem készült el, ezért kép nélkül küldjük.',
   'new.cancel': 'Mégse',
   'new.send': 'Küldés',
   'new.sending': 'Küldés…',
@@ -143,6 +161,7 @@ export const hu = {
   'time.dateAt': '{date} {time}',
 
   'notice.sentNoShot': 'Elküldve. A képernyőkép nem készült el, kép nélkül küldtük.',
+  'notice.shareStopped': 'A megosztás leállt. A képek újra automatikusan készülnek.',
 } as const;
 
 export type TextKey = keyof typeof hu;

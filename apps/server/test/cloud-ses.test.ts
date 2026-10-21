@@ -3,17 +3,27 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COMMANDS, runCloud } from '../../../scripts/cloud/commands';
 import { parseConfig } from '../../../scripts/cloud/config';
-import { updateEnvFile } from '../../../scripts/cloud/secrets';
+import { removeEnvNames, updateEnvFile } from '../../../scripts/cloud/secrets';
 import { sesPolicy } from '../../../scripts/cloud/ses';
 import { ACCOUNT, baseConfig } from './helpers/fake-aws';
 import { CF_TOKEN, CloudflareWorld } from './helpers/fake-cloudflare';
-import { SES_CONFIG, sesIdentity, SesWorld, TOKENS, USER } from './helpers/fake-ses';
+import {
+  I_SES_CONFIG,
+  SES_ACCOUNTS,
+  SES_CONFIG,
+  sesIdentity,
+  SesWorld,
+  TOKENS,
+  USER,
+} from './helpers/fake-ses';
 
 let world: SesWorld;
 beforeEach(() => {
   world = new SesWorld();
 });
 afterEach(() => {
+  // The account that ses.profile does not name is never read or written.
+  expect(world.other.calls).toEqual([]);
   world.cleanup();
   vi.restoreAllMocks();
 });
@@ -55,18 +65,21 @@ describe('SES config and command preconditions', () => {
     expect(world.ses.calls).toEqual([]);
   });
 
-  it('refuses implicit or explicit registrar profile i for SES', () => {
-    for (const profile of [undefined, 'i'])
-      expect(() =>
-        parseConfig(
-          {
-            ...baseConfig(),
-            aws: { ...(baseConfig().aws as object), profile },
-            ses: { ...SES_CONFIG, domain: 'example.com', from: 'login@example.com' },
-          },
-          world.home,
-        ),
-      ).toThrow('central-account');
+  it('resolves a missing ses.profile to aws.profile, implicit i included, and takes an explicit one', () => {
+    const ses = { ...SES_CONFIG, domain: 'example.com', from: 'login@example.com' };
+    const resolve = (awsProfile: string | undefined, sesProfile?: string) =>
+      parseConfig(
+        {
+          ...baseConfig(),
+          aws: { ...(baseConfig().aws as object), profile: awsProfile },
+          ses: { ...ses, ...(sesProfile ? { profile: sesProfile } : {}) },
+        },
+        world.home,
+      ).ses!.profile;
+    expect(resolve(undefined)).toBe('i');
+    expect(resolve('aroom')).toBe('aroom');
+    expect(resolve('aroom', 'i')).toBe('i');
+    expect(resolve('i', 'aroom')).toBe('aroom');
   });
 
   it.each([['configure', '--rotate-keys'], ['plan', '--dry-run'], ['check', '--dry-run'], ['unknown']])(
@@ -172,7 +185,7 @@ describe('SES plan and configure', () => {
         (call) => call.argv.slice(0, 6).join(' ') === '--profile aroom --region eu-central-1 --output json',
       ),
     ).toBe(true);
-    expect(world.output).toContain('registrar profile i is not used');
+    expect(world.output).toContain(`SES profile aroom, account ${ACCOUNT}, region eu-central-1`);
     expect(world.output).toContain('sending mail may incur AWS charges');
     expect(world.ses.calls.some((call) => /put-account-details|[Ss]end[Ee]mail/.test(call.args[1]!))).toBe(
       false,
@@ -510,4 +523,152 @@ describe('production request and read-only check', () => {
       expect(readFileSync(world.envFile, 'utf8')).toBe(env);
     },
   );
+});
+
+describe('SES in its own AWS account (PM-729)', () => {
+  const TARGET = '--profile i --region eu-west-1 --output json';
+  const I_ACCOUNT = SES_ACCOUNTS.i!;
+  const usesTarget = () =>
+    world.ses.calls.every((call) => call.argv.slice(0, 6).join(' ') === TARGET) && world.ses.calls.length > 0;
+  const prepared = () => {
+    world.ses.identity = sesIdentity();
+    world.ses.account.ProductionAccessEnabled = true;
+    world.verify();
+    world.cf.records.push(
+      ...TOKENS.map((token, index) => ({
+        id: `own-${index}`,
+        zone_id: world.cf.zones[0]!.id,
+        type: 'CNAME',
+        name: `${token}._domainkey.istvan.io`,
+        content: `${token}.dkim.amazonses.com`,
+        proxied: false,
+        ttl: 1,
+      })),
+    );
+  };
+
+  beforeEach(() => {
+    world.cleanup();
+    world = new SesWorld(I_SES_CONFIG);
+  });
+
+  it('names the target in the log and runs plan, dry-run and check only against it', async () => {
+    prepared();
+    expect(await run('plan')).toBe(0);
+    expect(world.output).toContain(`SES profile i, account ${I_ACCOUNT}, region eu-west-1`);
+    expect(world.output).not.toContain('registrar profile');
+    expect(usesTarget()).toBe(true);
+    clear();
+    expect(await run('configure', '--dry-run')).toBe(0);
+    noWrites();
+    expect(usesTarget()).toBe(true);
+    expect(world.output).toContain(`eu-west-1:${I_ACCOUNT}:identity/istvan.io`);
+    clear();
+    expect(await run('check')).toBe(1);
+    expect(usesTarget()).toBe(true);
+  });
+
+  it('keeps the existing identity and DKIM, creates the narrow user and key in the target account only', async () => {
+    prepared();
+    const records = structuredClone(world.cf.records);
+    updateEnvFile(world.envFile, { UNRELATED: 'keep' });
+    expect(await run('configure')).toBe(0);
+    expect(usesTarget()).toBe(true);
+    expect(world.ses.calls.some((call) => call.args[1] === 'create-email-identity')).toBe(false);
+    expect(world.cf.mutations()).toEqual([]);
+    expect(world.cf.records).toEqual(records);
+    expect(world.ses.user!.Arn).toBe(`arn:aws:iam::${I_ACCOUNT}:user/${USER}`);
+    expect(world.ses.inline.get('ses-send')).toEqual(sesPolicy(I_SES_CONFIG, I_ACCOUNT));
+    expect(JSON.stringify(world.ses.inline.get('ses-send'))).toContain(
+      `arn:aws:ses:eu-west-1:${I_ACCOUNT}:identity/istvan.io`,
+    );
+    const env = readFileSync(world.envFile, 'utf8');
+    expect(env).toContain('UNRELATED=keep\n');
+    expect(env).toContain('PROJECTMAN_SES_REGION=eu-west-1\n');
+    expect(env).toContain('PROJECTMAN_EMAIL_LOGIN_ENABLED=1\n');
+    expect(env).toContain(`PROJECTMAN_SES_SECRET_ACCESS_KEY=${world.ses.issuedSecret}\n`);
+    expect(statSync(world.envFile).mode & 0o777).toBe(0o600);
+    expect(world.output).not.toContain(world.ses.issuedSecret);
+    clear();
+    expect(await run('check')).toBe(0);
+    noWrites();
+    expect(usesTarget()).toBe(true);
+    clear();
+    expect(await run('configure')).toBe(0);
+    noWrites();
+    expect(readFileSync(world.envFile, 'utf8')).toBe(env);
+  });
+
+  it('creates a missing identity in the target account and requests production there', async () => {
+    expect(await run('configure')).toBe(0);
+    expect(world.ses.calls.filter((call) => call.args[1] === 'create-email-identity')).toHaveLength(1);
+    expect(usesTarget()).toBe(true);
+    expect(world.cf.records).toHaveLength(3);
+    clear();
+    expect(await run('request-production')).toBe(0);
+    expect(world.ses.mutations().map((call) => call.args[1])).toEqual(['put-account-details']);
+    expect(usesTarget()).toBe(true);
+    world.ses.account.ProductionAccessEnabled = true;
+    clear();
+    expect(await run('request-production')).toBe(0);
+    noWrites();
+    expect(usesTarget()).toBe(true);
+  });
+
+  it('refuses a key of the former account in the local env until it is explicitly removed', async () => {
+    prepared();
+    updateEnvFile(world.envFile, {
+      PROJECTMAN_SES_ACCESS_KEY_ID: 'AKIAFORMERACCOUNT0001',
+      PROJECTMAN_SES_SECRET_ACCESS_KEY: 'former-account-secret',
+      PROJECTMAN_SES_REGION: 'eu-central-1',
+      PROJECTMAN_EMAIL_LOGIN_ENABLED: '1',
+      UNRELATED: 'keep',
+    });
+    expect(await run('configure')).toBe(2);
+    expect(world.output).toContain('incomplete credentials');
+    expect(world.output).not.toContain('former-account-secret');
+    noWrites();
+    expect(world.ses.user).toBeNull();
+    removeEnvNames(world.envFile, ['PROJECTMAN_SES_ACCESS_KEY_ID', 'PROJECTMAN_SES_SECRET_ACCESS_KEY']);
+    updateEnvFile(world.envFile, { PROJECTMAN_EMAIL_LOGIN_ENABLED: '0' });
+    clear();
+    expect(await run('configure')).toBe(0);
+    expect(world.ses.keys).toHaveLength(1);
+    expect(readFileSync(world.envFile, 'utf8')).toContain('UNRELATED=keep\n');
+    clear();
+    expect(await run('check')).toBe(0);
+  });
+
+  it('refuses a user whose ARN belongs to another account than the target', async () => {
+    prepared();
+    world.ses.managedUser();
+    world.ses.user!.Arn = `arn:aws:iam::${SES_ACCOUNTS.aroom}:user/${USER}`;
+    expect(await run('configure')).toBe(2);
+    expect(world.output).toContain('configured SES account');
+    noWrites();
+  });
+
+  it('deletes a freshly issued key with the target profile when it cannot be saved', async () => {
+    prepared();
+    const original = world.deps();
+    expect(
+      await runCloud(
+        ['ses', 'configure'],
+        world.deps({
+          run: async (command, args, options) => {
+            const result = await original.run(command, args, options);
+            if (args[6] === 'iam' && args[7] === 'create-access-key') chmodSync(world.secretsDir, 0o500);
+            if (args[7] === 'delete-access-key') chmodSync(world.secretsDir, 0o700);
+            return result;
+          },
+        }),
+      ),
+    ).toBe(1);
+    chmodSync(world.secretsDir, 0o700);
+    const deletion = world.ses.calls.filter((call) => call.args[1] === 'delete-access-key');
+    expect(deletion).toHaveLength(1);
+    expect(deletion[0]!.argv.slice(0, 6).join(' ')).toBe(TARGET);
+    expect(world.ses.keys).toEqual([]);
+    expect(world.output).not.toContain(world.ses.issuedSecret);
+  });
 });

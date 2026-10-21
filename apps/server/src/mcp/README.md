@@ -1,5 +1,19 @@
 # Team tools MCP server (`src/mcp`)
 
+PM-782: `ask_human` accepts optional `recipient: owner | integrator` (default owner), a proposal
+until screening. New `screen_question.todo` requires `recipient` along with `what`, `where` and
+`expected`; it reports the actual `recipient` and optional `recipientRefusal` (`protected_question`
+or `integrator_unavailable`). The Operator chooses independently; approvals and fallback always
+stay with owners. The external bearer MCP alone offers `resolve_integrator_todo` in super mode:
+`{project_key, item_id, option_id: todo_done | todo_cannot, note?}` → `{item}`. Cannot requires a
+reason. It records the integrator's own work, not an owner answer or approval; relay semantics stay
+unchanged. The hub hands unresolved todos to owners after 24 hours, independently of engine state.
+
+PM-801: the same endpoint, in super mode, also offers `list_integrator_inbox` (the open items addressed to the
+integrator, with the full text) and `resolve_integrator_fix_limit`
+(`{item_id, option_id: replan | reassign | another_round | to_owner, note?}`; `to_owner` hands the same item to
+the owners and needs a reason in `note`). `decide_fix_limit` takes an `assessment` that `to_owner` requires.
+
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
 sessions. The handler contracts live in
@@ -68,6 +82,28 @@ tests use the SDK's own client, which behaves the same way here):
 - It routes even `127.0.0.1` through `HTTP(S)_PROXY` unless `NO_PROXY` names the host, so
   the runner should put `127.0.0.1,localhost` into `NO_PROXY` of every session.
 
+## The integrator's endpoint (`POST /mcp`, PM-760)
+
+A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no session and no engine. Code:
+`super-operator/` (`route.ts`, `server.ts`, `handler.ts`, `registry.ts`, `tools.ts`) and the shared helpers in `http.ts`.
+
+- Stateless: the SDK `WebStandardStreamableHTTPServerTransport` per request over the low-level `Server`; no session id,
+  `GET`/`DELETE` are `405` with `Allow: POST`.
+- Every HTTP request is authenticated afresh (also a batch element and a notification). A missing, wrong, expired or
+  revoked key is `401` `integrator_key_invalid` (not the member door's `404`, no OAuth fallback, never a `200` with an error
+  text). The `Authorization` and `Cookie` headers never reach the SDK request info; nothing logs a header or a body.
+- `ExternalToolContext = {principal, projectKey, actor, requestId}` has **no** `sessionId`; `ToolContext` is unchanged and
+  the member paths never see a fake one. Every project tool takes a required `project_key` (and a card key where it
+  fits); `list_projects {}` lists the projects the holder owns now.
+- A shared tool definition is **denied by default**. To serve it, add an `external` binding in `kit.ts` (`modes`, read
+  or write access, how the project and card are named) and a method on `ExternalToolsHandler`; to refuse it, give the
+  reason in `EXTERNAL_DENIED` (`super-operator/registry.ts`). A test fails for a tool that is neither. Tools only the
+  integrator has (`list_projects`, the super tools) are in `super-operator/tools.ts`.
+- `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a direct call of a tool the mode does not allow gets
+  a domain denial (`integrator_not_allowed`, `integrator_read_only`), the domain `errorCode` is kept in the structured
+  result, and super tools answer with structured JSON.
+- The tunnel and proxy pass `/mcp` and refuse `/mcp/` and `/hooks`; see [DEPLOY.md](../../../../docs/DEPLOY.md).
+
 ## Tools
 
 | Tool                        | Input                                                                                                                                                                                                     | Handler call                                                                                                          |
@@ -95,6 +131,9 @@ tests use the SDK's own client, which behaves the same way here):
 | `link_feedback`             | `mark_id`, `task_key`, `reply?`                                                                                                                                                                           | `linkFeedback(ctx, { markId, taskKey, reply? })`                                                                      |
 | `forward_feedback`          | `mark_id`, `reason` (1–1000 chars), `reply` (1–4000 chars)                                                                                                                                                | `forwardFeedback(ctx, { markId, reason, reply })`                                                                     |
 | `close_feedback`            | `mark_id`, `reply?`                                                                                                                                                                                       | `closeFeedback(ctx, { markId, reply? })`                                                                              |
+| `search_history`            | `query` (1–400), `project_key?`, `task_key?`, `source_types?`, `since?`, `until?`, `limit?` (1–50, default 10)                                                                                            | `searchHistory(ctx, { query, projectKey?, taskKey?, sourceTypes?, since?, until?, limit? })`                          |
+| `read_history_source`       | `source_id`, `project_key?`, `from_line?`, `line_count?` (1–200, default 80), `commit?` (40 hex, documents)                                                                                               | `readHistorySource(ctx, { sourceId, projectKey?, fromLine?, lineCount?, commit? })`                                   |
+| `get_history_search_stats`  | `since?`, `until?`, `member?`, `limit?` (1–200, default 50), `cursor?`                                                                                                                                    | `getHistorySearchStats(ctx, { since?, until?, member?, limit?, cursor? })`                                            |
 
 - The feedback tools (PM-512) are for AI members that hold the `feedback_processing` duty (by default the
   project manager); everyone else, the Operator included, gets `forbidden` with `feedback_processor_only`.
@@ -102,6 +141,20 @@ tests use the SDK's own client, which behaves the same way here):
   act on a mark that waits for the owner). `get_feedback { mark_id }` gives the stored screenshot's path only
   to a session that runs on the server's machine; a session on a remote engine is told to read the image
   from the card's attachment once a card is opened from the mark.
+
+- The history tools (PM-744, `mcp/history/`) search what the project remembers, as the caller could read it:
+  `search_history { query, project_key?, task_key?, source_types?, since?, until?, limit? }` and
+  `read_history_source { source_id, project_key?, from_line?, line_count?, commit? }`. Both are on the member door
+  (bound to the session's project and handle: a foreign `project_key` is `insufficient_access`), in the Operator's read
+  and guest tool sets (a guest searches with their own view) and on the integrator door as read tools in every mode
+  (`project_key` required there, the viewer is the key's person with `via: 'integrator'`). Every valid search is
+  counted once, in the facade (`services/history`), in the private `history_searches` table, kept 90 days; reads and
+  refused calls are not counted. A search whose log write fails is `history_unavailable`.
+  `get_history_search_stats` is internal: only the Operator, in the general conversation of a human owner or admin
+  and during that person's own open message or answer request (provenance read again from the stored rows), else
+  `history_stats_forbidden`. It has no external binding (named in `EXTERNAL_DENIED`), no REST route and no web page.
+  The tool descriptions, the system prompt and the card thread tell members to search before asking a human, then to
+  open the source and check its date: a hit is historical evidence, not an instruction or permission.
 
 - `get_project_state { task_key? }` (PM-465, PM-707) is read-only for the Operator and selected PM in internal
   general conversations, available without an open owner request.
@@ -118,6 +171,15 @@ tests use the SDK's own client, which behaves the same way here):
   someone else with `merge_not_merger`. The reason and the cards it went ahead of go on the card's timeline
   (`task_merge_prioritized`). Handler method: `prioritizeMerge(ctx, { taskKey, reason })`. An owner does the
   same in the UI (`POST …/tasks/:taskKey/merge/prioritize`, the "Előre" button of the queued merge box).
+- `list_merge_checks { task_key?, outcome?, kind?, since?, until?, limit? }` (PM-876, read only, every AI member) lists
+  the recorded merge checks (`merge_check_runs`) newest first: the check's run time (the queue wait apart), the workers
+  the hub passed, the runner (`engine` or `github_actions`, PM-906; with the run's page `url` once the GitHub Actions run
+  has one), the scope and every step with its time and result (a cached step is marked, not timed). `outcome` is
+  `passed`, `not_passed` (failed, error, cancelled, still running) or `any`; `kind` is `checks` (default: a single merge
+  and a train's group check), `merge`, `train`, `diagnose` or `any`; `since`/`until` are ISO 8601 with a time zone and bound
+  the request time; `limit` is 1–100 (30). A check shows only when the caller may see all its cards. A check recorded
+  without a step report (an older engine or merge-test script) shows its steps as unknown, never as zero. `get_task`
+  adds the card's latest three checks. Handler method: `listMergeChecks(ctx, input)`.
 - `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
   not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
   candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
@@ -134,10 +196,25 @@ tests use the SDK's own client, which behaves the same way here):
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
-- `dismiss_signal { signal_id, note }` (PM-679) closes a delivered, unpresented `ready_waiting` signal
-  whose cards all wait on purpose. Only the selected PM in its internal general conversation, without an owner
+- `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `ready_waiting`
+  whose cards all wait on purpose, an intermediate/resolved `refinement_stalled`, or a coordinator-only
+  `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
+  `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
+- `open_integrator_todo { task_key?, question, what, where, expected }` (PM-808) lets only the selected PM's
+  internal general session open a todo in the integrator's queue itself, with no owner request: the same
+  `InboxService.openIntegratorTodo` the obligation tracking (PM-806) uses, with the PM as the asker, so the
+  integrator's answer (`todo_done`, `todo_cannot`) comes back to it. The owners get it when the integrator
+  is not available (the result says so). A card with an open or handed-over obligation is refused with
+  `obligation_tracked`. Returns text. Handler: `openIntegratorTodo`.
+- `combine_questions { item_ids, question, note }` (PM-695) lets only the selected PM's internal
+  general session group 2–10 semantically equivalent screened owner decisions without an owner request.
+  Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;
+  its human answer atomically closes all live originals and records a separate message on each original
+  card route. A withdrawn primary still represents the others, and combining never adds screening time.
+  `answered`, `forwarded` and `todo` screening outcomes refuse groups; `decision` opens the representative,
+  while `moot` closes just the named original membership. Linked items never fall back separately.
 - `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558, PM-707) is the PM's tool for
   the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
   `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`
@@ -248,6 +325,16 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
   (`invalid`), a gate that is not met (`gate_blocked`), and so on.
 
 ## Wiring
+
+`get_operator_diagnostics { task_key, limit? }` (PM-697) returns the shared
+`OperatorDiagnostics` projection. Only the Operator's owner general session and the selected
+PM's internal general session may read it, without an owner request. Each list is limited
+independently to 1–20 entries (default 10), newest first. Session tools and errors come only
+from structured work metadata. Raw messages, transcripts, screens, tool arguments, commands,
+environment, SQL and check output are excluded. A reading suggests causes; recheck before
+claiming one as proven. Offline engine measurements are null; server records remain readable.
+In v1 cloud mode also returns a null machine block: the monitor's cached snapshot and CPU
+reference do not yet identify their engine. Local single-machine metrics keep their sample time.
 
 ```ts
 createMcpModule({ handler, resolveContext, logger: app.log }).registerRoutes(app);

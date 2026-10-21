@@ -343,6 +343,81 @@ describe('work outage watch', () => {
     expect(deferred.list()).toEqual([]);
   });
 
+  describe('waiting-message keys across a task list', () => {
+    async function waitingCards() {
+      engineId = remote;
+      online = false;
+      const tasks: Task[] = [];
+      for (let index = 0; index < 5; index++)
+        tasks.push(await h.domain.tasks.create('AR', { title: `Card ${index}` }, OWNER_ACTOR));
+      for (const task of tasks.slice(0, 2))
+        await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], taskKey: task.key, text: 'Read this' });
+      await watch.check();
+      return tasks;
+    }
+    /** What a task list does: ask every card, with other work awaited between the cards. */
+    async function markAll(tasks: Task[]) {
+      const marked: boolean[] = [];
+      for (const task of tasks) {
+        marked.push(watch.forTask(task)?.kind === 'engine');
+        await flush();
+      }
+      return marked;
+    }
+
+    it('reads each outage member once per window, across awaited card work', async () => {
+      const tasks = await waitingCards();
+      const read = vi.spyOn(h.domain.messaging, 'pendingTaskKeys');
+      expect(await markAll(tasks)).toEqual([true, true, false, false, false]);
+      const members = read.mock.calls.map(([project, handle]) => `${project}:${handle}`);
+      expect(members.length).toBeGreaterThan(0);
+      expect(new Set(members).size).toBe(members.length);
+      await markAll(tasks);
+      expect(read).toHaveBeenCalledTimes(members.length);
+    });
+
+    it('keeps an empty result for the window and refreshes after it', async () => {
+      engineId = remote;
+      online = false;
+      const [first, second] = [
+        await h.domain.tasks.create('AR', { title: 'First' }, OWNER_ACTOR),
+        await h.domain.tasks.create('AR', { title: 'Second' }, OWNER_ACTOR),
+      ];
+      await watch.check();
+      const read = vi.spyOn(h.domain.messaging, 'pendingTaskKeys');
+      expect(await markAll([first!, second!])).toEqual([false, false]);
+      const reads = read.mock.calls.length;
+      const members = read.mock.calls.map(([project, handle]) => `${project}:${handle}`);
+      expect(reads).toBeGreaterThan(0);
+      expect(new Set(members).size).toBe(reads);
+
+      await h.domain.messaging.send('AR', 'owner', {
+        to: ['dev-1'],
+        taskKey: first!.key,
+        text: 'Now waiting',
+      });
+      expect(watch.forTask(first!)).toBeUndefined();
+      expect(read).toHaveBeenCalledTimes(reads);
+
+      const now = h.domain.ctx.now().getTime();
+      vi.mocked(h.domain.ctx.now).mockReturnValue(new Date(now + 1_999));
+      expect(watch.forTask(first!)).toBeUndefined();
+      vi.mocked(h.domain.ctx.now).mockReturnValue(new Date(now + 2_000));
+      expect(watch.forTask(first!)).toMatchObject({ kind: 'engine' });
+      expect(watch.forTask(second!)).toBeUndefined();
+    });
+
+    it('does not mark a card once its message is delivered and the window has passed', async () => {
+      const tasks = await waitingCards();
+      expect(watch.forTask(tasks[0]!)).toMatchObject({ kind: 'engine' });
+      online = true;
+      probe.mockImplementation(async (provider) => status(provider, null));
+      await watch.check();
+      vi.mocked(h.domain.ctx.now).mockReturnValue(new Date(h.domain.ctx.now().getTime() + 2_000));
+      expect(watch.forTask(tasks[0]!)).toBeUndefined();
+    });
+  });
+
   it('reacts to engine connection events through the domain hook', async () => {
     engineId = remote;
     online = false;

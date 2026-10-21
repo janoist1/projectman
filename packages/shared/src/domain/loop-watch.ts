@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { MemberHandle } from './member';
 import { dutyMembers } from '../config/duties';
 import { isOnLeave } from '../config/leave';
 import { memberOf } from '../config/lookup';
@@ -13,6 +15,77 @@ import type { TimelineEvent } from './event';
  */
 
 const MINUTE_MS = 60_000;
+
+/** Sanitized server facts for the PM's report-only loop assessment (PM-712). */
+export const LoopTriageFacts = z.strictObject({
+  loopId: z.string(),
+  generation: z.number().int().min(0),
+  reason: z.enum(['initial', 'continued']),
+  members: z.array(MemberHandle).min(2).max(50),
+  count: z.number().int().min(0),
+  startedAt: z.string().datetime(),
+  lastMessageAt: z.string().datetime(),
+  head: z.strictObject({ commit: z.string(), committedAt: z.string().datetime() }).nullable(),
+  latestWorkAt: z.string().datetime().nullable(),
+  evidenceIds: z.array(z.string()).max(20),
+});
+export type LoopTriageFacts = z.infer<typeof LoopTriageFacts>;
+
+export const LOOP_TRIAGE_TIMEOUT_MS = 600_000;
+/** Private loop lifecycle state; it is never part of the public TaskLoop DTO. */
+export const LoopTriageState = z.strictObject({
+  generation: z.number().int().min(0),
+  pendingSignalId: z.string().nullable(),
+  requestedCount: z.number().int().min(0),
+  assessed: z
+    .strictObject({
+      by: MemberHandle,
+      at: z.string().datetime(),
+      outcome: z.enum(['progress', 'loop']),
+      note: z.string().min(1).max(2000),
+      evidenceIds: z.array(z.string()).max(20),
+      headCommit: z.string().nullable(),
+      count: z.number().int().min(0),
+    })
+    .nullable(),
+  deadline: z
+    .strictObject({
+      remainingMs: z.number().int().min(0).max(LOOP_TRIAGE_TIMEOUT_MS),
+      resumedAt: z.string().datetime().nullable(),
+    })
+    .optional(),
+});
+export type LoopTriageState = z.infer<typeof LoopTriageState>;
+
+/** A delivery starts the online budget; an offline engine or an undelivered handover freezes it. */
+export function loopTriageDeadline(input: {
+  deadline: LoopTriageState['deadline'];
+  deliveredAt: string | null;
+  engineOnline: boolean;
+  lastConfirmedOnlineAt: string | null;
+  now: string;
+}): LoopTriageState['deadline'] {
+  if (!input.deadline && !input.deliveredAt) return undefined;
+  const current = input.deadline ?? { remainingMs: LOOP_TRIAGE_TIMEOUT_MS, resumedAt: input.deliveredAt };
+  const from = Date.parse(current.resumedAt ?? input.now);
+  const measuredAt = input.engineOnline
+    ? Date.parse(input.now)
+    : Math.max(from, Date.parse(input.lastConfirmedOnlineAt ?? current.resumedAt ?? input.now));
+  return {
+    remainingMs: current.resumedAt
+      ? Math.max(0, Math.min(current.remainingMs, current.remainingMs - (measuredAt - from)))
+      : current.remainingMs,
+    resumedAt: input.engineOnline && input.deliveredAt ? input.now : null,
+  };
+}
+
+/** Evidence may only name work, stage, label and check events on the same card. */
+export function isLoopTriageEvidence(event: Pick<TimelineEvent, 'type' | 'data'>): boolean {
+  return (
+    isLoopWork(event) ||
+    ['task_stage_changed', 'task_labels_changed', 'task_check_changed'].includes(event.type)
+  );
+}
 
 /** The duty whose AI holder is told first: following stuck work and reminding the next one is its job. */
 export const LOOP_WATCH_DUTY: DutyId = 'scheduling';

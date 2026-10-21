@@ -15,6 +15,16 @@ const creation: TimelineEvent = {
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
+it('renders a PM loop assessment without exposing its private note', () => {
+  const event: TimelineEvent = {
+    ...creation,
+    actor: { kind: 'ai', handle: 'pm' },
+    type: 'loop_triaged',
+    data: { loopId: 'loop_1', generation: 0, outcome: 'progress', evidenceIds: [], headCommit: null },
+  };
+  expect(describeEvent(event, context).text).toBe(t('timeline.events.loop_triaged'));
+});
+
 describe('merge queue timeline text (PM-576)', () => {
   it('names the cards a merge was put ahead of and the reason', () => {
     const event: TimelineEvent = {
@@ -239,6 +249,44 @@ describe('parts left after a breakdown on the timeline (PM-480)', () => {
   });
 });
 
+describe('open-step reminders on the timeline (PM-806)', () => {
+  const row = (type: 'obligation_woken' | 'obligation_handed_over', data: Record<string, unknown>) =>
+    describeEvent({ ...creation, actor: { kind: 'system', handle: null }, type, data }, context).text;
+
+  it('names the responsible, the step and the minutes', () => {
+    const data = { kind: 'merge', responsible: 'dev-1', minutes: 30 };
+    expect(row('obligation_woken', data)).toBe(
+      t('timeline.events.obligation_woken', { responsible: 'dev-1', step: 'beolvasztás', minutes: 30 }),
+    );
+    expect(row('obligation_handed_over', data)).toBe(
+      t('timeline.events.obligation_handed_over', { responsible: 'dev-1', step: 'beolvasztás', minutes: 30 }),
+    );
+  });
+
+  it('calls a step kind this build does not know a step', () => {
+    expect(row('obligation_woken', { kind: 'other', responsible: 'dev-1', minutes: 5 })).toContain('lépés');
+  });
+
+  it('shows why the obligation todo went to the owner', () => {
+    expect(
+      row('obligation_handed_over', {
+        kind: 'start',
+        responsible: 'dev-1',
+        minutes: 30,
+        recipient: 'owner',
+        recipientRefusal: 'integrator_unavailable',
+      }),
+    ).toBe(
+      t('timeline.events.obligation_handed_over_refused', {
+        responsible: 'dev-1',
+        step: 'indítás',
+        minutes: 30,
+        reason: 'integrator_unavailable',
+      }),
+    );
+  });
+});
+
 describe('card relations on the timeline (PM-192)', () => {
   const relation = (type: 'task_relation_added' | 'task_relation_removed', kind: string, ref: string) =>
     describeEvent({ ...creation, type, data: { kind, ref } }, context).text;
@@ -374,7 +422,9 @@ describe('review pins on the timeline (PM-183)', () => {
         to: 'review',
         pinned: shortCommit(commitA),
         head: shortCommit(commitB),
-      }),
+      }) +
+        '. ' +
+        t('fixLimit.events.notCounted'),
     );
   });
 
@@ -530,6 +580,31 @@ describe('fix round limit timeline rows (PM-262)', () => {
     data: { rounds: 3, limit: 3, changeRequests: 2, designChangeRequests: 1, sendBacks: 0, ...data },
   });
   const text = (data: Record<string, unknown>) => describeEvent(fixLimit(data), context).text;
+
+  it('renders grants, assessments and the failed test subtotal from additive fields', () => {
+    expect(text({ phase: 'decided', decision: 'another_round', extraRounds: 4, note: 'Small fix.' })).toBe(
+      t('fixLimit.events.decidedExtra', { i: 4, note: t('fixLimit.events.note', { note: 'Small fix.' }) }),
+    );
+    const assessment = {
+      recurrence: 'Same issue.',
+      currentState: 'Almost ready.',
+      recommendation: { optionId: 'replan', reason: 'Clarify scope.' },
+    };
+    expect(text({ phase: 'passed_on', deciders: ['owner'], assessment })).toContain(
+      t('fixLimit.events.assessment', {
+        recurrence: assessment.recurrence,
+        currentState: assessment.currentState,
+        decision: t('fixLimit.decisions.replan'),
+        reason: assessment.recommendation.reason,
+      }),
+    );
+    expect(text({ phase: 'reached', sendBacks: 2, testsFailed: 1 })).toContain(
+      t('fixLimit.part.testsFailed', { count: 1 }),
+    );
+    expect(text({ phase: 'reached', sendBacks: 2, testsFailed: 1 })).toContain(
+      t('fixLimit.part.manual', { count: 1 }),
+    );
+  });
 
   it('says what the rounds were and who decides, the lead or the people', () => {
     // Only the kinds of round that happened are named, and the limit only when it is not the rounds.
@@ -736,6 +811,33 @@ describe('the rows of a question the Operator screens (PM-556)', () => {
   const row = (type: TimelineEvent['type'], data: Record<string, unknown>) =>
     describeEvent({ ...creation, type, actor: { kind: 'system', handle: null }, data }, context).text;
   const asker = 'dev-1';
+
+  it('distinguishes integrator screening, own results and a system handoff from historical owner answers', () => {
+    expect(
+      row('question_screened', {
+        inboxItemId: 'inb_1',
+        asker,
+        note: 'Measure',
+        outcome: 'todo',
+        recipient: 'integrator',
+      }),
+    ).toBe(t('timeline.events.question_screened_integrator', { note: 'Measure' }));
+    expect(
+      row('question_answered', {
+        inboxItemId: 'inb_1',
+        answer: 'Done',
+        integratorTodo: { optionId: 'todo_done', note: null },
+      }),
+    ).toBe(t('timeline.events.integrator_todo_done'));
+    expect(
+      row('question_answered', {
+        inboxItemId: 'inb_1',
+        answer: 'Cannot',
+        integratorTodo: { optionId: 'todo_cannot', note: 'No access' },
+      }),
+    ).toBe(t('timeline.events.integrator_todo_cannot', { note: 'No access' }));
+    expect(row('question_recipient_escalated', {})).toBe(t('timeline.events.question_recipient_escalated'));
+  });
 
   it('words each outcome of the screening', () => {
     const base = { inboxItemId: 'inb_1', asker, note: 'It is clear.' };

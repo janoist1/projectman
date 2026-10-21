@@ -1,4 +1,5 @@
 import type { ProjectConfig, Session, TeamMessage } from '@projectman/shared';
+import { parseInjectedTeamMessage, splitTeamMessageBatch } from '@projectman/shared';
 import { Clock, Effect } from 'effect';
 import { TestClock } from 'effect/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -111,6 +112,29 @@ function run<A>(deps: DeliveryDeps, body: (delivery: DeliveryEffects) => Effect.
 }
 
 describe('message delivery under the TestClock', () => {
+  it('carries the stored actor into a batch and direct delivery', async () => {
+    const { deps, typeInto, control, waiting } = setup();
+    control.typeInto = 'ok';
+    const actor = {
+      kind: 'ai' as const,
+      handle: 'actual-operator',
+      via: 'integrator' as const,
+      operatorMode: 'super' as const,
+      credential: { id: 'key', prefix: 'pmi_test' },
+    };
+    const message = { ...messageOf('super'), from: actor.handle, via: actor.via, actor };
+    waiting.set(message.id, message);
+    await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.deliverWaiting(session);
+        yield* settled;
+        expect(splitTeamMessageBatch(typeInto.mock.calls[0]![1])?.items[0]?.actor).toEqual(actor);
+        yield* delivery.deliver(session, message);
+        yield* settled;
+        expect(parseInjectedTeamMessage(typeInto.mock.calls[1]![1])?.actor).toEqual(actor);
+      }),
+    );
+  });
   it('retries after 10, 40, 100, 220 and 520 seconds, then logs once and stops', async () => {
     const { deps, typeInto, logger, add } = setup();
     add('m1');

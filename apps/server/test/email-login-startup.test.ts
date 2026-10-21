@@ -11,20 +11,12 @@ const startup = vi.hoisted(() => ({
   listen: vi.fn(),
 }));
 
-vi.mock('node:child_process', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:child_process')>()),
-  execFile: vi.fn(
-    (
-      _file: string,
-      _args: string[],
-      options: { env?: NodeJS.ProcessEnv },
-      callback: (error: null, stdout: string, stderr: string) => void,
-    ) => {
-      // execFile inherits process.env when the caller supplies no explicit environment.
-      startup.childEnvironments.push({ ...(options.env ?? process.env) });
-      callback(null, 'a'.repeat(40), '');
-    },
-  ),
+vi.mock('../src/exec', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/exec')>()),
+  execCommand: vi.fn(async (_file: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+    startup.childEnvironments.push({ ...options.env });
+    return { stdout: 'a'.repeat(40), stderr: '', exitCode: 0 };
+  }),
 }));
 
 vi.mock('../src/app', async (importOriginal) => ({
@@ -37,7 +29,8 @@ vi.mock('../src/app', async (importOriginal) => ({
   })),
 }));
 
-vi.mock('../src/logging', () => ({
+vi.mock('../src/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/logging')>()),
   createServerLogStream: vi.fn(),
   serverLogFile: vi.fn(),
 }));

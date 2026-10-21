@@ -17,11 +17,14 @@ import {
   operatorFixedChange,
   operatorConfigIssues,
   isOperatorActor,
+  isSuperOperatorActor,
+  hasSuperOrigin,
   operatorConfigVerdict,
   operatorApprovalOf,
   canonical,
   ownerOnlyChanges,
   unknownPatchRepo,
+  superConfigMutations,
   validateProjectConfig,
 } from '@projectman/shared';
 import type {
@@ -34,6 +37,7 @@ import type {
   PatchConfigRequest,
   ProjectPreview,
   ProjectSummary,
+  SuperActor,
   OperatorOperation,
   OperatorApprovalWaiverRequest,
 } from '@projectman/shared';
@@ -44,8 +48,15 @@ import { projectAccessFor } from '../members';
 import { isoNow } from '../base';
 import type { DomainContext, TemplateRegistry } from '../base';
 import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from '../../kernel';
-import type { TimelineService } from '../timeline';
+import { createSuperAuditService } from '../timeline';
+import type { SuperAuditService, TimelineService } from '../timeline';
 import { humanActor, KeyedMutex } from '../../kernel';
+import {
+  assertIntegratorAccess,
+  assertOwnApproval,
+  authorizeSuperMutation,
+  integratorExecution,
+} from '../../kernel';
 
 /** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */
 function assertOperatorFixed(previous: ProjectConfig | null, next: ProjectConfig): void {
@@ -79,6 +90,14 @@ export interface Author {
   operatorRequestId?: string;
   operatorApprovalId?: string;
   via?: 'integrator';
+  /** Set only from a bound super principal (PM-757); the commit records it. */
+  superActor?: SuperActor;
+  /** The owner whose current access authorizes a super-mode step (the token's owner). */
+  authorizedBy?: string;
+  /** The request a super-mode step belongs to (the audit's request id); a commit needs it. */
+  superRequestId?: string;
+  /** The audit entry that began a super-mode commit; set by the commit itself, for the trailer. */
+  superAuditId?: string;
   name: string;
   email: string;
 }
@@ -182,6 +201,7 @@ export class ProjectService {
   private readonly configStore: ConfigStore;
   private readonly templates: TemplateRegistry;
   private readonly timeline: TimelineService;
+  private readonly superAudit: SuperAuditService;
   private readonly isDirectory: (projectKey: string, path: string) => Promise<boolean>;
   private readonly cache = new Map<string, LoadedProject>();
   private readonly locks = new KeyedMutex();
@@ -198,6 +218,7 @@ export class ProjectService {
   }
 
   async setOperatorApprovalWaiver(key: string, input: OperatorApprovalWaiverRequest, meta: ConfigEditMeta) {
+    assertOwnApproval(meta.actor);
     return this.locks.run(`config:${key}`, async () => {
       const current = await this.load(key);
       const person = memberOf(current.config, meta.actor.handle);
@@ -234,6 +255,8 @@ export class ProjectService {
     configStore: ConfigStore;
     templates: TemplateRegistry;
     timeline: TimelineService;
+    /** The super-mode audit (PM-757); one is made from `ctx` when the caller has none to share. */
+    superAudit?: SuperAuditService;
     /** Whether a path is a directory on the engine the project's work runs on (PM-312). */
     isDirectory: (projectKey: string, path: string) => Promise<boolean>;
   }) {
@@ -241,6 +264,7 @@ export class ProjectService {
     this.configStore = deps.configStore;
     this.templates = deps.templates;
     this.timeline = deps.timeline;
+    this.superAudit = deps.superAudit ?? createSuperAuditService(deps.ctx);
     this.isDirectory = deps.isDirectory;
   }
 
@@ -455,7 +479,8 @@ export class ProjectService {
         .loadVersion(key, version)
         .catch(fromConfigError)
         .catch(asConfigEditError);
-      if (isOperatorActor(current.config, meta.actor))
+      // The Operator's commits, and the super mode's (PM-757, audited), restore the version as a plain commit.
+      if (isOperatorActor(current.config, meta.actor) || hasSuperOrigin(meta.actor))
         return this.commitLocked(key, current, target, { ...meta, message: `Revert to ${version}` }).catch(
           asConfigEditError,
         );
@@ -541,13 +566,32 @@ export class ProjectService {
     next: ProjectConfig,
     meta: Pick<ConfigChangeMeta, 'actor' | 'author' | 'invitationBinding'>,
   ): Promise<void> {
+    const executingOwner = assertIntegratorAccess(previous, 'write', meta.actor);
     if (operatorWaiverChanged(previous, next) && !this.waiverEdits.has(meta as ConfigChangeMeta))
       throw forbidden(
         'owner_approval_required',
         'the waiver can only change through its dedicated owner endpoint',
       );
     const member = memberOf(previous, meta.actor.handle);
-    if (isOperatorActor(previous, meta.actor)) {
+    if (hasSuperOrigin(meta.actor)) {
+      // A step in the Operator's super mode (PM-757): recorded as the Operator, authorized as the owner who
+      // made the token. Only the author built from a bound principal can say so; an actor alone grants nothing.
+      const owner = memberOf(previous, meta.author.authorizedBy);
+      const bound = meta.author.superActor;
+      if (
+        !bound ||
+        canonical(bound) !== canonical(meta.actor) ||
+        meta.author.via !== 'integrator' ||
+        meta.author.superRequestId !== integratorExecution()?.requestId ||
+        !isSuperOperatorActor(previous, meta.actor) ||
+        owner?.kind !== 'human' ||
+        owner.access !== 'owner' ||
+        owner.handle !== executingOwner?.handle ||
+        owner.email?.trim().toLowerCase() !== meta.author.email.trim().toLowerCase()
+      )
+        throw forbidden('insufficient_access', 'the super-mode step is not backed by a current owner');
+      ProjectService.assertChangeAllowed(previous, next, owner.access, meta.invitationBinding);
+    } else if (isOperatorActor(previous, meta.actor)) {
       const request = meta.author.operatorRequestId
         ? this.ctx.repos.operatorRequests.get(meta.author.operatorRequestId)
         : null;
@@ -603,7 +647,17 @@ export class ProjectService {
           authorization.agreementVersion !== meta.author.operatorAgreementVersion
         )
           throw forbidden('owner_approval_required', 'the Operator change needs approval');
-      } else if (verdict.level === 'approval' && !approval)
+      } else if (
+        verdict.level === 'approval' &&
+        !approval &&
+        !this.operatorAuthorization?.autonomousCommit({
+          projectKey: key,
+          operator: meta.actor.handle!,
+          requestId: request.id,
+          previous,
+          next,
+        })
+      )
         throw forbidden('owner_approval_required', 'the Operator change needs approval');
     } else if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
@@ -613,15 +667,14 @@ export class ProjectService {
       ProjectService.assertChangeAllowed(previous, next, 'admin');
     }
     assertOperatorFixed(previous, next);
-    if (meta.actor.via === 'integrator') {
+    if (meta.actor.via === 'integrator' && !hasSuperOrigin(meta.actor)) {
       const refusal = integratorConfigRefusal(previous, next);
       if (refusal) throw ownerLoginRequired(refusal);
     }
     const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
     const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));
-    if (!removed.length) return;
     // A theme has the first stage's id because the field is required, but it is in no stage (PM-192).
-    const tasks = this.ctx.repos.tasks.list(key).filter((task) => !isTheme(task));
+    const tasks = removed.length ? this.ctx.repos.tasks.list(key).filter((task) => !isTheme(task)) : [];
     for (const stage of removed) {
       const count = tasks.filter((task) => task.stageId === stage.id).length;
       if (count) {
@@ -631,6 +684,8 @@ export class ProjectService {
         });
       }
     }
+    for (const command of superConfigMutations(previous, next))
+      await authorizeSuperMutation({ projectKey: key, previous, actor: meta.actor, command });
   }
 
   private async commitLocked(
@@ -639,7 +694,9 @@ export class ProjectService {
     next: ProjectConfig,
     meta: ConfigChangeMeta,
   ): Promise<LoadedProject> {
-    await this.assertCommitAllowed(key, current.config, next, meta);
+    // A super-mode step is checked inside its audited step (a refusal is audited); every other one first.
+    const superStep = hasSuperOrigin(meta.actor);
+    if (!superStep) await this.assertCommitAllowed(key, current.config, next, meta);
     if (meta.author.operatorApprovalMode === 'click') {
       const version = await this.agreementVersion?.(key);
       if (version) meta.author.operatorAgreementVersion = version;
@@ -681,9 +738,18 @@ export class ProjectService {
         }),
       );
     }
-    const { version } = await this.configStore
-      .save(key, next, { author: meta.author, message: meta.message, previous: current.config })
-      .catch(fromConfigError);
+    const save = (author: Author) =>
+      this.configStore
+        .save(key, next, { author, message: meta.message, previous: current.config })
+        .catch(fromConfigError);
+    const { version } = superStep
+      ? await this.auditedSuperSave(
+          key,
+          meta,
+          () => this.assertCommitAllowed(key, current.config, next, meta),
+          save,
+        )
+      : await save(meta.author);
     if (stepId) this.finishOperatorExecution(key, stepId, version, meta.actor);
     const loaded: LoadedProject = { config: ProjectConfig.parse(next), version };
     this.cache.set(key, loaded);
@@ -702,6 +768,46 @@ export class ProjectService {
       );
     }
     return loaded;
+  }
+
+  /**
+   * A configuration commit made in the Operator's super mode (PM-757), audited: the `started` entry is the
+   * durable intent, its id goes into the commit as a trailer, and a response lost after the commit is settled from
+   * that trailer. The execution context comes from the author a bound principal built, never from the actor.
+   */
+  private async auditedSuperSave(
+    key: string,
+    meta: ConfigChangeMeta,
+    guard: () => Promise<void>,
+    save: (author: Author) => Promise<{ version: string }>,
+  ): Promise<{ version: string }> {
+    const bound = meta.author.superActor;
+    const requestId = meta.author.superRequestId;
+    if (!bound || !requestId)
+      throw forbidden('insufficient_access', 'a super-mode commit needs its execution context');
+    return this.superAudit.runExternal(
+      { projectKey: key, actor: bound, requestId },
+      'config_commit',
+      async (auditId) => {
+        // The rules run inside the audited step: a refusal is an entry of the audit too.
+        await guard();
+        return save({ ...meta.author, superAuditId: auditId });
+      },
+      { committed: (auditId) => this.configStore.hasSuperAuditCommit(key, auditId) },
+    );
+  }
+
+  /** Settles the super-mode configuration commits a crash left without a result (at startup, nothing in flight). */
+  async settleSuperAudit(): Promise<number> {
+    let settled = 0;
+    for (const { key } of this.summaries())
+      settled += await this.locks.run(`config:${key}`, () =>
+        this.superAudit.settleOpen(key, async (auditId, operation) => {
+          if (operation !== 'config_commit') throw new Error('the operation outcome is unknown');
+          return this.configStore.hasSuperAuditCommit(key, auditId);
+        }),
+      );
+    return settled;
   }
 
   finishOperatorExecution(key: string, stepId: string, version: string, actor: Actor): void {

@@ -11,7 +11,12 @@ import {
 } from '@projectman/shared';
 import type { OperatorSignalKind, OperatorWatch, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, restartDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  restartDomainHarness,
+  OWNER_ACTOR,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -133,11 +138,11 @@ function session(
     });
 }
 
-const operator = (): ToolContext => ({
+const operator = async (): Promise<ToolContext> => ({
   projectKey: 'AR',
   member: 'pm',
   taskKey: null,
-  sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+  sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
 });
 const wakeTexts = () =>
   [...h.runner.started.map((s) => s.initialMessage ?? ''), ...h.runner.messages.map((m) => m.text)].filter(
@@ -148,8 +153,8 @@ const wakeRows = (text = wakeTexts().at(-1)!): Array<Record<string, unknown>> =>
     .split('\n')
     .filter((line) => line.startsWith('{'))
     .map((line) => JSON.parse(line) as Record<string, unknown>);
-const push = (card: Task, signal: { id: string }, member = 'dev-1') =>
-  h.domain.teamTools.startMember(operator(), {
+const push = async (card: Task, signal: { id: string }, member = 'dev-1') =>
+  h.domain.teamTools.startMember(await operator(), {
     member,
     text: 'The answer is on the card; take the next step.',
     taskKey: card.key,
@@ -406,12 +411,12 @@ describe('the Operator’s steps', () => {
   }
 
   /** An earlier own step on a signal, as the old rows hold it: the new signal itself never creates one. */
-  function oldStep(signal: { id: string; taskKey: string | null }, at: number) {
+  async function oldStep(signal: { id: string; taskKey: string | null }, at: number) {
     const requestId = `req_old_${++messageCount}`;
     h.repos.operatorRequests.insert({
       id: requestId,
       projectKey: 'AR',
-      sessionId: operator().sessionId!,
+      sessionId: (await operator()).sessionId!,
       source: 'signal',
       messageId: null,
       inboxItemId: null,
@@ -453,7 +458,7 @@ describe('the Operator’s steps', () => {
           message: expect.stringContaining('operator_no_request'),
         });
       await expect(
-        h.domain.teamTools.startTask(operator(), { taskKey: card.key, signalId: signal.id }),
+        h.domain.teamTools.startTask(await operator(), { taskKey: card.key, signalId: signal.id }),
       ).rejects.toMatchObject({ message: expect.stringContaining('operator_no_request') });
       // Neither another member nor another card changes that.
       const other = await develop('dev-2');
@@ -475,7 +480,7 @@ describe('the Operator’s steps', () => {
           taskKey: card.key,
         });
         const [step] = h.repos.operatorRequests.stepsOfSignal(signal.id);
-        expect(h.repos.operatorRequests.get(step!.requestId)?.sessionId).toBe(operator().sessionId);
+        expect(h.repos.operatorRequests.get(step!.requestId)?.sessionId).toBe((await operator()).sessionId);
       }
     },
   );
@@ -532,7 +537,7 @@ describe('the Operator’s steps', () => {
     expect(
       h.repos.operatorRequests.stepsOfSignal(signal.id).filter((s) => s.status !== 'refused'),
     ).toHaveLength(1);
-    const worker = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    const worker = await waitForSession(h.domain, { member: 'dev-1' });
     h.runner.setState(worker.id, 'idle');
     await flush();
     minutes(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
@@ -557,7 +562,7 @@ describe('the Operator’s steps', () => {
 
   it('keeps the new evidence quiet for half an hour after an old step, and not longer', async () => {
     const { card, signal } = await stalled('drive');
-    oldStep(signal, 0);
+    await oldStep(signal, 0);
     // The member does nothing; another answer reaches them.
     const again = message(card, { deliveredAt: 0 });
     seconds(GRACE);
@@ -576,7 +581,7 @@ describe('the Operator’s steps', () => {
     async (steps, openAgain) => {
       const { card, id, signal } = await stalled('drive');
       // The old steps are long gone, so only the case's own count can keep it quiet.
-      for (let i = 0; i < steps; i++) oldStep(signal, -3 * 3600 + i);
+      for (let i = 0; i < steps; i++) await oldStep(signal, -3 * 3600 + i);
       // The member works, so the signal closes; then the turn ends with no step.
       const started = await session(card, 'working');
       await sweep();
@@ -593,7 +598,7 @@ describe('the Operator’s steps', () => {
 
   it('keeps the same case quiet for half an hour after a recent old step', async () => {
     const { card, signal } = await stalled('drive');
-    oldStep(signal, 0);
+    await oldStep(signal, 0);
     const started = await session(card, 'working');
     await sweep();
     expect(open()).toEqual([]);

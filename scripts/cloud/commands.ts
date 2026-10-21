@@ -21,15 +21,16 @@ import {
   runStop,
 } from './machine';
 import { Report } from './report';
-import { runImageBuild, selectedImage, sourceShaSchema } from './images';
+import { runReleaseControl } from './release-control';
+import { platformSchema, runImageBuild, selectedImage, sourceShaSchema, targetPlatform } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 import { runTrialResetApply, runTrialResetPlan } from './trial-reset';
 
 export const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
-  image-build --ref <SHA40> --out <new directory> [--dry-run]
-                                     build and verify amd64 and arm64 archives on the admin builder
+  image-build --ref <SHA40> --out <new directory> [--all-platforms] [--dry-run]
+                                     build and verify the target machine's image archive (--all-platforms: amd64 and arm64) on the admin builder
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
   aws [--dry-run] [--rotate-keys]    create the EC2 or Lightsail machine, the S3 buckets, the IAM users and their keys
   deploy [--ref <tag|sha>] [--dry-run]
@@ -62,6 +63,8 @@ commands:
   ses request-production [--dry-run] request production access separately after owner approval
   ses check                          verify SES production, DKIM, DNS and the sender scope without sending mail
   up [--login-json <file>] [--dry-run] run preflight, aws, edge, deploy, publish, then check with a login file
+  release-control                    relay one control request (one JSON line on stdin) to the board's local control
+                                     socket; the response is the only line on stdout (docs/AWS.md "Release control")
 options:
   --config <file>                    the configuration (default ~/.config/projectman/cloud/config.json)
   --dry-run                          only read; print what would change
@@ -78,7 +81,8 @@ type Flag =
   | 'rotate-integrator-token'
   | 'feedback'
   | 'update'
-  | 'back';
+  | 'back'
+  | 'all-platforms';
 type ValueOption =
   'ref' | 'lines' | 'from' | 'to' | 'login-json' | 'out' | 'rollback-event' | 'plan' | 'confirm-sha256';
 
@@ -137,6 +141,11 @@ async function preflight(context: CloudContext): Promise<void> {
 
 /** The command table: a later card adds a row and its module. */
 export const COMMANDS: Record<string, CommandSpec> = {
+  'release-control': {
+    summary: 'relay one control request to the board',
+    flags: [],
+    run: (context) => runReleaseControl(context),
+  },
   'trial-reset-plan': {
     summary: 'write a private read-only EC2 trial reset plan',
     flags: [],
@@ -164,12 +173,18 @@ export const COMMANDS: Record<string, CommandSpec> = {
       ),
   },
   'image-build': {
-    summary: 'build the two-platform image bundle',
-    flags: ['dry-run'],
+    summary: 'build the image bundle',
+    flags: ['dry-run', 'all-platforms'],
     values: ['ref', 'out'],
     required: ['ref', 'out'],
     run: (context, invocation) =>
-      runImageBuild(context, invocation.values.ref!, invocation.values.out!, invocation.dryRun),
+      runImageBuild(
+        context,
+        invocation.values.ref!,
+        invocation.values.out!,
+        invocation.dryRun,
+        invocation.flags.has('all-platforms') ? platformSchema.options : [targetPlatform(context.config)],
+      ),
   },
   'ses plan': { summary: 'preview SES provisioning', flags: [], run: runSesPlan },
   'ses configure': {
@@ -378,9 +393,12 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
     deps.out(USAGE.trimEnd());
     return 0;
   }
-  const report = new Report((line) => deps.out(line));
+  // `release-control` owns the standard output (one JSON response line): its report goes to the standard error.
+  let reportToStderr = false;
+  const report = new Report((line) => (reportToStderr ? deps.err(line) : deps.out(line)));
   try {
     const parsed = parse(argv);
+    reportToStderr = parsed.command === 'release-control';
     const configFile = parsed.config
       ? path.resolve(expandHome(parsed.config, deps.homeDir))
       : defaultConfigPath(deps.homeDir);

@@ -826,8 +826,13 @@ describe('git on the customization repository', () => {
   it('kills a call that runs longer than its timeout', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pm-config-git-'));
     try {
-      // hash-object waits for stdin, which is never closed.
-      await expect(runGit(dir, ['hash-object', '--stdin'], { timeoutMs: 200 })).rejects.toThrow(/timed out/);
+      // The fake git stays alive independently of stdin, which the command helper closes.
+      writeFileSync(join(dir, 'git'), `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`, {
+        mode: 0o755,
+      });
+      await expect(runGit(dir, ['--version'], { env: { PATH: dir }, timeoutMs: 200 })).rejects.toThrow(
+        /timed out/,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

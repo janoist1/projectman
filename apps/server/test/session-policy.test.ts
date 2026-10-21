@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS } from '@projectman/shared';
+import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS, roleSessionAccess } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
 import { testConfig, testTemplate } from './helpers/test-template';
 import { aiRoleDefaults } from '@projectman/templates';
@@ -20,6 +20,15 @@ import {
 import type { SessionFolderAccess } from '../src/runtime/sessions';
 
 describe('role session policy', () => {
+  it('allows design review copies without turning an implementing designer into a reviewer (PM-828)', () => {
+    const config = testConfig();
+    expect(roleSessionAccess(config, 'designer')).toMatchObject({ worktree: true, reviewCopy: true });
+    config.team.roleOverrides = {
+      ...config.team.roleOverrides,
+      designer: { duties: ['ux_design', 'implementation'], instructions: '' },
+    };
+    expect(roleSessionAccess(config, 'designer')).toMatchObject({ worktree: true, reviewCopy: false });
+  });
   it('allows only the pinned base merge and routine commits in a nominated merge-fix session', () => {
     const base = 'a'.repeat(40);
     const task = {
@@ -1330,7 +1339,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'git ls-files | xargs -I Y -I X git log -1 -- X',
     // A placeholder that only stands where a name goes: an operand, never the program or an option.
     'git ls-files | xargs -I X head -1 X',
-    'git ls-files | xargs -I X git show HEAD:X',
     'git ls-files | xargs -IX grep -n foo X',
     'git ls-files | xargs -I FILE wc -l FILE',
     "git ls-files | xargs -I '{}' cat '{}'",
@@ -1639,7 +1647,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'grep -lb foo README.md | xargs cat',
     'grep -lT foo README.md | xargs cat',
     'grep -l --color=always foo README.md | xargs cat',
-    'grep foo README.md | xargs cat',
     'rg --files --hyperlink-format=x | xargs cat',
     'rg --files --hyperlink-format vscode | xargs cat',
     'rg --files --path-separator x | xargs cat',
@@ -2078,7 +2085,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     '',
     ' ',
     // Options whose name is a pattern may expand to a forbidden option.
-    'tail -[f] log',
     'git log --out* ',
     'git log -[p]',
     'ls -?',

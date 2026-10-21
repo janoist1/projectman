@@ -8,9 +8,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { ProjectConfig, RepoConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
 import { createWorktreeManager } from './index';
+import { createGitSeed } from '../../test/helpers/git-seed';
 
 /*
- * Every test builds its own repositories in a temp directory: a bare "remote" and a clone
+ * Every test copies independent repositories into a temp directory: a bare "remote" and a clone
  * of it as the workspace repo. The user's git configuration is replaced by a test one.
  */
 
@@ -75,6 +76,7 @@ function buildProject(workspacePath: string, repos: RepoConfig[]): ProjectConfig
 }
 
 let configDir: string;
+let seed: ReturnType<typeof createGitSeed>;
 let base: string;
 let remote: string;
 let workspace: string;
@@ -100,6 +102,7 @@ beforeAll(async () => {
   );
   vi.stubEnv('GIT_CONFIG_GLOBAL', configFile);
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  seed = createGitSeed(path.join(configDir, 'seed'), { 'README.md': 'hello\n' });
 });
 
 afterAll(async () => {
@@ -113,11 +116,7 @@ beforeEach(async () => {
   workspace = path.join(base, 'workspace');
   clone = path.join(workspace, 'app');
   rootDir = path.join(base, 'worktrees');
-  await git('init', '--quiet', '--bare', '-b', 'main', remote);
-  await mkdir(workspace);
-  await git('clone', '--quiet', remote, clone);
-  await commitFile(clone, 'README.md', 'hello\n', 'Initial commit');
-  await git('-C', clone, 'push', '--quiet', 'origin', 'main');
+  seed.copyTo(clone, remote);
   project = buildProject(workspace, [{ name: 'app', path: 'app', defaultBranch: 'main' }]);
 });
 

@@ -66,6 +66,7 @@ describe.each(kinds)('the sandbox of a %s', (kind) => {
       const sandbox = sessionSandbox(p, paths)!;
       const settings = buildSettings({
         hookUrl: 'http://fake/hooks',
+        hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
         permissionTimeoutMs: 1000,
         allowedTools: [],
         policy: p,

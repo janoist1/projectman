@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { checkDependencies, importSpecifiers, moduleOf, sourceImports } from './check';
+import { checkDependencies, importSpecifiers, moduleOf, sourceImports, sourceSyntax } from './check';
 import type { SourceFile } from './check';
 import { LAYER_RULES } from './module-map';
 import type { DependencyException, ModuleEntry } from './module-map';
@@ -30,6 +30,56 @@ const check = (source: string, exceptions: readonly DependencyException[] = [], 
   checkDependencies(files(source), modules, LAYER_RULES, exceptions);
 
 describe('importSpecifiers', () => {
+  test('ignores import words inside regular expression literals', () => {
+    expect(sourceImports('const pattern = /(?:import|export)[\\w-]*/;')).toEqual({
+      specifiers: [],
+      uncertain: false,
+    });
+  });
+  test('recognizes regex literals after return at a statement boundary', () => {
+    expect(sourceImports('function pattern() { return /import|export/; }')).toEqual({
+      specifiers: [],
+      uncertain: false,
+    });
+  });
+  test('keeps imports after quoted regex content and ignores regex examples in strings', () => {
+    expect(sourceImports('const pattern = /["\' ]import/; import "./real";')).toEqual({
+      specifiers: ['./real'],
+      uncertain: false,
+    });
+    expect(sourceImports('const example = "= /"; import "./real";')).toEqual({
+      specifiers: ['./real'],
+      uncertain: false,
+    });
+  });
+  test.each([
+    'value',
+    'call()',
+    'items[0]',
+    '({})',
+    'object.return',
+    '$return',
+    'object. return',
+    'object. /* comment */ return',
+    'éreturn',
+  ])('does not hide an import after division by %s', (expression) => {
+    expect(sourceImports(`${expression} / import('./real') / 2;`)).toEqual({
+      specifiers: ['./real'],
+      uncertain: false,
+    });
+  });
+  test('keeps an unclosed regular expression uncertain', () => {
+    expect(sourceImports('const pattern = /import(variable)')).toEqual({ specifiers: [], uncertain: true });
+  });
+  test('shares trivia recognition with export analysis while preserving source offsets', () => {
+    const source = '// export default\nexport const A = /["\' ]export/; const text = "import";';
+    const syntax = sourceSyntax(source);
+    expect(syntax.clean).toContain('const text = "import";');
+    expect(syntax.code).not.toContain('import');
+    expect(syntax.code.match(/\bexport\b/g)).toHaveLength(1);
+    expect(syntax.clean.length).toBe(source.length);
+    expect(syntax.code.indexOf('export')).toBe(source.indexOf('export const'));
+  });
   test.each([
     'import(name)',
     "import('./prefix' + name)",

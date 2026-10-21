@@ -65,6 +65,11 @@
   color: var(--c-ink-2);
 }
 
+.timestamp {
+  font-weight: 400;
+  color: var(--c-ink-4);
+}
+
 .text {
   font-size: 13.5px;
   line-height: 1.4;

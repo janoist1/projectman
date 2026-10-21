@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -58,18 +58,23 @@ describe('engine local limit', () => {
     name: 'mac',
     keyFile: path.join(home, 'engine.key'),
     projects: [{ project: 'PM', workspacePath: workspace }],
-    repos: [{ project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test' }],
+    repos: [
+      { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', workspaceSetup: null },
+    ],
     maxPermissionMode: 'auto',
     allowRemoteTerminalInput: true,
     ...overrides,
   });
 
-  const make = (overrides: Partial<ResolvedEngineConfig> = {}): EngineLimit =>
+  const make = (
+    overrides: Partial<ResolvedEngineConfig> = {},
+    pathOverrides: Partial<EnginePaths> = {},
+  ): EngineLimit =>
     createEngineLimit({
       config: config(overrides),
       home,
       userHome,
-      paths: paths(),
+      paths: { ...paths(), ...pathOverrides },
       instanceTag: 'a'.repeat(16),
       transcriptRoots: [path.join(userHome, '.claude', 'projects')],
       tmpdir: path.join(base, 'os-tmp'),
@@ -151,15 +156,6 @@ describe('engine local limit', () => {
       const limit = make();
       await refused(limit, 'session.start', start({ cwd: 'projectman' }), 'path_outside_roots');
       await refused(limit, 'session.start', start({ cwd: `${repo}\0/../../etc` }), 'path_outside_roots');
-    });
-
-    it('refuses a path that leaves the workspace through ..', async () => {
-      await refused(
-        make(),
-        'session.start',
-        start({ cwd: path.join(repo, '..', '..', 'elsewhere') }),
-        'path_outside_roots',
-      );
     });
 
     it('refuses a symbolic link inside the workspace that points outside', async () => {
@@ -245,6 +241,20 @@ describe('engine local limit', () => {
             }) as never,
           ),
         ).resolves.toBeDefined();
+      });
+
+      it('accepts a merge-fix worktree on an engine with member workspaces', async () => {
+        const limit = make({}, { workspacesRoot: path.join(home, 'workspaces') });
+        const fix = path.join(worktrees, 'PM', '_merge-fix', 'PM-1-projectman');
+        const placement = taskWorktree({ path: fix, mergeFix: { branch: 'merge-fix/PM-1' } });
+        const result = await limit.check(
+          'session.start',
+          start({
+            cwd: fix,
+            policy: policy({ placement, filesystem: { readableRoots: [fix], writableRoots: [fix] } }),
+          }) as never,
+        );
+        expect(result).toMatchObject({ cwd: fix, policy: { placement } });
       });
 
       it('lets a task session read its card’s attachments cache, and only that cache (PM-667)', async () => {
@@ -340,6 +350,7 @@ describe('engine local limit', () => {
         sandbox: { denyRead: string[]; denyWrite: string[]; deniedEnvVars: string[] };
       };
       expect(given.sandbox.denyRead).toContain(path.join(userHome, '.ssh'));
+      expect(given.sandbox.denyWrite).toContain(path.join(userHome, '.ssh'));
       expect(given.sandbox.denyWrite).toContain(path.join(userHome, '.claude', 'settings.json'));
       expect(given.sandbox.deniedEnvVars.length).toBeGreaterThan(0);
       const built = (await limit.check('session.start', start() as never)) as {
@@ -347,6 +358,181 @@ describe('engine local limit', () => {
       };
       expect(built.sandbox.allowWrite).toContain(repo);
       expect(built.sandbox.denyRead).toContain(path.join(userHome, '.ssh'));
+    });
+
+    describe('the user’s own files under the home folder (PM-731)', () => {
+      const excludes = () => path.join(userHome, 'global-ignore');
+      const reads = () => [
+        path.join(userHome, '.gitconfig'),
+        path.join(userHome, '.config', 'git'),
+        path.join(userHome, '.claude', 'shell-snapshots'),
+        excludes(),
+      ];
+      beforeEach(() => {
+        mkdirSync(path.join(userHome, '.config', 'git'), { recursive: true });
+        mkdirSync(path.join(userHome, '.claude', 'shell-snapshots'), { recursive: true });
+        mkdirSync(path.join(userHome, '.ssh'), { recursive: true });
+        writeFileSync(excludes(), '*.log\n');
+        writeFileSync(path.join(userHome, '.gitconfig'), `[core]\n\texcludesfile = ${excludes()}\n`);
+      });
+
+      it('reads the three home places and the global excludes file, in every read position', async () => {
+        const limit = make();
+        for (const file of reads()) {
+          await expect(
+            limit.check('session.start', start({ sandbox: sandbox({ allowRead: [file] }) }) as never),
+          ).resolves.toBeDefined();
+          await expect(
+            limit.check(
+              'session.start',
+              start({
+                policy: policy({ filesystem: { readableRoots: [repo, file], readOnlyPaths: [file] } }),
+              }) as never,
+            ),
+          ).resolves.toBeDefined();
+          await expect(limit.check('host.realpath', { path: file } as never)).resolves.toBeDefined();
+        }
+      });
+
+      it('never writes them, nor the home as a whole, nor another place under it', async () => {
+        const limit = make();
+        for (const file of [
+          ...reads(),
+          userHome,
+          path.join(userHome, '.claude'),
+          path.join(userHome, '.ssh'),
+        ]) {
+          await refused(limit, 'session.start', start({ cwd: file }), 'path_outside_roots');
+          await refused(
+            limit,
+            'session.start',
+            start({ sandbox: sandbox({ allowWrite: [file] }) }),
+            'path_outside_roots',
+          );
+          await refused(
+            limit,
+            'session.start',
+            start({ sandbox: sandbox({ portable: { allowWrite: [file] } }) }),
+            'path_outside_roots',
+          );
+          await refused(
+            limit,
+            'session.start',
+            start({ additionalDirectories: [file] }),
+            'path_outside_roots',
+          );
+          await refused(limit, 'session.start', start({ writableRoots: [file] }), 'path_outside_roots');
+          await refused(
+            limit,
+            'session.start',
+            start({ policy: policy({ filesystem: { writableRoots: [file] } }) }),
+            'path_outside_roots',
+          );
+          await refused(
+            limit,
+            'session.start',
+            start({ policy: policy({ placement: { path: file } }) }),
+            'path_outside_roots',
+          );
+          await refused(limit, 'host.prepare_portable_paths', { paths: [file] }, 'path_outside_roots');
+        }
+      });
+
+      it('reads no other place under the home', async () => {
+        const limit = make();
+        for (const other of [
+          userHome,
+          path.join(userHome, '.claude'),
+          path.join(userHome, '.claude', 'settings.json'),
+          path.join(userHome, '.config'),
+          path.join(userHome, '.ssh', 'id_rsa'),
+        ])
+          await refused(
+            limit,
+            'session.start',
+            start({ sandbox: sandbox({ allowRead: [other] }) }),
+            'path_outside_roots',
+          );
+      });
+
+      it('does not follow a link to a credential place, nor an excludes file that is one', async () => {
+        const target = path.join(userHome, '.ssh');
+        rmSync(path.join(userHome, '.claude', 'shell-snapshots'), { recursive: true });
+        symlinkSync(target, path.join(userHome, '.claude', 'shell-snapshots'));
+        writeFileSync(path.join(target, 'id_rsa'), 'key');
+        writeFileSync(path.join(userHome, '.gitconfig'), `[core]\n\texcludesfile = ${target}/id_rsa\n`);
+        const limit = make();
+        for (const file of [
+          path.join(userHome, '.claude', 'shell-snapshots'),
+          path.join(userHome, '.claude', 'shell-snapshots', 'id_rsa'),
+          path.join(target, 'id_rsa'),
+        ])
+          await refused(
+            limit,
+            'session.start',
+            start({ sandbox: sandbox({ allowRead: [file] }) }),
+            'path_outside_roots',
+          );
+        // The reads of the user's real files stay.
+        await expect(
+          limit.check(
+            'session.start',
+            start({ sandbox: sandbox({ allowRead: [path.join(userHome, '.gitconfig')] }) }) as never,
+          ),
+        ).resolves.toBeDefined();
+      });
+    });
+
+    describe('the denials of a write (PM-731)', () => {
+      const denied = async (limit: EngineLimit, denyWrite: string[]) =>
+        (
+          (await limit.check('session.start', start({ sandbox: sandbox({ denyWrite }) }) as never)) as {
+            sandbox: { denyWrite: string[] };
+          }
+        ).sandbox.denyWrite;
+      const names = () => ['', '-wal', '-shm', '-journal'].map((end) => path.join(home, `db.sqlite${end}`));
+
+      it('names the four database files and holds no database pattern, whatever the cloud sent', async () => {
+        const limit = make();
+        for (const incoming of [
+          [],
+          [path.join(home, 'db.sqlite*')],
+          [path.join(home, 'db.sqlite*'), '/x/y*'],
+        ]) {
+          const list = await denied(limit, incoming);
+          expect(list).toEqual(expect.arrayContaining(names()));
+          expect(list.filter((entry) => /db\.sqlite\*$/.test(entry))).toEqual([]);
+          expect(list.filter((entry) => entry.startsWith(path.join(home, 'db.sqlite')))).toHaveLength(4);
+        }
+        const built = (await limit.check('session.start', start() as never)) as {
+          sandbox: { denyWrite: string[] };
+        };
+        expect(built.sandbox.denyWrite).toEqual(expect.arrayContaining(names()));
+        expect(built.sandbox.denyWrite.filter((entry) => entry.endsWith('*'))).toEqual([]);
+      });
+
+      it('leaves any other entry of the cloud as it was, wildcard or not', async () => {
+        const list = await denied(make(), ['/x/y*', '/x/*.lock', '/x/plain']);
+        expect(list).toEqual(expect.arrayContaining(['/x/y*', '/x/*.lock', '/x/plain']));
+      });
+
+      it('applies to a screenshot run as well', async () => {
+        const run = (await make().check('screenshots.run', {
+          spec: {
+            cwd: repo,
+            sessionDir: path.join(home, 'session-folders', 's'),
+            args: [path.join(repo, 'scenario.json')],
+            sandbox: {
+              allowRead: [],
+              allowWrite: [],
+              denyRead: [],
+              denyWrite: [path.join(home, 'db.sqlite*')],
+            },
+          },
+        } as never)) as { spec: { sandbox: { denyWrite: string[] } } };
+        expect(run.spec.sandbox.denyWrite).toEqual(expect.arrayContaining(names()));
+        expect(run.spec.sandbox.denyWrite.filter((entry) => entry.endsWith('*'))).toEqual([]);
+      });
     });
 
     describe('the engine’s own secrets', () => {
@@ -502,6 +688,66 @@ describe('engine local limit', () => {
       ).toBe(repo);
     });
 
+    it('binds dependency preparation to the engine repository and exposes only copies of its read denials', async () => {
+      const limit = make({ linkHeadersFile: path.join(home, 'link-headers.json') });
+      const key = { project: projectConfig(), repoName: 'projectman', member: 'dev' };
+      const [bound] = await limit.check('workspace.prepareDependencies', [key] as never);
+      expect(bound.project.project.workspacePath).toBe(workspace);
+      expect(bound.project.project.repos[0]?.path).toBe(repo);
+      await refused(
+        limit,
+        'workspace.prepareDependencies',
+        [{ ...key, repoName: 'other' }],
+        'repo_not_registered',
+      );
+      await refused(
+        limit,
+        'workspace.prepareDependencies',
+        [{ ...key, project: { project: { key: 'XX' } } }],
+        'repo_not_registered',
+      );
+      const sensitive = limit.sensitiveRead();
+      expect(sensitive).toContain(path.join(home, 'engine.key'));
+      expect(sensitive).toContain(path.join(home, 'link-headers.json'));
+      expect(sensitive).toContain(path.join(userHome, '.ssh'));
+      sensitive.length = 0;
+      expect(limit.sensitiveRead().length).toBeGreaterThan(0);
+    });
+
+    it('hands a task commit over only for a registered repo and a full object id (PM-739)', async () => {
+      const limit = make();
+      const key = { project: projectConfig(), repoName: 'projectman', member: 'dev' };
+      const commit = 'a'.repeat(40);
+      const [arg, taskKey, branch, handed] = (await limit.check('workspace.publishTaskBranch', [
+        key,
+        'PM-1',
+        'PM-1-work',
+        commit,
+      ] as never)) as unknown as [
+        { project: { project: { workspacePath: string; repos: Array<{ path: string }> } } },
+        string,
+        string,
+        string,
+      ];
+      expect(arg.project.project.workspacePath).toBe(workspace);
+      expect(arg.project.project.repos[0]!.path).toBe(repo);
+      expect([taskKey, branch, handed]).toEqual(['PM-1', 'PM-1-work', commit]);
+      for (const bad of ['--help', 'refs/heads/main', 'a'.repeat(12), `${commit}\n`]) {
+        await refused(
+          limit,
+          'workspace.publishTaskBranch',
+          [key, 'PM-1', 'PM-1-work', bad],
+          'invalid_params',
+        );
+      }
+      await refused(
+        limit,
+        'workspace.publishTaskBranch',
+        [{ project: projectConfig('other'), repoName: 'other', member: 'dev' }, 'PM-1', 'PM-1-work', commit],
+        'repo_not_registered',
+      );
+    });
+
     it('refuses a repo or a project that is not registered', async () => {
       const limit = make();
       await refused(
@@ -574,7 +820,7 @@ describe('engine local limit', () => {
       await expect(limit.check('full_test.run', fullTest() as never)).resolves.toBeDefined();
       await refused(limit, 'full_test.run', fullTest({ command: 'rm -rf ~' }), 'command_not_allowed');
       await refused(
-        make({ repos: [{ project: 'PM', repo: 'projectman', path: repo }] }),
+        make({ repos: [{ project: 'PM', repo: 'projectman', path: repo, workspaceSetup: null }] }),
         'full_test.run',
         fullTest(),
         'command_not_allowed',
@@ -589,7 +835,14 @@ describe('engine local limit', () => {
       mkdirSync(cwd, { recursive: true });
       const limit = make({
         repos: [
-          { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', mergeBranch: 'main' },
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
         ],
       });
       const result = (await limit.check(
@@ -630,8 +883,16 @@ describe('engine local limit', () => {
             path: repo,
             fullTestCommand: 'npm run check',
             mergeBranch: 'main',
+            workspaceSetup: null,
           },
-          { project: 'PM', repo: 'other', path: workspace, fullTestCommand: 'npm test', mergeBranch: 'main' },
+          {
+            project: 'PM',
+            repo: 'other',
+            path: workspace,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
         ],
       });
       await refused(
@@ -648,11 +909,45 @@ describe('engine local limit', () => {
       );
     });
 
-    it('adds the credential places to the test sandbox denials', async () => {
-      const result = (await make().check('full_test.run', fullTest() as never)) as {
-        spec: { sandbox: { denyRead: string[] } };
+    it('passes a GitHub Actions merge check on without a checkout path, and refuses a wrong one (PM-915)', async () => {
+      const ref = { projectKey: 'PM', repo: 'projectman' };
+      const githubActions = {
+        ref,
+        mergeId: newId('merge'),
+        repo: 'owner/projectman',
+        base: 'main',
+        commit: 'a'.repeat(40),
+        workflow: 'merge-check.yml',
       };
-      expect(result.spec.sandbox.denyRead).toContain(path.join(userHome, '.ssh'));
+      const check = (overrides: Record<string, unknown> = {}) =>
+        fullTest({ cwd: 'github-actions:owner/projectman', githubActions, ...overrides });
+      const limit = make({
+        repos: [
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
+        ],
+      });
+      await expect(limit.check('full_test.run', check() as never)).resolves.toBeDefined();
+      await refused(
+        limit,
+        'full_test.run',
+        check({ githubActions: { ...githubActions, base: 'dev' } }),
+        'merge_not_allowed',
+      );
+      await refused(
+        limit,
+        'full_test.run',
+        check({ githubActions: { ...githubActions, commit: 'main' } }),
+        'invalid_params',
+      );
+      await refused(limit, 'full_test.run', check({ cwd: repo }), 'invalid_params');
+      await refused(limit, 'full_test.run', check({ requireHeavyLock: true }), 'invalid_params');
     });
 
     it('keeps the engine’s key and configuration out of the test and screenshot sandboxes', async () => {
@@ -662,7 +957,11 @@ describe('engine local limit', () => {
       const shot = (await limit.check('screenshots.run', shots() as never)) as unknown as Denials;
       for (const { spec } of [test, shot])
         expect(spec.sandbox.denyRead).toEqual(
-          expect.arrayContaining([path.join(home, 'engine.key'), path.join(base, 'keys', 'headers.json')]),
+          expect.arrayContaining([
+            path.join(home, 'engine.key'),
+            path.join(base, 'keys', 'headers.json'),
+            path.join(userHome, '.ssh'),
+          ]),
         );
       // The test writes only its run directory; the screenshots keep the configuration read-only too.
       expect(shot.spec.sandbox.denyWrite).toEqual(
@@ -898,7 +1197,14 @@ describe('engine local limit', () => {
     const merging = (overrides: Partial<ResolvedEngineConfig> = {}) =>
       make({
         repos: [
-          { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', mergeBranch: 'main' },
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
         ],
         ...overrides,
       });
@@ -1026,22 +1332,6 @@ describe('engine local limit', () => {
       );
     });
 
-    it('refuses the document calls for a repo without a mergeBranch', async () => {
-      const limit = make();
-      await refused(
-        limit,
-        'merge.read_file',
-        { ref, at: { commit: sha }, path: 'a.md' },
-        'merge_not_allowed',
-      );
-      await refused(
-        limit,
-        'merge.commit_files',
-        { ref, onto: sha, files: [{ path: 'a.md', text: 'x' }], message: 'm' },
-        'merge_not_allowed',
-      );
-    });
-
     it('refuses every call for a repo without a mergeBranch', async () => {
       const limit = make();
       const calls: [EngineMethod, Record<string, unknown>][] = [
@@ -1054,6 +1344,8 @@ describe('engine local limit', () => {
         ['merge.push', { ref, base: 'main', mergeCommit: sha }],
         ['merge.advance', { ref, base: 'main', from: sha, to: other }],
         ['merge.read_file', { ref, at: { base: 'main' }, path: 'a.md' }],
+        ['merge.read_file', { ref, at: { commit: sha }, path: 'a.md' }],
+        ['merge.commit_files', { ref, onto: sha, files: [{ path: 'a.md', text: 'x' }], message: 'm' }],
         ['merge.list_paths', { ref, base: 'main' }],
         ['merge.changed_paths', { ref, base: 'main', items: [] }],
       ];

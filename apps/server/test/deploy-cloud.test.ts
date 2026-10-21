@@ -99,6 +99,7 @@ describe('cloud backup and restore with fake storage tools', () => {
   function run(
     command: 'backup' | 'restore' | 'check' | 'serve' | 'rehearse',
     scratch = join(temp, 'restored'),
+    extraEnv: Record<string, string> = {},
   ) {
     return spawnSync(
       bash,
@@ -130,6 +131,7 @@ describe('cloud backup and restore with fake storage tools', () => {
           LITESTREAM_REGION: 'fixture',
           LITESTREAM_ACCESS_KEY_ID: 'fixture',
           LITESTREAM_SECRET_ACCESS_KEY: 'fixture',
+          ...extraEnv,
         },
       },
     );
@@ -190,8 +192,22 @@ else if (tool === 'node') {
   if (command === 'check') process.exit(state.checkError || 0);
 }
 `;
-    for (const tool of ['restic', 'litestream', 'node', 'curl', 'id'])
+    for (const tool of ['restic', 'litestream', 'node'])
       writeFileSync(join(bin, tool), fake, { mode: 0o755 });
+    // The two that are polled or trivial are shell scripts: starting node for each costs most of a run.
+    writeFileSync(
+      join(bin, 'curl'),
+      `#!/bin/sh\necho "curl $*" >> '${join(temp, 'calls')}'\n[ -e '${join(temp, 'server-ready')}' ]\n`,
+      { mode: 0o755 },
+    );
+    writeFileSync(join(bin, 'id'), `#!/bin/sh\necho "id $*" >> '${join(temp, 'calls')}'\necho 10001\n`, {
+      mode: 0o755,
+    });
+    // The entrypoint polls the server once a second; a poll of 50 ms keeps the same loop and the same exits.
+    // Any other sleep (the backup loop's long ones) is left as it is.
+    writeFileSync(join(bin, 'sleep'), '#!/bin/sh\n[ "$1" = 1 ] && set -- 0.05\nexec /bin/sleep "$@"\n', {
+      mode: 0o755,
+    });
   });
   afterEach(() => rmSync(temp, { recursive: true, force: true }));
 
@@ -249,6 +265,47 @@ else if (tool === 'node') {
     expect(existsSync(join(temp, 'fresh/.cloud-volume'))).toBe(false);
   });
 
+  it.each(['128', '256', '4096', '0256'])(
+    'gives the server --max-old-space-size from PROJECTMAN_HEAP_LIMIT_MB=%s (PM-775)',
+    (value) => {
+      expect(run('backup').status).toBe(0);
+      const result = run('rehearse', join(temp, 'rehearsal'), { PROJECTMAN_HEAP_LIMIT_MB: value });
+      expect(result.status).toBe(0);
+      const server = calls().filter((call) => call.startsWith('node '));
+      expect(server).toEqual([`node --max-old-space-size=${Number(value)} ${app}/apps/server/dist/index.js`]);
+    },
+  );
+
+  it.each([undefined, ''])(
+    'leaves the node default heap limit when PROJECTMAN_HEAP_LIMIT_MB is %j',
+    (value) => {
+      expect(run('backup').status).toBe(0);
+      const result = run(
+        'rehearse',
+        join(temp, 'rehearsal'),
+        value === undefined ? {} : { PROJECTMAN_HEAP_LIMIT_MB: value },
+      );
+      expect(result.status).toBe(0);
+      expect(calls().filter((call) => call.startsWith('node '))).toEqual([
+        `node ${app}/apps/server/dist/index.js`,
+      ]);
+    },
+  );
+
+  it.each(['127', '4097', '99999', 'abc', '1e3', '-256', '256.5', '256 ', ' 256', '0'])(
+    'refuses PROJECTMAN_HEAP_LIMIT_MB=%j before starting anything (PM-775)',
+    (value) => {
+      expect(run('backup').status).toBe(0);
+      const before = calls().length;
+      for (const command of ['serve', 'rehearse'] as const) {
+        const result = run(command, join(temp, 'rehearsal'), { PROJECTMAN_HEAP_LIMIT_MB: value });
+        expect(result.status).toBe(64);
+        expect(result.stderr).toContain('invalid PROJECTMAN_HEAP_LIMIT_MB');
+      }
+      expect(calls()).toHaveLength(before);
+    },
+  );
+
   it('refuses a rehearsal against the original home or a reused scratch directory', () => {
     expect(run('rehearse', home).status).toBe(64);
     put(join(temp, 'reused/.cloud-volume'), 'old marker');
@@ -269,12 +326,119 @@ describe('deploy/cloud shell scripts', () => {
     });
   }
 
+  describe('smoke.sh engine door probes (PM-723)', () => {
+    let temp: string;
+    beforeEach(() => {
+      temp = mkdtempSync(join(tmpdir(), 'pm-smoke-'));
+      const bin = join(temp, 'bin');
+      mkdirSync(bin);
+      // A fake curl: logs "METHOD path", answers the status from the "answers" file ("METHOD path code").
+      writeFileSync(
+        join(bin, 'curl'),
+        [
+          '#!/usr/bin/env bash',
+          'method=GET; url=""; fmt=""',
+          'while [ $# -gt 0 ]; do',
+          '  case "$1" in',
+          '    -X) method="$2"; shift ;;',
+          '    -w) fmt="$2"; shift ;;',
+          '    -o|-H|--max-time|--data-binary) shift ;;',
+          '    -*) ;;',
+          '    *) url="$1" ;;',
+          '  esac',
+          '  shift',
+          'done',
+          'path="/${url#*://*/}"',
+          'echo "$method $path" >> "$FAKE_CURL_DIR/calls"',
+          'code=$(awk -v k="$method $path" \'index($0, k " ") == 1 { print $NF }\' "$FAKE_CURL_DIR/answers")',
+          '[ -n "$code" ] || { printf 000; exit 7; }',
+          'if [ "$path" = /api/setup ]; then printf \'{"needsSetup":false,"publicBoard":false}\\n%s\' "$code"; exit 0; fi',
+          'printf \'%s\' "$code"',
+          '',
+        ].join('\n'),
+      );
+      chmodSync(join(bin, 'curl'), 0o755);
+    });
+    afterEach(() => rmSync(temp, { recursive: true, force: true }));
+
+    const DOORS = {
+      linkGet: 'GET /engine/link',
+      downloadGet: 'GET /engine/files/downloads/smoke-test',
+      uploadGet: 'GET /engine/files/uploads/smoke-test',
+      uploadPost: 'POST /engine/files/uploads/smoke-test',
+    };
+    function smoke(answers: Record<string, string | null>) {
+      const lines = ['GET /api/setup 200'];
+      for (const [key, code] of Object.entries(answers))
+        if (code !== null) lines.push(`${DOORS[key as keyof typeof DOORS]} ${code}`);
+      writeFileSync(join(temp, 'answers'), `${lines.join('\n')}\n`);
+      const result = spawnSync('bash', [join(cloudDir, 'smoke.sh'), 'https://board.example.com'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: {
+          PATH: `${join(temp, 'bin')}:${process.env.PATH}`,
+          FAKE_CURL_DIR: temp,
+          CF_ACCESS_CLIENT_ID: 'test-id.access',
+          CF_ACCESS_CLIENT_SECRET: 'test-secret',
+        },
+      });
+      const calls = readFileSync(join(temp, 'calls'), 'utf8').trim().split('\n');
+      return { result, calls };
+    }
+    const refused = { linkGet: '401', downloadGet: '401', uploadGet: '404', uploadPost: '401' };
+
+    it('probes the upload door with a GET and with a POST, and passes when every probe is refused', () => {
+      const { result, calls } = smoke(refused);
+      expect(result.status).toBe(0);
+      expect(calls).toEqual(
+        expect.arrayContaining([DOORS.linkGet, DOORS.downloadGet, DOORS.uploadGet, DOORS.uploadPost]),
+      );
+      expect(result.stdout).toContain(
+        'POST /engine/files/uploads/smoke-test refuses an anonymous caller (401)',
+      );
+    });
+
+    it('fails when only the upload POST answers 2xx', () => {
+      const { result } = smoke({ ...refused, uploadPost: '200' });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('POST /engine/files/uploads/smoke-test answered 200');
+    });
+
+    it('fails when the upload GET answers 200 (the web app fallback)', () => {
+      const { result } = smoke({ ...refused, uploadGet: '200' });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('GET /engine/files/uploads/smoke-test answered 200');
+    });
+
+    it('fails when an engine probe cannot be reached', () => {
+      const { result } = smoke({ ...refused, uploadPost: null });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('POST /engine/files/uploads/smoke-test is not reachable');
+    });
+  });
+
   it('the entrypoint starts as root only to drop to an unprivileged user, and keeps it dropped', () => {
     expect(entrypoint).toMatch(
       /exec setpriv --reuid="\$RUN_UID" --regid="\$RUN_GID" --clear-groups --no-new-privs/,
     );
     expect(dockerfile).toContain('useradd --system --uid 10001');
     expect(entrypoint).toContain('RUN_UID=10001');
+  });
+
+  it('the image holds the compiled control relay the machine runs, and it is the entry the build makes (PM-749)', () => {
+    const build = read('apps/server/scripts/build.mjs');
+    expect(build).toContain("'dist/control/cli.js': 'src/control/cli.ts'");
+    expect(existsSync(join(root, 'apps/server/src/control/cli.ts'))).toBe(true);
+    // `npm run build` makes apps/server/dist, and the runtime stage takes the whole folder.
+    expect(withoutComments(dockerfile)).toMatch(/^RUN .*\bnpm run build\b/m);
+    expect(dockerfile).toContain('COPY --from=build /app/apps/server/dist ./apps/server/dist');
+    const hostScript = read('deploy/aws/host.sh');
+    const relay = shellFunction(hostScript, 'release_control');
+    // /app is the image's working directory; the relay is the file the build writes.
+    expect(relay).toContain('/usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock');
+    // The relay starts with a cleared environment (PM-754): env -i runs before Node.
+    expect(relay).toContain('/usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8');
+    expect(dockerfile).toContain('WORKDIR /app');
   });
 
   it('the server environment holds no tunnel token, storage key or restic password (an environment filter only)', () => {
@@ -375,6 +539,27 @@ describe('deploy/cloud image', () => {
     expect(dockerfile).toContain('PROJECTMAN_MODE=cloud');
     expect(dockerfile).toContain('PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip');
     expect(dockerfile).not.toMatch(/^EXPOSE/m);
+  });
+
+  it('checks its health with curl, not a node process, and sets the memory log and the heap limit (PM-775)', () => {
+    const runtime = dockerfile.split(/^FROM .* AS runtime\s*$/m)[1]!;
+    expect(runtime).toMatch(/apt-get install[^\n]*\bcurl\b/);
+    const healthcheck = runtime.match(/^HEALTHCHECK (--[^\n]*\\\n)*\s*CMD (\[[^\n]*\])$/m);
+    expect(healthcheck?.[0]).toMatch(/--interval=30s --timeout=5s --start-period=60s --retries=3/);
+    expect(JSON.parse(healthcheck![2]!)).toEqual([
+      'curl',
+      '-fsS',
+      '--max-time',
+      '5',
+      '-o',
+      '/dev/null',
+      'http://127.0.0.1:4700/api/setup',
+    ]);
+    expect(runtime).toContain('PROJECTMAN_MEMORY_LOG_SECONDS=600');
+    // The ceiling is a whole number in the range the entrypoint accepts (docs/HYBRID.md "Settings").
+    const limit = Number(runtime.match(/PROJECTMAN_HEAP_LIMIT_MB=(\d+)/)?.[1]);
+    expect(limit).toBeGreaterThanOrEqual(128);
+    expect(limit).toBeLessThanOrEqual(4096);
   });
 
   it('holds no secret in an ENV or ARG', () => {

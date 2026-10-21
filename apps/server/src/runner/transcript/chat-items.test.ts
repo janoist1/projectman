@@ -1,6 +1,7 @@
 import {
   TEAM_MESSAGE_PREFIX_RE,
   formatInjectedTeamMessage,
+  formatInfoMessage,
   formatTeamMessageBatch,
 } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
@@ -17,6 +18,43 @@ import {
 import { num, rec, str } from './json';
 
 const ts = '2026-10-01T10:00:00.000Z';
+it('preserves super actor metadata for single, information and batched incoming messages', () => {
+  const actor = {
+    kind: 'ai' as const,
+    handle: 'actual-operator',
+    via: 'integrator' as const,
+    operatorMode: 'super' as const,
+    credential: { id: 'key', prefix: 'pmi_test' },
+  };
+  const texts = [
+    formatInjectedTeamMessage(actor.handle, 'Hello', null, 'integrator', actor),
+    formatInfoMessage(actor.handle, 'Hello', actor),
+  ];
+  for (const text of texts)
+    expect(new UserTurns('dev-1').item(text, 'id', ts)).toMatchObject({
+      kind: 'team_message',
+      actor,
+      text: 'Hello',
+      via: 'integrator',
+    });
+  const batch = formatTeamMessageBatch(
+    null,
+    null,
+    texts.map((_, index) => ({
+      from: actor.handle,
+      via: actor.via,
+      actor,
+      taskKey: null,
+      body: 'Hello',
+      kind: 'info',
+      sentAt: ts,
+      info: index === 1,
+    })),
+  );
+  const items = new UserTurns('dev-1').items(batch, 'id', ts).filter((item) => item.kind === 'team_message');
+  expect(items).toHaveLength(2);
+  expect(items.every((item) => item.actor?.credential?.prefix === 'pmi_test')).toBe(true);
+});
 it('keeps sender, integrator and card key separate in both prefix forms', () => {
   for (const via of [undefined, 'integrator'] as const) {
     const text = formatInjectedTeamMessage('owner', 'Review this.', 'AR-1', via);

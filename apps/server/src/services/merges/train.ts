@@ -1,4 +1,3 @@
-import path from 'node:path';
 import {
   ALERT_SEEN_OPTION,
   isCommitId,
@@ -6,17 +5,31 @@ import {
   memberOf,
   mergeReadiness,
   openPrerequisites,
+  mergeTestFilesCommand,
+  MERGE_ENGINE_WAIT_MINUTES,
 } from '@projectman/shared';
 import type { MergeBlockReason, MergeFailure, ProjectConfig, Task } from '@projectman/shared';
+import { EngineLinkLostError, isEngineLinkLost } from '../../contracts';
+import type { EngineHost, FullTestExecutor, FullTestResult } from '../../contracts';
 import { mergedState } from '../../db';
 import type { MergeRecord, MergeTrainRecord } from '../../db';
 import { isoNow } from '../../core/base';
+import { prerequisiteCards } from '../../core/tasks';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
+import { recordMergeCheck } from './check-runs';
+import {
+  GITHUB_RUNNER_NEEDS_REPO,
+  mergeCheckExecutor,
+  mergeCheckRunner,
+  prepareMergeCheck,
+} from './check-preparation';
 import type { MergeDeps, MergeRun } from './deps';
+import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import type { MergeSteps } from './steps';
 import { selectMergeTrain } from './train-selection';
 import type { MergeTrainCandidate } from './train-selection';
+import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
 
 type Hooks = {
   stopped(): boolean;
@@ -106,10 +119,25 @@ export class MergeTrains {
     return true;
   }
 
+  /**
+   * Every member's approved commit is readable in the train's repository before the first git
+   * read of any of them (PM-739): member workspaces hand them over, idempotently. A refusal stops
+   * the attempt, never the choice of another branch.
+   */
+  private async prepareSources(train: MergeTrainRecord): Promise<void> {
+    const config = await this.deps.projects.config(train.projectKey);
+    for (const member of train.members) {
+      const task = this.deps.tasks.find(train.projectKey, member.taskKey);
+      if (!task) throw new Error(`The task ${member.taskKey} of a merge train member is missing`);
+      await this.deps.sessions.prepareMergeSource(config, task, member.commit);
+    }
+  }
+
   async published(train: MergeTrainRecord): Promise<boolean> {
     if (!train.candidate) return false;
     const merger = this.deps.engines.get(train.engineId)?.merger;
     if (!merger) return false;
+    await this.prepareSources(train);
     const ref = { projectKey: train.projectKey, repo: train.repo };
     const base = await merger.prepare(ref, { base: train.base, commit: train.members[0]!.commit });
     return Boolean(
@@ -144,7 +172,7 @@ export class MergeTrains {
       ready.repo.defaultBranch !== row.base ||
       this.hooks.mergerOf(config, task) !== row.merger ||
       row.startedBy !== row.merger ||
-      (!allowWaiting && openPrerequisites(task, tasks.list(row.projectKey)).length > 0) ||
+      (!allowWaiting && openPrerequisites(task, prerequisiteCards(tasks, row.projectKey, task)).length > 0) ||
       (train &&
         (sessions.cardEngineId(row.projectKey, task) !== train.engineId ||
           !sameCheck(ready.repo.reviewTest, train.reviewTest)))
@@ -167,7 +195,7 @@ export class MergeTrains {
       const repo = config.project.repos.find((r) => r.name === row.repo);
       const engineId = task ? sessions.cardEngineId(row.projectKey, task) : undefined;
       const merger = engineId ? this.deps.engines.get(engineId)?.merger : undefined;
-      const eligible = Boolean(
+      let eligible = Boolean(
         row.commit &&
         isCommitId(row.commit) &&
         row.branch &&
@@ -179,6 +207,15 @@ export class MergeTrains {
         (await this.valid(row)),
       );
       let solo = Boolean(row.fix || row.resolution || row.landed !== 'nowhere');
+      if (eligible && !solo) {
+        try {
+          await sessions.prepareMergeSource(config, task!, row.commit!);
+        } catch (err) {
+          // Its own turn reports the refusal; it does not stop the train from forming without it.
+          ctx.logger.warn({ err, mergeId: row.id }, 'could not hand over a merge train candidate');
+          eligible = false;
+        }
+      }
       if (eligible && !solo) {
         const base = await merger!.prepare(this.steps.ref(row), { base: row.base, commit: row.commit! });
         // Reconcile existing work individually before attributing any new train work.
@@ -270,10 +307,11 @@ export class MergeTrains {
     const rows = this.deps.ctx.repos.taskMerges
       .list('queued')
       .filter((r) => r.projectKey === projectKey && r.repo === repo);
-    const tasks = this.deps.tasks.list(projectKey);
     const first = rows.findIndex((row) => {
       const task = this.deps.tasks.find(projectKey, row.taskKey);
-      return !task || openPrerequisites(task, tasks).length === 0;
+      return (
+        !task || openPrerequisites(task, prerequisiteCards(this.deps.tasks, projectKey, task)).length === 0
+      );
     });
     return first < 0 ? [] : rows.slice(first);
   }
@@ -327,9 +365,17 @@ export class MergeTrains {
     for (const row of this.rows(train)) this.steps.save(row, patch);
   }
 
-  /** Retire the red attempt and requeue every member atomically; no card is blamed yet. */
-  private async bisect(train: MergeTrainRecord): Promise<void> {
+  /**
+   * Retire the failed attempt and requeue its still running members. `maxCards` is the smaller group
+   * limit of their next attempt (default: half the group); `null` sets none, so the members may join any
+   * train (a member that passed alone, PM-844). A given `note` writes the timeline note of each requeued card.
+   */
+  private async requeue(
+    train: MergeTrainRecord,
+    options: { maxCards?: number | null; note?: (taskKey: string) => string } = {},
+  ): Promise<void> {
     const { ctx } = this.deps;
+    const maxCards = options.maxCards === undefined ? Math.ceil(train.members.length / 2) : options.maxCards;
     await this.lock(this.rows(train), async () => {
       ctx.unitOfWork(() => {
         if (ctx.repos.mergeTrains.get(train.id)?.state !== 'running') return;
@@ -341,7 +387,7 @@ export class MergeTrains {
             state: 'queued',
             step: 'queued',
             trainId: undefined,
-            diagnostic: { parentTrainId: train.id, maxCards: Math.ceil(train.members.length / 2) },
+            diagnostic: maxCards === null ? undefined : { parentTrainId: train.id, maxCards },
             prioritizedAt: member.prioritizedAt,
             mergeCommit: undefined,
             check: undefined,
@@ -350,9 +396,175 @@ export class MergeTrains {
             finishedAt: undefined,
           });
           this.steps.clearAlert(row);
+          if (options.note)
+            this.deps.timeline.append({
+              projectKey: row.projectKey,
+              taskKey: row.taskKey,
+              actor: SYSTEM_ACTOR,
+              type: 'task_note',
+              data: { text: options.note(row.taskKey), mentions: [] },
+            });
         }
       });
     });
+  }
+
+  /**
+   * A failed group check: run its failed files on each member alone, on the default branch plus that
+   * member, so only the card whose own code fails them is blamed (PM-844). Returns false when nothing was
+   * settled and the caller halves the group as before: no `filesCommand`, no failed files, a single
+   * member, or no member failed alone. Returns true once the train is settled or stopped.
+   */
+  private async diagnose(
+    run: MergeRun,
+    engine: EngineHost,
+    executor: FullTestExecutor,
+    group: FullTestResult,
+  ): Promise<boolean> {
+    const train = run.train!;
+    const merger = engine.merger;
+    const { ctx } = this.deps;
+    if (!merger || train.members.length < 2 || group.failedFiles.length === 0 || !train.onto) return false;
+    const config = await this.deps.projects.config(train.projectKey);
+    const repoConfig = config.project.repos.find((r) => r.name === train.repo);
+    const filesCommand = repoConfig?.reviewTest?.filesCommand;
+    if (!filesCommand) return false;
+    const runner = mergeCheckRunner(train.reviewTest);
+    const github = repoConfig?.github;
+    if (runner === 'github_actions' && !github) {
+      ctx.logger.warn(
+        { trainId: train.id, repo: train.repo },
+        'the merge check runs on GitHub Actions but the repo has no github setting; the train is halved instead of diagnosed',
+      );
+      return false;
+    }
+    const command = mergeTestFilesCommand(filesCommand, group.failedFiles);
+    const ref = { projectKey: train.projectKey, repo: train.repo };
+    const paths = engine.paths();
+    // The group's own checkout is not needed again; the lone checkouts take its place.
+    await merger
+      .releaseCheck(ref, { mergeId: train.id })
+      .catch((err: unknown) =>
+        ctx.logger.warn({ err, trainId: train.id }, 'could not release a merge train checkout'),
+      );
+    const blamed: {
+      member: MergeTrainRecord['members'][number];
+      failure: MergeFailure;
+      url?: string;
+    }[] = [];
+    const passedAlone: string[] = [];
+    for (const member of train.members) {
+      if (!(await this.checkpoint(run))) return true;
+      let built: Awaited<ReturnType<typeof merger.build>>;
+      try {
+        built = await merger.build(ref, {
+          onto: train.onto,
+          commit: member.commit,
+          message: `Diagnose ${member.taskKey} for train ${train.id}`,
+        });
+      } catch (err) {
+        if (isEngineLinkLost(err)) throw err;
+        // A git error while building the lone merge leaves the member unknown, not guilty.
+        ctx.logger.warn({ err, mergeId: member.mergeId }, 'could not build the lone merge of a train member');
+        continue;
+      }
+      if (!(await this.checkpoint(run))) return true;
+      if (!built.ok) continue;
+      const mergeId = newId('mrg');
+      const runId = newId('mergecheck');
+      let result: FullTestResult;
+      try {
+        const prepared = await prepareMergeCheck(merger, {
+          ref,
+          mergeId,
+          mergeCommit: built.mergeCommit,
+          base: train.base,
+          depsFrom: null,
+          runner,
+          github,
+          files: group.failedFiles,
+          checkSandbox: this.deps.checkSandbox,
+          paths,
+        });
+        if (!(await this.checkpoint(run))) return true;
+        result = await recordMergeCheck(
+          ctx,
+          {
+            id: runId,
+            projectKey: train.projectKey,
+            repo: train.repo,
+            kind: 'diagnose',
+            trainId: train.id,
+            taskKeys: [member.taskKey],
+            commit: built.mergeCommit,
+            base: train.onto,
+            maxWorkers: train.reviewTest.maxWorkers,
+            runner,
+          },
+          (markStarted) =>
+            executor.run(
+              prepared.spec({ runId, command, reviewTest: train.reviewTest }),
+              run.signal ?? new AbortController().signal,
+              markStarted,
+              { linkWaitMs: MERGE_ENGINE_WAIT_MS },
+            ),
+        );
+      } catch (err) {
+        if (isEngineLinkLost(err)) throw err;
+        // A member that cannot be tried alone stays unknown, not guilty.
+        ctx.logger.warn({ err, mergeId: member.mergeId }, 'could not run the lone check of a train member');
+        continue;
+      } finally {
+        await merger
+          .releaseCheck(ref, { mergeId })
+          .catch((err: unknown) =>
+            ctx.logger.warn({ err, mergeId }, 'could not release a lone train member checkout'),
+          );
+      }
+      if (!(await this.checkpoint(run))) return true;
+      if (result.outcome === 'error' && result.reason === 'engine_offline')
+        throw new EngineLinkLostError('the merge check lost the card engine', true);
+      // Only a failure of the group's own failed files blames a card: any other non-zero exit
+      // (a usage error, a failed install, no file named) says nothing about the member's code.
+      const files = result.failedFiles.filter((file) => group.failedFiles.includes(file));
+      if (result.outcome === 'failed' && files.length > 0)
+        blamed.push({
+          member,
+          ...(result.externalUrl ? { url: result.externalUrl } : {}),
+          failure: {
+            reason: 'check_failed',
+            base: train.onto,
+            at: isoNow(ctx),
+            command,
+            runId,
+            files,
+            outputTail: result.outputTail.slice(0, 8000),
+          },
+        });
+      else if (result.outcome === 'passed') passedAlone.push(member.taskKey);
+      ctx.logger.info(
+        { trainId: train.id, runId, taskKey: member.taskKey, outcome: result.outcome, files },
+        'merge train lone check completed',
+      );
+    }
+    if (blamed.length === 0) return false;
+    const names = blamed.map(({ member }) => member.taskKey).join(', ');
+    for (const { member, failure, url } of blamed) {
+      const row = ctx.repos.taskMerges.get(member.mergeId);
+      if (!row || row.state !== 'running' || row.trainId !== train.id) continue;
+      this.steps.save(row, {
+        check: { command, runId: failure.runId, status: 'failed', runner, ...(url ? { url } : {}) },
+      });
+      await this.steps.fail(row, config, failure);
+    }
+    await this.requeue(train, {
+      maxCards: null,
+      note: (taskKey) =>
+        `Merge train ${train.id} failed on ${group.failedFiles.join(', ')}; ${names} failed them alone, this card ${
+          passedAlone.includes(taskKey) ? 'passed them alone' : 'could not be told apart alone'
+        } and keeps its place in the queue.`,
+    });
+    return true;
   }
 
   private async terminal(
@@ -493,12 +705,58 @@ export class MergeTrains {
   async run(run: MergeRun, recoverOnly = false): Promise<void> {
     const train = run.train!;
     const { ctx, engines } = this.deps;
+    for (let losses = 0; ;) {
+      try {
+        await this.attempt(run, recoverOnly);
+        return;
+      } catch (err) {
+        if (!run.pushing && !(await this.checkpoint(run))) return;
+        if (!isEngineLinkLost(err)) throw err;
+        if (++losses > MERGE_ENGINE_LOSSES)
+          return this.terminal(run, 'engine_offline', 'the card engine kept losing its link');
+        this.patchMembers(train, { step: 'engine_waiting' });
+        ctx.logger.info(
+          { mergeId: train.id, engineId: train.engineId, losses },
+          'a merge waits for its engine',
+        );
+        const waited = err instanceof EngineLinkLostError && err.waited;
+        const back = await waitForEngine(
+          engines,
+          train.engineId,
+          waited ? 0 : MERGE_ENGINE_WAIT_MS,
+          run.signal,
+        );
+        if (back === 'aborted') {
+          await this.checkpoint(run);
+          return;
+        }
+        if (back === 'timeout')
+          return this.terminal(
+            run,
+            'engine_offline',
+            `the card engine was unreachable for ${MERGE_ENGINE_WAIT_MINUTES} minutes`,
+          );
+        this.patchMembers(train, { step: train.step });
+        ctx.logger.info(
+          { mergeId: train.id, engineId: train.engineId, losses },
+          'a merge goes on after its engine reconnected',
+        );
+      }
+    }
+  }
+
+  private async attempt(run: MergeRun, recoverOnly: boolean): Promise<void> {
+    const train = run.train!;
+    const { ctx, engines } = this.deps;
     const engine = engines.get(train.engineId);
     const merger = engine?.merger;
     const ref = { projectKey: train.projectKey, repo: train.repo };
     try {
+      if (!engine && engines.ids().includes(train.engineId))
+        throw new EngineLinkLostError('the card engine is not connected');
       if (!engine || !merger)
         return await this.terminal(run, 'engine_unavailable', 'The train engine is unavailable');
+      await this.prepareSources(train);
       for (let attempt = 0; attempt < 2; attempt++) {
         const base = await merger.prepare(ref, { base: train.base, commit: train.members[0]!.commit });
         // Recovery precedes cancellation or changed gates: publication already happened.
@@ -527,7 +785,7 @@ export class MergeTrains {
         }
         if (recoverOnly) return;
         if (!(await this.checkpoint(run))) return;
-        if (train.check?.status === 'failed') return await this.bisect(train);
+        if (train.check?.status === 'failed') return await this.requeue(train);
         if (base.relation === 'local_ahead' || base.relation === 'diverged')
           return await this.terminal(
             run,
@@ -559,12 +817,7 @@ export class MergeTrains {
             message: `Merge ${member.taskKey} into train ${train.id}`,
           });
           if (!(await this.checkpoint(run))) return;
-          if (!built.ok)
-            return await this.terminal(
-              run,
-              'merge_error',
-              'The merge train contains conflicting sources; retry individually',
-            );
+          if (!built.ok) return await this.requeue(train, { maxCards: 1 });
           tip = built.mergeCommit;
         }
         const built = await merger.build(ref, {
@@ -589,55 +842,83 @@ export class MergeTrains {
             'local_checkout',
             `Uncommitted paths overlap the train: ${conflicts.join(', ')}`,
           );
-        const executor = engine.fullTestExecutor;
-        const available = await executor?.available();
-        if (!executor || !available?.ok)
-          return await this.terminal(
-            run,
-            'check_unavailable',
-            available && !available.ok ? available.reason : 'No full test executor is available',
-          );
+        const runner = mergeCheckRunner(train.reviewTest);
+        const github = (await this.deps.projects.config(train.projectKey)).project.repos.find(
+          (r) => r.name === train.repo,
+        )?.github;
+        if (runner === 'github_actions' && !github)
+          return await this.terminal(run, 'check_unavailable', GITHUB_RUNNER_NEEDS_REPO);
+        const available = await mergeCheckExecutor(engine, runner);
+        if (!available.ok) return await this.terminal(run, 'check_unavailable', available.reason);
+        const { executor } = available;
         if (!(await this.checkpoint(run))) return;
-        const checkout = await merger.checkoutForCheck(ref, {
+        const prepared = await prepareMergeCheck(merger, {
+          ref,
           mergeId: train.id,
           mergeCommit: built.mergeCommit,
+          base: train.base,
           depsFrom: null,
+          runner,
+          github,
+          checkSandbox: this.deps.checkSandbox,
+          paths: engine.paths(),
         });
         if (!(await this.checkpoint(run))) return;
-        const paths = engine.paths();
         const runId = newId('mergecheck');
         let started = false;
-        const result = await executor.run(
+        let waitingForEngine = false;
+        const result = await recordMergeCheck(
+          ctx,
           {
-            runId,
-            cwd: checkout.path,
-            command: train.reviewTest.command,
+            id: runId,
+            projectKey: train.projectKey,
+            repo: train.repo,
+            kind: 'train',
+            trainId: train.id,
+            taskKeys: train.members.map((member) => member.taskKey),
+            commit: built.mergeCommit,
+            base: onto,
             maxWorkers: train.reviewTest.maxWorkers,
-            timeoutMs: train.reviewTest.timeoutMinutes * 60_000,
-            requireHeavyLock: true,
-            sandbox: this.deps.checkSandbox({
-              checkout: checkout.path,
-              gitDir: checkout.gitDir,
-              userHome: paths.userHome,
-              appHome: paths.home ?? undefined,
-              closedTmpRoots: [
-                ...paths.claudeTmpRoots,
-                ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
-              ],
-            }),
+            runner,
           },
-          run.signal ?? new AbortController().signal,
-          () => {
-            if (started || run.signal?.aborted) return;
-            started = true;
-            ctx.unitOfWork(() => {
-              this.save(train, { step: 'checking' });
-              this.patchMembers(train, { step: 'checking' });
-            });
-          },
+          (markStarted) =>
+            executor.run(
+              prepared.spec({ runId, command: train.reviewTest.command, reviewTest: train.reviewTest }),
+              run.signal ?? new AbortController().signal,
+              () => {
+                markStarted();
+                if (started || run.signal?.aborted) return;
+                started = true;
+                ctx.unitOfWork(() => {
+                  this.save(train, { step: 'checking' });
+                  if (!waitingForEngine) this.patchMembers(train, { step: 'checking' });
+                });
+              },
+              {
+                linkWaitMs: MERGE_ENGINE_WAIT_MS,
+                onLinkWait: (waiting) => {
+                  waitingForEngine = waiting;
+                  if (
+                    !run.signal?.aborted &&
+                    !this.hooks.stopped() &&
+                    ctx.repos.mergeTrains.get(train.id)?.state === 'running' &&
+                    this.rows(train).every((row) => row.state === 'running')
+                  )
+                    this.patchMembers(train, { step: waiting ? 'engine_waiting' : train.step });
+                },
+              },
+            ),
         );
         if (!(await this.checkpoint(run))) return;
-        const check = { command: train.reviewTest.command, runId, status: result.outcome };
+        if (result.outcome === 'error' && result.reason === 'engine_offline')
+          throw new EngineLinkLostError('the merge check lost the card engine', true);
+        const check = {
+          command: train.reviewTest.command,
+          runId,
+          status: result.outcome,
+          runner,
+          ...(result.externalUrl ? { url: result.externalUrl } : {}),
+        };
         ctx.unitOfWork(() => {
           this.save(train, { check });
           this.patchMembers(train, { check });
@@ -668,13 +949,33 @@ export class MergeTrains {
           },
           'merge train check completed',
         );
-        if (result.outcome === 'failed') return await this.bisect(train);
+        if (result.outcome === 'failed') {
+          if (await this.diagnose(run, engine, executor, result)) return;
+          return await this.requeue(train);
+        }
         if (result.outcome !== 'passed')
           return await this.terminal(
             run,
             'check_error',
             `The group check could not run (${result.reason ?? result.outcome}): ${result.outputTail.slice(-8000)}`,
           );
+        const flaky = flakyCheckFiles(result);
+        if (flaky.length > 0) {
+          ctx.unitOfWork(() => {
+            for (const row of this.rows(train))
+              this.deps.timeline.append({
+                projectKey: row.projectKey,
+                taskKey: row.taskKey,
+                actor: SYSTEM_ACTOR,
+                type: 'task_note',
+                data: { text: flakyCheckNote(runId, flaky), mentions: [] },
+              });
+          });
+          ctx.logger.info(
+            { runId, taskKeys: this.rows(train).map((row) => row.taskKey), flakyFiles: flaky },
+            'merge check passed with flaky test files',
+          );
+        }
         const publish = await this.lock(this.rows(train), async () => {
           for (const row of this.rows(train)) if (!(await this.valid(row, train))) return false;
           if (!(await this.pullRequests(train)) || run.signal?.aborted || this.hooks.stopped()) return false;
@@ -725,6 +1026,7 @@ export class MergeTrains {
       // A failed transaction rolls back SQLite, not the in-memory manifest object.
       Object.assign(train, durable);
       if (!run.pushing && !(await this.checkpoint(run))) return;
+      if (isEngineLinkLost(err)) throw err;
       await this.terminal(
         run,
         train.step === 'check_waiting' || train.step === 'checking' ? 'check_error' : 'merge_error',

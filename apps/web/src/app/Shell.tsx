@@ -170,7 +170,12 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
       >
         <Icon name="settings" size={20} strokeWidth={1.8} />
       </Link>
-      <AccountMenu settingsPath={settings.to} placement="right" onPause={canPause ? openPause : undefined} />
+      <AccountMenu
+        settingsPath={settings.to}
+        notificationsPath={`/p/${key}/notifications`}
+        placement="right"
+        onPause={canPause ? openPause : undefined}
+      />
     </nav>
   );
 }
@@ -450,6 +455,7 @@ export function MobileHeader({
       ) : null}
       <AccountMenu
         settingsPath={`/p/${key}/settings`}
+        notificationsPath={`/p/${key}/notifications`}
         howWeWorkPath={can.readConfig ? `/p/${key}/how-we-work` : null}
         feedback={feedbackNav.visible ? { to: `/p/${key}/feedback`, badge: feedbackNav.badge } : null}
         placement="below"

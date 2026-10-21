@@ -402,6 +402,39 @@ describe('automatic stage advance', () => {
     expect(openDecisions(key)).toHaveLength(1);
   });
 
+  it('runs one advance per card at a time, then one more round for the events that came meanwhile (PM-770)', async () => {
+    h = await createDomainHarness();
+    const key = await cardInCodeReview();
+    const other = await cardInCodeReview();
+    await settle();
+    const first = barrier();
+    const reconcile = vi.spyOn(h.domain.merges, 'reconcile');
+    reconcile.mockImplementationOnce(() => first.promise);
+    const check = vi.spyOn(h.domain.autoAdvance, 'check');
+    const reconciled = (taskKey: string) => reconcile.mock.calls.filter(([, k]) => k === taskKey).length;
+
+    await approve(key);
+    await vi.waitFor(() => expect(reconciled(key)).toBe(1));
+    // Three more events on the card while the run waits: no second run beside it.
+    await h.domain.tasks.changeLabels('AR', key, { remove: ['code-review-ok'] }, aiActor('cr'));
+    await approve(key);
+    await h.domain.tasks.changeLabels('AR', key, { remove: ['code-review-ok'] }, aiActor('cr'));
+    await settle();
+    expect(reconciled(key)).toBe(1);
+    // Another card is not held back by it.
+    await approve(other);
+    await vi.waitFor(() => expect(reconciled(other)).toBeGreaterThan(0));
+
+    first.release();
+    // One more round, which reads the card as it is now (without the label).
+    await vi.waitFor(() => expect(reconciled(key)).toBe(2));
+    await settle();
+    expect(reconciled(key)).toBe(2);
+    const last = check.mock.calls.filter(([card]) => card.key === key).at(-1)![0];
+    expect(last.labels).not.toContain('code-review-ok');
+    expect(openDecisions(key)).toEqual([]);
+  });
+
   it.each(['done', 'development'])(
     'discards an automatic move when a human moves the card to %s during its preparation',
     async (stageId) => {

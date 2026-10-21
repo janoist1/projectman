@@ -1,6 +1,8 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
   AddRelationRef,
+  BuiltInRoleId,
+  RoleConfigurationRead,
   Attachment,
   DeveloperLevelRequest,
   FeedbackMarkDetail,
@@ -8,15 +10,26 @@ import type {
   FeedbackOutcome,
   FeedbackStatus,
   FocusPlace,
+  HistorySearchInput,
+  HistorySearchResult,
+  HistorySearchStats,
+  HistorySourceRead,
+  HistoryStatsInput,
   MemberHandle,
+  MergeCheckRun,
+  MergeCheckRunKind,
+  OperatorDiagnostics,
   MessageAttachmentRef,
   MessageKind,
   RelationsChange,
   TaskRelation,
   MemberView,
   QuestionAttachment,
+  QuestionResponsePurpose,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
   QuestionOptionInput,
-  QuestionTodo,
+  ScreeningTodo,
   ScreeningOutcome,
   Task,
   TaskDetail,
@@ -44,7 +57,31 @@ import type {
   OperatorPreferenceDocument,
   ConfigChangeRow,
   ProjectDoc,
+  SuperCommand,
+  SuperHandoff,
+  ExternalAttachmentRead,
+  ExternalDocWriteState,
+  ExternalQuestionRead,
+  StructuralReviewResult,
 } from '@projectman/shared';
+import type {
+  Actor,
+  AdministrationTarget,
+  InboxItem,
+  ListSuperHandoffsQuery,
+  SuperDiagnosticsRequest,
+  SuperDiagnosticsResponse,
+  SuperOperateRequest,
+  SuperOperation,
+  SuperOperationDetail,
+} from '@projectman/shared';
+import type {
+  AdministrationLogsOptions,
+  AdministrationMachineSnapshot,
+  AdministrationStatus,
+  DiagnosticLogEntry,
+} from './administration';
+import type { IntegratorPrincipal } from './integrator-principal';
 import type { CardQuestion, CardWorker } from './context';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
 
@@ -217,6 +254,8 @@ export interface TaskToolDetail extends TaskDetail {
   cardWorkers?: CardWorker[];
   /** The card's questions (PM-249), as the brief lists them (`QUESTION_LIMIT`). */
   cardQuestions?: CardQuestion[];
+  /** The card's latest merge checks, newest first (PM-876); absent when it has none. */
+  mergeChecks?: MergeCheckRun[];
 }
 
 /** A page of a task's readable attachments, oldest first. */
@@ -492,6 +531,29 @@ export interface MergeToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; reason: string },
   ): Promise<{ task: Task; moved: boolean }>;
+  /**
+   * list_merge_checks (PM-876): the project's recorded merge checks, newest first, with the time, workers and
+   * step timings the engine measured. Only the runs whose cards the caller may see.
+   */
+  listMergeChecks(ctx: ToolContext, args: ListMergeChecksInput): Promise<MergeCheckList>;
+}
+
+/** The arguments of list_merge_checks; the defaults (any outcome, merges and trains, 30 runs) are the tool's. */
+export interface ListMergeChecksInput {
+  taskKey?: string;
+  outcome?: 'passed' | 'not_passed' | 'any';
+  /** `checks` is the merge and the train check; `diagnose` is the train's per-card diagnosis. */
+  kind?: MergeCheckRunKind | 'checks' | 'any';
+  /** ISO 8601 with a time zone: the runs requested from `since` (inclusive) up to `until` (exclusive). */
+  since?: string;
+  until?: string;
+  limit?: number;
+}
+
+export interface MergeCheckList {
+  runs: MergeCheckRun[];
+  /** More runs match than `runs` holds: ask again with `until` set to the oldest `requestedAt`. */
+  hasMore: boolean;
 }
 
 /** The tools of services/feedback (PM-608). */
@@ -574,11 +636,44 @@ export interface TeamToolsHandler
     ReleaseToolsHandler,
     OperatorToolsHandler,
     ProjectDocToolsHandler,
+    HistoryToolsHandler,
     InboxToolsHandler,
     MessageToolsHandler,
     AdmissionToolsHandler,
     WatcherToolsHandler,
     SessionToolsHandler {}
+
+/** What read_history_source takes: one source of the project's history, read in lines (PM-787). */
+export interface HistorySourceReadArgs {
+  sourceId: string;
+  fromLine?: number;
+  lineCount?: number;
+  commit?: string;
+}
+
+/** The tools of services/history (PM-787): search and read the project's history, and the private statistics. */
+export interface HistoryToolsHandler {
+  /**
+   * search_history: the visible hits of the project history for the caller, through the shared visibility rule.
+   * `projectKey` defaults to the session's project; another project of an AI member is `insufficient_access`.
+   * Every valid search is measured once, privately.
+   */
+  searchHistory(
+    ctx: ToolContext,
+    args: HistorySearchInput & { projectKey?: string },
+  ): Promise<HistorySearchResult>;
+  /** read_history_source: one source a search named, in lines; hidden and missing give the same `not_found`. */
+  readHistorySource(
+    ctx: ToolContext,
+    args: HistorySourceReadArgs & { projectKey?: string },
+  ): Promise<HistorySourceRead>;
+  /**
+   * get_history_search_stats: the private statistics of the search log. Only the Operator, in the general
+   * conversation of a human owner or admin, tied to their own open message or answer request; otherwise
+   * `history_stats_forbidden`.
+   */
+  getHistorySearchStats(ctx: ToolContext, args: HistoryStatsInput): Promise<HistorySearchStats>;
+}
 
 export interface InboxToolsHandler {
   /**
@@ -611,6 +706,9 @@ export interface InboxToolsHandler {
       /** The earlier question the Operator settled, and why a person must see this one (PM-558); only together. */
       reaskOf?: string;
       reaskReason?: string;
+      /** `information`: a simple fact the super-mode integrator may relay (PM-762); missing means an owner decision. */
+      responsePurpose?: QuestionResponsePurpose;
+      recipient?: QuestionRecipient;
     },
   ): Promise<{
     inboxItemId: string;
@@ -672,11 +770,18 @@ export interface AdmissionToolsHandler {
 export interface WatcherToolsHandler {
   /**
    * decide_fix_limit (PM-262): the AI member who decides (the lead, or the planner it asked) decides how a
-   * card that reached its fix round limit goes on. The reason is required.
+   * card that reached its fix round limit goes on. The reason is required; so is the assessment of
+   * `to_owner` (PM-714: recurrence, currentState, recommendation {optionId, reason}), which the watcher
+   * validates.
    */
   decideFixLimit(
     ctx: ToolContext,
-    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
+    args: {
+      taskKey: string;
+      decision: 'continue' | 'replan' | 'to_owner';
+      reason: string;
+      assessment?: unknown;
+    },
   ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
 }
 
@@ -705,10 +810,12 @@ export interface McpModuleOptions {
   /** Maps the token in /mcp/:token to the calling session; null = reject. */
   resolveContext(token: string): ToolContext | null;
   logger: FastifyBaseLogger;
+  /** The bearer endpoint `POST /mcp` of the integrator (PM-760); absent: that route is not served. */
+  external?: ExternalMcpBackend;
 }
 
 export interface McpModule {
-  /** Registers the MCP endpoint at /mcp/:token (localhost only). */
+  /** Registers the MCP endpoints: /mcp/:token (localhost only) and, with `external`, the bearer POST /mcp. */
   registerRoutes(app: FastifyInstance): void;
 }
 
@@ -748,6 +855,15 @@ export interface ProjectDocToolsHandler {
 
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
+  getRoleConfiguration(ctx: ToolContext, args: { role: BuiltInRoleId }): Promise<RoleConfigurationRead>;
+  requestStructuralReview(
+    ctx: ToolContext,
+    args: { signalId: string; note: string },
+  ): Promise<import('@projectman/shared').StructuralReviewResult>;
+  getOperatorDiagnostics(
+    ctx: ToolContext,
+    args: { taskKey: string; limit?: number },
+  ): Promise<OperatorDiagnostics>;
   getOperatorKnowledge(ctx: ToolContext): Promise<OperatorKnowledgeDocument>;
   proposeOperatorKnowledge(
     ctx: ToolContext,
@@ -778,6 +894,28 @@ export interface OperatorToolsHandler {
     inbox_item_id?: string;
     deduplicated?: true;
   }>;
+  /**
+   * execute_operation (PM-888): the Operator starts one command on the shared super-operation path, as itself,
+   * during an open owner request in its own general conversation. A K3 effect waits for the owner's own yes and
+   * goes on by itself after it. The same `requestKey` in the same request is the same operation; `operate` and
+   * `member_update` commands are `super_operation_unsupported`.
+   */
+  executeOperation(
+    ctx: ToolContext,
+    args: { requestKey: string; taskKey?: string; command: SuperCommand },
+  ): Promise<{ operation: SuperOperation }>;
+  /** get_operation (PM-888): one operation of the project and, once recorded, its result. */
+  getOperation(ctx: ToolContext, args: { operationId: string }): Promise<SuperOperationDetail>;
+  /** get_machine_status (PM-888): the administration status and, when the target has the capability, its machine. */
+  getMachineStatus(
+    ctx: ToolContext,
+    args: { target: AdministrationTarget },
+  ): Promise<{ status: AdministrationStatus; machine: AdministrationMachineSnapshot | null }>;
+  /** get_machine_logs (PM-888): the filtered diagnostic log of the hub or of an engine linked to the project. */
+  getMachineLogs(
+    ctx: ToolContext,
+    args: { target: AdministrationTarget } & AdministrationLogsOptions,
+  ): Promise<{ entries: DiagnosticLogEntry[] }>;
   startTask(
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
@@ -810,11 +948,242 @@ export interface OperatorToolsHandler {
       note: string;
       answer?: string;
       forwardTo?: MemberHandle;
-      todo?: QuestionTodo;
+      todo?: ScreeningTodo;
     },
-  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
+  ): Promise<{
+    inboxItemId: string;
+    outcome: ScreeningOutcome;
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
+  }>;
+  combineQuestions(
+    ctx: ToolContext,
+    args: { itemIds: string[]; question: string; note: string },
+  ): Promise<{ primaryItemId: string; linkedItemIds: string[] }>;
   dismissSignal(
     ctx: ToolContext,
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }>;
+  /**
+   * The PM opens a todo in the integrator's queue (PM-808), the way the system does for an obligation: the
+   * PM is the asker, so the answer comes back to it. The owners get it when the integrator cannot take it.
+   * Refused (`obligation_tracked`) on a card projectman follows itself.
+   */
+  openIntegratorTodo(
+    ctx: ToolContext,
+    args: { taskKey?: string; question: string; what: string; where: string; expected: string },
+  ): Promise<{
+    itemId: string;
+    recipient: QuestionRecipient;
+    recipientRefusal: QuestionRecipientRefusal | null;
+  }>;
+  triageLoop(
+    ctx: ToolContext,
+    args: {
+      signalId: string;
+      outcome: 'progress' | 'loop';
+      note: string;
+      evidenceIds: string[];
+    },
+  ): Promise<{
+    state: 'observing' | 'awaiting_owner' | 'resolved';
+    loopId: string;
+    inboxItemId: string | null;
+  }>;
+}
+
+/**
+ * The caller of the bearer MCP (PM-760): an integrator key, one project, no provider session. It is a
+ * separate type on purpose: `ToolContext.sessionId` is never filled with an empty or invented id, and the
+ * member tools that need a session cannot be given this one.
+ */
+export interface ExternalToolContext {
+  principal: IntegratorPrincipal;
+  projectKey: string;
+  /** The actor every change is recorded as: the Operator-bound super actor, or the owner via the key. */
+  actor: Actor;
+  requestId: string;
+}
+
+/** What send_message answers for the integrator: the same delivery report, without the session-bound parts. */
+export interface ExternalSentMessage {
+  messageId: string;
+  deliveredTo: string[];
+  recipients: SentMessageRecipient[];
+}
+
+/**
+ * The domain calls of the tools the bearer MCP serves. Each method is bound to the project of the context
+ * and re-reads the credential's rights; none reads a session, a member's private file or a working directory.
+ */
+export interface ExternalToolsHandler {
+  /** The projects whose owner the key's holder currently is; the only call without a project. */
+  listProjects(
+    principal: IntegratorPrincipal,
+    requestId: string,
+  ): Promise<{ projects: { key: string; name: string }[] }>;
+  listTasks(ctx: ExternalToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
+  getTask(ctx: ExternalToolContext, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail>;
+  createTask(
+    ctx: ExternalToolContext,
+    args: Parameters<TaskToolsHandler['createTask']>[1],
+  ): Promise<{ task: Task }>;
+  updateTask(
+    ctx: ExternalToolContext,
+    args: Parameters<TaskToolsHandler['updateTask']>[1],
+  ): Promise<{ task: Task }>;
+  sendMessage(
+    ctx: ExternalToolContext,
+    args: { to: string[]; text: string; taskKey?: string; kind: MessageKind; despiteWorkers?: boolean },
+  ): Promise<ExternalSentMessage>;
+  listMembers(ctx: ExternalToolContext): Promise<MemberView[]>;
+  getProjectState(
+    ctx: ExternalToolContext,
+    args: { taskKey?: string; messageId?: string },
+  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
+  getOperatorDiagnostics(
+    ctx: ExternalToolContext,
+    args: { taskKey: string; limit?: number },
+  ): Promise<OperatorDiagnostics>;
+  listAttachments(
+    ctx: ExternalToolContext,
+    args: { taskKey: string; offset?: number; limit?: number },
+  ): Promise<AttachmentPage>;
+  checkRelease(ctx: ExternalToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
+  listSuperHandoffs(
+    ctx: ExternalToolContext,
+    query: ListSuperHandoffsQuery,
+  ): Promise<{ handoffs: SuperHandoff[] }>;
+  executeSuperHandoff(
+    ctx: ExternalToolContext,
+    args: { handoffId: string; requestId: string },
+  ): Promise<{ operation: SuperOperation }>;
+  superOperate(
+    ctx: ExternalToolContext,
+    request: SuperOperateRequest,
+  ): Promise<{ operation: SuperOperation }>;
+  getSuperOperation(ctx: ExternalToolContext, operationId: string): Promise<SuperOperationDetail>;
+  querySuperDiagnostics(
+    ctx: ExternalToolContext,
+    request: SuperDiagnosticsRequest,
+  ): Promise<SuperDiagnosticsResponse>;
+  getAdministrationStatus(
+    ctx: ExternalToolContext,
+    target: AdministrationTarget,
+  ): Promise<{ status: AdministrationStatus }>;
+  getAdministrationLogs(
+    ctx: ExternalToolContext,
+    args: { target: AdministrationTarget } & AdministrationLogsOptions,
+  ): Promise<{ entries: DiagnosticLogEntry[] }>;
+  getMachineSnapshot(
+    ctx: ExternalToolContext,
+    target: AdministrationTarget,
+  ): Promise<{ snapshot: AdministrationMachineSnapshot }>;
+  resolveIntegratorTodo(
+    ctx: ExternalToolContext,
+    args: { itemId: string; optionId: 'todo_done' | 'todo_cannot'; note?: string },
+  ): Promise<{ item: InboxItem }>;
+  /**
+   * resolve_integrator_fix_limit (PM-714): the integrator decides the fix round limit item addressed to it
+   * (replan, reassign, another_round) or hands it to the owners (to_owner, with a note). Only that item.
+   */
+  resolveIntegratorFixLimit(
+    ctx: ExternalToolContext,
+    args: {
+      itemId: string;
+      optionId: 'replan' | 'reassign' | 'another_round' | 'to_owner';
+      note?: string;
+    },
+  ): Promise<{ item: InboxItem }>;
+  /** list_integrator_inbox (PM-714): what the integrator is the recipient of, each with its full text. */
+  listIntegratorInbox(
+    ctx: ExternalToolContext,
+    args: { state: 'open' | 'all' },
+  ): Promise<{ items: InboxItem[] }>;
+  relayOwnerAnswer(
+    ctx: ExternalToolContext,
+    args: { itemId: string; answer: string },
+  ): Promise<{ item: InboxItem }>;
+  /** search_history for the integrator's bound access (PM-787); the same result as the member tool. */
+  searchHistory(ctx: ExternalToolContext, args: HistorySearchInput): Promise<HistorySearchResult>;
+  readHistorySource(ctx: ExternalToolContext, args: HistorySourceReadArgs): Promise<HistorySourceRead>;
+  /** read_project_doc (PM-784): the Operator's document read; super and read keys. */
+  readProjectDoc(
+    ctx: ExternalToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ): Promise<ProjectDocRead>;
+  /** write_project_docs (PM-784): super keys only; the append-only document rules apply as for the Operator. */
+  writeProjectDocs(
+    ctx: ExternalToolContext,
+    args: {
+      baseCommit: string;
+      message: string;
+      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+    },
+  ): Promise<ProjectDocWrite>;
+  /** get_project_doc_write (PM-784): the state of one write the same owner's keys made. */
+  getProjectDocWrite(ctx: ExternalToolContext, args: { writeId: string }): Promise<ExternalDocWriteState>;
+  getRoleConfiguration(
+    ctx: ExternalToolContext,
+    args: { role: BuiltInRoleId },
+  ): Promise<RoleConfigurationRead>;
+  /** propose_release (PM-784): super keys only; a `preview` records nothing. */
+  proposeRelease(
+    ctx: ExternalToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease>;
+  requestStructuralReview(
+    ctx: ExternalToolContext,
+    args: { signalId: string; note: string },
+  ): Promise<StructuralReviewResult>;
+  /** ask_human (PM-784): a question of the integrator to the owners, answered only by their own login. */
+  askHuman(
+    ctx: ExternalToolContext,
+    args: {
+      question: string;
+      options?: QuestionOptionInput[];
+      taskKey?: string;
+      to?: MemberHandle[];
+      recommended?: string;
+      recommendationReason?: string;
+      details?: string;
+      attachmentIds?: string[];
+      responsePurpose?: QuestionResponsePurpose;
+    },
+  ): Promise<{
+    inboxItemId: string;
+    approvalLabel?: string;
+    attachments?: QuestionAttachment[];
+    state: 'open';
+  }>;
+  /** get_super_question (PM-784): the integrator owner's own question and, once answered, the answer. */
+  getSuperQuestion(ctx: ExternalToolContext, args: { itemId: string }): Promise<ExternalQuestionRead>;
+  withdrawQuestion(
+    ctx: ExternalToolContext,
+    args: { itemId: string; reason: string },
+  ): Promise<{ itemId: string; state: 'cancelled' }>;
+  /** read_attachment (PM-784): one chunk of a file of a card, byte-exact. */
+  readAttachment(
+    ctx: ExternalToolContext,
+    args: { taskKey: string; attachmentId: string; offsetBytes?: number; maxBytes?: number },
+  ): Promise<ExternalAttachmentRead>;
+}
+
+/** The credential modes of an integrator key (PM-757), as the external tool policy sees them. */
+export type ExternalCredentialMode = IntegratorPrincipal['mode'];
+
+/** What the bearer MCP endpoint needs from the composition: the handler and the execution scope around it. */
+export interface ExternalMcpBackend {
+  handler: ExternalToolsHandler;
+  /** Runs one project-bound tool call inside the key's execution scope and audit (`SuperOperator.execute`). */
+  execute<T>(
+    context: { principal: IntegratorPrincipal; requestId: string },
+    target: { projectKey: string; taskKey?: string; operation: string },
+    run: () => Promise<T>,
+  ): Promise<T>;
+  /** Resolves the call's context: re-checks the key, the holder's ownership and the mode, and binds the actor. */
+  bind(
+    input: { principal: IntegratorPrincipal; projectKey: string; requestId: string },
+    operation: 'read' | 'write',
+  ): Promise<ExternalToolContext>;
 }

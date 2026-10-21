@@ -272,6 +272,11 @@ export function createSessionRepository(db: Db) {
     findByWorkItem: db.prepare(
       'SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = ? AND work_item_ref = ?',
     ),
+    latestSourceOfTask: db.prepare(
+      `SELECT * FROM sessions WHERE project_key = ? AND work_item_type = 'task' AND work_item_ref = ?
+         AND (branch IS NOT NULL OR reviewed_commit IS NOT NULL)
+       ORDER BY started_at DESC, id DESC LIMIT 1`,
+    ),
     list: db.prepare('SELECT * FROM sessions WHERE project_key = ? ORDER BY started_at, id'),
     listByMember: db.prepare(
       'SELECT * FROM sessions WHERE project_key = ? AND member = ? ORDER BY started_at, id',
@@ -368,6 +373,11 @@ export function createSessionRepository(db: Db) {
       const wi = encodeWorkItem(item);
       const row = statements.findByWorkItem.get(projectKey, member, wi.type, wi.ref) as
         SessionRow | undefined;
+      return row ? toSession(row) : null;
+    },
+    /** The latest task session with a source trace, including legacy worktrees without workspace bindings (PM-818). */
+    latestSourceOfTask(projectKey: string, taskKey: string): Session | null {
+      const row = statements.latestSourceOfTask.get(projectKey, taskKey) as SessionRow | undefined;
       return row ? toSession(row) : null;
     },
     list(projectKey: string, filter: { member?: string; taskKey?: string } = {}): Session[] {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent, Session, TokenUsage } from '@projectman/shared';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
 /** Token usage of sessions, cards and members (PM-178), fed by the runner's `usage` events. */
@@ -63,7 +63,7 @@ describe('token usage', () => {
       rows: [OPUS(11, 5), HAIKU_SUBAGENT],
     });
     // The card's sessions carry their usage.
-    expect(h.domain.sessions.list('AR', { taskKey: 'AR-1' })[0]!.usage?.rows).toEqual([
+    expect((await waitForSession(h.domain, { taskKey: 'AR-1' })).usage?.rows).toEqual([
       OPUS(11, 5),
       HAIKU_SUBAGENT,
     ]);

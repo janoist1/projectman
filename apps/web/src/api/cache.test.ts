@@ -25,6 +25,30 @@ import { appendUnique, applyServerEvent, upsertBy, writeTaskDetail } from './cac
 import { queryKeys } from './queryKeys';
 
 const KEY = 'AC';
+it('refreshes super DTOs when their timeline changes without executing an operation', () => {
+  const client = new QueryClient();
+  const keys = [
+    ['project', KEY, 'super-audit'],
+    ['project', KEY, 'super-handoffs'],
+    ['project', KEY, 'super-operation', 'op'],
+  ];
+  for (const queryKey of keys) client.setQueryData(queryKey, { fixture: true });
+  applyServerEvent(client, {
+    type: 'timeline_appended',
+    projectKey: KEY,
+    event: {
+      id: 'changed',
+      projectKey: KEY,
+      taskKey: null,
+      sessionId: null,
+      actor: { kind: 'ai', handle: 'operator' },
+      type: 'super_handoff_changed',
+      data: { handoffId: 'h', state: 'pending' },
+      createdAt: new Date().toISOString(),
+    },
+  });
+  expect(keys.every((queryKey) => client.getQueryState(queryKey)?.isInvalidated)).toBe(true);
+});
 
 function seed(): QueryClient {
   const client = new QueryClient();

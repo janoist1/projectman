@@ -1,8 +1,17 @@
 import type { Actor, TeamMessage } from '@projectman/shared';
-import { CardVersion, MessageAttachmentRef, MessageKind, MessageSubject } from '@projectman/shared';
+import {
+  actorWithOriginMeta,
+  CardVersion,
+  hasSuperOrigin,
+  MessageAttachmentRef,
+  MessageKind,
+  MessageSubject,
+} from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
+import { originMetaJson } from './actor-meta';
 import { parseJson, toJson } from './json';
+import { PENDING_MESSAGE_RECIPIENTS } from './message-pending';
 
 interface MessageRow {
   seq: number;
@@ -20,6 +29,8 @@ interface MessageRow {
   operator_request: string | null;
   operator_signal: string | null;
   via: 'integrator' | null;
+  /** The super mode's origin (PM-757); NULL on every older message. */
+  actor_meta: string | null;
   origin: string | null;
   kind: string | null;
   version: string | null;
@@ -39,33 +50,50 @@ const attachmentsOf = (json: string | null): MessageAttachmentRef[] | undefined 
   return parsed.success && parsed.data.length > 0 ? parsed.data : undefined;
 };
 
-const toMessage = (r: MessageRow): TeamMessage => ({
-  id: r.id,
-  projectKey: r.project_key,
-  from: r.from_handle,
-  to: parseJson<string[]>(r.to_handles, []),
-  taskKey: r.task_key,
-  body: r.body,
-  createdAt: r.created_at,
-  deliveredAt: r.delivered_at,
-  ...(MessageKind.safeParse(r.kind).success ? { kind: MessageKind.parse(r.kind) } : {}),
-  ...(CardVersion.safeParse(parseJson(r.version, null)).success
-    ? { version: CardVersion.parse(parseJson(r.version, null)) }
-    : {}),
-  ...(MessageSubject.safeParse(parseJson(r.subject, null)).success
-    ? { subject: MessageSubject.parse(parseJson(r.subject, null)) }
-    : {}),
-  ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
-  ...(attachmentsOf(r.attachments) ? { attachments: attachmentsOf(r.attachments) } : {}),
-  ...(r.via ? { via: r.via } : {}),
-  ...(r.origin
-    ? { origin: parseJson<NonNullable<TeamMessage['origin']>>(r.origin, { kind: 'note', eventId: '' }) }
-    : {}),
-  ...(r.answer ? { answer: parseJson(r.answer, { inboxItemId: '', question: '', answer: '' }) } : {}),
-  ...(r.relayed ? { relayed: parseJson(r.relayed, { sessionId: '', inReplyTo: '' }) } : {}),
-  ...(r.operator_request ? { operatorRequest: r.operator_request } : {}),
-  ...(r.operator_signal ? { operatorSignal: r.operator_signal } : {}),
-});
+/**
+ * The full origin of a message sent in the super mode (PM-757), from the stored meta and the old columns
+ * (`from_handle`, `via`); undefined for every other message, and for a row whose meta disagrees with them.
+ */
+const superActorOf = (r: MessageRow): Actor | undefined => {
+  if (!r.actor_meta) return undefined;
+  const actor = actorWithOriginMeta(
+    { kind: 'ai', handle: r.from_handle, ...(r.via ? { via: r.via } : {}) },
+    parseJson(r.actor_meta, null),
+  );
+  return hasSuperOrigin(actor) ? actor : undefined;
+};
+
+const toMessage = (r: MessageRow): TeamMessage => {
+  const kind = MessageKind.safeParse(r.kind);
+  const version = CardVersion.safeParse(parseJson(r.version, null));
+  const subject = MessageSubject.safeParse(parseJson(r.subject, null));
+  const attachments = attachmentsOf(r.attachments);
+  const actor = superActorOf(r);
+  return {
+    id: r.id,
+    projectKey: r.project_key,
+    from: r.from_handle,
+    to: parseJson<string[]>(r.to_handles, []),
+    taskKey: r.task_key,
+    body: r.body,
+    createdAt: r.created_at,
+    deliveredAt: r.delivered_at,
+    ...(kind.success ? { kind: kind.data } : {}),
+    ...(version.success ? { version: version.data } : {}),
+    ...(subject.success ? { subject: subject.data } : {}),
+    ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
+    ...(attachments ? { attachments } : {}),
+    ...(r.via ? { via: r.via } : {}),
+    ...(actor ? { actor } : {}),
+    ...(r.origin
+      ? { origin: parseJson<NonNullable<TeamMessage['origin']>>(r.origin, { kind: 'note', eventId: '' }) }
+      : {}),
+    ...(r.answer ? { answer: parseJson(r.answer, { inboxItemId: '', question: '', answer: '' }) } : {}),
+    ...(r.relayed ? { relayed: parseJson(r.relayed, { sessionId: '', inReplyTo: '' }) } : {}),
+    ...(r.operator_request ? { operatorRequest: r.operator_request } : {}),
+    ...(r.operator_signal ? { operatorSignal: r.operator_signal } : {}),
+  };
+};
 
 export function createMessageRepository(db: Db) {
   const statements = {
@@ -82,8 +110,8 @@ export function createMessageRepository(db: Db) {
        AND instr(body, ?) > 0 LIMIT 1`,
     ),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     setAttachments: db.prepare('UPDATE team_messages SET attachments = ? WHERE id = ?'),
     countUnread: db.prepare(
@@ -92,10 +120,21 @@ export function createMessageRepository(db: Db) {
        AND NOT EXISTS (SELECT 1 FROM json_each(receipts) WHERE json_extract(value, '$.handle') = ?
          AND json_extract(value, '$.readAt') IS NOT NULL)`,
     ),
-    addressedTo: db.prepare(
-      `SELECT * FROM team_messages WHERE project_key = ? AND
-       EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?) ORDER BY seq`,
+    pending: db.prepare(`SELECT m.* FROM team_message_pending AS p
+      JOIN team_messages AS m ON m.id = p.message_id
+      WHERE p.project_key = ? AND p.handle = ? ORDER BY p.seq`),
+    pendingObligationReminders: db.prepare(`SELECT m.* FROM team_message_pending AS p
+      JOIN team_messages AS m ON m.id = p.message_id
+      WHERE p.project_key = ? AND CASE WHEN json_valid(m.subject) THEN json_extract(m.subject, '$.type') ELSE NULL END = 'obligation'
+      GROUP BY m.id ORDER BY m.seq`),
+    pendingHandles: db.prepare(
+      'SELECT handle FROM team_message_pending WHERE message_id = ? ORDER BY handle',
     ),
+    pendingCount: db.prepare(`SELECT COUNT(*) AS n FROM team_message_pending
+      WHERE project_key = ? AND handle = ?`),
+    clearPending: db.prepare('DELETE FROM team_message_pending WHERE message_id = ?'),
+    derivePending: db.prepare(`INSERT INTO team_message_pending (message_id, project_key, handle, seq)
+      ${PENDING_MESSAGE_RECIPIENTS} AND m.id = ?`),
     involving: db.prepare(
       `SELECT id, from_handle, to_handles, receipts FROM team_messages WHERE project_key = ?
        AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
@@ -117,10 +156,27 @@ export function createMessageRepository(db: Db) {
     return row ? toMessage(row) : null;
   };
 
+  // Each caller owns a transaction, including standalone repository calls. better-sqlite3 nests
+  // these as savepoints, so the enclosing domain unitOfWork can still roll back both tables.
+  const refreshPending = (id: string): void => {
+    statements.clearPending.run(id);
+    statements.derivePending.run(id);
+  };
+
   return {
     get,
+    /** Every durable carrier, without a recent-message limit (shared question answers, PM-695). */
+    listByAttachment(projectKey: string, attachmentId: string): TeamMessage[] {
+      const rows = db
+        .prepare(
+          `SELECT * FROM team_messages WHERE project_key = ? AND
+        EXISTS (SELECT 1 FROM json_each(attachments) WHERE json_extract(value, '$.id') = ?) ORDER BY seq`,
+        )
+        .all(projectKey, attachmentId) as MessageRow[];
+      return rows.map(toMessage);
+    },
     hasNewerAction(message: TeamMessage, recipient: string): boolean {
-      const subject = message.subject?.inboxItemId ?? null;
+      const subject = message.subject?.type === 'permission' ? message.subject.inboxItemId : null;
       if (message.from === 'system' && subject === null) return false;
       return !!statements.hasNewerAction.get(
         message.projectKey,
@@ -136,27 +192,31 @@ export function createMessageRepository(db: Db) {
       return !!statements.hasNote.get(projectKey, from, to, marker);
     },
     insert(m: TeamMessage): void {
-      statements.insert.run(
-        m.id,
-        m.projectKey,
-        m.from,
-        toJson(m.to),
-        m.taskKey,
-        m.body,
-        m.createdAt,
-        m.deliveredAt,
-        m.receipts ? toJson(m.receipts) : null,
-        m.answer ? toJson(m.answer) : null,
-        m.via ?? null,
-        m.origin ? toJson(m.origin) : null,
-        m.kind ?? null,
-        m.version ? toJson(m.version) : null,
-        m.subject ? toJson(m.subject) : null,
-        m.relayed ? toJson(m.relayed) : null,
-        m.operatorRequest ?? null,
-        m.operatorSignal ?? null,
-        m.attachments?.length ? toJson(m.attachments) : null,
-      );
+      db.transaction(() => {
+        statements.insert.run(
+          m.id,
+          m.projectKey,
+          m.from,
+          toJson(m.to),
+          m.taskKey,
+          m.body,
+          m.createdAt,
+          m.deliveredAt,
+          m.receipts ? toJson(m.receipts) : null,
+          m.answer ? toJson(m.answer) : null,
+          m.via ?? null,
+          m.origin ? toJson(m.origin) : null,
+          m.kind ?? null,
+          m.version ? toJson(m.version) : null,
+          m.subject ? toJson(m.subject) : null,
+          m.relayed ? toJson(m.relayed) : null,
+          m.operatorRequest ?? null,
+          m.operatorSignal ?? null,
+          m.attachments?.length ? toJson(m.attachments) : null,
+          m.actor ? originMetaJson(m.actor) : null,
+        );
+        refreshPending(m.id);
+      })();
     },
     /**
      * The file of the message is deleted: its entry keeps its place and gets `goneAt`/`goneBy`.
@@ -232,13 +292,21 @@ export function createMessageRepository(db: Db) {
     },
     /** Messages to an AI recipient that were not typed into one of its sessions yet, oldest first. */
     pending(projectKey: string, handle: string): TeamMessage[] {
-      return (statements.addressedTo.all(projectKey, handle) as MessageRow[])
-        .map(toMessage)
-        .filter((m) =>
-          m.receipts
-            ? m.receipts.some((r) => r.handle === handle && r.kind === 'ai' && !r.deliveredAt)
-            : !m.deliveredAt,
-        );
+      return (statements.pending.all(projectKey, handle) as MessageRow[]).map(toMessage);
+    },
+    /**
+     * The undelivered reminders of obligations (PM-813) with the handles still waiting for each, oldest first.
+     * Narrow on purpose: the pending queue holds a few rows, and only those with an obligation subject are read.
+     */
+    pendingObligationReminders(projectKey: string): { message: TeamMessage; handles: string[] }[] {
+      return (statements.pendingObligationReminders.all(projectKey) as MessageRow[]).map((row) => ({
+        message: toMessage(row),
+        handles: (statements.pendingHandles.all(row.id) as { handle: string }[]).map((h) => h.handle),
+      }));
+    },
+    /** The same recipient set without reading or decoding message rows. */
+    pendingCount(projectKey: string, handle: string): number {
+      return (statements.pendingCount.get(projectKey, handle) as { n: number }).n;
     },
     /**
      * `from`'s messages about a card that are not typed into every AI recipient's session yet (PM-144),
@@ -252,12 +320,18 @@ export function createMessageRepository(db: Db) {
       receipts: NonNullable<TeamMessage['receipts']>,
       deliveredAt: string | null,
     ): TeamMessage | null {
-      statements.updateReceipts.run(toJson(receipts), deliveredAt, id);
-      return get(id);
+      return db.transaction(() => {
+        statements.updateReceipts.run(toJson(receipts), deliveredAt, id);
+        refreshPending(id);
+        return get(id);
+      })();
     },
     markDelivered(id: string, at: string): TeamMessage | null {
-      statements.markDelivered.run(at, id);
-      return get(id);
+      return db.transaction(() => {
+        statements.markDelivered.run(at, id);
+        refreshPending(id);
+        return get(id);
+      })();
     },
   };
 }

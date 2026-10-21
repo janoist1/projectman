@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { CONTROL_SOCKET_NAME } from '@projectman/shared';
+import { CONTROL_SOCKET_NAME, superAccessVerdict } from '@projectman/shared';
+import type { HybridReleaseTarget, ReleaseEngineStatus } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
@@ -32,6 +33,7 @@ import type {
   EmailCodeMailer,
   FullTestExecutor,
   ScreenshotExecutor,
+  GithubActionsClient,
   GithubService,
   McpModule,
   McpModuleOptions,
@@ -44,17 +46,19 @@ import type {
   TerminalMode,
   WorktreeManager,
 } from './contracts';
+import { SESSION_CONFIG_DIR } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createAttachmentStorage, createMessageAttachmentStorage } from './core/attachments';
 import { createDomain } from './assembly';
 import { createEventBus } from './core/base';
-import { freeBytesOf } from './engine-host';
+import { freeBytesOf, resolveWorkRoots } from './engine-host';
+import { createHistorySemanticPort } from './history-semantic';
 import { readHeavyRunSessions } from './full-test';
 import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
 import type { TemplateRegistry } from './core/base';
-import { createGithubService } from './services/github';
+import { createGithubActionsClient, createGithubService } from './services/github';
 import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http';
 import { assertHomeMayStart, RUN_MODES } from './instance';
 import type { RunMode } from './instance';
@@ -63,9 +67,14 @@ import { createRunnerModule } from './runner';
 import { createMachineProbe } from './machine';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
+import { createSocketClient } from './administration';
+import { unavailable } from './kernel';
 import { createCloudRemote, createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
 import type { EngineLinks } from './engine-link';
 import { EngineRegistry } from './runtime/sessions';
+
+/** Web build files that must always be revalidated: the service worker, the manifest and the offline page. */
+const REVALIDATED_WEB_FILES = ['/sw.js', '/manifest.webmanifest', '/offline.html'];
 
 /** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
 export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
@@ -127,6 +136,8 @@ export interface AppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;
   github?: GithubService;
+  /** Overrides the GitHub Actions client of the single-machine engine (PM-900); tests pass a fake. */
+  githubActions?: GithubActionsClient;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
   operatorKnowledge?: OperatorKnowledgeStore;
@@ -142,7 +153,11 @@ export interface AppModules {
    * Makes the executor of the server's full test before review (PM-217). Default: none, so the feature
    * is off; `index.ts` passes the sandboxed one.
    */
-  createFullTestExecutor?: (opts: { logger: FastifyBaseLogger; worktreesRoot?: string }) => FullTestExecutor;
+  createFullTestExecutor?: (opts: {
+    logger: FastifyBaseLogger;
+    worktreesRoot?: string;
+    stepCacheFile?: string;
+  }) => FullTestExecutor;
   /**
    * Makes the executor of the screenshot runs of the Codex members (PM-351), in the same sandbox and the
    * same heavy-run queue as the full test. Default: none, so `take_screenshots` is refused.
@@ -170,6 +185,8 @@ export const APP_DEFAULTS = {
 } as const;
 
 export interface BuildAppOptions {
+  webPush?: { enabled?: boolean; subject?: string };
+  webPushTransport?: import('./contracts').PushTransport;
   engineMode?: 'single' | 'cloud';
   /** Tests: the cloud mode's setup code instead of a random one (PM-317). */
   setupCode?: string;
@@ -181,6 +198,16 @@ export interface BuildAppOptions {
    * its releases are proposed, approved and deployed. Absent: releases are off.
    */
   releaseTarget?: { projectKey: string; repo: string };
+  /**
+   * The remote engine and the target a hybrid release goes to (`PROJECTMAN_RELEASE_ENGINE_ID`,
+   * `PROJECTMAN_RELEASE_TARGET_HASH`, PM-752). Absent: the single-target release only.
+   */
+  releaseHybrid?: HybridReleaseTarget;
+  /**
+   * The Unix socket of the hub's own administration supervisor (`PROJECTMAN_ADMIN_SOCKET`, PM-763). Absent:
+   * the hub has no supervisor; the engines' supervisors are still reachable over their links.
+   */
+  administrationSocket?: string;
   /**
    * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off (PM-670).
    */
@@ -198,6 +225,11 @@ export interface BuildAppOptions {
   claudeBin?: string;
   /** PM-332: clone node_modules into new task worktrees from an installed checkout (default false; index.ts turns it on). */
   cloneDependencies?: boolean;
+  /**
+   * PM-846: a work volume's root inside the home; `worktrees/`, `workspaces/` and `tmp/` (the full test's run
+   * directories) live below it. Default: `${home}/worktrees` and `${home}/workspaces`, as before.
+   */
+  workRoot?: string;
   /** OpenAI Codex CLI (default "codex"). */
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: the runner's, ~/.codex). */
@@ -288,6 +320,11 @@ export interface BuildAppOptions {
    * (PM-219): the team is paused first. Default `APP_DEFAULTS.shutdownPauseMs`; 0 switches the pause off.
    */
   shutdownPauseMs?: number;
+  /**
+   * The local embedding of the history search (PM-767, `history-semantic`): on with the pinned model's directory.
+   * Absent (tests): the history search uses the words only.
+   */
+  historySemantic?: { enabled: boolean; modelDirectory: string; minCosine?: number };
   /** Opens `${home}/control.sock` for the control command (PM-219); default true, never for a standby copy. */
   controlSocket?: boolean;
 }
@@ -327,10 +364,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const attachmentsDir = join(home, 'attachments');
   const feedbackDir = join(home, 'feedback');
   const messageAttachmentsDir = join(home, 'message-attachments');
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  // PM-846: an unmounted or misplaced work volume stops the start; it never falls back to the home quietly.
+  const roots = resolveWorkRoots(home, options.workRoot);
   for (const dir of [
-    home,
     join(home, 'memory'),
-    join(home, 'worktrees'),
+    roots.worktrees,
     attachmentsDir,
     feedbackDir,
     messageAttachmentsDir,
@@ -397,6 +436,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           registry: engineRegistry,
           clientIpHeader,
           now: options.now ? () => options.now!().getTime() : undefined,
+          logger: log.child({ module: 'engine-link' }),
         })
       : undefined;
     const remote =
@@ -424,11 +464,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const worktrees =
       modules.worktrees ??
       createWorktreeManager({
-        rootDir: join(home, 'worktrees'),
+        rootDir: roots.worktrees,
         logger: log.child({ module: 'worktree' }),
         cloneDependencies: options.cloneDependencies ?? false,
       });
-    const workspacesDir = join(home, 'workspaces');
+    const workspacesDir = roots.workspaces;
     const memberWorkspaces = options.memberWorkspaces
       ? (modules.memberWorkspaces ??
         createMemberWorkspaceManager({
@@ -446,18 +486,70 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         emailLogin: options.emailCodeMailer !== undefined,
       });
 
+    // The admin channel and the hybrid release read the engines' facts from the cloud registry; single mode has none (PM-749).
+    const releaseEngineStatuses = (): ReleaseEngineStatus[] =>
+      (engineRegistry?.list() ?? [])
+        .filter((engine) => !engine.revokedAt)
+        .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt }));
+    // The history's local embedding (PM-767): its own worker thread on its own connection of the database file.
+    const historySemantic = createHistorySemanticPort({
+      databasePath: options.dbPath ?? join(home, 'db.sqlite'),
+      modelDirectory: options.historySemantic?.modelDirectory ?? '',
+      enabled: options.historySemantic?.enabled === true && !standby,
+      ...(options.historySemantic?.minCosine !== undefined
+        ? { minCosine: options.historySemantic.minCosine }
+        : {}),
+      logger: log.child({ module: 'history-semantic' }),
+    });
     const domain = createDomain({
+      historySemantic,
+      integratorCredentials: auth,
+      revokeIntegratorAccessKey: (userId, keyId) => auth.revokeIntegratorAccessKey(userId, keyId),
+      operatorGrants: auth.operatorGrantGate,
+      integratorTodoAccess: {
+        available: (config) =>
+          superAccessVerdict(config, { mode: 'super', operation: 'write', ownerMembership: true }).allowed &&
+          config.team.members.some((member) => {
+            if (member.kind !== 'human' || member.access !== 'owner' || !member.email) return false;
+            const user = repos?.users.findByEmail(member.email);
+            return (
+              !!user &&
+              auth.integratorAccessKeys(user.id).some((key) => key.mode === 'super' && key.state === 'active')
+            );
+          }),
+      },
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),
       ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),
+      ...(options.releaseHybrid
+        ? { releaseHybrid: { binding: options.releaseHybrid, engines: releaseEngineStatuses } }
+        : {}),
       engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
+      ...(options.administrationSocket || remote
+        ? {
+            administration: {
+              hub: options.administrationSocket
+                ? createSocketClient({ socketPath: options.administrationSocket })
+                : null,
+              engines: remote?.administration ?? {
+                port: () => {
+                  throw unavailable('administration_unavailable', 'there are no engines');
+                },
+                ids: () => [],
+              },
+              isEngineOnline: (id) => engineRegistry?.isOnline(id) ?? false,
+              builderEngine: () => engineRegistry?.defaultId() ?? null,
+            },
+          }
+        : {}),
       boundaryAdapter: modules.boundaryAdapter,
       nanogptKeyCheck: modules.nanogptKeyCheck,
       fullTestExecutor: remote
         ? undefined
         : modules.createFullTestExecutor?.({
             logger: log.child({ module: 'full-test' }),
-            worktreesRoot: join(home, 'worktrees'),
+            worktreesRoot: roots.worktrees,
+            stepCacheFile: join(home, 'cache', 'merge-test-steps.json'),
           }),
       screenshotExecutor: remote
         ? undefined
@@ -496,6 +588,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               env: options.agentEnv,
               terminal: options.terminal,
               publicBaseUrl,
+              sessionConfigRoot: join(home, SESSION_CONFIG_DIR),
               instanceTag,
               scopeProcesses: {
                 processes: () => scopeProbe?.processes() ?? Promise.resolve(null),
@@ -507,6 +600,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               logger: log.child({ module: 'runner' }),
             }),
       github,
+      // The single-machine engine runs the merge check's workflow itself; an engine of its own has its client.
+      ...(remote
+        ? {}
+        : {
+            githubActions:
+              modules.githubActions ??
+              createGithubActionsClient({
+                ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+                ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
+                pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
+                logger: log.child({ module: 'github' }),
+              }),
+          }),
       contextBuilder,
       memory,
       operatorKnowledge:
@@ -521,8 +627,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ...(options.emailCodeMailer
         ? { emailCodeMailer: options.emailCodeMailer, emailLoginKey: deriveEmailLoginKey(secret) }
         : {}),
-      worktreesRootDir: join(home, 'worktrees'),
+      worktreesRootDir: roots.worktrees,
       appHome: home,
+      webPush: options.webPush,
+      webPushTransport: options.webPushTransport,
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
       sessionTmpDir: options.sessionTmpDir,
@@ -548,6 +656,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       // O(1) in-memory lookup: runs on every MCP request.
       resolveContext: (token) => domain.sessions.resolveToken(token),
       logger: log,
+      external: domain.externalMcp(),
     });
 
     const webDistDir =
@@ -572,10 +681,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       publicBoard: options.publicBoard === true,
       setupCode,
       emailLogin: domain.emailLogin,
+      onOperatorGrantChanged: () => domain.bus.publish({ type: 'operator_grant_changed' }),
     });
     // The remote parts that need the domain, and what the engine's settings view counts.
     remote?.bind(domain, app);
     engineRegistry?.useCounters((id) => domain.engineCounters(id));
+    // The registry writes its own journal entries in its transactions; the long polls wait on this wake.
+    engineRegistry?.useJournalWake((projectKey) => domain.changes.notify(projectKey));
     engineLinks?.register(app);
     remote?.transfers.register(app);
     registerApiRoutes(app, {
@@ -588,7 +700,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);
-    if (webDistDir) await app.register(fastifyStatic, { root: webDistDir, index: ['index.html'] });
+    if (webDistDir)
+      await app.register(fastifyStatic, {
+        root: webDistDir,
+        index: ['index.html'],
+        setHeaders: (reply, path) => {
+          // The installable app's service worker, manifest and offline page are never held back by a
+          // cache: a browser must see a new release's worker at the next open (PM-814).
+          if (REVALIDATED_WEB_FILES.some((file) => path.endsWith(file)))
+            reply.header('cache-control', 'no-cache');
+        },
+      });
 
     const shutdownPauseMs = options.shutdownPauseMs ?? APP_DEFAULTS.shutdownPauseMs;
     app.decorate('projectman', {
@@ -632,8 +754,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     };
     // The release watcher (PM-493) reads the approved release and reports on the same socket.
     const controlRelease: ControlRelease = {
+      ...(options.releaseHybrid ? { deploy: domain.releaseDeployments } : {}),
       appVersion: () => domain.releases.appVersion(),
       next: () => domain.releases.next(),
+      get: (releaseId) => domain.releases.getForControl(releaseId),
       claim: (releaseId, previousCommit) => domain.releases.claim(releaseId, previousCommit),
       report: (releaseId, report) => domain.releases.report(releaseId, report),
     };
@@ -646,6 +770,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           path: join(home, CONTROL_SOCKET_NAME),
           pause: controlPause,
           release: controlRelease,
+          engines: releaseEngineStatuses,
           log: log.child({ module: 'control' }),
         });
       }

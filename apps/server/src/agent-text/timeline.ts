@@ -145,7 +145,14 @@ export function describeEvent(
     }
     case 'question_asked':
       return `asked a human: ${text('question') ?? ''}`.trimEnd();
+    case 'question_recipient_escalated':
+      return 'handed the integrator todo to the owner: it was not resolved within 24 hours';
+    case 'obligation_woken':
+      return `reminded ${member('responsible', 'the responsible')} once about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}): no action in ${text('minutes') ?? '?'} minutes`;
+    case 'obligation_handed_over':
+      return `gave the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) of ${member('responsible', 'the responsible')} to the ${text('recipient') ?? 'owner'} as a todo${text('recipientRefusal') ? ` (the integrator is not available: ${text('recipientRefusal')})` : ''}: still no action after the reminder`;
     case 'question_answered':
+      if (data.integratorTodo) return `the integrator resolved its own todo: ${text('answer') ?? ''}`;
       return `answered: ${text('answer') ?? ''}`.trimEnd();
     case 'member_hired':
       return `hired ${member('handle', 'a member')}`;
@@ -221,6 +228,26 @@ function describeTaskUpdate(
   return fields.length > 0 ? `updated ${fields.join(', ')}` : 'updated the task';
 }
 
+/** The step an obligation (PM-806) stands for, as a timeline line names it. */
+function obligationStep(kind: string | null): string {
+  switch (kind) {
+    case 'merge':
+      return 'merge';
+    case 'fix_limit':
+      return 'fix-limit decision';
+    case 'refinement_turn':
+      return 'refinement turn';
+    case 'review_step':
+      return 'review step';
+    case 'work':
+      return 'work';
+    case 'start':
+      return 'start';
+    default:
+      return 'step';
+  }
+}
+
 /** A repository named in an event, or "none" when the task had or has none. */
 function repoName(value: unknown, style: TextStyle): string {
   return typeof value === 'string' && value ? style.code(value) : 'none';
@@ -231,6 +258,7 @@ const FULL_TEXT_FIELD: Partial<Record<TimelineEvent['type'], string>> = {
   task_note: 'text',
   question_asked: 'question',
   question_answered: 'answer',
+  question_recipient_escalated: 'integrator todo handed to owner',
   task_full_test: 'outputTail',
 };
 

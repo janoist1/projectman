@@ -2,4 +2,6 @@ export { createDomainContext, isoNow, defaultTemplateRegistry, createTemplateReg
 export type { DomainContext, TemplateRegistry } from './context';
 export { createDomainEvents } from './events';
 export type { DomainEventMap, DomainEvents, AddedRelation } from './events';
+export { ChangeJournal } from './change-journal';
+export type { ChangeJournalPoll } from './change-journal';
 export { createEventBus } from './event-bus';

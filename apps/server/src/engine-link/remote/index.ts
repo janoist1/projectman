@@ -11,6 +11,8 @@ import type {
 } from '../../contracts';
 import { conflict } from '../../kernel';
 import type { EngineLinks } from '../index';
+import type { EngineAdministration } from '../../administration';
+import { createRemoteAdministration } from './administration';
 import { createAttachmentMaterializer } from './attachments';
 import { createRemoteGithub } from './github';
 import { registerCloudHandlers } from './handlers';
@@ -71,6 +73,8 @@ export interface CloudRemote {
   machineProbe: RemoteMachineProbe;
   github: GithubService;
   attachments: EngineAttachments;
+  /** The administration supervisors of the engines' machines over their links (PM-763). */
+  administration: EngineAdministration;
   /** The runner module the domain asks for: the permission handlers are bound to its `broker`. */
   createRunnerModule(
     broker: PermissionBroker,
@@ -94,10 +98,13 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
     now: options.now,
   });
   const directory = createRemoteEngineDirectory({ hub, transfers, logger, now: options.now });
+  // Set by `createRunnerModule`; the runner reads only whether it holds a key, never the key itself.
+  let nanogptKey: () => Promise<string | null> = async () => null;
   const runner = createRemoteRunner({
     hub,
     recordedEngine: options.recordedEngine,
     logger,
+    nanogptKeySet: async () => (await nanogptKey()) !== null,
     now: options.now,
   });
   const transcripts = createRemoteTranscripts({ hub, transfers, now: options.now });
@@ -164,12 +171,14 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
     machineProbe,
     github,
     attachments,
-    createRunnerModule(broker, nanogptKey) {
+    administration: createRemoteAdministration({ hub }),
+    createRunnerModule(broker, key) {
+      if (key) nanogptKey = key;
       registerCloudHandlers({
         hub,
         runner,
         broker,
-        nanogptKey: nanogptKey ?? (async () => null),
+        nanogptKey,
         relayMcp,
         logger,
       });

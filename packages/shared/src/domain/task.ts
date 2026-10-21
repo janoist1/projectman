@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isOperatorActor } from '../config/operator-member';
+import { isOperatorActor, isSuperOperatorActor } from '../config/operator-member';
 import { isProjectManagerActor } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 import { TaskDeveloperLevel } from './developer-level';
@@ -13,6 +13,7 @@ import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
 import { WorkOutage } from './outage';
+import { TaskReadyHold } from './ready-hold';
 
 /** Human-friendly task key: project key + sequence number, e.g. "AR-21". */
 export const TaskKey = z.string().regex(/^[A-Z][A-Z0-9]{0,9}-\d+$/);
@@ -28,10 +29,13 @@ export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;
 
 /** People, the team's project manager (PM-433) and its Operator (PM-447) may set or clear a card's priority; no other AI member. */
 export function priorityRefusal(
-  actor: Pick<Actor, 'kind' | 'handle'>,
+  actor: Actor,
   config: Pick<ProjectConfig, 'team'>,
 ): 'priority_humans_only' | null {
-  return actor.kind === 'human' || isProjectManagerActor(config, actor) || isOperatorActor(config, actor)
+  return actor.kind === 'human' ||
+    isProjectManagerActor(config, actor) ||
+    isOperatorActor(config, actor) ||
+    isSuperOperatorActor(config, actor)
     ? null
     : 'priority_humans_only';
 }
@@ -112,6 +116,8 @@ export const TaskStartWaiting = z.object({
     'workspace_busy',
     'workspace_dirty',
     'workspace_fetch_failed',
+    'workspace_dependencies_pending',
+    'workspace_dependencies_failed',
     // A prerequisite of the card (PM-192) is not closed: the start continues when the last one is.
     'prerequisite_open',
     // A card moved into a work stage without an assignee (PM-119): no developer is free (or on
@@ -218,11 +224,23 @@ export const TaskFixLimit = z.object({
   changeRequests: z.number().int().nonnegative(),
   designChangeRequests: z.number().int().nonnegative(),
   sendBacks: z.number().int().nonnegative(),
+  /** The failed full tests inside `sendBacks` (PM-714). */
+  testsFailed: z.number().int().nonnegative().optional(),
+  /** The extra rounds given since the count began, also above the limit people allowed (PM-714). */
+  extraRounds: z.number().int().nonnegative().optional(),
+  remainingExtraRounds: z.number().int().nonnegative().optional(),
+  /** `MAX_FIX_EXTRA_ROUNDS` of `domain/fix-limit`, which this file cannot import. */
+  extraRoundLimit: z.literal(3).optional(),
   /** `lead` and `replan`: the AI member who decides. */
   decider: MemberHandle.nullable(),
   /** `owner`: the people who decide. */
   deciders: z.array(MemberHandle),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again']).nullable(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted', 'decider_timeout']).nullable(),
+  /**
+   * `owner`: who the decision item is addressed to now (PM-714): the integrator first, the owners after a
+   * hand-over or the 24 hour timeout, or when no integrator was available. Absent: the owners (older holds).
+   */
+  recipient: z.enum(['owner', 'integrator']).optional(),
   heldAt: z.string(),
 });
 export type TaskFixLimit = z.infer<typeof TaskFixLimit>;
@@ -245,6 +263,10 @@ export const TaskHandOn = z.object({
 });
 export type TaskHandOn = z.infer<typeof TaskHandOn>;
 
+/** The system asked `to` to start the ready card (PM-804); read from the open `start` obligation. */
+export const TaskStartOffer = z.object({ to: MemberHandle, since: z.string() });
+export type TaskStartOffer = z.infer<typeof TaskStartOffer>;
+
 export const Task = z.object({
   handOn: TaskHandOn.optional(),
   /** Absent: `task`. */
@@ -260,6 +282,10 @@ export const Task = z.object({
   /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
   developerLevel: TaskDeveloperLevel.optional(),
   startWaiting: TaskStartWaiting.optional(),
+  /** Computed on reads; never stored. */
+  readyHold: TaskReadyHold.optional(),
+  /** Computed on reads; never stored. Hidden from clients. */
+  startOffer: TaskStartOffer.optional(),
   outage: WorkOutage.optional(),
   reviewPin: TaskReviewPin.optional(),
   merge: TaskMergeState.optional(),
@@ -340,12 +366,12 @@ export function isTheme(task: Pick<Task, 'kind'>): boolean {
   return task.kind === 'theme';
 }
 
-/** Automatic work starts skip themes and cards with open subtasks (PM-586). */
+/** Automatic work starts skip themes and collecting cards, including those whose parts are closed (PM-818). */
 export function canAutomaticallyStartTask(
   task: Pick<Task, 'key' | 'kind'>,
   tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
 ): boolean {
-  return !isTheme(task) && !tasks.some((child) => child.parentKey === task.key && isOpenTask(child));
+  return !isTheme(task) && !tasks.some((child) => child.parentKey === task.key);
 }
 
 /** Sequence number of a task key ("AR-21" -> 21). */

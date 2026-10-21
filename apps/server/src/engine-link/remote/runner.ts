@@ -35,6 +35,8 @@ export interface RemoteRunnerOptions {
   /** Where the database says a session ran, for a session the engine does not report any more. */
   recordedEngine: (sessionId: string) => EngineId | null;
   logger: FastifyBaseLogger;
+  /** Whether the cloud holds a NanoGPT key; only this fact enters an engine's NanoGPT status, never the key (PM-736). */
+  nanogptKeySet?: () => Promise<boolean>;
   now?: () => number;
 }
 
@@ -67,8 +69,30 @@ export function toEngineSpec(spec: StartSessionSpec): EngineStartSpec {
   return { ...rest, mcpToken: mcpTokenOf(mcpUrl) };
 }
 
+/**
+ * The NanoGPT key lives in the cloud's store, so the cloud decides whether the key is there: an engine
+ * only checks its own machine (CLI version, `auth.json`). A CLI problem comes before a missing key, as it
+ * does on one machine; every other provider and state stays as the engine reported it (PM-736).
+ */
+export function withNanogptKeyFact(status: ProviderStatus, keySet: boolean): ProviderStatus {
+  if (status.provider !== 'nanogpt') return status;
+  if (keySet && status.loggedIn === false && status.problem === 'no_key') {
+    const { problem: _problem, ...ready } = status;
+    return { ...ready, loggedIn: true };
+  }
+  if (!keySet && status.loggedIn === true) return { ...status, loggedIn: false, problem: 'no_key' };
+  return status;
+}
+
 export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
   const { hub, logger } = options;
+  const keySet = async (): Promise<boolean> => {
+    try {
+      return (await options.nanogptKeySet?.()) ?? false;
+    } catch {
+      return false;
+    }
+  };
   const now = options.now ?? Date.now;
   const owners = new Map<string, EngineId>();
   const listeners = new Set<(event: RunnerEvent) => void>();
@@ -349,14 +373,19 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
         };
       const key = statusKey(engineId, provider, opts?.member);
       const cached = statuses.get(key);
-      if (cached && !opts?.refresh && now() - cached.at < PROVIDER_STATUS_TTL_MS) return cached.status;
+      // The cache keeps the engine's own answer: the key fact is added on every read, so saving or
+      // deleting the key shows at the next read.
+      const answer = async (status: ProviderStatus) =>
+        provider === 'nanogpt' ? withNanogptKeyFact(status, await keySet()) : status;
+      if (cached && !opts?.refresh && now() - cached.at < PROVIDER_STATUS_TTL_MS)
+        return answer(cached.status);
       const status = await hub.call(engineId, 'provider.status', {
         provider,
         ...(opts?.refresh ? { refresh: true } : {}),
         ...(opts?.member ? { member: opts.member } : {}),
       });
       statuses.set(key, { at: now(), status });
-      return status;
+      return answer(status);
     },
     async refreshProviderStatus(provider) {
       for (const id of hub.ids()) {

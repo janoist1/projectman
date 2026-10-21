@@ -1,5 +1,6 @@
 import {
   coordinationMemberOf,
+  structuralReviewContinuation,
   memberOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationOf,
@@ -36,6 +37,7 @@ export function operatorQuoteOf(text: string): string {
 
 /** The team tools (MCP names) the Operator may call without an open request: they only read. */
 export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
+  'get_role_configuration',
   'get_operator_preference',
   'get_operator_knowledge',
   'get_task',
@@ -47,9 +49,12 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_boundary_request',
   'get_screenshot_run',
   'get_project_state',
+  'get_operator_diagnostics',
   'check_release',
   'read_project_doc',
   'list_decision_candidates',
+  'search_history',
+  'read_history_source',
 ]);
 
 /**
@@ -57,7 +62,13 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
  * question screening and signal triage are answered on their own records.
  * Never in a guest conversation.
  */
-export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set(['screen_question', 'dismiss_signal']);
+export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
+  'combine_questions',
+  'screen_question',
+  'dismiss_signal',
+  'open_integrator_todo',
+  'triage_loop',
+]);
 
 /**
  * The team tools the Operator never calls, request or not: decisions of other members, handovers and
@@ -78,6 +89,8 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
  * it reads what that person can see, answers them (`send_message`, to them only), and changes only
  * their personal conversation style (PM-688).
  * `get_project_state` is left out on purpose: guest access needs a viewer filter in a separate task.
+ * The history search reads with the guest's own view (PM-787). `get_history_search_stats` is here only so that
+ * an admin's guest conversation reaches its own check; any other guest is refused `history_stats_forbidden`.
  */
 export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'get_operator_preference',
@@ -89,6 +102,9 @@ export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'read_attachment',
   'read_message_attachment',
   'send_message',
+  'search_history',
+  'read_history_source',
+  'get_history_search_stats',
 ]);
 
 /**
@@ -105,6 +121,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   start_task: 'task_start',
   start_member: 'task_start',
   operate: 'config_change',
+  execute_operation: 'operation',
   propose_operator_knowledge: 'knowledge_change',
   write_project_docs: 'docs_write',
   mark_decision_candidates: 'decision_offer',
@@ -287,14 +304,48 @@ export class CoordinationRequests extends OperatorRequests {
   override open(input: OpenCoordinationRequest): OperatorRequestRecord {
     if (!this.isCoordinationSession(input.sessionId, input.projectKey))
       throw forbidden('project_manager_only', 'coordination requires the selected PM internal conversation');
-    if (input.source === 'approval')
+    if (input.source === 'approval' && !this.validApproval(input))
       throw forbidden('operator_no_request', 'no structural approval continuation is authorized for the PM');
     return super.open(input);
   }
 
   override openFor(sessionId: string): OperatorRequestRecord | null {
     const request = this.isCoordinationSession(sessionId) ? super.openFor(sessionId) : null;
-    return request?.source === 'approval' ? null : request;
+    if (
+      request?.source === 'approval' &&
+      !this.validApproval({
+        projectKey: request.projectKey,
+        sessionId,
+        messageId: request.messageId,
+        inboxItemId: request.inboxItemId,
+        source: 'approval',
+        from: request.fromHandle,
+        text: request.quote,
+      })
+    )
+      return null;
+    return request;
+  }
+
+  private validApproval(input: OpenCoordinationRequest): boolean {
+    const { repos } = this.coordinationCtx;
+    const message = input.messageId && repos.messages.get(input.messageId);
+    const item = input.inboxItemId && repos.inbox.get(input.inboxItemId);
+    const config = this.projects.cachedConfig(input.projectKey);
+    const pm = config && coordinationMemberOf(config);
+    const owner = config && memberOf(config, input.from);
+    return !!(
+      message &&
+      item &&
+      pm &&
+      message.from === input.from &&
+      structuralReviewContinuation(
+        item,
+        message,
+        pm.handle,
+        owner?.kind === 'human' && owner.access === 'owner',
+      )
+    );
   }
 
   private isCoordinationSession(sessionId: string, projectKey?: string): boolean {
@@ -316,6 +367,7 @@ function stepView(step: OperatorStepRecord): OperatorStep {
     ...step,
     agreementVersion: step.agreementVersion ?? null,
     approvalMode: step.approvalMode ?? null,
+    operationId: step.operationId ?? null,
     refusal: step.refusal ? { code: step.refusal.code as ErrorCode, message: step.refusal.message } : null,
   };
 }
@@ -334,6 +386,8 @@ export interface OperatorStepInput {
   inboxItemId?: string | null;
   /** The system signal the step acted on without a request (PM-545). */
   signalId?: string | null;
+  /** The super operation the step started (PM-888). */
+  operationId?: string | null;
   refusal?: { code: ErrorCode; message: string } | null;
 }
 
@@ -360,6 +414,7 @@ export class OperatorSteps {
       configVersion: input.configVersion ?? null,
       inboxItemId: input.inboxItemId ?? null,
       signalId: input.signalId ?? null,
+      operationId: input.operationId ?? null,
       refusal: input.refusal ?? null,
     };
     this.ctx.repos.operatorRequests.insertStep(step);

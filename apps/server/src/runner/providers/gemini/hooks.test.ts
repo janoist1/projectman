@@ -149,6 +149,10 @@ describe('Gemini hooks', () => {
   });
   it.each([
     ['run_command', { CommandLine: 'npm test', Cwd: '/work' }, 'Bash', 'command'],
+    ['run_command', { CommandLine: 'npm test' }, 'Bash', 'command'],
+    ['read_file', { Path: '/work/a' }, 'Read', 'read'],
+    ['write_file', { Path: '/work/a' }, 'Write', 'edit'],
+    ['edit_file', { Path: '/work/a' }, 'Edit', 'edit'],
     ['view_file', { AbsolutePath: '/work/a' }, 'Read', 'read'],
     ['list_dir', { DirectoryPath: '/work' }, 'LS', 'read'],
     ['grep_search', { SearchPath: '/work', Query: 'x' }, 'Grep', 'read'],
@@ -186,7 +190,8 @@ describe('Gemini hooks', () => {
         root,
       );
     expect(check('run_command', { CommandLine: 'npm test', Cwd: '/work' }).decision).toBe('allow');
-    for (const Cwd of ['/foreign', 'relative', '', undefined])
+    expect(check('run_command', { CommandLine: 'npm test' }).decision).toBe('allow');
+    for (const Cwd of ['/foreign', 'relative', '', null, 42])
       expect(check('run_command', { CommandLine: 'npm test', Cwd })).toEqual({
         decision: 'deny',
         reason: 'cwd_outside_workspace',
@@ -212,6 +217,56 @@ describe('Gemini hooks', () => {
       'deny',
     );
     expect(check('read_url_content', { Url: 'http://127.0.0.1' }).decision).toBe('deny');
+  });
+
+  it('uses the policy placement for commands without Cwd even with a foreign hook workspace', () => {
+    const policy = geminiSpec().policy!;
+    const payload = parseGeminiHook(
+      {
+        conversationId: CONVERSATION_ID,
+        workspacePaths: ['/foreign'],
+        stepIdx: 1,
+        toolCall: { name: 'run_command', args: { CommandLine: 'npm test' } },
+      },
+      'PreToolUse',
+    )!;
+    expect(decideGeminiToolCall(policy, payload, null)).toEqual({ decision: 'allow' });
+    payload.gemini_args = { CommandLine: 'git push' };
+    policy.deniedOperations = ['git_push'];
+    expect(decideGeminiToolCall(policy, payload, null)).toEqual({
+      decision: 'deny',
+      reason: 'denied_operation',
+    });
+    expect(mapGeminiTool('run_command', { CommandLine: 'npm test' }, '/work')).toMatchObject({
+      input: { command: 'npm test', cwd: '/work' },
+      call: { cwd: '/work', paths: ['/work'] },
+    });
+  });
+
+  it.each(['read_file', 'write_file', 'edit_file'])('applies file policy to %s with Path', (name) => {
+    const policy = geminiSpec().policy!;
+    policy.filesystem.deniedPaths = ['/secret'];
+    const check = (args: Record<string, unknown>) =>
+      decideGeminiToolCall(
+        policy,
+        parseGeminiHook(
+          { conversationId: CONVERSATION_ID, stepIdx: 1, toolCall: { name, args } },
+          'PreToolUse',
+        )!,
+        null,
+      ).decision;
+    expect(mapGeminiTool(name, { Path: '/work/a' })).toMatchObject({
+      input: { file_path: '/work/a' },
+      call: { paths: ['/work/a'] },
+    });
+    expect(check({ Path: '/work/a' })).toBe('allow');
+    expect(check({ Path: '/secret/a' })).toBe('deny');
+    for (const Path of [undefined, '', 42]) expect(check({ Path })).toBe('ask');
+    if (name !== 'read_file') {
+      expect(check({ Path: '/work/.agents/settings.json' })).toBe('ask');
+      policy.permissions.claude = 'plan';
+      expect(check({ Path: '/work/a' })).toBe('deny');
+    }
   });
 
   describe('the session folder (PM-522)', () => {

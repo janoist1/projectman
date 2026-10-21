@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { assertSuperMutation } from '../../kernel';
 import { EngineProvider } from '@projectman/shared';
 import type { CreateEngineResponse, EngineId, EngineStatusView, EngineView } from '@projectman/shared';
 import { z } from 'zod';
@@ -47,6 +48,7 @@ export class EngineRegistry {
     waitingStarts: 0,
     waitingMessages: 0,
   });
+  private wake: (projectKey: string) => void = () => {};
   private readonly repos: Repositories;
   private readonly bus: EventBus;
   private readonly version: string;
@@ -126,9 +128,46 @@ export class EngineRegistry {
     if (row.revoked_at) throw new DomainError('engine_revoked', 'Engine revoked', { status: 409 });
     return row;
   }
+  /** Called with a project key once the registry has written the project's change journal (the readers wait on it). */
+  useJournalWake(wake: (projectKey: string) => void): void {
+    this.wake = wake;
+  }
+
+  /**
+   * Runs a registry write and names it in the journal of every project it concerns (PM-761), in one
+   * transaction: a rollback takes both. The projects that concern an engine are those with a session stored
+   * on it, and all of them while it is the default (new sessions go to the default engine, whichever project
+   * they belong to); the default before and after the write both count, so taking the default away from an
+   * engine, or revoking the default, reaches the projects that used it. The online flag is memory, not
+   * registry state, and is not journaled.
+   */
+  private journaled<T>(ids: EngineId[], write: () => T): T {
+    const woken = new Set<string>();
+    const result = this.repos.transaction(() => {
+      const before = this.defaultId();
+      const out = write();
+      const defaults = [before, this.defaultId()];
+      const at = this.now().toISOString();
+      for (const id of ids) {
+        const keys = new Set(this.repos.projectChanges.projectKeysOnEngine(id));
+        if (defaults.includes(id)) for (const key of this.repos.projectChanges.projectKeys()) keys.add(key);
+        for (const key of keys) {
+          this.repos.projectChanges.append(key, 'engine', id, at);
+          woken.add(key);
+        }
+      }
+      return out;
+    });
+    for (const key of woken) this.wake(key);
+    return result;
+  }
+
   create(name: string, userId: string): CreateEngineResponse {
+    assertSuperMutation(null, { kind: 'routine', operation: 'engine_create' });
     const { id, key, hash, prefix } = newMachineKey();
-    const row = this.repos.engines.create({ id, name, userId, hash, prefix, at: this.now().toISOString() });
+    const row = this.journaled([id], () =>
+      this.repos.engines.create({ id, name, userId, hash, prefix, at: this.now().toISOString() }),
+    );
     this.changed(id);
     return { engine: this.view(row), key };
   }
@@ -137,8 +176,9 @@ export class EngineRegistry {
     return this.repos.engines.resolve(machineKeyHash(key))?.id ?? null;
   }
   revoke(id: string, userId: string): EngineView {
+    assertSuperMutation(null, { kind: 'remove', resource: 'engine', id });
     this.active(id);
-    this.repos.engines.revoke(id, userId, this.now().toISOString());
+    this.journaled([id], () => this.repos.engines.revoke(id, userId, this.now().toISOString()));
     // A revoked engine stops counting as available now, and what waits for it is told.
     this.setOnline(id, false);
     for (const listener of this.revokeListeners) listener(id);
@@ -146,9 +186,12 @@ export class EngineRegistry {
     return this.view(this.repos.engines.get(id)!);
   }
   setDefault(id: string): EngineView[] {
+    assertSuperMutation(null, { kind: 'routine', operation: 'engine_default' });
     this.active(id);
     const previous = this.status().find((engine) => engine.isDefault)?.id;
-    this.repos.engines.setDefault(id);
+    this.journaled(previous && previous !== id ? [previous, id] : [id], () =>
+      this.repos.engines.setDefault(id),
+    );
     if (previous && previous !== id) this.changed(previous);
     this.changed(id);
     return this.list();
@@ -156,16 +199,17 @@ export class EngineRegistry {
   seen(id: EngineId, ip: string, hello?: EngineHelloMetadata): void {
     const row = this.active(id);
     const now = this.now();
-    if (!row.last_seen_at || now.getTime() - Date.parse(row.last_seen_at) >= 60_000) {
-      this.repos.engines.seen(
-        id,
-        now.toISOString(),
-        ip,
-        hello ? JSON.stringify(StoredHello.parse(hello)) : undefined,
-      );
-    } else if (hello) {
-      this.repos.engines.hello(id, JSON.stringify(StoredHello.parse(hello)));
-    }
+    const helloJson = hello ? JSON.stringify(StoredHello.parse(hello)) : undefined;
+    // The journal names the first sight of an engine and a changed hello; the refresh of the last-seen time
+    // every minute is a heartbeat, and a journal that is never trimmed would grow by it for ever.
+    const announce = !row.last_seen_at || (helloJson !== undefined && helloJson !== row.last_hello);
+    this.journaled(announce ? [id] : [], () => {
+      if (!row.last_seen_at || now.getTime() - Date.parse(row.last_seen_at) >= 60_000) {
+        this.repos.engines.seen(id, now.toISOString(), ip, helloJson);
+      } else if (helloJson !== undefined) {
+        this.repos.engines.hello(id, helloJson);
+      }
+    });
     if (hello && this.online.has(id)) this.changed(id);
   }
   setOnline(id: EngineId, online: boolean): void {

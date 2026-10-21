@@ -6,7 +6,7 @@ import type {
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
-import { DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
+import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 
 /**
@@ -218,6 +218,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('mergeTask', ctx, args);
       return { task: findTask(args.taskKey).task };
     },
+    async requestStructuralReview(ctx, args) {
+      await enter('requestStructuralReview', ctx, args);
+      return { status: 'awaiting_approval', member: null, message_id: null, inbox_item_id: 'inb_fake' };
+    },
     async getOperatorKnowledge(ctx) {
       await enter('getOperatorKnowledge', ctx, {});
       return { schemaVersion: 1, revision: 0, agreement: null, principles: [], appliedProposalIds: [] };
@@ -234,6 +238,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async prioritizeMerge(ctx, args) {
       await enter('prioritizeMerge', ctx, args);
       return { task: findTask(args.taskKey).task, moved: true };
+    },
+    async listMergeChecks(ctx, args) {
+      await enter('listMergeChecks', ctx, args);
+      return { runs: [], hasMore: false };
     },
     async proposeRelease(ctx, args) {
       await enter('proposeRelease', ctx, args);
@@ -259,9 +267,73 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('submitBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');
     },
+    async getRoleConfiguration(ctx, args) {
+      await enter('getRoleConfiguration', ctx, args);
+      return {
+        version: 'v1',
+        role: args.role,
+        override: null,
+        effective: { duties: BUILT_IN_ROLE_DUTIES[args.role], instructions: '' },
+      };
+    },
     async operate(ctx, args) {
       await enter('operate', ctx, args);
       return { status: 'done', step_id: 'ops_fake', changes: [] };
+    },
+    async executeOperation(ctx, args) {
+      await enter('executeOperation', ctx, args);
+      return {
+        operation: {
+          id: 'sop_fake',
+          projectKey: ctx.projectKey,
+          taskKey: args.taskKey ?? null,
+          handoffId: null,
+          state: 'succeeded',
+          requestId: '00000000-0000-8000-8000-000000000000',
+          command: args.command,
+          ownerQuestionId: null,
+          errorCode: null,
+          createdAt: '2026-10-17T00:00:00.000Z',
+          updatedAt: '2026-10-17T00:00:00.000Z',
+        },
+      };
+    },
+    async getOperation(ctx, args) {
+      await enter('getOperation', ctx, args);
+      return {
+        operation: {
+          id: args.operationId,
+          projectKey: ctx.projectKey,
+          taskKey: null,
+          handoffId: null,
+          state: 'succeeded',
+          requestId: '00000000-0000-8000-8000-000000000000',
+          command: { kind: 'credential_revoke', keyId: 'key_fake' },
+          ownerQuestionId: null,
+          errorCode: null,
+          createdAt: '2026-10-17T00:00:00.000Z',
+          updatedAt: '2026-10-17T00:00:00.000Z',
+        },
+        result: null,
+      };
+    },
+    async getMachineStatus(ctx, args) {
+      await enter('getMachineStatus', ctx, args);
+      return {
+        status: {
+          target: args.target,
+          online: true,
+          version: null,
+          bootId: null,
+          capabilities: ['status'],
+          activeOperationId: null,
+        },
+        machine: null,
+      };
+    },
+    async getMachineLogs(ctx, args) {
+      await enter('getMachineLogs', ctx, args);
+      return { entries: [] };
     },
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);
@@ -284,6 +356,39 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         text: '',
       };
     },
+    async searchHistory(ctx, args) {
+      await enter('searchHistory', ctx, args);
+      return { projectKey: args.projectKey ?? ctx.projectKey, matches: [], hasMore: false, documents: [] };
+    },
+    async readHistorySource(ctx, args) {
+      await enter('readHistorySource', ctx, args);
+      return {
+        projectKey: args.projectKey ?? ctx.projectKey,
+        sourceId: args.sourceId,
+        sourceType: 'message',
+        taskKey: null,
+        author: null,
+        at: '2026-10-01T00:00:00.000Z',
+        fromLine: args.fromLine ?? 1,
+        totalLines: 0,
+        text: '',
+      };
+    },
+    async getHistorySearchStats(ctx, args) {
+      await enter('getHistorySearchStats', ctx, args);
+      return {
+        since: args.since ?? '2026-09-01T00:00:00.000Z',
+        until: args.until ?? '2026-10-01T00:00:00.000Z',
+        retainedSince: '2026-07-03T00:00:00.000Z',
+        totalSearches: 0,
+        failedSearches: 0,
+        byMember: [],
+        zeroResultCount: 0,
+        zeroResultRate: 0,
+        zeroResults: [],
+        nextCursor: null,
+      };
+    },
     async writeProjectDocs(ctx, args) {
       await enter('writeProjectDocs', ctx, args);
       return { write_id: 'dw_fake', state: 'running' };
@@ -296,13 +401,33 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('markDecisionCandidates', ctx, args);
       return { marked: args.items.length };
     },
+    async combineQuestions(ctx, args) {
+      await enter('combineQuestions', ctx, args);
+      return { primaryItemId: args.itemIds[0]!, linkedItemIds: args.itemIds.slice(1) };
+    },
     async screenQuestion(ctx, args) {
       await enter('screenQuestion', ctx, args);
-      return { inboxItemId: args.itemId, outcome: args.outcome };
+      return {
+        inboxItemId: args.itemId,
+        outcome: args.outcome,
+        ...(args.todo ? { recipient: args.todo.recipient } : {}),
+      };
+    },
+    async triageLoop(ctx, args) {
+      await enter('triageLoop', ctx, args);
+      return {
+        state: args.outcome === 'loop' ? 'awaiting_owner' : 'observing',
+        loopId: 'loop_1',
+        inboxItemId: null,
+      };
     },
     async dismissSignal(ctx, args) {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };
+    },
+    async openIntegratorTodo(ctx, args) {
+      await enter('openIntegratorTodo', ctx, args);
+      return { itemId: 'inb_todo_1', recipient: 'integrator', recipientRefusal: null };
     },
     async getOperatorPreference(ctx) {
       await enter('getOperatorPreference', ctx, {});
@@ -382,6 +507,32 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       });
     },
 
+    async getOperatorDiagnostics(ctx, args) {
+      await enter('getOperatorDiagnostics', ctx, args);
+      return {
+        task: {
+          taskKey: args.taskKey,
+          title: 'Task',
+          stageId: 'dev',
+          stageKind: 'work',
+          assignee: null,
+          labels: [],
+          startWaiting: null,
+          startBlock: null,
+          missingGateLabels: [],
+          openQuestions: [],
+          session: null,
+          holds: [],
+          wait: null,
+          signals: [],
+        },
+        asOf: '2026-10-16T10:00:00.000Z',
+        sessions: [],
+        deliveries: [],
+        checks: [],
+        machine: null,
+      };
+    },
     async getProjectState(ctx, args) {
       await enter('getProjectState', ctx, args);
       return {

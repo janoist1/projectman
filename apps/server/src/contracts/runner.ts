@@ -508,6 +508,11 @@ export interface TranscriptReader {
   ): Promise<HandoffSummary | null>;
 }
 
+/** PM-743: the tool call must not run now; `refuse` is the English message for the agent. */
+export interface DependencyGate {
+  refuse: string;
+}
+
 export interface PlanUsageProvider {
   /** Current plan usage of the logged-in account (Claude, or ChatGPT for Codex), or null if unavailable. */
   get(): Promise<PlanUsage | null>;
@@ -519,13 +524,22 @@ export type TerminalMode = 'pty' | 'pipe';
 export interface RunnerModuleOptions {
   processScope?: ProcessScopeConfig;
   scopeProcesses?: ScopeProcessSource;
-  /** Awaited before every provider's PreToolUse answer, including subagents; failures only log. */
-  refreshDependencies?: (cwd: string) => Promise<void>;
+  /**
+   * Awaited before the PreToolUse answer of every tool that runs code, including subagents; failures
+   * only log. A `DependencyGate` result holds the tool call back (PM-743).
+   */
+  refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
   /**
    * `pipe` starts the CLI with pipes instead of a pseudo-terminal (PM-267): for the fake CLIs in a
    * development instance that has no PTY (a member's sandbox). Default `pty`.
    */
   terminal?: TerminalMode;
+  /**
+   * Where the runner keeps each session's private launch files (PM-156): an absolute path on the
+   * machine the CLIs run on (the app home's `run` folder; tests pass a temporary root). The runner
+   * creates it with mode 0700 and refuses to start a session when it cannot keep it private.
+   */
+  sessionConfigRoot: string;
   /** Path or name of the Claude Code CLI (default "claude"). Tests pass a fake CLI. */
   claudeBin: string;
   /** Base URL the CLI calls for HTTP hooks, e.g. http://127.0.0.1:4700 (the runner adds /hooks/<token>). */
@@ -554,6 +568,11 @@ export interface RunnerModuleOptions {
   codexHome?: string;
   nanogptCodexHome?: string;
   nanogptKey?: () => Promise<string | null>;
+  /**
+   * On a remote engine the cloud holds the key and adds its presence to the status (PM-736): the
+   * login check never asks for it. Default: false.
+   */
+  nanogptKeyInCloud?: boolean;
   /**
    * The environment the runner reads its defaults from ($CODEX_BIN, $CODEX_HOME,
    * $CLAUDE_CONFIG_DIR, PATH) and starts the CLIs with, after removing billing and host-session

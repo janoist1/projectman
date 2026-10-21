@@ -32,6 +32,7 @@ beforeEach(async () => {
   runner = createRunnerModule({
     claudeBin: FAKE_CLAUDE,
     publicBaseUrl: `http://127.0.0.1:${port}`,
+    sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
     broker,
     permissionTimeoutMs: 5_000,
     logger: silentLogger(),

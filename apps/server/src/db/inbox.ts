@@ -27,6 +27,7 @@ export interface InboxFilter {
   state?: InboxState | readonly InboxState[];
   kind?: InboxKind;
   taskKey?: string;
+  /** The newest N matching items (still returned oldest first). Without it nothing is cut off. */
   limit?: number;
 }
 
@@ -95,6 +96,71 @@ export function createInboxRepository(db: Db) {
   };
 
   return {
+    groupOf(id: string): {
+      primaryItemId: string;
+      projectKey: string;
+      question: string;
+      by: string;
+      note: string;
+      itemIds: string[];
+    } | null {
+      const row = db
+        .prepare(
+          `SELECT g.* FROM question_groups g JOIN question_group_items i
+        ON i.primary_item_id = g.primary_item_id WHERE i.item_id = ?`,
+        )
+        .get(id) as
+        | { primary_item_id: string; project_key: string; question: string; by_handle: string; note: string }
+        | undefined;
+      if (!row) return null;
+      const members = db
+        .prepare('SELECT item_id FROM question_group_items WHERE primary_item_id = ? ORDER BY rowid')
+        .all(row.primary_item_id) as { item_id: string }[];
+      return {
+        primaryItemId: row.primary_item_id,
+        projectKey: row.project_key,
+        question: row.question,
+        by: row.by_handle,
+        note: row.note,
+        itemIds: members.map((m) => m.item_id),
+      };
+    },
+    createGroup(input: {
+      primaryItemId: string;
+      projectKey: string;
+      question: string;
+      by: string;
+      note: string;
+      itemIds: string[];
+      at: string;
+    }): void {
+      db.prepare(
+        'INSERT INTO question_groups (primary_item_id, project_key, question, created_at, by_handle, note) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(input.primaryItemId, input.projectKey, input.question, input.at, input.by, input.note);
+      const insert = db.prepare('INSERT INTO question_group_items (item_id, primary_item_id) VALUES (?, ?)');
+      for (const id of input.itemIds) insert.run(id, input.primaryItemId);
+    },
+    /** Durable human answer messages, independent of current source-card existence or visibility. */
+    groupAnsweredCount(primaryItemId: string): number {
+      const row = db
+        .prepare(
+          `SELECT COUNT(DISTINCT i.id) AS n
+        FROM question_groups g
+        JOIN question_group_items gi ON gi.primary_item_id = g.primary_item_id
+        JOIN inbox_items i ON i.id = gi.item_id
+        JOIN inbox_items p ON p.id = g.primary_item_id
+        JOIN team_messages m ON m.project_key = g.project_key
+          AND json_extract(m.origin, '$.kind') = 'answer'
+          AND json_extract(m.origin, '$.inboxItemId') = i.id
+        WHERE g.primary_item_id = ? AND p.state = 'resolved'
+          AND json_extract(p.resolution, '$.rule') IS NULL
+          AND m.from_handle = json_extract(p.resolution, '$.by')
+          AND COALESCE(m.via, '') = COALESCE(json_extract(p.resolution, '$.via'), '')
+          AND EXISTS (SELECT 1 FROM json_each(m.to_handles) WHERE value = i.source)`,
+        )
+        .get(primaryItemId) as { n: number };
+      return row.n;
+    },
     updateOperator(
       id: string,
       payload: Record<string, unknown>,
@@ -114,18 +180,29 @@ export function createInboxRepository(db: Db) {
         id,
       );
     },
-    /** The payload and the assignees of an item still open (a delegated permission question, PM-169). */
+    /**
+     * The payload and the assignees of an item still open (a delegated permission question, PM-169); the body
+     * only when given (a fix limit decision that changes hands, PM-801).
+     */
     updateOpen(
       id: string,
       payload: Record<string, unknown>,
       assignees: string[],
       at: string,
+      body?: string,
     ): InboxItem | null {
-      const changes = db
-        .prepare(
-          "UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'",
-        )
-        .run(toJson(payload), toJson(assignees), at, id).changes;
+      const changes =
+        body === undefined
+          ? db
+              .prepare(
+                "UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+              )
+              .run(toJson(payload), toJson(assignees), at, id).changes
+          : db
+              .prepare(
+                "UPDATE inbox_items SET payload = ?, assignees = ?, body = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+              )
+              .run(toJson(payload), toJson(assignees), body, at, id).changes;
       return changes > 0 ? get(id) : null;
     },
     get,
@@ -184,10 +261,12 @@ export function createInboxRepository(db: Db) {
           ? [filter.state]
           : [...filter.state]
         : [];
+      const limited = filter.limit !== undefined;
       const signature = [
         states.length > 0 && `state${states.length}`,
         filter.kind && 'kind',
         filter.taskKey && 'task',
+        limited && 'limit',
       ].join(',');
       let statement = lists.get(signature);
       if (!statement) {
@@ -195,16 +274,18 @@ export function createInboxRepository(db: Db) {
         if (states.length > 0) sql += ` AND state IN (${states.map((_, i) => `@state${i}`).join(', ')})`;
         if (filter.kind) sql += ' AND kind = @kind';
         if (filter.taskKey) sql += ' AND task_key = @taskKey';
-        statement = db.prepare(`${sql} ORDER BY seq DESC LIMIT @limit`);
+        statement = db.prepare(`${sql} ORDER BY seq ${limited ? 'DESC LIMIT @limit' : 'ASC'}`);
         lists.set(signature, statement);
       }
-      const params: Record<string, string | number> = { projectKey, limit: filter.limit ?? 500 };
+      const params: Record<string, string | number> = { projectKey };
+      if (limited) params.limit = filter.limit as number;
       states.forEach((state, i) => {
         params[`state${i}`] = state;
       });
       if (filter.kind) params.kind = filter.kind;
       if (filter.taskKey) params.taskKey = filter.taskKey;
-      return (statement.all(params) as InboxRow[]).reverse().map(toItem);
+      const rows = statement.all(params) as InboxRow[];
+      return (limited ? rows.reverse() : rows).map(toItem);
     },
     /**
      * Questions answered after `after` and by no rule (PM-496), the earliest answer first. Unless

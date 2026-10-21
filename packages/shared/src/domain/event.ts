@@ -2,9 +2,17 @@ import { z } from 'zod';
 import type { ConfigChangeRow } from '../config/operator';
 import type { OperatorKnowledgeChange } from './operator-knowledge';
 import type { DeveloperLevel } from './developer-level';
+import type { FixLimitAssessment } from './fix-limit';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
-import type { QuestionCloseRule, QuestionTodo, ScreeningOutcome } from './inbox';
+import type {
+  QuestionCloseRule,
+  QuestionTodo,
+  ScreeningOutcome,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
+} from './inbox';
+import type { ObligationKind } from './obligation';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -13,16 +21,41 @@ import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
 import type { ReleaseFailure, ReleaseState } from './release';
+import { ActorCredential, actorOriginIssue } from './actor-origin';
+// The origin helpers (`hasSuperOrigin`, `SuperActor`, ...) live in actor-origin.ts, a leaf of the domain.
 import { TaskKey } from './task';
 import type { TaskPriority, TaskStartWaiting } from './task';
 
-/** Who did something. Every step is attributed to a human, an AI member or the system. */
-export const Actor = z.object({
-  kind: z.enum(['human', 'ai', 'system']),
-  handle: MemberHandle.nullable(),
-  via: z.literal('integrator').optional(),
-});
+/**
+ * Who did something. Every step is attributed to a human, an AI member or the system.
+ * `operatorMode` and `credential` (PM-757) mark the Operator's super mode: the project's Operator
+ * (`handle`, computed by the server) acting through the integrator, with the credential's id and prefix.
+ * Older steps (a person through the integrator key: `via` alone) stay valid as they are.
+ */
+export const Actor = z
+  .object({
+    kind: z.enum(['human', 'ai', 'system']),
+    handle: MemberHandle.nullable(),
+    via: z.literal('integrator').optional(),
+    operatorMode: z.literal('super').optional(),
+    credential: ActorCredential.optional(),
+  })
+  .superRefine((actor, ctx) => {
+    const issue = actorOriginIssue(actor);
+    if (issue) ctx.addIssue({ code: 'custom', message: issue });
+  });
 export type Actor = z.infer<typeof Actor>;
+
+/** A note excerpt belongs only to the call that supplied it. */
+export function timelineNoteExcerpt(note: unknown): string | undefined {
+  return typeof note === 'string'
+    ? note
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean)
+        ?.slice(0, 500)
+    : undefined;
+}
 
 export const TimelineEventType = z.enum([
   'task_subtask_added',
@@ -60,12 +93,16 @@ export const TimelineEventType = z.enum([
   'permission_escalated',
   'question_asked',
   'question_answered',
+  'question_grouped',
   'question_screened',
+  'question_recipient_escalated',
+  'fix_limit_recipient_escalated',
   'question_screening_skipped',
   'question_closed',
   'question_answer_delivery',
   'refinement_turn',
   'task_loop',
+  'loop_triaged',
   'task_fix_limit',
   'task_handoff',
   'task_full_test',
@@ -83,6 +120,10 @@ export const TimelineEventType = z.enum([
   'focus_changed',
   'team_paused',
   'team_resumed',
+  'super_handoff_changed',
+  'super_operation_changed',
+  'obligation_woken',
+  'obligation_handed_over',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
 
@@ -104,6 +145,8 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  super_handoff_changed: { handoffId: string; state: string };
+  super_operation_changed: { operationId: string; state: string; resultKind: string | null };
   task_hand_on_requested: {
     fromStageId: string;
     toStageId: string;
@@ -167,6 +210,7 @@ export interface TimelineEventData {
    * failed (PM-217); `runId` is the run (its `task_full_test` event holds the output).
    */
   task_stage_changed: {
+    noteExcerpt?: string;
     from: string;
     to: string;
     approvedBy?: string[];
@@ -238,6 +282,7 @@ export interface TimelineEventData {
   task_check_changed: { check: string; from: string | null; to: string };
   /** `reason` names an automatic change: the task moving back, a PR update or merge, an approval. */
   task_labels_changed: {
+    noteExcerpt?: string;
     added: string[];
     removed: string[];
     reason?: LabelChangeReason;
@@ -374,14 +419,44 @@ export interface TimelineEventData {
    * without screening, replacing `previousItemId`, for `reason`.
    */
   question_asked: {
+    requestedRecipient?: QuestionRecipient;
     inboxItemId: string;
     question: string;
     screening?: true;
     unscreened?: { reason: string; previousItemId: string };
   };
-  question_answered: { inboxItemId: string; answer: string };
+  question_answered: {
+    inboxItemId: string;
+    answer: string;
+    groupPrimaryItemId?: string;
+    integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string | null };
+  };
+  question_recipient_escalated: {
+    inboxItemId: string;
+    asker: string;
+    from: 'integrator';
+    to: 'owner';
+    openedAt: string;
+    reason: 'integrator_timeout';
+  };
+  /**
+   * A fix round limit decision item went from the integrator to the owners (PM-714): after 24 hours
+   * (`integrator_timeout`, actor system) or because the integrator passed it on (`integrator_passed_on`,
+   * actor: the authenticated integrator; `note` is its reason).
+   */
+  fix_limit_recipient_escalated: {
+    inboxItemId: string;
+    from: 'integrator';
+    to: 'owner';
+    openedAt: string;
+    reason: 'integrator_timeout' | 'integrator_passed_on';
+    note?: string;
+  };
+  question_grouped: { primaryItemId: string; itemIds: string[]; by: MemberHandle };
   /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
   question_screened: {
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
     inboxItemId: string;
     asker: string;
     outcome: ScreeningOutcome;
@@ -393,6 +468,28 @@ export interface TimelineEventData {
   };
   /** A question of `asker` went to the people with no Operator outcome (PM-556). */
   question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };
+  /** The system reminded `responsible` of an open step once (PM-806, actor system); `minutes` is the deadline length. */
+  obligation_woken: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle;
+    subject: string;
+    openedAt: string;
+    minutes: number;
+  };
+  /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
+  obligation_handed_over: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle;
+    subject: string;
+    openedAt: string;
+    minutes: number;
+    inboxItemId: string;
+    recipient: QuestionRecipient;
+    decisionItemId?: string;
+    recipientRefusal?: QuestionRecipientRefusal;
+  };
   /** A pending question of `asker` was closed without an answer by `rule` (PM-556). */
   question_closed: { inboxItemId: string; asker: string; rule: QuestionCloseRule; note: string | null };
   /** The answer of a question waits for the session of `asker`, or reached it (PM-556). */
@@ -415,6 +512,14 @@ export interface TimelineEventData {
     label: string | null;
     member: string | null;
     reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped';
+  };
+  /** A report-only PM assessment (PM-712); the private note is kept only in the loop record. */
+  loop_triaged: {
+    loopId: string;
+    generation: number;
+    outcome: 'progress' | 'loop';
+    evidenceIds: string[];
+    headCommit: string | null;
   };
   /**
    * A loop on the card (PM-261, actor system): `raised` it was found and `notified` was told (null when
@@ -451,9 +556,16 @@ export interface TimelineEventData {
     changeRequests: number;
     designChangeRequests: number;
     sendBacks: number;
+    /** The failed full tests inside `sendBacks` (PM-714). */
+    testsFailed?: number;
+    /** The extra rounds given: for `decided` with `another_round` already counting this one (PM-714). */
+    extraRounds?: number;
+    remainingExtraRounds?: number;
+    /** The lead's judgement, on `passed_on` (PM-714). */
+    assessment?: FixLimitAssessment;
     decider?: string | null;
     deciders?: string[];
-    reason?: 'no_ai_decider' | 'passed_on' | 'again';
+    reason?: 'no_ai_decider' | 'passed_on' | 'again' | 'extra_exhausted' | 'decider_timeout';
     decision?: 'continue' | 'replan' | 'another_round' | 'reassign';
     by?: string;
     note?: string;
@@ -489,6 +601,7 @@ export interface TimelineEventData {
    * 6000 characters (`failed`/`error`).
    */
   task_full_test: {
+    command?: string;
     outcome: 'passed' | 'failed' | 'error';
     runId: string;
     repo: string;

@@ -17,9 +17,12 @@ import type {
   ReleaseToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
+  HistoryToolsHandler,
   AttachmentPage,
+  ListMergeChecksInput,
   ListTasksInput,
   LocatedAttachmentForTool,
+  MergeCheckList,
   MessageAttachmentReading,
   ProposedRelease,
   ReleaseCheckResult,
@@ -37,6 +40,9 @@ import type {
   Attachment,
   MemberView,
   QuestionAttachment,
+  QuestionResponsePurpose,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
   QuestionOptionInput,
   ScreeningOutcome,
   Task,
@@ -52,7 +58,7 @@ import type {
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
   ProjectDoc,
-  QuestionTodo,
+  ScreeningTodo,
 } from '@projectman/shared';
 
 /**
@@ -63,9 +69,19 @@ import type {
  * mcp/<module>/handler.ts, never in this collector.
  */
 export class TeamToolsService implements TeamToolsHandler {
+  async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
+    return this.tools.operator.requestStructuralReview(ctx, args);
+  }
   async getOperatorPreference(ctx: ToolContext) {
     return this.tools.operator.getOperatorPreference(ctx);
   }
+  async getRoleConfiguration(
+    ctx: ToolContext,
+    args: Parameters<OperatorToolsHandler['getRoleConfiguration']>[1],
+  ) {
+    return this.tools.operator.getRoleConfiguration(ctx, args);
+  }
+
   async getOperatorKnowledge(ctx: ToolContext) {
     return this.tools.operator.getOperatorKnowledge(ctx);
   }
@@ -90,12 +106,30 @@ export class TeamToolsService implements TeamToolsHandler {
     releases: ReleaseToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
+    history: HistoryToolsHandler;
     inbox: InboxToolsHandler;
     messages: MessageToolsHandler;
     admission: AdmissionToolsHandler;
     watchers: WatcherToolsHandler;
     sessions: SessionToolsHandler;
   };
+
+  async searchHistory(ctx: ToolContext, args: Parameters<HistoryToolsHandler['searchHistory']>[1]) {
+    return this.tools.history.searchHistory(ctx, args);
+  }
+  async readHistorySource(ctx: ToolContext, args: Parameters<HistoryToolsHandler['readHistorySource']>[1]) {
+    return this.tools.history.readHistorySource(ctx, args);
+  }
+  async getHistorySearchStats(
+    ctx: ToolContext,
+    args: Parameters<HistoryToolsHandler['getHistorySearchStats']>[1],
+  ) {
+    return this.tools.history.getHistorySearchStats(ctx, args);
+  }
+
+  async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
+    return this.tools.operator.getOperatorDiagnostics(ctx, args);
+  }
 
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.tools.operator.getProjectState(ctx, args);
@@ -117,7 +151,12 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async decideFixLimit(
     ctx: ToolContext,
-    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
+    args: {
+      taskKey: string;
+      decision: 'continue' | 'replan' | 'to_owner';
+      reason: string;
+      assessment?: unknown;
+    },
   ) {
     return this.tools.watchers.decideFixLimit(ctx, args);
   }
@@ -137,6 +176,7 @@ export class TeamToolsService implements TeamToolsHandler {
       releases: ReleaseToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
+      history: HistoryToolsHandler;
       inbox: InboxToolsHandler;
       messages: MessageToolsHandler;
       admission: AdmissionToolsHandler;
@@ -273,6 +313,10 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.merges.prioritizeMerge(ctx, args);
   }
 
+  async listMergeChecks(ctx: ToolContext, args: ListMergeChecksInput): Promise<MergeCheckList> {
+    return this.tools.merges.listMergeChecks(ctx, args);
+  }
+
   async proposeRelease(
     ctx: ToolContext,
     args: { title: string; summary: string; commit?: string; preview?: boolean },
@@ -342,6 +386,8 @@ export class TeamToolsService implements TeamToolsHandler {
       /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
       reaskOf?: string;
       reaskReason?: string;
+      responsePurpose?: QuestionResponsePurpose;
+      recipient?: QuestionRecipient;
     },
   ): Promise<{
     inboxItemId: string;
@@ -352,6 +398,10 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.inbox.askHuman(ctx, args);
   }
 
+  async combineQuestions(ctx: ToolContext, args: { itemIds: string[]; question: string; note: string }) {
+    return this.tools.operator.combineQuestions(ctx, args);
+  }
+
   async screenQuestion(
     ctx: ToolContext,
     args: {
@@ -360,20 +410,35 @@ export class TeamToolsService implements TeamToolsHandler {
       note: string;
       answer?: string;
       forwardTo?: string;
-      todo?: QuestionTodo;
+      todo?: ScreeningTodo;
     },
-  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }> {
+  ): Promise<{
+    inboxItemId: string;
+    outcome: ScreeningOutcome;
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
+  }> {
     return this.tools.operator.screenQuestion(ctx, args);
   }
 
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {
     return this.tools.members.saveMemory(ctx, args);
   }
+  async triageLoop(ctx: ToolContext, args: Parameters<OperatorToolsHandler['triageLoop']>[1]) {
+    return this.tools.operator.triageLoop(ctx, args);
+  }
+
   async dismissSignal(
     ctx: ToolContext,
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.tools.operator.dismissSignal(ctx, args);
+  }
+  async openIntegratorTodo(
+    ctx: ToolContext,
+    args: Parameters<OperatorToolsHandler['openIntegratorTodo']>[1],
+  ) {
+    return this.tools.operator.openIntegratorTodo(ctx, args);
   }
   async withdrawQuestion(
     ctx: ToolContext,
@@ -387,6 +452,22 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async operate(ctx: ToolContext, args: Parameters<OperatorToolsHandler['operate']>[1]) {
     return this.tools.operator.operate(ctx, args);
+  }
+
+  async executeOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['executeOperation']>[1]) {
+    return this.tools.operator.executeOperation(ctx, args);
+  }
+
+  async getOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getOperation']>[1]) {
+    return this.tools.operator.getOperation(ctx, args);
+  }
+
+  async getMachineStatus(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineStatus']>[1]) {
+    return this.tools.operator.getMachineStatus(ctx, args);
+  }
+
+  async getMachineLogs(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineLogs']>[1]) {
+    return this.tools.operator.getMachineLogs(ctx, args);
   }
 
   async readProjectDoc(

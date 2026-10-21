@@ -5,6 +5,7 @@ import {
   HANDOFF_SUMMARY_MAX,
   HandoffSummary,
   MemoryPressure,
+  MergeTestReport,
   PausePoint,
   PlanUsage,
   ProjectConfig,
@@ -37,6 +38,7 @@ import type {
   EngineSessionFolders,
   WorkspaceFileRefusal,
 } from '../contracts';
+import { SocketParams, SocketValues } from '../administration';
 import { EngineStartSpec } from './session-schemas';
 import {
   EngineUploaded,
@@ -84,6 +86,17 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   sandbox: z.strictObject({ denyRead: texts, allowRead: texts }),
   requireHeavyLock: z.boolean().optional(),
   npmCi: z.strictObject({ ref: mergeRef, mergeId: mergeText }).optional(),
+  githubActions: z
+    .strictObject({
+      ref: mergeRef,
+      mergeId: mergeText,
+      repo: text.max(100).regex(/^[\w.-]+\/[\w.-]+$/),
+      base: mergeText,
+      commit: z.string().regex(/^[0-9a-f]{40}$/),
+      workflow: text.max(100),
+      files: z.array(text.max(500)).min(1).max(20).optional(),
+    })
+    .optional(),
 });
 const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outcome: z.enum(['passed', 'failed', 'error']),
@@ -92,7 +105,18 @@ const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   durationMs: int,
   failedFiles: texts,
   outputTail: text,
+  // Only a githubActions run has one, so an older hub never receives it.
+  externalUrl: text.max(500).optional(),
 });
+const fullAttachResult = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('ended'), result: fullResult }),
+  z.strictObject({ state: z.literal('unknown') }),
+]);
+/** The step measurements of an ended run (PM-876); `report` null: the output had none. */
+const fullReportResult = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('ended'), report: MergeTestReport.nullable() }),
+  z.strictObject({ state: z.literal('unknown') }),
+]);
 const screenshotSpec: z.ZodType<ScreenshotRunSpec> = z.strictObject({
   runId: text,
   cwd: text,
@@ -405,6 +429,13 @@ const workspaces = {
   ),
   sourceHead: method(z.tuple([key, text]), head.nullable()),
   fetchBase: method(z.tuple([key]), z.strictObject({ branch: text, commit: text })),
+  prepareDependencies: method(
+    z.tuple([key]),
+    z.discriminatedUnion('status', [
+      z.strictObject({ status: z.literal('ready'), key: z.string().min(1).max(128), changed: z.boolean() }),
+      z.strictObject({ status: z.literal('skipped'), reason: z.literal('not_configured') }),
+    ]),
+  ),
   findTaskBranch: method(
     // JSON turns a trailing undefined into null.
     z.tuple([key, text, text.nullish().transform((value) => value ?? undefined)]),
@@ -423,6 +454,7 @@ const workspaces = {
     checkout,
   ),
   checkoutReview: method(z.tuple([key, source, text]), checkout),
+  publishTaskBranch: method(z.tuple([key, text, text, text]), source),
 } satisfies ManagerMethods<MemberWorkspaceManager>;
 const transcriptOptions = z.strictObject({
   provider: AgentProvider.optional(),
@@ -490,10 +522,12 @@ export const methods = {
   'workspace.status': workspaces.status,
   'workspace.sourceHead': workspaces.sourceHead,
   'workspace.fetchBase': workspaces.fetchBase,
+  'workspace.prepareDependencies': workspaces.prepareDependencies,
   'workspace.findTaskBranch': workspaces.findTaskBranch,
   'workspace.resolveSource': workspaces.resolveSource,
   'workspace.checkoutTaskBranch': workspaces.checkoutTaskBranch,
   'workspace.checkoutReview': workspaces.checkoutReview,
+  'workspace.publishTaskBranch': workspaces.publishTaskBranch,
   'github.is_available': method(empty, z.boolean()),
   'github.get_pull_request': method(z.strictObject({ repo: text, number: int.min(1) }), PullRequest),
   'github.find_pull_requests_for_branch': method(
@@ -506,6 +540,8 @@ export const methods = {
   ),
   'github.unwatch': method(z.strictObject({ watchId: text }), done),
   'full_test.run': method(z.strictObject({ spec: fullSpec }), fullResult),
+  'full_test.attach': method(z.strictObject({ runId: text }), fullAttachResult),
+  'full_test.report': method(z.strictObject({ runId: text }), fullReportResult),
   'full_test.cancel': method(z.strictObject({ runId: text }), done),
   'screenshots.run': method(z.strictObject({ runId: text, spec: screenshotSpec }), screenshotEnded),
   'screenshots.cancel': method(z.strictObject({ runId: text }), done),
@@ -642,6 +678,13 @@ export const methods = {
     z.strictObject({ pid: int.min(2), signal: z.enum(['SIGTERM', 'SIGKILL']) }),
     z.enum(['sent', 'gone', 'denied']),
   ),
+  // The administration of this engine's own machine (PM-763): the engine hands the call to its local
+  // supervisor, and only for its own target; there is no engine-to-cloud counterpart.
+  'admin.status': method(SocketParams.status, SocketValues.status),
+  'admin.logs': method(SocketParams.logs, SocketValues.logs),
+  'admin.machine': method(SocketParams.machine, SocketValues.machine),
+  'admin.submit': method(SocketParams.submit, SocketValues.submit),
+  'admin.inspect': method(SocketParams.inspect, SocketValues.inspect),
   'permission.decide': method(z.strictObject({ request: permissionRequest }), permissionDecision, 'cloud'),
   'permission.cancel': method(z.strictObject({ reqId: text }), done, 'cloud'),
   'permission.forward_question': method(z.strictObject({ info: question }), z.boolean(), 'cloud'),

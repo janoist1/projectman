@@ -1,3 +1,5 @@
 import { runMergeTest } from './run';
 
-process.exitCode = runMergeTest(process.argv.slice(2));
+void runMergeTest(process.argv.slice(2)).then((code) => {
+  process.exitCode = code;
+});

@@ -109,7 +109,7 @@ export function isOwner(config: ProjectConfig, handle: string): boolean {
 
 export function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
-  if (err.code === 'operator_signal_closed')
+  if (['question_group_incompatible', 'question_not_screening', 'operator_signal_closed'].includes(err.code))
     return new TeamToolError('invalid', `${err.code}: ${err.message}`);
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
   if (err.status === 403) return new TeamToolError('forbidden', err.message);
@@ -205,9 +205,26 @@ export class ToolCaller {
     operation?: OperatorOperation,
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
-    if (['screen_question', 'dismiss_signal', 'start_task', 'start_member'].includes(tool)) {
+    if (
+      [
+        'combine_questions',
+        'screen_question',
+        'dismiss_signal',
+        'open_integrator_todo',
+        'triage_loop',
+        'start_task',
+        'start_member',
+        'request_structural_review',
+      ].includes(tool)
+    ) {
       this.assertCoordinationSession(ctx, config);
       const request = this.coordinationRequests.openFor(ctx.sessionId);
+      if (tool === 'request_structural_review') return { config, request, guest: null };
+      if (request?.source === 'approval' && tool !== 'start_member' && !OPERATOR_SCREENING_TOOLS.has(tool))
+        throw new TeamToolError(
+          'forbidden',
+          'operator_no_request: structural approval permits only its review start.',
+        );
       if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request: null, guest: null };
       // A signal always keeps its exact binding and budget, even when an owner request is open.
       if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
@@ -375,6 +392,8 @@ export class ToolCaller {
       /** The task the call made, when the step names it only afterwards. */
       madeTask?: (result: T) => string;
       madeMember?: (result: T) => string | null;
+      /** The super operation the call started and whether it still waits for the owner's yes (PM-888). */
+      madeOperation?: (result: T) => { id: string; awaitsOwner: boolean };
     } | null,
     run: () => Promise<T>,
     /** A refusal that is no refusal: the change waits for a human's approval. */
@@ -400,12 +419,14 @@ export class ToolCaller {
         );
         throw err;
       }
+      const operation = step.madeOperation?.(result);
       this.operatorSteps.record({
         requestId: request.id,
         ...target,
         ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
         ...(step.madeMember ? { member: step.madeMember(result) } : {}),
-        status: 'done',
+        ...(operation ? { operationId: operation.id } : {}),
+        status: operation?.awaitsOwner ? 'awaiting_approval' : 'done',
       });
       // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).
       if (signalId && request.source === 'signal') this.operatorSignals.stepTaken(signalId);

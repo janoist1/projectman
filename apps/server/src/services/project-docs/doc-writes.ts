@@ -2,32 +2,61 @@ import { Effect, Exit, Scope } from 'effect';
 import { runFork, runPromise } from '../../kernel';
 import { makeDocWriteQueue, type DocWriteQueueEffects } from './write-queue';
 import type { DocWriteSlotPeer } from './ports';
-import { LOCAL_ENGINE_ID, projectDocsOf, SYSTEM_SENDER } from '@projectman/shared';
-import type { ErrorCode, OperatorStepStatus, ProjectDoc, RepoConfig } from '@projectman/shared';
+import {
+  DocWriteFailure as DocWriteFailureSchema,
+  LOCAL_ENGINE_ID,
+  projectDocsOf,
+  SUPER_AUDIT_REQUEST_ID,
+  SYSTEM_SENDER,
+} from '@projectman/shared';
+import type {
+  DocWriteFailure,
+  ErrorCode,
+  ExternalDocWriteState,
+  ExternalToolOrigin,
+  OperatorStepStatus,
+  ProjectDoc,
+  RepoConfig,
+} from '@projectman/shared';
 import { MergeError } from '../../contracts';
-import type { BranchMerger, EngineDirectory } from '../../contracts';
+import type {
+  BranchMerger,
+  DocWriteExternalRunner,
+  EngineDirectory,
+  HistoryMainMoved,
+  ReleaseWorkAdmission,
+} from '../../contracts';
 import type { DocWriteEdit, DocWritePatch, DocWriteRecord } from '../../db';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { applyDocEdits, isAppendOnly } from './doc-edits';
-import { conflict, DomainError } from '../../kernel';
+import {
+  conflict,
+  DomainError,
+  externalToolOrigin,
+  forbidden,
+  integratorOwnerId,
+  withoutIntegratorExecution,
+} from '../../kernel';
 import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 
-/** Why a write of the Operator's documents did not go up. */
-export type DocWriteFailure =
-  | 'engine_offline'
-  | 'base_out_of_sync'
-  | 'checkout_conflict'
-  | 'remote_moved'
-  | 'push_rejected'
-  | 'remote_unreachable'
-  | 'local_checkout'
-  | 'git_failed';
+export type { DocWriteFailure };
 
 /** How long `request` waits for a write that runs at once before it answers `running`. */
 export const DOC_WRITE_WAIT_MS = 60_000;
+/** How long a bearer-MCP write waits for one that runs at once: its caller polls `get_project_doc_write`. */
+export const EXTERNAL_DOC_WRITE_WAIT_MS = 5_000;
+
+/** A write made through the bearer MCP (PM-784); the origin and the author come from the live scope. */
+export interface ExternalDocWriteRequest {
+  projectKey: string;
+  baseCommit: string;
+  /** One line: the commit subject. */
+  message: string;
+  edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+}
 
 export interface DocWriteRequest {
   projectKey: string;
@@ -62,7 +91,22 @@ type Deps = {
   merges: DocWriteSlotPeer;
   /** How long `request` waits for a write that runs at once (default `DOC_WRITE_WAIT_MS`). */
   waitMs?: number;
+  /** The release gate (PM-752); absent: never held. */
+  work?: ReleaseWorkAdmission;
+  /** Runs after the published state commits; a failure must not affect the write. */
+  onPublished?: (event: HistoryMainMoved) => void;
+  /** Re-authorizes the writes made through the bearer MCP (PM-784); absent: they are refused. */
+  external?: DocWriteExternalRunner;
+  /** How long a bearer-MCP write waits for one that runs at once (default `EXTERNAL_DOC_WRITE_WAIT_MS`). */
+  externalWaitMs?: number;
 };
+
+/** The key, the owner's membership or the Operator of a bearer-MCP write ended before it went up. */
+class AuthorizationEnded extends Error {
+  constructor(cause: unknown) {
+    super('the credential of the write is no longer valid', { cause });
+  }
+}
 
 /** An engine call that failed for a reason the caller reads: a refused path, an unknown commit, a git error. */
 function readable(err: unknown): unknown {
@@ -71,6 +115,24 @@ function readable(err: unknown): unknown {
 
 const pending = () =>
   conflict('docs_write_pending', 'a write of the project documents is already queued or running');
+
+/** The commit trailers of a write made through the bearer MCP: the Operator, the key (id and prefix) and the call. */
+function externalTrailers(origin: ExternalToolOrigin): string {
+  return [
+    `Projectman-Operator: ${origin.actor.handle}`,
+    'Projectman-Operator-Mode: super',
+    'Projectman-Via: integrator',
+    `Projectman-Credential-Id: ${origin.actor.credential.id}`,
+    `Projectman-Credential-Prefix: ${origin.actor.credential.prefix}`,
+    `Projectman-External-Request: ${origin.requestId}`,
+  ].join('\n');
+}
+
+/** A stored failure code as the closed list; a code from a newer or older build reads as `git_failed`. */
+function failureOf(code: string | undefined): DocWriteFailure {
+  const parsed = DocWriteFailureSchema.safeParse(code);
+  return parsed.success ? parsed.data : 'git_failed';
+}
 
 /**
  * The Operator's writes of the decision log and the roadmap to the default branch (PM-495). A write is a row
@@ -121,24 +183,150 @@ export class DocWrites {
    * is queued.
    */
   async request(input: DocWriteRequest): Promise<DocWriteOutcome> {
-    const { ctx, projects, merges } = this.deps;
+    const { ctx } = this.deps;
     const { projectKey } = input;
+    const { docs, edits } = await this.checkedEdits(projectKey, input.author, input.baseCommit, input.edits);
+    const id = newId('dw');
+    const now = isoNow(ctx);
+    ctx.unitOfWork(() => {
+      // The check above awaited: the slot may have been taken since.
+      if (ctx.repos.docWrites.openOf(projectKey)) throw pending();
+      const stepId = newId('ops');
+      ctx.repos.docWrites.insert({
+        id,
+        projectKey,
+        repo: docs.repo.name,
+        base: docs.repo.defaultBranch,
+        baseCommit: input.baseCommit,
+        edits,
+        message: `${input.message}\n\nProjectman-Operator: ${input.author}\nProjectman-Request: ${input.requestId}\nProjectman-Requested-By: ${input.requestedBy}`,
+        author: input.author,
+        requestedBy: input.requestedBy,
+        requestId: input.requestId,
+        stepId,
+        engineId: this.engineOf(projectKey, input.author),
+        state: 'queued',
+        commitSha: null,
+        error: null,
+        createdAt: now,
+        updatedAt: now,
+        externalOrigin: null,
+      });
+      ctx.repos.operatorRequests.insertStep({
+        id: stepId,
+        requestId: input.requestId,
+        at: now,
+        action: 'docs_write',
+        status: 'queued',
+        taskKey: null,
+        member: null,
+        changes: [],
+        configVersion: null,
+        inboxItemId: null,
+        signalId: null,
+        refusal: null,
+      });
+    });
+    return this.started(id, projectKey, docs.repo.name, this.deps.waitMs ?? DOC_WRITE_WAIT_MS);
+  }
+
+  /**
+   * The same write for the integrator's super credential (PM-784). The author, the origin and the owner come
+   * from the live scope, never from the call; the edits go through the same checks. It answers after the
+   * write was queued, or finished within a short wait: `get_project_doc_write` reads it from there.
+   */
+  async requestExternal(input: ExternalDocWriteRequest): Promise<DocWriteOutcome> {
+    const { ctx } = this.deps;
+    const { projectKey } = input;
+    if (!this.deps.external)
+      throw forbidden('integrator_not_allowed', 'document writes through the bearer MCP are not available');
+    const config = await this.deps.projects.config(projectKey);
+    const origin = externalToolOrigin(config);
+    if (!SUPER_AUDIT_REQUEST_ID.test(origin.requestId) || /[\r\n]/.test(input.message))
+      throw new DomainError('invalid_request', 'the request id or the message cannot go into a commit');
+    const author = origin.actor.handle;
+    const { docs, edits } = await this.checkedEdits(projectKey, author, input.baseCommit, input.edits);
+    const id = newId('dw');
+    const now = isoNow(ctx);
+    ctx.unitOfWork(() => {
+      if (ctx.repos.docWrites.openOf(projectKey)) throw pending();
+      ctx.repos.docWrites.insert({
+        id,
+        projectKey,
+        repo: docs.repo.name,
+        base: docs.repo.defaultBranch,
+        baseCommit: input.baseCommit,
+        edits,
+        message: `${input.message}\n\n${externalTrailers(origin)}`,
+        author,
+        requestedBy: null,
+        requestId: null,
+        stepId: null,
+        engineId: this.engineOf(projectKey, author),
+        state: 'queued',
+        commitSha: null,
+        error: null,
+        createdAt: now,
+        updatedAt: now,
+        externalOrigin: origin,
+      });
+    });
+    return this.started(
+      id,
+      projectKey,
+      docs.repo.name,
+      this.deps.externalWaitMs ?? EXTERNAL_DOC_WRITE_WAIT_MS,
+    );
+  }
+
+  /** One document write the same owner's keys made (PM-784); another owner's, a member's or a missing one is `not_found`. */
+  async externalState(projectKey: string, writeId: string): Promise<ExternalDocWriteState> {
+    const config = await this.deps.projects.config(projectKey);
+    const owner = integratorOwnerId(config, 'read');
+    const row = this.deps.ctx.repos.docWrites.get(writeId);
+    if (
+      !owner ||
+      !row ||
+      row.projectKey !== projectKey ||
+      !row.externalOrigin ||
+      row.externalOrigin.ownerUserId !== owner
+    )
+      throw new DomainError('not_found', `Document write ${writeId} does not exist.`, { status: 404 });
+    const published = row.state === 'published';
+    return {
+      write_id: row.id,
+      state: row.state,
+      commit: published ? row.commitSha : null,
+      paths: [...new Set(row.edits.map((edit) => edit.path))],
+      warning: published && row.error?.code === 'local_checkout' ? 'local_checkout' : null,
+      failure: row.state === 'failed' ? failureOf(row.error?.code) : null,
+    };
+  }
+
+  /** The edits checked against the text at `baseCommit`: the refusals (422) come here, before anything is queued. */
+  private async checkedEdits(
+    projectKey: string,
+    author: string,
+    baseCommit: string,
+    requested: { doc: ProjectDoc; old_text: string; new_text: string }[],
+  ) {
+    const { ctx, projects } = this.deps;
     const config = await projects.config(projectKey);
     const docs = projectDocsOf(config);
     if (!docs) throw this.notConfigured();
     if (ctx.repos.docWrites.openOf(projectKey)) throw pending();
-    const located = input.edits.map((edit) => {
+    const located = requested.map((edit) => {
       const path = docs[edit.doc];
       if (!path) throw this.notConfigured(edit.doc);
       return { path, old_text: edit.old_text, new_text: edit.new_text };
     });
-    const merger = this.mergerOf(this.engineOf(projectKey, input.author));
+    const merger = this.mergerOf(this.engineOf(projectKey, author));
     const ref = { projectKey, repo: docs.repo.name };
     const edits: DocWriteEdit[] = [];
     for (const path of new Set(located.map((edit) => edit.path))) {
       const mine = located.filter((edit) => edit.path === path);
       const before = (
-        await merger.readFile(ref, { at: { commit: input.baseCommit }, path }).catch((err: unknown) => {
+        await merger.readFile(ref, { at: { commit: baseCommit }, path }).catch((err: unknown) => {
           throw readable(err);
         })
       ).text;
@@ -153,57 +341,26 @@ export class DocWrites {
     }
     if (edits.length === 0)
       throw new DomainError('docs_unchanged', 'the edits change none of the files', { status: 422 });
+    return { docs, edits };
+  }
 
-    const id = newId('dw');
-    const now = isoNow(ctx);
-    ctx.unitOfWork(() => {
-      // The check above awaited: the slot may have been taken since.
-      if (ctx.repos.docWrites.openOf(projectKey)) throw pending();
-      ctx.repos.docWrites.insert({
-        id,
-        projectKey,
-        repo: docs.repo.name,
-        base: docs.repo.defaultBranch,
-        baseCommit: input.baseCommit,
-        edits,
-        message: `${input.message}\n\nProjectman-Operator: ${input.author}\nProjectman-Request: ${input.requestId}\nProjectman-Requested-By: ${input.requestedBy}`,
-        author: input.author,
-        requestedBy: input.requestedBy,
-        requestId: input.requestId,
-        stepId: newId('ops'),
-        engineId: this.engineOf(projectKey, input.author),
-        state: 'queued',
-        commitSha: null,
-        error: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      const row = ctx.repos.docWrites.get(id)!;
-      ctx.repos.operatorRequests.insertStep({
-        id: row.stepId,
-        requestId: input.requestId,
-        at: now,
-        action: 'docs_write',
-        status: 'queued',
-        taskKey: null,
-        member: null,
-        changes: [],
-        configVersion: null,
-        inboxItemId: null,
-        signalId: null,
-        refusal: null,
-      });
-    });
-
+  /** Starts the queued row when its slot is free and waits `waitMs` for the write that runs at once. */
+  private async started(
+    id: string,
+    projectKey: string,
+    repo: string,
+    waitMs: number,
+  ): Promise<DocWriteOutcome> {
+    const { ctx, merges } = this.deps;
     this.waiting.add(id);
     this.pump();
-    const running = this.queue.slot(projectKey, docs.repo.name);
+    const running = this.queue.slot(projectKey, repo);
     if (running?.row.id !== id) {
       this.waiting.delete(id);
-      return { id, state: 'queued', waitingFor: merges.holder(projectKey, docs.repo.name) ?? '' };
+      return { id, state: 'queued', waitingFor: merges.holder(projectKey, repo) ?? '' };
     }
     await runPromise(
-      this.queue.wait(running, this.deps.waitMs ?? DOC_WRITE_WAIT_MS, () => {
+      this.queue.wait(running, waitMs, () => {
         // From here the result comes as a message: no tool answer will carry it.
         this.waiting.delete(id);
       }),
@@ -242,6 +399,7 @@ export class DocWrites {
           run: (row) => this.run(row),
           peer: this.deps.merges,
           stopped: () => this.stopped,
+          ...(this.deps.work ? { work: this.deps.work } : {}),
         }),
         this.scope,
       ),
@@ -250,17 +408,59 @@ export class DocWrites {
 
   /** Starts the queued writes whose repository slot is free. */
   pump(): void {
-    runFork(this.queue.pump);
+    // The queue is autonomous work: a bearer call that happens to start it lends it no authority.
+    withoutIntegratorExecution(() => runFork(this.queue.pump));
   }
 
   private run(row: DocWriteRecord): Promise<void> {
-    return this.execute(row).catch((err: unknown) => {
-      this.deps.ctx.logger.warn({ err, writeId: row.id }, 'a document write failed');
-      this.end(row, {
-        state: 'failed',
-        failure: 'git_failed',
-        message: err instanceof Error ? err.message : 'the write failed',
+    return withoutIntegratorExecution(() =>
+      this.runRow(row).catch((err: unknown) => {
+        this.deps.ctx.logger.warn({ err, writeId: row.id }, 'a document write failed');
+        this.end(row, {
+          state: 'failed',
+          failure: 'git_failed',
+          message: err instanceof Error ? err.message : 'the write failed',
+        });
+      }),
+    );
+  }
+
+  private async runRow(row: DocWriteRecord): Promise<void> {
+    if (row.externalOrigin) return this.runExternal(row, row.externalOrigin);
+    // A row without any request and without an origin cannot be told apart from a forged one: it never runs.
+    if (!row.requestedBy || !row.requestId || !row.stepId) return this.revoked(row);
+    return this.execute(row, async () => {});
+  }
+
+  /** A write made through the bearer MCP runs under a fresh scope of its key, and is checked again before it goes up. */
+  private async runExternal(row: DocWriteRecord, origin: ExternalToolOrigin): Promise<void> {
+    const runner = this.deps.external;
+    if (!runner) return this.revoked(row);
+    let started = false;
+    try {
+      await runner.run(row.projectKey, origin, async (assertActive) => {
+        started = true;
+        const check = async () => {
+          try {
+            await assertActive();
+          } catch (err) {
+            throw new AuthorizationEnded(err);
+          }
+        };
+        await check();
+        await this.execute(row, check);
       });
+    } catch (err) {
+      if (started && !(err instanceof AuthorizationEnded)) throw err;
+      this.revoked(row);
+    }
+  }
+
+  private revoked(row: DocWriteRecord): void {
+    this.end(row, {
+      state: 'failed',
+      failure: 'authorization_revoked',
+      message: 'the credential of the write is no longer valid',
     });
   }
 
@@ -292,7 +492,7 @@ export class DocWrites {
     if (!waited || row.state === 'running' || row.state === 'queued') return { id: row.id, state: 'running' };
     if (row.state === 'stale') return { id: row.id, state: 'stale' };
     if (row.state === 'failed') {
-      const failure = (row.error?.code ?? 'git_failed') as DocWriteFailure;
+      const failure = failureOf(row.error?.code);
       return { id: row.id, state: 'failed', failure, message: row.error?.message ?? failure };
     }
     return {
@@ -304,7 +504,7 @@ export class DocWrites {
     };
   }
 
-  private async execute(row: DocWriteRecord): Promise<void> {
+  private async execute(row: DocWriteRecord, assertActive: () => Promise<void>): Promise<void> {
     const merger = this.deps.engines.get(row.engineId)?.merger;
     if (!merger)
       return this.end(row, {
@@ -357,6 +557,8 @@ export class DocWrites {
           failure: 'checkout_conflict',
           message: `uncommitted files overlap the write: ${conflicts.join(', ')}`,
         });
+      // The last check before the write goes up: with a remote that is the push, without one the advance.
+      await assertActive();
       if (base.remote) {
         const pushed = await merger.push(ref, { base: row.base, mergeCommit: built.commit });
         if (!pushed.ok) {
@@ -440,9 +642,23 @@ export class DocWrites {
         ...(ended.state === 'published' ? { commitSha: ended.commit } : {}),
         error,
       });
-      ctx.repos.operatorRequests.updateStep(row.stepId, status, null, refusal);
+      // A write made through the bearer MCP has no Operator step.
+      if (row.stepId) ctx.repos.operatorRequests.updateStep(row.stepId, status, null, refusal);
     });
-    if (this.waiting.has(row.id)) return;
+    if (ended.state === 'published') {
+      try {
+        this.deps.onPublished?.({
+          projectKey: row.projectKey,
+          repo: row.repo,
+          base: row.base,
+          commit: ended.commit,
+        });
+      } catch (err) {
+        ctx.logger.warn({ err, writeId: row.id }, 'document publication callback failed');
+      }
+    }
+    // The caller of a bearer-MCP write reads the result with `get_project_doc_write`: no message follows.
+    if (this.waiting.has(row.id) || row.externalOrigin || !row.stepId) return;
     void this.tell(row, ended);
   }
 

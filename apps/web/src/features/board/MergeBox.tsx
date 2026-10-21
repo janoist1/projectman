@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import { useRef, useState } from 'react';
-import { isMergeFixer, PRIORITIZE_MERGE_REASON_MAX } from '@projectman/shared';
+import { isMergeFixer, MERGE_ENGINE_WAIT_MINUTES, PRIORITIZE_MERGE_REASON_MAX } from '@projectman/shared';
 import type { ProjectConfig, StartMergeRequest, Task, TaskMergeState } from '@projectman/shared';
 import { usePrioritizeMerge, useStartMerge } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -17,6 +17,7 @@ import {
   isMerger,
   mergeBlockText,
   mergeCheckCommand,
+  mergeCheckPlace,
   mergeCommitOf,
   mergeRepo,
   mergeRequestedText,
@@ -44,6 +45,14 @@ type StepState = 'done' | 'active' | 'todo' | 'failed';
 
 /** Which of the merge's steps are done, running or still to come, from the step the server reports. */
 function runningSteps(merge: TaskMergeState, check: string | null, hasPush: boolean) {
+  if (merge.step === 'engine_waiting')
+    return [
+      {
+        id: 'engine',
+        state: 'active' as const,
+        text: t('task.merge.running.engineWaiting', { minutes: MERGE_ENGINE_WAIT_MINUTES }),
+      },
+    ];
   const command = check ?? merge.check?.command ?? null;
   const order = ['queued', 'merging', 'check_waiting', 'pushing', 'finishing'] as const;
   // Waiting for the machine's test queue is the check's own row (index 2), shown with its own text.
@@ -92,6 +101,36 @@ function StepList({ steps }: { steps: { id: string; state: StepState; text: stri
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * Where the merge check runs ("GitHub Actions" / "Mac") and, once the run has a page, a link to it that
+ * opens in a new tab; on a failed check the same link leads to the error (PM-918).
+ */
+function CheckPlace({
+  config,
+  merge,
+  failed = false,
+}: {
+  config?: ProjectConfig;
+  merge: TaskMergeState;
+  failed?: boolean;
+}) {
+  const place = mergeCheckPlace(config, merge);
+  if (!place) return null;
+  return (
+    <p className={styles.text} data-testid="merge-check-place">
+      {t('task.merge.checkPlace.label', { place: t(`task.merge.checkPlace.${place.runner}`) })}
+      {place.url ? (
+        <>
+          {' · '}
+          <a href={place.url} target="_blank" rel="noreferrer noopener">
+            {t(failed ? 'task.merge.checkPlace.openFailed' : 'task.merge.checkPlace.open')}
+          </a>
+        </>
+      ) : null}
+    </p>
   );
 }
 
@@ -280,6 +319,9 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
         'accent',
         <>
           <StepList steps={runningSteps(merge, check, github || merge.step === 'pushing')} />
+          {merge.step === 'check_waiting' || merge.step === 'checking' ? (
+            <CheckPlace config={config} merge={merge} />
+          ) : null}
           {started ? <p className={styles.text}>{started}</p> : null}
         </>,
         true,
@@ -374,6 +416,7 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
         'blocked',
         <>
           <p className={styles.text}>{t('task.merge.failed.unchanged', { base: merge.base })}</p>
+          {!conflict ? <CheckPlace config={config} merge={merge} failed /> : null}
           {conflict && files.length > 0 ? (
             <Fold summary={t('task.merge.failed.files', { count: files.length })}>
               <pre className={box.output}>{files.join('\n')}</pre>
@@ -437,6 +480,7 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
         <>
           <p className={styles.text}>{mergeBlockText(merge, { github, check, target })}</p>
           {steps.length > 0 ? <StepList steps={steps} /> : null}
+          {reason === 'check_error' ? <CheckPlace config={config} merge={merge} failed /> : null}
           <p className={styles.text}>
             {landedRemote
               ? t(github ? 'task.merge.blocked.remote' : 'task.merge.blocked.remoteOther')

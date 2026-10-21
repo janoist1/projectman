@@ -1,5 +1,6 @@
 import {
   alertPayloadOf,
+  humanInboxAssignment,
   BoundaryRequest,
   fixLimitDecisionOf,
   gateRequestOf,
@@ -9,6 +10,7 @@ import {
   permissionDelegationOf,
   QuestionCloseRule,
   questionPayloadOf,
+  isLinkedQuestion,
   releaseApprovalOf,
   seniorWaitDecisionOf,
 } from '@projectman/shared';
@@ -26,7 +28,7 @@ import { formatStamp, formatTime, formatTokens } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
-import { nameOf, namesOf } from './members';
+import { actorLabel, nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
@@ -382,7 +384,7 @@ export function fixLimitDecisionText(
     parts: fixRoundParts(limit),
     reason:
       limit.reason === 'passed_on'
-        ? t('inbox.fixLimit.reasons.passed_on', {
+        ? t(limit.assessment ? 'inbox.fixLimit.reasons.passedOnShort' : 'inbox.fixLimit.reasons.passed_on', {
             name: nameOf(limit.decider, members, myHandle),
             note: note ? t('inbox.fixLimit.note', { note }) : '',
           })
@@ -426,7 +428,13 @@ export function withConsequences(item: InboxItem, options: readonly InboxOption[
   if (!group) return [...options];
   return options.map((option) =>
     group.ids.includes(option.id)
-      ? { ...option, consequence: tDynamic(`inbox.${group.scope}.consequence.${option.id}`, '') }
+      ? {
+          ...option,
+          consequence: tDynamic(
+            `inbox.${group.scope}.consequence.${option.id === 'another_round' && (fixLimitDecisionOf(item)?.extraRounds ?? 0) >= 3 ? 'another_round_over' : option.id}`,
+            '',
+          ),
+        }
       : option,
   );
 }
@@ -722,6 +730,7 @@ export function decisionToast(item: InboxItem, optionId: string, myHandle: strin
  */
 export function resolverName(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
   const resolution = item.resolution;
+  if (resolution?.actor) return actorLabel(resolution.actor, members, myHandle);
   if (resolution?.via) return t('involvement.integratorFull');
   const closed = QuestionCloseRule.safeParse(resolution?.rule);
   if (closed.success) {
@@ -735,6 +744,17 @@ export function resolverName(item: InboxItem, members: MemberIndex, myHandle: st
 
 /** The note written with the decision (an answer, or an older automatic decision's note), or null. */
 export function resolutionNote(item: InboxItem): string | null {
+  if (item.resolution?.integratorTodo) {
+    const note = item.resolution.note?.trim();
+    return note
+      ? t(
+          item.resolution.optionId === 'todo_cannot'
+            ? 'inbox.integrator.reasonNote'
+            : 'inbox.integrator.resultNote',
+          { note },
+        )
+      : null;
+  }
   if (item.kind === 'question' && item.resolution?.via && item.resolution.note?.trim())
     return `${t('integratorKey.forwarded')}: ${item.resolution.note.trim()}`;
   if (item.kind === 'boundary' && item.resolution?.note)
@@ -774,6 +794,7 @@ export function resolutionMark(item: InboxItem): ResolutionMark {
  * does not keep a plain decision released and closed later, so that case stays in the trail.
  */
 export function isRecentDecision(item: InboxItem): boolean {
+  if (item.resolution?.integratorTodo || item.resolution?.integratorFixLimit) return false;
   if (item.state === 'open' || item.state === 'screening') return false;
   const rule = item.resolution?.rule;
   if (rule === 'operator_answered' || rule === 'operator_forwarded') return false;
@@ -785,7 +806,7 @@ export function isRecentDecision(item: InboxItem): boolean {
 }
 
 export function openItems(items: readonly InboxItem[] | undefined): InboxItem[] {
-  return (items ?? []).filter((item) => item.state === 'open');
+  return (items ?? []).filter((item) => item.state === 'open' && !isLinkedQuestion(item));
 }
 
 /** What the Operator recorded about a question (PM-556), or null. */
@@ -888,6 +909,7 @@ export function answerDeliveryText(
   members: MemberIndex,
   myHandle: string | null,
 ): string | null {
+  if (item.state === 'cancelled') return null;
   const delivery = answerDeliveryOf(item);
   if (!delivery) return null;
   if (delivery.state === 'delivered')
@@ -911,7 +933,8 @@ export function closedReasonOf(item: InboxItem): string | null {
  */
 export function closedBySomeoneElse(item: InboxItem, myHandle: string | null): boolean {
   if (item.state === 'open' || item.state === 'screening') return false;
-  if (isClosedWithoutAnswer(item)) return true;
+  if (isClosedWithoutAnswer(item) || item.resolution?.integratorTodo || item.resolution?.integratorFixLimit)
+    return true;
   return item.resolution?.by !== undefined && item.resolution.by !== myHandle;
 }
 
@@ -948,17 +971,23 @@ export function operatorTrailNote(
 }
 
 export function isAssignedTo(item: InboxItem, handle: string | null): boolean {
-  return !handle || item.assignees.includes(handle);
+  return humanInboxAssignment(item, handle);
 }
 
 /** Ids of every open item (the timeline marks requests that still wait). */
 export function openItemIds(items: readonly InboxItem[] | undefined): Set<string> {
-  return new Set(openItems(items).map((item) => item.id));
+  return new Set(openItemsFor(items, null).map((item) => item.id));
 }
 
 /** Open items waiting for this member (every open item when the handle is unknown). */
-export function openItemsFor(items: readonly InboxItem[] | undefined, handle: string | null): InboxItem[] {
-  return openItems(items).filter((item) => isAssignedTo(item, handle));
+export function openItemsFor(
+  items: readonly InboxItem[] | undefined,
+  handle: string | null,
+  includeLinked = false,
+): InboxItem[] {
+  return (includeLinked ? (items ?? []).filter((item) => item.state === 'open') : openItems(items)).filter(
+    (item) => isAssignedTo(item, handle),
+  );
 }
 
 export function newestFirst<T extends { createdAt: string }>(items: readonly T[]): T[] {

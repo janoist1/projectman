@@ -1,3 +1,4 @@
+import { waitForSession } from './helpers/domain-harness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { Actor } from '@projectman/shared';
@@ -237,7 +238,7 @@ describe('integrator key and involvement audit', () => {
     });
     expect(start.statusCode).toBe(200);
     const { domain } = h.app.projectman;
-    const session = domain.sessions.list('AR', { taskKey })[0]!;
+    const session = await waitForSession(domain, { taskKey });
     expect(session.startCause).toMatchObject({ kind: 'start_button', by: { via: 'integrator' } });
     const sent = await h.app.inject({
       method: 'POST',
@@ -320,7 +321,7 @@ describe('integrator key and involvement audit', () => {
       handle: 'owner',
     });
     await vi.waitFor(() => expect(domain.sessions.list('AR', { taskKey: task.key })).toHaveLength(1));
-    const cause = domain.sessions.list('AR', { taskKey: task.key })[0]!.startCause;
+    const cause = (await waitForSession(domain, { taskKey: task.key })).startCause;
     expect(cause).toMatchObject({
       kind: 'mention',
       by: { kind: 'human', handle: 'owner' },

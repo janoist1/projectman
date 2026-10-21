@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { lstat, readdir, readFile, rename, rm, stat, statfs, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { DependencySkip, DependencyRefreshResult } from '../contracts';
+import { execCommand, ExecCommandError } from '../exec';
 import { copyWithinBudget } from './copy-budget';
 import { tryGit } from './git';
 import { canonical, createKeyedLock } from './paths';
@@ -97,8 +97,19 @@ async function cloneIntoTarget(
     if ((await tryGit(['-C', target, 'check-ignore', '-q', 'node_modules/'])) === null)
       return skipped('not_ignored');
 
-    const reference = await findDependencyReference(args.candidates, target, targetLock);
-    if (!reference) return skipped('no_reference');
+    // Only a reference the target can be cloned from counts (PM-846): the repo may lie on another volume
+    // than the worktrees, and then another worktree on the target's volume is the reference.
+    let rejected = false;
+    const reference = await findDependencyReference(args.candidates, target, targetLock, (candidate) =>
+      probe(candidate, target).then(
+        () => true,
+        () => {
+          rejected = true;
+          return false;
+        },
+      ),
+    );
+    if (!reference) return skipped(rejected ? 'unsupported' : 'no_reference');
 
     const dirs = await dependencyDirs(reference.path, target);
     const removedDirs: string[] = [];
@@ -110,12 +121,6 @@ async function cloneIntoTarget(
         }
       }
     }
-    try {
-      await probe(reference.path, target);
-    } catch {
-      return skipped('unsupported');
-    }
-
     await copyWithinBudget(
       dirs.map((dir) => async (signal: AbortSignal) => {
         const temporary = path.join(target, dir, `.node_modules.pm-${suffix}`);
@@ -224,11 +229,15 @@ function skipped(reason: DependencyCloneSkip): DependencyCloneResult {
   return { status: 'skipped', reason };
 }
 
-/** The first candidate with the target's lockfile (byte for byte) and an install after its last change; never the target. */
+/**
+ * The first candidate with the target's lockfile (byte for byte) and an install after its last change; never
+ * the target. `accept` (PM-846) is asked only about such a candidate; one it refuses is passed over.
+ */
 export async function findDependencyReference(
   candidates: readonly string[],
   target: string,
   targetLock: Buffer,
+  accept?: (candidate: string) => Promise<boolean>,
 ): Promise<{ path: string; installedAt: number } | null> {
   const resolvedTarget = path.resolve(target);
   for (const candidate of candidates) {
@@ -238,6 +247,7 @@ export async function findDependencyReference(
     const lockTime = await mtimeOrNull(path.join(candidate, DEPENDENCY_LOCKFILE));
     const installedAt = await mtimeOrNull(path.join(candidate, HIDDEN_LOCKFILE));
     if (lockTime === null || installedAt === null || installedAt < lockTime) continue;
+    if (accept && !(await accept(candidate))) continue;
     return { path: candidate, installedAt };
   }
   return null;
@@ -375,16 +385,12 @@ async function defaultProbe(reference: string, target: string): Promise<void> {
 }
 
 /** `-R` keeps symbolic links as links, so a workspace link stays relative and points at the copy's own package. */
-function defaultCopyTree(src: string, dest: string, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) return reject(new Error('dependency copying aborted'));
-    const child = execFile('cp', ['-c', '-R', src, dest], { windowsHide: true }, (error, _stdout, stderr) => {
-      signal.removeEventListener('abort', stop);
-      if (error) reject(new Error(`cp -c -R failed: ${stderr.trim() || error.message}`));
-      else resolve();
-    });
-    // Kill manually: execFile's signal option rejects before the child has stopped.
-    const stop = () => child.kill();
-    signal.addEventListener('abort', stop, { once: true });
-  });
+async function defaultCopyTree(src: string, dest: string, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) throw new Error('dependency copying aborted');
+  try {
+    await execCommand('cp', ['-c', '-R', src, dest], { env: { ...process.env }, cancelSignal: signal });
+  } catch (error) {
+    if (!(error instanceof ExecCommandError)) throw error;
+    throw new Error(`cp -c -R failed: ${error.stderr.trim() || error.message}`);
+  }
 }

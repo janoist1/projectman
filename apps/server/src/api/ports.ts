@@ -1,7 +1,9 @@
 import type { AuthDomain } from '../auth';
+import type { WebPushService } from '../services/web-push';
+import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
 import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
-import type { TemplateRegistry } from '../core/base';
+import type { ChangeJournal, TemplateRegistry } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
 import type {
   BoardService,
@@ -15,6 +17,7 @@ import type { ProjectService, RoleService } from '../core/projects';
 import type { InvitationService, MemberService, MemberProfiles, ProjectAccess } from '../core/members';
 import type { MessageService, Messaging } from '../core/messages';
 import type { InboxService } from '../core/inbox';
+import type { SuperAuditService } from '../core/timeline';
 import type { HandoffService, MessageStarts, TaskStarts } from '../runtime/admission';
 import type { PauseService, SessionOrchestrator } from '../runtime/sessions';
 import type { MachineMonitor, WorkOutages } from '../runtime/watchers';
@@ -31,10 +34,15 @@ import type {
 } from '../services/operator';
 
 export interface ApiDomain extends AuthDomain {
+  readonly webPush: WebPushService;
+  readonly superOperator: SuperOperator;
+  readonly superHandoffs: SuperHandoffService;
+  readonly superAdministration: SuperAdministration;
   readonly structure: StructureService;
   readonly attachments: AttachmentService;
   readonly board: BoardService;
   readonly boundary: BoundaryService;
+  readonly changes: ChangeJournal;
   readonly cardMeasure: CardMeasure;
   readonly feedback: FeedbackService;
   readonly feedbackWidget: FeedbackWidgetService;
@@ -63,6 +71,7 @@ export interface ApiDomain extends AuthDomain {
   readonly runnerModule: RunnerModule;
   readonly schedules: ScheduleService;
   readonly sessions: SessionOrchestrator;
+  readonly superAudit: SuperAuditService;
   readonly taskStarts: TaskStarts;
   readonly taskWaits: TaskWaits;
   readonly tasks: TaskService;

@@ -111,6 +111,8 @@ const DEFERRABLE = new Set<ErrorCode>([
   'workspace_busy',
   'workspace_dirty',
   'workspace_fetch_failed',
+  'workspace_dependencies_pending',
+  'workspace_dependencies_failed',
   // The member's provider is not logged in (PM-324): the retry loop starts it once it is.
   'provider_not_logged_in',
   'nanogpt_key_missing',

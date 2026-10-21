@@ -1,15 +1,17 @@
+import { waitForSession } from './helpers/domain-harness';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isOperator, routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
+import { SESSION_CONFIG_DIR } from '../src/contracts';
 import {
   HARD_DENIED_HOSTS,
   SANDBOX_DENIED_ENV_VARS,
   SANDBOX_PTY_ENV,
   sensitivePaths,
 } from '../src/runtime/sessions';
-import { waitFor } from '../src/runner/test-helpers';
+import { claudeLoadedFile, inlineLoadedClaudeConfig, waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';
 
@@ -61,11 +63,13 @@ it(
     const { key } = created.json<Task>();
     const item = { type: 'task' as const, taskKey: key };
     const denyRead = sensitivePaths({ userHome, appHome: home });
+    const sessionConfigRoot = join(home, SESSION_CONFIG_DIR);
 
     let run = 0;
     const start = async (member: string, provider: 'claude' | 'codex' = 'claude'): Promise<string[]> => {
       const file = join(home, `args-${++run}.json`);
       vi.stubEnv(provider === 'codex' ? 'FAKE_CODEX_ARGS_FILE' : 'FAKE_CLAUDE_ARGS_FILE', file);
+      vi.stubEnv('FAKE_CLAUDE_LOADED_FILE', claudeLoadedFile(file));
       const { session } = await domain.sessions.ensureSession('AR', member, item);
       // The login check writes the file too: wait for the session's own start.
       await waitFor(
@@ -77,13 +81,16 @@ it(
         { what: `the ${member} session to start` },
       );
       await waitFor(() => domain.sessions.get('AR', session.id).state === 'idle', { what: 'idle' });
-      return (JSON.parse(readFileSync(file, 'utf8')) as Started).argv;
+      const { argv } = JSON.parse(readFileSync(file, 'utf8')) as Started;
+      // Claude Code is given private launch files that are gone once the session ends (PM-156): the
+      // argv here carries the JSON the fake loaded from them.
+      return provider === 'claude' ? inlineLoadedClaudeConfig(argv, file) : argv;
     };
     const settingsOf = (argv: string[]) => JSON.parse(argv[argv.indexOf('--settings') + 1]!);
     const option = (argv: string[], name: string) => argv[argv.indexOf(name) + 1];
 
     const developerArgs = await start('dev-1');
-    const worktree = domain.sessions.list('AR', { member: 'dev-1' })[0]!.cwd;
+    const worktree = (await waitForSession(domain, { member: 'dev-1' })).cwd;
     expect(worktree).not.toBe(workspace);
     expect(option(developerArgs, '--permission-mode')).toBe('auto');
     const developer = settingsOf(developerArgs);
@@ -109,7 +116,10 @@ it(
             expect.stringMatching(new RegExp(`/\\.git/${file}\\.lock$`)),
           ]),
           expect.stringMatching(/\/\.git\/refs\/replace$/),
+          expect.stringMatching(/\/\.git\/refs\/projectman$/),
           expect.stringMatching(/\/\.git\/info\/grafts$/),
+          // PM-156: the private launch files of the sessions, closed to writing as to reading.
+          sessionConfigRoot,
         ],
         denyRead: [userHome, home, ...denyRead],
         allowRead: expect.arrayContaining([worktree, ...own, gitConfig, join(userHome, '.gitconfig')]),
@@ -147,7 +157,7 @@ it(
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
       // The app home holds every member's worktree and workspace: read-only as a whole (PM-188).
-      filesystem: { allowWrite: [], denyWrite: [workspace, worktree, home], denyRead },
+      filesystem: { allowWrite: [], denyWrite: [workspace, worktree, home, sessionConfigRoot], denyRead },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
       // The repository is on GitHub: `gh` with any arguments, as a command of its own (PM-188).
       excludedCommands: ['gh pr view:*', 'gh pr diff:*'],
@@ -167,7 +177,7 @@ it(
     expect(reader.permissions.allow).toContain('Bash(gh pr view:*)');
 
     // A Codex reviewer: its read-only sandbox and its questions, as before.
-    const review = domain.sessions.list('AR', { member: 'cr' })[0]!;
+    const review = await waitForSession(domain, { member: 'cr' });
     await domain.sessions.stop('AR', review.id);
     await waitFor(() => !app.projectman.runnerModule.runner.isRunning(review.id), {
       what: 'the review session to stop',

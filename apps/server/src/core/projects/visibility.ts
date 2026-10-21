@@ -4,9 +4,13 @@ import {
   canSeeOperatorSessions,
   canSeeTask,
   canSeeTeamMessage,
+  clientCanSeeTimelineEvent,
   isCardLink,
+  isCoordinatorOnlySignal,
+  visibleQuestionItem,
+  visibleTimelineEvent,
 } from '@projectman/shared';
-import type { MemberView, ServerEvent, Session, Task, TaskDetail, TimelineEvent } from '@projectman/shared';
+import type { MemberView, ServerEvent, Session, Task, TaskDetail } from '@projectman/shared';
 import type { ProjectAccess } from '../members';
 
 /**
@@ -27,31 +31,8 @@ import type { ProjectAccess } from '../members';
  */
 export type Viewer = Pick<ProjectAccess, 'access' | 'handle' | 'via'>;
 
-export function visibleTimelineEvent(
-  viewer: Viewer,
-  event: TimelineEvent,
-  messageParticipants: (id: string) => { from: string; to: string[] } | null,
-): TimelineEvent {
-  // Why a card was pulled into a stage (PM-427) is the team's: a client sees the move, not the reason.
-  // The subtasks a collecting card closed with (PM-647) are internal cards' keys.
-  if (
-    event.type === 'task_stage_changed' &&
-    isClient(viewer) &&
-    event.data &&
-    ('pulled' in event.data || 'partsClosed' in event.data)
-  ) {
-    const { pulled: _pulled, partsClosed: _partsClosed, ...visible } = event.data;
-    return { ...event, data: visible };
-  }
-  if (event.type !== 'session_started') return event;
-  if (canSeeAllTeamMessages(viewer)) return event;
-  const cause = event.data?.cause as { messageId?: string; quote?: string } | undefined;
-  if (!cause?.quote || !cause.messageId) return event;
-  const message = messageParticipants(cause.messageId);
-  if (message && canSeeTeamMessage(viewer, message)) return event;
-  const { quote: _quote, ...visible } = cause;
-  return { ...event, data: { ...event.data, cause: visible } };
-}
+/** The two timeline rules live in `packages/shared` (the history search uses them too, PM-786). */
+export { visibleTimelineEvent, clientCanSeeTimelineEvent };
 
 export function visibleSession(
   viewer: Viewer,
@@ -70,7 +51,7 @@ export function visibleSession(
 /** Events of a subscribed project (everything but the connection and terminal events). */
 export type ProjectEvent = Exclude<
   ServerEvent,
-  { type: 'hello' | 'error' | 'terminal_data' | 'terminal_snapshot' | 'engine_changed' }
+  { type: 'hello' | 'error' | 'terminal_data' | 'terminal_snapshot' | 'engine_changed' | 'operator_grant_changed' }
 >;
 
 export function isClient(viewer: Viewer): boolean {
@@ -103,6 +84,7 @@ export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key
   // The loop mark (PM-261) and the fix round limit hold (PM-262) are the team's, as the rounds of a card
   // are: a client never sees them. Nor the handoff of the card (PM-342).
   const {
+    startOffer: _startOffer,
     loop: _loop,
     fixLimit: _fixLimit,
     handoff: _handoff,
@@ -111,6 +93,10 @@ export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key
     merged: _merged,
     ...rest
   } = task;
+  if (rest.readyHold) {
+    const { seniors: _seniors, engine: _engine, ...readyHold } = rest.readyHold;
+    rest.readyHold = readyHold;
+  }
   const visible = withVisibleHolders(rest, canSeeKey);
   const hideTheme = !!visible.themeKey && !canSeeKey(visible.themeKey);
   if (!hideTheme && !visible.links.some(isCardLink)) return visible;
@@ -165,19 +151,6 @@ export function memberForViewer(
   };
 }
 
-const CLIENT_TASK_TIMELINE = new Set<TimelineEvent['type']>([
-  'task_created',
-  'task_stage_changed',
-  'task_check_changed',
-  'attachment_added',
-  'attachment_deleted',
-]);
-
-/** The main milestones of a task, the part of its timeline a client sees in the task detail. */
-export function clientCanSeeTimelineEvent(event: TimelineEvent): boolean {
-  return CLIENT_TASK_TIMELINE.has(event.type);
-}
-
 /**
  * What the viewer may see of a task detail; the task itself must be visible (canSeeTask).
  * `canSeeKey` says whether the viewer sees a card by its key (for the links to other cards).
@@ -218,6 +191,14 @@ export function visibleProjectEvent(
   taskOf: (taskKey: string) => Task | null | undefined,
   messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): ProjectEvent {
+  if (event.type === 'inbox_upserted')
+    return {
+      ...event,
+      item: visibleQuestionItem(viewer, event.item, (key) => {
+        const task = taskOf(key);
+        return !!task && canSeeTask(viewer, task);
+      }),
+    };
   if (event.type === 'timeline_appended')
     return { ...event, event: visibleTimelineEvent(viewer, event.event, messageParticipants) };
   if (event.type === 'session_upserted')
@@ -245,7 +226,8 @@ export function canSeeProjectEvent(
   isOperatorSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
-  if (event.type === 'operator_signal') return viewer.access === 'owner';
+  if (event.type === 'operator_signal')
+    return viewer.access === 'owner' && !isCoordinatorOnlySignal(event.signal.kind);
   if (event.type === 'inbox_upserted') return canSeeInboxItem(viewer, event.item);
   if (event.type === 'team_message' || event.type === 'team_message_updated')
     return canSeeTeamMessage(viewer, event.message);

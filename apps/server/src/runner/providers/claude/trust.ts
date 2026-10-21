@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { open, mkdir, readFile, realpath, rename, rm, rmdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Effect } from 'effect';
+import { execCommand } from '../../../exec';
 import { runPromise } from '../../../kernel';
 import { takeConfigLock } from './trust-lock';
 
@@ -54,19 +54,19 @@ function isRecord(value: unknown): value is Json {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function git(cwd: string, args: string[]): Promise<string[] | null> {
-  return new Promise((resolve) => {
-    execFile('git', ['-C', cwd, 'rev-parse', ...args], { timeout: 10_000 }, (err, stdout) => {
-      if (err) resolve(null);
-      else
-        resolve(
-          stdout
-            .split('\n')
-            .map((l) => l.trim())
-            .filter(Boolean),
-        );
+async function git(cwd: string, args: string[]): Promise<string[] | null> {
+  try {
+    const { stdout } = await execCommand('git', ['-C', cwd, 'rev-parse', ...args], {
+      env: { ...process.env },
+      timeoutMs: 10_000,
     });
-  });
+    return stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
 }
 
 /**

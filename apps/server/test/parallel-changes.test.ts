@@ -1,7 +1,7 @@
 import type { Session, WorkItemRef } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { aiActor } from '../src/kernel';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -113,7 +113,7 @@ describe('a changed description reaches the sessions working the card', () => {
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
     await flush();
-    const reviewer = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
+    const reviewer = await waitForSession(h.domain, { member: 'cr', taskKey: 'AR-1' });
     expect(h.domain.sessions.isRunning(reviewer.id)).toBe(true);
     const developer = await run('dev-1', task('AR-1'));
     const started = h.runner.started.length;
@@ -187,7 +187,7 @@ describe("a new session names the member's other running sessions on related car
       { taskKey: 'AR-1', title: 'Parent', relation: 'parent', state: 'starting' },
     ]);
 
-    await h.domain.sessions.stop('AR', h.domain.sessions.list('AR', { taskKey: 'AR-1' })[0]!.id);
+    await h.domain.sessions.stop('AR', (await waitForSession(h.domain, { taskKey: 'AR-1' })).id);
     expect(await start('dev-1', 'AR-1')).toEqual([
       { taskKey: 'AR-2', title: 'Child', relation: 'subtask', state: 'starting' },
     ]);
@@ -199,9 +199,9 @@ describe("a new session names the member's other running sessions on related car
     expect(await start('dev-2', 'AR-1')).toBeUndefined();
     expect(await start('dev-1', 'AR-4')).toBeUndefined();
 
-    const first = h.domain.sessions.list('AR', { member: 'dev-1', taskKey: 'AR-3' })[0]!;
+    const first = await waitForSession(h.domain, { member: 'dev-1', taskKey: 'AR-3' });
     await h.domain.sessions.stop('AR', first.id);
-    const second = h.domain.sessions.list('AR', { member: 'dev-1', taskKey: 'AR-2' })[0]!;
+    const second = await waitForSession(h.domain, { member: 'dev-1', taskKey: 'AR-2' });
     await h.domain.sessions.stop('AR', second.id);
     expect(await start('dev-1', 'AR-1')).toBeUndefined();
   });
@@ -213,7 +213,7 @@ describe("a new session names the member's other running sessions on related car
     expect(await start('dev-1', 'AR-4')).toEqual([
       { taskKey: 'AR-3', title: 'Sibling', relation: 'prerequisite', state: 'starting' },
     ]);
-    await h.domain.sessions.stop('AR', h.domain.sessions.list('AR', { taskKey: 'AR-3' })[0]!.id);
+    await h.domain.sessions.stop('AR', (await waitForSession(h.domain, { taskKey: 'AR-3' })).id);
     // And from AR-3, AR-4 has it as its prerequisite.
     expect(await start('dev-1', 'AR-3')).toEqual([
       { taskKey: 'AR-4', title: 'Alone', relation: 'prerequisite_of', state: 'starting' },

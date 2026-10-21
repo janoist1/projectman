@@ -17,6 +17,50 @@ import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
+it('assigns a unique schema version to every migration', () => {
+  const versions = migrations.map(({ version }) => version);
+  expect(versions).toEqual([...new Set(versions)]);
+});
+
+it('adds question groups after the refinement stalled signals migration without changing existing questions', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((item) => item.version <= 71)) db.exec(migration.sql);
+    db.pragma('user_version = 71');
+    const insert = db.prepare(`INSERT INTO inbox_items
+      (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)
+      VALUES (?, 'AR', 'question', '["owner"]', 'dev-1', ?, '{}', '[]', 'screening', ?, ?)`);
+    insert.run('inb_first', 'First question?', now, now);
+    insert.run('inb_second', 'Second question?', now, now);
+    const before = db.prepare('SELECT * FROM inbox_items ORDER BY seq').all();
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'question_groups'").get(),
+    ).toBeUndefined();
+
+    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(db.prepare('SELECT * FROM inbox_items ORDER BY seq').all()).toEqual(before);
+    expect(db.prepare('SELECT * FROM operator_execution_intents').all()).toEqual([]);
+    const inbox = createRepositories(db).inbox;
+    inbox.createGroup({
+      primaryItemId: 'inb_first',
+      projectKey: 'AR',
+      question: 'Combined question?',
+      by: 'pm',
+      note: 'Both need the same decision.',
+      itemIds: ['inb_first', 'inb_second'],
+      at: now,
+    });
+    expect(inbox.groupOf('inb_second')).toMatchObject({
+      primaryItemId: 'inb_first',
+      itemIds: ['inb_first', 'inb_second'],
+    });
+    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(inbox.groupOf('inb_first')?.question).toBe('Combined question?');
+  } finally {
+    db.close();
+  }
+});
+
 it('preserves existing merge rows and failure diagnostics through migration 49', () => {
   const db = new Database(':memory:');
   try {
@@ -461,6 +505,48 @@ describe('database', () => {
     expect(repos.sessions.countResumable()).toBe(3);
   });
 
+  it('finds only the latest source-bearing task session in the requested project (PM-818)', () => {
+    const db = openDatabase(':memory:');
+    const repos = createRepositories(db);
+    const add = (id: string, over: Partial<Session> = {}) =>
+      repos.sessions.insert({
+        id,
+        projectKey: 'AR',
+        member: id,
+        workItem: { type: 'task', taskKey: 'AR-1' },
+        claudeSessionId: id,
+        cwd: '/work',
+        branch: null,
+        transcriptPath: null,
+        state: 'exited',
+        activity: null,
+        startedAt: now,
+        lastActivityAt: now,
+        endedAt: now,
+        ...over,
+      });
+    try {
+      add('ses_without_source');
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')).toBeNull();
+      add('ses_branch', { branch: 'task/AR-1', engineId: 'eng_abcdefghijkl' });
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')?.id).toBe('ses_branch');
+      add('ses_review', { startedAt: '2026-09-30T10:00:00.000Z' });
+      repos.sessions.setReviewedCommit('ses_review', 'reviewed');
+      add('ses_newer_without_source', { startedAt: '2026-10-01T10:00:00.000Z' });
+      add('ses_other_project', {
+        projectKey: 'OTHER',
+        branch: 'other',
+        startedAt: '2026-10-01T10:00:00.000Z',
+      });
+      add('ses_other_task', { workItem: { type: 'task', taskKey: 'AR-2' }, branch: 'other' });
+      add('ses_chat', { workItem: { type: 'general' }, branch: 'other' });
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')?.id).toBe('ses_review');
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-3')).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   it('maps sessions, timeline, messages, inbox and member state', () => {
     const repos = createRepositories(openDatabase(':memory:'));
     const session: Session = {
@@ -602,6 +688,40 @@ describe('database', () => {
       updatedAt: now,
     });
     expect(repos.memberState.get('AR', 'dev-1')).toMatchObject({ status: 'working', activity: 'x' });
+  });
+
+  it('lists inbox items without a limit in full, oldest first, and with a limit the newest N', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    const now = new Date().toISOString();
+    const total = 520;
+    for (let n = 1; n <= total; n++) {
+      repos.inbox.insert({
+        id: `inb_${String(n).padStart(4, '0')}`,
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        sessionId: null,
+        taskKey: 'AR-1',
+        title: `Question ${n}`,
+        body: null,
+        payload: {},
+        options: [],
+        state: 'open',
+        resolution: null,
+        createdAt: now,
+      });
+    }
+    const ids = (items: InboxItem[]) => items.map((i) => i.id);
+    const all = Array.from({ length: total }, (_, i) => `inb_${String(i + 1).padStart(4, '0')}`);
+
+    // The limited and the unlimited query of the same filter must not share a prepared statement.
+    const filter = { kind: 'question', state: 'open', taskKey: 'AR-1' } as const;
+    expect(ids(repos.inbox.list('AR', { ...filter, limit: 3 }))).toEqual(all.slice(-3));
+    expect(ids(repos.inbox.list('AR', filter))).toEqual(all);
+    expect(ids(repos.inbox.list('AR', { ...filter, limit: 3 }))).toEqual(all.slice(-3));
+    expect(ids(repos.inbox.list('AR'))).toEqual(all);
+    expect(ids(repos.inbox.list('AR', { limit: 500 }))).toEqual(all.slice(-500));
   });
 
   it('stores users and auth sessions with case-insensitive email lookup', () => {

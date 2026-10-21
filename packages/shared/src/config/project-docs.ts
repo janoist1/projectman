@@ -6,6 +6,23 @@ export const ProjectDoc = z.enum(['decisions', 'roadmap']);
 export type ProjectDoc = z.infer<typeof ProjectDoc>;
 
 /**
+ * Why a write of the project documents did not go up (PM-495). `authorization_revoked` (PM-784): the
+ * bearer key, or its holder's ownership, ended before a write made through the external MCP went up.
+ */
+export const DocWriteFailure = z.enum([
+  'engine_offline',
+  'base_out_of_sync',
+  'checkout_conflict',
+  'remote_moved',
+  'push_rejected',
+  'remote_unreachable',
+  'local_checkout',
+  'git_failed',
+  'authorization_revoked',
+]);
+export type DocWriteFailure = z.infer<typeof DocWriteFailure>;
+
+/**
  * A relative POSIX path inside a repository: 1..200 characters, no leading '/', no '\\', no NUL, no
  * empty, '.' or '..' segment, and the first segment is not '.git'.
  */

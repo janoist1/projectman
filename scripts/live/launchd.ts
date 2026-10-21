@@ -19,15 +19,18 @@ const BOOTOUT_TIMEOUT_MS = 120_000;
 /** 3: "no such process" (not loaded); 113: could not find the service. Both mean there is nothing to unload. */
 const NOT_LOADED = [3, 113];
 
-export const launchctl = (deps: LiveDeps, args: string[]): Promise<RunResult> =>
+/** What the launchd helpers use of the deps: the hybrid release's own LaunchAgent commands take the same (PM-751). */
+export type LaunchdDeps = Pick<LiveDeps, 'run' | 'uid' | 'now' | 'sleep' | 'homeDir'>;
+
+export const launchctl = (deps: LaunchdDeps, args: string[]): Promise<RunResult> =>
   deps.run('launchctl', args, { cwd: deps.homeDir, timeoutMs: 60_000 });
 
-export async function isLoaded(deps: LiveDeps, label: string): Promise<boolean> {
+export async function isLoaded(deps: LaunchdDeps, label: string): Promise<boolean> {
   return (await launchctl(deps, ['print', domainTarget(deps.uid, label)])).status === 0;
 }
 
 /** Unloads a job and waits for launchd to release it; an absent job is no error. */
-export async function bootout(deps: LiveDeps, label: string): Promise<RunResult> {
+export async function bootout(deps: LaunchdDeps, label: string): Promise<RunResult> {
   const result = await launchctl(deps, ['bootout', domainTarget(deps.uid, label)]);
   if (result.status !== 0 && !NOT_LOADED.includes(result.status)) return result;
   if (!(await waitUntil(deps, BOOTOUT_TIMEOUT_MS, async () => !(await isLoaded(deps, label)), 500)))
@@ -35,7 +38,7 @@ export async function bootout(deps: LiveDeps, label: string): Promise<RunResult>
   return { ...result, status: 0 };
 }
 
-export async function bootstrap(deps: LiveDeps, label: string): Promise<RunResult> {
+export async function bootstrap(deps: LaunchdDeps, label: string): Promise<RunResult> {
   const args = ['bootstrap', `gui/${deps.uid}`, plistFile(deps.homeDir, label)];
   const deadline = deps.now().getTime() + BOOTSTRAP_TIMEOUT_MS;
   let result = await launchctl(deps, args);
@@ -58,7 +61,7 @@ export async function tryControl(deps: LiveDeps, request: ControlRequest): Promi
 
 /** Polls until the check holds or the time is out; the clock and the waiting are the deps'. */
 export async function waitUntil(
-  deps: LiveDeps,
+  deps: Pick<LiveDeps, 'now' | 'sleep'>,
   timeoutMs: number,
   check: () => Promise<boolean>,
   intervalMs = POLL_MS,

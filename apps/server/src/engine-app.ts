@@ -9,15 +9,22 @@ import { AgentProvider, routes } from '@projectman/shared';
 import { APP_DEFAULTS, loopbackBaseUrl } from './app';
 import { serializeRequest } from './http';
 import type {
+  AdministrationCapability,
+  AdministrationPort,
+  AdministrationTarget,
   FullTestExecutor,
+  GithubActionsClient,
   GithubService,
   MachineProbe,
   PermissionBroker,
   RunnerModule,
   RunnerModuleOptions,
   ScreenshotExecutor,
+  WorkspaceDependencyInstaller,
 } from './contracts';
-import { createLocalEngine } from './engine-host';
+import { SESSION_CONFIG_DIR } from './contracts';
+import { createSocketClient } from './administration';
+import { createLocalEngine, resolveWorkRoots } from './engine-host';
 import {
   createEngineAudit,
   createEngineClient,
@@ -39,16 +46,23 @@ import type { EngineEvent, Hello, LinkSocketFactory } from './engine-link';
 import {
   createFullTestExecutor,
   createScreenshotExecutor,
+  createWorkspaceDependencyInstaller,
   defaultHeavyLockDir,
   readHeavyRunSessions,
+  withGithubActions,
 } from './full-test';
-import { freeBytesOf } from './engine-host';
+import { createCheckBranchGit, freeBytesOf } from './engine-host';
 import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
-import { createRunnerModule } from './runner';
-import { createGithubService } from './services/github';
-import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
+import { createRunnerModule, DEPENDENCY_GATE_WAIT_S } from './runner';
+import { createGithubActionsClient, createGithubService } from './services/github';
+import {
+  createDependencyGate,
+  createMemberWorkspaceManager,
+  createMemberWorkspaceRegistry,
+  createWorktreeManager,
+} from './worktree';
 
 /**
  * The engine process (PM-314): the runner, the worktrees and the local tools on the machine the work
@@ -61,6 +75,7 @@ import { createMemberWorkspaceManager, createWorktreeManager } from './worktree'
 export const ENGINE_DEFAULT_PORT = 4801;
 const MAX_BODY_BYTES = 1024 * 1024;
 const HELLO_PROVIDER_WAIT_MS = 10_000;
+const ADMINISTRATION_HELLO_WAIT_MS = 3_000;
 const PENDING_INPUT_POLL_MS = 1000;
 const SHUTDOWN_PAUSE_CAP_MS = 20_000;
 const TOKEN = /^[A-Za-z0-9_-]{8,256}$/;
@@ -69,10 +84,18 @@ const LOOPBACK = '127.0.0.1';
 export interface EngineAppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   github?: GithubService;
-  createFullTestExecutor?: (deps: { heavyLockDir: string; worktreesRoot?: string }) => FullTestExecutor;
+  /** Overrides the GitHub Actions client of the merge check (PM-900); tests pass a fake. */
+  githubActions?: GithubActionsClient;
+  createFullTestExecutor?: (deps: {
+    heavyLockDir: string;
+    worktreesRoot?: string;
+    stepCacheFile?: string;
+  }) => FullTestExecutor;
   createScreenshotExecutor?: (deps: { heavyLockDir: string }) => ScreenshotExecutor;
   createMachineProbe?: (deps: { runningPids: () => number[]; instanceTag: string }) => MachineProbe;
   createSocket?: LinkSocketFactory;
+  /** The client of this machine's administration supervisor (PM-763); tests supply a fake one. */
+  createAdministrationClient?: (socketPath: string) => AdministrationPort;
   fetch?: typeof fetch;
   random?: () => number;
   auditMaxBytes?: number;
@@ -98,6 +121,8 @@ export interface EngineAppOptions {
   sessionFoldersDir?: string;
   sessionTmpDir?: string;
   claudeTmpBase?: string;
+  /** The Unix socket of this machine's administration supervisor (PM-763); absent: no administration here. */
+  administrationSocket?: string;
   browsersDir?: string;
   heavyLockDir?: string;
   cloneDependencies?: boolean;
@@ -147,6 +172,8 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
   assertHomeMayStart(home, 'engine'); // a damaged or retired marker stops the engine too (PM-318)
+  // PM-846: an unmounted or misplaced work volume stops the start; it never falls back to the home quietly.
+  const roots = resolveWorkRoots(home, resolved.workRoot);
   // The key and the extra headers are read here once so a wrong mode stops the start, not a later reconnect.
   readSecretFile(resolved.keyFile, 'The engine key');
   if (resolved.linkHeadersFile) readLinkHeaders(resolved.linkHeadersFile);
@@ -302,14 +329,38 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       pollIntervalMs: APP_DEFAULTS.githubPollIntervalMs,
       logger: log.child({ module: 'github' }),
     });
+  const githubActions =
+    modules.githubActions ??
+    createGithubActionsClient({
+      ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+      ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
+      pollIntervalMs: APP_DEFAULTS.githubPollIntervalMs,
+      logger: log.child({ module: 'github' }),
+    });
+  // A repository's path from the engine's own binding (`engine.json`), never the cloud's paths (PM-451).
+  const boundRepoPath = (projectKey: string, repo: string) =>
+    resolved.repos.find((entry) => entry.project === projectKey && entry.repo === repo)?.path ?? null;
   const worktrees = createWorktreeManager({
-    rootDir: path.join(home, 'worktrees'),
+    rootDir: roots.worktrees,
     logger: log.child({ module: 'worktree' }),
     cloneDependencies: options.cloneDependencies ?? false,
   });
-  const workspacesDir = path.join(home, 'workspaces');
+  const workspacesDir = roots.workspaces;
+  let workspaceDependencies: WorkspaceDependencyInstaller | undefined;
+  const memberClones = createMemberWorkspaceRegistry();
   const memberWorkspaces = createMemberWorkspaceManager({
     rootDir: workspacesDir,
+    logger: log.child({ module: 'workspace' }),
+    onEnsured: memberClones.register,
+    // The limit needs the engine's paths; install the port before the link can accept any call.
+    get dependencies() {
+      return workspaceDependencies;
+    },
+  });
+  // A running session's command tools wait for its clone's dependencies (PM-743).
+  const dependencyGate = createDependencyGate({
+    prepare: (key, opts) => memberWorkspaces.prepareDependencies(key, opts),
+    waitMs: DEPENDENCY_GATE_WAIT_S * 1000,
     logger: log.child({ module: 'workspace' }),
   });
   const nanogptCodexHome = path.join(home, 'providers', 'nanogpt', 'codex-home');
@@ -320,19 +371,28 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     codexHome: options.codexHome,
     nanogptCodexHome,
     nanogptKey,
+    nanogptKeyInCloud: true,
     geminiBin: options.geminiBin,
     geminiConfigDir,
     claudeConfigPath: options.claudeConfigPath,
     env: agentEnv,
     terminal: options.terminal,
     publicBaseUrl: baseUrl,
+    sessionConfigRoot: path.join(home, SESSION_CONFIG_DIR),
     instanceTag,
     broker,
     scopeProcesses: {
       processes: () => probe.processes(),
       envValues: (pids, names) => probe.envValues(pids, names),
     },
-    refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
+    refreshDependencies: async (cwd) => {
+      const key = await memberClones.keyOf(cwd);
+      if (!key) {
+        await worktrees.refreshDependencies(cwd);
+        return;
+      }
+      return dependencyGate(key);
+    },
     permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
     logger: log.child({ module: 'runner' }),
   });
@@ -342,14 +402,26 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     {
       worktrees,
       memberWorkspaces,
-      fullTestExecutor:
-        modules.createFullTestExecutor?.({ heavyLockDir, worktreesRoot: path.join(home, 'worktrees') }) ??
-        createFullTestExecutor({
-          logger: log.child({ module: 'full-test' }),
-          env: agentEnv,
+      // The merge check as a GitHub Actions workflow (PM-900) is run by this engine, with its own gh login.
+      fullTestExecutor: withGithubActions(
+        modules.createFullTestExecutor?.({
           heavyLockDir,
-          worktreesRoot: path.join(home, 'worktrees'),
-        }),
+          worktreesRoot: roots.worktrees,
+          stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
+        }) ??
+          createFullTestExecutor({
+            logger: log.child({ module: 'full-test' }),
+            env: agentEnv,
+            heavyLockDir,
+            worktreesRoot: roots.worktrees,
+            stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
+          }),
+        {
+          actions: githubActions,
+          branches: createCheckBranchGit({ repoPath: boundRepoPath, networkTimeoutMs: 60_000 }),
+          logger: log.child({ module: 'github-actions' }),
+        },
+      ),
       screenshotExecutor:
         modules.createScreenshotExecutor?.({ heavyLockDir }) ??
         createScreenshotExecutor({
@@ -357,16 +429,18 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
           env: agentEnv,
           heavyLockDir,
         }),
-      freeDiskBytes: () => freeBytesOf(home),
+      // The work volume fills up apart from the home (PM-846): the smaller of the two guards admission.
+      freeDiskBytes: async () =>
+        roots.workRoot
+          ? Math.min(await freeBytesOf(home), await freeBytesOf(roots.worktrees))
+          : freeBytesOf(home),
       heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
-      // The engine's own binding (`engine.json`), never the cloud's paths (PM-451).
-      repoPath: (projectKey, repo) =>
-        resolved.repos.find((entry) => entry.project === projectKey && entry.repo === repo)?.path ?? null,
+      repoPath: boundRepoPath,
       appHome: home,
       userHome,
-      worktreesRootDir: path.join(home, 'worktrees'),
+      worktreesRootDir: roots.worktrees,
       workspacesRootDir: workspacesDir,
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
@@ -399,7 +473,51 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
   const exportDir = path.join(home, 'export-tmp');
+  const dependencyPaths = engine.paths();
+  workspaceDependencies = createWorkspaceDependencyInstaller({
+    home,
+    heavyLockDir,
+    worktreesRoot: roots.worktrees,
+    denyRead: [
+      // Match the merge installer's home-wide denials; lifecycle scripts get only their clone.
+      userHome,
+      home,
+      ...limit.sensitiveRead(),
+      ...dependencyPaths.claudeTmpRoots,
+      ...(dependencyPaths.sessionTmpRoot ? [path.dirname(dependencyPaths.sessionTmpRoot)] : []),
+      ...(dependencyPaths.sessionFoldersRoot ? [path.dirname(dependencyPaths.sessionFoldersRoot)] : []),
+      workspacesDir,
+      roots.worktrees,
+      path.join(home, 'workspace-deps'),
+    ],
+    setupOf: (project, repo) =>
+      resolved.repos.find((entry) => entry.project === project && entry.repo === repo)?.workspaceSetup ??
+      null,
+    logger: log.child({ module: 'workspace-dependencies' }),
+  });
   mkdirSync(exportDir, { recursive: true, mode: 0o700 });
+  const administration: { port: AdministrationPort; target: AdministrationTarget } | undefined =
+    options.administrationSocket
+      ? {
+          port: (modules.createAdministrationClient ?? ((socketPath) => createSocketClient({ socketPath })))(
+            options.administrationSocket,
+          ),
+          target: { kind: 'engine', id: resolved.engineId },
+        }
+      : undefined;
+  /** What this machine's supervisor says it can do now; none when it is absent, down or answers wrongly. */
+  async function administrationCapabilities(): Promise<AdministrationCapability[] | undefined> {
+    if (!administration) return undefined;
+    try {
+      const status = await Promise.race([
+        administration.port.status(administration.target),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), ADMINISTRATION_HELLO_WAIT_MS).unref()),
+      ]);
+      return status && status.online ? status.capabilities : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   handlers = createEngineHandlers({
     limit,
     audit,
@@ -412,11 +530,13 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     transfers,
     fullTest: engine.fullTestExecutor,
     screenshots: engine.screenshotExecutor,
+    logger: log,
     mcpBase: baseUrl,
     emit,
     terminals,
     exportDir,
     nanogptStart,
+    administration,
   });
 
   async function hello(): Promise<Omit<Hello, 't' | 'protocol' | 'nextSeq'>> {
@@ -438,6 +558,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
         }
       }),
     );
+    const administrationAdvertised = await administrationCapabilities();
     return {
       version: options.version,
       hostname: os.hostname(),
@@ -468,6 +589,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       pid: process.pid,
       uid,
       bootId,
+      ...(administrationAdvertised ? { administration: administrationAdvertised } : {}),
     };
   }
 
@@ -601,6 +723,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       closed = true;
       clearInterval(poll);
       handlers.dispose();
+      await workspaceDependencies?.close();
       // The sessions stop first so that their last events (exit, paused) are in what is sent.
       await runner
         .shutdown()

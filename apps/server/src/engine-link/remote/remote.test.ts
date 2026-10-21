@@ -17,8 +17,13 @@ import type {
   StartSessionSpec,
 } from '../../contracts';
 import { MergeError } from '../../contracts';
+import { ScreenshotRuns } from '../../services/full-tests';
+import { outputTail } from '../../full-test';
+import { testConfig } from '../../../test/helpers/test-template';
 import type { EngineEvent } from '../protocol';
+import { EngineCallError } from '../rpc';
 import { createCloudRemote } from './index';
+import { createRemoteRunner } from './runner';
 import type { CloudDomain, CloudRemote } from './index';
 import { createFakeCloud, helloOf, silentLogger } from './test-support';
 import type { FakeCloud, FakeEngine } from './test-support';
@@ -138,6 +143,256 @@ describe('cloud mode remote parts', () => {
     return engine;
   };
 
+  describe('waiting for a ready engine link', () => {
+    it('waits for connect hooks and survives the registry offline transition', async () => {
+      const first = await online();
+      await expect(remote.hub.awaitLink(first.id, 0)).resolves.toBe('connected');
+      first.disconnect();
+      await expect(remote.hub.awaitLink(first.id, 0)).resolves.toBe('timeout');
+      let release!: () => void;
+      domain.sessions.reconcileEngine = async () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      const wait = remote.directory.awaitConnected!(first.id, 900_000);
+      cloud.registry.setOnline(first.id, false);
+      let done = false;
+      void wait.then(() => {
+        done = true;
+      });
+      cloud.connect(first.id);
+      await vi.waitFor(() => expect(release).toBeDefined());
+      expect(done).toBe(false);
+      await expect(remote.hub.awaitLink(first.id, 0)).resolves.toBe('timeout');
+      release();
+      await expect(wait).resolves.toBe('connected');
+    });
+
+    it('times out or aborts by signal and close, while stopWaiting leaves it to the caller', async () => {
+      cloud.registry.add('eng_a' as never);
+      vi.useFakeTimers();
+      try {
+        const wait = remote.hub.awaitLink('eng_a' as never, 900_000);
+        await vi.advanceTimersByTimeAsync(900_000);
+        await expect(wait).resolves.toBe('timeout');
+        const controller = new AbortController();
+        const aborted = remote.hub.awaitLink('eng_a' as never, 900_000, controller.signal);
+        controller.abort();
+        await expect(aborted).resolves.toBe('aborted');
+        await expect(remote.hub.awaitLink('eng_a' as never, 900_000, controller.signal)).resolves.toBe(
+          'aborted',
+        );
+        const stopping = remote.hub.awaitLink('eng_a' as never, 900_000);
+        remote.hub.stopWaiting();
+        let ended = false;
+        void stopping.then(() => {
+          ended = true;
+        });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(ended).toBe(false);
+        const afterStop = remote.hub.awaitLink('eng_a' as never, 900_000);
+        remote.hub.close();
+        await expect(stopping).resolves.toBe('aborted');
+        await expect(afterStop).resolves.toBe('aborted');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('following a full test after a lost link', () => {
+    const passed: FullTestResult = {
+      outcome: 'passed',
+      exitCode: 0,
+      durationMs: 1,
+      failedFiles: [],
+      outputTail: '',
+    };
+    async function lostRun() {
+      const engine = await online();
+      engine.answer('full_test.run', () => new Promise(() => {}));
+      const controller = new AbortController();
+      const onStarted = vi.fn();
+      const onLinkWait = vi.fn();
+      const run = remote.directory
+        .get(engine.id)!
+        .fullTestExecutor!.run(fullTestSpec('f1'), controller.signal, onStarted, {
+          linkWaitMs: 900_000,
+          onLinkWait,
+        });
+      await vi.waitFor(() => expect(engine.requests.some((r) => r.method === 'full_test.run')).toBe(true));
+      engine.disconnect();
+      await vi.waitFor(() => expect(onLinkWait).toHaveBeenCalledWith(true));
+      return { engine, controller, onStarted, onLinkWait, run };
+    }
+
+    it.each(['internal', 'module_error'] as const)(
+      'ends a refused initial run as spawn_failed without waiting for a link (%s)',
+      async (code) => {
+        const engine = await online();
+        engine.answer('full_test.run', () => {
+          throw new EngineCallError({
+            code,
+            message: 'fixture failure',
+            ...(code === 'module_error' ? { module: { code: 'fixture_failure' } } : {}),
+          });
+        });
+        const onLinkWait = vi.fn();
+        const result = await remote.directory
+          .get(engine.id)!
+          .fullTestExecutor!.run(fullTestSpec('f1'), new AbortController().signal, undefined, {
+            linkWaitMs: 900_000,
+            onLinkWait,
+          });
+        expect(result).toMatchObject({ outcome: 'error', reason: 'spawn_failed' });
+        expect(result.outputTail).toContain(code);
+        // The engine's reason reaches the hub, not only the code (PM-915).
+        expect(result.outputTail).toContain('fixture failure');
+        expect(onLinkWait).not.toHaveBeenCalled();
+        expect(engine.requests.map((request) => request.method)).toEqual(['full_test.run']);
+      },
+    );
+
+    it.each(['internal', 'module_error'] as const)(
+      'does not classify a refused attach as another link loss (%s)',
+      async (code) => {
+        const { run, onLinkWait } = await lostRun();
+        const engine = await online('eng_a', {}, (engine) =>
+          engine.answer('full_test.attach', () => {
+            throw new EngineCallError({
+              code,
+              message: 'fixture failure',
+              ...(code === 'module_error' ? { module: { code: 'fixture_failure' } } : {}),
+            });
+          }),
+        );
+        await expect(run).resolves.toMatchObject({ outcome: 'error', reason: 'spawn_failed' });
+        expect(onLinkWait.mock.calls).toEqual([[true], [false]]);
+        expect(engine.requests.map((request) => request.method)).toEqual(['full_test.attach']);
+      },
+    );
+
+    it('attaches and retains the start callback until the original result arrives', async () => {
+      const lost = await lostRun();
+      const calls = vi.spyOn(remote.hub, 'call');
+      skewMs = 60_000;
+      let finish!: (value: { state: 'ended'; result: FullTestResult }) => void;
+      const engine = await online('eng_a', {}, (engine) =>
+        engine.answer(
+          'full_test.attach',
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        ),
+      );
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      expect(calls).toHaveBeenCalledWith('eng_a', 'full_test.attach', { runId: 'f1' }, { timeoutMs: 60_000 });
+      expect(lost.onLinkWait.mock.calls).toEqual([[true], [false]]);
+      await engine.emit({ kind: 'full_test_started', runId: 'f1' });
+      expect(lost.onStarted).toHaveBeenCalledTimes(1);
+      finish({ state: 'ended', result: passed });
+      await expect(lost.run).resolves.toEqual(passed);
+      await engine.emit({ kind: 'full_test_started', runId: 'f1' });
+      expect(lost.onStarted).toHaveBeenCalledTimes(1);
+      expect(engine.requests).toEqual([{ method: 'full_test.attach', params: { runId: 'f1' } }]);
+    });
+
+    it('ends after fifteen minutes without a reconnect', async () => {
+      vi.useFakeTimers();
+      try {
+        const { run } = await lostRun();
+        await vi.advanceTimersByTimeAsync(900_000);
+        await expect(run).resolves.toMatchObject({
+          reason: 'engine_offline',
+          outputTail: 'engine eng_a did not reconnect within 15 minutes',
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('aborts a disconnected run without sending cancel', async () => {
+      const { run, controller, engine } = await lostRun();
+      controller.abort();
+      await expect(run).resolves.toMatchObject({ reason: 'killed' });
+      expect(engine.requests.some((r) => r.method === 'full_test.cancel')).toBe(false);
+    });
+
+    it('reports a run forgotten by a restarted engine', async () => {
+      const { run } = await lostRun();
+      await online('eng_a', {}, (engine) => engine.answer('full_test.attach', () => ({ state: 'unknown' })));
+      await expect(run).resolves.toMatchObject({
+        reason: 'engine_offline',
+        outputTail: 'the engine no longer knows the run',
+      });
+    });
+
+    it('waits for cancellation on an engine that does not support attach', async () => {
+      const { run } = await lostRun();
+      let finish!: () => void;
+      const engine = await online('eng_a', {}, (engine) =>
+        engine.answer(
+          'full_test.cancel',
+          () =>
+            new Promise<null>((resolve) => {
+              finish = () => resolve(null);
+            }),
+        ),
+      );
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      let done = false;
+      void run.then(() => {
+        done = true;
+      });
+      expect(done).toBe(false);
+      finish();
+      await expect(run).resolves.toMatchObject({
+        reason: 'engine_offline',
+        outputTail: 'the engine cannot hand over a run after a reconnect; update it',
+      });
+      expect(engine.requests).toEqual([{ method: 'full_test.cancel', params: { runId: 'f1' } }]);
+    });
+
+    it('follows repeated link losses but gives up after five reconnects', async () => {
+      const { run, onLinkWait } = await lostRun();
+      for (let loss = 0; loss < 5; loss++) {
+        const engine = await online('eng_a', {}, (engine) =>
+          engine.answer('full_test.attach', () => new Promise(() => {})),
+        );
+        await vi.waitFor(() =>
+          expect(engine.requests.some((r) => r.method === 'full_test.attach')).toBe(true),
+        );
+        engine.disconnect();
+      }
+      await expect(run).resolves.toMatchObject({
+        reason: 'engine_offline',
+        outputTail: 'the engine kept losing its link',
+      });
+      expect(onLinkWait.mock.calls.filter(([waiting]) => waiting)).toHaveLength(5);
+    });
+
+    it.each([false, true])('cancels an attach that timed out (aborted: %s)', async (aborted) => {
+      const { run, controller } = await lostRun();
+      vi.useFakeTimers();
+      try {
+        const engine = await online('eng_a', {}, (engine) => {
+          engine.answer('full_test.attach', () => new Promise(() => {}));
+          engine.answer('full_test.cancel', async () => null);
+        });
+        await vi.waitFor(() =>
+          expect(engine.requests.some((r) => r.method === 'full_test.attach')).toBe(true),
+        );
+        if (aborted) controller.abort();
+        await vi.advanceTimersByTimeAsync(61_000);
+        await expect(run).resolves.toMatchObject({ reason: aborted ? 'killed' : 'timeout' });
+        expect(engine.requests.filter((r) => r.method === 'full_test.cancel')).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('runner', () => {
     it('relays cleanup and recovery without changing a resumed running generation', async () => {
       const engine = await online('eng_a', { processScope: 'process_group' });
@@ -210,6 +465,54 @@ describe('cloud mode remote parts', () => {
       expect(await host.heavyRunSessions()).toEqual(['s1']);
       engine.disconnect();
       expect(await host.heavyRunSessions()).toEqual([]);
+    });
+
+    it('skips preparation on old engines, otherwise returns readiness and preserves dependency refusals', async () => {
+      const engine = await online();
+      const manager = remote.directory.host('eng_a' as never)!.memberWorkspaces!;
+      const key = { project: testConfig(), repoName: testConfig().project.repos[0]!.name, member: 'dev' };
+      expect(await manager.prepareDependencies(key)).toEqual({ status: 'skipped', reason: 'not_configured' });
+      const ready = { status: 'ready' as const, key: 'a'.repeat(64), changed: true };
+      engine.answer('workspace.prepareDependencies', () => ready);
+      expect(await manager.prepareDependencies(key)).toEqual(ready);
+      expect(engine.requests.at(-1)).toEqual({ method: 'workspace.prepareDependencies', params: [key] });
+      engine.answer('workspace.prepareDependencies', () => {
+        throw Object.assign(new Error('still running'), {
+          code: 'workspace_dependencies_pending',
+          details: { startedAt: '2026-10-16T20:00:00.000Z' },
+        });
+      });
+      await expect(manager.prepareDependencies(key)).rejects.toMatchObject({
+        code: 'workspace_dependencies_pending',
+        details: { startedAt: '2026-10-16T20:00:00.000Z' },
+      });
+    });
+
+    it('hands a task commit over on the engine, and asks for an update when the engine cannot (PM-739)', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      const key = {
+        project: testConfig({ workspacePath: '/cloud/path' }),
+        repoName: testConfig().project.repos[0]!.name,
+        member: 'dev',
+      };
+      const commit = 'a'.repeat(40);
+      // An older engine has no handler: the call is refused, and nothing is assumed handed over.
+      await expect(
+        host.memberWorkspaces!.publishTaskBranch(key, 'PM-1', 'PM-1-work', commit),
+      ).rejects.toMatchObject({
+        code: 'workspace_source_missing',
+        details: { reason: 'engine_update_required', method: 'workspace.publishTaskBranch' },
+      });
+      const source = { path: '/engine/repo', ref: `refs/projectman/workspaces/dev/PM-1/${commit}` };
+      engine.answer('workspace.publishTaskBranch', () => source);
+      await expect(
+        host.memberWorkspaces!.publishTaskBranch(key, 'PM-1', 'PM-1-work', commit),
+      ).resolves.toEqual(source);
+      // The fake records the calls it answered: only the second.
+      expect(engine.requests.filter((item) => item.method === 'workspace.publishTaskBranch')).toEqual([
+        { method: 'workspace.publishTaskBranch', params: [key, 'PM-1', 'PM-1-work', commit] },
+      ]);
     });
 
     it('starts on the default engine with the token, not the address, and mirrors the session', async () => {
@@ -400,6 +703,83 @@ describe('cloud mode remote parts', () => {
       await remote.runner.start(spec({ sessionId: 's2', provider: 'nanogpt', mcpUrl: 'http://x/mcp/t2' }));
       expect(none).toMatchObject({ linkCode: 'secret_not_allowed' });
     });
+
+    describe('status', () => {
+      const reported = (over: Record<string, unknown> = {}) => ({
+        provider: 'nanogpt' as const,
+        loggedIn: true,
+        method: 'api_key' as const,
+        checkedAt: '2026-10-19T10:00:00.000Z',
+        ...over,
+      });
+      const noKeyStatus = reported({ loggedIn: false, problem: 'no_key' });
+
+      it('is ready when the cloud holds the key, though the engine reported it missing', async () => {
+        const engine = await online();
+        engine.answer('provider.status', async () => noKeyStatus);
+        const status = await remote.runner.providerStatus!('nanogpt', { refresh: true });
+        expect(status).toMatchObject({ loggedIn: true });
+        expect(status).not.toHaveProperty('problem');
+        expect(JSON.stringify(status)).not.toContain('key-from-store');
+      });
+
+      it('is a missing key when the cloud holds none, though the engine reported it ready', async () => {
+        const engine = await online();
+        engine.answer('provider.status', async () => reported());
+        nanogptKey = null;
+        await expect(remote.runner.providerStatus!('nanogpt', { refresh: true })).resolves.toMatchObject({
+          loggedIn: false,
+          problem: 'no_key',
+        });
+      });
+
+      it('follows a saved or deleted key at the next read, from the cached engine answer', async () => {
+        const engine = await online();
+        const asked = vi.fn(async () => reported());
+        engine.answer('provider.status', asked);
+        await expect(remote.runner.providerStatus!('nanogpt')).resolves.toMatchObject({ loggedIn: true });
+        nanogptKey = null;
+        await expect(remote.runner.providerStatus!('nanogpt')).resolves.toMatchObject({
+          loggedIn: false,
+          problem: 'no_key',
+        });
+        nanogptKey = 'key-from-store';
+        await expect(remote.runner.providerStatus!('nanogpt')).resolves.toMatchObject({ loggedIn: true });
+        expect(asked).toHaveBeenCalledTimes(1);
+      });
+
+      it('counts a failing key store as no key', async () => {
+        const engine = await online();
+        engine.answer('provider.status', async () => reported());
+        const failing = createRemoteRunner({
+          hub: remote.hub,
+          recordedEngine: () => null,
+          logger: silentLogger(),
+          nanogptKeySet: async () => {
+            throw new Error('the key store is down');
+          },
+        });
+        await expect(failing.providerStatus!('nanogpt', { refresh: true })).resolves.toMatchObject({
+          loggedIn: false,
+          problem: 'no_key',
+        });
+      });
+
+      it('leaves another provider and an engine that is not connected as they are', async () => {
+        const engine = await online();
+        engine.answer('provider.status', async (params) =>
+          reported({ provider: params.provider, loggedIn: false, problem: 'no_key' }),
+        );
+        await expect(remote.runner.providerStatus!('codex', { refresh: true })).resolves.toMatchObject({
+          provider: 'codex',
+          loggedIn: false,
+          problem: 'no_key',
+        });
+        await expect(
+          remote.runner.providerStatus!('nanogpt', { engineId: 'eng_gone' as never }),
+        ).resolves.toMatchObject({ loggedIn: null, detail: 'The engine is not connected' });
+      });
+    });
   });
 
   describe('team tools relay', () => {
@@ -587,6 +967,55 @@ describe('cloud mode remote parts', () => {
       expect(folders.of('gone')).toBeUndefined();
     });
 
+    it('takes screenshots through the remote host with only scenario roots crossing the RPC boundary', async () => {
+      const engine = await online();
+      const host = remote.directory.get('eng_a' as never)!;
+      const scope = {
+        cwd: '/fictional/work',
+        sessionDir: '/fictional/folders/s1',
+        browsersDir: '/fictional/browsers',
+        sandbox: { allowWrite: [], denyWrite: [], denyRead: [], allowRead: [] },
+      };
+      const scenario = '/fictional/work/shots/login.mjs';
+      const image = '/fictional/folders/s1/shots/login.png';
+      const resolve = vi.fn(() => ({ path: scenario }));
+      engine.answer('files.resolve_scenario', resolve);
+      engine.answer('files.list_images', () => [image]);
+      engine.answer('screenshots.run', () => ({
+        exitCode: 0,
+        timedOut: false,
+        aborted: false,
+        output: 'ok',
+      }));
+      const runs = new ScreenshotRuns({
+        executorFor: () => host.screenshotExecutor,
+        diskFor: () => host,
+        sessions: { screenshotScope: () => scope },
+        outputTail,
+        logger: silentLogger(),
+        platform: 'darwin',
+      });
+      try {
+        await expect(
+          runs.take(
+            { sessionId: 's1', projectKey: 'PM', member: 'codex', taskKey: 'PM-785' },
+            { scenario: 'shots/login.mjs' },
+          ),
+        ).resolves.toMatchObject({ status: 'done', files: [image], exitCode: 0 });
+        expect(resolve).toHaveBeenCalledWith({
+          roots: { cwd: scope.cwd, sessionDir: scope.sessionDir },
+          requested: 'shots/login.mjs',
+        });
+        expect(engine.requests.find((request) => request.method === 'screenshots.run')?.params).toMatchObject(
+          {
+            spec: { ...scope, args: [scenario] },
+          },
+        );
+      } finally {
+        await runs.stop();
+      }
+    });
+
     it('reports a screenshot run started by the engine and cancels it with the signal', async () => {
       const engine = await online();
       let finish: (value: ScreenshotRunEnded) => void = () => {};
@@ -642,27 +1071,6 @@ describe('cloud mode remote parts', () => {
       expect(onStarted).toHaveBeenCalledTimes(1);
     });
 
-    it('sends requireHeavyLock to the engine and relays its result (PM-658)', async () => {
-      const engine = await online();
-      engine.answer('full_test.run', () => ({
-        outcome: 'error' as const,
-        reason: 'heavy_lock_unavailable' as const,
-        exitCode: null,
-        durationMs: 0,
-        failedFiles: [],
-        outputTail: 'no queue',
-      }));
-      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
-      const result = await executor.run(
-        { ...fullTestSpec('f1'), requireHeavyLock: true },
-        new AbortController().signal,
-      );
-      expect(result).toMatchObject({ outcome: 'error', reason: 'heavy_lock_unavailable' });
-      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
-        { method: 'full_test.run', params: { spec: expect.objectContaining({ requireHeavyLock: true }) } },
-      ]);
-    });
-
     it('blocks the run on an older engine that refuses requireHeavyLock, without repeating it without the flag', async () => {
       const engine = await online();
       let ran = false;
@@ -696,23 +1104,118 @@ describe('cloud mode remote parts', () => {
       expect(ran).toBe(true);
     });
 
-    it('sends npmCi to the engine and relays its result (PM-681)', async () => {
-      const engine = await online();
-      engine.answer('full_test.run', () => ({
+    describe('GitHub Actions descriptor (PM-900)', () => {
+      const githubSpec = (runId: string): FullTestSpec => ({
+        ...fullTestSpec(runId),
+        cwd: 'github-actions:acme/web',
+        githubActions: {
+          ref: { projectKey: 'AR', repo: 'ar' },
+          mergeId: 'merge_1',
+          repo: 'acme/web',
+          base: 'main',
+          commit: 'a'.repeat(40),
+          workflow: 'merge-check.yml',
+          files: ['a.test.ts'],
+        },
+      });
+
+      it('sends the descriptor to the engine and relays the run page of its result', async () => {
+        const engine = await online();
+        const externalUrl = 'https://github.com/acme/web/actions/runs/7';
+        engine.answer('full_test.run', () => ({
+          outcome: 'passed' as const,
+          exitCode: 0,
+          durationMs: 1,
+          failedFiles: [],
+          outputTail: '',
+          externalUrl,
+        }));
+        const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+        const result = await executor.run(githubSpec('f1'), new AbortController().signal);
+        expect(result).toMatchObject({ outcome: 'passed', externalUrl });
+        expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
+          { method: 'full_test.run', params: { spec: expect.objectContaining(githubSpec('f1')) } },
+        ]);
+      });
+
+      it('blocks the run on an older engine that refuses the descriptor, without running it', async () => {
+        const engine = await online();
+        let ran = false;
+        // An older engine's strict schema: the unknown field makes the request invalid before it runs.
+        engine.answer('full_test.run', (params) => {
+          if ('githubActions' in params.spec)
+            throw Object.assign(new Error('Invalid method parameters'), { code: 'invalid_params' });
+          ran = true;
+          return { outcome: 'passed' as const, exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+        });
+        const onStarted = vi.fn();
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(githubSpec('f1'), new AbortController().signal, onStarted);
+        expect(result).toMatchObject({
+          outcome: 'error',
+          reason: 'github_unavailable',
+          outputTail: expect.stringContaining('Update the engine'),
+        });
+        expect(ran).toBe(false);
+        expect(onStarted).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('step report (PM-876)', () => {
+      const passed = {
         outcome: 'passed' as const,
         exitCode: 0,
         durationMs: 1,
         failedFiles: [],
         outputTail: '',
-      }));
-      const npmCi = { ref: { projectKey: 'AR', repo: 'ar' }, mergeId: 'mrg_1' };
-      const result = await remote.directory
-        .get('eng_a' as never)!
-        .fullTestExecutor!.run({ ...fullTestSpec('f1'), npmCi }, new AbortController().signal);
-      expect(result).toMatchObject({ outcome: 'passed' });
-      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
-        { method: 'full_test.run', params: { spec: expect.objectContaining({ npmCi }) } },
-      ]);
+      };
+      const report = {
+        scope: 'modules' as const,
+        workers: 4,
+        commandMs: 90,
+        steps: [
+          {
+            index: 0,
+            kind: 'test' as const,
+            workspace: 'apps/server',
+            result: 'passed' as const,
+            durationMs: 80,
+          },
+        ],
+      };
+
+      it('fetches the report after the run and puts it on the result', async () => {
+        const engine = await online();
+        engine.answer('full_test.run', () => passed);
+        engine.answer('full_test.report', () => ({ state: 'ended' as const, report }));
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(fullTestSpec('f1'), new AbortController().signal);
+        expect(result).toEqual({ ...passed, report });
+        expect(engine.requests.filter((item) => item.method === 'full_test.report')).toEqual([
+          { method: 'full_test.report', params: { runId: 'f1' } },
+        ]);
+      });
+
+      it.each([
+        ['an older engine without the method', undefined],
+        ['an engine that no longer knows the run', () => ({ state: 'unknown' as const })],
+        [
+          'a failing report call',
+          () => {
+            throw new Error('boom');
+          },
+        ],
+      ])('leaves the report out, without an error, for %s', async (_name, handler) => {
+        const engine = await online();
+        engine.answer('full_test.run', () => passed);
+        if (handler) engine.answer('full_test.report', handler);
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(fullTestSpec('f1'), new AbortController().signal);
+        expect(result).toEqual(passed);
+      });
     });
 
     it('blocks the run on an older engine that refuses npmCi, without repeating it without the field', async () => {
@@ -753,7 +1256,7 @@ describe('cloud mode remote parts', () => {
       expect(engine.requests.filter((item) => item.method === 'full_test.run')).toHaveLength(2);
     });
 
-    it('sends the dependency preparation request to the engine and relays its result (PM-681)', async () => {
+    it('sends npmCi and requireHeavyLock to the engine and relays its result (PM-658, PM-681)', async () => {
       const engine = await online();
       engine.answer('full_test.run', () => ({
         outcome: 'error' as const,
@@ -943,13 +1446,6 @@ describe('cloud mode remote parts', () => {
         method: 'merge.commit_files',
         params: { ref, onto: sha, files, message: 'Docs' },
       });
-      // The engine's MergeError comes out as a MergeError.
-      engine.answer('merge.read_file', () => {
-        throw Object.assign(new Error('over 1 MiB'), { code: 'invalid_input' });
-      });
-      const refused = await merger.readFile(ref, { at: { commit: sha }, path: 'big.md' }).catch((e) => e);
-      expect(refused).toBeInstanceOf(MergeError);
-      expect(refused).toMatchObject({ code: 'invalid_input' });
     });
 
     it('sends the path reads with the repository named, and returns their results', async () => {
@@ -978,13 +1474,6 @@ describe('cloud mode remote parts', () => {
         method: 'merge.changed_paths',
         params: { ref, base: 'main', items },
       });
-      // The engine's MergeError comes out as a MergeError.
-      engine.answer('merge.list_paths', () => {
-        throw Object.assign(new Error('The base is not known'), { code: 'unknown_object' });
-      });
-      const refused = await merger.listPaths(ref, { base: 'main' }).catch((e) => e);
-      expect(refused).toBeInstanceOf(MergeError);
-      expect(refused).toMatchObject({ code: 'unknown_object' });
     });
 
     it('ends a screenshot run with engine_offline when the link drops, and a full test too', async () => {
@@ -1041,7 +1530,6 @@ describe('cloud mode remote parts', () => {
       vi.useFakeTimers();
       try {
         const engine = await online();
-        engine.answer('session.start', (params) => running(params.sessionId));
         engine.disconnect();
         const waiting = remote.hub.call('eng_a' as never, 'host.free_disk', {});
         const outcome = expect(waiting).rejects.toMatchObject({ linkCode: 'link_down' });

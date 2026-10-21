@@ -18,7 +18,7 @@ import {
 } from '../src/runtime/sessions';
 import { DomainError } from '../src/kernel';
 import { SANDBOX_GIT_CONFIG, SANDBOX_GIT_CONFIG_FILE } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { dropSystemLabelGates, testConfig } from './helpers/test-template';
 
@@ -124,7 +124,7 @@ describe('session orchestrator', () => {
     const err = await h.domain.sessions.ensureSession('AR', 'cr', task).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(DomainError);
     expect((err as DomainError).code).toBe('session_start_failed');
-    const failed = h.domain.sessions.list('AR', { member: 'cr' })[0]!;
+    const failed = await waitForSession(h.domain, { member: 'cr' });
     expect(failed.state).toBe('failed');
 
     const retry = await h.domain.sessions.ensureSession('AR', 'cr', task);
@@ -571,6 +571,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
         join(gitDir, 'packed-refs.lock'),
         // A replacement or graft would change what the default branch shows without moving it.
         join(gitDir, 'refs/replace'),
+        join(gitDir, 'refs/projectman'),
         join(gitDir, 'info/grafts'),
       ],
       // The app home is not below the user's home here, so it is closed on its own; the credentials

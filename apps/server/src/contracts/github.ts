@@ -41,6 +41,60 @@ export interface GithubService {
   ): () => void;
 }
 
+export interface WorkflowRunInfo {
+  id: number;
+  /** GitHub's status as is: queued, in_progress, completed, waiting, requested, pending … */
+  status: string;
+  /** success, failure, cancelled, timed_out, skipped, startup_failure …; null until completed. */
+  conclusion: string | null;
+  headSha: string;
+  headBranch: string;
+  htmlUrl: string;
+  createdAt: string;
+}
+
+export interface WorkflowStepInfo {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface WorkflowJobInfo {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  steps: WorkflowStepInfo[];
+}
+
+/** GitHub Actions through this machine's `gh` login (PM-900). Rejects with GithubError. */
+export interface GithubActionsClient {
+  dispatchWorkflow(
+    repo: string,
+    workflow: string,
+    input: { ref: string; inputs: Record<string, string> },
+    signal?: AbortSignal,
+  ): Promise<void>;
+  /** The newest workflow_dispatch run of `workflow` on `branch` whose head is `headSha`; null: none yet. */
+  findDispatchedRun(
+    repo: string,
+    workflow: string,
+    input: { branch: string; headSha: string },
+    signal?: AbortSignal,
+  ): Promise<WorkflowRunInfo | null>;
+  getRun(repo: string, runId: number, signal?: AbortSignal): Promise<WorkflowRunInfo>;
+  /** The run's jobs (at most 100). */
+  listJobs(repo: string, runId: number, signal?: AbortSignal): Promise<WorkflowJobInfo[]>;
+  /** The job's plain log; GithubError not_found until GitHub has it. */
+  jobLog(repo: string, jobId: number, signal?: AbortSignal): Promise<string>;
+  /** Asks GitHub to cancel; an already completed run is fine. */
+  cancelRun(repo: string, runId: number, signal?: AbortSignal): Promise<void>;
+}
+
 export interface GithubModuleOptions {
   /** Path or name of the GitHub CLI (default "gh"). Tests pass a fake. */
   ghBin: string;

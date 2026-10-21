@@ -7,17 +7,29 @@ import {
   memberOf,
   isOpenTask,
   openPrerequisites,
+  MERGE_ENGINE_WAIT_MINUTES,
 } from '@projectman/shared';
 import type { Actor, MergeBlockReason, MergeFailure, ProjectConfig, Task } from '@projectman/shared';
 import type { BranchMerger } from '../../contracts';
+import { EngineLinkLostError, isEngineLinkLost } from '../../contracts';
 import { mergedState } from '../../db';
 import type { MergeRecord } from '../../db';
 import { isoNow } from '../../core/base';
+import { prerequisiteCards } from '../../core/tasks';
 import { conflict } from '../../kernel';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import type { MergeCardLock } from '../../kernel';
 import type { MergeDeps, MergeRun } from './deps';
+import { recordMergeCheck } from './check-runs';
+import {
+  GITHUB_RUNNER_NEEDS_REPO,
+  mergeCheckExecutor,
+  mergeCheckRunner,
+  prepareMergeCheck,
+} from './check-preparation';
+import { flakyCheckFiles, flakyCheckNote } from './flaky';
 import { notifyMerge } from './notify';
+import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
 
 /** What the steps need from the facade: the queue's wake-up and whether the server is stopping. */
 export type MergeStepsHooks = { pump: () => void; stopped: () => boolean };
@@ -38,11 +50,40 @@ export class MergeSteps {
    * cancelled meanwhile): a slot never ends with the row left `running`.
    */
   async run(run: MergeRun): Promise<void> {
-    try {
-      await this.execute(run);
-    } catch (err: unknown) {
-      if (!this.continue(run)) return;
-      await this.block(run, 'merge_error', err instanceof Error ? err.message : 'merge failed');
+    for (let losses = 0; ;) {
+      try {
+        await this.execute(run);
+        return;
+      } catch (err: unknown) {
+        if (!this.continue(run)) return;
+        if (!isEngineLinkLost(err))
+          return this.block(run, 'merge_error', err instanceof Error ? err.message : 'merge failed');
+        if (++losses > MERGE_ENGINE_LOSSES)
+          return this.block(run, 'engine_offline', 'the card engine kept losing its link');
+        const { engines, sessions, tasks, ctx } = this.deps;
+        const engineId = sessions.cardEngineId(
+          run.row.projectKey,
+          tasks.get(run.row.projectKey, run.row.taskKey),
+        );
+        this.save(run.row, { step: 'engine_waiting' });
+        ctx.logger.info({ mergeId: run.row.id, engineId, losses }, 'a merge waits for its engine');
+        const waited = err instanceof EngineLinkLostError && err.waited;
+        const back = await waitForEngine(engines, engineId, waited ? 0 : MERGE_ENGINE_WAIT_MS, run.signal);
+        if (back === 'aborted') {
+          this.continue(run);
+          return;
+        }
+        if (back === 'timeout')
+          return this.block(
+            run,
+            'engine_offline',
+            `the card engine was unreachable for ${MERGE_ENGINE_WAIT_MINUTES} minutes`,
+          );
+        ctx.logger.info(
+          { mergeId: run.row.id, engineId, losses },
+          'a merge goes on after its engine reconnected',
+        );
+      }
     }
   }
 
@@ -90,10 +131,6 @@ export class MergeSteps {
     const engine = engines.get(engineId);
     if (!engine || !engine.merger)
       throw conflict('merge_fix_not_allowed', 'the card engine is unavailable', { reason: 'not_conflict' });
-    if (engine.memberWorkspaces)
-      throw conflict('merge_fix_not_allowed', 'merge fixes require task worktree mode', {
-        reason: 'member_workspaces',
-      });
     if (engines.engineFor(projectKey, handle!) !== engineId)
       throw conflict('merge_fix_engine_mismatch', 'the merger must use the card engine');
     const config = await projects.config(projectKey);
@@ -102,6 +139,7 @@ export class MergeSteps {
     if (options.fixConflict) {
       if (!row.commit)
         throw conflict('merge_fix_invalid', 'the approved commit is missing', { reason: 'missing_commit' });
+      await this.prepareMergeSource(config, task, row, row.commit);
       const info = await engine.worktrees.ensureMergeFix({ ...key, commit: row.commit });
       if (
         ctx.repos.taskMerges.open(projectKey, taskKey)?.id !== row.id ||
@@ -249,7 +287,10 @@ export class MergeSteps {
     if (!persisted || (persisted.state !== 'queued' && persisted.state !== 'running')) return false;
     if (running.pushing) return true;
     const task = this.deps.tasks.find(row.projectKey, row.taskKey);
-    if (task && openPrerequisites(task, this.deps.tasks.list(row.projectKey)).length > 0) {
+    if (
+      task &&
+      openPrerequisites(task, prerequisiteCards(this.deps.tasks, row.projectKey, task)).length > 0
+    ) {
       this.save(row, { state: 'queued', step: 'queued', mergeCommit: undefined, check: undefined });
       return false;
     }
@@ -265,6 +306,17 @@ export class MergeSteps {
     return true;
   }
 
+  private async prepareMergeSource(
+    config: ProjectConfig,
+    task: Task,
+    row: MergeRecord,
+    commit: string,
+  ): Promise<void> {
+    // A submitted fix, including one that conflicts again, already lives in the engine repository (PM-794).
+    if (row.fix && row.resolution?.commit === commit) return;
+    await this.deps.sessions.prepareMergeSource(config, task, commit);
+  }
+
   private async execute(running: MergeRun): Promise<void> {
     const row = running.row;
     const { projects, tasks, sessions, engines, github, ctx } = this.deps;
@@ -273,7 +325,10 @@ export class MergeSteps {
     if (!this.continue(running)) return;
     const task = tasks.get(row.projectKey, row.taskKey);
     const repo = config.project.repos.find((repo) => repo.name === row.repo);
-    const engine = engines.get(sessions.cardEngineId(row.projectKey, task));
+    const engineId = sessions.cardEngineId(row.projectKey, task);
+    const engine = engines.get(engineId);
+    if (!engine && engines.ids().includes(engineId))
+      throw new EngineLinkLostError('the card engine is not connected');
     const merger = engine?.merger;
     if (!engine || !merger) return this.block(running, 'engine_unavailable', 'the card engine cannot merge');
     if (!repo) return this.block(running, 'merge_error', 'the repository no longer exists');
@@ -283,6 +338,10 @@ export class MergeSteps {
       branch = row.branch;
     this.save(row, { state: 'running', step: 'merging', block: undefined, prioritizedAt: undefined });
     const ref = this.ref(row);
+    // Member workspaces: the approved commit reaches the repository before anything reads it, on
+    // a restart or a recovery as well. A refusal blocks this attempt (the merge row says why).
+    await this.prepareMergeSource(config, task, row, commit);
+    if (!this.continue(running)) return;
     for (let attempt = 0; attempt < 2; attempt++) {
       const base = await merger.prepare(ref, { base: row.base, commit: commit });
       if (!this.continue(running)) return;
@@ -403,12 +462,18 @@ export class MergeSteps {
             check: { command: repo.reviewTest.command, status: 'passed', runId: passed.id, reused: true },
           });
         } else {
-          const executor = engine.fullTestExecutor;
-          if (!executor || !(await executor.available()).ok)
+          const { reviewTest } = repo;
+          const runner = mergeCheckRunner(reviewTest);
+          if (runner === 'github_actions' && !repo.github)
+            return this.block(running, 'check_unavailable', GITHUB_RUNNER_NEEDS_REPO);
+          const available = await mergeCheckExecutor(engine, runner);
+          if (!available.ok)
             return this.block(running, 'check_unavailable', 'no full test executor is available');
+          const { executor } = available;
           if (!this.continue(running)) return;
           let result;
           const runId = newId('mergecheck');
+          let checkStep: 'check_waiting' | 'checking' = 'check_waiting';
           try {
             const worktree = await engine.worktrees.find({
               project: config,
@@ -416,47 +481,58 @@ export class MergeSteps {
               taskKey: task.key,
             });
             if (!this.continue(running)) return;
-            const checkout = await merger.checkoutForCheck(ref, {
+            const prepared = await prepareMergeCheck(merger, {
+              ref,
               mergeId: row.id,
               mergeCommit: built.mergeCommit,
+              base: row.base,
               depsFrom:
                 worktree?.path ??
                 (engine.workspacePath(row.projectKey)
                   ? path.resolve(engine.workspacePath(row.projectKey)!, repo.path)
                   : null),
-              // A merged lockfile nothing has installed is prepared by the executor, not by the owner (PM-681).
-              allowDependencyInstall: true,
+              runner,
+              github: repo.github,
+              checkSandbox: this.deps.checkSandbox,
+              paths: engine.paths(),
             });
             if (!this.continue(running)) return;
-            const paths = engine.paths();
-            result = await executor.run(
+            result = await recordMergeCheck(
+              ctx,
               {
-                runId,
-                cwd: checkout.path,
-                command: repo.reviewTest.command,
-                maxWorkers: repo.reviewTest.maxWorkers,
-                timeoutMs: repo.reviewTest.timeoutMinutes * 60_000,
-                // One heavy run at a time on the machine, whatever happens to the queue (PM-658).
-                requireHeavyLock: true,
-                ...(checkout.dependencyInstallRequired === true ? { npmCi: { ref, mergeId: row.id } } : {}),
-                sandbox: this.deps.checkSandbox({
-                  checkout: checkout.path,
-                  gitDir: checkout.gitDir,
-                  userHome: paths.userHome,
-                  appHome: paths.home ?? undefined,
-                  closedTmpRoots: [
-                    ...paths.claudeTmpRoots,
-                    ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
-                  ],
-                }),
+                id: runId,
+                projectKey: row.projectKey,
+                repo: row.repo,
+                kind: 'merge',
+                trainId: null,
+                taskKeys: [row.taskKey],
+                commit: built.mergeCommit,
+                base: onto,
+                maxWorkers: reviewTest.maxWorkers,
+                runner,
               },
-              running.signal!,
-              () => {
-                if (this.continue(running)) this.save(row, { step: 'checking' });
-              },
+              (markStarted) =>
+                executor.run(
+                  prepared.spec({ runId, command: reviewTest.command, reviewTest }),
+                  running.signal!,
+                  () => {
+                    markStarted();
+                    checkStep = 'checking';
+                    if (this.continue(running) && row.step !== 'engine_waiting')
+                      this.save(row, { step: checkStep });
+                  },
+                  {
+                    linkWaitMs: MERGE_ENGINE_WAIT_MS,
+                    onLinkWait: (waiting) => {
+                      if (this.continue(running))
+                        this.save(row, { step: waiting ? 'engine_waiting' : checkStep });
+                    },
+                  },
+                ),
             );
           } catch (err) {
             if (!this.continue(running)) return;
+            if (isEngineLinkLost(err)) throw err;
             return this.block(
               running,
               'check_error',
@@ -467,7 +543,17 @@ export class MergeSteps {
             await this.release(row, merger);
           }
           if (!this.continue(running)) return;
-          this.save(row, { check: { command: repo.reviewTest.command, runId, status: result.outcome } });
+          if (result.outcome === 'error' && result.reason === 'engine_offline')
+            throw new EngineLinkLostError('the merge check lost the card engine', true);
+          this.save(row, {
+            check: {
+              command: repo.reviewTest.command,
+              runId,
+              status: result.outcome,
+              runner,
+              ...(result.externalUrl ? { url: result.externalUrl } : {}),
+            },
+          });
           if (result.outcome === 'failed')
             return this.fail(row, config, {
               reason: 'check_failed',
@@ -485,6 +571,20 @@ export class MergeSteps {
               `the merge check could not run${result.reason ? ` (${result.reason})` : ''}`,
               result.outputTail.slice(0, 8000),
             );
+          const flaky = flakyCheckFiles(result);
+          if (flaky.length > 0) {
+            this.deps.timeline.append({
+              projectKey: row.projectKey,
+              taskKey: row.taskKey,
+              actor: SYSTEM_ACTOR,
+              type: 'task_note',
+              data: { text: flakyCheckNote(runId, flaky), mentions: [] },
+            });
+            ctx.logger.info(
+              { runId, taskKeys: [row.taskKey], flakyFiles: flaky },
+              'merge check passed with flaky test files',
+            );
+          }
         }
       }
       if (!this.continue(running)) return;
@@ -610,7 +710,8 @@ export class MergeSteps {
     }
   }
 
-  private async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
+  /** The merge fails for good, with the event and the notification; a train blames a member through it too (PM-844). */
+  async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
     const { ctx, timeline } = this.deps;
     ctx.unitOfWork(() => {
       this.save(row, { state: 'failed', step: undefined, failure, block: undefined });

@@ -43,7 +43,7 @@ const info = (file: string) =>
   });
 
 /** Every component below the engine-owned canonical root must remain a real directory. */
-async function directories(root: string, relative = '', create = false): Promise<string> {
+export async function directories(root: string, relative = '', create = false): Promise<string> {
   let current = root;
   for (const component of ['', ...relative.split('/').filter(Boolean)]) {
     if (component) current = path.join(current, component);
@@ -78,7 +78,7 @@ export async function assertNpmCiCheckout(
   return root;
 }
 
-async function regularFile(root: string, relative: string): Promise<Buffer> {
+export async function regularFile(root: string, relative: string): Promise<Buffer> {
   await directories(root, path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative));
   const file = path.join(root, relative);
   const known = await lstat(file);
@@ -99,7 +99,7 @@ const LOCAL_INSTALL_HOOKS = [
   'postprepare',
   'dependencies',
 ] as const;
-const readySchema = z
+export const readySchema = z
   .object({
     version: z.literal(1),
     key: z.string().regex(/^[a-f0-9]{64}$/),
@@ -107,7 +107,7 @@ const readySchema = z
   })
   .strict();
 
-async function inputs(root: string) {
+export async function inputs(root: string) {
   // These override the keyed lock/configuration, so their mere presence makes a shared install unsafe.
   for (const name of ['.npmrc', 'npm-shrinkwrap.json']) {
     if (await info(path.join(root, name)))
@@ -155,7 +155,7 @@ async function inputs(root: string) {
 }
 
 /** Check package targets before npm gets any write access, including targets absent from the index checkout. */
-async function packageTargets(root: string, nodeModules: string[]) {
+export async function packageTargets(root: string, nodeModules: string[]) {
   for (const relative of nodeModules) {
     await directories(root, path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative));
     const known = await info(path.join(root, relative));
@@ -164,7 +164,7 @@ async function packageTargets(root: string, nodeModules: string[]) {
   }
 }
 
-async function installed(root: string, listed: string[], allowed: string[]) {
+export async function installed(root: string, listed: string[], allowed: string[]) {
   if (
     !listed.includes('node_modules') ||
     new Set(listed).size !== listed.length ||
@@ -191,6 +191,11 @@ export function checkPreparationEnd(end: SandboxedEnd): void {
   if (end.signal) throw new DependencyPreparationError(end.output, 'killed');
   if (end.exitCode !== 0)
     throw new DependencyPreparationError(end.output, 'dependency_install_failed', end.exitCode);
+}
+
+/** Fixed engine-owned command; callers never supply shell text. */
+export function npmCiCommand(paths: RunPaths): string {
+  return `npm ci --include=dev --include=optional --no-audit --no-fund --registry=https://registry.npmjs.org --userconfig=${quoteShellWord(paths.npmUserConfig)} --globalconfig=${quoteShellWord(paths.npmGlobalConfig)}`;
 }
 
 /** The supervisor owns the store; the installer can only write its check checkout's package trees. */
@@ -311,11 +316,7 @@ export async function prepareNpmCi(input: {
     return;
   }
 
-  const end = await input.execute(
-    `npm ci --include=dev --include=optional --no-audit --no-fund --registry=https://registry.npmjs.org ${config}`,
-    paths.installerSettings,
-    remaining(),
-  );
+  const end = await input.execute(npmCiCommand(paths), paths.installerSettings, remaining());
   checkPreparationEnd(end);
   remaining();
   if (keyOf(await inputs(spec.cwd)) !== key)

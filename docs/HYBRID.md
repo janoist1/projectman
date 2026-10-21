@@ -1,7 +1,7 @@
 # Hybrid mode in the cloud (PM-317)
 
 For the ARM EC2 target, [AWS.md](AWS.md#prebuilt-arm-and-amd64-images-pm-718) describes the
-PM-718 two-platform bundle. Build it on a separate administration/builder machine at the same
+PM-718 image bundle (only the arm64 image since PM-916; `--all-platforms` adds amd64). Build it on a separate administration/builder machine at the same
 accepted full SHA as the Mac engine. EC2 imports only its native platform archive over SSH/SSM
 and starts the verified immutable image ID; it never builds on ARM. AWS/registry credentials
 do not cross to the engine. Seed's PM-717 integrity gate still precedes import and first start.
@@ -94,7 +94,37 @@ Plain settings (in `fly.toml` `[env]`, or the host's environment):
 | `RESTIC_REPOSITORY`                                             | The restic repository, for example `s3:https://<endpoint>/<bucket>/projectman`                           |
 | `RESTIC_REGION`                                                 | The restic bucket's region (optional; `auto` for R2)                                                     |
 | `BACKUP_INTERVAL_SECONDS`, `BACKUP_FIRST_DELAY_SECONDS`         | The restic backup every 6 hours (21600), the first one 5 minutes after the start (300)                   |
+| `PROJECTMAN_HEAP_LIMIT_MB`                                      | The server's V8 old-space limit (below); the image sets 256; empty keeps node's default                  |
+| `PROJECTMAN_MEMORY_LOG_SECONDS`                                 | A `memory` log line every n seconds (below); the image sets 600; 0 is off                                |
 | `LOG_LEVEL`, other `PROJECTMAN_*`                               | Passed to the server (`PROJECTMAN_SHUTDOWN_PAUSE_MS` for example); `HOST`, `PORT` and the mode are fixed |
+
+**Memory settings (PM-775, part of PM-772).**
+
+- `PROJECTMAN_HEAP_LIMIT_MB` is read by the entrypoint, not by the server: a whole number from 128 to
+  4096 becomes `node --max-old-space-size=<n>`; empty or unset leaves node's default, which is
+  computed from the machine's memory (about 450 MB on the 904 MB machine, so garbage is collected only
+  near that line). Any other value stops the container before anything starts (exit 64).
+- `PROJECTMAN_MEMORY_LOG_SECONDS` is read by the server (cloud and single mode): 0 (the default) is
+  off, otherwise 60 to 86400 seconds; any other value stops the start with a `projectman:` message.
+  Each line is `memory` with `rssMb`, `heapUsedMb`, `heapTotalMb`, `externalMb`, `arrayBuffersMb`,
+  `heapLimitMb` and `uptimeS`, in whole megabytes, in `<home>/logs/server.log` and on the terminal.
+- **Sizing rule.** `ceiling = ceil32(2 × the largest live heap under load)`, rounded up to 32 MB, from a
+  [memory profile](#memory-profile). If `ceiling + the fixed cost (the report's RSS outside the heap) +
+about 200 MB for the other processes` is at most about 800 MB on the 904 MB machine, the image
+  carries that ceiling. If it is more, do not squeeze: propose the next machine size, size the ceiling
+  for it, and let the owner decide.
+- **The image's value (256).** The PM-773 baseline measured a live heap of about 65 MB with no growth
+  (63.9 MB at the start, 64.9 MB after an hour), without request load. The rule gives 160 MB; 256 MB
+  leaves four times the idle live heap until a loaded measurement exists. The fixed cost was 640 to
+  660 MB, so 160 + 650 + 200 is about 1010 MB: it does not fit the 904 MB machine (the cloud's own
+  reading was RSS 342 MB plus 417 MB of swap), and the card proposes the 2 GB t4g.small instead. The
+  heap limit does not shrink that native part: a lower limit ended within 12 MB of node's default.
+- `MALLOC_ARENA_MAX=2` is not set: the baseline run with it ended 14 MB above the run with the lower
+  heap limit (722.9 against 708.6 MB), short of the 20 MB gain that would justify it. If it is ever
+  added, it also goes into the entrypoint's `load_env server_env` list, because `env -i` drops it.
+- **Health check.** The image's `HEALTHCHECK` is a `curl` of `/api/setup` every 30 seconds
+  (`-fsS --max-time 5`); curl is in the image, while the former `node -e fetch(...)` started a node
+  process (about 35 MB and CPU time) on every check.
 
 Secrets (the host's secret store, never a file in the repository, never a message or a task):
 
@@ -154,9 +184,10 @@ ingress is set in the Cloudflare dashboard, not in a config file as in the PM-20
 
 For SES email login, the owner runs `npm run cloud -- ses plan`, then `ses configure --dry-run`
 and a separately approved `ses configure`; `ses request-production --dry-run` and its approved live request
-are a separate step. Wait for `ses check` before approving deploy. These commands use central AWS profile
-`aroom` and the explicit `ses.region`, the existing Cloudflare DNS and a protected sending-only key in
-`cloud.env`; registrar profile `i` is unused. `up` does not run them. See [AWS.md](AWS.md) for config,
+are a separate step. Wait for `ses check` before approving deploy. These commands use the AWS profile
+`ses.profile` (absent: `aws.profile`; PM-729 sets `i`, so the domain and its mail stay in one account while
+the server stays in `aroom`) and the explicit `ses.region`, the existing Cloudflare DNS and a protected
+sending-only key in `cloud.env`. `up` does not run them. See [AWS.md](AWS.md) for config,
 previews, IAM scope and partial-failure recovery. The Mac engine receives no SES/AWS credentials, and no
 engine protocol change is needed. An AI sandbox never reads `~/.aws` or runs live provisioning.
 
@@ -347,6 +378,12 @@ Restore the database alone to a file, to look at it (point-in-time with `-timest
 litestream restore -config deploy/cloud/litestream.yml -o ./restored.sqlite /data/db.sqlite
 ```
 
+A restored database that is put in service (not only looked at) must get a new event generation first,
+or the readers of the project change journal (PM-761) could continue cursors from the journal that
+was lost: `UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'project_change_generation'`
+(`docs/ARCHITECTURE.md`, "Project change journal"). Their cursors are then refused with
+`event_cursor_expired`, and they read again from the start.
+
 ## Updating
 
 Build the new image and deploy it (`fly deploy`). The platform sends SIGTERM; the entrypoint stops
@@ -360,6 +397,169 @@ migration, restore instead.
 Delete the Access applications, the tunnel and its DNS record; revoke the service tokens; destroy
 the app and the volume; then delete the two buckets (or keep the restic one if you may want the
 data). Revoke the machine key in Settings → Engines first, if the cloud is still reachable.
+
+## Memory profile
+
+Three scripts in `deploy/cloud/` (PM-773, part of PM-772) measure what the cloud server keeps in memory
+and what is garbage. They have no dependencies, change nothing in the server and touch no engine: they
+run on the loopback of a **disposable copy** of a home, with no network. The image carries them in
+`/app/deploy/cloud/`; an older image can get them as a read-only volume.
+
+- `memory-probe.mjs` — a `node --import` preload. Every `PM_MEMORY_PROBE_MS` (5000) it appends one JSON
+  line to `PM_MEMORY_PROBE_FILE` (never stdout): `t`, `uptimeS`, `rss`, `heapUsed`, `heapTotal`,
+  `external`, `arrayBuffers`, `heapSizeLimit` (bytes) and `cpuUserMs`, `cpuSystemMs` (the process's
+  totals from `process.cpuUsage()`, also good for the CPU measurement of PM-733). Its timer is unref'd.
+- `memory-profile.mjs` — starts the server as a child (`node --import <probe> --heapsnapshot-signal=SIGUSR2
+[--max-old-space-size=<n>] --diagnostic-dir=<out> <server>`) in a cleared environment: `PATH`, `HOME`,
+  `TMPDIR`, `PROJECTMAN_HOME=<home>`, `PROJECTMAN_MODE=cloud`, `HOST=127.0.0.1`, `PORT`,
+  `NODE_ENV=production`, the two probe variables and the `--env NAME=value` pairs. No tunnel, Litestream,
+  restic or engine starts. Phases: `ready` (`GET /api/setup` answers 200, at most 120 s; this gives
+  `startupMs`), `start` (60 s later, a heap snapshot), `load` (only with `--login-file`; the sample with
+  the highest RSS while it runs), `load-end` (snapshot), then rest until `--duration-min`, with an
+  `idle-<minutes>` sample every 10 minutes, and `end` (snapshot); then SIGTERM, and SIGKILL after 60 s.
+  RSS, peak and swap come from `/proc/<pid>/status` (`VmRSS`, `VmHWM`, `VmSwap`) on Linux, where the
+  peak is reset after each snapshot; on macOS from `ps` (peak and swap are `null`).
+- `heap-summary.mjs <snapshot>` — prints `{ liveBytes, nodeCount, byType }` (the top 40 type and
+  constructor-name groups by self size). It reads the snapshot as a stream and never prints string
+  content. `liveHeapMb` of the report comes from it.
+
+The load (`--login-file`, JSON `{ "email": "...", "password": "..." }`) logs in once (the cookie lives
+in memory only), then `--rounds` times asks, for every project, the reads the web app makes
+(`/api/me`, `/api/projects`, and per project the board, tasks, inbox, team threads and involvements) and
+the 10 cards with the longest description in full, `--concurrency` requests at a time.
+
+Options: `--home <dir> --out <dir> [--server <path>] [--port 4790] [--duration-min 60]
+[--heap-limit-mb <n>] [--env NAME=value]... [--login-file <path>] [--rounds 20] [--concurrency 4]`
+(`--server` defaults to `/app/apps/server/dist/index.js`). For short test runs there are also
+`--start-delay-s` (60), `--idle-every-min` (10), `--ready-timeout-s` (120) and `--probe-ms` (5000).
+
+**It refuses (exit 64, nothing started)** a home without the `<home>/.memory-profile-copy` marker
+(create the marker by hand in the copy, never in a live home), an `--out` that exists and is not empty,
+and a bad parameter. Never point it at a live home: the server migrates and writes the copy.
+
+In the image (no network, the copy and the output mounted):
+
+```sh
+docker run --rm --network none -v <copy>:/data -v <out>:/out [-v <login.json>:/in/login.json:ro] \
+  [-v <repo>/deploy/cloud:/tool:ro] --entrypoint node <image> /tool/memory-profile.mjs \
+  --home /data --out /out [--login-file /in/login.json] [--duration-min 60] [--heap-limit-mb <n>] \
+  [--env MALLOC_ARENA_MAX=2]
+```
+
+(Without `-v …:/tool:ro` use `/app/deploy/cloud/memory-profile.mjs`. The default heap limit of a
+machine is `node -p "v8.getHeapStatistics().heap_size_limit"` on it.)
+
+Output under `--out`: `report.json` (shape: `sourceVersion`, `node`, `platform`, `arch`,
+`heapSizeLimitMb`, `nodeArgs`, `env` (names only), `startupMs`, `phases[]`, `endpoints[]` with the route
+templates), `report.md` (the same for reading, with the top live-heap groups), `probe.jsonl`, `server.log`,
+`<phase>.heapsnapshot` and `<phase>.summary.json`.
+
+**The heap snapshots hold real data** (cards, messages, session secrets). They stay on the machine that
+ran the profile: not in the repository, not on a card, not in a message. Only `report.md` and the
+`*.summary.json` files (types, constructor names and numbers; no keys, titles, addresses or cookies)
+may go on a card. The `--out` folder and its files are owner-only; delete the folder and the copy when
+done.
+
+How to read it: `rss - liveHeapMb` at a snapshot phase is the garbage and the allocator's free
+memory. A snapshot allocates a lot and the process may keep it, so the RSS of the phases after the first
+snapshot can include that; `ready` and `start` are read before any snapshot, and the probe lines show
+the heap during the load. Compare variants of one run (no limit, `--heap-limit-mb`, `--env MALLOC_ARENA_MAX=2`)
+with each other, not with the live container.
+
+## History semantic profile
+
+`deploy/cloud/history-semantic-profile.mjs` (PM-910, the release check of PM-767) proves, before the cloud
+turns the local embedding of `search_history` on, that the server with the embedding fits a 2 GiB ARM64
+machine. It reuses the PM-773 tools (`memory-probe.mjs` as the preload, and `buildServerEnv` / `buildNodeArgs`
+of `memory-profile.mjs`) and changes nothing in the server's runtime or in any contract. **The cloud stays
+`PROJECTMAN_HISTORY_SEMANTIC=off` until a report of this tool passes; turning it on is a separate decision of the
+owner.** This tool and its tests set no live environment variable.
+
+```sh
+docker run --rm --network none --memory 2g --memory-swap 2g -v <out>:/out -v <fixture.json>:/in/fixture.json:ro \
+  --entrypoint node <image> /app/deploy/cloud/history-semantic-profile.mjs \
+  --server /app/apps/server/dist/history-semantic-profile.js --model-dir /app/apps/server/dist/models/history \
+  --fixture /in/fixture.json --out /out/profile [--mixed-seconds 600]
+```
+
+(`--memory-swap` equal to `--memory` means no swap; the tool refuses a machine where `memory.swap.max` is not 0.
+The image runs as uid 10001, so `<out>` must be writable by it.
+Set `PROJECTMAN_IMAGE_DIGEST=sha256:<digest>` for the report; `PROJECTMAN_VERSION` is the image's own.)
+
+**What it runs.** The built server, in fresh processes, over a disposable home under `--out` (owner-only) with a
+synthetic login. The bundle `dist/history-semantic-profile.js` is the normal server plus one loopback listener with
+a one-time secret that calls the same `HistoryService.search` the MCP tool calls (the search has no other entry
+without a member's CLI session); `dist/index.js` never loads it. No real member CLI, live token or live instance
+is used, and the tool counts any connection to a peer that is not this machine as a failure. A preparation
+server in the single-machine mode (a cloud server makes a project only through a connected engine) makes the
+owner and project and seeds the fixture, and its text index is built before the copy of the home every run starts
+from, so the baseline and the semantic run begin from the same database. Then:
+
+| phase       | what it is                                                                                          |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| `off`       | server with `PROJECTMAN_HISTORY_SEMANTIC=off`, at least 60 s of the load below (the baseline)       |
+| `cold_load` | server with `on`: process start until the worker's "semantic history search is ready" line          |
+| `backfill`  | until the embedding index is complete                                                               |
+| `warm`      | three passes of the fixture's questions and negative controls (the recall is read from the first)   |
+| `mixed`     | at least 10 minutes (`--mixed-seconds`) of the load, searches and new cards for background indexing |
+| `restart`   | a burst of new cards, a SIGKILL while indexing, a restart, the index completes, a question pass     |
+| `off_again` | `off` again over the same home, to see what the embedding left behind                               |
+
+The load is the web app's reads in three parallel loops (`/api/me`, projects, board, tasks, inbox, team
+threads, involvements), one search every 2 s and three new cards every 10 s; the `off`, `mixed` and `off_again`
+phases run the same load. Every phase also takes the process's and the cgroup's memory every 250 ms
+(`/proc/<pid>/status`, cgroup v2 `memory.current`, `memory.peak`, `memory.events` `oom_kill`, `memory.swap.current`)
+and the event-loop delay from the probe.
+
+**The frame** (outside it the outcome is `fail`, exit 1): the embedding's extra RSS (the highest RSS of the
+of `cold_load` to `restart`, minus the baseline's) at most 350 MiB; the server's RSS peak at most 1200 MiB in every
+phase; the cgroup peak at most 1536 MiB; no OOM kill and no swap; every question of the `warm` phase
+at most 2 s; the control HTTP p95 of the `mixed` phase
+at most the baseline's plus max(20 %, 50 ms) (the searches of the `mixed` phase stay in the report, but only the
+control HTTP excess judges that phase); at least 15 of 20 questions (in proportion when the fixture has more) with
+the target in the top 10 and the
+negative controls unchanged; a restart that did not follow an interrupted indexing is `missing_phase`; a fallback to the word search is not a semantic success (`semanticUsed` counts the
+searches whose status was `used`). Without the machine (not Linux ARM64, not cgroup v2 with `memory.max` up to
+2 GiB and no swap, or no `manifest.json` in the model folder) the tool writes an `unsupported` report and exits 78.
+A bad parameter, an unsafe or non-empty `--out` or a bad fixture exits 64 before anything starts.
+
+**The fixture** is a JSON file the owner of the check provides, and its origin is stated in it:
+`{ schemaVersion: 1, origin, project: { key }, sources: [{ id, type, title, body, path? }], questions:
+[{ question, targetId }] (at least 20, reworded so the words alone do not find the target), negatives:
+[{ question }] }`, with source types `task`, `note`, `question`, `message` and `document` (the path is one of
+`docs/DECISIONS.md`, `docs/LESSONS.md`). Use a synthetic corpus of about the size of the real history (a copy of
+the cloud's history is the better one and stays on the machine, never in a card). Interpretations the tool makes:
+_unchanged negative controls_ means no hit of a control got on the list by meaning alone (`matchType` `semantic`);
+`eventLoopP95Ms` of a phase is the highest p95 of one probe interval in it; where the kernel cannot reset
+`VmHWM` or `memory.peak` (before 6.12) a phase's peak is the highest sample instead, and the report's markdown
+says which; the SIGKILL of the `restart` phase waits (up to 300 s) for the embedding to be under way with the text
+index done, and when it never gets there the run cannot pass. The network is shut by the network namespace
+(`--network none`) and the offline environment of the server; the tool's own count of foreign peers is a second
+net that stays almost silent there (a connection fails at once with ENETUNREACH).
+
+**The report** is `report.json` (exactly: `schemaVersion`, `sourceVersion`, `imageDigest`, `platform`, `arch`,
+`nodeVersion`, `modelIndexKey`, `memoryLimitBytes`, `swapLimitBytes`, `corpus` (`sources`, `chunks`,
+`inputBytes`, `origin`), `phases[]` (`name`, `durationMs`, `rssPeakBytes`, `cgroupPeakBytes`, `swapPeakBytes`,
+`oomKills`, `semanticUsed`, `searchP50Ms`, `searchP95Ms`, `searchMaxMs`, `httpP95Ms`, `eventLoopP95Ms`),
+`extraRssBytes`, `outcome`, `reasonCodes[]`) and `report.md`. Reason codes: `unsupported_platform`,
+`cgroup_unavailable`, `model_unavailable`, `invalid_fixture`, `server_failed`, `missing_phase`,
+`memory_budget_exceeded`, `latency_budget_exceeded`, `recall_failed`, `network_attempt`, `oom_detected`. **Only these
+two files may go on a card.** `--out` also holds the server logs, the databases and the login, and stays on the
+machine; delete it when done. Neither report holds history text, questions, hits, titles, a password, a cookie or a
+heap snapshot.
+
+**If a number is out of the frame**, look at the components first (the probe's `rss`, `external` and
+`arrayBuffers` per phase; a second tokenizer beside the pipeline's, transient copies at the cold load). A small
+fix that keeps the behaviour is allowed, followed by a new measurement. A different model, a new service or a higher
+frame is a question for the architect and the owner.
+
+**What the image must have, and what this does not check by itself.** The model is a release asset: the
+Dockerfile runs `npm run prepare:history-model` before `npm run build`, which copies it to
+`dist/models/history` and the native ONNX Runtime and `sharp` binaries come from the image's own `npm ci` on the
+ARM64 build. The single-machine path and the live-watcher's build do not prepare the model, so a build made there
+searches by text only. Before the run, confirm that the ARM64 image has `dist/models/history/manifest.json`, that
+`node -e "require('onnxruntime-node')"` and the `sqlite-vec` extension load on it, and write the image digest in
+`PROJECTMAN_IMAGE_DIGEST`. A model folder without a manifest is `model_unavailable`, not a pass.
 
 ## What is not covered, and what was not verified
 

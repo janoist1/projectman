@@ -14,7 +14,7 @@ import { LATEST_SCHEMA_VERSION, migrations } from '../src/db';
 import { instanceRole, writeInstanceMarker } from '../src/instance';
 import { createTranscriptReader } from '../src/runner/transcript/reader';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';
-import { createSourceHome, git, OWNER_LOGIN } from './helpers/migration-source';
+import { git, OWNER_LOGIN, stoppedSourceHomes } from './helpers/migration-source';
 import type { SourceHome } from './helpers/migration-source';
 
 /**
@@ -32,13 +32,16 @@ let target: string;
 let vmRepo: string;
 const apps: FastifyInstance[] = [];
 
+// The stopped source home with the package made from it is built once and put back for every test.
+const sourceHomes = stoppedSourceHomes((home) =>
+  createPackage({ home: home.home, out: join(home.root, 'pkg') }),
+);
+
 beforeEach(async () => {
-  src = await createSourceHome();
-  await src.stop();
+  ({ src } = await sourceHomes());
   pkg = join(src.root, 'pkg');
   target = join(src.root, 'vm', 'data');
   vmRepo = join(src.root, 'vm', 'repos', 'AR');
-  await createPackage({ home: src.home, out: pkg });
 });
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();

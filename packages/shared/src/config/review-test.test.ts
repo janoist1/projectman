@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
 import { operatorConfigVerdict } from './operator';
 import { ownerOnlyChanges } from './owner-only';
-import { ProjectConfig } from './schema';
+import { ProjectConfig, ReviewTestConfig } from './schema';
 
 function config(repos: object[]): ProjectConfig {
   return ProjectConfig.parse({
@@ -195,6 +195,16 @@ describe('review_test owner-only change', () => {
     ],
     ['removing the test', (r) => delete r[1]!.reviewTest],
     ['adding a test', (r) => (r[0]!.reviewTest = { command: 'true', maxWorkers: 2, timeoutMinutes: 15 })],
+    [
+      'the runner',
+      (r) =>
+        (r[1]!.reviewTest = {
+          command: 'npm test',
+          maxWorkers: 3,
+          timeoutMinutes: 20,
+          runner: 'github_actions',
+        }),
+    ],
     ['fullTestAtMerge turned off', (r) => (r[1]!.fullTestAtMerge = false)],
     ['fullTestAtMerge turned on', (r) => (r[0]!.fullTestAtMerge = true)],
   ])('is reported for %s', (_name, edit) => {
@@ -278,5 +288,22 @@ describe('the Operator changing a full test', () => {
       ['repos', 'api', 'fullTestAtMerge'],
       ['repos', 'api', 'reviewTest'],
     ]);
+  });
+});
+
+describe('ReviewTestConfig.filesCommand (PM-844)', () => {
+  const base = { command: 'npm test' };
+
+  it('is optional', () => {
+    expect(ReviewTestConfig.parse(base).filesCommand).toBeUndefined();
+    expect(
+      ReviewTestConfig.parse({ ...base, filesCommand: 'npm run merge-test -- --files' }).filesCommand,
+    ).toBe('npm run merge-test -- --files');
+  });
+
+  it('is not empty and at most 500 characters', () => {
+    expect(ReviewTestConfig.safeParse({ ...base, filesCommand: '' }).success).toBe(false);
+    expect(ReviewTestConfig.safeParse({ ...base, filesCommand: 'x'.repeat(500) }).success).toBe(true);
+    expect(ReviewTestConfig.safeParse({ ...base, filesCommand: 'x'.repeat(501) }).success).toBe(false);
   });
 });

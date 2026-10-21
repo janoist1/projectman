@@ -11,8 +11,8 @@ describe('task helpers', () => {
     ['active', false],
     ['waiting', false],
     ['blocked', false],
-    ['done', true],
-    ['cancelled', true],
+    ['done', false],
+    ['cancelled', false],
   ])('automatically starts a card with a %s subtask: %s', (status, allowed) => {
     expect(canAutomaticallyStartTask({ key: 'AR-1' }, [{ parentKey: 'AR-1', status }])).toBe(allowed);
   });

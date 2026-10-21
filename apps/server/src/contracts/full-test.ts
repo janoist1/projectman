@@ -1,4 +1,4 @@
-import type { FullTestErrorReason } from '@projectman/shared';
+import type { FullTestErrorReason, MergeTestReport } from '@projectman/shared';
 import type { MergeRepoRef } from './engine';
 
 /**
@@ -23,6 +23,24 @@ export interface NpmCiPreparation {
   mergeId: string;
 }
 
+/** The merge check runs as the repository's GitHub Actions workflow (PM-900), not on this engine. */
+export interface GithubActionsCheck {
+  /** The repository on the engine; its base's upstream remote receives the check branch. */
+  ref: MergeRepoRef;
+  /** The check id the merge uses for checkoutForCheck/releaseCheck; `merge.release_check` ends the run. */
+  mergeId: string;
+  /** GitHub "owner/name" (`repos[].github`); the engine checks that the upstream remote is this repository. */
+  repo: string;
+  /** The default branch; its upstream remote receives the check branch. */
+  base: string;
+  /** The merge commit to check (40 hex). */
+  commit: string;
+  /** MERGE_CHECK_WORKFLOW. */
+  workflow: string;
+  /** Lone diagnosis only: the test files to run (1–20 repository paths); absent: the full merge check. */
+  files?: string[];
+}
+
 export interface FullTestSpec {
   runId: string;
   /** The root of the developer's checkout: read-only for the command. */
@@ -45,6 +63,12 @@ export interface FullTestSpec {
    * the previous behaviour.
    */
   npmCi?: NpmCiPreparation;
+  /**
+   * The merge check runs as GitHub Actions (PM-900): the engine's executor orchestrates the run and
+   * the local executor refuses it as `github_unavailable`. Then `cwd` only informs, `sandbox` is empty,
+   * and neither `requireHeavyLock` nor `npmCi` is set.
+   */
+  githubActions?: GithubActionsCheck;
 }
 
 export interface FullTestResult {
@@ -53,10 +77,21 @@ export interface FullTestResult {
   reason?: FullTestErrorReason;
   exitCode: number | null;
   durationMs: number;
-  /** Files of vitest's " FAIL " lines, unique, at most 20. */
+  /** Files of the `merge-test failed:` lines, else of vitest's " FAIL " lines, unique, at most 20. */
   failedFiles: string[];
-  /** The end of the output, ANSI removed: vitest's "Failed Tests" section from its start if there is one. */
+  /**
+   * The end of the output, ANSI removed: vitest's "Failed Tests" section from its start if there is one.
+   * passed: the `merge-test flaky:` marker lines, if any (PM-842).
+   */
   outputTail: string;
+  /**
+   * The measurements read from the merge-test output (PM-876), for every end of the main command
+   * (passed, failed, timeout, killed); absent when it never ran, null when the output had no
+   * measurement (another command, an older script). It stays on the engine side of the wire.
+   */
+  report?: MergeTestReport | null;
+  /** The GitHub Actions run page (PM-900); only a githubActions run has one. */
+  externalUrl?: string;
 }
 
 /**
@@ -105,6 +140,13 @@ export interface ScreenshotExecutor {
   run(spec: ScreenshotRunSpec, signal: AbortSignal, onStarted: () => void): Promise<ScreenshotRunEnded>;
 }
 
+export interface FullTestRunOptions {
+  /** How long one lost engine link is waited for before the run ends `engine_offline` (PM-777); absent or 0: not waited for. */
+  linkWaitMs?: number;
+  /** true when the run starts waiting for the engine link, false when it follows the run again. */
+  onLinkWait?: (waiting: boolean) => void;
+}
+
 export interface FullTestExecutor {
   /** Whether the sandbox can run here; `reason` says why not. */
   available(): Promise<{ ok: true } | { ok: false; reason: string }>;
@@ -113,5 +155,10 @@ export interface FullTestExecutor {
    * `onStarted` is called once the run got its turn in the machine's heavy-run queue (at once without
    * the queue), before it runs; never for a run stopped while it waited.
    */
-  run(spec: FullTestSpec, signal: AbortSignal, onStarted?: () => void): Promise<FullTestResult>;
+  run(
+    spec: FullTestSpec,
+    signal: AbortSignal,
+    onStarted?: () => void,
+    options?: FullTestRunOptions,
+  ): Promise<FullTestResult>;
 }

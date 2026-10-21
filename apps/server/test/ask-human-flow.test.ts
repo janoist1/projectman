@@ -96,6 +96,8 @@ describe('ask_human through the MCP endpoint and the inbox API', () => {
     ]);
     expect(questionPayloadOf(item!)).toEqual({
       question,
+      requestedRecipient: 'owner',
+      recipient: 'owner',
       options: ['Under the field', 'Pop-up'],
       recommended: 'option_1',
       recommendationReason: 'It is easier to read on a phone.',
@@ -137,7 +139,12 @@ describe('ask_human through the MCP endpoint and the inbox API', () => {
     const [item] = await openQuestions();
     expect(item!.title).toBe(question);
     // An old-style question: no recommendation, no details, no consequences.
-    expect(questionPayloadOf(item!)).toEqual({ question, options: ['Yes', 'No'] });
+    expect(questionPayloadOf(item!)).toEqual({
+      question,
+      requestedRecipient: 'owner',
+      recipient: 'owner',
+      options: ['Yes', 'No'],
+    });
     expect(item!.options.map((o) => o.consequence)).toEqual([undefined, undefined, undefined]);
   });
 });

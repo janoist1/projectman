@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { assertSuperMutation } from '../../../kernel';
 import type { Readable } from 'node:stream';
 import {
   MAX_MESSAGE_ATTACHMENTS,
@@ -6,6 +7,7 @@ import {
   attachmentPreviewOf,
   canDeleteMessageAttachment,
   canSeeTeamMessage,
+  canSeeTask,
   memberOf,
 } from '@projectman/shared';
 import type {
@@ -216,6 +218,11 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
   }
 
   async delete(projectKey: string, id: string, actor: Actor): Promise<void> {
+    assertSuperMutation(
+      await this.projects.config(projectKey),
+      { kind: 'remove', resource: 'message_attachment', id },
+      actor,
+    );
     const viewer = await this.authorize(projectKey, actor);
     await this.deletions.run(id, async () => {
       const record = this.find(projectKey, id, viewer, ['ready', 'deleting']);
@@ -259,6 +266,48 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
       if (!this.ctx.repos.messageAttachments.bind(record.id, messageId, at)) throw unavailable(record.id);
     }
     return records.map(toRef);
+  }
+
+  /** Internal to the atomic human fanout; ordinary sends still require unsent uploads. */
+  shareForQuestionGroupAnswer(
+    projectKey: string,
+    primaryItemId: string,
+    itemId: string,
+    attachmentIds: readonly string[],
+  ): MessageAttachmentRef[] {
+    const { repos } = this.ctx;
+    const target = repos.inbox.get(itemId);
+    if (
+      !target ||
+      target.projectKey !== projectKey ||
+      repos.inbox.groupOf(itemId)?.primaryItemId !== primaryItemId ||
+      target.payload.groupWithdrawn === true ||
+      target.state !== 'resolved' ||
+      !target.resolution ||
+      target.resolution.rule ||
+      memberOf(this.projects.cachedConfig(projectKey)!, target.source)?.kind !== 'ai' ||
+      (target.taskKey && !repos.tasks.get(target.taskKey))
+    )
+      throw unavailable(attachmentIds[0] ?? '');
+    return attachmentIds.map((id) => {
+      const record = repos.messageAttachments.get(id);
+      const anchor = record?.messageId ? repos.messages.get(record.messageId) : null;
+      if (
+        !record ||
+        record.projectKey !== projectKey ||
+        record.state !== 'ready' ||
+        !anchor ||
+        anchor.projectKey !== projectKey ||
+        anchor.origin?.kind !== 'answer' ||
+        repos.inbox.groupOf(anchor.origin.inboxItemId)?.primaryItemId !== primaryItemId ||
+        !anchor.attachments?.some((file) => file.id === id && !file.goneAt) ||
+        anchor.from !== target.resolution!.by ||
+        anchor.via !== target.resolution!.via ||
+        memberOf(this.projects.cachedConfig(projectKey)!, anchor.from)?.kind !== 'human'
+      )
+        throw unavailable(id);
+      return toRef(record);
+    });
   }
 
   /**
@@ -341,11 +390,50 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
   ): { record: MessageAttachmentRecord; message: TeamMessage } {
     const { repos } = this.ctx;
     const record = repos.messageAttachments.get(id);
-    const message = record?.messageId ? repos.messages.get(record.messageId) : null;
+    const message = record ? this.visibleCarrier(projectKey, record, viewer) : null;
     if (!record || record.projectKey !== projectKey || record.state !== 'ready' || !message)
       throw notFound('message attachment', id);
-    if (!canSeeTeamMessage(viewer, message)) throw notFound('message attachment', id);
     return { record, message };
+  }
+
+  /** A visible message, never metadata from an anchor hidden from this viewer. */
+  private visibleCarrier(
+    projectKey: string,
+    record: MessageAttachmentRecord,
+    viewer: TaskViewer,
+  ): TeamMessage | null {
+    const { repos } = this.ctx;
+    const anchor = record.messageId ? repos.messages.get(record.messageId) : null;
+    if (!anchor || anchor.projectKey !== projectKey) return null;
+    if (!anchor.attachments?.some((file) => file.id === record.id && !file.goneAt)) return null;
+    if (canSeeTeamMessage(viewer, anchor)) return anchor;
+    if (anchor.origin?.kind !== 'answer') return null;
+    const group = repos.inbox.groupOf(anchor.origin.inboxItemId);
+    if (!group || !anchor.attachments?.some((file) => file.id === record.id && !file.goneAt)) return null;
+    return (
+      repos.messages.listByAttachment(projectKey, record.id).find((message) => {
+        if (
+          message.origin?.kind !== 'answer' ||
+          !canSeeTeamMessage(viewer, message) ||
+          message.from !== anchor.from ||
+          message.via !== anchor.via ||
+          repos.inbox.groupOf(message.origin.inboxItemId)?.primaryItemId !== group.primaryItemId ||
+          !message.attachments?.some((file) => file.id === record.id && !file.goneAt)
+        )
+          return false;
+        const target = repos.inbox.get(message.origin.inboxItemId);
+        const task = target?.taskKey ? repos.tasks.get(target.taskKey) : null;
+        return (
+          !!target &&
+          target.payload.groupWithdrawn !== true &&
+          target.state === 'resolved' &&
+          target.resolution?.by === anchor.from &&
+          target.resolution.via === anchor.via &&
+          message.to.includes(target.source) &&
+          (!target.taskKey || (!!task && canSeeTask(viewer, task)))
+        );
+      }) ?? null
+    );
   }
 
   /**
@@ -471,14 +559,10 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
     if (!record || record.projectKey !== projectKey || !states.includes(record.state)) {
       throw notFound('message attachment', id);
     }
-    const visible = record.messageId
-      ? (() => {
-          const message = this.ctx.repos.messages.get(record.messageId);
-          return !!message && canSeeTeamMessage(viewer, message);
-        })()
-      : sameUploader(viewer, record.uploadedBy);
+    const carrier = record.messageId ? this.visibleCarrier(projectKey, record, viewer) : null;
+    const visible = record.messageId ? !!carrier : sameUploader(viewer, record.uploadedBy);
     if (!visible) throw notFound('message attachment', id);
-    return record;
+    return carrier ? { ...record, messageId: carrier.id } : record;
   }
 
   /** The files `ids` name, after checking each is the sender's own ready, unsent file of this project. */
@@ -569,15 +653,17 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
       // Gone already: another call or a recovery finished it.
       if (!repos.messageAttachments.remove(record.id)) return;
       if (!record.messageId) return;
-      const message = repos.messages.markAttachmentGone(
-        record.messageId,
-        record.id,
-        isoNow(this.ctx),
-        record.deletedBy ?? SYSTEM_ACTOR,
-      );
-      // The message changed but is not a new one: the live event carries it, the timeline gets no entry.
-      if (message)
-        this.ctx.bus.publish({ type: 'team_message_updated', projectKey: record.projectKey, message });
+      for (const carrier of repos.messages.listByAttachment(record.projectKey, record.id)) {
+        const message = repos.messages.markAttachmentGone(
+          carrier.id,
+          record.id,
+          isoNow(this.ctx),
+          record.deletedBy ?? SYSTEM_ACTOR,
+        );
+        // The message changed but is not a new one: the live event carries it, the timeline gets no entry.
+        if (message)
+          this.ctx.bus.publish({ type: 'team_message_updated', projectKey: record.projectKey, message });
+      }
     });
   }
 }

@@ -1,11 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { routes } from '@projectman/shared';
+import { roleBundle, routes } from '@projectman/shared';
 import type { OperatorOperation } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  restartDomainHarness,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+
+// The waiver covers what would wait for a click; an owner-asked change now goes through without one.
+vi.mock('@projectman/shared', async (original) =>
+  (await import('./helpers/operator-autonomy')).switchable(await original()),
+);
 
 let h: DomainHarness;
 let app: AppHarness;
@@ -26,7 +37,7 @@ async function setup(enabled = true, persistent = false) {
     { to: ['operator'], text: 'Set up the agreement and requested changes.' },
     { awaitWake: true },
   );
-  const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
+  const session = await waitForSession(h.domain, { member: 'operator' });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
   const proposal = await h.domain.teamTools.proposeOperatorKnowledge(ctx, {
     expected_revision: 0,
@@ -63,6 +74,67 @@ const operate = (operation: OperatorOperation = rename()) =>
   h.domain.teamTools.operate(ctx, { title: 'Requested change', operation });
 
 describe('Operator approval waiver execution', () => {
+  it('keeps targeted role patches in waiver intents and preserves unrelated role edits before execution', async () => {
+    await setup();
+    const before = await h.domain.projects.load('AR');
+    await h.domain.projects.patch(
+      'AR',
+      {
+        baseVersion: before.version,
+        roleOverrides: {
+          developer: {
+            ...roleBundle(before.config, 'developer'),
+            instructions: 'Original.',
+            summary: 'Original summary',
+          },
+          architect: { ...roleBundle(before.config, 'architect'), instructions: 'Original architect.' },
+        },
+      },
+      by,
+    );
+    const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });
+    const operation: OperatorOperation = {
+      op: 'config_patch',
+      patch: {
+        roleOverrides: {
+          developer: { ...read.effective, instructions: 'Original.\nAdded.', summary: 'Updated summary' },
+        },
+      },
+    };
+    const execute = h.domain.operatorActions.execute.bind(h.domain.operatorActions);
+    vi.spyOn(h.domain.operatorActions, 'execute').mockImplementationOnce(async (...args) => {
+      const loaded = await h.domain.projects.load('AR');
+      await h.domain.projects.patch(
+        'AR',
+        {
+          baseVersion: loaded.version,
+          roleOverrides: {
+            ...loaded.config.team.roleOverrides,
+            architect: {
+              ...roleBundle(loaded.config, 'architect'),
+              instructions: 'Concurrent unrelated edit.',
+            },
+          },
+        },
+        by,
+      );
+      return execute(...args);
+    });
+    const result = await operate(operation);
+    expect(result.status).toBe('done');
+    expect(
+      h.repos.operatorRequests.executions('AR').find((intent) => intent.id === result.step_id),
+    ).toMatchObject({ status: 'committed', operation });
+    const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
+    expect(
+      h.repos.operatorRequests.steps(request.id).find((step) => step.id === result.step_id),
+    ).toMatchObject({ approvalMode: 'waived' });
+    const saved = (await h.domain.projects.config('AR')).team.roleOverrides!;
+    expect(saved.developer).toEqual(
+      operation.op === 'config_patch' && operation.patch.roleOverrides!.developer,
+    );
+    expect(saved.architect?.instructions).toBe('Concurrent unrelated edit.');
+  });
   it.each([false, true])('keeps the original preview and executes only with waiver %s', async (enabled) => {
     await setup(enabled);
     const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
@@ -408,7 +480,7 @@ describe('owner-only waiver API', () => {
       { to: ['operator'], text: 'Agree to ordinary changes' },
       { awaitWake: true },
     );
-    const session = domain.sessions.list('AR', { member: 'operator' })[0]!;
+    const session = await waitForSession(domain, { member: 'operator' });
     const proposal = await domain.teamTools.proposeOperatorKnowledge(
       { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null },
       {

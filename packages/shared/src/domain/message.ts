@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Actor } from './event';
 import { MessageOrigin } from './involvement';
 import { MemberHandle } from './member';
 import { MessageAttachmentRef } from './message-attachment';
@@ -53,7 +54,14 @@ export const CardVersion = z.object({
   reviewCommit: z.string().nullable(),
 });
 export type CardVersion = z.infer<typeof CardVersion>;
-export const MessageSubject = z.object({ type: z.literal('permission'), inboxItemId: z.string() });
+/**
+ * What a message is about besides its card: a permission request (the message is stale once it is decided),
+ * or an obligation (PM-813: the reminder is stale once the step is not open any more).
+ */
+export const MessageSubject = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('permission'), inboxItemId: z.string() }),
+  z.object({ type: z.literal('obligation'), obligationId: z.string() }),
+]);
 export type MessageSubject = z.infer<typeof MessageSubject>;
 export const StaleReason = z.enum([
   'card_closed',
@@ -62,12 +70,18 @@ export const StaleReason = z.enum([
   'sender_result',
   'result_recorded',
   'permission_closed',
+  'obligation_closed',
 ]);
 export type StaleReason = z.infer<typeof StaleReason>;
 
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
   via: z.literal('integrator').optional(),
+  /**
+   * The full origin of a message sent in the Operator's super mode (PM-757); absent on every other message.
+   * `from` stays the Operator's handle and `via` stays `integrator`.
+   */
+  actor: Actor.optional(),
   origin: MessageOrigin.optional(),
   id: z.string(),
   projectKey: z.string(),

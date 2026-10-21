@@ -1,44 +1,89 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { memberOf, operatorApprovalOf, operatorWatchOf } from '@projectman/shared';
+import {
+  applyConfigPatch,
+  memberOf,
+  operatorApprovalOf,
+  operatorConfigVerdict,
+  operatorWatchOf,
+  prepareOperatorConfigPatch,
+  roleBundle,
+  RoleConfigurationRead,
+} from '@projectman/shared';
 import { humanActor } from '../src/kernel';
 import type { AiMemberConfig, OperatorOperation, OperatorPlan, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
-import type { DomainHarness } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  restartDomainHarness,
+  snapshotDomainHarness,
+  waitForSession,
+} from './helpers/domain-harness';
+import type { DomainHarness, HarnessSnapshot } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { autonomy } from './helpers/operator-autonomy';
+
+// The approval tests below are about the approval item itself, which an owner-asked change now skips.
+vi.mock('@projectman/shared', async (original) =>
+  (await import('./helpers/operator-autonomy')).switchable(await original()),
+);
 
 let h: DomainHarness;
 let ctx: ToolContext;
 const by = { actor: OWNER_ACTOR, author: OWNER };
 const owner = { handle: 'owner', access: 'owner' as const };
 afterEach(async () => {
+  autonomy.on = false;
+  vi.restoreAllMocks();
   await h?.cleanup();
 });
 
-async function setup(persistent = false, adjust?: (config: ProjectConfig) => void, now?: () => Date) {
-  h = await createDomainHarness({
-    persistent,
-    now,
-    adjust: (config) => {
-      (memberOf(config, 'dev-1') as AiMemberConfig).outboundNetwork = false;
-      config.team.members.push({
-        kind: 'human',
-        handle: 'dana',
-        displayName: 'Dana',
-        access: 'admin',
-        roles: [],
-        email: 'dana@example.test',
-      });
-      config.pipeline.stages.splice(1, 0, {
-        id: 'ready',
-        name: 'Ready',
-        kind: 'queue',
-        owners: ['owner'],
-        columnId: 'todo',
-      });
-      adjust?.(config);
-    },
+function baseAdjust(config: ProjectConfig) {
+  (memberOf(config, 'dev-1') as AiMemberConfig).outboundNetwork = false;
+  config.team.members.push({
+    kind: 'human',
+    handle: 'dana',
+    displayName: 'Dana',
+    access: 'admin',
+    roles: [],
+    email: 'dana@example.test',
   });
+  config.pipeline.stages.splice(1, 0, {
+    id: 'ready',
+    name: 'Ready',
+    kind: 'queue',
+    owners: ['owner'],
+    columnId: 'todo',
+  });
+}
+
+/** The project with `baseAdjust`, built once per file: every test starts from it instead of creating the project. */
+let baseSnapshot: Promise<HarnessSnapshot> | undefined;
+async function seedBase() {
+  return snapshotDomainHarness(await createDomainHarness({ adjust: baseAdjust }));
+}
+
+async function setup(persistent = false, adjust?: (config: ProjectConfig) => void, now?: () => Date) {
+  if (persistent || now) {
+    // The restart tests need the database in a file, and the clock tests a clock from the start.
+    h = await createDomainHarness({
+      persistent,
+      now,
+      adjust: (config) => {
+        baseAdjust(config);
+        adjust?.(config);
+      },
+    });
+  } else {
+    baseSnapshot ??= seedBase();
+    h = await createDomainHarness({ snapshot: await baseSnapshot });
+    if (adjust)
+      await h.domain.projects.update('AR', by, (draft) => {
+        adjust(draft);
+        return 'Adjust test configuration';
+      });
+  }
   await h.domain.messaging.sendReporting(
     'AR',
     'owner',
@@ -49,7 +94,7 @@ async function setup(persistent = false, adjust?: (config: ProjectConfig) => voi
     { awaitWake: true },
   );
   await flush();
-  const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
+  const session = await waitForSession(h.domain, { member: 'operator' });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
 }
 const plan: OperatorPlan = {
@@ -72,6 +117,253 @@ const network = (): OperatorOperation => ({
 const member = async (handle = 'dev-1') =>
   memberOf(await h.domain.projects.config('AR'), handle) as AiMemberConfig;
 const resolve = (id: string, optionId = 'approve') => h.domain.inbox.resolve('AR', id, { optionId }, owner);
+
+describe('targeted Operator role configuration (PM-746)', () => {
+  function withOverrides(config: ProjectConfig) {
+    config.team.roleOverrides = {
+      developer: {
+        ...roleBundle(config, 'developer'),
+        instructions: 'Existing rule.\nKeep this too.\n' + 'Preserve the full instruction.\n'.repeat(30),
+        summary: 'Developer summary',
+        notTheirJob: 'Do not deploy.',
+        whenToAsk: 'Ask about scope.',
+      },
+      lead_developer: { ...roleBundle(config, 'lead_developer'), instructions: 'Review changes.' },
+      business_analyst: { ...roleBundle(config, 'business_analyst'), instructions: 'Clarify requirements.' },
+      architect: { ...roleBundle(config, 'architect'), instructions: 'Plan module boundaries.' },
+    };
+  }
+  async function editRole(role: 'developer' | 'architect', instructions: string) {
+    const loaded = await h.domain.projects.load('AR');
+    await h.domain.projects.patch(
+      'AR',
+      {
+        baseVersion: loaded.version,
+        roleOverrides: {
+          ...loaded.config.team.roleOverrides,
+          [role]: { ...roleBundle(loaded.config, role), instructions },
+        },
+      },
+      by,
+    );
+  }
+
+  it('reads complete stored and default bundles without an open request or any writes', async () => {
+    await setup(false, withOverrides);
+    const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
+    h.repos.operatorRequests.close(request.id, new Date().toISOString());
+    const before = await h.domain.projects.load('AR');
+    const history = await h.domain.projects.history('AR');
+    for (const role of ['developer', 'qa'] as const) {
+      const read = RoleConfigurationRead.parse(await h.domain.teamTools.getRoleConfiguration(ctx, { role }));
+      expect(read).toEqual({
+        version: before.version,
+        role,
+        override: before.config.team.roleOverrides?.[role] ?? null,
+        effective: roleBundle(before.config, role),
+      });
+    }
+    expect((await h.domain.projects.load('AR')).version).toBe(before.version);
+    expect(await h.domain.projects.history('AR')).toEqual(history);
+    expect(h.repos.operatorRequests.latest('AR', 10)).toEqual([{ ...request, closedAt: expect.any(String) }]);
+    expect(h.repos.operatorRequests.steps(request.id)).toEqual([]);
+    expect(h.repos.inbox.listOpen('approval')).toEqual([]);
+  });
+
+  it('refuses other members and missing or mismatched Operator sessions', async () => {
+    await setup();
+    await expect(
+      h.domain.teamTools.getRoleConfiguration({ ...ctx, member: 'dev-1' }, { role: 'developer' }),
+    ).rejects.toThrow('operator_only');
+    await expect(
+      h.domain.teamTools.getRoleConfiguration({ ...ctx, sessionId: 'missing' }, { role: 'developer' }),
+    ).rejects.toThrow('operator_owner_only');
+  });
+
+  it.each([false, true])(
+    'reads then extends only developer, preserving bundle fields (approval=%s)',
+    async (approval) => {
+      await setup(false, withOverrides);
+      const before = await h.domain.projects.load('AR');
+      const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });
+      const bundle = {
+        ...read.effective,
+        instructions: read.effective.instructions + '\nAdded rule.',
+        ...(approval ? { summary: 'Updated summary' } : {}),
+      };
+      const operation: OperatorOperation = {
+        op: 'config_patch',
+        patch: { roleOverrides: { developer: bundle } },
+      };
+      const result = await operate(operation);
+      expect(result.status).toBe(approval ? 'awaiting_approval' : 'done');
+      expect(result.changes.every((row) => row.target === 'developer')).toBe(true);
+      if (approval) {
+        expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))?.operation).toEqual(
+          operation,
+        );
+        await resolve(result.inbox_item_id!);
+      }
+      expect((await h.domain.projects.config('AR')).team.roleOverrides).toEqual({
+        ...before.config.team.roleOverrides,
+        developer: bundle,
+      });
+    },
+  );
+
+  it('preserves a different role edited after approval replay and before the final configuration lock', async () => {
+    await setup(false, withOverrides);
+    const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });
+    const developer = {
+      ...read.effective,
+      instructions: 'Updated instructions.',
+      summary: 'Updated summary',
+    };
+    const result = await operate({ op: 'config_patch', patch: { roleOverrides: { developer } } });
+    await editRole('architect', 'Edited while awaiting approval.');
+    await flush();
+    expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))?.stale).toBeNull();
+    const execute = h.domain.operatorActions.execute.bind(h.domain.operatorActions);
+    vi.spyOn(h.domain.operatorActions, 'execute').mockImplementationOnce(async (...args) => {
+      await editRole('architect', 'Edited after approval replay.');
+      return execute(...args);
+    });
+    await resolve(result.inbox_item_id!);
+    const overrides = (await h.domain.projects.config('AR')).team.roleOverrides!;
+    expect(overrides.developer).toEqual(developer);
+    expect(overrides.architect?.instructions).toBe('Edited after approval replay.');
+  });
+
+  it('rejects changed approved role rows at the final commit check', async () => {
+    await setup(false, withOverrides);
+    const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });
+    const result = await operate({
+      op: 'config_patch',
+      patch: {
+        roleOverrides: {
+          developer: { ...read.effective, summary: 'Needs approval' },
+        },
+      },
+    });
+    const execute = h.domain.operatorActions.execute.bind(h.domain.operatorActions);
+    vi.spyOn(h.domain.operatorActions, 'execute').mockImplementationOnce(async (...args) => {
+      await editRole('developer', 'Changed after replay.');
+      return execute(...args);
+    });
+    await expect(resolve(result.inbox_item_id!)).rejects.toMatchObject({ code: 'operator_approval_stale' });
+    expect((await h.domain.projects.config('AR')).team.roleOverrides?.developer).toMatchObject({
+      instructions: 'Changed after replay.',
+      summary: 'Developer summary',
+    });
+  });
+
+  it('marks a legacy implicit map-deletion proposal stale and permits only dismissal', async () => {
+    await setup(false, withOverrides);
+    const loaded = await h.domain.projects.load('AR');
+    const operation: OperatorOperation = {
+      op: 'config_patch',
+      patch: {
+        roleOverrides: {
+          developer: { ...roleBundle(loaded.config, 'developer'), summary: 'Proposed summary' },
+        },
+      },
+    };
+    const result = await operate(operation);
+    const item = h.domain.inbox.get('AR', result.inbox_item_id!);
+    const legacyChanges = operatorConfigVerdict(
+      loaded.config,
+      applyConfigPatch(loaded.config, {
+        baseVersion: loaded.version,
+        roleOverrides: {
+          developer: operation.op === 'config_patch' ? operation.patch.roleOverrides!.developer! : undefined,
+        },
+      }),
+      { operator: 'operator' },
+    ).changes;
+    expect(legacyChanges.some((row) => row.target === 'architect' && row.after === null)).toBe(true);
+    h.repos.inbox.updatePayload(
+      item.id,
+      {
+        ...item.payload,
+        operator: { ...operatorApprovalOf(item)!, changes: legacyChanges },
+      },
+      new Date().toISOString(),
+    );
+    await h.domain.operatorApprovals.recheck('AR');
+    expect(h.domain.inbox.get('AR', item.id).options.map((option) => option.id)).toEqual(['dismiss']);
+    await expect(resolve(item.id)).rejects.toMatchObject({ code: 'operator_approval_stale' });
+    await resolve(item.id, 'dismiss');
+    expect((await h.domain.projects.load('AR')).version).toBe(loaded.version);
+  });
+
+  it('rejects a load-to-save race with config_conflict and preserves the concurrent edit', async () => {
+    await setup(false, withOverrides);
+    const before = await h.domain.projects.load('AR');
+    const patch = h.domain.projects.patch.bind(h.domain.projects);
+    vi.spyOn(h.domain.projects, 'patch').mockImplementationOnce(async (...args) => {
+      await patch(
+        'AR',
+        {
+          baseVersion: before.version,
+          roleOverrides: {
+            ...before.config.team.roleOverrides,
+            architect: { ...roleBundle(before.config, 'architect'), instructions: 'Concurrent edit.' },
+          },
+        },
+        by,
+      );
+      return patch(...args);
+    });
+    await expect(
+      operate({
+        op: 'config_patch',
+        patch: {
+          roleOverrides: {
+            developer: { ...roleBundle(before.config, 'developer'), instructions: 'Must not save.' },
+          },
+        },
+      }),
+    ).rejects.toThrow('config_conflict');
+    const saved = (await h.domain.projects.config('AR')).team.roleOverrides!;
+    expect(saved.developer).toEqual(before.config.team.roleOverrides?.developer);
+    expect(saved.architect?.instructions).toBe('Concurrent edit.');
+  });
+
+  it('requires approval to reset one role and keeps the Operator own role protected', async () => {
+    await setup(false, withOverrides);
+    const before = await h.domain.projects.config('AR');
+    const reset = await operate({ op: 'config_patch', patch: { roleOverrides: { developer: null } } });
+    expect(reset.status).toBe('awaiting_approval');
+    expect(reset.changes).toEqual([
+      expect.objectContaining({ target: 'developer', level: 'approval', after: null }),
+    ]);
+    await resolve(reset.inbox_item_id!);
+    const { developer: _removed, ...others } = before.team.roleOverrides!;
+    expect((await h.domain.projects.config('AR')).team.roleOverrides).toEqual(others);
+    await expect(
+      operate({
+        op: 'config_patch',
+        patch: {
+          roleOverrides: {
+            ai_operator: { ...roleBundle(before, 'ai_operator'), instructions: 'Changed.' },
+          },
+        },
+      }),
+    ).rejects.toThrow('operator_never');
+    const legacy = structuredClone(before);
+    legacy.team.roleOverrides!.ai_operator = {
+      ...roleBundle(before, 'ai_operator'),
+      instructions: 'Protected.',
+    };
+    const resetOwnRole = applyConfigPatch(
+      legacy,
+      prepareOperatorConfigPatch(legacy, 'v1', {
+        roleOverrides: { ai_operator: null },
+      }),
+    );
+    expect(operatorConfigVerdict(legacy, resetOwnRole, { operator: 'operator' }).level).toBe('never');
+  });
+});
 
 describe('Operator actions and owner approvals (PM-464)', () => {
   const message = (): OperatorOperation => ({ op: 'message_send', to: ['dana'], text: 'Work is ready.' });
@@ -183,7 +475,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       await setup(false, undefined, () => now);
       await h.domain.messaging.sendReporting('AR', 'owner', { to: ['dev-1'], text: 'Start' });
       await flush();
-      const target = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+      const target = await waitForSession(h.domain, { member: 'dev-1' });
       const result = await operate(op === 'message_send' ? message() : { op, sessionId: target.id });
       now = new Date(now.getTime() + 24 * 60 * 60_000);
       await expect(resolve(result.inbox_item_id!)).rejects.toMatchObject({ code: 'operator_approval_stale' });
@@ -416,6 +708,31 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     expect(h.repos.operatorRequests.steps(request.id)).toMatchObject([
       { id: result.step_id, action: 'member_change', status: 'done', configVersion: result.config_version },
     ]);
+  });
+
+  describe('an owner-asked change in the app (decision 55)', () => {
+    it('goes straight through when only the verdict held it for approval', async () => {
+      autonomy.on = true;
+      await setup();
+      const result = await operate({
+        op: 'member_update',
+        handle: 'dev-1',
+        changes: { instructions: 'Keep the changes small.' },
+      });
+      expect(result.status).toBe('done');
+      expect(result.changes).toEqual([expect.objectContaining({ field: 'instructions', level: 'approval' })]);
+      expect(await member()).toMatchObject({ instructions: 'Keep the changes small.' });
+      expect((await h.domain.projects.history('AR'))[0]).toMatchObject({ operator: 'operator' });
+      expect(h.repos.inbox.listOpen('approval')).toEqual([]);
+    });
+
+    it('still waits for the owner when the effect is the owner’s own call', async () => {
+      autonomy.on = true;
+      await setup();
+      const result = await operate({ op: 'member_retire', handle: 'dev-1' });
+      expect(result.status).toBe('awaiting_approval');
+      expect(await member()).toBeDefined();
+    });
   });
 
   it('keeps restricted changes pending until the owner approves, even after the request closes', async () => {
@@ -656,7 +973,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     await setup();
     await h.domain.messaging.sendReporting('AR', 'owner', { to: ['dev-1'], text: 'Hello' });
     await flush();
-    const target = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    const target = await waitForSession(h.domain, { member: 'dev-1' });
     const result = await operate({ op: 'session_stop', sessionId: target.id });
     await h.domain.sessions.stop('AR', target.id);
     await flush();
@@ -673,7 +990,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     await setup();
     await h.domain.messaging.sendReporting('AR', 'owner', { to: ['dev-1'], text: 'Hello' });
     await flush();
-    const target = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+    const target = await waitForSession(h.domain, { member: 'dev-1' });
     const result = await operate({ op: 'session_stop', sessionId: target.id });
     expect(h.domain.sessions.isRunning(target.id)).toBe(true);
     await resolve(result.inbox_item_id!);
@@ -752,7 +1069,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       );
       await flush();
     }
-    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const session = await waitForSession(h.domain, { member: 'pm' });
     return h.domain.teamTools.startTask(
       { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null },
       args,

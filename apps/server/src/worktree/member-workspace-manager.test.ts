@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -7,12 +7,14 @@ import type { FastifyBaseLogger } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
-import type { MemberWorkspaceKey, MemberWorkspaceManager } from '../contracts';
+import type { MemberWorkspaceKey, MemberWorkspaceManager, WorkspaceDependencyInstaller } from '../contracts';
 import { createMemberWorkspaceManager } from './index';
 import { MemberWorkspaceError } from './member-workspace-manager';
+import { localWorkspaceAccess } from './workspace-access';
+import { createGitSeed } from '../../test/helpers/git-seed';
 
 /*
- * Every test builds its own repositories in a temp directory: a bare "remote", the project
+ * Every test copies independent repositories into a temp directory: a bare "remote", the project
  * repository cloned from it, and the member workspaces under their own root. The user's git
  * configuration is replaced by a test one.
  */
@@ -57,6 +59,7 @@ async function refusal(promise: Promise<unknown>): Promise<MemberWorkspaceError>
 }
 
 let configDir: string;
+let seed: ReturnType<typeof createGitSeed>;
 let base: string;
 let remote: string;
 let projectRepo: string;
@@ -72,6 +75,7 @@ beforeAll(async () => {
   );
   vi.stubEnv('GIT_CONFIG_GLOBAL', configFile);
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  seed = createGitSeed(path.join(configDir, 'seed'), { 'README.md': 'hello\n' });
 });
 
 afterAll(async () => {
@@ -84,11 +88,7 @@ beforeEach(async () => {
   remote = path.join(base, 'remote.git');
   const workspace = path.join(base, 'workspace');
   projectRepo = path.join(workspace, 'app');
-  await git('init', '--quiet', '--bare', '-b', 'main', remote);
-  await mkdir(workspace);
-  await git('clone', '--quiet', remote, projectRepo);
-  await commitFile(projectRepo, 'README.md', 'hello\n', 'Initial commit');
-  await git('-C', projectRepo, 'push', '--quiet', 'origin', 'main');
+  seed.copyTo(projectRepo, remote);
   const template = getTemplate('small-team')!;
   project = template.build({
     key: 'AR',
@@ -125,6 +125,125 @@ async function startTask(member: string, branch: string): Promise<string> {
 
 // Real git in temp repositories: slower than the default timeout when the whole suite runs.
 describe('member workspaces', { timeout: 30_000 }, () => {
+  it('does not install in worker-owned clones or accept an invalid member key', async () => {
+    const prepare = vi.fn<WorkspaceDependencyInstaller['prepare']>();
+    manager = createMemberWorkspaceManager({
+      rootDir: path.join(base, 'workspaces'),
+      logger: silentLogger(),
+      access: { ...localWorkspaceAccess(), ownerOf: () => 'worker' },
+      dependencies: { prepare, busy: () => false, close: async () => undefined },
+    });
+    await manager.ensure(key('dev'));
+    expect(await manager.prepareDependencies(key('dev'))).toEqual({
+      status: 'skipped',
+      reason: 'not_configured',
+    });
+    await expect(manager.prepareDependencies(key('../owner'))).rejects.toMatchObject({
+      code: 'workspace_invalid',
+    });
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('skips dependency setup when unconfigured and refuses invalid clones before calling an installer', async () => {
+    const ws = await manager.ensure(key('dev'));
+    expect(await manager.prepareDependencies(key('dev'))).toEqual({
+      status: 'skipped',
+      reason: 'not_configured',
+    });
+    await rm(ws.gitDir, { recursive: true });
+    await expect(manager.prepareDependencies(key('dev'))).rejects.toMatchObject({
+      code: 'workspace_invalid',
+    });
+  });
+
+  it('releases the git lock while installing and blocks work and review checkouts, including resumes', async () => {
+    let finish!: () => void;
+    let busy = true;
+    const dependencies = {
+      prepare: vi.fn<WorkspaceDependencyInstaller['prepare']>(async (_request, options) => {
+        if (options.waitMs === 0)
+          throw Object.assign(new Error('still running'), {
+            code: 'workspace_dependencies_pending',
+            details: { startedAt: '2026-10-16T20:00:00.000Z' },
+          });
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        busy = false;
+        return { status: 'ready' as const, key: 'a'.repeat(64), changed: true };
+      }),
+      busy: () => busy,
+      close: async () => undefined,
+    };
+    manager = createMemberWorkspaceManager({
+      rootDir: path.join(base, 'workspaces'),
+      logger: silentLogger(),
+      dependencies,
+    });
+    const ws = await manager.ensure(key('dev'));
+    const preparing = manager.prepareDependencies(key('dev'), { waitMs: 12 });
+    await vi.waitFor(() => expect(dependencies.prepare).toHaveBeenCalled());
+    expect(dependencies.prepare).toHaveBeenCalledWith(
+      { project: 'AR', member: 'dev', repo: 'app', repoPath: ws.path },
+      { waitMs: 12 },
+    );
+    const { commit } = await manager.fetchBase(key('dev'));
+    await expect(
+      manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'main' }),
+    ).rejects.toMatchObject({
+      code: 'workspace_dependencies_pending',
+      details: { startedAt: '2026-10-16T20:00:00.000Z' },
+    });
+    await expect(
+      manager.checkoutReview(key('dev'), { path: projectRepo, ref: 'refs/heads/main' }, commit),
+    ).rejects.toMatchObject({ code: 'workspace_dependencies_pending' });
+    finish();
+    await preparing;
+    expect(await manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'main' })).toMatchObject({
+      branch: 'main',
+    });
+  });
+
+  it.each(['workspace_dependencies_pending', 'workspace_dependencies_failed'] as const)(
+    'preserves installer %s details in a manager error',
+    async (code) => {
+      const details = code.endsWith('pending')
+        ? { startedAt: '2026-10-16T20:00:00.000Z' }
+        : { reason: 'install_failed', exitCode: 1, key: 'a'.repeat(64) };
+      manager = createMemberWorkspaceManager({
+        rootDir: path.join(base, 'workspaces'),
+        logger: silentLogger(),
+        dependencies: {
+          prepare: async () => {
+            throw Object.assign(new Error('fixture failure'), { code, details });
+          },
+          busy: () => false,
+          close: async () => undefined,
+        },
+      });
+      await manager.ensure(key('dev'));
+      const err = await refusal(manager.prepareDependencies(key('dev')));
+      expect(err).toMatchObject({ code, details });
+    },
+  );
+
+  it('reports a clone to onEnsured after a successful ensure, new or existing, and not after a failed one (PM-743)', async () => {
+    const onEnsured = vi.fn<(key: MemberWorkspaceKey, repoPath: string) => void>();
+    manager = createMemberWorkspaceManager({
+      rootDir: path.join(base, 'workspaces'),
+      logger: silentLogger(),
+      onEnsured,
+    });
+    const ws = await manager.ensure(key('dev'));
+    expect(onEnsured).toHaveBeenCalledTimes(1);
+    expect(onEnsured).toHaveBeenLastCalledWith(key('dev'), await realpath(ws.path));
+    await manager.ensure(key('dev'));
+    expect(onEnsured).toHaveBeenCalledTimes(2);
+    await rm(ws.gitDir, { recursive: true });
+    await expect(manager.ensure(key('dev'))).rejects.toMatchObject({ code: 'workspace_invalid' });
+    expect(onEnsured).toHaveBeenCalledTimes(2);
+  });
+
   it('are independent clones with their own git directory, cache and temp, under project/member/repo', async () => {
     const ws = await manager.ensure(key('dev'));
     expect(ws.created).toBe(true);
@@ -352,5 +471,175 @@ describe('member workspaces', { timeout: 30_000 }, () => {
     await mkdir(path.dirname(ws.path), { recursive: true });
     await git('-C', projectRepo, 'worktree', 'add', '--quiet', '-b', 'linked', ws.path);
     expect((await refusal(manager.ensure(key('dev')))).code).toBe('workspace_invalid');
+  });
+});
+
+describe('handing a task commit over (PM-739)', { timeout: 30_000 }, () => {
+  const SNAPSHOTS = 'refs/projectman/workspaces';
+
+  /** A developer who made one commit on a task branch that the project repository does not know. */
+  async function developed(member = 'dev', branch = 'AR-4-change', file = 'feature.txt') {
+    const ws = await manager.ensure(key(member));
+    await startTask(member, branch);
+    const commit = await commitFile(ws.path, file, `${member}\n`, `Work of ${member}`);
+    return { ws, commit, branch };
+  }
+
+  const known = (repo: string, commit: string) =>
+    git('-C', repo, 'cat-file', '-e', `${commit}^{commit}`).then(
+      () => true,
+      () => false,
+    );
+
+  it('gives both reviewers and the merger the same commit although the source never had it', async () => {
+    const { commit, branch } = await developed();
+    expect(await known(projectRepo, commit)).toBe(false);
+
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    expect(source).toEqual({ path: projectRepo, ref: `${SNAPSHOTS}/dev/AR-4/${commit}` });
+    expect(await manager.resolveSource(source)).toBe(commit);
+    // Nothing else changed in the source: no branch of the task, no leftover receiving ref.
+    expect(await git('-C', projectRepo, 'for-each-ref', '--format=%(refname)', 'refs/heads/')).toBe(
+      'refs/heads/main',
+    );
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/incoming/')).toBe('');
+
+    for (const reviewer of ['qa', 'security']) {
+      const ws = await manager.ensure(key(reviewer));
+      expect(await manager.checkoutReview(key(reviewer), source, commit)).toEqual({
+        branch: null,
+        head: commit,
+      });
+      expect(await git('-C', ws.path, 'rev-parse', 'HEAD')).toBe(commit);
+    }
+    // The merger reads the commit from the source repository itself.
+    expect(await known(projectRepo, commit)).toBe(true);
+  });
+
+  it('is repeatable and safe in parallel, also after a restart', async () => {
+    const { commit, branch } = await developed();
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit)),
+    );
+    expect(new Set(results.map((r) => r.ref)).size).toBe(1);
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/incoming/')).toBe('');
+
+    const restarted = createMemberWorkspaceManager({
+      rootDir: path.join(base, 'workspaces'),
+      logger: silentLogger(),
+    });
+    expect(await restarted.publishTaskBranch(key('dev'), 'AR-4', branch, commit)).toEqual(results[0]);
+  });
+
+  it('keeps an earlier round pinned when the developer commits again', async () => {
+    const { ws, commit: first, branch } = await developed();
+    const earlier = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, first);
+    const second = await commitFile(ws.path, 'feature.txt', 'v2\n', 'Later work');
+    const later = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, second);
+
+    expect(later.ref).not.toBe(earlier.ref);
+    expect(await manager.resolveSource(earlier)).toBe(first);
+    expect(await manager.resolveSource(later)).toBe(second);
+  });
+
+  it('keeps the pinned commit when the developer rewrites the branch afterwards', async () => {
+    const { ws, commit, branch } = await developed();
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    await git('-C', ws.path, 'reset', '--quiet', '--hard', 'HEAD~1');
+    await commitFile(ws.path, 'other.txt', 'o\n', 'Rewritten');
+    expect(await manager.resolveSource(source)).toBe(commit);
+    await manager.ensure(key('qa'));
+    expect(await manager.checkoutReview(key('qa'), source, commit)).toEqual({ branch: null, head: commit });
+    // A commit no longer on the branch cannot be handed over any more.
+    expect(
+      (await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, `${'a'.repeat(40)}`))).code,
+    ).toBe('workspace_source_missing');
+  });
+
+  it('is not misled by an old worktree that has the same branch name', async () => {
+    const { commit, branch } = await developed();
+    const old = path.join(base, 'old-worktree');
+    await git('-C', projectRepo, 'worktree', 'add', '--quiet', '-b', branch, old);
+    const stale = await commitFile(old, 'stale.txt', 's\n', 'Stale work');
+
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    expect(await manager.resolveSource(source)).toBe(commit);
+    expect(await git('-C', projectRepo, 'rev-parse', `refs/heads/${branch}`)).toBe(stale);
+  });
+
+  it('keeps two developers of the same task apart and refuses to guess between them', async () => {
+    const a = await developed('dev', 'AR-4-change', 'a.txt');
+    const b = await developed('dev2', 'AR-4-change', 'b.txt');
+    const sa = await manager.publishTaskBranch(key('dev'), 'AR-4', a.branch, a.commit);
+    const sb = await manager.publishTaskBranch(key('dev2'), 'AR-4', b.branch, b.commit);
+    expect(sa.ref).not.toBe(sb.ref);
+
+    await manager.ensure(key('qa'));
+    expect((await refusal(manager.findTaskBranch(key('qa'), 'AR-4'))).code).toBe('workspace_source_missing');
+    const named = await manager.findTaskBranch(key('qa'), 'AR-4', b.commit);
+    expect(named?.source).toEqual(sb);
+  });
+
+  it('lets a reviewer find the one handed-over commit of a task', async () => {
+    const { commit, branch } = await developed();
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    await manager.ensure(key('qa'));
+    expect(await manager.findTaskBranch(key('qa'), 'AR-4')).toEqual({ branch: 'AR-4', source });
+    expect(await manager.findTaskBranch(key('qa'), 'AR-5')).toBeNull();
+  });
+
+  it('refuses a commit that is not on the task branch or not in the workspace', async () => {
+    const { ws, branch } = await developed();
+    await git('-C', ws.path, 'checkout', '--quiet', '-b', 'AR-4-side', 'main');
+    const side = await commitFile(ws.path, 'side.txt', 's\n', 'Side');
+    await git('-C', ws.path, 'checkout', '--quiet', branch);
+
+    expect((await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, side))).code).toBe(
+      'workspace_source_missing',
+    );
+    expect((await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, 'b'.repeat(40)))).code).toBe(
+      'workspace_source_missing',
+    );
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/')).toBe('');
+  });
+
+  it('refuses a bad request: object id, task, branch, other project, ref injection', async () => {
+    const { commit, branch } = await developed();
+    const bad = (taskKey: string, br: string, c: string) =>
+      refusal(manager.publishTaskBranch(key('dev'), taskKey, br, c));
+    expect((await bad('AR-4', branch, commit.slice(0, 12))).code).toBe('workspace_invalid');
+    expect((await bad('AR-4', branch, 'refs/heads/main')).code).toBe('workspace_invalid');
+    expect((await bad('AR-4', 'main', commit)).code).toBe('workspace_invalid');
+    expect((await bad('AR-5', branch, commit)).code).toBe('workspace_invalid');
+    expect((await bad('OT-4', 'OT-4-change', commit)).code).toBe('workspace_invalid');
+    expect((await bad('AR-4/../x', branch, commit)).code).toBe('workspace_invalid');
+    expect((await bad('AR-4', 'AR-4-x..y', commit)).code).toBe('workspace_invalid');
+    expect((await bad('AR-4', 'AR-4-x y', commit)).code).toBe('workspace_invalid');
+    expect((await refusal(manager.publishTaskBranch(key('../dev'), 'AR-4', branch, commit))).code).toBe(
+      'workspace_invalid',
+    );
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/')).toBe('');
+  });
+
+  it('refuses a name that already holds another commit and leaves it as it was', async () => {
+    const { commit, branch } = await developed();
+    const ref = `${SNAPSHOTS}/dev/AR-4/${commit}`;
+    const main = await git('-C', projectRepo, 'rev-parse', 'main');
+    await git('-C', projectRepo, 'update-ref', ref, main);
+    expect((await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit))).code).toBe(
+      'workspace_source_missing',
+    );
+    expect(await git('-C', projectRepo, 'rev-parse', ref)).toBe(main);
+  });
+
+  it('refuses a workspace that is a symbolic link', async () => {
+    const { ws, commit, branch } = await developed();
+    const real = path.join(base, 'real-clone');
+    await rename(ws.path, real);
+    await symlink(real, ws.path);
+    expect((await refusal(manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit))).code).toBe(
+      'workspace_invalid',
+    );
+    expect(await git('-C', projectRepo, 'for-each-ref', 'refs/projectman/')).toBe('');
   });
 });

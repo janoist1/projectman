@@ -4,6 +4,12 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'web_push_unavailable',
+  'web_push_endpoint_invalid',
+  'web_push_device_limit',
+  'web_push_quiet_hours_invalid',
+  'web_push_integrator_refused',
+  'web_push_test_too_soon',
   'operator_knowledge_invalid',
   'operator_knowledge_unavailable',
   'operator_knowledge_stale',
@@ -20,8 +26,14 @@ export const ERROR_CODES = [
   'task_not_merged',
   'integrator_key_invalid',
   'integrator_https_required',
+  'invalid_event_cursor',
+  'event_cursor_expired',
   'integrator_not_allowed',
+  'operator_grant_owner_only',
+  'operator_grant_inactive',
   'owner_approval_required',
+  'integrator_read_only',
+  'merge_queue_conflict',
   'owner_login_required',
   // Requests, login and access
   'bad_request',
@@ -161,6 +173,7 @@ export const ERROR_CODES = [
   // question is not in screening; the outcome's fields do not fit; the question may not be asked again unscreened.
   'todo_reason_required',
   'question_not_screening',
+  'question_group_incompatible',
   'invalid_outcome_fields',
   'reask_not_allowed',
   'ai_approval_forbidden',
@@ -204,12 +217,17 @@ export const ERROR_CODES = [
   'workspace_busy',
   'workspace_dirty',
   'workspace_fetch_failed',
+  'workspace_dependencies_pending',
+  'workspace_dependencies_failed',
   'workspace_branch_missing',
   'workspace_source_missing',
   // The fix round limit (PM-262): the card is not held, the caller does not decide it, nobody can plan.
   'fix_limit_not_held',
   'fix_limit_not_decider',
   'fix_limit_no_planner',
+  // Passing a held card to the people needs the lead's judgement, and its recommendation an executable outcome (PM-714).
+  'fix_limit_assessment_required',
+  'fix_limit_invalid_recommendation',
   // The server's full test of the pinned commit (PM-217) has not ended: the review start waits for it.
   'full_test_pending',
   // The session's engine is not connected (PM-311): the start waits for it.
@@ -262,6 +280,27 @@ export const ERROR_CODES = [
   'release_empty',
   'release_commit_unknown',
   'release_state_conflict',
+  // The hybrid release's durable deployment (PM-752): another attempt or a different request holds the
+  // slot, the target or the engine is not the configured one, a foreign pause is open, the work is not
+  // drained, the deployment waits for a person's recovery, the protocol is not available for this
+  // instance, the artifact differs from the bound one.
+  'release_deployment_conflict',
+  'release_target_mismatch',
+  'release_pause_conflict',
+  'release_not_drained',
+  'release_recovery_required',
+  'release_protocol_unavailable',
+  'release_artifact_changed',
+  'release_engine_mismatch',
+  // The protected administration adapter of the hub and of an engine (PM-763): no supervisor, or an engine
+  // that does not offer it (503); the target or the command is not the one the supervisor serves (409); the
+  // operation id is held by another command or another operation is running (409); the expected boot is
+  // stale (409); the operation failed on the machine.
+  'administration_unavailable',
+  'administration_target_mismatch',
+  'administration_operation_conflict',
+  'administration_boot_mismatch',
+  'administration_failed',
   // Feedback marks (PM-506): the project has no surface set up (409); the surface or the mark is unknown
   // (404); the member may not mark (403, the reason in `details.reason`); only a processor decides (403); the
   // page is not on an allowed address (403); the launch code or the tool session is not valid (401); too
@@ -288,6 +327,32 @@ export const ERROR_CODES = [
   'task_not_found',
   // Two feedback surfaces with the same id or address.
   'duplicate_feedback_surface',
+  // Super mode durable handoff (PM-762).
+  // The same request id arrived with another command (409).
+  'super_request_conflict',
+  // The configuration or the target changed since the handoff or the owner's answer (409).
+  'super_operation_stale',
+  // Another client already executes the handoff (409).
+  'super_handoff_busy',
+  // The handoff or its operation is finished and cannot run again (409).
+  'super_handoff_closed',
+  // The owner's question about the operation is still open (409).
+  'super_owner_decision_pending',
+  // The owner did not answer in time (409).
+  'super_operation_expired',
+  // No executor is registered for the command in this installation (503).
+  'super_executor_unavailable',
+  // The operate operation is not executed in super mode yet (422, PM-831).
+  'super_operation_unsupported',
+  // The answer cannot be relayed for the owner (403).
+  'super_relay_refused',
+  // History search (PM-786).
+  // The search index cannot be used now (503).
+  'history_unavailable',
+  // The document copy changed since the search that named the commit; search again (409).
+  'history_source_changed',
+  // The private search statistics are not for this caller or this request (403, PM-787).
+  'history_stats_forbidden',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

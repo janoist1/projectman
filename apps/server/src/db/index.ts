@@ -1,4 +1,7 @@
 import { createAttachmentRepository } from './attachments';
+import { createWebPushRepository } from './web-push';
+export { pushDeviceView } from './web-push';
+export type { PushDeviceRecord, PushItemRecord } from './web-push';
 import { createMessageAttachmentRepository } from './message-attachments';
 export type {
   MessageAttachmentRecord,
@@ -8,6 +11,16 @@ export type {
 import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
+import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
+import { createOperatorGrantRepository } from './operator-grants';
+import { createSuperAuditRepository } from './super-audit';
+import { createSuperHandoffRepository } from './super-handoffs';
+export type {
+  StoredSuperHandoff,
+  StoredSuperOperation,
+  SuperHandoffPatch,
+  SuperOperationPatch,
+} from './super-handoffs';
 import { createBoundaryRepository } from './boundary';
 import { createFeedbackRepository } from './feedback';
 export type {
@@ -19,7 +32,37 @@ export type {
   FeedbackSessionRecord,
   StoredFeedbackScreenshot,
 } from './feedback';
+import { createHistoryRepository } from './history';
+export { HISTORY_INDEX_VERSION, historyDocumentEntityId, historySourceId } from './history';
+export type {
+  HistoryCandidateQuery,
+  HistoryDirtyRow,
+  HistoryDocStateRow,
+  HistoryDocumentRow,
+  HistoryDocumentWrite,
+  HistoryIndexStateRow,
+  HistoryRepository,
+} from './history';
+export { createHistorySemanticRepository, historyContentHash, historyFullText } from './history-semantic';
+export type {
+  HistorySemanticBackfillState,
+  HistorySemanticChunkWrite,
+  HistorySemanticDirtyRow,
+  HistorySemanticDocument,
+  HistorySemanticRepository,
+  HistorySemanticScanQuery,
+  HistorySemanticScanRow,
+  HistorySemanticSourceState,
+} from './history-semantic';
+import { createHistorySearchRepository } from './history-searches';
+export type {
+  HistorySearchCursorKey,
+  HistorySearchPeriod,
+  HistorySearchRecord,
+  HistorySearchRepository,
+} from './history-searches';
 import { createFullTestRunRepository } from './full-test-runs';
+import { createMergeCheckRunRepository } from './merge-check-runs';
 import { createEmailLoginRepository } from './email-login';
 export { EMAIL_LOGIN_MAX_FAILED_ATTEMPTS } from './email-login';
 export type { EmailLoginCodeRecord, EmailLoginEventKind } from './email-login';
@@ -41,6 +84,9 @@ import { createOperatorSignalRepository } from './operator-signals';
 export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
+import { createProjectChangeEventRepository } from './project-change-events';
+export type { ProjectChangeRow } from './project-change-events';
+import { createReleaseDeploymentRepository } from './release-deployments';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
 import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
@@ -49,6 +95,7 @@ export type { MergeTrainMember, MergeTrainRecord } from './merge-trains';
 export { mergeState, mergedState } from './task-merges';
 export type { MergeRecord } from './task-merges';
 import { createScheduleRepository } from './schedules';
+import { createObligationRepository } from './obligations';
 import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
 import { createSessionCleanupRepository } from './session-cleanups';
@@ -63,18 +110,21 @@ import { createTimelineRepository } from './timeline';
 import { createTokenUsageRepository } from './token-usage';
 import { createAuthSessionRepository, createUserRepository } from './users';
 
-export { openDatabase, migrate, schemaVersion } from './database';
+export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion } from './database';
 export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord, AttachmentState, StoredAttachment } from './attachments';
 export type { DeferredStartRecord } from './deferred-starts';
+export type { StoredSuperAudit } from './super-audit';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
 export type { OperatorRequestRecord, OperatorStepRecord } from './operator-requests';
 export type { PauseRecord, SessionPauseRecord, SessionPausePatch } from './pauses';
 export type { ReviewPinRecord } from './review-pins';
+export type { DeploymentRequestRecord } from './release-deployments';
 export type { TaskCoverRecord } from './task-covers';
 export type { TaskFixLimitRecord } from './fix-limits';
 export type { FullTestRunRecord } from './full-test-runs';
+export type { MergeCheckRunEnd, MergeCheckRunQuery, MergeCheckRunStart } from './merge-check-runs';
 export type { TaskLoopRecord } from './task-loops';
 export type { TaskHandoffRow } from './task-handoffs';
 export type { SeniorWaitDecision, SeniorWaitEndReason, SeniorWaitRecord } from './senior-waits';
@@ -88,9 +138,14 @@ export { encodeWorkItem, decodeWorkItem } from './sessions';
 export function createRepositories(db: Db) {
   return {
     db,
+    webPush: createWebPushRepository(db),
     engines: createEngineRepository(db),
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
+    integratorKeyAudit: createIntegratorKeyAuditRepository(db),
+    operatorGrants: createOperatorGrantRepository(db),
+    superAudit: createSuperAuditRepository(db),
+    superHandoffs: createSuperHandoffRepository(db),
     invitations: createInvitationRepository(db),
     emailLogin: createEmailLoginRepository(db),
     authSessions: createAuthSessionRepository(db),
@@ -107,17 +162,21 @@ export function createRepositories(db: Db) {
     taskMerges: createTaskMergeRepository(db),
     mergeTrains: createMergeTrainRepository(db),
     releases: createReleaseRepository(db),
+    releaseDeployments: createReleaseDeploymentRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),
     taskFixLimits: createTaskFixLimitRepository(db),
     taskHandoffs: createTaskHandoffRepository(db),
     projectFocus: createProjectFocusRepository(db),
+    projectChanges: createProjectChangeEventRepository(db),
     operatorRequests: createOperatorRequestRepository(db),
     operatorSignals: createOperatorSignalRepository(db),
     seniorWaits: createSeniorWaitRepository(db),
+    obligations: createObligationRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),
+    mergeCheckRuns: createMergeCheckRunRepository(db),
     docWrites: createDocWriteRepository(db),
     decisionOffers: createDecisionOfferRepository(db),
     schedules: createScheduleRepository(db),
@@ -129,6 +188,8 @@ export function createRepositories(db: Db) {
     boundary: createBoundaryRepository(db),
     memberState: createMemberStateRepository(db),
     feedback: createFeedbackRepository(db),
+    history: createHistoryRepository(db),
+    historySearches: createHistorySearchRepository(db),
     /** Runs `fn` in a single SQLite transaction. */
     transaction<T>(fn: () => T): T {
       return db.transaction(fn)();

@@ -1,6 +1,15 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { CreateIntegratorKeyRequest, LoginRequest, routes, SetupRequest } from '@projectman/shared';
-import type { Me, SetupStatus } from '@projectman/shared';
+import {
+  CreateIntegratorAccessKeyRequest,
+  CreateIntegratorKeyRequest,
+  CreateOperatorGrantRequest,
+  IntegratorKeyAuditQuery,
+  LoginRequest,
+  routes,
+  SetupRequest,
+} from '@projectman/shared';
+import type { IntegratorChannel, Me, SetupStatus } from '@projectman/shared';
+import type { IntegratorPrincipal } from '../contracts';
 import { apiError, parseBody } from '../http';
 import { DomainError, forbidden } from '../kernel';
 import { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
@@ -41,10 +50,19 @@ declare module 'fastify' {
     /** Token of the login session (from the signed cookie), or null. */
     authToken: string | null;
     via: 'integrator' | null;
+    /** The authenticated integrator key (PM-757), set only by the key check below; null for a login. */
+    principal: IntegratorPrincipal | null;
   }
 }
 
 export const SESSION_COOKIE = 'pm_session';
+
+/** The CLI header is self-reported telemetry, never authority or evidence of a human caller. */
+export function integratorChannel(request: Pick<FastifyRequest, 'url' | 'headers'>): IntegratorChannel {
+  const path = request.url.split('?')[0] ?? '';
+  if (path === '/mcp') return 'mcp';
+  return path.startsWith('/api/') && request.headers['x-projectman-client'] === 'cli' ? 'cli' : 'rest';
+}
 
 /** /api routes reachable without a login. /hooks and /mcp authenticate with their own tokens. */
 const PUBLIC_ROUTES = new Set([
@@ -62,8 +80,12 @@ const PUBLIC_ROUTES = new Set([
 const MAX_FAILED_LOGINS = 10;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
-/** The prefixes whose routes the edge sets apart by the raw path: the API (origin check) and the engine's doors. */
-const LITERAL_PREFIXES = ['/api/', '/engine/'];
+/**
+ * The prefixes whose routes the edge sets apart by the raw path: the API (origin check), the engine's doors and the
+ * internal doors of the agents (`/hooks/`, the member MCP `/mcp/<token>`), which the tunnel answers 404 by the raw
+ * path; the bare `/mcp` of the integrator (PM-760) is no prefix of them.
+ */
+const LITERAL_PREFIXES = ['/api/', '/engine/', '/hooks/', '/mcp/'];
 
 /** True when the matched route sits under one of the literal prefixes but the request did not spell it that way. */
 function spelledDifferently(request: FastifyRequest): boolean {
@@ -133,6 +155,8 @@ export function registerAuth(
     setupCode?: SetupCode;
     /** The e-mail login of invited clients (PM-670); null or absent: it is unavailable. */
     emailLogin?: EmailLoginService | null;
+    /** Tells every logged-in client that the Operator's grant changed (PM-881). */
+    onOperatorGrantChanged?: () => void;
   },
 ): void {
   const {
@@ -143,6 +167,7 @@ export function registerAuth(
     publicBoard = false,
     setupCode,
     emailLogin = null,
+    onOperatorGrantChanged = () => undefined,
   } = deps;
   const loginAttempts = createAttemptLimiter({
     max: MAX_FAILED_LOGINS,
@@ -154,6 +179,7 @@ export function registerAuth(
   app.decorateRequest('user', null);
   app.decorateRequest('authToken', null);
   app.decorateRequest('via', null);
+  app.decorateRequest('principal', null);
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('referrer-policy', 'no-referrer');
@@ -175,19 +201,35 @@ export function registerAuth(
       return reply.code(403).send(apiError('invalid_origin', 'same-origin request required'));
     }
     const bearer = request.headers.authorization;
-    if (request.url.startsWith('/api/') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
+    const path = request.url.split('?')[0]!;
+    if ((request.url.startsWith('/api/') || path === '/mcp') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
       if (!(isLocalRequest(request) || requestProtocol(request) === 'https'))
         return reply
           .code(401)
           .send(apiError('integrator_https_required', 'Integrator key requires HTTPS or a local connection'));
       const secret = bearer.match(/^Bearer (pmi_[A-Za-z0-9_-]+)$/i)?.[1];
-      const user = secret ? auth.resolveIntegratorKey(secret) : null;
-      if (!user)
+      const principal = secret ? auth.resolveIntegratorCredential(secret, integratorChannel(request)) : null;
+      if (!principal)
         return reply
           .code(401)
           .send(apiError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired'));
-      request.user = user;
+      // The bearer MCP endpoint (`/mcp`) filters its tools by the key's mode itself (PM-760).
+      // The grant's state is readable with any key; its routes refuse a key themselves (`operator_grant_owner_only`).
+      if (
+        principal.mode !== 'legacy' &&
+        path !== routes.operatorGrant() &&
+        path !== routes.operatorGrantAudit() &&
+        (path.startsWith('/api/auth/') ||
+          path === routes.me() ||
+          path === routes.logout() ||
+          path === '/api/setup')
+      )
+        return reply
+          .code(403)
+          .send(apiError('integrator_not_allowed', 'Integrator execution policy is not available'));
+      request.user = auth.user(principal.userId);
       request.via = 'integrator';
+      request.principal = principal;
     }
     const raw = request.via ? null : request.cookies[SESSION_COOKIE];
     if (raw) {
@@ -301,4 +343,69 @@ export function registerAuth(
     app.log.info({ prefix: key.prefix, userId }, 'Integrator key revoked');
     return { key };
   });
+
+  app.get(routes.integratorKeys(), async (request) => ({
+    keys: auth.integratorAccessKeys(keyOwner(request)),
+  }));
+  app.post(routes.integratorKeys(), async (request, reply) => {
+    const userId = keyOwner(request);
+    const body = parseBody(CreateIntegratorAccessKeyRequest, request.body);
+    const created = auth.createIntegratorAccessKey(userId, body);
+    app.log.info({ prefix: created.key.prefix, mode: created.key.mode, userId }, 'Integrator key created');
+    return reply.code(201).send(created);
+  });
+  app.delete<{ Params: { id: string } }>(routes.integratorAccessKey(':id'), async (request) => {
+    const userId = keyOwner(request);
+    const key = auth.revokeIntegratorAccessKey(userId, request.params.id);
+    if (!key) throw new DomainError('not_found', 'Integrator key not found', { status: 404 });
+    app.log.info({ prefix: key.prefix, mode: key.mode, userId }, 'Integrator key revoked');
+    return { key };
+  });
+  app.get(routes.integratorKeyAudit(), async (request) => {
+    const userId = keyOwner(request);
+    return auth.integratorKeyAudit(userId, parseBody(IntegratorKeyAuditQuery, request.query));
+  });
+
+  // The Operator's grant for machine operations (PM-881): the host owner gives and takes it with their own login.
+  const grantOwner = (request: FastifyRequest): string => {
+    if (
+      request.via ||
+      !request.user ||
+      !auth.isHostOwner(request.user.id) ||
+      !auth.hasPassword(request.user.id)
+    )
+      throw forbidden(
+        'operator_grant_owner_only',
+        'Only the host owner may manage the Operator’s grant, with their own login',
+      );
+    return request.user.id;
+  };
+  const canManageGrant = (request: FastifyRequest): boolean => {
+    try {
+      grantOwner(request);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  app.get(routes.operatorGrant(), async (request) => ({
+    grant: auth.operatorGrantState(canManageGrant(request)),
+  }));
+  app.post(routes.operatorGrant(), async (request, reply) => {
+    const userId = grantOwner(request);
+    const body = parseBody(CreateOperatorGrantRequest, request.body ?? {});
+    const grant = auth.grantOperator(userId, body.duration);
+    app.log.info({ grantId: grant.id, expiresAt: grant.expiresAt, userId }, 'Operator grant created');
+    onOperatorGrantChanged();
+    return reply.code(201).send({ grant: auth.operatorGrantState(true) });
+  });
+  app.delete(routes.operatorGrant(), async (request) => {
+    const userId = grantOwner(request);
+    const grant = auth.revokeOperatorGrant(userId);
+    if (!grant) throw new DomainError('not_found', 'No active Operator grant', { status: 404 });
+    app.log.info({ grantId: grant.id, userId }, 'Operator grant revoked');
+    onOperatorGrantChanged();
+    return { grant: auth.operatorGrantState(true) };
+  });
+  app.get(routes.operatorGrantAudit(), async (request) => auth.operatorGrantAudit(grantOwner(request)));
 }

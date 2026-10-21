@@ -22,6 +22,20 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
           .optional()
           .describe('How many lines to return, at most 2000 (default 2000).'),
       },
+      external: {
+        access: 'read',
+        modes: ['super', 'read'],
+        description:
+          "Read the decision log (decisions) or the roadmap (roadmap) as it is on the head of the project's default branch, fresh from the remote, as {doc, repo, path, commit, exists, total_lines, from_line, text}. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count (at most 2000); total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
+        async run({ ctx, args, handler }) {
+          const read = await handler.readProjectDoc(ctx, {
+            doc: args.doc,
+            ...(args.from_line !== undefined ? { fromLine: args.from_line } : {}),
+            ...(args.line_count !== undefined ? { lineCount: args.line_count } : {}),
+          });
+          return { structured: { ...read } };
+        },
+      },
       async run({ ctx, args, handler }) {
         const read = await handler.readProjectDoc(ctx, {
           doc: args.doc,
@@ -62,6 +76,20 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
           )
           .min(1)
           .max(20),
+      },
+      external: {
+        access: 'write',
+        modes: ['super'],
+        description:
+          "Replace text in the decision log and the roadmap as ONE commit on the default branch, pushed to its remote. Your authenticated super call is the owner's standing permission to write them; show the owner the text first when they asked you to. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go. Refused when a file changed since base_commit (docs_stale: read it again), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it answers {write_id, state: published|queued|running}; a queued or running one is read with get_project_doc_write. message is the commit subject: one line, English.",
+        async run({ ctx, args, handler }) {
+          const written = await handler.writeProjectDocs(ctx, {
+            baseCommit: args.base_commit,
+            message: args.message,
+            edits: args.edits,
+          });
+          return { structured: { ...written } };
+        },
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(

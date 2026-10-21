@@ -10,7 +10,7 @@ import {
 } from '../auth';
 import type { AuthService } from '../auth';
 import type { ApiDomain } from './ports';
-import { currentUser, requireAccess, requireOwnLogin } from './context';
+import { authenticatedUser, requireAccess, requireOwnLogin } from './context';
 import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
@@ -35,7 +35,7 @@ export function registerInvitationRoutes(
     const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
     requireOwnLogin(access, 'invitations');
     const body = parseBody(CreateInviteRequest, request.body);
-    const invite = await invitations.create(request.params.key, body, currentUser(request));
+    const invite = await invitations.create(request.params.key, body, authenticatedUser(request));
     return reply.code(201).send(invite);
   });
   app.get<ProjectParams>(routes.invitations(':key'), async (request) => {

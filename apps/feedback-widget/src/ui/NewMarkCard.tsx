@@ -7,6 +7,7 @@ import { CloseButton, Dialog } from './Dialog';
 import { Avatar, colorVar } from './common';
 import { useViewTick } from './hooks';
 import { cardPlace, revealScroll } from './layout';
+import { browserAskKey, browserOffer, shotNote } from './shot-offer';
 
 /** The new-mark card: what was marked, the text, the screenshot switch and the send row. */
 export function NewMarkCard({
@@ -49,8 +50,16 @@ export function NewMarkCard({
     void controller.sendMark();
   };
 
+  // After a browser picture the cursor is back in the text, where the user left off.
+  const browserWas = useRef(draft.shot.browser);
+  useEffect(() => {
+    if (browserWas.current === 'asking' && draft.shot.browser === 'idle') field.current?.focus();
+    browserWas.current = draft.shot.browser;
+  }, [draft.shot.browser]);
+
   const shotFailed = draft.shot.status === 'failed';
-  const shotWaiting = draft.shot.status === 'pending';
+  const note = shotNote(draft, state.canShare);
+  const offer = browserOffer(draft, state.canShare, state.sharing);
   const sendLabel = draft.sending ? 'new.sending' : draft.error ? 'new.retry' : 'new.send';
 
   return (
@@ -105,24 +114,46 @@ export function NewMarkCard({
           />
           <span class="switch-text">{t('new.screenshot')}</span>
         </label>
-        <p class="shot-note" role="status">
-          {shotFailed
-            ? t('new.screenshotFailed')
-            : shotWaiting && draft.shotEnabled
-              ? t('new.screenshotWait')
-              : draft.shotEnabled
-                ? t('new.screenshotOn')
-                : t('new.screenshotOff')}
+        <p class={`shot-note${note.warn ? ' warn' : ''}`} role="status">
+          {t(note.key)}
         </p>
         {draft.shotEnabled && !shotFailed && (
           <div class="preview">
             {draft.shot.preview ? (
-              <img src={draft.shot.preview} alt={t('new.screenshotPreview')} />
+              <img key={draft.shot.source} src={draft.shot.preview} alt={t('new.screenshotPreview')} />
             ) : (
               <div class="sk" aria-hidden="true" />
             )}
           </div>
         )}
+        {offer === 'button' && (
+          <div class="shot-offer strong">
+            <button type="button" class="btn primary" onClick={() => void controller.captureWithBrowser()}>
+              {t('new.browserShot')}
+            </button>
+            <span class="hint-line">{t('new.browserShotHint')}</span>
+          </div>
+        )}
+        {offer === 'link' && (
+          <p class="shot-offer">
+            <span class="ask">{t(browserAskKey(draft))}</span>
+            <button type="button" class="link" onClick={() => void controller.captureWithBrowser()}>
+              {t('new.browserShotAction')}
+            </button>
+          </p>
+        )}
+        {offer === 'asking' &&
+          (shotFailed ? (
+            <div class="shot-offer strong">
+              <button type="button" class="btn primary" disabled aria-busy="true">
+                {t('new.browserShotAsking')}
+              </button>
+            </div>
+          ) : (
+            <p class="shot-offer" role="status">
+              {t('new.browserShotAsking')}
+            </p>
+          ))}
       </div>
       {draft.error && (
         <p class="err" role="alert">

@@ -51,6 +51,12 @@ modules:
       - apps/server/src/contracts/
 
   # Server: infra
+  - id: exec
+    area: infra
+    name: Egyszeri parancsok
+    summary: Külső parancsok indítása shell nélkül, kimenetkorláttal és TERM–KILL leállítással.
+    paths:
+      - apps/server/src/exec/
   - id: db
     area: infra
     kind: store
@@ -192,6 +198,12 @@ modules:
       - apps/server/src/context/
 
   # Server: service
+  - id: services/super-operator
+    area: service
+    name: Super Operátor
+    summary: A hitelesített tokenes végrehajtás és közös hozzáférés összeállítása.
+    paths:
+      - apps/server/src/services/super-operator/
   - id: services/merges
     area: service
     name: Összefésülések
@@ -216,6 +228,12 @@ modules:
     summary: A repók szerkezetleírója, a modulméretek és a kártyák fájljainak elhelyezése.
     paths:
       - apps/server/src/services/structure/
+  - id: services/web-push
+    area: service
+    name: Webes értesítések
+    summary: VAPID kulcs, eszközök és csendes órákhoz igazított kézbesítés a hubon.
+    paths:
+      - apps/server/src/services/web-push/
   - id: services/github
     area: service
     name: GitHub-szinkron
@@ -246,12 +264,24 @@ modules:
     summary: Ütemezett tagi munkák.
     paths:
       - apps/server/src/services/schedules/
+  - id: services/obligations
+    area: service
+    name: Kötelezettségek
+    summary: Az AI tagok nyitott lépéseinek felelőse és határideje, egy ébresztés, majd integrátori teendő.
+    paths:
+      - apps/server/src/services/obligations/
   - id: services/email-login
     area: service
     name: E-mailes belépés
     summary: Belépési kódok küldése és ellenőrzése e-mailben.
     paths:
       - apps/server/src/services/email-login/
+  - id: services/history
+    area: service
+    name: Előzménykereső
+    summary: A kártyák, jegyzetek, lezárt kérdések, üzenetek és dokumentumok tartós keresőindexe.
+    paths:
+      - apps/server/src/services/history/
   - id: services/operator
     area: service
     name: Operátor
@@ -290,12 +320,24 @@ modules:
     summary: Gépmérések és a folyamatok elemzése.
     paths:
       - apps/server/src/machine/
+  - id: administration
+    area: engine
+    name: Védett felügyelő
+    summary: A hub és a motor saját gépének védett, típusos felügyelete külön felügyelő folyamaton keresztül.
+    paths:
+      - apps/server/src/administration/
   - id: engine-link
     area: engine
     name: Motorkapocs
     summary: A szerver és a motor közötti RPC, szállítás és távoli adapterek.
     paths:
       - apps/server/src/engine-link/
+  - id: history-semantic
+    area: engine
+    name: Előzmény-beágyazás
+    summary: Helyi beágyazó munkaszál az előzmények jelentés szerinti kereséséhez.
+    paths:
+      - apps/server/src/history-semantic/
 
   # Server: connector
   - id: api
@@ -349,6 +391,9 @@ modules:
     paths:
       - apps/server/src/app.ts
       - apps/server/src/index.ts
+      - apps/server/src/start.ts
+      - apps/server/src/history-semantic-profile.ts
+      - apps/server/src/history-semantic-profile-control.ts
       - apps/server/src/engine-app.ts
       - apps/server/src/shutdown.ts
 
@@ -413,6 +458,12 @@ modules:
     summary: A csapat üzenetei és beszélgetései.
     paths:
       - apps/web/src/features/messages/
+  - id: web/notifications
+    area: ui
+    name: Értesítések
+    summary: A böngészőértesítések oldala (eszközök, tételfajták, csendes órák) és a Postafiók bekapcsoló sávja.
+    paths:
+      - apps/web/src/features/notifications/
   - id: web/operator
     area: ui
     name: Operátor
@@ -514,6 +565,7 @@ modules:
     summary: Telepítési fájlok – Mac, felhő, VM, Cloudflare és GitHub.
     paths:
       - deploy/
+      - .github/
   - id: docs
     area: tools
     name: Dokumentáció
@@ -537,8 +589,18 @@ modules:
     kind: external
     name: E-mail (SES)
     summary: Az AWS SES, amelyen át a belépési kódok és értesítések mennek.
+  - id: push-delivery
+    area: outside
+    kind: external
+    name: Web Push kézbesítők
+    summary: A böngészők saját HTTPS push-kézbesítői.
 
 links:
+  - from: services/web-push
+    to: push-delivery
+    label: Titkosított Web Push
+  - from: api
+    to: services/web-push
   # UI to server
   - from: web/shell
     to: api
@@ -663,5 +725,6 @@ ignore:
   - projectman.structure.yaml
   - apps/server/package.json
   - apps/server/tsconfig.json
+  - apps/server/models/history-model.json
   - apps/server/vitest.config.ts
   - apps/server/src/shutdown.test.ts

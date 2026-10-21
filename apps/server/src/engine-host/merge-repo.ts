@@ -68,7 +68,21 @@ export async function upstreamOf(repo: string, base: string): Promise<Upstream |
   return null;
 }
 
+const fetches = new Map<string, Promise<void>>();
+
+/** Every fetch of one registered repository shares a queue, including document reads and merges. */
 export async function fetchUpstream(repo: string, upstream: Upstream, timeoutMs: number): Promise<void> {
+  const previous = fetches.get(repo) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(() => fetchOne(repo, upstream, timeoutMs));
+  fetches.set(repo, next);
+  try {
+    await next;
+  } finally {
+    if (fetches.get(repo) === next) fetches.delete(repo);
+  }
+}
+
+async function fetchOne(repo: string, upstream: Upstream, timeoutMs: number): Promise<void> {
   const fetched = await runGit(
     repo,
     [

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execCommand, ExecCommandError } from '../exec';
 import { BILLING_ENV_VARS } from '../runner';
 
 /**
@@ -63,73 +63,51 @@ export function mergeGitEnv(extra: Record<string, string> = {}): NodeJS.ProcessE
   return { ...env, GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', LC_ALL: 'C', ...extra };
 }
 
-/** Runs git; resolves with the exit code and the output whatever it was (only a failure to start rejects). */
-export function runGit(
+/** Runs git; numeric exits and timeouts resolve, other process failures reject. */
+export async function runGit(
   cwd: string,
   args: readonly string[],
   options: GitRunOptions = {},
 ): Promise<GitResult> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      'git',
-      [...SAFE_GIT_CONFIG, '-C', cwd, ...args],
-      {
-        env: mergeGitEnv(options.env),
-        encoding: 'utf8',
-        timeout: options.timeoutMs ?? MERGE_GIT_TIMEOUT_MS,
-        maxBuffer: 64 * 1024 * 1024,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error && typeof error.code !== 'number' && !error.killed) {
-          reject(error);
-          return;
-        }
-        resolve({
-          code: error ? (typeof error.code === 'number' ? error.code : null) : 0,
-          stdout,
-          stderr,
-          timedOut: error?.killed === true,
-        });
-      },
-    );
-    if (options.input !== undefined) child.stdin?.end(options.input);
-    else child.stdin?.end();
-  });
+  try {
+    const { stdout, stderr, exitCode } = await execCommand('git', [...SAFE_GIT_CONFIG, '-C', cwd, ...args], {
+      env: mergeGitEnv(options.env),
+      timeoutMs: options.timeoutMs ?? MERGE_GIT_TIMEOUT_MS,
+      maxOutputBytes: 64 * 1024 * 1024,
+      okExitCodes: 'any',
+      input: options.input,
+    });
+    return { code: exitCode, stdout, stderr, timedOut: false };
+  } catch (error) {
+    if (!(error instanceof ExecCommandError) || error.reason !== 'timeout') throw error;
+    return { code: null, stdout: error.stdout.toString(), stderr: error.stderr, timedOut: true };
+  }
 }
 
 /** Runs git for its raw output: the standard output stays bytes (a file's content is not decoded here). */
-export function runGitBytes(
+export async function runGitBytes(
   cwd: string,
   args: readonly string[],
   options: Pick<GitRunOptions, 'timeoutMs' | 'env'> = {},
 ): Promise<{ code: number | null; stdout: Buffer; stderr: string; timedOut: boolean }> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      'git',
-      [...SAFE_GIT_CONFIG, '-C', cwd, ...args],
-      {
-        env: mergeGitEnv(options.env),
-        encoding: 'buffer',
-        timeout: options.timeoutMs ?? MERGE_GIT_TIMEOUT_MS,
-        maxBuffer: 64 * 1024 * 1024,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error && typeof error.code !== 'number' && !error.killed) {
-          reject(error);
-          return;
-        }
-        resolve({
-          code: error ? (typeof error.code === 'number' ? error.code : null) : 0,
-          stdout,
-          stderr: stderr.toString('utf8'),
-          timedOut: error?.killed === true,
-        });
-      },
-    );
-    child.stdin?.end();
-  });
+  try {
+    const { stdout, stderr, exitCode } = await execCommand('git', [...SAFE_GIT_CONFIG, '-C', cwd, ...args], {
+      env: mergeGitEnv(options.env),
+      encoding: 'buffer',
+      timeoutMs: options.timeoutMs ?? MERGE_GIT_TIMEOUT_MS,
+      maxOutputBytes: 64 * 1024 * 1024,
+      okExitCodes: 'any',
+    });
+    return { code: exitCode, stdout, stderr, timedOut: false };
+  } catch (error) {
+    if (!(error instanceof ExecCommandError) || error.reason !== 'timeout') throw error;
+    return {
+      code: null,
+      stdout: Buffer.isBuffer(error.stdout) ? error.stdout : Buffer.from(error.stdout),
+      stderr: error.stderr,
+      timedOut: true,
+    };
+  }
 }
 
 /** The end of a git output, at most `max` characters, without credentials. */

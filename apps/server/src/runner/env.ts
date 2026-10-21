@@ -11,43 +11,8 @@
  * host-session markers follows agent-office (MIT, src/server/workers.ts).
  */
 
-/** Variables that would move billing away from the subscription. Never passed on. */
-export const BILLING_ENV_VARS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'ANTHROPIC_BASE_URL',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
-  // Codex: CODEX_API_KEY overrides the ChatGPT login; voice falls back to OPENAI_API_KEY.
-  'CODEX_API_KEY',
-  // Takes precedence over stored Codex authentication, even with an ephemeral auth store.
-  'CODEX_ACCESS_TOKEN',
-  // AuthManager OAuth routing overrides must not redirect subscription credentials.
-  'CODEX_APP_SERVER_LOGIN_CLIENT_ID',
-  'CODEX_REFRESH_TOKEN_URL_OVERRIDE',
-  'CODEX_REVOKE_TOKEN_URL_OVERRIDE',
-  'OPENAI_API_KEY',
-  'OPENAI_BASE_URL',
-  'OPENAI_API_BASE',
-  'AZURE_OPENAI_API_KEY',
-  'AZURE_OPENAI_ENDPOINT',
-  'AZURE_OPENAI_AD_TOKEN',
-  // Gemini (Antigravity CLI): API keys, custom endpoints and the Vertex / enterprise / pay-as-you-go
-  // routes bill something other than the Google subscription.
-  'GEMINI_API_KEY',
-  'GOOGLE_API_KEY',
-  'GOOGLE_GEMINI_BASE_URL',
-  'GOOGLE_GENAI_USE_VERTEXAI',
-  'GOOGLE_GENAI_USE_ENTERPRISE',
-  'GOOGLE_APPLICATION_CREDENTIALS',
-  'GOOGLE_CLOUD_PROJECT',
-  'GOOGLE_CLOUD_LOCATION',
-  'AGY_ADC_AUTH',
-  'AGY_BUSINESS_PAYGO_TIER',
-  // NanoGPT: only the NanoGPT adapter hands the key back, as a trusted `extra`, to NanoGPT members.
-  'NANOGPT_API_KEY',
-] as const;
+import { BILLING_ENV_VARS } from '@projectman/shared';
+export { BILLING_ENV_VARS } from '@projectman/shared';
 
 /** Exact names set by a parent Claude Code / Agent SDK session, or that change the TUI. */
 const HOST_SESSION_VARS = new Set([
@@ -83,9 +48,22 @@ const HOST_SESSION_PREFIXES = [
   'PROJECTMAN_',
 ];
 
+/**
+ * Cloudflare Access service-token variables (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and the names a
+ * header-environment convention could give them: the integrator's second credential (PM-765). Matched without
+ * regard to case, with `-` read as `_`, so `CF-Access-Client-Secret` and `cf_access_client_secret` go too.
+ */
+const ACCESS_ENV_PREFIXES = ['CF_ACCESS_', 'CLOUDFLARE_ACCESS_'];
+
+function isAccessCredentialName(name: string): boolean {
+  const normal = name.toUpperCase().replace(/-/g, '_');
+  return ACCESS_ENV_PREFIXES.some((prefix) => normal.startsWith(prefix));
+}
+
 function isRemoved(name: string): boolean {
   if ((BILLING_ENV_VARS as readonly string[]).includes(name)) return true;
   if (HOST_SESSION_VARS.has(name)) return true;
+  if (isAccessCredentialName(name)) return true;
   return HOST_SESSION_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 

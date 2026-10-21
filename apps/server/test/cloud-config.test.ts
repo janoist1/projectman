@@ -209,6 +209,62 @@ describe('the validation', () => {
       expect(message).toContain(field);
   });
 
+  it('takes an optional release target (PM-749), and a file without one parses as before', () => {
+    expect(parseConfig(baseConfig(), HOME)).not.toHaveProperty('releaseTarget');
+    const target = { projectKey: 'PM', repo: 'projectman' };
+    expect(
+      parseConfig(
+        config((value) => (value.releaseTarget = target)),
+        HOME,
+      ).releaseTarget,
+    ).toEqual(target);
+  });
+
+  it.each([
+    ['a lowercase project key', { projectKey: 'pm', repo: 'projectman' }],
+    ['a project key with a slash', { projectKey: 'P/M', repo: 'projectman' }],
+    ['a repository with a slash', { projectKey: 'PM', repo: 'a/b' }],
+    ['a repository with upper case', { projectKey: 'PM', repo: 'ProjectMan' }],
+    ['a repository with a space', { projectKey: 'PM', repo: 'project man' }],
+    ['a line break', { projectKey: 'PM', repo: 'projectman\nEVIL=1' }],
+    ['an empty repository', { projectKey: 'PM', repo: '' }],
+    ['a missing repository', { projectKey: 'PM' }],
+    ['another field', { projectKey: 'PM', repo: 'projectman', branch: 'main' }],
+    ['a string', 'PM/projectman'],
+  ])('refuses a release target with %s', (_name, target) => {
+    expect(refusal(config((value) => (value.releaseTarget = target)))).toContain('releaseTarget');
+  });
+
+  it('takes an optional hybrid binding (PM-752) that needs a release target and a remote engine', () => {
+    const target = { projectKey: 'PM', repo: 'projectman' };
+    const hybrid = { engineId: 'eng_abcdefghijkl', targetHash: 'a'.repeat(64) };
+    expect(parseConfig(baseConfig(), HOME)).not.toHaveProperty('hybrid');
+    expect(
+      parseConfig(
+        config((value) => {
+          value.releaseTarget = target;
+          value.hybrid = hybrid;
+        }),
+        HOME,
+      ).hybrid,
+    ).toEqual(hybrid);
+    expect(refusal(config((value) => (value.hybrid = hybrid)))).toContain('hybrid: needs releaseTarget');
+    for (const bad of [
+      { ...hybrid, engineId: 'local' },
+      { ...hybrid, targetHash: 'abc' },
+      { ...hybrid, extra: 1 },
+      { engineId: hybrid.engineId },
+    ])
+      expect(
+        refusal(
+          config((value) => {
+            value.releaseTarget = target;
+            value.hybrid = bad;
+          }),
+        ),
+      ).toContain('hybrid');
+  });
+
   it('refuses an unknown field and a wrong version', () => {
     expect(refusal(config((value) => (value.aws.size = 'large')))).toContain('aws');
     expect(refusal(config((value) => (value.extra = true)))).toContain('extra');
@@ -298,6 +354,42 @@ describe('the validation', () => {
     ).toBe('public');
     expect(refusal(config((value) => (value.access.boardMode = 'public')))).toContain('access.boardMode');
     expect(refusal(config((value) => (value.access.boardMode = 'open')))).toContain('access.boardMode');
+  });
+
+  describe('the SES profile (PM-729)', () => {
+    const ses = { region: 'eu-west-1', domain: 'example.com', from: 'board@example.com' };
+    const withSes = (profile: unknown, awsProfile?: string) =>
+      config((value) => {
+        if (awsProfile) value.aws.profile = awsProfile;
+        value.ses = profile === undefined ? ses : { ...ses, profile };
+      });
+
+    it('falls back to aws.profile, so an old configuration resolves to the same target', () => {
+      expect(parseConfig(withSes(undefined, 'aroom'), HOME).ses).toEqual({ ...ses, profile: 'aroom' });
+      expect(parseConfig(withSes(undefined), HOME).ses).toEqual({ ...ses, profile: 'i' });
+    });
+
+    it('takes an explicit profile, including the registrar profile i beside another aws.profile', () => {
+      expect(parseConfig(withSes('i', 'aroom'), HOME).ses?.profile).toBe('i');
+      expect(parseConfig(withSes('other', 'aroom'), HOME).ses?.profile).toBe('other');
+      expect(parseConfig(withSes('i', 'aroom'), HOME).aws.profile).toBe('aroom');
+    });
+
+    it.each(['', '   ', null, 7])('refuses the profile %j on its own path', (profile) => {
+      expect(refusal(withSes(profile, 'aroom'))).toContain('ses.profile');
+    });
+
+    it('keeps SES off without a block and keeps the EC2 compute profile rule', () => {
+      expect(parseConfig(baseConfig(), HOME).ses).toBeUndefined();
+      const ec2 = (profile: string | undefined) =>
+        config((value) => {
+          value.aws = { ...value.aws, compute: 'ec2', profile, ec2: EC2_CONFIG };
+          value.ses = { ...ses, profile: 'i' };
+        });
+      expect(refusal(ec2(undefined))).toContain('aws.profile');
+      expect(refusal(ec2('i'))).toContain('aws.profile');
+      expect(parseConfig(ec2('aroom'), HOME).ses?.profile).toBe('i');
+    });
   });
 
   it('checks the hosted zone id and the session duration', () => {

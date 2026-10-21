@@ -1,0 +1,22 @@
+.actor {
+  display: inline;
+}
+.badge {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  min-height: 36px;
+  margin-block: -8px;
+}
+.muted {
+  color: var(--c-ink-3);
+  font-weight: 400;
+}
+.detail {
+  display: block;
+  color: var(--c-ink-3);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}

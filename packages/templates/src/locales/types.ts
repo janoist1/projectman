@@ -29,6 +29,12 @@ export type SpecialtyKey = 'frontend' | 'backend';
 /** Members a template hires under a display name of their own (not the role's name). */
 export type TemplateMemberKey = 'daily_worker';
 
+export interface WebPushText {
+  title: Record<'question' | 'decision' | 'approval' | 'permission' | 'release', string>;
+  digest: { title: string; body: string };
+  test: { title: string; body: string };
+}
+
 /** Labels the templates may ship; rules live in ../labels.ts, words in the locales. */
 export type StandardLabelId =
   | 'code-review-ok'
@@ -62,12 +68,72 @@ export interface RoleText {
 }
 
 /**
+ * The text of a fix round limit decision item (PM-714): the subject, the body the integrator reads over MCP
+ * and the CLI, and the label and consequence of each option. `{name}` style placeholders are filled by
+ * `apps/server/src/core/inbox/fix-limit-text.ts`.
+ */
+export interface FixLimitItemText {
+  title: string;
+  summary: string;
+  /** The counted rounds named in the summary; only the ones that are not zero. */
+  parts: { changes: string; design: string; testsFailed: string; sendBacks: string };
+  reasons: {
+    no_ai_decider: string;
+    passed_on: string;
+    extra_exhausted: string;
+    again: string;
+    decider_timeout: string;
+  };
+  /** The extra rounds given of the three allowed; `over` when people gave more than that. */
+  extras: { left: string; none: string; over: string };
+  verdict: { title: string; repeat: string; now: string };
+  rounds: {
+    heading: string;
+    technicalCount: string;
+    /** The marker before a counted round: its number. */
+    counted: string;
+    technicalMarker: string;
+    grantMarker: string;
+    kind: {
+      code_review: string;
+      design_review: string;
+      tests_failed: string;
+      tests_failed_command: string;
+      tests_failed_commit: string;
+      send_back: string;
+      send_back_no_note: string;
+      branch_moved: string;
+      branch_moved_moves: string;
+      extra_round: string;
+      extra_round_over: string;
+    };
+    notCounted: string;
+    note: string;
+  };
+  options: {
+    heading: string;
+    recommended: string;
+    unavailable: { replan: string; reassign: string };
+    label: { replan: string; reassign: string; another_round: string };
+    consequence: {
+      replan: string;
+      reassign: string;
+      another_round: string;
+      another_round_over: string;
+    };
+  };
+  /** The line that says who the item is for and how it moves on. */
+  footer: { integrator: string; owner: string };
+}
+
+/**
  * Default display names a template writes into a new project's configuration (after that
  * they are ordinary configuration data the team may rename), and the texts of the built-in
  * roles, duties and standard labels. Template names and descriptions are UI texts of the web
  * app (`TemplateSummary.nameKey` / `descriptionKey`).
  */
 export interface TemplateLocale {
+  structuralReview: { question: string; details: string; approve: string; reject: string };
   /** Primary language subtag (BCP 47), e.g. "hu". */
   language: string;
   /** Time zone (IANA) of projects created in this language. */
@@ -103,6 +169,9 @@ export interface TemplateLocale {
     subject: string;
     text: (input: { code: string; validUntil: string }) => string;
   };
+  webPush: WebPushText;
+  /** The fix round limit decision item the server makes (PM-714). */
+  fixLimitItem: FixLimitItemText;
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
   stageApproval: (stageName: string) => string;
   /** Display name of a specialist, e.g. ("Frontend", "Developer") -> "Frontend developer". */

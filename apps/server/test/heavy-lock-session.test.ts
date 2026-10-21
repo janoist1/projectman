@@ -69,7 +69,7 @@ describe('the heavy-run queue folder of a Codex developer session (PM-346)', () 
     };
     const { args } = buildCodexArgs({
       spec: { ...spec, policy },
-      hookUrl: 'http://127.0.0.1:4700/hooks/secret',
+      hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
       permissionTimeoutMs: 40_000,
       realCwd: spec.cwd,
     });

@@ -39,6 +39,8 @@ export interface ServiceOptions {
   out: (text: string) => void;
   /** Waits between the retries of `bootstrap` (default: a blocking wait; tests pass a no-op). */
   sleep?: (ms: number) => void;
+  /** How many times `bootstrap` is tried while launchd still tears the old job down (default 5; PM-751 waits longer). */
+  bootstrapTries?: number;
 }
 
 /** launchctl's "5: Input/output error": the old job is still being torn down; a short wait cures it. */
@@ -174,7 +176,8 @@ export function installService(options: ServiceOptions): void {
   // A loaded job is unloaded first, so that the new file is the one launchd reads (the result is not an error).
   options.launchctl(['bootout', domainTarget(options.uid)]);
   let loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, paths.plist]);
-  for (let tries = 1; loaded.status === BOOTSTRAP_BUSY && tries < BOOTSTRAP_TRIES; tries += 1) {
+  const tryLimit = options.bootstrapTries ?? BOOTSTRAP_TRIES;
+  for (let tries = 1; loaded.status === BOOTSTRAP_BUSY && tries < tryLimit; tries += 1) {
     (options.sleep ?? blockingSleep)(BOOTSTRAP_WAIT_MS);
     loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, paths.plist]);
   }

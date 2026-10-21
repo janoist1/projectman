@@ -35,6 +35,21 @@ describe('approval questions', () => {
     expect(questionPayloadOf(item(result.inboxItemId))?.approvalLabel).toBe('merge-ok');
   });
 
+  it('makes a question that asks for an approval an owner decision, whatever purpose the asker names', async () => {
+    await setup();
+    const approval = await h.domain.teamTools.askHuman(dev, {
+      question: 'merge-ok?',
+      responsePurpose: 'information',
+    });
+    expect(approval.approvalLabel).toBe('merge-ok');
+    expect(questionPayloadOf(item(approval.inboxItemId))?.responsePurpose).toBe('owner_decision');
+    const plain = await h.domain.teamTools.askHuman(dev, {
+      question: 'Which font?',
+      responsePurpose: 'information',
+    });
+    expect(questionPayloadOf(item(plain.inboxItemId))?.responsePurpose).toBe('information');
+  });
+
   it('closes all matching questions after a manual label change without answering or waking the asker', async () => {
     await setup();
     const first = await ask('merge-ok?');

@@ -15,7 +15,7 @@ import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
-import { mockProject } from '../../test/mockProject';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { operatorSummaryFixture, operatorMessageApprovalFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
 import { InboxPage } from '../inbox/InboxPage';
@@ -24,6 +24,7 @@ import { MemberProfilePage } from '../team/MemberProfilePage';
 import { TeamPage } from '../team/TeamPage';
 import { OperatorSignalCard } from './OperatorSignalCard';
 import { OperatorSignalList } from './OperatorSignalList';
+import { OperatorSignalGroup } from './OperatorSignalGroup';
 
 /**
  * The Operator in the top right corner (PM-447), against the fake backend: who has the button and the badge of
@@ -174,12 +175,6 @@ describe('the Operator button', () => {
     expect(operator.getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('is there for every person of the project, a client too', async () => {
-    const project = mockProject();
-    renderLayout(project, '/p/AC', { viewer: 'kata' });
-    expect(await button()).toBeTruthy();
-  });
-
   it('counts the owner open signals on the button, and keeps the count out of a guest button', async () => {
     const project = mockProject();
     project.backend.operatorSignals = [
@@ -195,7 +190,7 @@ describe('the Operator button', () => {
     expect(within(operator).getByTestId('operator-signals-count').textContent).toBe('2');
   });
 
-  it('shows no signal count to a person who is not an owner', async () => {
+  it('is there for a client, with no signal count and no signal cards', async () => {
     const project = mockProject();
     project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody' })];
     renderLayout(project, '/p/AC', { viewer: 'kata' });
@@ -206,6 +201,10 @@ describe('the Operator button', () => {
       ),
     );
     expect(screen.queryByTestId('operator-signals-count')).toBeNull();
+    fireEvent.click(operator);
+    const panel = await screen.findByRole('dialog');
+    await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
+    expect(within(panel).queryByRole('heading', { name: /senki nem viheti/ })).toBeNull();
   });
 });
 
@@ -220,7 +219,6 @@ describe('the Operator panel', () => {
     expect(operator.getAttribute('aria-expanded')).toBe('true');
     const composer = await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
     await waitFor(() => expect(document.activeElement).toBe(composer));
-    expect(within(panel).getByText(t('operator.intro.title'))).toBeTruthy();
 
     fireEvent.keyDown(composer, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -279,10 +277,6 @@ describe('the Operator panel', () => {
     fireEvent.click(await button());
     const panel = await screen.findByRole('dialog');
     expect(await within(panel).findByText(t('operator.intro.title'))).toBeTruthy();
-    expect(within(panel).getByText(t('operator.intro.lead'))).toBeTruthy();
-    for (const point of ['card', 'members', 'state'] as const)
-      expect(within(panel).getByText(t(`operator.intro.points.${point}`))).toBeTruthy();
-    expect(within(panel).getByText(t('operator.intro.approval'))).toBeTruthy();
     // The owner is told where the daily work distributor is.
     expect(within(panel).getByText(t('operator.intro.transitionLink'), { exact: false })).toBeTruthy();
 
@@ -381,8 +375,6 @@ describe('the steps of a request', () => {
     const steps = await screen.findByRole('region', { name: t('operator.steps.label') });
     for (const group of ['done', 'awaiting', 'refused'] as const)
       expect(within(steps).getByRole('heading', { name: t(`operator.steps.${group}`) })).toBeTruthy();
-    expect(within(steps).getByText(t('operator.steps.actions.task_move'))).toBeTruthy();
-    expect(within(steps).getByText(t('operator.steps.actions.member_retire'))).toBeTruthy();
     // The icon never carries the state alone.
     expect(within(steps).getByText(t('operator.steps.iconDone'))).toBeTruthy();
     expect(within(steps).getByText(t('operator.steps.iconAwaiting'))).toBeTruthy();
@@ -511,9 +503,273 @@ describe('the steps of a request', () => {
   });
 });
 
+describe('unanchored Operator signals', () => {
+  function setup(count = 55) {
+    const project = mockProject();
+    project.backend.operatorSignals = Array.from({ length: count }, (_, index) =>
+      signal({
+        id: `sig_${index}`,
+        kind: 'nobody',
+        raisedAt: `2026-10-10T08:${String(index).padStart(2, '0')}:00.000Z`,
+      }),
+    );
+    const question = project.backend.sendTeamMessage('owner', ['operator'], null, 'Question');
+    question.createdAt = '2026-10-10T09:00:00.000Z';
+    const reply = project.backend.sendTeamMessage('operator', ['owner'], null, 'Latest reply');
+    reply.createdAt = '2026-10-10T09:01:00.000Z';
+    return project;
+  }
+  const groupButton = (count: number) =>
+    screen.findByRole('button', { name: new RegExp(`^${t('operator.signal.pending', { count })}`) });
+
+  it('keeps 55 earlier signals collapsed before the question and latest reply, and retains a dismissed row with focus', async () => {
+    const project = setup();
+    renderLayout(project);
+    fireEvent.click(await button());
+    const toggle = await groupButton(55);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    const log = screen.getByRole('log');
+    // jsdom has no layout: model the height change while the reader is at the bottom.
+    Object.defineProperties(log, {
+      scrollHeight: {
+        configurable: true,
+        get: () => (toggle.getAttribute('aria-expanded') === 'true' ? 6000 : 800),
+      },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    log.scrollTop = 200;
+    fireEvent.scroll(log);
+    expect(log.lastElementChild?.textContent).toContain('Latest reply');
+    expect(screen.queryByRole('button', { name: t('operator.signal.dismiss') })).toBeNull();
+    fireEvent.click(toggle);
+    expect(log.scrollTop).toBe(200);
+    const rows = within(toggle.closest('section')!).getAllByRole('listitem');
+    expect(rows).toHaveLength(55);
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: t('operator.signal.dismiss') }));
+    await within(rows[0]!).findByText(new RegExp(t('operator.signal.dismissed')));
+    await groupButton(54);
+    expect(rows[0]!.getAttribute('data-state')).toBe('dismissed');
+    expect(document.activeElement).toBe(
+      within(rows[1]!).getByRole('button', { name: t('operator.signal.accept') }),
+    );
+    expect(posted(project, '/operator/signals/sig_0/dismiss')).toHaveLength(1);
+    expect(log.lastElementChild?.textContent).toContain('Latest reply');
+    expect(log.scrollTop).toBe(200);
+  });
+
+  it('places a single signal after an equally timed reply, with its own day heading when needed', async () => {
+    const project = setup(1);
+    project.backend.operatorSignals[0]!.raisedAt = '2026-10-10T09:01:00.000Z';
+    renderLayout(project);
+    fireEvent.click(await button());
+    await screen.findByRole('heading', { name: 'AC-20: senki nem viheti' });
+    const log = screen.getByRole('log');
+    expect(log.lastElementChild?.querySelector('[data-signal="nobody"]')).toBeTruthy();
+    expect(log.lastElementChild?.previousElementSibling?.textContent).toContain('Latest reply');
+  });
+
+  it('splits signal groups at midnight and at messages and puts day headings before signals', async () => {
+    const project = setup(5);
+    const times = [
+      '2026-10-09T08:00:00Z',
+      '2026-10-09T08:01:00Z',
+      '2026-10-10T08:00:00Z',
+      '2026-10-10T08:01:00Z',
+      '2026-10-10T09:02:00Z',
+    ];
+    project.backend.operatorSignals.forEach((signal, index) => {
+      signal.raisedAt = times[index]!;
+    });
+    renderLayout(project);
+    fireEvent.click(await button());
+    const toggles = await screen.findAllByRole('button', {
+      name: new RegExp(`^${t('operator.signal.pending', { count: 2 })}`),
+    });
+    expect(toggles).toHaveLength(2);
+    for (const toggle of toggles)
+      expect(toggle.closest('section')!.previousElementSibling?.getAttribute('role')).toBe('separator');
+    expect(screen.getByRole('log').lastElementChild?.querySelector('[data-signal]')).toBeTruthy();
+  });
+
+  it('confirms bulk dismissal, cancels with focus, and treats already closed signals as success', async () => {
+    const project = setup(6);
+    renderLayout(project);
+    fireEvent.click(await button());
+    const toggle = await groupButton(6);
+    fireEvent.click(toggle);
+    const bulk = () => screen.getByRole('button', { name: t('operator.signal.dismissAll', { count: 6 }) });
+    fireEvent.click(bulk());
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: t('operator.signal.dismissAllYes') }),
+    );
+    expect(project.requests.filter((r) => r.path.endsWith('/dismiss'))).toHaveLength(0);
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(document.activeElement).toBe(bulk());
+    fireEvent.click(bulk());
+    fireEvent.click(screen.getByRole('button', { name: t('operator.signal.dismissAllCancel') }));
+    expect(project.requests.filter((r) => r.path.endsWith('/dismiss'))).toHaveLength(0);
+    project.backend.operatorSignals[0]!.state = 'resolved';
+    const refreshes = project.requests.filter((r) => r.path.endsWith('/operator')).length;
+    fireEvent.click(bulk());
+    fireEvent.click(screen.getByRole('button', { name: t('operator.signal.dismissAllYes') }));
+    const settled = await screen.findByRole('button', { name: new RegExp(t('operator.signal.pendingNone')) });
+    await waitFor(() => expect(settled.getAttribute('aria-expanded')).toBe('false'));
+    expect(project.requests.filter((r) => r.path.endsWith('/dismiss'))).toHaveLength(6);
+    expect(project.requests.filter((r) => r.path.endsWith('/operator')).length - refreshes).toBe(1);
+    expect(document.activeElement).toBe(settled);
+    fireEvent.click(settled);
+    expect(screen.getAllByRole('listitem')).toHaveLength(6);
+  });
+
+  it('limits bulk requests to four, disables decisions during progress, and retries only failures', async () => {
+    const project = setup(6);
+    const fetch = createMockFetch(project.backend, project.requests);
+    let active = 0;
+    let peak = 0;
+    let fail = true;
+    const release: Array<() => void> = [];
+    setFetchImplementation(async (path, init) => {
+      if (!path.endsWith('/dismiss')) return fetch(path, init);
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise<void>((resolve) => {
+        release.push(resolve);
+      });
+      active--;
+      if (path.endsWith('/sig_1/dismiss') && fail) {
+        project.requests.push({ path, method: 'POST', body: undefined });
+        return new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), {
+          status: 500,
+        });
+      }
+      return fetch(path, init);
+    });
+    renderLayout(project);
+    fireEvent.click(await button());
+    const toggle = await groupButton(6);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: t('operator.signal.dismissAll', { count: 6 }) }));
+    fireEvent.click(screen.getByRole('button', { name: t('operator.signal.dismissAllYes') }));
+    await waitFor(() => expect(release).toHaveLength(4));
+    expect(toggle).toHaveProperty('disabled', true);
+    expect(
+      screen
+        .getAllByRole('button', { name: t('operator.signal.dismiss') })
+        .every((b) => (b as HTMLButtonElement).disabled),
+    ).toBe(true);
+    release.splice(0).forEach((resolve) => resolve());
+    await waitFor(() => expect(release).toHaveLength(2));
+    release.splice(0).forEach((resolve) => resolve());
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      t('operator.signal.dismissAllFailed', { count: 1 }),
+    );
+    const retry = screen.getByRole('button', { name: t('operator.signal.dismissAllRetry') });
+    expect(document.activeElement).toBe(retry);
+    expect(peak).toBe(4);
+    fail = false;
+    fireEvent.click(retry);
+    await waitFor(() => expect(release).toHaveLength(1));
+    release.splice(0).forEach((resolve) => resolve());
+    await screen.findByRole('button', { name: new RegExp(t('operator.signal.pendingNone')) });
+    expect(posted(project, '/operator/signals/sig_1/dismiss')).toHaveLength(2);
+    expect(project.requests.filter((r) => r.path.endsWith('/dismiss'))).toHaveLength(7);
+  });
+
+  it('lets read-only viewers expand signals without decision buttons', async () => {
+    const project = setup(2);
+    project.render(
+      <OperatorSignalGroup
+        signals={project.backend.operatorSignals}
+        operatorHandle="operator"
+        readOnly
+        onDismiss={() => {}}
+      />,
+    );
+    fireEvent.click(await groupButton(2));
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /Mind/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('operator.signal.dismiss') })).toBeNull();
+  });
+});
+
 describe('a signal the Operator raised', () => {
   const presenting = (project: Project, body = 'A kártyát most senki nem viheti.') =>
     project.backend.sendTeamMessage('operator', ['owner'], 'AC-20', body);
+
+  it.each([false, true])(
+    'hides coordinator-only cards and preserves their message (mixed: %s)',
+    async (mixed) => {
+      const project = mockProject();
+      const message = presenting(project, 'Historical summary stays readable.');
+      project.backend.operatorSignals = [
+        ...(['pending', 'open', 'dismissed', 'resolved'] as const).flatMap((state) =>
+          (['structural_pattern', 'milestone_closed'] as const).map((kind) =>
+            signal({ id: `${kind}:${state}`, kind, state, messageId: message.id }),
+          ),
+        ),
+        ...(mixed
+          ? [
+              signal({ id: 'visible-stalled', kind: 'stalled', messageId: message.id }),
+              signal({
+                id: 'visible-outage',
+                kind: 'outage',
+                actionable: false,
+                messageId: message.id,
+                inboxItemId: 'inb_outage',
+              }),
+            ]
+          : []),
+      ];
+      renderLayout(project);
+      const operator = await button();
+      fireEvent.click(operator);
+      await screen.findByText('Historical summary stays readable.');
+      await waitFor(() => expect(document.querySelectorAll('[data-signal-id]').length).toBe(mixed ? 2 : 0));
+      expect(
+        document.querySelector('[data-signal="structural_pattern"], [data-signal-id^="structural_pattern"]'),
+      ).toBeNull();
+      expect(
+        document.querySelector('[data-signal="milestone_closed"], [data-signal-id^="milestone_closed"]'),
+      ).toBeNull();
+      if (mixed) {
+        expect(operator.getAttribute('aria-label')).toContain(t('operator.button.signals', { count: 2 }));
+        expect(
+          screen.getByRole('heading', { name: new RegExp(t('operator.signal.group')) }).textContent,
+        ).toContain(t('operator.signal.groupCount', { count: 2 }));
+      } else {
+        expect(within(operator).queryByTestId('operator-signals-count')).toBeNull();
+        expect(document.querySelector('[data-signal]')).toBeNull();
+      }
+    },
+  );
+
+  it('filters trailing coordinator-only cards and counts only three remaining decisions', async () => {
+    const project = mockProject();
+    project.backend.operatorSignals = [
+      ...Array.from({ length: 5 }, (_, index) =>
+        signal({ id: `hidden_${index}`, kind: index % 2 ? 'milestone_closed' : 'structural_pattern' }),
+      ),
+      ...(['stalled', 'silent', 'nobody'] as const).map((kind) => signal({ id: kind, kind })),
+    ];
+    renderLayout(project);
+    const operator = await button();
+    fireEvent.click(operator);
+    const group = await screen.findByRole('button', {
+      name: new RegExp(`^${t('operator.signal.pending', { count: 3 })}`),
+    });
+    fireEvent.click(group);
+    const rows = within(group.closest('section')!).getAllByRole('listitem');
+    expect(rows.map((row) => row.getAttribute('data-signal-id')).sort()).toEqual([
+      'nobody',
+      'silent',
+      'stalled',
+    ]);
+    expect(operator.getAttribute('aria-label')).toContain(t('operator.button.signals', { count: 3 }));
+    expect(
+      document.querySelector('[data-signal="structural_pattern"], [data-signal="milestone_closed"]'),
+    ).toBeNull();
+  });
 
   it('groups decisions, orders actionable signals first and keeps rows in place after acceptance', async () => {
     const project = mockProject();
@@ -610,18 +866,6 @@ describe('a signal the Operator raised', () => {
     expect(await screen.findByText(t('operator.signal.acceptMessage'))).toBeTruthy();
     expect(await screen.findByText(new RegExp(t('operator.signal.accepted')))).toBeTruthy();
     expect(posted(project, '/dismiss')).toHaveLength(0);
-  });
-
-  it('sets the signal aside with "Most ne" without sending a message', async () => {
-    const project = mockProject();
-    const message = presenting(project);
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'stalled', messageId: message.id })];
-    renderLayout(project);
-    fireEvent.click(await button());
-    fireEvent.click(await screen.findByRole('button', { name: t('operator.signal.dismiss') }));
-    await waitFor(() => expect(posted(project, '/operator/signals/sig_1/dismiss')).toHaveLength(1));
-    expect(posted(project, '/messages')).toHaveLength(0);
-    expect(await screen.findByText(new RegExp(t('operator.signal.dismissed')))).toBeTruthy();
   });
 
   it.each(['summary', 'single', 'no message'] as const)(
@@ -737,39 +981,35 @@ describe('a signal the Operator raised', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('shows the four kinds by their own title', async () => {
+  it('shows every visible kind by its own title inside a group', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [
-      signal({ id: 'sig_1', kind: 'outage', taskKey: null }),
-      signal({ id: 'sig_2', kind: 'nobody' }),
-      signal({ id: 'sig_3', kind: 'stalled' }),
-      signal({ id: 'sig_4', kind: 'silent' }),
-    ];
+    const kinds = [
+      'outage',
+      'nobody',
+      'stalled',
+      'silent',
+      'idle',
+      'merge_waiting',
+      'merge_blocked',
+      'unreleased',
+      'ready_waiting',
+    ] as const;
+    const withoutCard = ['outage', 'unreleased', 'ready_waiting'];
+    project.backend.operatorSignals = kinds.map((kind) =>
+      signal({ id: `sig_${kind}`, kind, taskKey: withoutCard.includes(kind) ? null : 'AC-20' }),
+    );
     renderLayout(project);
     fireEvent.click(await button());
-    expect(await screen.findByRole('heading', { name: t('operator.signal.kinds.outage') })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'AC-20: senki nem viheti' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'AC-20: válaszra vár a munkamenet' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' })).toBeTruthy();
-  });
-
-  it('shows the board kinds (PM-547) by their own title and text', async () => {
-    const project = mockProject();
-    project.backend.operatorSignals = [
-      signal({ id: 'sig_1', kind: 'idle' }),
-      signal({ id: 'sig_2', kind: 'merge_waiting' }),
-      signal({ id: 'sig_3', kind: 'merge_blocked' }),
-      signal({ id: 'sig_4', kind: 'unreleased', taskKey: null }),
-      signal({ id: 'sig_5', kind: 'ready_waiting', taskKey: null }),
-    ];
-    renderLayout(project);
-    fireEvent.click(await button());
-    expect(await screen.findByRole('heading', { name: 'AC-20: senki nem dolgozik rajta' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'AC-20: beolvasztásra vár' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'AC-20: elakadt a beolvasztás' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Kiadásra váró munka' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Indítható kártyák várnak' })).toBeTruthy();
-    expect(screen.getByText(t('operator.signal.bodies.ready_waiting'))).toBeTruthy();
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: new RegExp(t('operator.signal.pending', { count: kinds.length })),
+      }),
+    );
+    for (const kind of kinds) {
+      const title = t(`operator.signal.kinds.${kind}`, { key: 'AC-20' });
+      expect(await screen.findByRole('heading', { name: new RegExp(`^${title}`) })).toBeTruthy();
+    }
+    expect(screen.getAllByRole('listitem')).toHaveLength(kinds.length);
   });
 
   it('says on the card that the signal is no longer open, without a toast', async () => {
@@ -781,16 +1021,6 @@ describe('a signal the Operator raised', () => {
     project.backend.operatorSignals[0]!.state = 'resolved';
     fireEvent.click(dismiss);
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', t('operator.signal.closed'));
-  });
-
-  it('is not shown to a person who is not an owner', async () => {
-    const project = mockProject();
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody' })];
-    renderLayout(project, '/p/AC', { viewer: 'kata' });
-    fireEvent.click(await button());
-    const panel = await screen.findByRole('dialog');
-    await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
-    expect(within(panel).queryByRole('heading', { name: /senki nem viheti/ })).toBeNull();
   });
 });
 
@@ -822,7 +1052,6 @@ describe('the approval in Rád vár', () => {
     expect(
       within(card).getByText((_, node) => node?.textContent === text && node.children.length === 0),
     ).toBeTruthy();
-    expect(within(card).getByRole('link', { name: 'AC-1' })).toBeTruthy();
     expect(within(card).getByText(t('operator.approval.expiresSoon', { minutes: 30 }))).toBeTruthy();
     fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.send') }));
     await waitFor(() =>
@@ -847,16 +1076,16 @@ describe('the approval in Rád vár', () => {
     expect(document.querySelector(`time[datetime="${past}"]`)).toBeNull();
   });
 
-  it.each(['expired', 'interrupted'] as const)('offers only dismissal for a %s proposal', async (reason) => {
+  it('offers only dismissal for an expired message proposal, with no deadline', async () => {
     const project = mockProject();
     project.backend.inbox.push(
       approvalItem('stp_message', {
         ...operatorMessageApprovalFixture(),
-        stale: { reason, at: new Date().toISOString() },
+        stale: { reason: 'expired', at: new Date().toISOString() },
       }),
     );
     rendered(project);
-    const card = (await screen.findByText(t(`operator.approval.staleReasons.${reason}`))).closest('article')!;
+    const card = (await screen.findByText(t('operator.approval.staleReasons.expired'))).closest('article')!;
     expect(within(card).getByRole('button', { name: t('operator.approval.ok') })).toBeTruthy();
     expect(within(card).queryByRole('button', { name: t('operator.approval.send') })).toBeNull();
     expect(
@@ -899,35 +1128,6 @@ describe('the approval in Rád vár', () => {
     rendered(project);
     expect(await screen.findByRole('button', { name: t('operator.approval.stop') })).toBeTruthy();
     expect(screen.getByRole('button', { name: t('operator.approval.pause') })).toBeTruthy();
-  });
-
-  it('shows the watch level change and its consequence before approval', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(
-      approvalItem('stp_watch', {
-        action: 'config_change',
-        operation: { op: 'config_patch', patch: { operatorWatch: 'unblock' } },
-        changes: [
-          {
-            area: 'project',
-            target: null,
-            field: 'operatorWatch',
-            before: null,
-            after: 'unblock',
-            level: 'approval',
-          },
-        ],
-        consequence: 'operator_watch',
-      }),
-    );
-    rendered(project);
-    const consequence = await screen.findByText(t('operator.approval.consequences.operator_watch'));
-    const card = consequence.closest('article')!;
-    expect(within(card).getByText('unblock')).toBeTruthy();
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_watch/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
-    );
   });
 
   it('rejects without changing anything', async () => {

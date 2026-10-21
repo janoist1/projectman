@@ -1,4 +1,5 @@
 import { wakesFor } from '../../core/messages';
+import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
@@ -430,7 +431,9 @@ export class SessionOrchestrator {
 
   /**
    * The engine of the card (PM-311): the one its assignee's session runs on, else the one the
-   * assignee starts on, else the local one. Where the task's branch is read and its worktrees go.
+   * assignee starts on. Without an assignee, use the latest developer workspace's member placement,
+   * then the latest task session with a source trace, else the local engine (PM-818).
+   * Where the task's branch is read and its worktrees go.
    */
   cardEngineId(projectKey: string, task: Task): EngineId {
     if (task.assignee) {
@@ -441,6 +444,13 @@ export class SessionOrchestrator {
       if (session) return engineIdOf(session);
       return this.deps.engines.engineFor(projectKey, task.assignee) ?? LOCAL_ENGINE_ID;
     }
+    const work = this.ctx.repos.memberWorkspaces
+      .bindingsOfTask(projectKey, task.key)
+      .filter((binding) => binding.kind === 'work' && binding.branch)
+      .at(-1);
+    if (work) return this.deps.engines.engineFor(projectKey, work.member) ?? LOCAL_ENGINE_ID;
+    const sourceSession = this.ctx.repos.sessions.latestSourceOfTask(projectKey, task.key);
+    if (sourceSession) return engineIdOf(sourceSession);
     return LOCAL_ENGINE_ID;
   }
 
@@ -569,7 +579,9 @@ export class SessionOrchestrator {
    * developer wrote to a reviewer (that one). Their next start pins the latest commit.
    */
   requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
-    for (const workspaces of this.allWorkspaces()) workspaces.requestReviewRound(projectKey, taskKey, member);
+    const config = this.deps.projects.cachedConfig(projectKey);
+    for (const workspaces of this.allWorkspaces())
+      workspaces.requestReviewRound(projectKey, taskKey, member, config);
     // A reviewer that gave the work back has a new round now (PM-570).
     for (const s of this.list(projectKey, { taskKey }))
       if ((!member || s.member === member) && this.closeStates.isAwaitingFix(s.id)) this.cancelClose(s.id);
@@ -588,6 +600,17 @@ export class SessionOrchestrator {
     const repoName = effectiveRepo(config, task);
     if (!repoName) return null;
     try {
+      // A cloud hub has no local worktree. Without an assignee, developer workspace or source session,
+      // there is no engine source to read; recorded handovers and pins are read by the merge service.
+      if (
+        !task.assignee &&
+        !this.deps.engines.ids().includes(LOCAL_ENGINE_ID) &&
+        !this.ctx.repos.sessions.latestSourceOfTask(config.project.key, task.key) &&
+        !this.ctx.repos.memberWorkspaces
+          .bindingsOfTask(config.project.key, task.key)
+          .some((binding) => binding.kind === 'work')
+      )
+        return null;
       const engineId = this.cardEngineId(config.project.key, task);
       const engine = this.deps.engines.get(engineId);
       if (!engine) {
@@ -604,6 +627,37 @@ export class SessionOrchestrator {
       this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the head of the task branch');
       return null;
     }
+  }
+
+  /**
+   * Makes the approved `commit` of a task readable in the repository the merge runs in (PM-739):
+   * with member workspaces the developer's workspace hands it over, without them the task's
+   * branch is in the repository already. A refusal stops the merge attempt.
+   */
+  async prepareMergeSource(config: ProjectConfig, task: Task, commit: string): Promise<void> {
+    if (!effectiveRepo(config, task)) return;
+    const workspaces = this.workspacesOf(this.cardEngineId(config.project.key, task));
+    await workspaces?.prepareMergeSource(config, task, commit);
+  }
+
+  /**
+   * Brings the default branch of the member's workspace for the task up to date before a message is
+   * typed into the member's running session (PM-740). Nothing is started and the session's work is
+   * left as it is. A no-op without a member workspace; a failed fetch throws.
+   */
+  async refreshWorkspaceBase(config: ProjectConfig, task: Task, member: string): Promise<void> {
+    if (!effectiveRepo(config, task)) return;
+    const session = this.ctx.repos.sessions.findByWorkItem(config.project.key, member, {
+      type: 'task',
+      taskKey: task.key,
+    });
+    const engineId = this.deps.engines.engineFor(config.project.key, member);
+    const workspaces = session
+      ? this.workspacesOfSession(session)
+      : engineId
+        ? this.workspacesOf(engineId)
+        : null;
+    await workspaces?.refreshBase(config, task, member);
   }
 
   /**
@@ -644,6 +698,8 @@ export class SessionOrchestrator {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
+      assertIntegratorAccess(config, 'write');
+      assertSuperMutation(config, { kind: 'runtime_start', providers: [member.provider ?? 'claude'] });
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
       if (existing && this.cleanupFailures.hasSession(existing.id))
         throw conflict('workspace_busy', 'session process cleanup is unresolved', {
@@ -749,6 +805,7 @@ export class SessionOrchestrator {
     return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, found.member);
+      assertIntegratorAccess(config, 'write', actor);
       const refusal = sessionApproverChangeRefusal(member, req.approver);
       if (refusal) throw forbidden(refusal, 'the Operator approver is fixed to human');
       if (req.approver) {
@@ -948,6 +1005,7 @@ export class SessionOrchestrator {
 
   /** Stops a session; `stop` is why (PM-288), recorded on the session and its `session_ended` event. */
   async stop(projectKey: string, sessionId: string, stop?: SessionStop): Promise<Session> {
+    assertIntegratorAccess(await this.deps.projects.config(projectKey), 'write', stop?.by);
     const session = this.get(projectKey, sessionId);
     this.dropPause(session);
     // The runner's exit event may end the session before this call does: it takes the reason from here.
@@ -1509,8 +1567,16 @@ export class SessionOrchestrator {
                 );
             return;
           }
-          // A late event from a process that already ended must not revive the session.
-          if (ENDED.has(session.state) && !this.isRunning(session.id)) return;
+          // A state report never revives an ended row, running process or not: a new process starts only
+          // after the launcher sets the row to `starting` and clears `endedAt`. A process that still runs
+          // under an ended row (a late report after a server restart) is stopped by `reconcileEngine`.
+          if (ENDED.has(session.state)) {
+            this.ctx.logger.debug(
+              { sessionId: session.id, state: event.state },
+              'dropped a state report of an ended session',
+            );
+            return;
+          }
           if (event.state !== 'starting' && event.state !== 'idle')
             this.live.awaitingFirstTurn.delete(session.id);
           const updated = this.ctx.repos.sessions.update(session.id, {

@@ -1,10 +1,12 @@
 import { realpath } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import { posix as posixPath } from 'node:path';
-import * as pty from '@lydell/node-pty';
+import type * as Pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
 import { COMPACTING_PROVIDERS } from '../contracts';
 import type {
+  DependencyGate,
   PauseOptions,
   PauseOutcome,
   PermissionBroker,
@@ -23,7 +25,7 @@ import { SessionClock, waitAtMost } from './session-clock';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
-import { toolActivity } from './tools';
+import { needsDependencies, toolActivity } from './tools';
 import { TOOL_DENY_MESSAGES } from './tool-decision';
 import { readTranscriptText } from './transcript/reader';
 import { TranscriptTailer } from './transcript/tailer';
@@ -73,15 +75,24 @@ export interface PtySpawnOptions {
 /** Starts a process in a pseudo-terminal (node-pty's `spawn` by default). */
 export type SpawnPty = (file: string, args: string[], options: PtySpawnOptions) => PtyProcess;
 
+const require = createRequire(import.meta.url);
+let pty: typeof Pty | undefined;
+const defaultSpawnPty: SpawnPty = (file, args, options) => {
+  pty ??= require('@lydell/node-pty') as typeof Pty;
+  return pty.spawn(file, args, options);
+};
+
 export interface SessionDeps {
   processScopes?: ProcessScopeDriver;
-  refreshDependencies?: (cwd: string) => Promise<void>;
+  refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
   logger: FastifyBaseLogger;
   broker: PermissionBroker;
   permissionTimeoutMs: number;
   emit(event: RunnerEvent): void;
   /** Called after scope cleanup and final reads, immediately before the exit event. */
   onExited(session: AgentSession): void;
+  /** Removes the files the launch wrote for the session (PM-156); runs once the process has exited. */
+  cleanupLaunchFiles?(): Promise<void>;
   /** The CLI lost its login mid-session (before the session is stopped). */
   onAuthError?(session: AgentSession, message: string): void;
   /** Starts the process (default: node-pty). */
@@ -269,7 +280,7 @@ export class AgentSession {
   async spawn(file: string, args: string[], env: Record<string, string>): Promise<void> {
     if (this.deps.processScopes) this.scope = await this.deps.processScopes.open(this.id);
     const cmd = this.scope?.launch({ file, args, env }) ?? { file, args, env };
-    const spawnPty: SpawnPty = this.deps.spawnPty ?? pty.spawn;
+    const spawnPty: SpawnPty = this.deps.spawnPty ?? defaultSpawnPty;
     try {
       this.attach(
         spawnPty(cmd.file, cmd.args, {
@@ -732,10 +743,25 @@ export class AgentSession {
         : null;
     }
     if (payload.hook_event_name === 'PreToolUse' && this.deps.refreshDependencies) {
-      try {
-        await this.deps.refreshDependencies(this.spec.cwd);
-      } catch (err) {
-        this.log.warn({ sessionId: this.id, err }, 'refreshing worktree dependencies failed');
+      const tool = payload.tool_name ?? '';
+      // A file or team tool never runs code, an input tool waits for a person, and a stopping pause answers with its halt.
+      if (
+        needsDependencies(tool) &&
+        !this.adapter.inputTools.has(tool) &&
+        this.pauseState?.phase !== 'stopping'
+      ) {
+        try {
+          const gate = await this.deps.refreshDependencies(this.spec.cwd);
+          if (gate) {
+            if (this.adapter.refuseToolOutput) {
+              this.log.info({ sessionId: this.id, tool }, 'tool call held for dependencies');
+              return this.adapter.refuseToolOutput(gate.refuse);
+            }
+            this.log.warn({ sessionId: this.id, tool }, 'dependency gate cannot refuse on this CLI');
+          }
+        } catch (err) {
+          this.log.warn({ sessionId: this.id, err }, 'refreshing worktree dependencies failed');
+        }
       }
     }
     // A subagent's approval still needs an answer; its other hooks say nothing about the session.
@@ -1347,6 +1373,12 @@ export class AgentSession {
     };
     if (this.scope) this.cleanup ??= this.scope.close('exit', { force: false });
     const [cleanup] = await Promise.all([this.cleanup, finalRead()]);
+    // The private launch files (PM-156) go once the process and its scope are done with them.
+    try {
+      await this.deps.cleanupLaunchFiles?.();
+    } catch {
+      this.log.warn({ sessionId: this.id }, 'could not remove the private launch files of the session');
+    }
 
     const failed =
       this.rateLimitFailure !== null || (!this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0));

@@ -17,6 +17,7 @@ export {
   SYSTEM_AUTHOR,
   humanActor,
   aiActor,
+  attributedActor,
   actorHandle,
   unique,
   KeyedMutex,
@@ -36,9 +37,21 @@ export {
   isLoopbackOrigin,
   nonLocalReason,
 } from './local-guard';
-export { isLocalRequest, clientAddress, requestProtocol, sameOrigin } from './local-request';
+export { isLocalRequest, clientAddress, ipRateLimitKey, requestProtocol, sameOrigin } from './local-request';
 export {
   createAttemptLimiter,
   MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
   type AttemptLimiter,
 } from './attempt-limiter';
+export {
+  runIntegratorExecution,
+  integratorExecution,
+  assertIntegratorAccess,
+  assertOwnApproval,
+  assertOwnOrSuperApproval,
+  assertSuperMutation,
+  authorizeSuperMutation,
+  externalToolOrigin,
+  integratorOwnerId,
+  withoutIntegratorExecution,
+} from './integrator-execution';

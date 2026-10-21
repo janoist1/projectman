@@ -62,7 +62,7 @@ export function registerConfigRoutes(app: FastifyInstance, domain: ApiDomain): v
     if (hasOperatorWaiverField(request.body))
       throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
     const patch = parseEdit(PatchConfigRequest, request.body);
-    await domain.projects.patch(key, patch, { actor: actorOf(access), author: authorOf(request) });
+    await domain.projects.patch(key, patch, { actor: actorOf(access), author: authorOf(request, access) });
     return view(key);
   });
 
@@ -75,7 +75,7 @@ export function registerConfigRoutes(app: FastifyInstance, domain: ApiDomain): v
       : { config: parseEdit(ProjectConfig, request.body), message: undefined, baseVersion: undefined };
     await domain.projects.save(key, body.config, {
       actor: actorOf(access),
-      author: authorOf(request),
+      author: authorOf(request, access),
       message: body.message,
       expectedVersion: body.baseVersion,
     });
@@ -87,7 +87,10 @@ export function registerConfigRoutes(app: FastifyInstance, domain: ApiDomain): v
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'owner' });
     const body = parseBody(RevertConfigRequest, request.body);
-    await domain.projects.revert(key, body.version, { actor: actorOf(access), author: authorOf(request) });
+    await domain.projects.revert(key, body.version, {
+      actor: actorOf(access),
+      author: authorOf(request, access),
+    });
     return view(key);
   });
 }

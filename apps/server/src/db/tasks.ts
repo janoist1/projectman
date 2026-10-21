@@ -1,7 +1,8 @@
 import { TaskDeveloperLevel, taskSeq } from '@projectman/shared';
-import type { RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
+import type { CollectingSourceEvidence, RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
 import { legacyCheckLabels } from '@projectman/templates';
 import type { Statement } from 'better-sqlite3';
+import type { TaskSchedulingQuery } from '../contracts';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -107,8 +108,43 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
  * A card as it is read: with the theme it shows. A subtask shows its parent's (read here, so a parent
  * changing theme writes nothing to its subtasks); any other card shows its own.
  */
-const TASK_SELECT = `SELECT t.*, CASE WHEN t.parent_key IS NOT NULL THEN p.theme_key ELSE t.theme_key END
-    AS effective_theme FROM tasks t LEFT JOIN tasks p ON p.key = t.parent_key`;
+const taskSelect = (index = '') =>
+  `SELECT t.*, CASE WHEN t.parent_key IS NOT NULL THEN p.theme_key ELSE t.theme_key END
+    AS effective_theme FROM tasks t${index ? ` INDEXED BY ${index}` : ''} LEFT JOIN tasks p ON p.key = t.parent_key`;
+const TASK_SELECT = taskSelect();
+
+/**
+ * The scheduling reads (PM-770), each filtered in SQL. Sets travel as one bound JSON array. The partial
+ * indexes `tasks_scheduling_*` serve the pull, open and closed reads (their literals match the index
+ * conditions). The key reads are driven by the unique key index (`+t.project_key` keeps the planner from
+ * walking the project's index range instead), the parent and theme reads are pinned to `tasks_parent` and
+ * `tasks_theme` (without table statistics the planner would walk a project index). A test pins the plans.
+ * The closing time is compared as a time (an old row may carry an offset), not as text; text that is no
+ * time is left out, and the GLOB keeps SQLite from reading a bare number as a Julian day.
+ */
+export const SCHEDULING_SQL = {
+  linksOfIds: 'SELECT * FROM task_links WHERE task_id IN (SELECT value FROM json_each(?)) ORDER BY id',
+  keys: `${TASK_SELECT} WHERE +t.project_key = ? AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
+  themeCards: `${taskSelect('tasks_theme')} WHERE t.project_key = ? AND t.kind = 'task' AND t.parent_key IS NULL
+      AND t.status NOT IN ('done', 'cancelled') AND t.theme_key IN (SELECT value FROM json_each(?))
+    ORDER BY t.seq`,
+  children: `${taskSelect('tasks_parent')} WHERE t.project_key = ? AND t.parent_key IN (SELECT value FROM json_each(?))
+      AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,
+  childrenAll: `${taskSelect('tasks_parent')} WHERE t.project_key = ? AND t.parent_key IN (SELECT value FROM json_each(?))
+    ORDER BY t.seq`,
+  pullUrgent: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
+      AND t.assignee IS NULL AND t.priority = 1 ORDER BY t.seq`,
+  queue: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
+      AND t.assignee IS NULL ORDER BY t.seq`,
+  pullFocused: `${TASK_SELECT} WHERE +t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
+      AND t.assignee IS NULL AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
+  open: `${TASK_SELECT} WHERE t.project_key = ? AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,
+  closed: `${TASK_SELECT} WHERE t.project_key = ? AND t.kind = 'task' AND t.status IN ('done', 'cancelled')
+      AND t.closed_at IS NOT NULL AND t.seq > ?
+      AND t.closed_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'
+      AND unixepoch(t.closed_at, 'subsec') <= unixepoch(?, 'subsec')
+    ORDER BY t.seq LIMIT ?`,
+} as const;
 
 function toLink(r: LinkRow): TaskLink {
   const link: TaskLink = { kind: r.kind as TaskLink['kind'], ref: r.ref };
@@ -161,6 +197,16 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
   };
 }
 
+/** The origin a card's `task_created` events prove: anything but one well-formed event is `unknown`. */
+function createdOrigin(events: string[]): CollectingSourceEvidence['origin'] {
+  if (events.length !== 1) return 'unknown';
+  const data = parseJson<unknown>(events[0], null);
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return 'unknown';
+  const { imported } = data as { imported?: unknown };
+  if (imported === undefined || imported === false) return 'native';
+  return imported === true ? 'imported' : 'unknown';
+}
+
 export function createTaskRepository(db: Db) {
   const statements = {
     get: db.prepare(`${TASK_SELECT} WHERE t.key = ?`),
@@ -180,6 +226,18 @@ export function createTaskRepository(db: Db) {
        WHERE t.project_key = ? AND t.parent_key = ? ORDER BY l.id`,
     ),
     linksOf: db.prepare('SELECT * FROM task_links WHERE task_id = ? ORDER BY id'),
+    // PM-770: the scheduling reads. The links are those of the selected cards only (the unique
+    // `(task_id, ...)` index); the sets travel as one bound JSON array.
+    linksOfIds: db.prepare(SCHEDULING_SQL.linksOfIds),
+    schedulingKeys: db.prepare(SCHEDULING_SQL.keys),
+    schedulingThemeCards: db.prepare(SCHEDULING_SQL.themeCards),
+    schedulingChildren: db.prepare(SCHEDULING_SQL.children),
+    schedulingChildrenAll: db.prepare(SCHEDULING_SQL.childrenAll),
+    schedulingPullUrgent: db.prepare(SCHEDULING_SQL.pullUrgent),
+    schedulingQueue: db.prepare(SCHEDULING_SQL.queue),
+    schedulingPullFocused: db.prepare(SCHEDULING_SQL.pullFocused),
+    schedulingOpen: db.prepare(SCHEDULING_SQL.open),
+    schedulingClosed: db.prepare(SCHEDULING_SQL.closed),
     // Uses the `task_links_ref` index: card relations are links with no repository.
     linking: db.prepare(
       `SELECT t.*, CASE WHEN t.parent_key IS NOT NULL THEN p.theme_key ELSE t.theme_key END AS effective_theme
@@ -238,6 +296,37 @@ export function createTaskRepository(db: Db) {
          AND (l.state IS NULL OR l.state NOT IN ('merged', 'closed'))
          AND t.status NOT IN ('done', 'cancelled')`,
     ),
+    // PM-797: the facts that say whether a card has (or had) a source of its own, from the card's own rows only.
+    sourceFacts: db.prepare(
+      `SELECT
+         t.assignee IS NOT NULL AS assigned,
+         (EXISTS (SELECT 1 FROM task_links l WHERE l.task_id = t.id AND l.kind IN ('branch', 'pull_request'))
+          OR EXISTS (SELECT 1 FROM task_review_pins p WHERE p.project_key = t.project_key AND p.task_key = t.key)
+          OR EXISTS (SELECT 1 FROM task_handovers h WHERE h.project_key = t.project_key AND h.task_key = t.key)
+          OR EXISTS (SELECT 1 FROM task_workspace_bindings b WHERE b.project_key = t.project_key AND b.task_key = t.key)
+          OR EXISTS (SELECT 1 FROM task_merges m WHERE m.project_key = t.project_key AND m.task_key = t.key)
+          OR EXISTS (SELECT 1 FROM sessions s
+                     WHERE s.project_key = t.project_key AND s.work_item_type = 'task' AND s.work_item_ref = t.key
+                       AND (s.branch IS NOT NULL OR s.reviewed_commit IS NOT NULL))
+          OR EXISTS (SELECT 1 FROM timeline_events e
+                     WHERE e.project_key = t.project_key AND e.task_key = t.key
+                       AND (e.type = 'task_merged'
+                         OR (e.type = 'task_link_added' AND json_extract(e.data, '$.kind') IN ('branch', 'pull_request'))
+                         OR (e.type = 'task_stage_changed'
+                             AND (json_extract(e.data, '$.reviewPin') IS NOT NULL
+                               OR json_extract(e.data, '$.branchMoved') IS NOT NULL))
+                         OR (e.type = 'task_updated' AND json_extract(e.data, '$.reviewPin') IS NOT NULL)))
+         ) AS source,
+         EXISTS (SELECT 1 FROM timeline_events e
+                 WHERE e.project_key = t.project_key AND e.task_key = t.key AND e.type = 'task_assigned'
+                   AND (json_extract(e.data, '$.assignee') IS NOT NULL
+                     OR json_extract(e.data, '$.previous') IS NOT NULL
+                     OR json_extract(e.data, '$.from') IS NOT NULL)) AS worked
+       FROM tasks t WHERE t.project_key = ? AND t.key = ?`,
+    ),
+    createdEvents: db.prepare(
+      `SELECT data FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = 'task_created'`,
+    ),
   };
   /** UPDATE statements per set of changed columns. */
   const updates = new Map<string, Statement>();
@@ -256,6 +345,65 @@ export function createTaskRepository(db: Db) {
       byTask.set(link.task_id, list);
     }
     return rows.map((r) => toTask(r, byTask.get(r.id) ?? []));
+  }
+
+  /** The stored cards of these rows, once each by key, by number, with the links of exactly these cards. */
+  function hydrate(rows: Iterable<TaskRow>): Task[] {
+    const unique = new Map<string, TaskRow>();
+    for (const row of rows) unique.set(row.key, row);
+    const sorted = [...unique.values()].sort((a, b) => a.seq - b.seq);
+    return withLinks(
+      sorted,
+      () => statements.linksOfIds.all(JSON.stringify(sorted.map((r) => r.id))) as LinkRow[],
+    );
+  }
+
+  const rowsOfKeys = (projectKey: string, keys: readonly string[]): TaskRow[] =>
+    keys.length === 0
+      ? []
+      : (statements.schedulingKeys.all(projectKey, JSON.stringify([...new Set(keys)])) as TaskRow[]);
+
+  /** `focus`: see `TaskSchedulingQuery`. The shared `projectFocusPlaces` decides the places from these rows. */
+  function focusRows(projectKey: string, keys: readonly string[]): TaskRow[] {
+    const found = new Map<string, TaskRow>();
+    const roots = rowsOfKeys(projectKey, keys);
+    for (const row of roots) found.set(row.key, row);
+    const open = roots.filter((row) => row.status !== 'done' && row.status !== 'cancelled');
+    const themeKeys = open.filter((row) => row.kind === 'theme').map((row) => row.key);
+    const themed =
+      themeKeys.length === 0
+        ? []
+        : (statements.schedulingThemeCards.all(projectKey, JSON.stringify(themeKeys)) as TaskRow[]);
+    for (const row of themed) found.set(row.key, row);
+    // The subtasks of an open card root, and of the cards of an open theme root (they read its theme).
+    const parentKeys = [
+      ...open.filter((row) => row.kind !== 'theme').map((row) => row.key),
+      ...themed.map((r) => r.key),
+    ];
+    if (parentKeys.length > 0)
+      for (const row of statements.schedulingChildren.all(
+        projectKey,
+        JSON.stringify(parentKeys),
+      ) as TaskRow[])
+        found.set(row.key, row);
+    return [...found.values()];
+  }
+
+  function closedRows(
+    projectKey: string,
+    query: Extract<TaskSchedulingQuery, { kind: 'closed-worktrees' }>,
+  ): TaskRow[] {
+    const { closedBefore, afterSeq = 0, limit = 100 } = query;
+    if (
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(closedBefore) ||
+      !Number.isFinite(Date.parse(closedBefore))
+    )
+      throw new RangeError(`closedBefore must be a UTC ISO time: ${closedBefore}`);
+    if (!Number.isSafeInteger(afterSeq) || afterSeq < 0)
+      throw new RangeError(`afterSeq must be a non-negative integer: ${afterSeq}`);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+      throw new RangeError(`limit must be an integer from 1 to 500: ${limit}`);
+    return statements.schedulingClosed.all(projectKey, afterSeq, closedBefore, limit) as TaskRow[];
   }
 
   /** Adds a link or refreshes its title/state; returns what happened. */
@@ -333,6 +481,47 @@ export function createTaskRepository(db: Db) {
       );
     },
 
+    /**
+     * The stored cards a scheduling query selects (`TaskSchedulingReader`), filtered in SQL, with only their
+     * own links: no project-wide list, no board view. The selection rules are the query's own; the gates
+     * and the ranking stay in the shared package, which decides on what this returns.
+     */
+    readScheduling(projectKey: string, query: TaskSchedulingQuery): Task[] {
+      switch (query.kind) {
+        case 'keys':
+          return hydrate(rowsOfKeys(projectKey, query.keys));
+        case 'focus':
+          return hydrate(focusRows(projectKey, query.keys));
+        case 'queue':
+          return hydrate(statements.schedulingQueue.all(projectKey, query.stageId) as TaskRow[]);
+        case 'pull': {
+          const rows = statements.schedulingPullUrgent.all(projectKey, query.stageId) as TaskRow[];
+          if (query.focusedKeys.length > 0)
+            rows.push(
+              ...(statements.schedulingPullFocused.all(
+                projectKey,
+                query.stageId,
+                JSON.stringify([...new Set(query.focusedKeys)]),
+              ) as TaskRow[]),
+            );
+          return hydrate(rows);
+        }
+        case 'children': {
+          if (query.parentKeys.length === 0) return [];
+          const statement = query.includeClosed
+            ? statements.schedulingChildrenAll
+            : statements.schedulingChildren;
+          return hydrate(
+            statement.all(projectKey, JSON.stringify([...new Set(query.parentKeys)])) as TaskRow[],
+          );
+        }
+        case 'open':
+          return hydrate(statements.schedulingOpen.all(projectKey) as TaskRow[]);
+        case 'closed-worktrees':
+          return hydrate(closedRows(projectKey, query));
+      }
+    },
+
     listByAssignee(projectKey: string, handle: string): Task[] {
       return withLinks(
         statements.byAssignee.all(projectKey, handle) as TaskRow[],
@@ -356,6 +545,23 @@ export function createTaskRepository(db: Db) {
     /** Writes ranks and nothing else: no card's update time moves with its place. */
     setBoardRanks(projectKey: string, ranks: ReadonlyArray<{ key: string; rank: number }>): void {
       for (const { key, rank } of ranks) statements.setBoardRank.run(rank, key, projectKey);
+    },
+
+    /**
+     * What the hub's own records say about the source of a card (PM-797): null when the card is not in the
+     * project. A database error is not turned into empty evidence. The origin is `native` only when exactly one
+     * well-formed `task_created` event says the card was made here.
+     */
+    sourceEvidence(projectKey: string, taskKey: string): CollectingSourceEvidence | null {
+      const facts = statements.sourceFacts.get(projectKey, taskKey) as
+        { assigned: number; source: number; worked: number } | undefined;
+      if (!facts) return null;
+      const created = statements.createdEvents.all(projectKey, taskKey) as Array<{ data: string }>;
+      return {
+        sourceRecorded: facts.source === 1,
+        workRecorded: facts.assigned === 1 || facts.worked === 1,
+        origin: createdOrigin(created.map((row) => row.data)),
+      };
     },
 
     /** The subtasks of a task. */

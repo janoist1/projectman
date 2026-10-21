@@ -16,6 +16,7 @@ import { MemberHandle } from '../domain/member';
 import { StageId } from '../domain/pipeline';
 import { isTheme, TaskKey, TaskStartWaiting } from '../domain/task';
 import type { Task } from '../domain/task';
+import { TaskReadyHold } from '../domain/ready-hold';
 import { stageOwners } from './duties';
 import { aiLabelSetters, evaluateMove, evaluateStart, stageAdvance, stageIndex } from './gates';
 import { labelDefinition } from './labels';
@@ -84,6 +85,7 @@ export const TaskWait = z.object({
   inboxItemId: z.string().nullable(),
   inboxKind: InboxKind.nullable(),
   startWaiting: TaskStartWaiting.nullable(),
+  hold: TaskReadyHold.optional(),
   prerequisites: z.array(TaskKey),
   since: z.string(),
 });
@@ -237,6 +239,7 @@ function itemWait(
 function fixLimitDeciders(task: Pick<Task, 'fixLimit'>): string[] {
   const limit = task.fixLimit;
   if (!limit) return [];
+  if (limit.phase === 'owner' && limit.recipient === 'integrator') return [];
   return limit.phase === 'owner' ? limit.deciders : limit.decider ? [limit.decider] : [];
 }
 
@@ -305,6 +308,7 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
 
   // A question the Operator still screens (PM-556) is a pending question too: the card waits for its answer.
   const items = input.openItems.filter((item) => {
+    if (item.kind === 'question' && item.payload.groupWithdrawn === true) return false;
     // Legacy completion notices ask for acknowledgement, not an action on the card.
     if (isInformationalAlert(item)) return false;
     return item.state === 'open' || isPendingQuestion(item);
@@ -434,6 +438,16 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
         prerequisites: [...input.openPrerequisites],
       });
     }
+    if (task.readyHold)
+      return make(config, 'ready', task.readyHold.since, [], {
+        toStageId: nextStageId(config, task),
+        hold: task.readyHold,
+      });
+    // The system asked a member to start it (PM-804): the wait is theirs, not the queue's.
+    if (task.startOffer)
+      return make(config, 'ready', task.startOffer.since, [task.startOffer.to], {
+        toStageId: nextStageId(config, task),
+      });
     return make(config, 'ready', task.createdAt, [], { toStageId: nextStageId(config, task) });
   }
 

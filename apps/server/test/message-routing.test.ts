@@ -1,7 +1,7 @@
 import { messageRoute } from '@projectman/shared';
 import type { Session, WorkItemRef } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -124,7 +124,7 @@ describe('routing a message to a running session of the same family', () => {
     // Moving AR-2 to code review starts its owner, cr, on it; that session then ends.
     await h.domain.tasks.moveToStage('AR', 'AR-2', 'code_review', OWNER_ACTOR);
     await flush();
-    const review = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-2' })[0]!;
+    const review = await waitForSession(h.domain, { member: 'cr', taskKey: 'AR-2' });
     await h.domain.sessions.stop('AR', review.id);
     const parent = await run('cr', task('AR-1'));
 

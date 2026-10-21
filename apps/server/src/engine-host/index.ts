@@ -7,6 +7,8 @@
  */
 export { createLocalBranchMerger } from './branch-merger';
 export type { LocalBranchMergerOptions } from './branch-merger';
+export { createCheckBranchGit } from './check-branch';
+export type { CheckBranchGitOptions } from './check-branch';
 export { freeBytesOf } from './disk';
 export { userExcludesFile } from './git-excludes';
 export { createLocalEngine } from './local-engine';
@@ -30,5 +32,7 @@ export {
   sharedClaudeTmpRoots,
 } from './session-roots';
 export { isWithin, realpathOfNearest } from './within';
+export { resolveWorkRoots, WORK_ROOT_MARKER, WorkRootError } from './work-roots';
+export type { WorkRoots } from './work-roots';
 export { openWorkspaceFile } from './workspace-file';
 export type { WorkspaceFileHooks } from './workspace-file';

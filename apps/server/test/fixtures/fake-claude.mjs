@@ -4,7 +4,7 @@
  * tests. It never calls any API. It speaks the parts of the protocol projectman relies on:
  *
  * FLAGS (same as `claude`): --session-id <uuid> | --resume <uuid>, --append-system-prompt,
- *   --mcp-config <json>, --settings <json|file>, --model, --effort, --permission-mode, -n/--name,
+ *   --mcp-config <json|file>, --settings <json|file>, --model, --effort, --permission-mode, -n/--name,
  *   --agents <json> (checked: a malformed one exits with code 1 before the session starts),
  *   -p/--print with --input-format/--output-format stream-json, --version, --help.
  *   Other flags are accepted and ignored.
@@ -101,12 +101,22 @@
  *
  * DIAGNOSTICS: FAKE_CLAUDE_ARGS_FILE, when set, receives {argv, cwd, env} at start-up (env
  * without values of variables whose name contains KEY, TOKEN or SECRET, which are "<set>").
+ * FAKE_CLAUDE_LOADED_FILE, when set, receives {settings, mcpConfig: [...]}: the parsed content of
+ * --settings and of each --mcp-config, whether given inline or as a file.
  *
  * The terminal input, dialogs, command hooks and exit sequence shared with fake-codex live in
  * fake-tui.mjs.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -217,17 +227,30 @@ function parseArgs(argv) {
 
 const opts = parseArgs(process.argv.slice(2));
 
+// The runner passes --settings and --mcp-config as private files that are gone once the session
+// ends (PM-156); a test reads what the CLI loaded from here. Written before the args file, so a test
+// that waits for the args file finds this one too.
+if (process.env.FAKE_CLAUDE_LOADED_FILE) {
+  const tmp = `${process.env.FAKE_CLAUDE_LOADED_FILE}.${process.pid}.tmp`;
+  writeFileSync(
+    tmp,
+    JSON.stringify(
+      { settings: loadSettings(opts.settings), mcpConfig: opts.mcpConfig.map(loadSettings) },
+      null,
+      2,
+    ),
+  );
+  renameSync(tmp, process.env.FAKE_CLAUDE_LOADED_FILE);
+}
 if (process.env.FAKE_CLAUDE_ARGS_FILE) writeArgsFile(process.env.FAKE_CLAUDE_ARGS_FILE);
 
 /** One tools/call on the "team" server of --mcp-config (stateless streamable HTTP, JSON answers). */
 async function callTeamTool(tool, args) {
   let url = null;
   for (const raw of opts.mcpConfig) {
-    try {
-      url = JSON.parse(raw)?.mcpServers?.team?.url ?? url;
-    } catch {
-      // not JSON: Claude Code would read a file; the runner always passes JSON
-    }
+    // Inline JSON or the path of a file (the runner passes a file, PM-156), as Claude Code takes both.
+    const config = loadSettings(raw);
+    url = config?.mcpServers?.team?.url ?? url;
   }
   if (typeof url !== 'string') return { text: 'No team MCP server is configured', isError: true };
   try {

@@ -1,8 +1,15 @@
-import { expiredLabels, labelDefinition, planLabelChange } from '@projectman/shared';
+import {
+  expiredLabels,
+  hasSuperOrigin,
+  labelDefinition,
+  planLabelChange,
+  timelineNoteExcerpt,
+} from '@projectman/shared';
 import type { Actor, LabelChangeReason, LabelClearTrigger, ProjectConfig, Task } from '@projectman/shared';
 import { isoNow } from '../base';
 import { forbidden, invalid } from '../../kernel';
 import { SYSTEM_ACTOR } from '../../kernel';
+import { assertIntegratorAccess, withoutIntegratorExecution } from '../../kernel';
 import { runEffects } from './store';
 import type { Effect, TaskStore } from './store';
 
@@ -35,7 +42,10 @@ export function planLabelsOrThrow(
   actor: Actor,
   comment: string | undefined,
 ): PlannedLabels {
-  const plan = planLabelChange(config, task, change, actor, comment);
+  const owner = assertIntegratorAccess(config, 'write', actor);
+  // The key owner's authority comes only from the authenticated scope, and only for a super-mode step (PM-831).
+  const authority = hasSuperOrigin(actor) && owner ? { authorizedBy: owner.handle } : undefined;
+  const plan = planLabelChange(config, task, change, actor, comment, authority);
   if (plan.ok) return plan;
   const refusal = plan.refusal;
   switch (refusal.code) {
@@ -140,6 +150,7 @@ export class TaskLabels {
       actor.kind === 'ai' && opts.sessionId && plan.added.some((id) => !!labelDefinition(config, id)?.group)
         ? this.store.ctx.repos.sessions.reviewedCommit(opts.sessionId)
         : null;
+    const noteExcerpt = timelineNoteExcerpt(opts.comment);
     this.store.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
@@ -151,6 +162,7 @@ export class TaskLabels {
         removed: plan.removed,
         ...(opts.reason ? { reason: opts.reason } : {}),
         ...(resultCommit ? { resultCommit } : {}),
+        ...(noteExcerpt ? { noteExcerpt } : {}),
       },
     });
     const comment = opts.comment?.trim();
@@ -167,6 +179,8 @@ export class TaskLabels {
   expire(config: ProjectConfig, task: Task, trigger: LabelClearTrigger, effects: Effect[]): Task {
     const expired = expiredLabels(config, task, trigger);
     if (expired.length === 0) return task;
-    return this.apply(config, task, { remove: expired }, SYSTEM_ACTOR, { reason: trigger }, effects);
+    return withoutIntegratorExecution(() =>
+      this.apply(config, task, { remove: expired }, SYSTEM_ACTOR, { reason: trigger }, effects),
+    );
   }
 }

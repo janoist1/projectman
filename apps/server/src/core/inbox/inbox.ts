@@ -4,22 +4,53 @@ export function createInboxService(deps: ConstructorParameters<typeof InboxServi
 
 import { isAbsolute, resolve, sep } from 'node:path';
 import {
+  assertIntegratorAccess,
+  assertOwnApproval,
+  assertOwnOrSuperApproval,
+  integratorExecution,
+} from '../../kernel';
+import {
+  APPROVAL_PAYLOAD_KEYS,
+  hasProtectedQuestionPayload,
+  humanInboxAssignment,
+  isIntegratorTodo,
+  isIntegratorFixLimitDecision,
+  isIntegratorInboxItem,
+  wasIntegratorTodo,
+  planIntegratorInboxEscalation,
+  selectFixLimitRecipient,
+  selectTodoRecipient,
+  FixLimitOptionId,
+  ResolveIntegratorFixLimitRequest as IntegratorFixLimitRequestSchema,
+  ResolveIntegratorTodoRequest as IntegratorTodoRequestSchema,
+  ScreeningTodo as ScreeningTodoSchema,
   approvalRefusal,
   canSeeInboxItem,
   DELEGATED_INPUT_LIMIT,
   canDecidePermission,
   effectiveSessionPermissions,
+  externalQuestionAnswerRefusal,
+  superDecisionRefusal,
   gateRequestOf,
   handOnRequestOf,
+  hasSuperOrigin,
   isPendingQuestion,
+  isLinkedQuestion,
+  isRelayableQuestionItem,
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
+  structuralReviewOf,
   OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
   permissionDelegationState,
   PENDING_INBOX_STATES,
   questionPayloadOf,
+  CombineQuestionsRequest,
+  coordinationMemberOf,
+  questionGroupCompatible,
+  questionGroupLiveItemIds,
+  QUESTION_SCREENING_MS,
   routePermissionRequest,
   TODO_CANNOT_OPTION,
   TODO_DONE_OPTION,
@@ -28,20 +59,29 @@ import {
 import type {
   Actor,
   DelegatedPermissionDecision,
+  FixLimitDecisionPayload,
   GateRequestPayload,
+  IntegratorEscalationReason,
   HumanAccess,
   InboxItem,
   InboxKind,
   InboxOption,
   InboxResolutionRule,
   InboxState,
+  ObligationRef,
   ProjectConfig,
   QuestionCloseRule,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
   QuestionScreening,
   QuestionTodo,
   ResolveInboxRequest,
+  ResolveIntegratorFixLimitRequest,
+  ResolveIntegratorTodoRequest,
+  ScreeningTodo,
   ScreenedQuestionsResponse,
   Session,
+  SuperActor,
   TimelineEventData,
   TaskStartWaiting,
   WorkItemRef,
@@ -54,14 +94,15 @@ import type {
   PermissionRefusedInfo,
   PermissionRequestInfo,
 } from '../../contracts';
-import { ownerHandles } from '@projectman/shared';
+import { fixLimitDeciders, ownerHandles } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
-import type { InboxPermissionPolicy } from './ports';
+import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
+import type { InboxPermissionPolicy, QuestionGroupAnswerer, IntegratorTodoAccess } from './ports';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
-import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from '../../kernel';
+import { SYSTEM_ACTOR, aiActor, attributedActor, excerpt, humanActor, newId, KeyedMutex } from '../../kernel';
 
 /** How many screened questions the screened-questions list returns (PM-558). */
 const SCREENED_QUESTIONS_LIMIT = 20;
@@ -106,6 +147,17 @@ export interface CreateInboxItemInput {
   state?: 'open' | 'screening';
 }
 
+/** A new fix round limit decision (PM-714): the counted rounds and the options that can be carried out now. */
+export interface CreateFixLimitDecisionInput {
+  projectKey: string;
+  taskKey: string;
+  /** The people who decide when the item is for the owners (`fixLimitDeciders`). */
+  assignees: string[];
+  fixLimit: FixLimitDecisionPayload;
+  /** Only the executable options; the item shows the rest as unavailable but never offers them. */
+  options: InboxOption[];
+}
+
 /** What the Operator settled about a question it screens, with no person involved (PM-558). */
 export interface ScreeningSettlement {
   outcome: 'answered' | 'forwarded' | 'moot';
@@ -124,7 +176,7 @@ export interface ScreeningRelease {
   outcome?: 'decision' | 'todo';
   by?: string;
   note?: string;
-  todo?: QuestionTodo;
+  todo?: ScreeningTodo;
   fallback?: 'timeout' | 'unavailable';
 }
 
@@ -139,15 +191,28 @@ function withScreening(
   return { ...payload, screening: { until: at, ...current, ...patch } };
 }
 
+/**
+ * Runs inside the transaction that closes the owner's question about a super operation (PM-762): it checks the
+ * answer against the operation and moves it, or throws to leave both unchanged.
+ */
+export type SuperOperationAnswer = (item: InboxItem, optionId: string, at: string, handle: string) => void;
+
 export interface Resolver {
   via?: 'integrator';
+  /** The Operator's super origin of a step the owner's token made (PM-757); `handle` stays the owner. */
+  superActor?: SuperActor;
   handle: string;
   access: HumanAccess;
 }
 
 /** Who decides an inbox item another module owns (PM-593). Operator approvals are recognized by operatorApprovalOf. */
 export type InboxDeciderKey =
-  'merge_request' | 'release' | 'hand_on' | 'operator_approval' | 'operator_knowledge';
+  | 'merge_request'
+  | 'release'
+  | 'hand_on'
+  | 'operator_approval'
+  | 'operator_knowledge'
+  | 'operator_structural_review';
 /** Merge, release and hand-on handlers close their item in their transaction; refusals leave it open.
  * The inbox closes operator approvals after their handler returns. */
 export type InboxDecider = (
@@ -222,15 +287,27 @@ export class InboxService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
   private readonly policy: InboxPermissionPolicy;
+  private readonly integratorTodoAccess?: IntegratorTodoAccess;
   private readonly engines: EngineDirectory;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
   private readonly deciders = new Map<InboxDeciderKey, InboxDecider>();
   private readonly resolvingGates = new Map<string, { projectKey: string; gate: GateRequestPayload }>();
   private questionAnswer?: QuestionAnswerer;
+  private superOperationAnswer?: SuperOperationAnswer;
 
   registerQuestionAnswer(answer: QuestionAnswerer): void {
     this.questionAnswer = answer;
+  }
+
+  /** The super-mode handoff service takes the owner's yes or no to its question (PM-762). */
+  registerSuperOperationAnswer(answer: SuperOperationAnswer): void {
+    this.superOperationAnswer = answer;
+  }
+
+  private groupAnswer?: QuestionGroupAnswerer;
+  registerQuestionGroupAnswer(answer: QuestionGroupAnswerer): void {
+    this.groupAnswer = answer;
   }
 
   private askerStarts?: AskerStarts;
@@ -247,6 +324,8 @@ export class InboxService {
     return Promise.all(
       items.map(async (item) => {
         if (!isPendingQuestion(item)) return item;
+        // The integrator's own question waits for no session (PM-784): it reads the answer back itself.
+        if (questionPayloadOf(item)?.externalQuestion) return item;
         try {
           const config = await this.projects.config(projectKey);
           if (memberOf(config, item.source)?.kind !== 'ai') return item;
@@ -273,18 +352,202 @@ export class InboxService {
 
   resolveMergeRequest(id: string, by: string): void {
     const at = isoNow(this.ctx);
-    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'merge', by, at, note: null }, at);
+    const item = this.ctx.repos.inbox.close(
+      id,
+      'resolved',
+      this.decisionResolution(id, by, 'merge', null, at),
+      at,
+    );
     if (item) this.publish(item);
   }
 
   /** Close a release approval item as part of the transaction that decided its release. */
   resolveRelease(id: string, by: string, optionId: string, note: string | null): void {
+    assertOwnOrSuperApproval();
     const at = isoNow(this.ctx);
-    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId, by, at, note }, at);
+    const item = this.ctx.repos.inbox.close(
+      id,
+      'resolved',
+      this.decisionResolution(id, by, optionId, note, at),
+      at,
+    );
     if (item) this.publish(item);
   }
 
   private readonly resolutionLocks = new KeyedMutex();
+
+  /** Recheck after acquiring: a combine may have changed an individual lock into a primary lock. */
+  private questionLock<T>(id: string, action: () => Promise<T>): Promise<T> {
+    const key = this.ctx.repos.inbox.groupOf(id)?.primaryItemId ?? id;
+    return this.resolutionLocks.run(key, () => {
+      const current = this.ctx.repos.inbox.groupOf(id)?.primaryItemId ?? id;
+      return current === key ? action() : this.questionLock(id, action);
+    });
+  }
+
+  async combineQuestions(
+    projectKey: string,
+    input: { itemIds: string[]; question: string; note: string },
+    by: string,
+  ) {
+    const args = CombineQuestionsRequest.parse(input);
+    const config = await this.projects.config(projectKey);
+    if (coordinationMemberOf(config)?.handle !== by)
+      throw forbidden('project_manager_only', 'only the selected PM combines questions');
+    const ids = [...args.itemIds].sort();
+    const locked = (index: number): Promise<{ primaryItemId: string; linkedItemIds: string[] }> => {
+      const id = ids[index];
+      if (id) {
+        const row = this.ctx.repos.inbox.get(id);
+        const group = this.ctx.repos.inbox.groupOf(id);
+        if (
+          !row ||
+          row.projectKey !== projectKey ||
+          row.state !== 'screening' ||
+          (group && this.ctx.repos.inbox.get(group.primaryItemId)?.state !== 'screening')
+        )
+          throw conflict('question_not_screening', 'every question must still be in screening');
+        if (group) throw conflict('question_group_incompatible', 'a question already belongs to a group');
+        return this.questionLock(id, () => locked(index + 1));
+      }
+      return Promise.resolve(
+        this.ctx.unitOfWork(() => {
+          const items = ids.map((itemId) => this.ctx.repos.inbox.get(itemId));
+          if (items.some((item) => !item || item.projectKey !== projectKey || item.state !== 'screening'))
+            throw conflict('question_not_screening', 'every question must still be in screening');
+          const questions = items
+            .filter((item): item is InboxItem => item !== null)
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+          const primary = questions[0]!;
+          if (
+            questions.some((item) => {
+              const payload = questionPayloadOf(item);
+              return (
+                item.kind !== 'question' ||
+                !payload?.screening ||
+                payload.approvalLabel ||
+                payload.screening.todo ||
+                isIntegratorTodo(item) ||
+                wasIntegratorTodo(item) ||
+                APPROVAL_PAYLOAD_KEYS.some((key) => key in item.payload) ||
+                this.ctx.repos.inbox.groupOf(item.id) ||
+                memberOf(config, item.source)?.kind !== 'ai' ||
+                item.source === by ||
+                item.assignees.some((handle) => !ownerHandles(config).includes(handle)) ||
+                !questionGroupCompatible(primary, item)
+              );
+            })
+          )
+            throw conflict(
+              'question_group_incompatible',
+              'the questions do not ask the same owners for a compatible decision',
+            );
+          const at = isoNow(this.ctx);
+          const itemIds = questions.map((item) => item.id);
+          this.ctx.repos.inbox.createGroup({
+            ...args,
+            projectKey,
+            primaryItemId: primary.id,
+            itemIds,
+            at,
+            by,
+          });
+          const records = questions.map((item) => questionPayloadOf(item)!.screening!);
+          const remainingMs = Math.min(
+            ...records.map(
+              (s) =>
+                s.queue?.remainingMs ??
+                (s.deliveredAt ? Math.max(0, Date.parse(s.until) - Date.parse(at)) : QUESTION_SCREENING_MS),
+            ),
+          );
+          const deliveredAt = records
+            .map((s) => s.deliveredAt)
+            .filter((s): s is string => !!s)
+            .sort()[0];
+          const queue = records.find((s) => s.queue)?.queue;
+          const screening = {
+            ...questionPayloadOf(primary)!.screening!,
+            by,
+            until: new Date(Date.parse(at) + remainingMs).toISOString(),
+            ...(deliveredAt ? { deliveredAt } : {}),
+            ...(queue ? { queue: { ...queue, remainingMs } } : {}),
+          };
+          this.ctx.repos.inbox.updatePayload(primary.id, { ...primary.payload, screening }, at);
+          const groupedTasks = new Set<string | null>();
+          for (const item of questions) {
+            this.publish(this.ctx.repos.inbox.get(item.id)!);
+            if (groupedTasks.has(item.taskKey)) continue;
+            groupedTasks.add(item.taskKey);
+            this.timeline.append({
+              projectKey,
+              taskKey: item.taskKey,
+              sessionId: item.sessionId,
+              actor: aiActor(by),
+              type: 'question_grouped',
+              data: { primaryItemId: primary.id, itemIds, by },
+            });
+          }
+          return { primaryItemId: primary.id, linkedItemIds: itemIds.slice(1) };
+        }),
+      );
+    };
+    return locked(0);
+  }
+
+  /** Read-time projection; original questions and the combination audit remain in their own rows. */
+  withQuestionGroup(item: InboxItem): InboxItem {
+    const group = this.ctx.repos.inbox.groupOf(item.id);
+    if (!group) return item;
+    const primary = this.ctx.repos.inbox.get(group.primaryItemId);
+    const originalQuestion = questionPayloadOf(item)?.question ?? item.title;
+    const isPrimary = item.id === group.primaryItemId;
+    const sources = isPrimary
+      ? group.itemIds.flatMap((id) => {
+          const source = this.ctx.repos.inbox.get(id);
+          if (!source) return [];
+          const task = source.taskKey ? this.ctx.repos.tasks.get(source.taskKey) : null;
+          const deleted = source.taskKey !== null && !task;
+          return [
+            {
+              itemId: id,
+              taskKey: task?.key ?? null,
+              taskTitle: task?.title ?? null,
+              asker: source.source,
+              question: deleted ? null : (questionPayloadOf(source)?.question ?? source.title),
+              createdAt: source.createdAt,
+              state: deleted
+                ? ('deleted' as const)
+                : source.state === 'cancelled' || source.payload.groupWithdrawn === true
+                  ? ('withdrawn' as const)
+                  : ('live' as const),
+            },
+          ];
+        })
+      : undefined;
+    const { groupWithdrawn: _withdrawn, ...publicPayload } = item.payload;
+    return {
+      ...item,
+      ...(isPrimary
+        ? { title: group.question }
+        : item.state === 'screening' && primary?.state === 'open'
+          ? { state: 'open' as const }
+          : {}),
+      payload: {
+        ...publicPayload,
+        group: {
+          primaryItemId: group.primaryItemId,
+          primaryTaskKey: primary?.taskKey ?? null,
+          itemIds: isPrimary ? group.itemIds : [],
+          combinedQuestion: isPrimary ? group.question : '',
+          originalQuestion,
+          ...(isPrimary && item.state === 'resolved'
+            ? { answeredCount: this.ctx.repos.inbox.groupAnsweredCount(group.primaryItemId) }
+            : {}),
+          ...(isPrimary ? { note: group.note, sources } : {}),
+        },
+      },
+    };
+  }
 
   staleOperator(id: string, payload: Record<string, unknown>): void {
     const updated = this.ctx.repos.inbox.updateOperator(
@@ -298,9 +561,66 @@ export class InboxService {
 
   /** Close a hand-on item as part of the transaction that actually moved its card. */
   resolveHandOn(id: string, by: string): void {
+    // Resolving a human mover's pending request records their decision, even during an administrative move.
+    assertOwnOrSuperApproval();
     const at = isoNow(this.ctx);
-    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'move', by, at, note: null }, at);
+    const item = this.ctx.repos.inbox.close(
+      id,
+      'resolved',
+      this.decisionResolution(id, by, 'move', null, at),
+      at,
+    );
     if (item) this.publish(item);
+  }
+
+  /** Domain-owned transactions keep the same principal and Operator attribution as inbox.resolve. */
+  private decisionResolution(
+    id: string,
+    by: string,
+    optionId: string,
+    note: string | null,
+    at: string,
+  ): NonNullable<InboxItem['resolution']> {
+    const scope = integratorExecution();
+    if (scope?.principal.mode !== 'super') return { optionId, by, at, note };
+    assertOwnOrSuperApproval();
+    const item = this.ctx.repos.inbox.get(id)!;
+    const config = this.projects.cachedConfig(item.projectKey)!;
+    const owner = assertIntegratorAccess(config, 'write', scope.actor);
+    if (!owner) throw forbidden('insufficient_access', 'a current project owner is required');
+    if (!hasSuperOrigin(scope.actor))
+      throw forbidden('owner_approval_required', 'an Operator origin is required');
+    const refusal = superDecisionRefusal(item, {
+      operatorHandle: scope.actor.handle,
+      sessionMember: item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null,
+    });
+    if (refusal) throw forbidden(refusal, 'this item requires a person using their own login');
+    return this.resolution(
+      optionId,
+      { handle: owner.handle, access: owner.access, via: 'integrator', superActor: scope.actor },
+      at,
+      note,
+    );
+  }
+
+  private resolution(
+    optionId: string,
+    by: Resolver,
+    at: string,
+    note: string | null,
+    mode: 'decision' | 'relay' | 'todo' = 'decision',
+  ): NonNullable<InboxItem['resolution']> {
+    return {
+      optionId,
+      by: by.handle,
+      at,
+      note,
+      ...(by.via || by.superActor ? { via: 'integrator' as const } : {}),
+      ...(by.superActor ? { actor: by.superActor } : {}),
+      ...(by.superActor && mode === 'decision' ? { superDecision: true as const } : {}),
+      ...(mode === 'relay' ? { ownerAnswerRelayed: true as const } : {}),
+      ...(mode === 'todo' ? { integratorTodo: true as const, via: 'integrator' as const } : {}),
+    };
   }
 
   constructor(deps: {
@@ -308,6 +628,7 @@ export class InboxService {
     timeline: TimelineService;
     projects: ProjectService;
     policy: InboxPermissionPolicy;
+    integratorTodoAccess?: IntegratorTodoAccess;
     /**
      * The engines (PM-311): a session's worktrees root, and where its member workspaces live (PM-138:
      * routine steps there run without asking, as in a worktree), are its engine's.
@@ -320,6 +641,7 @@ export class InboxService {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.policy = deps.policy;
+    this.integratorTodoAccess = deps.integratorTodoAccess;
     this.engines = deps.engines;
     this.attachmentDirectory = deps.attachmentDirectory;
     this.broker = {
@@ -352,10 +674,52 @@ export class InboxService {
     return item;
   }
 
+  /**
+   * A new fix round limit decision item (PM-714): addressed to the integrator when one is available (the
+   * same `IntegratorTodoAccess` as the todos) and the shape is the narrow delegable one, else to the owners
+   * with the reason on the payload. The title, body and options are written in the project's language here.
+   * Only a new item is addressed this way; an item that exists is never rewritten. Call it inside the unit of
+   * work that also records the hold, so the addressing and the hold stand or fall together.
+   */
+  createFixLimitDecision(config: ProjectConfig, input: CreateFixLimitDecisionInput): InboxItem {
+    const available = input.options
+      .map((option) => FixLimitOptionId.safeParse(option.id))
+      .flatMap((parsed) => (parsed.success ? [parsed.data] : []));
+    const selected = selectFixLimitRecipient(
+      {
+        kind: 'decision',
+        source: 'system',
+        taskKey: input.taskKey,
+        payload: { fixLimit: input.fixLimit },
+        options: input.options,
+      },
+      this.integratorTodoAccess?.available(config) ?? false,
+    );
+    const content = formatFixLimitItem(config, input.fixLimit, available, selected.recipient);
+    return this.ctx.unitOfWork(() =>
+      this.create({
+        projectKey: input.projectKey,
+        kind: 'decision',
+        assignees: input.assignees,
+        source: 'system',
+        taskKey: input.taskKey,
+        title: content.title,
+        body: content.body,
+        payload: {
+          fixLimit: input.fixLimit,
+          recipient: selected.recipient,
+          ...(selected.recipient === 'integrator' ? { integratorOpenedAt: isoNow(this.ctx) } : {}),
+          ...('recipientRefusal' in selected ? { recipientRefusal: selected.recipientRefusal } : {}),
+        },
+        options: content.options,
+      }),
+    );
+  }
+
   get(projectKey: string, id: string): InboxItem {
     const item = this.ctx.repos.inbox.get(id);
     if (!item || item.projectKey !== projectKey) throw notFound('inbox item', id);
-    return item;
+    return this.withQuestionGroup(item);
   }
 
   updateOpenPayload(id: string, payload: Record<string, unknown>): InboxItem | null {
@@ -388,7 +752,7 @@ export class InboxService {
       limit?: number;
     } = {},
   ) {
-    return this.ctx.repos.inbox.list(projectKey, filter);
+    return this.ctx.repos.inbox.list(projectKey, filter).map((item) => this.withQuestionGroup(item));
   }
 
   /**
@@ -398,8 +762,12 @@ export class InboxService {
    */
   screenedQuestions(projectKey: string, since: string): ScreenedQuestionsResponse {
     const screened = this.ctx.repos.inbox
-      .list(projectKey, { kind: 'question', limit: 100_000 })
-      .map((item) => ({ item, screening: questionPayloadOf(item)?.screening }))
+      .list(projectKey, { kind: 'question' })
+      .filter((item) => {
+        const group = this.ctx.repos.inbox.groupOf(item.id);
+        return !group || group.primaryItemId === item.id;
+      })
+      .map((item) => ({ item: this.withQuestionGroup(item), screening: questionPayloadOf(item)?.screening }))
       .filter(
         ({ item, screening }) =>
           screening &&
@@ -442,16 +810,188 @@ export class InboxService {
   }
 
   countOpenFor(projectKey: string, handle: string, viewer?: Parameters<typeof canSeeInboxItem>[0]): number {
-    if (viewer)
-      return this.ctx.repos.inbox
-        .listOpen()
-        .filter(
-          (item) =>
-            item.projectKey === projectKey &&
-            item.assignees.includes(handle) &&
-            canSeeInboxItem(viewer, item),
-        ).length;
-    return this.ctx.repos.inbox.countOpenFor(projectKey, handle);
+    const member = this.projects
+      .cachedConfig(projectKey)
+      ?.team.members.find((entry) => entry.handle === handle);
+    const reader = viewer ?? (member?.kind === 'human' ? { handle, access: member.access } : undefined);
+    return this.ctx.repos.inbox
+      .listOpen()
+      .map((item) => this.withQuestionGroup(item))
+      .filter(
+        (item) =>
+          item.projectKey === projectKey &&
+          !isLinkedQuestion(item) &&
+          humanInboxAssignment(item, handle) &&
+          (!reader || canSeeInboxItem(reader, item)),
+      ).length;
+  }
+
+  /** Gives every open integrator item (todos and the narrow fix limit decisions) that waited 24 hours to the owners. */
+  async sweepIntegratorTodos(): Promise<void> {
+    const open = [...this.ctx.repos.inbox.listOpen('question'), ...this.ctx.repos.inbox.listOpen('decision')];
+    for (const candidate of open) {
+      if (!isIntegratorInboxItem(candidate)) continue;
+      try {
+        await this.questionLock(candidate.id, async () => {
+          const config = await this.projects.config(candidate.projectKey);
+          const current = this.ctx.repos.inbox.get(candidate.id);
+          if (current) this.escalateIntegratorItem(current, config);
+        });
+      } catch (error) {
+        this.ctx.logger.warn({ error, itemId: candidate.id }, 'integrator_todo_sweep_failed');
+      }
+    }
+  }
+
+  /**
+   * Gives an open integrator item to the owners: the 24 hour timeout (the system), or for a fix limit decision
+   * the integrator's explicit pass-on (`how.actor` is its authenticated super actor, `how.note` the reason). The
+   * same item stays open with its payload and options; only the addressing changes. False when it stays.
+   */
+  private escalateIntegratorItem(
+    item: InboxItem,
+    config: ProjectConfig,
+    how: { reason?: IntegratorEscalationReason; actor?: Actor; note?: string } = {},
+  ): boolean {
+    const at = isoNow(this.ctx);
+    const reason = how.reason ?? 'integrator_timeout';
+    // A fix limit decision goes to the people the card's hold names (the technical direction holders among the
+    // owners and admins, else the owners), as it would have if no integrator had been asked.
+    const people =
+      item.kind === 'decision' ? fixLimitDeciders(config, ownerHandles(config)) : ownerHandles(config);
+    const patch = planIntegratorInboxEscalation(item, at, people, reason);
+    if (!patch) return false;
+    const updated = this.ctx.unitOfWork(() => {
+      const row = this.ctx.repos.inbox.updateOpen(
+        item.id,
+        patch.payload,
+        patch.assignees,
+        at,
+        item.kind === 'decision' ? (bodyForOwners(config, item.body) ?? undefined) : undefined,
+      );
+      if (!row) return null;
+      if (item.kind === 'decision') {
+        this.timeline.append({
+          projectKey: item.projectKey,
+          taskKey: item.taskKey,
+          actor: how.actor ?? SYSTEM_ACTOR,
+          type: 'fix_limit_recipient_escalated',
+          createdAt: at,
+          data: {
+            inboxItemId: item.id,
+            from: 'integrator',
+            to: 'owner',
+            openedAt: item.payload.integratorOpenedAt as string,
+            reason,
+            ...(how.note ? { note: how.note } : {}),
+          },
+        });
+        return row;
+      }
+      this.timeline.append({
+        projectKey: item.projectKey,
+        taskKey: item.taskKey,
+        sessionId: item.sessionId,
+        actor: SYSTEM_ACTOR,
+        type: 'question_recipient_escalated',
+        createdAt: at,
+        data: {
+          inboxItemId: item.id,
+          asker: item.source,
+          from: 'integrator',
+          to: 'owner',
+          openedAt: questionPayloadOf(item)!.integratorOpenedAt!,
+          reason: 'integrator_timeout',
+        },
+      });
+      return row;
+    });
+    if (updated) this.publish(updated);
+    return !!updated;
+  }
+
+  /**
+   * The integrator decides a fix round limit item addressed to it (PM-714), the one approval-free decision it
+   * may make. It needs the explicit super credential of a current owner; the item must still be the narrow
+   * fix limit shape, addressed to the integrator and not timed out, and its card must still be held for exactly
+   * this item. `replan`, `reassign` and `another_round` close the item in the integrator's name and run the same
+   * application as an owner's choice (`inbox_resolved` -> `FixLimitWatch.decided`); `to_owner` gives the
+   * same open item to the owners with the reason. Everything is decided under the item's lock, so a timeout, an
+   * owner and a double click cannot each decide.
+   */
+  async resolveIntegratorFixLimit(
+    projectKey: string,
+    id: string,
+    req: ResolveIntegratorFixLimitRequest,
+    by: Resolver,
+  ): Promise<InboxItem> {
+    const parsed = IntegratorFixLimitRequestSchema.safeParse(req);
+    if (!parsed.success) throw invalid('invalid_request', 'invalid integrator fix limit decision');
+    return this.questionLock(id, async () => {
+      const request = parsed.data;
+      const item = this.get(projectKey, id);
+      const config = await this.projects.config(projectKey);
+      assertIntegratorAccess(config, 'write', by.superActor);
+      if (integratorExecution()?.principal.mode !== 'super' || !by.superActor)
+        throw forbidden(
+          'integrator_not_allowed',
+          'only an explicit super credential decides an integrator fix limit item',
+        );
+      if (by.access !== 'owner')
+        throw forbidden('insufficient_access', 'a current project owner is required');
+      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
+      if (this.escalateIntegratorItem(item, config) || !isIntegratorFixLimitDecision(item))
+        throw forbidden('super_relay_refused', 'only a current integrator fix limit decision may be decided');
+      const record = item.taskKey ? this.ctx.repos.taskFixLimits.get(item.taskKey) : null;
+      if (!record || record.inboxItemId !== id || record.holdPhase !== 'owner')
+        throw conflict('fix_limit_not_held', `${item.taskKey} is not held for this fix limit decision`);
+      const note = request.note?.trim() ? request.note.trim() : null;
+      if (request.optionId === 'to_owner') {
+        if (!note) throw invalid('invalid_request', 'say why the owners must decide', { field: 'note' });
+        const moved = this.escalateIntegratorItem(item, config, {
+          reason: 'integrator_passed_on',
+          actor: attributedActor(by),
+          note,
+        });
+        if (!moved) throw forbidden('super_relay_refused', 'the item cannot be handed to the owners');
+        return this.get(projectKey, id);
+      }
+      if (!item.options.some((option) => option.id === request.optionId))
+        throw invalid('unknown_option', `unknown option: ${request.optionId}`);
+      const at = isoNow(this.ctx);
+      const resolved = this.ctx.unitOfWork(() =>
+        this.ctx.repos.inbox.close(
+          id,
+          'resolved',
+          {
+            optionId: request.optionId,
+            by: by.handle,
+            at,
+            note,
+            via: 'integrator',
+            actor: by.superActor,
+            integratorFixLimit: true,
+          },
+          at,
+        ),
+      );
+      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
+      this.publish(resolved);
+      this.waiters.get(id)?.(resolved);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    });
+  }
+
+  async resolveIntegratorTodo(
+    projectKey: string,
+    id: string,
+    req: ResolveIntegratorTodoRequest,
+    by: Resolver,
+  ): Promise<InboxItem> {
+    const parsed = IntegratorTodoRequestSchema.safeParse(req);
+    if (!parsed.success) throw invalid('invalid_request', 'invalid integrator todo result');
+    return this.questionLock(id, () => this.resolveLocked(projectKey, id, parsed.data, by, true));
   }
 
   openPermissionOf(projectKey: string, sessionId: string): InboxItem | null {
@@ -468,7 +1008,7 @@ export class InboxService {
    * requests and questions, but gate decisions belong to the named approvers only.
    */
   async resolve(projectKey: string, id: string, req: ResolveInboxRequest, by: Resolver): Promise<InboxItem> {
-    return this.resolutionLocks.run(id, () => this.resolveLocked(projectKey, id, req, by));
+    return this.questionLock(id, () => this.resolveLocked(projectKey, id, req, by));
   }
 
   private async resolveLocked(
@@ -476,11 +1016,51 @@ export class InboxService {
     id: string,
     req: ResolveInboxRequest,
     by: Resolver,
+    integratorTodo = false,
   ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
+    const initialConfig = await this.projects.config(projectKey);
+    const principalOwner = assertIntegratorAccess(initialConfig, 'write', by.superActor);
+    const superScope = integratorExecution()?.principal.mode === 'super';
+    if (superScope) {
+      assertOwnOrSuperApproval(by);
+      if (!principalOwner || principalOwner.handle !== by.handle)
+        throw forbidden('insufficient_access', 'the resolver must be the authenticated owner');
+      by = { ...by, handle: principalOwner.handle, access: principalOwner.access, via: 'integrator' };
+    }
+    if (integratorTodo) {
+      if (integratorExecution()?.principal.mode !== 'super' || !by.superActor)
+        throw forbidden(
+          'integrator_not_allowed',
+          'only an explicit super credential resolves an integrator todo',
+        );
+      if (by.access !== 'owner')
+        throw forbidden('insufficient_access', 'a current project owner is required');
+      if (item.state !== 'open') throw conflict('inbox_item_closed', 'the inbox item is closed');
+      if (hasProtectedQuestionPayload(item))
+        throw forbidden('owner_approval_required', 'only a person may approve');
+      if (this.escalateIntegratorItem(item, initialConfig) || !isIntegratorTodo(item))
+        throw forbidden('super_relay_refused', 'only a current integrator todo may be resolved');
+      if (req.optionId !== 'todo_done' && req.optionId !== 'todo_cannot')
+        throw invalid('invalid_request', 'only todo result options are accepted');
+    } else if (
+      isIntegratorInboxItem(item) &&
+      (by.via || by.superActor || integratorExecution() || by.access !== 'owner')
+    ) {
+      throw forbidden(
+        'super_relay_refused',
+        'an integrator item needs the dedicated super endpoint or the owner login',
+      );
+    }
+    if (item.kind === 'permission' || item.kind === 'boundary') assertOwnApproval(by);
+    else if (!['question', 'alert'].includes(item.kind)) assertOwnOrSuperApproval(by);
     if (req.attachmentIds !== undefined && item.kind !== 'question')
       throw invalid('invalid_request', 'only questions accept attachments', { field: 'attachmentIds' });
-    if (by.via && !['question', 'alert'].includes(item.kind))
+    if (
+      by.via &&
+      !['question', 'alert'].includes(item.kind) &&
+      (!by.superActor || item.kind === 'permission' || item.kind === 'boundary')
+    )
       throw forbidden(
         'owner_approval_required',
         'Only the owner may give this approval using their own login',
@@ -488,6 +1068,51 @@ export class InboxService {
       );
     if (item.state !== 'open')
       throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
+    // The owner's question about a super operation (PM-762) is answered by their own login only: neither a
+    // token, nor the integrator's relay, nor anyone but an owner closes it.
+    const superOperation = item.kind === 'question' ? questionPayloadOf(item)?.superOperation : undefined;
+    if (superOperation && (by.via || by.superActor || by.access !== 'owner'))
+      throw forbidden('owner_approval_required', 'Only the owner may decide this, using their own login', {
+        kind: item.kind,
+      });
+    // A question the integrator asked itself (PM-784) is answered by an owner's own login: neither a token nor
+    // the integrator, in any mode, closes it, including by a direct core call.
+    const asked = item.kind === 'question' ? item.payload : null;
+    const askedRefusal = asked
+      ? externalQuestionAnswerRefusal(asked, {
+          via: by.via ?? (integratorExecution() ? 'integrator' : undefined),
+          superActor: by.superActor,
+        })
+      : null;
+    if (askedRefusal)
+      throw forbidden(
+        superScope ? 'owner_approval_required' : askedRefusal,
+        askedRefusal === 'super_relay_refused'
+          ? 'The integrator cannot answer its own question'
+          : 'Only the owner may decide this, using their own login',
+      );
+    // Every pending group member must be decidable; only an entirely relayable group is an information relay.
+    let relayed = false;
+    if (superScope) {
+      const group = this.ctx.repos.inbox.groupOf(id);
+      const members = [
+        item,
+        ...(group?.itemIds ?? []).flatMap((memberId) => {
+          const row = this.ctx.repos.inbox.get(memberId);
+          return row && row.id !== id && isPendingQuestion(row) ? [row] : [];
+        }),
+      ];
+      for (const member of members) {
+        const refusal = superDecisionRefusal(member, {
+          operatorHandle: by.superActor!.handle,
+          sessionMember: member.sessionId ? this.ctx.repos.sessions.get(member.sessionId)?.member : null,
+        });
+        const question = member.kind === 'question' ? member.payload : null;
+        if (refusal || (question && externalQuestionAnswerRefusal(question, by)))
+          throw forbidden('owner_approval_required', 'this item requires a person using their own login');
+      }
+      relayed = !integratorTodo && members.every(isRelayableQuestionItem);
+    }
     const operator = operatorApprovalOf(item);
     if (operatorKnowledgeApprovalOf(item)?.stale && req.optionId !== 'dismiss')
       throw conflict('operator_knowledge_stale', 'the knowledge proposal is stale; dismiss it');
@@ -563,15 +1188,76 @@ export class InboxService {
       if (!decide) throw forbidden('operator_never', 'Operator decisions are unavailable');
       await decide(item, by, req.optionId, note);
     }
+    if (structuralReviewOf(item)) {
+      const decide = this.deciders.get('operator_structural_review');
+      if (!decide) throw forbidden('owner_approval_required', 'structural review decisions are unavailable');
+      await decide(item, by, req.optionId, note);
+    }
     const at = isoNow(this.ctx);
-    const resolution = {
-      optionId: req.optionId,
-      by: by.handle,
+    const resolution = this.resolution(
+      req.optionId,
+      by,
       at,
       note,
-      ...(by.via ? { via: by.via } : {}),
-    };
+      integratorTodo ? 'todo' : relayed ? 'relay' : 'decision',
+    );
+    const group = this.ctx.repos.inbox.groupOf(id);
+    if (group) {
+      if (id !== group.primaryItemId || !this.groupAnswer)
+        throw conflict('question_group_incompatible', 'answer the primary question');
+      const members = group.itemIds.flatMap((memberId) => {
+        const row = this.ctx.repos.inbox.get(memberId);
+        return row && isPendingQuestion(row) ? [row] : [];
+      });
+      const answered: InboxItem[] = [];
+      const closeGroup = () => {
+        assertIntegratorAccess(this.projects.cachedConfig(projectKey) ?? config, 'write', by.superActor);
+        for (const row of members) {
+          const resolved = this.ctx.repos.inbox.close(row.id, 'resolved', resolution, at);
+          if (!resolved) throw conflict('inbox_item_closed', 'a group member is no longer pending');
+          answered.push(resolved);
+          this.publish(resolved);
+          this.timeline.append({
+            projectKey,
+            taskKey: row.taskKey,
+            sessionId: row.sessionId,
+            actor: attributedActor(by),
+            type: 'question_answered',
+            data: { inboxItemId: row.id, answer: answerText(resolved), groupPrimaryItemId: id },
+          });
+        }
+        if (!members.some((member) => member.id === id)) {
+          const representative = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
+          if (representative) this.publish(representative);
+        }
+      };
+      let committed = false;
+      const recipients = new Set(questionGroupLiveItemIds(questionPayloadOf(item)!.group!));
+      await this.groupAnswer(
+        members
+          .filter((row) => recipients.has(row.id))
+          .map((row) => ({ ...row, state: 'resolved', resolution })),
+        req.attachmentIds ?? [],
+        () => {
+          closeGroup();
+          committed = true;
+        },
+      ).finally(async () => {
+        // A failed transaction rolls back the rows too; dispatch failures must still release the labels.
+        if (committed && this.ctx.repos.inbox.get(id)?.state === 'resolved') {
+          this.publish(this.ctx.repos.inbox.get(id)!);
+          for (const row of answered) await this.ctx.events.emit('inbox_resolved', row);
+        }
+      });
+      return this.get(projectKey, id);
+    }
     const close = (): InboxItem => {
+      assertIntegratorAccess(this.projects.cachedConfig(projectKey) ?? config, 'write', by.superActor);
+      if (superOperation) {
+        if (!this.superOperationAnswer)
+          throw conflict('inbox_item_closed', 'the super operation is no longer available');
+        this.superOperationAnswer(item, req.optionId, at, by.handle);
+      }
       const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
       if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
       this.publish(resolved);
@@ -581,7 +1267,7 @@ export class InboxService {
           projectKey,
           taskKey: resolved.taskKey,
           sessionId: resolved.sessionId,
-          actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
+          actor: attributedActor(by),
           type: 'permission_resolved',
           data: {
             inboxItemId: id,
@@ -594,15 +1280,21 @@ export class InboxService {
           projectKey,
           taskKey: resolved.taskKey,
           sessionId: resolved.sessionId,
-          actor: humanActor(by.handle),
+          actor: by.superActor ? attributedActor(by) : humanActor(by.handle),
           type: 'question_answered',
-          data: { inboxItemId: id, answer: answerText(resolved) },
+          data: {
+            inboxItemId: id,
+            answer: answerText(resolved),
+            ...(integratorTodo
+              ? { integratorTodo: { optionId: req.optionId as 'todo_done' | 'todo_cannot', note } }
+              : {}),
+          },
         });
       }
       return resolved;
     };
     const answered =
-      item.kind === 'question' && this.questionAnswer
+      item.kind === 'question' && this.questionAnswer && !superOperation
         ? await this.questionAnswer(
             { ...item, state: 'resolved', resolution },
             req.attachmentIds ?? [],
@@ -637,6 +1329,7 @@ export class InboxService {
     handle: string,
     req: { decision: DelegatedPermissionDecision; reason: string },
   ): Promise<InboxItem> {
+    assertOwnApproval();
     const reason = req.reason.trim();
     if (!reason) throw invalid('invalid_request', 'a decision about a delegated request needs a reason');
     const config = await this.projects.config(projectKey);
@@ -800,39 +1493,77 @@ export class InboxService {
       note: string | null;
       /** The Operator found the question moot (PM-558): the screening record keeps the outcome too. */
       screened?: ScreeningSettlement;
+      /**
+       * The full actor when the question is closed through the integrator (PM-784): the resolution keeps its
+       * `via` and origin, and the timeline records it; `by` stays the handle.
+       */
+      actor?: Actor;
     },
   ): Promise<InboxItem | null> {
-    return this.resolutionLocks.run(id, async () => {
+    return this.questionLock(id, async () => {
       const current = this.ctx.repos.inbox.get(id);
       if (!current || !isPendingQuestion(current)) return null;
+      const group = this.ctx.repos.inbox.groupOf(id);
+      const otherLive =
+        group?.itemIds.some((otherId) => {
+          const other = otherId !== id ? this.ctx.repos.inbox.get(otherId) : null;
+          return !!other && isPendingQuestion(other);
+        }) ?? false;
+      const primaryWithdrawal = group?.primaryItemId === id;
       const at = isoNow(this.ctx);
       const closed = this.ctx.unitOfWork(() => {
-        let item = this.ctx.repos.inbox.close(
-          id,
-          'cancelled',
-          { optionId: 'closed', by: close.by, at, note: close.note, rule: close.rule },
+        const resolution = {
+          optionId: 'closed',
+          by: close.by,
           at,
-        );
+          note: close.note,
+          rule: close.rule,
+          ...(close.actor?.via ? { via: close.actor.via } : {}),
+          ...(close.actor && hasSuperOrigin(close.actor) ? { actor: close.actor } : {}),
+        };
+        if (primaryWithdrawal)
+          this.ctx.repos.inbox.updatePayload(id, { ...current.payload, groupWithdrawn: true }, at);
+        let item =
+          primaryWithdrawal && otherLive
+            ? { ...current, state: 'cancelled' as const, resolution }
+            : this.ctx.repos.inbox.close(
+                id,
+                'cancelled',
+                { ...resolution, ...(primaryWithdrawal ? { rule: 'group_withdrawn' as const } : {}) },
+                at,
+              );
         if (!item) return null;
         if (close.screened) {
-          item =
-            this.ctx.repos.inbox.updatePayload(
-              id,
-              withScreening(
-                current.payload,
-                { outcome: close.screened.outcome, by: close.screened.by, at, note: close.screened.note },
+          if (!primaryWithdrawal)
+            item =
+              this.ctx.repos.inbox.updatePayload(
+                id,
+                withScreening(
+                  current.payload,
+                  { outcome: close.screened.outcome, by: close.screened.by, at, note: close.screened.note },
+                  at,
+                ),
                 at,
-              ),
-              at,
-            ) ?? item;
+              ) ?? item;
           this.appendScreened(item, close.screened);
         }
-        this.publish(item);
+        this.publish(primaryWithdrawal ? this.ctx.repos.inbox.get(id)! : item);
+        if (group && !primaryWithdrawal) {
+          if (!otherLive) {
+            const representative = this.ctx.repos.inbox.close(
+              group.primaryItemId,
+              'cancelled',
+              { optionId: 'closed', by: 'system', at, note: null, rule: 'group_withdrawn' },
+              at,
+            );
+            if (representative) this.publish(representative);
+          } else this.publish(this.ctx.repos.inbox.get(group.primaryItemId)!);
+        }
         this.timeline.append({
           projectKey: item.projectKey,
           taskKey: item.taskKey,
           sessionId: item.sessionId,
-          actor: close.by === 'system' ? SYSTEM_ACTOR : aiActor(close.by),
+          actor: close.actor ?? (close.by === 'system' ? SYSTEM_ACTOR : aiActor(close.by)),
           type: 'question_closed',
           data: { inboxItemId: item.id, asker: item.source, rule: close.rule, note: close.note },
         });
@@ -846,6 +1577,119 @@ export class InboxService {
   }
 
   /**
+   * The payload, options and recipient a question has when it goes to the people (PM-558): the one rule of
+   * `releaseScreened` and of the todo the system opens itself (`openIntegratorTodo`).
+   */
+  private releaseFields(current: InboxItem, release: ScreeningRelease, config: ProjectConfig, at: string) {
+    const { outcome, fallback } = release;
+    const selected =
+      outcome === 'todo'
+        ? selectTodoRecipient(
+            current,
+            release.todo!.recipient,
+            this.integratorTodoAccess?.available(config) ?? false,
+          )
+        : { recipient: 'owner' as const };
+    const todo = release.todo ? { ...release.todo, recipient: selected.recipient } : undefined;
+    const payload = withScreening(
+      {
+        ...current.payload,
+        recipient: selected.recipient,
+        ...(selected.recipient === 'integrator' ? { integratorOpenedAt: at } : {}),
+      },
+      {
+        at,
+        ...(outcome ? { outcome } : {}),
+        ...(release.by ? { by: release.by } : {}),
+        ...(release.note ? { note: release.note } : {}),
+        ...(todo ? { todo } : {}),
+        ...('recipientRefusal' in selected ? { recipientRefusal: selected.recipientRefusal } : {}),
+        ...(fallback ? { fallback } : {}),
+      },
+      at,
+    );
+    const options = outcome === 'todo' ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : current.options;
+    return { selected, todo, payload, options };
+  }
+
+  /**
+   * The system opens a todo for the integrator itself (PM-806): nobody asked it, so `askedBy` (`system`, or the
+   * project manager's handle) is the item's source and no answer is delivered to anyone. It takes the screening's
+   * todo path (`releaseFields`), but opens at once, without the Operator. When the integrator cannot take it
+   * (`recipientRefusal`), the owners get it. It sets no waiting label. The obligation's id is on the payload, so
+   * a todo whose row was not written (a crash) is found again.
+   */
+  async openIntegratorTodo(input: {
+    projectKey: string;
+    taskKey: string | null;
+    askedBy: string;
+    question: string;
+    todo: QuestionTodo;
+    obligation?: ObligationRef;
+  }): Promise<{
+    itemId: string;
+    recipient: QuestionRecipient;
+    recipientRefusal: QuestionRecipientRefusal | null;
+  }> {
+    const config = await this.projects.config(input.projectKey);
+    const owners = ownerHandles(config);
+    if (owners.length === 0) throw invalid('no_assignees', 'the project has no owner to give a todo to');
+    const at = isoNow(this.ctx);
+    const draft: InboxItem = {
+      id: newId('inb'),
+      projectKey: input.projectKey,
+      kind: 'question',
+      assignees: owners,
+      source: input.askedBy,
+      sessionId: null,
+      taskKey: input.taskKey,
+      title: input.question,
+      body: null,
+      payload: {
+        question: input.question,
+        requestedRecipient: 'integrator',
+        recipient: 'owner',
+        ...(input.obligation ? { obligation: input.obligation } : {}),
+      },
+      options: [],
+      state: 'open',
+      resolution: null,
+      createdAt: at,
+    };
+    const { selected, payload, options } = this.releaseFields(
+      draft,
+      { outcome: 'todo', by: 'system', todo: { ...input.todo, recipient: 'integrator' } },
+      config,
+      at,
+    );
+    const item = this.create({
+      id: draft.id,
+      projectKey: draft.projectKey,
+      kind: 'question',
+      assignees: owners,
+      source: draft.source,
+      taskKey: draft.taskKey,
+      title: draft.title,
+      payload,
+      options,
+    });
+    return {
+      itemId: item.id,
+      recipient: selected.recipient,
+      recipientRefusal: 'recipientRefusal' in selected ? (selected.recipientRefusal ?? null) : null,
+    };
+  }
+
+  /**
+   * The obligation an integrator todo handed over was fulfilled or cancelled (PM-806): the todo closes with the
+   * rule `obligation_closed`, as the one `closeQuestion` branch of every question closed by the system. Nothing
+   * happens when it is closed already.
+   */
+  async closeObligationTodo(itemId: string, _at: string): Promise<void> {
+    await this.closeQuestion(itemId, { rule: 'obligation_closed', by: 'system', note: null });
+  }
+
+  /**
    * The question leaves the Operator's screening for the people (PM-558): it opens, with the Operator's
    * outcome (`decision`: a person decides; `todo`: a person does something, the options become Done and
    * Cannot do it) or, with no outcome, because the system gave up waiting (`fallback`). Null when the item
@@ -853,33 +1697,32 @@ export class InboxService {
    * or `question_screening_skipped` for a fallback.
    */
   releaseScreened(id: string, release: ScreeningRelease): Promise<InboxItem | null> {
-    return this.resolutionLocks.run(id, async () => {
+    if (release.outcome === 'todo' && !ScreeningTodoSchema.safeParse(release.todo).success)
+      throw invalid('invalid_outcome_fields', 'todo needs valid what, where, expected and recipient fields');
+    const primaryId = this.ctx.repos.inbox.groupOf(id)?.primaryItemId ?? id;
+    if (primaryId !== id && release.outcome === 'decision') return this.releaseScreened(primaryId, release);
+    return this.questionLock(id, async () => {
+      const group = this.ctx.repos.inbox.groupOf(id);
+      if (group && release.outcome === 'todo')
+        throw conflict('question_group_incompatible', 'a combined decision cannot become a todo');
+      if (group && group.primaryItemId !== id) return null;
       const current = this.ctx.repos.inbox.get(id);
       if (!current || current.kind !== 'question' || current.state !== 'screening') return null;
-      const at = isoNow(this.ctx);
       const { outcome, fallback } = release;
-      const payload = withScreening(
-        current.payload,
-        {
-          at,
-          ...(outcome ? { outcome } : {}),
-          ...(release.by ? { by: release.by } : {}),
-          ...(release.note ? { note: release.note } : {}),
-          ...(release.todo ? { todo: release.todo } : {}),
-          ...(fallback ? { fallback } : {}),
-        },
-        at,
-      );
-      const options = outcome === 'todo' ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : current.options;
+      const config = await this.projects.config(current.projectKey);
+      const at = isoNow(this.ctx);
+      const { selected, todo, payload, options } = this.releaseFields(current, release, config, at);
       const released = this.ctx.unitOfWork(() => {
         if (!this.ctx.repos.inbox.release(id, { payload, options, at })) return null;
+        if (selected.recipient === 'integrator')
+          this.ctx.repos.inbox.updateOpen(id, payload, ownerHandles(config), at);
         const item = this.ctx.repos.inbox.get(id)!;
         if (outcome && release.by) {
           this.appendScreened(item, {
             outcome,
             by: release.by,
             note: release.note ?? '',
-            ...(release.todo ? { todo: release.todo } : {}),
+            ...(todo ? { todo } : {}),
           });
         } else if (fallback) {
           this.timeline.append({
@@ -895,6 +1738,12 @@ export class InboxService {
       });
       if (!released) return null;
       this.publish(released);
+      if (group)
+        for (const memberId of group.itemIds) {
+          if (memberId === id) continue;
+          const linked = this.ctx.repos.inbox.get(memberId);
+          if (linked) this.publish(linked);
+        }
       return released;
     });
   }
@@ -919,9 +1768,11 @@ export class InboxService {
         note: settlement.note,
         screened: settlement,
       });
-    return this.resolutionLocks.run(id, async () => {
+    return this.questionLock(id, async () => {
       const item = this.ctx.repos.inbox.get(id);
       if (!item || item.kind !== 'question' || item.state !== 'screening') return null;
+      if (this.ctx.repos.inbox.groupOf(id))
+        throw conflict('question_group_incompatible', 'a combined decision must be answered by its owners');
       const at = isoNow(this.ctx);
       const answered = settlement.outcome === 'answered';
       const resolution = {
@@ -984,6 +1835,14 @@ export class InboxService {
         ...(outcome.forwardedTo ? { forwardedTo: outcome.forwardedTo } : {}),
         ...(outcome.answer ? { answer: outcome.answer } : {}),
         ...(outcome.todo ? { todo: outcome.todo } : {}),
+        ...(outcome.outcome === 'todo'
+          ? {
+              recipient: questionPayloadOf(item)?.recipient ?? 'owner',
+              ...(questionPayloadOf(item)?.screening?.recipientRefusal
+                ? { recipientRefusal: questionPayloadOf(item)!.screening!.recipientRefusal }
+                : {}),
+            }
+          : {}),
       },
     });
   }
@@ -1005,7 +1864,7 @@ export class InboxService {
   reassignRemovedHuman(projectKey: string, handle: string, owners: string[]): void {
     // A question the Operator still screens (PM-556) has its assignees too: it goes to them when released.
     for (const item of this.ctx.repos.inbox
-      .list(projectKey, { state: PENDING_INBOX_STATES, limit: 100_000 })
+      .list(projectKey, { state: PENDING_INBOX_STATES })
       .filter((i) => i.assignees.includes(handle))) {
       const remaining = item.assignees.filter((h) => h !== handle);
       const updated = this.ctx.repos.inbox.updateAssignees(
@@ -1022,14 +1881,20 @@ export class InboxService {
    * A decision and a release approval outlive their proposer: the release record stays `proposed`
    * until a human resolves the item, so cancelling it would leave the open release stuck.
    */
-  cancelOpenFromSource(projectKey: string, handle: string): InboxItem[] {
-    const cancelled: InboxItem[] = [];
+  async cancelOpenFromSource(projectKey: string, handle: string): Promise<void> {
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
       if (item.source !== handle || item.kind === 'decision' || item.kind === 'release') continue;
+      if (item.kind === 'question' && this.ctx.repos.inbox.groupOf(item.id)) {
+        await this.closeQuestion(item.id, {
+          rule: 'withdrawn',
+          by: 'system',
+          note: 'The asking member was retired.',
+        });
+        continue;
+      }
       const closed = this.cancel(item.id);
-      if (closed) cancelled.push(closed);
+      if (closed) await this.ctx.events.emit('inbox_cancelled', closed);
     }
-    return cancelled;
   }
 
   private close(id: string, state: 'cancelled' | 'expired', publish = true): InboxItem | null {
@@ -1041,7 +1906,11 @@ export class InboxService {
   }
 
   private publish(item: InboxItem): void {
-    this.ctx.bus.publish({ type: 'inbox_upserted', projectKey: item.projectKey, item });
+    this.ctx.bus.publish({
+      type: 'inbox_upserted',
+      projectKey: item.projectKey,
+      item: this.withQuestionGroup(item),
+    });
   }
 
   /**

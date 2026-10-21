@@ -674,6 +674,20 @@ a command of their own, so a chain, a pipe, a substitution or a redirection into
 whole command inside. That is the CLI's behaviour, read in its code, not a rule of ours: a later
 version must be checked again (SANDBOX-PROBE.md). A local-only repository gets no exception.
 
+**Engine dependency installers (PM-681, PM-710, PM-741).** Merge checks and opted-in member
+workspaces prepare npm dependencies outside member sessions, in the engine's macOS srt sandbox.
+Lifecycle scripts remain untrusted code: the entire user home and app home, engine credentials
+and shared session temporary roots are denied reads. A member installer opens only its clone,
+its private run sandbox and empty npm configuration files; it never opens other repositories,
+attachments or sessions. It writes only validated `node_modules` trees and its private home,
+tmp and npm cache, and reaches only `registry.npmjs.org` and `nodejs.org`, without local port
+binding. The member installer's fixed `npm ci` command receives an allowlisted environment without credentials or
+`PROJECTMAN_*` variables. There is no unsandboxed fallback. The engine owns readiness markers
+outside member write access; a matching merge dependency store may be copied under the heavy
+lock, but member installations never publish there. Timeout and engine shutdown stop and await
+the installer's process group; a caller timing out or disconnecting does not cancel preparation.
+All paths, sandbox enforcement and subprocesses stay on the execution engine, including remotely.
+
 **The session folder (PM-268).** A Claude session in the legacy profile, a reader too, writes one
 more place: its own session folder, for the screenshots and reports it attaches. It is outside
 every checkout and the app home (`<tmp>/projectman-sessions/<hash of the app home>/<session id>.<random>`),
@@ -941,6 +955,46 @@ hostile input. The boundary:
   outside plan mode; another member's folder asks), and its commands, which run unsandboxed, can
   write there like anywhere else they may. The folder stays hostile input for all of them.
 
+## Team tokens off the command line (PM-156)
+
+Each session has two tokens: the MCP token (`/mcp/<token>`: the team tools as that member) and the
+hook token (`/hooks/<token>`: permission decisions and turn events of that session). A command line
+and the process list (`ps -axww`) are readable by every process of the same user, the session's own
+sandboxed commands included, so neither token may be on one.
+
+- **Where they are now.** `<app home>/run/<session id>.<random>/` (`runner/session-config.ts`): the
+  root is 0700 and checked on every start (a real directory of the server's user, not a symlink);
+  the folder is 0700 and made for each start, a resume included; its files are 0600, created
+  exclusively without following a link. Claude Code gets the paths with `--mcp-config` and `--settings`; the hook commands of Claude
+  (sandboxed), Codex, NanoGPT and Gemini run the forwarder with the path of a target file (`curl
+--config <file>`, or the Node fallback reading the same line), never the URL. The forwarder refuses a relative path; a missing or malformed file posts
+  nothing (Gemini's PreToolUse prints its deny fallback).
+- **Closed to the session.** The root is in `sensitivePaths` (`SESSION_CONFIG_DIR`) and the runner adds
+  it, as configured and as canonical, to the policy's denied paths and to the sandbox's
+  `denyRead`/`denyWrite`; so the file tools (`Read`/`Edit` rules) and the shell cannot read it. A spec
+  without a policy gets the matching `deniedTools` rules. Claude Code and the forwarder read the files
+  outside that sandbox.
+- **When they go.** The runner removes the folder after the process has exited (also when the launch or
+  the spawn fails). At server start a sweep removes the folders whose runner is provably gone: the
+  owner record's pid and start time match no process, no process of the user names the folder or
+  carries the session's `PROJECTMAN_SESSION_ID`. Everything the sweep cannot prove orphaned is kept
+  and logged (the processes cannot be listed, an environment cannot be read, no or an invalid owner
+  record, a name that does not match, a non-directory). It never follows a link and never touches the
+  folder of a running session.
+- **Residual risk.**
+  - Codex and NanoGPT still pass the team MCP URL as a `-c mcp_servers.team=...` argument; it stays
+    visible in `ps` until their MCP configuration moves to a file (PM-812). Their hook commands are
+    token-free.
+  - Gemini's provider folder (`config/mcp_config.json`) holds the MCP URL in a 0600 file that
+    outlives the session; the token is dead once the session is gone, and the hooks file holds none.
+  - A session that is already running when the server is updated keeps its old command line until
+    its next start.
+  - An unsandboxed Claude session keeps its hook URL in `claude-settings.json` (the CLI's own `http`
+    hook): a 0600 file, closed to the file-tool rules, but not hidden from a command that no sandbox
+    confines. Sandboxed sessions use the forwarder only.
+  - A process of the same user outside every sandbox (the owner's own shell) can still read the files.
+    That is the user's own account, not a boundary this change draws.
+
 ## E-mail login of invited clients (PM-670)
 
 A client (a person who holds `client` access and nothing else) can log in with a one-time code sent
@@ -957,6 +1011,12 @@ the account boundary.
   the letter run in a queued background step, so the answer's time does not tell either. Only the
   client-address and the global limits can refuse a request (`429`, `Retry-After`), never because of an
   address. Redemption answers one `email_code_invalid` for a wrong, expired, used or never-sent code.
+  Invalid redemptions, including an unknown invitation token, perform the same address/code HMACs,
+  fixed-size `timingSafeEqual` comparison and `failAttempt` update (PM-703). Without a live code,
+  the update increments one reserved dummy row initialized at service startup, so it is a real
+  database write. Its non-HMAC address key cannot be selected by an address lookup, its id is
+  excluded from redemption, and it is marked used with exhausted attempts. Its far-future expiry
+  retains it during pruning; it creates no send events or per-address code rows.
 - **The code.** Six digits from `crypto.randomInt`, valid 10 minutes, single-use, stored as an
   HMAC; one live code per address (a new one voids the old). Five wrong tries void it. Redemption of
   one address runs under a lock, so of parallel requests exactly one wins. A missing name for a new
@@ -964,7 +1024,10 @@ the account boundary.
 - **Limits** (durable, counted from the database, so a restart does not reset them): one code per
   address per minute, 5 per hour, 10 per day; 20 requests per client address per hour; 200 letters per
   day in all; 30 redemptions per client address per hour. The client address is the trusted
-  `PROJECTMAN_CLIENT_IP_HEADER` value; without it all clients share one address.
+  `PROJECTMAN_CLIENT_IP_HEADER` value; without it all clients share one address. This service's
+  request and redemption limits group IPv6 addresses by canonical /64 (PM-703); IPv4, including
+  mapped IPv4, retains the full address. Old full-IPv6-address events age out within one hour;
+  no migration is needed. Other services' in-memory limiters keep their existing keys.
 - **Storage and logs.** Addresses, IPs and codes are kept only as HMAC-SHA-256 with a key derived from
   the `secret` file; the events are pruned after a day. Logs carry fixed codes and counts only: never
   an address, a code, an IP or a provider error text.
@@ -994,8 +1057,9 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   card that does not exist give the same answer; the live connection sends no event of an internal card.
   The engine service token is no board login: `/api/auth/me` with it answers 401.
 - **The engine door stays closed.** `/engine` keeps its own Access application (the engine service token
-  only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp` answer 404 at the
-  tunnel, as before. The main Access application has exactly one Bypass/Everyone policy and no other
+  only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp/` (the member door)
+  answer 404 at the tunnel, as before. The bare `/mcp` is the integrator's bearer endpoint (PM-760) and passes
+  like `/api`. The main Access application has exactly one Bypass/Everyone policy and no other
   rule; any other policy on it is removed by `edge` and refused by `publish`.
 - **The tunnel rule is not the only lock on `/engine`.** The tunnel's ingress rule and the Access
   application match the raw path, but the board's router decodes it: `/%65ngine/link` would skip the rule
@@ -1011,6 +1075,163 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
 - **Known limit.** Cloudflare Access no longer filters bots, scanners or password guessing in front of the
   board's login. The login's own limits apply (the code and address limits above); a WAF rule or Turnstile
   in front of the login is not part of this change.
+
+## The control socket and the admin channel (PM-749, PM-754)
+
+The board has a local control socket (`<home>/control.sock`, `/data/control.sock` in the cloud container) for the
+administration the board's people do not do in the app: pause, resume, status and the release operations.
+
+- **Authority is the file.** The socket is a Unix socket with mode 0600, owned by the board's own user. Whoever can
+  open it may send every `ControlRequest`; there is no login on it. It is never published on a TCP port and never
+  mounted out of the container. The protocol (`packages/shared`) has no approval, proposal or rejection of a
+  release: those stay with the person in the board.
+- **The cloud path.** admin → verified SSH or SSM session → the fixed `host.sh release-control` command → `docker
+exec` as the board's uid/gid (10001:10001) → the packaged relay (`control/cli.js`) → the local socket. The
+  command, user, container and socket path are constants; nothing from the request becomes an argument, a path or
+  a process. No admin port is opened and nothing is mounted.
+- **Limits.** One request line of at most 16 KiB (the host command passes on one byte more, so the relay sees an
+  oversized request) and one response line of at most 64 KiB. The relay's client waits 30 s; the admin tool gives
+  the whole call 90 s. One request, one response, and no automatic repeat: after a lost answer the caller reads
+  the release with `release_get` instead of sending a claim or report again.
+- **Errors and output.** The standard output holds the one response line only (a domain refusal is an answer, exit
+  0). Exit 1 is a transport failure, 2 a refusal (invalid input, the board is not running, no `releaseTarget`),
+  64 a wrong argument; diagnostics go to the standard error and carry no secret.
+- **Tied to the release target.** `release_get`, `release_claim`, `release_report` and the `release_deploy_get`,
+  `release_deploy_begin`, `release_deploy_change` operations of PM-752 only touch a release of the configured
+  `releaseTarget` (project and repository), and they are refused without one. The relay itself forwards the whole
+  `ControlRequest` set, not only the release operations. With a hybrid configuration the deployment protocol is
+  used and the legacy single-target claim and report are refused.
+- **The environment.** `docker exec` would hand the relay the container's environment. The host command therefore
+  runs `/usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8` before Node starts, so the relay gets
+  exactly those two values: no `NODE_OPTIONS` or `NODE_PATH` can change how it starts, and no AWS, backup,
+  provider or `PROJECTMAN_*` value reaches it (a test with synthetic markers proves it). If `env` or Node is
+  missing, the call fails; it never falls back to the inherited environment.
+- **What it does not give.** The cleared environment only removes needless inheritance. The relay still runs with
+  the board's data user, who owns the database and the socket. Anyone who can run Docker or SSH on the host, or who
+  has taken over the container, has the board's rights anyway; this channel is not isolation against them. Its
+  protection is the verified admin session before the fixed command and the narrow request protocol after it.
+- **The test.** The real Unix socket boundary is proven by `control-relay.integration.test.ts` and
+  `control-socket.integration.test.ts`, which the merge check must run: the full test sandbox allows Unix sockets
+  below its own temporary directory only (not `/tmp`, the checkout, the app home or another run), the tests prove
+  that a bind elsewhere in the run's writable area, also through a symlink, is refused, and `npm run merge-test`
+  refuses a run in which the PTY and socket tests would be skipped.
+
+## The hybrid release watcher (PM-751, part of PM-735)
+
+`npm run release` moves one owner-approved release to the cloud and the Mac engine. It is an administration
+tool: it reaches the cloud board's control socket only through `npm run cloud -- release-control` (PM-749, see
+"The control socket and the admin channel" above) and
+holds the AWS and cloud credentials only in `~/.config/projectman/cloud/`, which the member sandboxes deny.
+
+- **One approval, nothing wider.** The owner's approval of the release covers the whole chain and the program
+  rollback. It does not cover restoring data, which is a separate human decision; the coordinator has no code
+  path that restores data, kills a process, or leaves `recovery_required` by itself.
+- **No operation the board keeps for people.** The PM-749 relay carries every control request the board's
+  control socket knows, so the limit is the watcher's: it sends only the deployment operations of PM-752
+  (`release_next`, `release_get`, `engine_status`, `release_deploy_get|begin|change`) and never approves,
+  proposes or rejects a release, which stays with the person in the board. The cloud checks the controller id,
+  the target hash and the pause ownership, so a second or foreign watcher cannot take over an attempt. The
+  watcher does not trust the answer either: the release id it publishes with must be the one in its journal
+  and have the id shape, and the publisher refuses any other id or commit before it builds a path or runs a
+  command.
+- **A wrong machine is refused first.** Before every round the AWS account and the EC2 instance are checked
+  against the configuration, and the cloud's hybrid target must carry the hash of that configuration.
+- **A request that may have been applied is not repeated blindly.** A lost answer (`uncertain`) is read back
+  with `release_deploy_get` and decided from the state; the `requestId` makes a repeat idempotent and the
+  revision makes a stale one refused.
+- **Secret-free output.** The journal, the status line, `last-error.json`, the release alerts and the card hold
+  fixed codes and fixed texts, ids, hashes and phases. A raw error, a path, the stderr or stdout of a command or
+  an answer of the cloud is never copied there (tested with a secret in the stderr, and with a cloud or host
+  error that escapes a round: `last-error.json` and `status` get a code and a text fixed in the watcher, the
+  detail goes only to the sanitized line of `watcher.log`, the 0700 log of the job). The AWS calls of the
+  machine port redact their errors too. Files in the state
+  directory are 0600, written atomically, and the directory is under the protected tree.
+- **The watcher's own environment.** The LaunchAgent starts with `HOME`, `PATH`, `LANG` and `TZ` only; no
+  provider, GitHub or AWS variable is passed. It is installed only from a stable checkout, never a member
+  workspace, and replaces nothing while a round or a journal is active.
+- **One round at a time.** `watch.lock` refuses a second watcher, and an unreadable lock or journal is treated
+  as active, never as free.
+
+## Administration adapter (PM-763, part of Super mode)
+
+The hub and the engines can ask a small supervisor on their own machine to restart the service and read its
+bounded diagnostics. The supervisor is a separate process; the hub container gets no `docker.sock`, host
+network, SSM or shell, only one Unix socket.
+
+- **A closed set of commands.** The wire carries one JSON line each way (request at most 16 KiB, answer at most
+  256 KiB, 30 s timeout), parsed with strict zod schemas: `restart` (target and the expected boot id),
+  `full_test`, `image_build`, `deploy`, `process_cleanup` and the opt-in `owner_command` described below.
+  Only `owner_command` takes a raw shell command and working directory. An
+  unknown key, an oversized line or a malformed one is refused. A target other than the supervisor's own gives
+  `administration_target_mismatch`; an engine answers for its own target only.
+- **The socket is protected by the file system.** Node cannot read Unix-socket peer credentials, so the 0700
+  directory and the 0600 socket are checked before every use (owner is the current user, mode, no symbolic link,
+  `O_NOFOLLOW`, a stale socket is replaced only when nothing answers on it). No bearer, cookie or Access header
+  travels on it.
+- **Same user, OS-granted right.** The supervisor runs as the same OS user as the service it restarts (the
+  checks above compare against that user; for a hub container its uid maps to the host user). The right to
+  restart exactly the one configured launchd label or systemd unit is granted by the operating system (for
+  example a polkit rule), never by a shell, `sudo` or `docker.sock`. The configuration (`supervisor.json`,
+  0600, version 1) names the target, the state directory, the socket and that one service; it is protected
+  like the other app-home files.
+- **Absolute binaries, minimal environment.** The supervisor calls `/bin/launchctl`, `/bin/ps` and
+  `/usr/bin/systemctl` through the shared exec helper (no shell; on a timeout SIGTERM, then SIGKILL 5 s later)
+  with `PATH`, `LANG`, `LC_ALL` only. A service-manager mismatch (a launchd
+  label on Linux) leaves the controller out and the capability unadvertised.
+- **A restart is not repeated blindly.** The operation id is stored (0600, atomic) before the restart; a
+  duplicate submit gets the stored answer, one operation runs at a time, a changed id for the same command is
+  `administration_operation_conflict`, and success needs the boot id to change plus the engine registry's
+  feedback. A lost answer is read back with `inspect`. An active release deployment fence refuses a restart with
+  409 `release_pause_conflict`.
+- **Secret-free diagnostics.** `logs` returns at most 200 lines of at most 1000 characters from the sanitized
+  journal (fixed codes and fields, ids and hashes). No transcript, environment, argv, secret or raw exception
+  is stored or returned; a token canary is tested absent from argv, output, wire, journal, state files and
+  environment.
+- **Machine state, service logs and process cleanup (PM-886).** Still a fixed shape: no caller-supplied program,
+  path, argument or process id. The machine snapshot and the log file are read by the supervisor's own fixed
+  commands and files; it returns numbers, program base names and lines redacted in the supervisor (project keys,
+  bearer tokens, API and GitHub tokens, secret-looking assignments, long hex and base64 runs become
+  `[redacted]`). The launchd service log file comes from `supervisor.json` only, is opened with `O_NOFOLLOW` and
+  must be a regular file of the supervisor's user that group and others cannot write. The cleanup has one
+  selector (`orphan_test_workers`) and signals only processes of the supervisor's own OS user with parent 1, a
+  `vitest` or `tinypool` marker and an age of at least 5 minutes, never the service, its process group or the
+  supervisor; TERM first, KILL after 10 s, and the answer holds counts only. The three are behind the owner's
+  operator grant like the status and logs reads.
+- **Out of reach of members.** `PROJECTMAN_ADMIN_SOCKET` is stripped from every session environment, and the
+  `administration` folder of the app home is in the sandbox's sensitive paths. Member sessions run as the same
+  OS user as the supervisor, so the sandbox is what keeps them from the 0600 socket: the state and the socket
+  directory must therefore lie below `<app home>/administration`. `npm run administration -- prepare` takes
+  `--app-home` and refuses any other place, on the hub host and on an engine machine alike.
+- **Owner-approved shell (PM-887).** The protected config must explicitly set `ownerCommand.shell` to an
+  absolute shell path (`prepare --owner-command-shell <path>`); otherwise the capability is absent and the
+  command is unavailable. Every command is a `security` effect in a fresh `waiting_owner` operation and needs
+  the owner's own login approval of its exact command, cwd, target, timeout and reason. A waiver, agreement,
+  operator grant or earlier approval cannot replace it. The machine grant is also checked before submission;
+  its revocation does not stop a running command. The supervisor inherits its own environment minus the shared
+  billing and Codex OAuth override list, runs the configured shell as its OS user in a separate process group,
+  and sends TERM on timeout (1–600 s, default 120) followed by KILL after 10 s. Both output streams have a
+  bounded raw buffer and a 64 KiB JSON-encoded result limit; terminal escapes, C0 controls other than newline/tab
+  and DEL are removed before redaction, then output is cut at code-point boundaries. The command is kept in the
+  Operator's attributed operation and the redacted output in its result. **Linux:** the systemd restrictions
+  remain: read-only system/home, writes only to state/socket directories, Unix sockets only, no privilege
+  escalation and private temporary files. A restriction appears as the command's exit code and stderr.
+  Process-group termination cannot reach descendants that create a new session or daemonize. Redaction is
+  best-effort: arbitrary secrets and short fragments at the raw buffer boundary may survive; the owner question
+  notes that output reaches the Operator and its model provider. The command, cwd and reason reject Unicode
+  format characters and C1 controls; the exact request is shown in a JSON code block to preserve shell syntax.
+  **macOS:** launchd runs the command with the owner's OS-user permissions. A remote target always runs on its
+  own supervisor machine, through the existing engine link.
+- **A live socket is never taken over.** A starting supervisor removes a leftover socket file only after a
+  connection attempt finds nobody answering; a second supervisor on the same socket stops with `in_use`.
+- **Known limits, left for PM-764.** (1) A restart is confirmed by the supervisor's boot id plus the registry
+  reporting the engine online; right after a restart the old link may still count as online, so a stronger check
+  would compare the engine's hello boot id with the one before the restart. (2) The operation id is chosen by the
+  caller and `inspect` asks the hub first, then each engine; PM-764 should record the target next to the
+  operation id. (3) An engine reads the supervisor's capability at its hello only: a supervisor started after the
+  engine is advertised after the next reconnect.
+- **Nothing is installed by the code.** `npm run administration -- prepare` only writes the configuration and
+  the service file into a private folder; it calls no `launchctl` or `systemctl`. Installing the files, creating
+  the directories and starting the supervisors is a separate rollout that the owner approves.
 
 ## Findings
 
@@ -1058,9 +1279,17 @@ adapters reject it. The original worktree and other members' copies do not becom
 merely because they are listed as readable roots.
 
 Member workspaces (PM-138, off by default) are independent clones without a remote and without
-shared objects, so a member's repository configuration, hooks and objects never reach the project
-repository or a teammate; only committed branches travel, fetched by the server by explicit path.
-The server's git commands in a member workspace (or reading a teammate's) run with
+shared objects, so a member's repository configuration and hooks never reach the project
+repository or a teammate. Committed history does: since PM-739 the objects of a developer's
+committed task branch enter the project repository under
+`refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>`, and only that way. `publishTaskBranch`
+runs on the engine with the isolated git settings below; the commit must be in the developer's
+task branch; the branch tip is fetched by explicit path through a temporary incoming ref (deleted
+afterwards) with `fetch.fsckObjects`, so a malformed object is refused; `update-ref` creates the
+snapshot only when it does not exist (null old value), and a different commit under the same name
+is refused. The snapshot namespace is never written to by a branch, a push or a deletion, and the
+cloud receives no path or ref. Review and merge read only the pinned full OID, never a moved
+branch. The server's git commands in a member workspace (or reading a teammate's) run with
 `core.hooksPath=/dev/null`, no fsmonitor, no system or global configuration and only the local
 `file` transport. Clean/smudge filters that a repository's own configuration names still run on
 the server's checkouts there: they run as the same user the sessions already are. Workspaces are reserved for one
@@ -1080,7 +1309,8 @@ macOS probe.
    CLI configuration and permission modes before trusting a workspace.
 2. Terminate HTTPS with Tailscale Serve. Preserve the public Host, overwrite
    `X-Forwarded-Proto`, and keep forwarding/identity headers so hook/MCP requests
-   through the proxy are rejected. Prefer denying `/hooks` and `/mcp` at the proxy.
+   through the proxy are rejected. Prefer denying `/hooks` and `/mcp/` at the proxy (the bare `/mcp` is the
+   integrator's bearer endpoint, below).
    Verify Secure cookies and the browser's exact origin against the deployed proxy.
 3. Apply tailnet ACLs and proxy connection/body/rate limits. Keep the app bound to
    loopback; do not expose the development server. Provision the first owner locally.
@@ -1114,7 +1344,7 @@ cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below hold
    (non-identity, that one token), on the whole-hostname application; the engine's token is
    never there. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
    name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
-3. The tunnel answers 404 for `/hooks` and `/mcp` and for everything but the one hostname. The
+3. The tunnel answers 404 for `/hooks` and `/mcp/` and for everything but the one hostname. The
    only service is `127.0.0.1:4800`; the development ports are not served.
 4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
    automatic Web Analytics beacon and every other script injection off; a response-header rule
@@ -1159,6 +1389,20 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   visitor past Access, not past the sign-in. Defences: leave the setting off (switching it off
   makes `edge` delete the policy, the token and its file), or issue a new secret with
   `npm run cloud -- edge --rotate-integrator-token`.
+- **The integrator's MCP endpoint, `POST /mcp` (PM-760), is a bearer door like `/api`.** A leaked `pmi_` key
+  gives what the key's mode gives in the projects of which its holder is an owner, and nothing else: no
+  session, no login, no approval of a human decision, no key management. Every HTTP request (a batch element
+  and a notification too) is authenticated afresh from the stored hash, so a revoke or an expiry takes effect
+  on the next request, and a key revoked in the middle of a request makes the answer 401. A wrong key is 401
+  `integrator_key_invalid`, never an MCP error text. The login cookie is not read as a credential; the
+  `Authorization` and `Cookie` headers are removed before the SDK sees the request, and no log line holds a
+  header or a body. The key works only over HTTPS or a local connection. Shared tool definitions are denied
+  by default until they carry an explicit external binding; the member's session, decision, file and merge
+  tools are not offered, and `tools/list` follows the key's mode while a direct call is checked against the
+  same table. An unknown project and one the holder does not own get the same refusal, so the answer does
+  not tell which project keys exist. On the public board `/mcp` has no Access audience (like `/api`), so the
+  key is the only lock there: keep the expiry short, revoke at once on a suspicion, and read the `mcp_<tool>`
+  rows of the super audit. The member door `/mcp/<token>` is unchanged and stays closed at the tunnel.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
   every change and rerun `check.sh`. On the public board there is no second lock by design: the
@@ -1178,7 +1422,7 @@ their session, origin and limit rules are in "The feedback tool's public API".
 2. **The server's host guard is the second lock** (`src/http/feedback-host-guard.ts`, registered
    as the first `onRequest` hook, before the auth hook). It is on when
    `PROJECTMAN_FEEDBACK_PUBLIC_URL` is set to a non-loopback address. For a request whose `Host`
-   (lower-case, with its port, without a trailing dot) is that address, anything outside the
+   (lower-case, without any port and without a trailing dot) names that address's host, anything outside the
    list gets the same 404 an unknown server route gets, so a wrong or missing tunnel rule does
    not expose `/api`, `/ws`, `/hooks`, `/mcp` or the web app there. A websocket upgrade is
    refused and its socket closed.

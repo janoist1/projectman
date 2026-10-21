@@ -4,6 +4,9 @@ describe('engine-host index', () => {
   it('gives out only the names the server side and the engine link use', async () => {
     expect(Object.keys(await import('./index')).sort()).toEqual([
       'SessionFolders',
+      'WORK_ROOT_MARKER',
+      'WorkRootError',
+      'createCheckBranchGit',
       'createLocalBranchMerger',
       'createLocalEngine',
       'createLocalEngineHost',
@@ -22,6 +25,7 @@ describe('engine-host index', () => {
       'prepareSessionTmpRoot',
       'realpathOfNearest',
       'resolveScenario',
+      'resolveWorkRoots',
       'sharedClaudeTmpRoots',
       'userExcludesFile',
     ]);

@@ -63,6 +63,43 @@ describe('engine configuration', () => {
     expect(() => base({ repos: [{ ...repo, mergeBranch: '' }] })).toThrow();
   });
 
+  it.each([
+    [undefined, null],
+    [{ kind: 'none' }, null],
+    [{ kind: 'npm_ci' }, { kind: 'npm_ci', timeoutMs: 600_000 }],
+    [
+      { kind: 'npm_ci', timeoutMs: 1_000 },
+      { kind: 'npm_ci', timeoutMs: 1_000 },
+    ],
+  ])('resolves the optional workspace setup %j', (workspaceSetup, expected) => {
+    const workspace = path.join(dir, 'workspace');
+    const repo = path.join(workspace, 'app');
+    mkdirSync(repo, { recursive: true });
+    const config = base({
+      projects: [{ project: 'PM', workspacePath: workspace }],
+      repos: [{ project: 'PM', repo: 'app', path: repo, ...(workspaceSetup ? { workspaceSetup } : {}) }],
+    });
+    saveEngineConfig(dir, config);
+    expect(loadEngineConfig(dir).schemaVersion).toBe(1);
+    expect(
+      resolveEngineConfig(config, path.join(dir, 'home'), { tmpdir: path.join(dir, 'tmp') }).repos[0]
+        ?.workspaceSetup,
+    ).toEqual(expected);
+  });
+
+  it.each([
+    { kind: 'shell', command: 'npm install' },
+    { kind: 'none', timeoutMs: 1_000 },
+    { kind: 'npm_ci', command: 'npm install' },
+    { kind: 'npm_ci', timeoutMs: 999 },
+    { kind: 'npm_ci', timeoutMs: 1_800_001 },
+    { kind: 'npm_ci', timeoutMs: 1_000.5 },
+  ])('rejects invalid workspace setup %j', (workspaceSetup) => {
+    expect(() =>
+      base({ repos: [{ project: 'PM', repo: 'app', path: '/fixture', workspaceSetup }] }),
+    ).toThrow();
+  });
+
   describe('secret files', () => {
     const file = () => path.join(dir, 'secret');
 
@@ -208,6 +245,31 @@ describe('engine configuration', () => {
       expect(() => resolveEngineConfig(base(), dir)).toThrowError(
         expect.objectContaining({ code: 'secret_in_root' }),
       );
+    });
+
+    it('accepts an absolute workRoot (PM-846), refuses a relative one, and loads an old file without it', () => {
+      saveEngineConfig(dir, base());
+      expect(loadEngineConfig(dir).workRoot).toBeUndefined();
+      expect(resolve(base()).workRoot).toBeUndefined();
+      const home = path.join(dir, 'home');
+      mkdirSync(home);
+      saveEngineConfig(home, base({ workRoot: path.join(home, 'work') }));
+      expect(loadEngineConfig(home).workRoot).toBe(path.join(home, 'work'));
+      expect(resolve(base({ workRoot: path.join(home, 'work') }), home).workRoot).toBe(
+        path.join(home, 'work'),
+      );
+      expect(() => resolve(base({ workRoot: 'work' }), home)).toThrowError(
+        'invalid engine.json: workRoot must be an absolute path',
+      );
+    });
+
+    it('refuses a key file inside the work root’s worktrees', () => {
+      const home = path.join(dir, 'home');
+      const root = path.join(home, 'work');
+      mkdirSync(path.join(root, 'worktrees'), { recursive: true });
+      expect(() =>
+        resolve(base({ workRoot: root, keyFile: path.join(root, 'worktrees', 'k') }), home),
+      ).toThrowError(expect.objectContaining({ code: 'secret_in_root' }));
     });
 
     it('refuses a key file that reaches a workspace through a symbolic link', () => {

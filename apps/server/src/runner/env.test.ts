@@ -68,6 +68,14 @@ describe('child environment', () => {
     expect(Object.keys(session).filter((name) => name.startsWith('AWS_'))).toEqual([]);
   });
 
+  it('keeps the administration supervisor socket out of every session (PM-763)', () => {
+    const source = { PATH: '/usr/bin', PROJECTMAN_ADMIN_SOCKET: '/var/lib/projectman-admin/supervisor.sock' };
+    expect(buildChildEnv(source)).toEqual({ PATH: '/usr/bin' });
+    expect(Object.keys(buildSessionEnv(source, 'ses_1')).filter((name) => name.includes('ADMIN'))).toEqual(
+      [],
+    );
+  });
+
   it('removes the Gemini and NanoGPT variables and the Antigravity markers, whatever the server has (PM-324)', () => {
     const names = [
       'GEMINI_API_KEY',
@@ -99,6 +107,25 @@ describe('child environment', () => {
       NANOGPT_API_KEY: 'from-adapter',
     });
     expect(buildChildEnv(leaking)).toMatchObject({ PATH: '/usr/bin' });
+  });
+
+  it('removes the integrator key and the Cloudflare Access service-token variables (PM-765)', () => {
+    const names = [
+      'PROJECTMAN_INTEGRATOR_KEY',
+      'PROJECTMAN_CLIENT_CONFIG',
+      'CF_ACCESS_CLIENT_ID',
+      'CF_ACCESS_CLIENT_SECRET',
+      'cf_access_client_secret',
+      'CF-Access-Client-Id',
+      'CF_Access_Client_Secret',
+      'CLOUDFLARE_ACCESS_CLIENT_SECRET',
+    ];
+    const leaking = { PATH: '/usr/bin', ...Object.fromEntries(names.map((name) => [name, 'canary'])) };
+    for (const env of [buildChildEnv(leaking), buildSessionEnv(leaking, 'ses_1')]) {
+      for (const name of names) expect(env).not.toHaveProperty(name);
+      expect(env).toMatchObject({ PATH: '/usr/bin' });
+      expect(JSON.stringify(env)).not.toContain('canary');
+    }
   });
 
   it('sets the terminal and session variables for a member session', () => {

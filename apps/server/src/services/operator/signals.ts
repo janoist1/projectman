@@ -11,6 +11,7 @@ import {
   dutyMembers,
   isOpenTask,
   isTheme,
+  isCoordinatorOnlySignal,
   OPERATOR_ANSWER_STALL_MUTE_MINUTES,
   OPERATOR_ANSWER_STALL_WAKE_MS,
   OPERATOR_FAST_SIGNAL_KINDS,
@@ -18,6 +19,9 @@ import {
   WAITING_ANSWER_LABEL,
   startableCards,
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
+  refinementStallRefusal,
+  refinementTurn,
+  turnStalled,
   formatInjectedTeamMessage,
   isOperator,
   coordinationMemberOf,
@@ -28,6 +32,7 @@ import {
   operatorSignalBudget,
   operatorWatchOf,
   OperatorSignal,
+  LoopTriageFacts,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
   aiLimitReached,
   isOnLeave,
@@ -49,19 +54,38 @@ import type {
   OperatorSignalStepTargets,
   OperatorWatch,
   ProjectConfig,
+  RefinementStallFacts,
   Stage,
   Task,
   TaskWait,
   TimelineEvent,
 } from '@projectman/shared';
 import type { OperatorSignalRecord } from '../../db';
+import {
+  StructuralPatterns,
+  STRUCTURAL_KINDS,
+  STRUCTURAL_WINDOW_MS,
+  patternSubject,
+  structuralKind,
+} from './structural-patterns';
+import type { StructuralEvaluation, StructuralFacts } from './structural-patterns';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import { answerEvidenceOf } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
+import { prerequisiteCards } from '../../core/tasks';
 import type { TaskWaits } from '../../core/tasks';
+import type { TaskSchedulingReader } from '../../contracts';
 import { conflict, invalid } from '../../kernel';
 import { newId } from '../../kernel';
+
+type RefinementStallInput = {
+  projectKey: string;
+  taskKey: string;
+  label: string;
+  member: string;
+  turnAt: string;
+};
 
 type SignalInput = {
   projectKey: string;
@@ -97,26 +121,55 @@ const MEMBER_WORK_EVENTS: ReadonlySet<TimelineEvent['type']> = new Set([
 const CARD_EVENTS_READ = 300;
 
 const WAKE_NEVER =
-  "On a signal never merge, release, approve, move a card, or set a label or a setting; stalled, silent, outage, nobody and process_cleanup_failed signals always go to the owners. Never stop another member's processes yourself.";
+  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human; a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
-  'Send the owners one message for the whole wake-up (send_message with signal_ids; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
-const WAKE_CHECK = 'Projectman system signals. Check get_project_state and session activity first.';
+  'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
+const WAKE_STRUCTURAL =
+  'structural_pattern and milestone_closed are for you only: the owners never see them. Never put them in signal_ids. Weigh their evidence; use request_structural_review if a review would help. Name only those worth a review in your one summary message as one short list with card keys and the reason; otherwise write nothing about them. Close every one you do not propose a review on with dismiss_signal and a short note.';
+const WAKE_CHECK =
+  'Projectman system signals. Check get_project_state and session activity first. Read get_task before referring to a card; distinguish active work, actual decision waits and normal offline queued work. Diagnose the cause, take only the smallest permitted coordination step, consider machine load and verify the result. Group related decisions in the single summary; screening and signals are not owner requests and grant no settings or critical-operation authority.';
+const WAKE_LOOP =
+  'A loop_suspected signal is report-only: inspect current card, commits, review findings and delivery; call triage_loop with evidence and progress or loop. Message count alone is no loop. Never present it to owners as an authorization request, stop work or choose stop/let_run.';
 const WAKE_STEP =
   'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
 const WAKE_DISMISS =
   'A ready_waiting signal whose cards all wait on purpose you close with dismiss_signal and a note instead of bringing it to the owners; new_cards in its facts are the cards that became ready since the last close.';
 
+const WAKE_REFINEMENT =
+  'A refinement_stalled signal is report-only and starts nothing: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; bring it to the owners only when the turn really stands stalled.';
+
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** The member of an `answer_stalled` case key: `answer_stalled:<taskKey>:<member>:<evidenceId>`. */
 function answerStalledMember(caseKey: string): string | null {
   return caseKey.split(':')[2] ?? null;
 }
+
+/** The case key of a stalled refinement turn: `refinement_stalled:<taskKey>:<label>:<member>:<turnAt>`. */
+function refinementStallCaseKey(input: RefinementStallInput): string {
+  return `refinement_stalled:${input.taskKey}:${input.label}:${input.member}:${input.turnAt}`;
+}
+
+/** The parts of a `refinement_stalled` case key; the turn time holds colons itself. */
+function refinementStallOf(projectKey: string, caseKey: string): RefinementStallInput | null {
+  const [, taskKey, label, member, ...turnAt] = caseKey.split(':');
+  return taskKey && label && member && turnAt.length
+    ? { projectKey, taskKey, label, member, turnAt: turnAt.join(':') }
+    : null;
+}
+
+/** Session states in which a member is in the middle of a turn. */
+const ENGAGED_STATES: ReadonlySet<string> = new Set([
+  'starting',
+  'working',
+  'waiting_permission',
+  'waiting_input',
+]);
 
 /** One notice per system problem episode; notices never authorize a write. */
 export class OperatorSignals {
@@ -131,6 +184,7 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
+    startHandled?: (task: Task) => boolean;
   }) {
     this.deps = privateDeps;
   }
@@ -143,7 +197,19 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
+    /** The start round already acts on the ready card: it holds it on purpose or asked a member to start it (PM-804). */
+    startHandled?: (task: Task) => boolean;
   };
+
+  /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
+  private readonly cardReader: TaskSchedulingReader = {
+    readSchedulingTasks: (projectKey, query) => this.deps.ctx.repos.tasks.readScheduling(projectKey, query),
+  };
+
+  /** The cards that are not done or cancelled: everything the board cases and the waits are decided on. */
+  private openCards(projectKey: string): Task[] {
+    return this.cardReader.readSchedulingTasks(projectKey, { kind: 'open' });
+  }
 
   raise(input: SignalInput): OperatorSignalRecord {
     const { ctx } = this.deps;
@@ -180,10 +246,102 @@ export class OperatorSignals {
     this.save(signal, visible);
   }
 
+  /**
+   * Tells the project manager that a member's refinement turn ended without its label (PM-702), as a
+   * report-only signal. The case is checked against the cards, sessions and questions first; then it is
+   * stored as a pending signal (durable, one per turn) and delivered when the PM can be woken. A PM that
+   * cannot take it at all (none, AI off, leave, team pause) is `unavailable` and nothing is stored; a stored
+   * signal that waits (offline engine, admission's line, the wake interval) is `queued`, no failure; a
+   * storage or delivery error is `failed`, and the stored signal stays for the next sweep.
+   */
+  async reportRefinementStall(
+    input: RefinementStallInput,
+  ): Promise<'delivered' | 'queued' | 'unavailable' | 'failed'> {
+    const { ctx, projects } = this.deps;
+    try {
+      const config = await projects.config(input.projectKey);
+      if (
+        !coordinationMemberOf(config) ||
+        !config.team.limits.aiEnabled ||
+        isWorkPaused(ctx.repos.pauses.open(), input.projectKey)
+      )
+        return 'unavailable';
+      // Nothing left to report: the turn changed or the member works again since the runtime looked.
+      if (!this.refinementStall(config, input)) return 'delivered';
+      const signal = this.raise({
+        projectKey: input.projectKey,
+        kind: 'refinement_stalled',
+        caseKey: refinementStallCaseKey(input),
+        taskKey: input.taskKey,
+        subject: input.label,
+      });
+      await this.deliver(input.projectKey);
+      const current = ctx.repos.operatorSignals.get(signal.id);
+      return !current || current.resolvedAt || current.deliveredAt ? 'delivered' : 'queued';
+    } catch {
+      return 'failed';
+    }
+  }
+
+  /**
+   * The facts of a stalled refinement turn when it still stands, else null: the one rule
+   * (`refinementStallRefusal`) read from the card, its recorded turn, the member's sessions and the open
+   * questions of the card now.
+   */
+  private refinementStall(config: ProjectConfig, input: RefinementStallInput): RefinementStallFacts | null {
+    const { ctx, sessions } = this.deps;
+    const { projectKey, taskKey, label, member, turnAt } = input;
+    const task = ctx.repos.tasks.get(taskKey);
+    const inProject = task?.projectKey === projectKey ? task : null;
+    const turn = ctx.repos.timeline.latestOfType(projectKey, taskKey, 'refinement_turn');
+    const step = inProject ? refinementTurn(inProject, config) : null;
+    const data = (turn?.data ?? {}) as Record<string, unknown>;
+    const memberSessions = ctx.repos.sessions.list(projectKey, { member, taskKey });
+    const questions = ctx.repos.inbox.list(projectKey, {
+      state: PENDING_INBOX_STATES,
+      kind: 'question',
+      taskKey,
+    });
+    const refusal = refinementStallRefusal({
+      taskOpen: !!inProject && isOpenTask(inProject),
+      sameTurn:
+        step?.kind === 'step' &&
+        step.label === label &&
+        !!turn &&
+        turn.createdAt === turnAt &&
+        data.label === label &&
+        data.member === member &&
+        data.reason !== 'done' &&
+        data.reason !== 'stopped',
+      labelMissing: !!inProject && !inProject.labels.includes(label),
+      memberActive: memberSessions.some((s) => sessions.isRunning(s.id) && ENGAGED_STATES.has(s.state)),
+      hasOpenQuestion: !turnStalled(questions, config),
+    });
+    if (refusal) return null;
+    const latest = [...memberSessions].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0];
+    return {
+      label,
+      member,
+      turnAt,
+      session: latest ? { id: latest.id, state: latest.state, lastActivityAt: latest.lastActivityAt } : null,
+      openQuestionIds: questions.map((q) => q.id),
+    };
+  }
+
   presentation(projectKey: string, id: string, by?: string): OperatorSignalRecord {
     const signal = this.deps.ctx.repos.operatorSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
+    if (signal.kind === 'loop_suspected')
+      throw invalid(
+        'invalid_request',
+        'use triage_loop for a suspected loop, not an owner signal presentation',
+      );
+    if (isCoordinatorOnlySignal(signal.kind))
+      throw invalid(
+        'invalid_request',
+        'structural_pattern and milestone_closed signals are for you only: leave them out of signal_ids, name the ones worth a review in your message text, and close them with dismiss_signal',
+      );
     if (
       signal.resolvedAt ||
       signal.messageId ||
@@ -198,7 +356,12 @@ export class OperatorSignals {
 
   present(projectKey: string, id: string, messageId: string, actionable: boolean): void {
     const signal = this.presentation(projectKey, id);
-    this.save({ ...signal, state: 'open', messageId, actionable });
+    this.save({
+      ...signal,
+      state: 'open',
+      messageId,
+      actionable: structuralKind(signal.kind) ? false : actionable,
+    });
   }
 
   dismissByOperator(projectKey: string, id: string, by: string, note: string): OperatorSignal {
@@ -317,7 +480,7 @@ export class OperatorSignals {
         !task.fixLimit &&
         (wait?.reason === 'assignee' || wait?.reason === 'queued') &&
         (stage?.gate?.conditions ?? []).every((condition) => conditionHolds(task, condition)) &&
-        openPrerequisites(task, ctx.repos.tasks.list(projectKey)).length === 0;
+        openPrerequisites(task, prerequisiteCards(this.cardReader, projectKey, task)).length === 0;
       allowed.members =
         ready && task.assignee === answerStalledMember(signal.caseKey) ? startable([task.assignee!]) : [];
       allowed.taskKey = task.key;
@@ -354,7 +517,9 @@ export class OperatorSignals {
   }
 
   channel(projectKey: string): { signals: OperatorSignal[]; openSignals: number } {
-    const all = this.deps.ctx.repos.operatorSignals.list(projectKey);
+    const all = this.deps.ctx.repos.operatorSignals
+      .list(projectKey)
+      .filter((signal) => !isCoordinatorOnlySignal(signal.kind));
     const since = this.deps.ctx.now().getTime() - 7 * 24 * 60 * 60_000;
     return {
       signals: all
@@ -364,12 +529,61 @@ export class OperatorSignals {
     };
   }
 
+  /** Server-produced evidence, reconstructed from the original timeline window and checked against now. */
+  structuralFacts(signal: OperatorSignalRecord): StructuralFacts {
+    const config = this.deps.projects.cachedConfig(signal.projectKey);
+    return config ? new StructuralPatterns(this.deps.ctx).evaluate(config).facts(signal) : null;
+  }
+
+  /** Created anew in each synchronous phase, including each actual deferred-start validity check. */
+  private lazyStructuralEvaluation(config: ProjectConfig | undefined) {
+    let evaluation: StructuralEvaluation | undefined;
+    return () => {
+      if (config) evaluation ??= new StructuralPatterns(this.deps.ctx).evaluate(config);
+      return evaluation;
+    };
+  }
+
   /** Reconcile current card and session facts before attempting any queued wake-up. */
   async sweep(projectKey?: string): Promise<void> {
     for (const key of projectKey ? [projectKey] : this.deps.projects.summaries().map((p) => p.key)) {
       const config = await this.deps.projects.config(key);
-      const cards = this.deps.ctx.repos.tasks.list(key);
+      const cards = this.openCards(key);
       const active = new Set<string>();
+      for (const kind of STRUCTURAL_KINDS)
+        this.deps.ctx.repos.operatorSignals.arm(key, kind, isoNow(this.deps.ctx));
+      const structural = this.lazyStructuralEvaluation(config);
+      const report = structural()!.report();
+      const previous = this.deps.ctx.repos.operatorSignals.list(key);
+      for (const facts of report.patterns) {
+        const subject = patternSubject(facts.fingerprint);
+        if (
+          previous.some(
+            (s) =>
+              s.kind === 'structural_pattern' &&
+              s.subject === subject &&
+              this.deps.ctx.now().getTime() - Date.parse(s.raisedAt) < STRUCTURAL_WINDOW_MS,
+          )
+        )
+          continue;
+        this.raise({
+          projectKey: key,
+          kind: 'structural_pattern',
+          subject,
+          caseKey: `structural_pattern:${subject}:${facts.eventIds.at(-1)}`,
+        });
+      }
+      for (const milestone of report.milestones) {
+        const caseKey = `milestone_closed:${milestone.taskKey}:${milestone.eventId}`;
+        if (!previous.some((s) => s.caseKey === caseKey))
+          this.raise({
+            projectKey: key,
+            kind: 'milestone_closed',
+            caseKey,
+            taskKey: milestone.taskKey,
+            subject: milestone.eventId,
+          });
+      }
       for (const [taskKey, wait] of this.deps.taskWaits.of(config, cards)) {
         if (wait?.reason !== 'nobody') continue;
         const task = cards.find((t) => t.key === taskKey)!;
@@ -394,7 +608,9 @@ export class OperatorSignals {
           taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
         });
       }
-      for (const input of this.boardCases(config, cards).values()) {
+      // Built once and reused within this sweep (the stalled-refinement check reads it); never kept between sweeps.
+      const board = this.boardCases(config, cards);
+      for (const input of board.values()) {
         active.add(input.caseKey);
         // A card may re-enter between sweeps with the same set key after dismissal.
         if (
@@ -406,6 +622,13 @@ export class OperatorSignals {
       }
       const outages = this.deps.activeOutageIds(key);
       for (const signal of this.deps.ctx.repos.operatorSignals.list(key)) {
+        if (
+          structuralKind(signal.kind) &&
+          !signal.resolvedAt &&
+          (signal.state === 'pending' || signal.state === 'open') &&
+          this.deps.ctx.now().getTime() - Date.parse(signal.raisedAt) >= STRUCTURAL_WINDOW_MS
+        )
+          this.resolve(key, signal.caseKey);
         if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
           this.resolve(key, signal.caseKey);
         if (
@@ -414,12 +637,18 @@ export class OperatorSignals {
         )
           this.resolve(key, signal.caseKey);
         if (
+          signal.kind === 'refinement_stalled' &&
+          !signal.resolvedAt &&
+          !this.caseHolds(config, signal, () => board)
+        )
+          this.resolve(key, signal.caseKey);
+        if (
           signal.kind === 'stalled' &&
           this.deps.ctx.repos.sessions.get(signal.subject ?? '')?.state !== 'waiting_input'
         )
           this.resolve(key, signal.caseKey);
       }
-      await this.deliver(key);
+      await this.deliverPending(key, structural);
     }
   }
 
@@ -449,7 +678,14 @@ export class OperatorSignals {
   }
 
   async deliver(projectKey: string): Promise<void> {
-    if (this.waking.has(projectKey) || !this.wakeable(projectKey).length) return;
+    return this.deliverPending(projectKey);
+  }
+
+  private async deliverPending(
+    projectKey: string,
+    structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
+  ): Promise<void> {
+    if (this.waking.has(projectKey) || !this.wakeable(projectKey, structural).length) return;
     this.waking.add(projectKey);
     try {
       await this.deps.admission.attempt(this.start(projectKey));
@@ -462,7 +698,10 @@ export class OperatorSignals {
     }
   }
 
-  private pending(projectKey: string): OperatorSignalRecord[] {
+  private pending(
+    projectKey: string,
+    structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
+  ): OperatorSignalRecord[] {
     const { ctx, projects } = this.deps;
     const now = ctx.now().getTime();
     let board: Map<string, SignalInput> | undefined;
@@ -480,10 +719,15 @@ export class OperatorSignals {
         Date.parse(s.followUpAt) <= now &&
         (s.state === 'pending' || s.state === 'open');
       if (!again && !rebound && (s.state !== 'pending' || s.deliveredAt)) return false;
-      const valid = this.caseHolds(config, s, () => {
-        board ??= config ? this.boardCases(config, ctx.repos.tasks.list(projectKey)) : new Map();
-        return board;
-      });
+      const valid = this.caseHolds(
+        config,
+        s,
+        () => {
+          board ??= config ? this.boardCases(config, this.openCards(projectKey)) : new Map();
+          return board;
+        },
+        structural,
+      );
       if (!valid) {
         this.resolve(projectKey, s.caseKey);
         return false;
@@ -502,9 +746,22 @@ export class OperatorSignals {
     config: ProjectConfig | undefined,
     s: OperatorSignalRecord,
     board: () => Map<string, SignalInput> = () =>
-      config ? this.boardCases(config, this.deps.ctx.repos.tasks.list(s.projectKey)) : new Map(),
+      config ? this.boardCases(config, this.openCards(s.projectKey)) : new Map(),
+    structural = this.lazyStructuralEvaluation(config),
   ): boolean {
+    if (structuralKind(s.kind)) return (structural()?.facts(s) ?? null) !== null;
     const { ctx, taskWaits } = this.deps;
+    if (s.kind === 'loop_suspected') {
+      const facts = LoopTriageFacts.parse(JSON.parse(s.subject!));
+      const loop = ctx.repos.taskLoops.get(facts.loopId);
+      return (
+        !!loop &&
+        !loop.endedAt &&
+        loop.phase === 'notified' &&
+        loop.triage?.generation === facts.generation &&
+        !loop.triage.assessed
+      );
+    }
     if (BOARD_KINDS.has(s.kind)) return board().has(s.caseKey);
     if (s.kind === 'nobody') {
       const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
@@ -514,6 +771,10 @@ export class OperatorSignals {
         task.stageId === s.subject &&
         taskWaits.ofCard(config, task)?.reason === 'nobody'
       );
+    }
+    if (s.kind === 'refinement_stalled') {
+      const stall = refinementStallOf(s.projectKey, s.caseKey);
+      return !!config && !!stall && !!this.refinementStall(config, stall);
     }
     if (s.kind === 'silent' || s.kind === 'stalled') {
       const session = ctx.repos.sessions.get(s.subject ?? '');
@@ -642,7 +903,7 @@ export class OperatorSignals {
         if (free)
           ready.push(
             ...startableCards({ config, tasks: cards, fromStageId: stage.id, toStageId: next.id }).filter(
-              (task) => waits.get(task.key)?.reason === 'ready',
+              (task) => waits.get(task.key)?.reason === 'ready' && !this.deps.startHandled?.(task),
             ),
           );
       }
@@ -748,6 +1009,11 @@ export class OperatorSignals {
     return sameCaseSteps >= OPERATOR_SIGNAL_STEPS.drive;
   }
 
+  private refinementStallFacts(config: ProjectConfig, signal: OperatorSignalRecord) {
+    const stall = refinementStallOf(signal.projectKey, signal.caseKey);
+    return stall ? this.refinementStall(config, stall) : null;
+  }
+
   private answerStalledFacts(signal: OperatorSignalRecord): AnswerStalledFacts | null {
     const member = answerStalledMember(signal.caseKey);
     const task = signal.taskKey ? this.deps.ctx.repos.tasks.get(signal.taskKey) : null;
@@ -809,7 +1075,10 @@ export class OperatorSignals {
    * `OPERATOR_SIGNAL_WAKE_INTERVAL_MS` after its last delivery, the fast line (`answer_stalled`) only
    * `OPERATOR_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds.
    */
-  private wakeable(projectKey: string): OperatorSignalRecord[] {
+  private wakeable(
+    projectKey: string,
+    structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
+  ): OperatorSignalRecord[] {
     const now = this.deps.ctx.now().getTime();
     const delivered = (fast: boolean) =>
       this.deps.ctx.repos.operatorSignals
@@ -827,16 +1096,21 @@ export class OperatorSignals {
         now - last >= (fast ? OPERATOR_ANSWER_STALL_WAKE_MS : OPERATOR_SIGNAL_WAKE_INTERVAL_MS)
       );
     };
-    const signals = this.pending(projectKey);
+    const signals = this.pending(projectKey, structural);
     if (!signals.length) return signals;
     const dueFast = due(true);
     const dueGeneral = due(false);
     const config = this.deps.projects.cachedConfig(projectKey);
     const recipient = config && coordinationMemberOf(config)?.handle;
+    const structuralDelivered = this.deps.ctx.repos.operatorSignals
+      .list(projectKey)
+      .filter((s) => structuralKind(s.kind) && s.deliveredAt)
+      .some((s) => now - Date.parse(s.deliveredAt!) < 24 * 60 * 60_000);
     return signals.filter(
       (s) =>
-        (s.deliveredAt && s.deliveredTo !== recipient) ||
-        (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral),
+        (!structuralKind(s.kind) || !structuralDelivered) &&
+        ((s.deliveredAt && s.deliveredTo !== recipient) ||
+          (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral)),
     );
   }
   private save(signal: OperatorSignalRecord, publish = true): void {
@@ -870,35 +1144,44 @@ export class OperatorSignals {
         if (!member) return;
         if (isWorkPaused(ctx.repos.pauses.open(), projectKey))
           throw conflict('team_paused', 'the team is paused');
-        const signals = this.wakeable(projectKey);
+        const structural = this.lazyStructuralEvaluation(config);
+        const signals = this.wakeable(projectKey, structural);
         if (!signals.length) return;
         const level = operatorWatchOf(config);
         const now = isoNow(ctx);
         const text =
-          `${WAKE_HEADERS[level]}\n` +
+          `${WAKE_HEADERS[level]} ${WAKE_LOOP}\n` +
           signals
             .map((s) => {
               const steps = ctx.repos.operatorRequests.stepsOfSignal(s.id);
-              const budget = operatorSignalBudget(
-                level,
-                steps.filter((step) => step.status !== 'refused').map((step) => step.at),
-                now,
-              );
+              const budget =
+                s.kind === 'loop_suspected'
+                  ? { left: 0, nextAt: null }
+                  : operatorSignalBudget(
+                      level,
+                      steps.filter((step) => step.status !== 'refused').map((step) => step.at),
+                      now,
+                    );
               return JSON.stringify({
                 ...OperatorSignal.parse(s),
-                facts:
-                  s.kind === 'ready_waiting'
-                    ? this.readyFacts(s)
-                    : s.kind === 'answer_stalled'
-                      ? this.answerStalledFacts(s)
-                      : s.inboxItemId
-                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                        : s.subject
-                          ? ctx.repos.sessions.get(s.subject)?.activity
-                          : null,
+                facts: structuralKind(s.kind)
+                  ? structural()!.facts(s)
+                  : s.kind === 'loop_suspected'
+                    ? LoopTriageFacts.parse(JSON.parse(s.subject!))
+                    : s.kind === 'ready_waiting'
+                      ? this.readyFacts(s)
+                      : s.kind === 'answer_stalled'
+                        ? this.answerStalledFacts(s)
+                        : s.kind === 'refinement_stalled'
+                          ? { refinement: this.refinementStallFacts(config, s) }
+                          : s.inboxItemId
+                            ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                            : s.subject
+                              ? ctx.repos.sessions.get(s.subject)?.activity
+                              : null,
                 step: this.stepOf(level, config, s),
-                steps_left: budget.left,
-                next_step_at: budget.nextAt,
+                steps_left: structuralKind(s.kind) ? 0 : budget.left,
+                next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
                 steps: steps.map((step) => ({
                   at: step.at,
                   by:

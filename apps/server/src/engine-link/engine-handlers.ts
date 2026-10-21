@@ -1,12 +1,16 @@
 import { createReadStream } from 'node:fs';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import type { FastifyBaseLogger } from 'fastify';
 import { routes } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
 import type {
+  AdministrationPort,
+  AdministrationTarget,
   EngineHost,
   FullTestExecutor,
+  FullTestResult,
   GithubService,
   MachineProbe,
   PlanUsageProvider,
@@ -14,7 +18,8 @@ import type {
   SessionRunner,
   TranscriptReader,
 } from '../contracts';
-import { WorkspaceFileRefusal } from '../contracts';
+import { mergeCheckPath, WorkspaceFileRefusal } from '../contracts';
+import { conflict } from '../kernel';
 import { git } from '../worktree';
 import type { EngineAudit } from './engine-audit';
 import type { EngineLimit } from './engine-limit';
@@ -44,6 +49,16 @@ export const ENV_VALUE_NAMES = [
 const MAX_ENV_PIDS = 5000;
 const MAX_WATCH_TARGETS = 500;
 const MAX_WATCHES = 50;
+const FULL_TEST_RESULT_KEEP_MS = 60 * 60_000;
+const FULL_TEST_RESULTS_KEPT = 32;
+
+interface FullRunRecord {
+  cwd: string;
+  /** A GitHub Actions run (PM-900): `merge.release_check` of this check id ends it. */
+  mergeId?: string;
+  ended: Promise<FullTestResult>;
+  endedAt: number | null;
+}
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 const REFUSAL_CODES: ReadonlySet<EngineErrorCode> = new Set([
   'invalid_params',
@@ -70,6 +85,8 @@ export interface EngineHandlerDeps {
   transfers: EngineTransfers;
   fullTest?: FullTestExecutor;
   screenshots?: ScreenshotExecutor;
+  now?: () => number;
+  logger?: Pick<FastifyBaseLogger, 'info' | 'warn'>;
   /** The engine's own loopback address (`http://127.0.0.1:<port>`) the CLIs reach hooks and team tools at. */
   mcpBase: string;
   emit: (event: EngineEvent) => void;
@@ -79,6 +96,11 @@ export interface EngineHandlerDeps {
   exportDir: string;
   /** Runs a NanoGPT session start inside the scope in which the key may be fetched for that session. */
   nanogptStart?: <T>(sessionId: string, start: () => Promise<T>) => Promise<T>;
+  /**
+   * This machine's administration supervisor over its local socket (PM-763), with the one target this engine
+   * answers for. Absent: the `admin.*` methods are unknown here.
+   */
+  administration?: { port: AdministrationPort; target: AdministrationTarget };
 }
 
 type Handlers = {
@@ -98,8 +120,15 @@ function memberOf(params: unknown): string | undefined {
   return typeof value === 'string' && value.length <= 64 ? value : undefined;
 }
 
+/** A full test result as the wire schema has it: the step report travels with `full_test.report`. */
+function wireFullResult(result: FullTestResult): FullTestResult {
+  const { report: _report, ...wire } = result;
+  return wire;
+}
+
 export function createEngineHandlers(deps: EngineHandlerDeps) {
   const { limit, audit, runner, engine, github, probe, transfers } = deps;
+  const now = deps.now ?? Date.now;
   const memberWorkspaces = () => {
     if (!engine.memberWorkspaces)
       throw new EngineRpcError('unknown_method', 'This engine has no member workspaces');
@@ -114,11 +143,62 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     if (!engine.merger) throw new EngineRpcError('merge_not_allowed', 'This engine does not merge');
     return engine.merger;
   };
+  const administration = () => {
+    if (!deps.administration) throw new EngineRpcError('unknown_method', 'This engine has no administration');
+    return deps.administration;
+  };
+  /** The hub names a target; this engine answers for its own machine only. */
+  const ownTarget = (target: AdministrationTarget) => {
+    const own = administration().target;
+    if (!(target.kind === 'engine' && own.kind === 'engine' && target.id === own.id))
+      throw conflict('administration_target_mismatch', 'This engine manages its own machine only');
+  };
   const fullRuns = new Map<string, AbortController>();
   /** Settles when the run of a `full_test.run` has ended and its executor has cleaned up. */
   const fullRunEnds = new Map<string, Promise<void>>();
+  const fullRunRecords = new Map<string, FullRunRecord>();
   const shotRuns = new Map<string, AbortController>();
   const watches = new Map<string, () => void>();
+
+  const pruneFullRunRecords = () => {
+    const at = now();
+    const ended = [...fullRunRecords].filter(([, record]) => record.endedAt !== null);
+    ended.sort((a, b) => a[1].endedAt! - b[1].endedAt!);
+    for (const [index, [runId, record]] of ended.entries()) {
+      if (at - record.endedAt! >= FULL_TEST_RESULT_KEEP_MS || index < ended.length - FULL_TEST_RESULTS_KEPT)
+        fullRunRecords.delete(runId);
+    }
+  };
+
+  const endChecksIn = async (mergeId: string) => {
+    const { worktreesRoot } = engine.paths();
+    // The merger returns a canonical checkout path, even when the configured engine home is a symlink.
+    const roots =
+      worktreesRoot === null
+        ? []
+        : [...new Set([worktreesRoot, await realpath(worktreesRoot).catch(() => worktreesRoot)])];
+    const checkouts = roots.map((root) => path.resolve(mergeCheckPath(root, mergeId)));
+    await Promise.all(
+      [...fullRunRecords].map(async ([runId, record]) => {
+        if (record.endedAt !== null) return;
+        const cwd = path.resolve(record.cwd);
+        const inside =
+          record.mergeId === mergeId ||
+          checkouts.some((checkout) => {
+            const relative = path.relative(checkout, cwd);
+            return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+          });
+        if (!inside) return;
+        fullRuns.get(runId)?.abort();
+        await fullRunEnds.get(runId);
+        fullRunRecords.delete(runId);
+        deps.logger?.info(
+          { runId, mergeId },
+          'engine: stopped a full test still running in a merge check checkout',
+        );
+      }),
+    );
+  };
 
   const upload = (token: string, purpose: 'file' | 'transcript' | 'bundle', body: Buffer) =>
     transfers.upload(limit.token(token), purpose, { size: body.length, stream: () => Readable.from([body]) });
@@ -248,6 +328,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'workspace.fetchBase'([key]) {
       return memberWorkspaces().fetchBase(key);
     },
+    async 'workspace.prepareDependencies'([key]) {
+      return memberWorkspaces().prepareDependencies(key);
+    },
     async 'workspace.findTaskBranch'([key, taskKey, ref]) {
       return memberWorkspaces().findTaskBranch(key, taskKey, ref);
     },
@@ -259,6 +342,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     },
     async 'workspace.checkoutReview'([key, source, commit]) {
       return memberWorkspaces().checkoutReview(key, source, commit);
+    },
+    async 'workspace.publishTaskBranch'([key, taskKey, branch, commit]) {
+      return memberWorkspaces().publishTaskBranch(key, taskKey, branch, commit);
     },
     async 'github.is_available'() {
       return github.isAvailable();
@@ -287,13 +373,22 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       return none;
     },
     async 'full_test.run'({ spec }) {
+      pruneFullRunRecords();
       if (!engine.fullTestExecutor)
         throw new EngineRpcError('command_not_allowed', 'This engine runs no full test');
       const controller = new AbortController();
       fullRuns.set(spec.runId, controller);
-      const running = engine.fullTestExecutor.run(spec, controller.signal, () =>
-        deps.emit({ kind: 'full_test_started', runId: spec.runId }),
-      );
+      const running = (async () =>
+        engine.fullTestExecutor!.run(spec, controller.signal, () =>
+          deps.emit({ kind: 'full_test_started', runId: spec.runId }),
+        ))();
+      const record: FullRunRecord = {
+        cwd: spec.cwd,
+        ...(spec.githubActions ? { mergeId: spec.githubActions.mergeId } : {}),
+        ended: running,
+        endedAt: null,
+      };
+      fullRunRecords.set(spec.runId, record);
       fullRunEnds.set(
         spec.runId,
         running.then(
@@ -302,17 +397,34 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
         ),
       );
       try {
-        return await running;
+        return wireFullResult(await running);
       } finally {
+        record.endedAt = now();
         fullRuns.delete(spec.runId);
         fullRunEnds.delete(spec.runId);
+        pruneFullRunRecords();
       }
+    },
+    async 'full_test.attach'({ runId }) {
+      pruneFullRunRecords();
+      const record = fullRunRecords.get(runId);
+      if (!record) return { state: 'unknown' };
+      return { state: 'ended', result: wireFullResult(await record.ended) };
+    },
+    // The measurements of an ended run (PM-876): their own call, because the strict result schema of
+    // `full_test.run` and `attach` stays as older hubs know it.
+    async 'full_test.report'({ runId }) {
+      pruneFullRunRecords();
+      const record = fullRunRecords.get(runId);
+      if (!record) return { state: 'unknown' };
+      return { state: 'ended', report: (await record.ended).report ?? null };
     },
     async 'full_test.cancel'({ runId }) {
       fullRuns.get(runId)?.abort();
       // The answer comes when the run has ended: the cloud removes the check checkout after it (PM-681),
       // so a dependency installation must be gone by then.
       await fullRunEnds.get(runId);
+      fullRunRecords.delete(runId);
       return none;
     },
     async 'screenshots.run'({ runId, spec }) {
@@ -440,9 +552,11 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       return merger().checkoutConflicts(ref, input);
     },
     async 'merge.checkout_for_check'({ ref, ...input }) {
+      await endChecksIn(input.mergeId);
       return merger().checkoutForCheck(ref, input);
     },
     async 'merge.release_check'({ ref, ...input }) {
+      await endChecksIn(input.mergeId);
       await merger().releaseCheck(ref, input);
       return none;
     },
@@ -484,6 +598,34 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'machine.signal'({ pid, signal }) {
       return limit.signal(pid, signal);
     },
+    async 'admin.status'({ target }) {
+      ownTarget(target);
+      return administration().port.status(target);
+    },
+    async 'admin.logs'({ target, ...options }) {
+      ownTarget(target);
+      return administration().port.logs(target, options);
+    },
+    async 'admin.machine'({ target }) {
+      ownTarget(target);
+      return administration().port.machine(target);
+    },
+    async 'admin.submit'(input) {
+      // Targeted commands name their machine; the deploy of a release is the hub's and never runs
+      // on an engine.
+      if (
+        input.command.kind === 'restart' ||
+        input.command.kind === 'process_cleanup' ||
+        input.command.kind === 'owner_command'
+      )
+        ownTarget(input.command.target);
+      if (input.command.kind === 'deploy')
+        throw conflict('administration_target_mismatch', 'A deployment is not an engine operation');
+      return administration().port.submit(input);
+    },
+    async 'admin.inspect'({ operationId }) {
+      return administration().port.inspect(operationId);
+    },
   };
 
   const refusedBeforeHandler = (request: {
@@ -519,6 +661,8 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
         } catch (error) {
           const code: EngineErrorCode = error instanceof EngineCallError ? error.linkCode : 'internal';
           audit.record({ ...entry, outcome: REFUSAL_CODES.has(code) ? 'refused' : 'error', code });
+          // The hub sees only the code (and, for a refusal, its message): the cause stays in this log (PM-915).
+          deps.logger?.warn({ err: error, method: name, code }, 'engine link: a request ended with an error');
           throw error;
         }
       });
@@ -531,6 +675,7 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     /** Stops what runs for the cloud when the link is gone for good or the engine stops. */
     dispose() {
       for (const controller of [...fullRuns.values(), ...shotRuns.values()]) controller.abort();
+      fullRunRecords.clear();
       for (const unwatch of watches.values()) unwatch();
       watches.clear();
     },

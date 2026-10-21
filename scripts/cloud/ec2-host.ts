@@ -5,9 +5,10 @@ import path from 'node:path';
 import { z } from 'zod';
 import { AwsCli } from './aws-cli';
 import type { CloudContext } from './context';
-import { CloudError, refused } from './errors';
-import { createHostSession, shellQuote } from './host';
-import type { HostSession } from './host';
+import type { RunResult } from './deps';
+import { CloudError, CloudTransportError, refused } from './errors';
+import { createHostSession, READ_ONLY_SUBCOMMANDS, shellQuote } from './host';
+import type { HostSession, HostTransport } from './host';
 
 const INSTANCE_ID = /^i-(?:[0-9a-f]{8}|[0-9a-f]{17})$/;
 const HOST_KEY_COMMAND = 'cat /etc/ssh/ssh_host_ed25519_key.pub';
@@ -148,12 +149,30 @@ export async function readEc2HostInstance(context: CloudContext, signal?: AbortS
   return instance;
 }
 
-async function readHostKey(context: CloudContext, instanceId: string, signal: AbortSignal): Promise<string> {
+/** A fixed, read-only command run through SSM RunCommand; its output is parsed strictly, never echoed. */
+interface SsmRead<T> {
+  commands: readonly string[];
+  /** SSM's own limit for the command (at least 30). */
+  timeoutSeconds: number;
+  /** Wall-clock budget of the whole lookup. */
+  budgetMs: number;
+  parse(output: string): T;
+  timedOut(): Error;
+  failed(): Error;
+  foreignTarget(): Error;
+}
+
+async function runSsmRead<T>(
+  context: CloudContext,
+  instanceId: string,
+  signal: AbortSignal,
+  read: SsmRead<T>,
+): Promise<T> {
   const call = awsCall(context, signal);
-  const deadline = context.deps.now().getTime() + HOST_KEY_TIMEOUT_MS;
+  const deadline = context.deps.now().getTime() + read.budgetMs;
   const remaining = () => {
     const ms = deadline - context.deps.now().getTime() - 5000;
-    if (ms <= 0) throw refused('SSM SSH host key lookup timed out (120-second limit)');
+    if (ms <= 0) throw read.timedOut();
     return Math.min(CALL_TIMEOUT_MS, ms);
   };
   const sent = (await call(
@@ -165,9 +184,9 @@ async function readHostKey(context: CloudContext, instanceId: string, signal: Ab
       '--document-name',
       'AWS-RunShellScript',
       '--parameters',
-      JSON.stringify({ commands: [HOST_KEY_COMMAND] }),
+      JSON.stringify({ commands: read.commands }),
       '--timeout-seconds',
-      '120',
+      String(read.timeoutSeconds),
     ],
     commandSchema,
     remaining(),
@@ -182,15 +201,153 @@ async function readHostKey(context: CloudContext, instanceId: string, signal: Ab
     );
     if (invocation) {
       if (invocation.InstanceId !== instanceId || invocation.CommandId !== sent.Command.CommandId)
-        throw refused('SSM returned a host key invocation for another target');
+        throw read.foreignTarget();
       if (invocation.Status === 'Success' && invocation.ResponseCode === 0)
-        return ec2PublicKey(invocation.StandardOutputContent);
-      if (!['Pending', 'InProgress', 'Delayed'].includes(invocation.Status))
-        throw refused('SSM SSH host key command did not succeed');
+        return read.parse(invocation.StandardOutputContent);
+      if (!['Pending', 'InProgress', 'Delayed'].includes(invocation.Status)) throw read.failed();
     }
     await context.deps.sleep(Math.min(2000, remaining()));
   }
-  throw refused('SSM SSH host key lookup timed out (120-second limit)');
+  throw read.timedOut();
+}
+
+async function readHostKey(context: CloudContext, instanceId: string, signal: AbortSignal): Promise<string> {
+  return runSsmRead(context, instanceId, signal, {
+    commands: [HOST_KEY_COMMAND],
+    timeoutSeconds: 120,
+    budgetMs: HOST_KEY_TIMEOUT_MS,
+    parse: ec2PublicKey,
+    timedOut: () => refused('SSM SSH host key lookup timed out (120-second limit)'),
+    failed: () => refused('SSM SSH host key command did not succeed'),
+    foreignTarget: () => refused('SSM returned a host key invocation for another target'),
+  });
+}
+
+// ---- load diagnostics (PM-748) ----
+
+/**
+ * The machine's load, read through SSM RunCommand so it works while SSH authentication fails. Fixed
+ * commands only: no caller-chosen command, credential, environment or raw journal text leaves the machine.
+ * `oomKills` is the kernel's counter since boot: it shows that the kernel killed something, not when or why.
+ */
+export const ec2HostDiagnosticsSchema = z.strictObject({
+  sampledAt: z.iso.datetime(),
+  cpuCount: z.number().int().positive(),
+  load1: z.number().nonnegative(),
+  availableMemoryBytes: z.number().int().nonnegative(),
+  freeDiskBytes: z.number().int().nonnegative(),
+  oomKills: z.number().int().nonnegative(),
+  /** Journal lines of the last 10 minutes that report an `eic_run_authorized_keys` failure with status 124. */
+  eicTimeouts10m: z.number().int().nonnegative(),
+});
+export type Ec2HostDiagnostics = z.output<typeof ec2HostDiagnosticsSchema>;
+
+export const DIAGNOSTICS_COMMANDS = [
+  'echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"',
+  'echo "cpu=$(nproc)"',
+  `echo "load1=$(cut -d' ' -f1 /proc/loadavg)"`,
+  `echo "mem_kb=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)"`,
+  `echo "disk_kb=$(df -Pk /var/lib | awk 'NR==2{print $4}')"`,
+  `echo "oom=$(awk '/^oom_kill /{print $2}' /proc/vmstat)"`,
+  // The count is printed only when the journal is readable: an unreadable journal is no "zero".
+  `if journalctl -q -n 0 --no-pager >/dev/null 2>&1; then echo "eic=$(journalctl -q --no-pager -o cat --since '10 minutes ago' 2>/dev/null | grep -c 'eic_run_authorized_keys.*status 124')"; else echo "eic=unavailable"; fi`,
+] as const;
+const DIAGNOSTICS_KEYS = ['at', 'cpu', 'load1', 'mem_kb', 'disk_kb', 'oom', 'eic'] as const;
+const DIAGNOSTICS_OUTPUT_LIMIT = 512;
+const DIAGNOSTICS_BUDGET_MS = 25_000;
+const BUSY_LOAD_PER_CPU = 2;
+const BUSY_MIN_AVAILABLE_MEMORY_BYTES = 128 * 1024 * 1024;
+const MIB = 1024 * 1024;
+
+/** Parses the fixed seven-line answer; a missing or unreadable measurement is an error, never a guessed zero. */
+export function parseEc2Diagnostics(output: string): Ec2HostDiagnostics {
+  const invalid = (detail: string) =>
+    new CloudTransportError('cloud_ssh_unavailable', `SSM host diagnostics: ${detail}`, {
+      commandStarted: 'no',
+      retryable: false,
+    });
+  if (output.length > DIAGNOSTICS_OUTPUT_LIMIT) throw invalid('the answer is larger than the limit');
+  const lines = output.replace(/\r?\n$/, '').split('\n');
+  if (lines.length !== DIAGNOSTICS_KEYS.length) throw invalid('the answer has an unexpected shape');
+  const values: Record<string, string> = {};
+  DIAGNOSTICS_KEYS.forEach((key, index) => {
+    const match = /^([a-z0-9_]+)=([0-9A-Za-z.:-]{1,40})$/.exec(lines[index]!);
+    if (!match || match[1] !== key) throw invalid(`the measurement ${key} is missing`);
+    if (match[2] === 'unavailable') throw invalid(`the measurement ${key} could not be read on the machine`);
+    values[key] = match[2]!;
+  });
+  const integer = (key: string, factor = 1) => {
+    if (!/^\d{1,15}$/.test(values[key]!)) throw invalid(`the measurement ${key} is not a number`);
+    return Number(values[key]) * factor;
+  };
+  if (!/^\d{1,6}(?:\.\d{1,2})?$/.test(values.load1!)) throw invalid('the measurement load1 is not a number');
+  const parsed = ec2HostDiagnosticsSchema.safeParse({
+    sampledAt: values.at,
+    cpuCount: integer('cpu'),
+    load1: Number(values.load1),
+    availableMemoryBytes: integer('mem_kb', 1024),
+    freeDiskBytes: integer('disk_kb', 1024),
+    oomKills: integer('oom'),
+    eicTimeouts10m: integer('eic'),
+  });
+  if (!parsed.success) throw invalid('the answer is outside the expected ranges');
+  return parsed.data;
+}
+
+/** Why the machine counts as busy (a transient reason to wait), or null. */
+export function ec2HostBusyReason(diagnostics: Ec2HostDiagnostics): string | null {
+  const reasons: string[] = [];
+  if (diagnostics.load1 > BUSY_LOAD_PER_CPU * diagnostics.cpuCount)
+    reasons.push(
+      `1-minute load ${diagnostics.load1} is above ${BUSY_LOAD_PER_CPU}x its ${diagnostics.cpuCount} CPUs`,
+    );
+  if (diagnostics.availableMemoryBytes < BUSY_MIN_AVAILABLE_MEMORY_BYTES)
+    reasons.push(`only ${Math.floor(diagnostics.availableMemoryBytes / MIB)} MiB memory is available`);
+  return reasons.length > 0 ? reasons.join(' and ') : null;
+}
+
+function describeMeasurements(diagnostics: Ec2HostDiagnostics): string {
+  return (
+    `load1=${diagnostics.load1} cpus=${diagnostics.cpuCount} ` +
+    `availableMemoryMiB=${Math.floor(diagnostics.availableMemoryBytes / MIB)} ` +
+    `freeDiskMiB=${Math.floor(diagnostics.freeDiskBytes / MIB)} ` +
+    `oomKillsSinceBoot=${diagnostics.oomKills} eicTimeouts10m=${diagnostics.eicTimeouts10m}`
+  );
+}
+
+/** One read of the diagnostics. Failures are transport errors; only a foreign target is final (no retry). */
+export async function readEc2HostDiagnostics(
+  context: CloudContext,
+  instanceId: string,
+  signal: AbortSignal,
+  budgetMs = DIAGNOSTICS_BUDGET_MS,
+): Promise<Ec2HostDiagnostics> {
+  const unavailable = (detail: string) =>
+    new CloudTransportError('cloud_ssh_unavailable', `SSM host diagnostics are unavailable: ${detail}`, {
+      commandStarted: 'no',
+      retryable: true,
+    });
+  try {
+    return await runSsmRead(context, instanceId, signal, {
+      commands: DIAGNOSTICS_COMMANDS,
+      timeoutSeconds: 30,
+      budgetMs,
+      parse: parseEc2Diagnostics,
+      timedOut: () => unavailable('the lookup timed out'),
+      failed: () => unavailable('the command did not succeed'),
+      foreignTarget: () =>
+        new CloudTransportError(
+          'cloud_host_identity_mismatch',
+          'SSM returned a diagnostics invocation for another target',
+          { commandStarted: 'no', retryable: false, exitCode: 2 },
+        ),
+    });
+  } catch (error) {
+    if (error instanceof CloudTransportError || signal.aborted) throw error;
+    // aws CLI errors carry no raw output (awsCall); treat them as a transient failure of the lookup.
+    if (error instanceof CloudError && error.exitCode === 1) throw unavailable(error.message);
+    throw error;
+  }
 }
 
 /** Closes only this invocation's sessions; the random reason never carries a payload or credential. */
@@ -251,6 +408,276 @@ async function closeSessions(
   throw new CloudError(
     `SSM session cleanup failed for ${instanceId}; inspect sessions with exact reasons ${[...reasons].join(', ')} (docs/AWS.md)`,
   );
+}
+
+// ---- bounded retries and failure diagnosis (PM-748) ----
+
+const TRANSPORT_ATTEMPTS = 3;
+const TRANSPORT_WAITS_MS = [5_000, 15_000] as const;
+const TRANSPORT_BUDGET_MS = 120_000;
+/** The process runner's SIGTERM grace: stopping the child counts inside the budget. */
+const KILL_GRACE_MS = 5_000;
+const MIN_ATTEMPT_MS = 10_000;
+
+/** An SSH-side failure (connection, authentication or the EIC key upload) that a read-only call may repeat. */
+class SshFailure extends CloudTransportError {
+  readonly authRejected: boolean;
+
+  constructor(message: string, options: { commandStarted: 'no' | 'unknown'; authRejected: boolean }) {
+    super('cloud_ssh_unavailable', message, { commandStarted: options.commandStarted, retryable: true });
+    this.authRejected = options.authRejected;
+  }
+}
+
+function sshSummary(result: RunResult): string {
+  return (
+    result.stderr
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .slice(-3)
+      .map((line) => line.slice(0, 200))
+      .join(' | ') || `exit status ${result.code}`
+  );
+}
+
+/** The ssh client's own refusal line, `user@host: Permission denied (publickey,...).`, with nothing around it. */
+const SSH_AUTH_REFUSAL = /^[^\s@:]+@[^\s:]+: Permission denied \([a-z,-]*publickey[a-z,-]*\)\.?$/i;
+/** Client-side lines that precede the refusal without any remote command having run. */
+const SSH_CLIENT_NOISE = /^(?:Warning: |Starting session with SessionId|Exiting session with sessionId)/;
+
+/**
+ * Whether stderr is the ssh client's refusal of the key. stderr merges the client's lines with the remote
+ * command's, so for a state-changing command only a stderr made of the refusal line (plus client noise)
+ * counts: a refusal happens before the command starts, so no remote output can precede it, and remote text
+ * that merely resembles it must never read as "the command did not start". A read may be repeated, so it
+ * keeps the looser match.
+ */
+function rejectedByClient(stderr: string, mutating: boolean): boolean {
+  if (!mutating) return /Permission denied \([a-z,-]*publickey/i.test(stderr);
+  const lines = stderr
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !SSH_CLIENT_NOISE.test(line));
+  return lines.length === 1 && SSH_AUTH_REFUSAL.test(lines[0]!);
+}
+
+/**
+ * Reads what a client-side ssh result proves. 255 and 124 alone never prove EIC as the cause: they only
+ * say the connection or the answer was lost, so the command may or may not have run.
+ */
+function classifySsh(result: RunResult, label: string, mutating: boolean): CloudTransportError | null {
+  if (result.code !== 255 && result.code !== 124) return null;
+  const detail = sshSummary(result);
+  if (
+    /Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED|Offending \w+ key/i.test(
+      result.stderr,
+    )
+  )
+    return new CloudTransportError(
+      'cloud_host_identity_mismatch',
+      `the machine's SSH host key does not match the key pinned through SSM (${label}): ${detail}`,
+      { commandStarted: 'no', retryable: false, exitCode: 2 },
+    );
+  if (rejectedByClient(result.stderr, mutating)) {
+    const failure = new SshFailure(
+      `SSH public-key authentication was rejected (${label}, status ${result.code}): ${detail}`,
+      { commandStarted: 'no', authRejected: true },
+    );
+    return mutating
+      ? new CloudTransportError(failure.code, failure.message, { commandStarted: 'no', retryable: true })
+      : failure;
+  }
+  const lost = `the SSH connection failed or timed out (${label}, status ${result.code}): ${detail}`;
+  return mutating
+    ? new CloudTransportError(
+        'cloud_ssh_unavailable',
+        `${lost}; the command may have run: reconcile the machine's state before repeating it`,
+        { commandStarted: 'unknown', retryable: false },
+      )
+    : new SshFailure(lost, { commandStarted: 'unknown', authRejected: false });
+}
+
+/**
+ * At most three attempts with 5 s, then 15 s between them, inside one 120 s wall-clock budget (the stop of a
+ * child process included). Aborts and every non-retryable error end it at once. Repeats only what the caller
+ * passes in: never a state-changing command, never a stream.
+ */
+async function boundedRetry<T>(
+  context: CloudContext,
+  signal: AbortSignal,
+  attempt: (timeoutMs: number) => Promise<T>,
+  explain: (
+    last: CloudTransportError,
+    attempts: number,
+    elapsedMs: number,
+    deadline: number,
+  ) => Promise<Error>,
+): Promise<T> {
+  const { deps } = context;
+  const started = deps.now().getTime();
+  const deadline = started + TRANSPORT_BUDGET_MS;
+  const reserve = KILL_GRACE_MS + DIAGNOSTICS_BUDGET_MS;
+  let last: CloudTransportError | undefined;
+  let attempts = 0;
+  while (attempts < TRANSPORT_ATTEMPTS) {
+    if (signal.aborted) throw new CloudError('interrupted');
+    attempts += 1;
+    try {
+      return await attempt(Math.max(MIN_ATTEMPT_MS, deadline - deps.now().getTime() - reserve));
+    } catch (error) {
+      if (signal.aborted) throw new CloudError('interrupted');
+      if (!(error instanceof CloudTransportError) || !error.retryable) throw error;
+      last = error;
+    }
+    const wait = TRANSPORT_WAITS_MS[attempts - 1];
+    if (wait === undefined || deadline - deps.now().getTime() < wait + MIN_ATTEMPT_MS + reserve) break;
+    await deps.sleep(wait);
+  }
+  throw await explain(last!, attempts, deps.now().getTime() - started, deadline);
+}
+
+function elapsedText(attempts: number, elapsedMs: number): string {
+  return `${attempts} attempt${attempts === 1 ? '' : 's'} in ${Math.round(elapsedMs / 1000)}s`;
+}
+
+/**
+ * Keeps the connection diagnosis (what the logs prove) apart from the suspected cause (what the measurements
+ * hint at). `auth_timeout` is claimed only when SSH rejected the key and the host's own journal shows EIC timeouts.
+ */
+async function explainSshFailure(
+  context: CloudContext,
+  instanceId: string,
+  signal: AbortSignal,
+  last: CloudTransportError,
+  attempts: number,
+  elapsedMs: number,
+  deadline: number,
+  override: 'no' | undefined,
+): Promise<Error> {
+  const commandStarted = override ?? last.commandStarted;
+  if (!(last instanceof SshFailure))
+    return new CloudTransportError(last.code, `${last.message} (${elapsedText(attempts, elapsedMs)})`, {
+      commandStarted,
+      retryable: last.retryable,
+      exitCode: last.exitCode === 2 ? 2 : 1,
+    });
+  const left = deadline - context.deps.now().getTime() - KILL_GRACE_MS;
+  let diagnostics: Ec2HostDiagnostics | undefined;
+  let missing = 'no time was left in the budget';
+  if (left >= MIN_ATTEMPT_MS / 2) {
+    try {
+      diagnostics = await readEc2HostDiagnostics(
+        context,
+        instanceId,
+        signal,
+        Math.min(DIAGNOSTICS_BUDGET_MS, left),
+      );
+    } catch (error) {
+      if (signal.aborted) return new CloudError('interrupted');
+      missing = error instanceof Error ? error.message : 'unknown error';
+    }
+  }
+  const proven = last.authRejected && diagnostics !== undefined && diagnostics.eicTimeouts10m > 0;
+  const rejected = last.authRejected
+    ? 'SSH public-key authentication was rejected'
+    : 'the SSH connection failed';
+  const connection = diagnostics
+    ? proven
+      ? `${rejected} and the host journal shows ${diagnostics.eicTimeouts10m} EIC authorized-keys timeouts (status 124) in the last 10 minutes`
+      : `${rejected}; the host journal shows ${diagnostics.eicTimeouts10m} EIC status 124 events in the last 10 minutes, which does not prove the cause`
+    : `${rejected}; host diagnostics are unavailable (${missing})`;
+  const suspected = diagnostics
+    ? `${ec2HostBusyReason(diagnostics) ?? 'none indicated by the measurements'} (measurements: ${describeMeasurements(diagnostics)}; oomKillsSinceBoot is cumulative and gives no time evidence)`
+    : 'unknown without host measurements';
+  return new CloudTransportError(
+    proven ? 'cloud_ssh_auth_timeout' : 'cloud_ssh_unavailable',
+    `SSH to the machine failed after ${elapsedText(attempts, elapsedMs)}. Connection diagnosis: ${connection}. ` +
+      `Suspected cause (not proven): ${suspected}. Last error: ${last.message}`,
+    { commandStarted, retryable: true },
+  );
+}
+
+/** The EC2 transport of a session: classification, the bounded read retry and the pre-mutation load check. */
+function createEc2Transport(
+  context: CloudContext,
+  instanceId: string,
+  signal: AbortSignal,
+  sshArgs: () => Promise<string[]>,
+): HostTransport {
+  const { deps } = context;
+  const interrupted = () => new CloudError('interrupted');
+  /** A side-effect-free `true` over a fresh connection: proves reachability and authentication. */
+  const probe = async (timeoutMs: number): Promise<void> => {
+    const argv = await sshArgs();
+    const result = await deps.run('ssh', [...argv, 'true'], { timeoutMs, signal });
+    if (signal.aborted) throw interrupted();
+    if (result.code === 0) return;
+    throw (
+      classifySsh(result, 'connection probe', false) ??
+      new SshFailure(`the connection probe failed: ${sshSummary(result)}`, {
+        commandStarted: 'no',
+        authRejected: false,
+      })
+    );
+  };
+  const busy = async (budgetMs: number): Promise<void> => {
+    let diagnostics: Ec2HostDiagnostics;
+    try {
+      diagnostics = await readEc2HostDiagnostics(context, instanceId, signal, budgetMs);
+    } catch (error) {
+      if (error instanceof CloudTransportError && !(error instanceof SshFailure) && error.retryable)
+        throw new CloudTransportError(
+          error.code,
+          `${error.message}; a state-changing command is refused without a load measurement`,
+          { commandStarted: 'no', retryable: true, exitCode: 2 },
+        );
+      throw error;
+    }
+    const reason = ec2HostBusyReason(diagnostics);
+    if (reason)
+      throw new CloudTransportError(
+        'cloud_host_busy',
+        `the machine is busy: ${reason} (measurements: ${describeMeasurements(diagnostics)})`,
+        { commandStarted: 'no', retryable: true, exitCode: 2 },
+      );
+  };
+  let gate: Promise<void> | undefined;
+  return {
+    // One check per session: a build this session started would otherwise block its own `start`.
+    beforeMutation() {
+      gate ??= boundedRetry(
+        context,
+        signal,
+        async (timeoutMs) => {
+          const began = deps.now().getTime();
+          await busy(Math.min(DIAGNOSTICS_BUDGET_MS, timeoutMs));
+          await probe(Math.max(KILL_GRACE_MS, timeoutMs - (deps.now().getTime() - began)));
+        },
+        (last, attempts, elapsedMs, deadline) =>
+          explainSshFailure(context, instanceId, signal, last, attempts, elapsedMs, deadline, 'no'),
+      );
+      return gate;
+    },
+    async readWithRetry(subcommand, attempt, timeoutMs) {
+      return boundedRetry(
+        context,
+        signal,
+        async (budgetMs) => {
+          const result = await attempt(timeoutMs === undefined ? budgetMs : Math.min(timeoutMs, budgetMs));
+          if (signal.aborted) throw interrupted();
+          const failure = classifySsh(result, subcommand, false);
+          if (failure) throw failure;
+          return result;
+        },
+        (last, attempts, elapsedMs, deadline) =>
+          explainSshFailure(context, instanceId, signal, last, attempts, elapsedMs, deadline, undefined),
+      );
+    },
+    classify(subcommand, result) {
+      return classifySsh(result, subcommand, !READ_ONLY_SUBCOMMANDS.has(subcommand));
+    },
+  };
 }
 
 /** SSH encryption carries stdin/streams through SSM; RunCommand reads only the public host key. */
@@ -352,23 +779,31 @@ export async function withEc2Host<T>(
       '-o',
       'ServerAliveCountMax=20',
     ];
-    const host = createHostSession(context, instanceId, controller.signal, async () => {
+    const sshArgs = async () => {
       // EIC keys live for 60s: publish immediately before every connection, even after a long build.
-      const published = (await call(
-        [
-          'ec2-instance-connect',
-          'send-ssh-public-key',
-          '--instance-id',
-          instance.InstanceId,
-          '--availability-zone',
-          instance.Placement.AvailabilityZone,
-          '--instance-os-user',
-          'ubuntu',
-          '--ssh-public-key',
-          publicKey,
-        ],
-        z.looseObject({ Success: z.boolean() }),
-      ))!;
+      let published: { Success: boolean };
+      try {
+        published = (await call(
+          [
+            'ec2-instance-connect',
+            'send-ssh-public-key',
+            '--instance-id',
+            instance.InstanceId,
+            '--availability-zone',
+            instance.Placement.AvailabilityZone,
+            '--instance-os-user',
+            'ubuntu',
+            '--ssh-public-key',
+            publicKey,
+          ],
+          z.looseObject({ Success: z.boolean() }),
+        ))!;
+      } catch (error) {
+        // A failed upload (throttling, a timeout) happens before any connection: a read may try again.
+        if (error instanceof CloudError && error.exitCode === 1 && !controller.signal.aborted)
+          throw new SshFailure(error.message, { commandStarted: 'no', authRejected: false });
+        throw error;
+      }
       if (!published.Success) throw refused('EC2 Instance Connect rejected the temporary public key');
       const reason = `projectman-cloud-${randomUUID()}`;
       reasons.add(reason);
@@ -393,7 +828,14 @@ export async function withEc2Host<T>(
         `ProxyCommand=exec ${['aws', ...proxyArgs].map(shellQuote).join(' ')}`,
         `ubuntu@${instance.InstanceId}`,
       ];
-    });
+    };
+    const host = createHostSession(
+      context,
+      instanceId,
+      controller.signal,
+      sshArgs,
+      createEc2Transport(context, instanceId, controller.signal, sshArgs),
+    );
     const result = await fn(host);
     if (controller.signal.aborted) throw new CloudError('interrupted');
     return result;

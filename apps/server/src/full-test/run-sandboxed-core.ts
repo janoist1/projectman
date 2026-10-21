@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import { constants } from 'node:os';
 import { Deferred, Effect } from 'effect';
 import { OutputTail } from './output';
+import { PROCESS_GROUP_GUARD } from './process-group-guard';
 import type { SandboxedEnd } from './run-sandboxed';
 
 export interface GroupRun {
@@ -19,22 +21,42 @@ export const runProcessGroup = (run: GroupRun): Effect.Effect<SandboxedEnd> =>
       const tail = new OutputTail();
       const exited = Deferred.makeUnsafe<Omit<SandboxedEnd, 'timedOut' | 'aborted' | 'output'>>();
       const stopped = Deferred.makeUnsafe<void>();
+      const escalated = Deferred.makeUnsafe<void>();
       let timedOut = false;
       let aborted = false;
+      let commandEnd: Omit<SandboxedEnd, 'timedOut' | 'aborted' | 'output'> | undefined;
       const child = yield* Effect.sync(() => {
-        const child = spawn(run.file, run.args, {
-          cwd: run.cwd,
-          env: run.env,
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
+        const child = spawn(
+          process.execPath,
+          ['-e', PROCESS_GROUP_GUARD, JSON.stringify([run.file, run.args, run.killGraceMs])],
+          {
+            cwd: run.cwd,
+            env: run.env,
+            detached: true,
+            stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+          },
+        );
+        child.stdout!.setEncoding('utf8').on('data', (chunk: string) => tail.push(chunk));
+        child.stderr!.setEncoding('utf8').on('data', (chunk: string) => tail.push(chunk));
+        child.on('message', (message: unknown) => {
+          if (!message || typeof message !== 'object') return;
+          const end = message as Record<string, unknown>;
+          if (
+            (end.exitCode === null || (typeof end.exitCode === 'number' && Number.isInteger(end.exitCode))) &&
+            (end.signal === null ||
+              (typeof end.signal === 'string' && Object.hasOwn(constants.signals, end.signal)))
+          )
+            commandEnd = {
+              exitCode: end.exitCode as number | null,
+              signal: end.signal as NodeJS.Signals | null,
+              ...(typeof end.error === 'string' ? { spawnError: new Error(end.error) } : {}),
+            };
         });
-        child.stdout.setEncoding('utf8').on('data', (chunk: string) => tail.push(chunk));
-        child.stderr.setEncoding('utf8').on('data', (chunk: string) => tail.push(chunk));
         child.on('error', (spawnError) =>
           Deferred.doneUnsafe(exited, Effect.succeed({ exitCode: null, signal: null, spawnError })),
         );
         child.on('close', (exitCode, signal) =>
-          Deferred.doneUnsafe(exited, Effect.succeed({ exitCode, signal })),
+          Deferred.doneUnsafe(exited, Effect.succeed(commandEnd ?? { exitCode, signal })),
         );
         return child;
       });
@@ -46,10 +68,11 @@ export const runProcessGroup = (run: GroupRun): Effect.Effect<SandboxedEnd> =>
           /* The group is already gone. */
         }
       };
-      // A child that detached itself may outlive the shell; the group is stopped either way.
+      // Descendants may outlive the shell, even when they have closed its output pipes.
       yield* Effect.addFinalizer(() => Effect.sync(() => killGroup('SIGKILL')));
       const stop = (mark: () => void) =>
         Effect.sync(() => {
+          if (timedOut || aborted) return;
           mark();
           killGroup('SIGTERM');
           Deferred.doneUnsafe(stopped, Effect.void);
@@ -82,9 +105,13 @@ export const runProcessGroup = (run: GroupRun): Effect.Effect<SandboxedEnd> =>
         Deferred.await(stopped).pipe(
           Effect.andThen(Effect.sleep(run.killGraceMs)),
           Effect.andThen(Effect.sync(() => killGroup('SIGKILL'))),
+          Effect.andThen(Deferred.succeed(escalated, undefined)),
         ),
       );
       const end = yield* Deferred.await(exited);
+      // Closing the leader's pipes must not cancel escalation for surviving descendants.
+      // Keep the scope (and its grace-period fiber) alive until the whole group was killed.
+      if (timedOut || aborted) yield* Deferred.await(escalated);
       return { ...end, timedOut, aborted, output: tail.value() };
     }),
   );

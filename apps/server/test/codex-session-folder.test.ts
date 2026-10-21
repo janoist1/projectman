@@ -160,7 +160,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     const folder = env.PROJECTMAN_SESSION_DIR!;
     const { args } = buildCodexArgs({
       spec,
-      hookUrl: 'http://127.0.0.1:4700/hooks/secret',
+      hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
       permissionTimeoutMs: 40_000,
       realCwd: spec.cwd,
     });
@@ -296,7 +296,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     // Its commands do not write the folder, and the browser run is not for it.
     const { args } = buildCodexArgs({
       spec,
-      hookUrl: 'http://127.0.0.1:4700/hooks/secret',
+      hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
       permissionTimeoutMs: 40_000,
       realCwd: spec.cwd,
     });

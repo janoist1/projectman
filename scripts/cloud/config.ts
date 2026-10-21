@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { HybridReleaseTarget, ProjectConfig, RepoConfig } from '@projectman/shared';
 import { refused } from './errors';
 import { CLOUDFLARE_TOKEN_FILE_NAME, CONFIG_FILE_NAME, secretsDir } from './secrets';
 
@@ -129,14 +130,33 @@ const route53Schema = z.strictObject({
 });
 
 const sesSchema = z.strictObject({
+  /** The AWS account that owns the SES identity and the sender IAM user; defaults to `aws.profile` (PM-729). */
+  profile: z
+    .string()
+    .min(1)
+    .refine((value) => value.trim().length > 0, 'a non-empty profile')
+    .optional(),
   region: z.string().regex(REGION, 'an explicit AWS SES region'),
   domain: z.string().max(253).regex(ZONE, 'a lowercase domain name'),
   from: z.email().max(254),
 });
 
+/**
+ * The project and repository that are the board itself (PM-749): the release target the cloud server
+ * (`PROJECTMAN_RELEASE_TARGET=<projectKey>/<repo>`) accepts releases for. The same identifier schemas as the
+ * project configuration; a value that does not match them never reaches cloud.env.
+ */
+const releaseTargetSchema = z.strictObject({
+  projectKey: ProjectConfig.shape.project.shape.key,
+  repo: RepoConfig.shape.name,
+});
+
 const configSchema = z
   .strictObject({
     version: z.literal(1),
+    releaseTarget: releaseTargetSchema.optional(),
+    /** The remote engine and the target hash a hybrid release goes to (PM-752); needs `releaseTarget`. */
+    hybrid: HybridReleaseTarget.optional(),
     aws: awsSchema,
     repository: repositorySchema.prefault({}),
     cloudflare: cloudflareSchema,
@@ -149,6 +169,7 @@ const configSchema = z
     const issue = (pathParts: (string | number)[], message: string) =>
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
+    if (config.hybrid && !config.releaseTarget) issue(['hybrid'], 'needs releaseTarget');
     if (aws.compute === 'ec2' && aws.ec2?.architecture === 'arm64' && !config.deployment)
       issue(['deployment', 'imageBundle'], 'required for arm64');
     if (config.ses) {
@@ -156,11 +177,6 @@ const configSchema = z
         issue(['ses', 'from'], 'must be an address of exactly ses.domain');
       if (config.ses.domain !== cloudflare.zone && !config.ses.domain.endsWith(`.${cloudflare.zone}`))
         issue(['ses', 'domain'], 'must belong to the configured Cloudflare zone');
-      if (aws.profile === 'i')
-        issue(
-          ['aws', 'profile'],
-          'SES requires an explicit central-account profile; registrar profile i is refused',
-        );
     }
     if (aws.compute === 'ec2' && !aws.ec2)
       issue(['aws', 'ec2'], 'required for EC2; explicitly choose the type, AMI, VPC, subnet and disk size');
@@ -192,6 +208,10 @@ export type ParsedCloudConfig = z.output<typeof configSchema>;
 /** The configuration with every default filled in. */
 export interface CloudConfig {
   deployment?: { imageBundle: string };
+  /** Absent: the board does not release (PM-749). */
+  releaseTarget?: { projectKey: string; repo: string };
+  /** Absent: the board releases to the cloud server only (PM-752). */
+  hybrid?: { engineId: string; targetHash: string };
   version: 1;
   aws: {
     compute: 'lightsail' | 'ec2';
@@ -222,7 +242,8 @@ export interface CloudConfig {
     boardMode: 'private' | 'public';
   };
   route53: { profile: string; hostedZoneId?: string };
-  ses?: NonNullable<ParsedCloudConfig['ses']>;
+  /** `profile` is `ses.profile`, or `aws.profile` when the block names none (PM-729). */
+  ses?: NonNullable<ParsedCloudConfig['ses']> & { profile: string };
 }
 
 export function defaultConfigPath(homeDir: string): string {
@@ -267,7 +288,9 @@ export function parseConfig(raw: unknown, homeDir: string, configDir = process.c
     },
     access: parsed.access,
     route53: { ...parsed.route53, profile: parsed.route53.profile ?? parsed.aws.profile },
-    ...(parsed.ses ? { ses: parsed.ses } : {}),
+    ...(parsed.ses ? { ses: { ...parsed.ses, profile: parsed.ses.profile ?? parsed.aws.profile } } : {}),
+    ...(parsed.releaseTarget ? { releaseTarget: parsed.releaseTarget } : {}),
+    ...(parsed.hybrid ? { hybrid: parsed.hybrid } : {}),
     ...(parsed.deployment
       ? {
           deployment: {

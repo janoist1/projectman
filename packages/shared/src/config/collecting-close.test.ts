@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from '../domain/task';
-import { collectingAutoClose, partsClosedWaiver } from './collecting-close';
+import {
+  canSkipCollectingMerge,
+  collectingAutoClose,
+  collectingSourceStateOf,
+  partsClosedWaiver,
+} from './collecting-close';
+import type { CollectingSourceEvidence } from './collecting-close';
 import { ProjectConfig } from './schema';
 
 function config({ withDev = true } = {}) {
@@ -105,5 +111,46 @@ describe('collectingAutoClose', () => {
     expect(collectingAutoClose(config(), card({ status: 'blocked' }), parts)).toBeNull();
     expect(collectingAutoClose(config(), card({ labels: ['waiting-answer'] }), parts)).toBeNull();
     expect(collectingAutoClose(config(), card(), [part('AC-2', 'active')])).toBeNull();
+  });
+});
+
+describe('collectingSourceStateOf and canSkipCollectingMerge (PM-797)', () => {
+  const evidence = (over: Partial<CollectingSourceEvidence> = {}): CollectingSourceEvidence => ({
+    sourceRecorded: false,
+    workRecorded: false,
+    origin: 'native',
+    ...over,
+  });
+  const unassigned = { assignee: null };
+
+  it('is none only for a native card nobody worked on that never had a source', () => {
+    expect(collectingSourceStateOf(unassigned, evidence())).toBe('none');
+  });
+
+  it('is present whenever a source was recorded, whatever else is known', () => {
+    expect(collectingSourceStateOf(unassigned, evidence({ sourceRecorded: true }))).toBe('present');
+    expect(
+      collectingSourceStateOf(
+        { assignee: 'dev-1' },
+        evidence({ sourceRecorded: true, workRecorded: true, origin: 'unknown' }),
+      ),
+    ).toBe('present');
+  });
+
+  it('is unknown without evidence, for a card not created here, after work or with an assignee', () => {
+    expect(collectingSourceStateOf(unassigned, null)).toBe('unknown');
+    expect(collectingSourceStateOf(unassigned, evidence({ origin: 'imported' }))).toBe('unknown');
+    expect(collectingSourceStateOf(unassigned, evidence({ origin: 'unknown' }))).toBe('unknown');
+    expect(collectingSourceStateOf(unassigned, evidence({ workRecorded: true }))).toBe('unknown');
+    expect(collectingSourceStateOf({ assignee: 'dev-1' }, evidence())).toBe('unknown');
+  });
+
+  it('skips the merge only for a move with the waiver and a proven absence of source', () => {
+    const closed = { done: ['AC-2'], cancelled: [] };
+    expect(canSkipCollectingMerge(closed, 'none')).toBe(true);
+    expect(canSkipCollectingMerge(closed, 'present')).toBe(false);
+    expect(canSkipCollectingMerge(closed, 'unknown')).toBe(false);
+    expect(canSkipCollectingMerge(null, 'none')).toBe(false);
+    expect(canSkipCollectingMerge(null, 'present')).toBe(false);
   });
 });

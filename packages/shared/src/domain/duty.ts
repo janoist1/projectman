@@ -354,7 +354,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'ai',
     prompt:
-      "Carry out the owner's requests about how the project runs, within the Operator's rules; act only when the owner asks.",
+      "Carry out the owner's requests as the owner's right hand inside the app; the Operator's own rule says how.",
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

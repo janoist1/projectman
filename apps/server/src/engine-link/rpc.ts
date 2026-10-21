@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { z } from 'zod';
 import type {
   EngineFrame,
   EngineEvent,
@@ -72,6 +73,30 @@ export interface EngineRpc {
   close(): void;
 }
 
+const FIELD_LIMIT = 8;
+/** The method and the parameter paths that failed validation, never the values (they can be secrets). */
+function invalidParams(method: string, error: z.ZodError): string {
+  const paths = [
+    ...new Set(
+      error.issues.map(
+        (issue) =>
+          issue.path
+            .map(String)
+            .join('.')
+            .replace(/[^\w.-]/g, '?') || '(root)',
+      ),
+    ),
+  ];
+  const shown = paths.slice(0, FIELD_LIMIT).map((path) => path.slice(0, 80));
+  if (paths.length > FIELD_LIMIT) shown.push('...');
+  return `Invalid method parameters: ${method} (${shown.join(', ')})`;
+}
+/** The exception's class name, when it is a plain identifier; never its message or stack. */
+function errorCategory(error: unknown): string {
+  const name = error instanceof Error ? error.name : '';
+  return /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name) ? name : 'Error';
+}
+
 /** No request/response logging: MCP tokens, prompts and NanoGPT secrets must never reach logs. */
 export function createEngineRpc(options: {
   side: 'cloud' | 'engine';
@@ -80,6 +105,11 @@ export function createEngineRpc(options: {
   now?: () => number;
   /** Called for a request answered before any handler ran: an unknown method or invalid parameters. */
   onRefused?: (request: { id: string; method: string; code: 'unknown_method' | 'invalid_params' }) => void;
+  /**
+   * Called when a handler failed with an exception the peer is not told about. The method and the
+   * exception's class name only: the message and stack can hold credentials, paths or prompts.
+   */
+  onFailed?: (failure: { method: string; category: string }) => void;
 }): EngineRpc {
   const state = options.state ?? createRpcState();
   const now = options.now ?? Date.now;
@@ -107,8 +137,7 @@ export function createEngineRpc(options: {
     const params = schema.params.safeParse(frame.params);
     if (!params.success) {
       options.onRefused?.({ id: frame.id, method: frame.method, code: 'invalid_params' });
-      const fields = params.error.issues.map((issue) => issue.path.join('.') || '(root)').join(', ');
-      send(failure('invalid_params', `Invalid method parameters: ${frame.method} (${fields})`));
+      send(failure('invalid_params', invalidParams(frame.method, params.error)));
       return;
     }
     const secret = frame.method === 'secret.nanogpt_key';
@@ -132,7 +161,10 @@ export function createEngineRpc(options: {
       try {
         const value = await handler(params.data, { id: frame.id });
         const result = schema.result.safeParse(value);
-        if (!result.success) return failure('internal', 'Invalid method result');
+        if (!result.success) {
+          options.onFailed?.({ method: frame.method, category: 'invalid_result' });
+          return failure('internal', 'Invalid method result');
+        }
         return { t: 'res', id: frame.id, ok: true, result: result.data };
       } catch (error) {
         // Unrecognised exceptions are never reflected, since they can contain credentials or paths.
@@ -169,8 +201,7 @@ export function createEngineRpc(options: {
           });
           if (wire.success) return { t: 'res', id: frame.id, ok: false, error: wire.data };
         }
-        // Kept on this side only: the local log helps diagnose without reflecting the details.
-        console.error(`engine request ${frame.method} failed:`, error);
+        options.onFailed?.({ method: frame.method, category: errorCategory(error) });
         return failure('internal', 'Engine request failed');
       }
     };
@@ -198,12 +229,8 @@ export function createEngineRpc(options: {
       if (schema.direction === options.side)
         return Promise.reject(new EngineRpcError('unknown_method', 'Wrong method direction'));
       const parsed = schema.params.safeParse(params);
-      if (!parsed.success) {
-        const fields = parsed.error.issues.map((issue) => issue.path.join('.') || '(root)').join(', ');
-        return Promise.reject(
-          new EngineRpcError('invalid_params', `Invalid method parameters: ${String(method)} (${fields})`),
-        );
-      }
+      if (!parsed.success)
+        return Promise.reject(new EngineRpcError('invalid_params', invalidParams(method, parsed.error)));
       if (callOptions.signal?.aborted)
         return Promise.reject(new EngineRpcError('timeout', 'Engine call aborted'));
       const id = randomBytes(16).toString('hex');

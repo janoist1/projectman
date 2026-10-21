@@ -187,6 +187,75 @@ describe('worktrees of closed cards', () => {
     expect(h.log.warnings).toHaveLength(1);
     h.log.warnings.length = 0;
   });
+
+  it('keeps the three-day boundary to the millisecond', async () => {
+    await setup();
+    const before = await closedCard('Fictional before', 'done', 3 * DAY_MS - 1);
+    const exactly = await closedCard('Fictional exactly', 'done', 3 * DAY_MS);
+    const after = await closedCard('Fictional after', 'cancelled', 3 * DAY_MS + 1);
+
+    const report = await h.domain.worktreeSweep.run();
+
+    expect(report.removed).toEqual([exactly.key, after.key]);
+    expect(h.worktrees.removed).not.toContain(before.path);
+  });
+
+  it('reads the closing time as an instant, and leaves a missing or invalid one alone', async () => {
+    await setup();
+    const offsetOld = await closedCard('Fictional offset old', 'done', 0);
+    const offsetNew = await closedCard('Fictional offset new', 'done', 0);
+    const missing = await closedCard('Fictional missing', 'done', 5 * DAY_MS);
+    const invalid = await closedCard('Fictional invalid', 'done', 5 * DAY_MS);
+    const setClosedAt = (key: string, closedAt: string | null) =>
+      h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { closedAt });
+    // 2026-09-28T10:00:00Z and 2026-09-28T14:00:00Z: only the first is three days before `now` (10:00Z on 10-01) or more.
+    setClosedAt(offsetOld.key, '2026-09-28T12:00:00.000+02:00');
+    setClosedAt(offsetNew.key, '2026-09-28T12:00:00.000-02:00');
+    setClosedAt(missing.key, null);
+    setClosedAt(invalid.key, 'not a date');
+    now = new Date('2026-10-01T12:00:00.000Z');
+
+    const report = await h.domain.worktreeSweep.run();
+
+    expect(report.removed).toEqual([offsetOld.key]);
+    expect(h.worktrees.removed).not.toContain(offsetNew.path);
+    expect(h.worktrees.removed).not.toContain(missing.path);
+    expect(h.worktrees.removed).not.toContain(invalid.path);
+  });
+
+  it('reads the closed cards in pages and skips a card reopened between two pages', async () => {
+    await setup();
+    // 104 closed cards without a worktree fill the first page; the two with worktrees come after them.
+    for (let n = 0; n < 104; n++) {
+      const key = (
+        await h.domain.tasks.create('AR', { title: `Fictional filler ${n}`, repo: 'web' }, OWNER_ACTOR)
+      ).key;
+      h.repos.tasks.update(h.domain.tasks.get('AR', key).id, {
+        status: 'done',
+        closedAt: new Date(now.getTime() - 5 * DAY_MS).toISOString(),
+      });
+    }
+    const kept = await closedCard('Fictional reopened', 'done', 5 * DAY_MS);
+    const swept = await closedCard('Fictional swept', 'done', 5 * DAY_MS);
+    const read = h.repos.tasks.readScheduling.bind(h.repos.tasks);
+    const pages: number[] = [];
+    h.repos.tasks.readScheduling = (projectKey, query) => {
+      const page = read(projectKey, query);
+      if (query.kind !== 'closed-worktrees') return page;
+      pages.push(page.length);
+      // After the first page: one of the cards of the second page is reopened.
+      if (pages.length === 1)
+        h.repos.tasks.update(h.domain.tasks.get('AR', kept.key).id, { status: 'active' });
+      return page;
+    };
+
+    const report = await h.domain.worktreeSweep.run();
+
+    // The reopened card is not on the second page: 4 fillers and the swept card.
+    expect(pages).toEqual([100, 5]);
+    expect(report.removed).toEqual([swept.key]);
+    expect(h.worktrees.removed).toEqual([swept.path]);
+  });
 });
 
 describe('free disk space', () => {

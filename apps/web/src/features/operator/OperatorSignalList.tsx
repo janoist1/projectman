@@ -81,23 +81,27 @@ export function OperatorSignalList({
   );
 }
 
-function SignalRow({
+export function SignalRow({
   signal,
   operatorHandle,
   readOnly,
   onDecide,
+  time,
+  disabled = false,
 }: {
   signal: OperatorSignal;
   operatorHandle: string;
   readOnly: boolean;
   onDecide: () => void;
+  time?: string;
+  disabled?: boolean;
 }) {
   const { key } = useProject();
   const titleId = useId();
   const client = useQueryClient();
   const send = useSendTeamMessage(key);
   const dismiss = useDismissOperatorSignal(key);
-  const busy = send.isPending || dismiss.isPending;
+  const busy = disabled || send.isPending || dismiss.isPending;
   const failure = send.error ?? dismiss.error;
   const closed = closedText(signal);
   const accept = () => {
@@ -119,6 +123,11 @@ function SignalRow({
     <li className={styles.row} data-signal-id={signal.id} data-state={signal.state}>
       <h4 id={titleId} className={styles.rowTitle}>
         <SignalTitle signal={signal} projectKey={key} />
+        {time ? (
+          <time className={styles.rowTime} dateTime={signal.raisedAt}>
+            {time}
+          </time>
+        ) : null}
       </h4>
       {signal.kind === 'outage' && signal.inboxItemId ? (
         <Link to={`/p/${key}/inbox`} className={styles.details}>

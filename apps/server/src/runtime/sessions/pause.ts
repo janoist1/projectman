@@ -1,12 +1,15 @@
+import { assertIntegratorAccess, integratorExecution, forbidden, assertSuperMutation } from '../../kernel';
 import {
   DEFAULT_PAUSE_FORCE_AFTER_MS,
   isWorkPaused,
   NUDGE_POINTS,
   pauseStateOf,
   RESTART_POINTS,
+  superActorOf,
 } from '@projectman/shared';
 import type {
   Actor,
+  ActorCredential,
   InstancePauseView,
   PausedSession,
   PauseKind,
@@ -30,7 +33,7 @@ import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from './sessions';
 import { waitForShutdownStops } from './shutdown-wait';
 import type { AppendTimelineInput, TimelineService } from '../../core/timeline';
-import { humanActor, newId, SYSTEM_ACTOR } from '../../kernel';
+import { attributedActor, conflict, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** Catches up the scheduled runs a pause skipped; services/schedules supplies it, the assembly passes it. */
 export interface MissedRunCatchUp {
@@ -51,6 +54,11 @@ export interface PauseRequester {
   userId: string | null;
   source: PauseSource;
   via?: 'integrator';
+  /**
+   * The credential of a super-mode request (PM-757), from a bound principal: each project's pause entry is
+   * then recorded as that project's Operator with this credential, not as the owner.
+   */
+  credential?: ActorCredential;
 }
 
 export interface PauseOptions {
@@ -207,6 +215,56 @@ export class PauseService {
    * point. A target that is paused already stays as it is (the first request's reason and deadline).
    */
   async pause(target: PauseTarget, by: PauseRequester, opts: PauseOptions = {}): Promise<void> {
+    await this.assertCredential(target, by);
+    await this.pauseCore(target, by, opts, null);
+  }
+
+  /**
+   * The instance pause a hybrid release deployment owns (PM-752). It is refused when any instance pause is
+   * open (`release_pause_conflict`): a person's or the shutdown's pause is not the release's to resume.
+   * `atomic` runs in the same transaction as the pause row, so the deployment records the pause and the fence
+   * together or neither. Returns the pause id.
+   */
+  async acquireOwnedInstancePause(reason: string, atomic: (pauseId: string) => void): Promise<string> {
+    const id = await this.pauseCore(
+      { scope: 'instance' },
+      { userId: null, source: 'system' },
+      { reason },
+      atomic,
+    );
+    if (!id) throw new Error('the owned pause was not created');
+    return id;
+  }
+
+  /**
+   * Ends the pause the deployment owns. `atomic` runs in the same transaction as the close, so the deployment
+   * and the pause never disagree. A pause that is gone already is not an error: the deployment still moves on.
+   */
+  async resumeOwnedInstancePause(pauseId: string, atomic: () => void): Promise<void> {
+    await this.resumeCore({ scope: 'instance' }, { userId: null, source: 'system' }, { pauseId, atomic });
+  }
+
+  /**
+   * How many sessions have not stopped yet: the ones a pause still holds without a point and the ones that
+   * run with no pause row at all (the drain check of a release counts them).
+   */
+  unstoppedSessions(): number {
+    const { pauses, sessions } = this.ctx.repos;
+    let count = pauses
+      .openSessions()
+      .filter((row) => row.point === null && this.sessions.isRunning(row.sessionId)).length;
+    for (const project of this.projects.summaries())
+      for (const session of sessions.list(project.key))
+        if (this.sessions.isRunning(session.id) && !pauses.openSession(session.id)) count++;
+    return count;
+  }
+
+  private async pauseCore(
+    target: PauseTarget,
+    by: PauseRequester,
+    opts: PauseOptions,
+    owned: ((pauseId: string) => void) | null,
+  ): Promise<string | null> {
     const kind = opts.kind ?? 'manual';
     const forceAfterMs = opts.forceAfterMs ?? DEFAULT_PAUSE_FORCE_AFTER_MS;
     const { pauses } = this.ctx.repos;
@@ -214,8 +272,16 @@ export class PauseService {
     const actors = await this.actors(projectKeys, by);
     // Only the rows and the timeline are written under the admission lock: no start slips in between.
     const caught = await this.admission.exclusive(async () => {
+      await this.assertCredential(target, by);
       by.check?.();
-      if (pauses.findOpen(target.scope, keyOf(target))) return null;
+      if (pauses.findOpen(target.scope, keyOf(target))) {
+        if (owned)
+          throw conflict(
+            'release_pause_conflict',
+            'the instance is paused already: the release cannot own it',
+          );
+        return null;
+      }
       const at = isoNow(this.ctx);
       const record = {
         id: newId('pau'),
@@ -230,6 +296,7 @@ export class PauseService {
       };
       const rows = this.ctx.unitOfWork(() => {
         pauses.insert(record);
+        owned?.(record.id);
         const held: SessionPauseRecord[] = [];
         for (const projectKey of projectKeys)
           for (const session of this.ctx.repos.sessions.list(projectKey)) {
@@ -265,7 +332,7 @@ export class PauseService {
       });
       return { record, rows };
     });
-    if (!caught) return;
+    if (!caught) return null;
     this.ctx.logger.info(
       {
         pauseId: caught.record.id,
@@ -280,6 +347,7 @@ export class PauseService {
     this.handoffs.paused(projectKeys);
     this.publishChanged(projectKeys);
     for (const row of caught.rows) this.stopSession(row.sessionId, forceAfterMs);
+    return caught.record.id;
   }
 
   /** Asks the runner to stop the session at its next safe point; the outcome is recorded when it comes. */
@@ -381,6 +449,7 @@ export class PauseService {
 
   /** Cuts the sessions still stopping with one Esc, and writes the deadline as now. */
   async force(target: PauseTarget, _by: PauseRequester): Promise<void> {
+    await this.assertCredential(target, _by);
     const { pauses } = this.ctx.repos;
     const pause = pauses.findOpen(target.scope, keyOf(target));
     if (!pause) return;
@@ -452,14 +521,50 @@ export class PauseService {
    * is tried again. Resuming what is not paused changes nothing.
    */
   async resume(target: PauseTarget, by: PauseRequester): Promise<void> {
+    await this.assertCredential(target, by);
+    await this.resumeCore(target, by, null);
+  }
+
+  private async resumeCore(
+    target: PauseTarget,
+    by: PauseRequester,
+    owned: { pauseId: string; atomic: () => void } | null,
+  ): Promise<void> {
     const { pauses } = this.ctx.repos;
     const projectKeys = this.coveredProjects(target);
     const actors = await this.actors(projectKeys, by);
     const closed = await this.admission.exclusive(async () => {
+      await this.assertCredential(target, by);
+      for (const projectKey of projectKeys) {
+        const config = await this.projects.config(projectKey);
+        const providers = pauses.openSessionsOfProject(projectKey).flatMap((held) => {
+          const session = this.ctx.repos.sessions.get(held.sessionId);
+          const member = session ? config.team.members.find((m) => m.handle === session.member) : undefined;
+          return member?.kind === 'ai' ? [member.provider ?? ('claude' as const)] : [];
+        });
+        assertSuperMutation(config, { kind: 'runtime_start', providers });
+      }
       by.check?.();
       const pause = pauses.findOpen(target.scope, keyOf(target));
+      if (owned) {
+        if (!pause || pause.id !== owned.pauseId) {
+          // The owned pause is gone already: the deployment still has to record that it moved on.
+          if (pause)
+            throw conflict('release_pause_conflict', 'another pause is open: the release does not own it');
+          owned.atomic();
+          return null;
+        }
+      } else if (pause) {
+        // The fence is the deployment's: only its own resume ends it, never an admin's or the control command's.
+        const fence = this.ctx.repos.releaseDeployments.active();
+        if (fence?.maintenance && fence.pauseId === pause.id)
+          throw conflict('release_pause_conflict', 'the pause belongs to a release in progress', {
+            releaseId: fence.releaseId,
+          });
+      }
       if (!pause) return null;
       this.ctx.unitOfWork(() => {
+        owned?.atomic();
         pauses.close(pause.id, isoNow(this.ctx), by.userId);
         for (const projectKey of projectKeys)
           this.record(pause.kind, {
@@ -640,14 +745,41 @@ export class PauseService {
     if (!user) return actors;
     for (const projectKey of projectKeys) {
       try {
-        const member = findHumanByEmail(await this.projects.config(projectKey), user.email);
-        if (member)
-          actors.set(projectKey, { ...humanActor(member.handle), ...(by.via ? { via: by.via } : {}) });
+        const config = await this.projects.config(projectKey);
+        const member = findHumanByEmail(config, user.email);
+        if (!member) continue;
+        // A super request is the project's Operator only while its token owner is an owner there.
+        const superActor =
+          by.credential && member.access === 'owner' ? superActorOf(config, by.credential) : null;
+        actors.set(
+          projectKey,
+          attributedActor({ handle: member.handle, via: by.via, superActor: superActor ?? undefined }),
+        );
       } catch {
         // A project whose config cannot be read has the system as the actor.
       }
     }
     return actors;
+  }
+
+  private async assertCredential(target: PauseTarget, by: PauseRequester): Promise<void> {
+    const context = integratorExecution();
+    if (
+      context?.principal.mode === 'super' &&
+      (by.userId !== context.principal.userId ||
+        by.via !== 'integrator' ||
+        by.credential?.id !== context.principal.keyId ||
+        by.credential.prefix !== context.principal.prefix)
+    )
+      throw forbidden(
+        'insufficient_access',
+        'the pause requester does not match the authenticated credential',
+      );
+    if (by.credential && !integratorExecution())
+      throw forbidden('insufficient_access', 'a credential needs authenticated execution');
+    const keys =
+      target.scope === 'project' ? [target.projectKey] : this.projects.summaries().map((p) => p.key);
+    for (const key of keys) assertIntegratorAccess(await this.projects.config(key), 'write');
   }
 }
 

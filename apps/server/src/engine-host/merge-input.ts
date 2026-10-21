@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execCommand } from '../exec';
 import { isCommitId, isPlainBranchName, isRepoFilePath } from '@projectman/shared';
 import { MergeError, type MergeRepoRef } from '../contracts';
 
@@ -44,16 +44,17 @@ export function isMergeMessage(value: string): boolean {
  * Whether `name` is a plain branch name: git's own rule (`check-ref-format --branch`) and then no form
  * that git would expand (`@{-1}`), no `HEAD` and no leading dash.
  */
-export function isBranchName(name: string): Promise<boolean> {
-  if (!isPlainBranchName(name)) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    execFile(
-      'git',
-      ['check-ref-format', '--branch', name],
-      { encoding: 'utf8', timeout: 10_000, windowsHide: true, env: { ...process.env, LC_ALL: 'C' } },
-      (error, stdout) => resolve(!error && stdout.trim() === name),
-    );
-  });
+export async function isBranchName(name: string): Promise<boolean> {
+  if (!isPlainBranchName(name)) return false;
+  try {
+    const { stdout } = await execCommand('git', ['check-ref-format', '--branch', name], {
+      timeoutMs: 10_000,
+      env: { ...process.env, LC_ALL: 'C' },
+    });
+    return stdout.trim() === name;
+  } catch {
+    return false;
+  }
 }
 
 const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;

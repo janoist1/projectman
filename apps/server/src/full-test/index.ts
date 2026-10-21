@@ -2,34 +2,44 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
+import { mergeTestReport } from '@projectman/shared';
 import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import type { HeavyLock } from './heavy-lock';
-import { failedFiles, failureReport } from './output';
+import { failedFiles, failureReport, passedOutputTail } from './output';
 import { runSandboxed, srtCli } from './run-sandboxed';
 import type { SandboxedEnd } from './run-sandboxed';
-import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHORT_ROOT } from './sandbox';
+import {
+  canonicalRoot,
+  FULL_TEST_GIT_CONFIG,
+  fullTestEnv,
+  runDirOf,
+  runPaths,
+  srtSettings,
+  SHORT_ROOT,
+} from './sandbox';
 import type { RunPaths } from './sandbox';
 import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
+import { prepareStepCache } from './step-cache';
 export { assertNpmCiCheckout } from './npm-ci';
+export { withGithubActions } from './github-actions';
+export type { GithubActionsDeps } from './github-actions';
+export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } from './workspace-dependencies';
+export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
 
 export { failedFiles, failureReport, outputTail, stripAnsi } from './output';
-export {
-  acquireHeavyLock,
-  defaultHeavyLockDir,
-  HeavyLockError,
-  readHeavyQueue,
-  readHeavyRunSessions,
-} from './heavy-lock';
+export { acquireHeavyLock, HeavyLockError, readHeavyQueue, readHeavyRunSessions } from './heavy-lock';
+export { defaultHeavyLockDir } from './heavy-lock-dir';
 export type { HeavyLock, HeavyLockEntry, HeavyLockOptions } from './heavy-lock';
 export { runSandboxed, srtCli } from './run-sandboxed';
 export type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
 export { createScreenshotExecutor, screenshotEnv, screenshotSettings } from './screenshots';
 export {
+  canonicalRoot,
   closedStdin,
   fullTestEnv,
+  installerSettings,
   niceSrtCommand,
   quoteShellWord,
   runDirOf,
@@ -39,6 +49,7 @@ export {
 
 /** The probes (a sandbox start each) must be quick. */
 const PROBE_TIMEOUT_MS = 60_000;
+let sandboxRuntime: Promise<typeof import('@anthropic-ai/sandbox-runtime')> | undefined;
 
 export interface FullTestExecutorOptions {
   logger: FastifyBaseLogger;
@@ -53,6 +64,8 @@ export interface FullTestExecutorOptions {
   heavyLockDir?: string;
   /** Engine-local root of merge checkouts and the dependency store. */
   worktreesRoot?: string;
+  /** Engine-local passed merge-test steps; absent disables the cache. */
+  stepCacheFile?: string;
 }
 
 /**
@@ -74,10 +87,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     timeoutMs: number,
     signal: AbortSignal,
     settings = paths.settings,
+    passedKeysFile?: string,
   ): Promise<SandboxedEnd> =>
     runSandboxed({
       cwd: spec.cwd,
-      env: fullTestEnv(paths, spec.maxWorkers, baseEnv),
+      env: fullTestEnv(paths, spec.maxWorkers, baseEnv, passedKeysFile),
       settings,
       command,
       timeoutMs,
@@ -103,6 +117,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       if (process.platform !== 'darwin')
         return { ok: false, reason: `the sandbox needs macOS (this is ${process.platform})` };
       try {
+        const { SandboxManager } = await (sandboxRuntime ??= import('@anthropic-ai/sandbox-runtime'));
         if (!SandboxManager.isSupportedPlatform())
           return { ok: false, reason: 'the sandbox runtime does not support this platform' };
         const check = await SandboxManager.checkDependenciesAsync();
@@ -115,6 +130,16 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     },
 
     async run(spec, signal, onStarted) {
+      // The GitHub Actions merge check (PM-900) is orchestrated by the engine's own executor, not here.
+      if (spec.githubActions)
+        return {
+          outcome: 'error',
+          reason: 'github_unavailable',
+          exitCode: null,
+          durationMs: 0,
+          failedFiles: [],
+          outputTail: 'This engine runs no GitHub Actions check.',
+        };
       if (spec.npmCi) {
         try {
           await assertNpmCiCheckout(options.worktreesRoot, spec);
@@ -173,7 +198,13 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
   /** One run, with the machine's lock held (or without the queue). */
   async function runLocked(spec: FullTestSpec, signal: AbortSignal): Promise<FullTestResult> {
     const started = Date.now();
-    const paths = runPaths(runDirOf(tmpRoot, SHORT_ROOT, spec.runId));
+    let paths: RunPaths;
+    try {
+      paths = runPaths(runDirOf(canonicalRoot(tmpRoot), canonicalRoot(SHORT_ROOT), spec.runId));
+    } catch (err) {
+      logger.warn({ err, runId: spec.runId }, 'no run directory root leaves room for the sandbox sockets');
+      return failure('sandbox_unavailable', started);
+    }
     const remaining = () => {
       if (signal.aborted) throw new DependencyPreparationError('', 'killed');
       const ms = spec.timeoutMs - (Date.now() - started);
@@ -239,20 +270,47 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
           execute: (command, settings, timeoutMs) =>
             execute(paths, spec, command, timeoutMs, signal, settings),
         });
-      const ended = await execute(paths, spec, spec.command, budget(), signal);
+      const cache = await prepareStepCache(
+        options.stepCacheFile,
+        path.join(paths.sandbox, 'merge-test-passed-keys'),
+        spec.runId,
+        logger,
+      );
+      const commandStarted = Date.now();
+      const ended = await execute(
+        paths,
+        spec,
+        spec.command,
+        budget(),
+        signal,
+        paths.settings,
+        cache?.passedKeysFile,
+      );
+      const commandMs = Date.now() - commandStarted;
+      await cache?.record(ended.output);
       const durationMs = Date.now() - started;
-      if (ended.aborted) return failure('killed', started, ended.output);
+      // The command ran: what it measured stays, even when it was stopped (PM-876).
+      const report = mergeTestReport(ended.output, commandMs);
+      if (ended.aborted) return { ...failure('killed', started, ended.output), report };
       if (ended.spawnError) return failure('spawn_failed', started, ended.output);
-      if (ended.timedOut) return failure('timeout', started, ended.output);
-      if (ended.signal) return failure('killed', started, ended.output);
+      if (ended.timedOut) return { ...failure('timeout', started, ended.output), report };
+      if (ended.signal) return { ...failure('killed', started, ended.output), report };
       if (ended.exitCode === 0)
-        return { outcome: 'passed', exitCode: 0, durationMs, failedFiles: [], outputTail: '' };
+        return {
+          outcome: 'passed',
+          exitCode: 0,
+          durationMs,
+          failedFiles: [],
+          outputTail: passedOutputTail(ended.output),
+          report,
+        };
       return {
         outcome: 'failed',
         exitCode: ended.exitCode,
         durationMs,
         failedFiles: failedFiles(ended.output),
         outputTail: failureReport(ended.output),
+        report,
       };
     } catch (err) {
       logger.warn({ err, runId: spec.runId }, 'the full test run failed to start');

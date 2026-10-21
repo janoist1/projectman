@@ -28,19 +28,37 @@ export class TaskWaits {
     this.members = deps.members;
   }
 
-  /** The wait of each card (null: the card is closed, a theme, or not waiting), by task key. */
+  /**
+   * The wait of each card (null: the card is closed, a theme, or not waiting), by task key. `ignore`:
+   * open items the wait leaves out (the obligation tracking reads the wait without its own todos, PM-806).
+   */
   of(
     config: ProjectConfig,
     cards: readonly Task[],
     viewer: string | null = null,
+    ignore?: (item: InboxItem) => boolean,
   ): Map<string, TaskWait | null> {
     const projectKey = config.project.key;
     if (cards.length === 0) return new Map();
     const roster = this.members.rosterFor(config);
-    const all = new Map(this.ctx.repos.tasks.list(projectKey).map((task) => [task.key, task]));
+    // The cards the `prerequisite` links name, closed ones too, read now for exactly their keys (PM-771):
+    // the wait never reloads the project's whole card list.
+    const named = [
+      ...new Set(
+        cards.flatMap((task) =>
+          task.links.flatMap((link) => (link.kind === 'prerequisite' ? [link.ref] : [])),
+        ),
+      ),
+    ];
+    const all = new Map(
+      (named.length === 0
+        ? []
+        : this.ctx.repos.tasks.readScheduling(projectKey, { kind: 'keys', keys: named })
+      ).map((task) => [task.key, task]),
+    );
     const itemsByTask = new Map<string, InboxItem[]>();
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
-      if (!item.taskKey) continue;
+      if (!item.taskKey || ignore?.(item)) continue;
       const list = itemsByTask.get(item.taskKey) ?? [];
       list.push(item);
       itemsByTask.set(item.taskKey, list);
@@ -68,7 +86,12 @@ export class TaskWaits {
   }
 
   /** One card's wait. */
-  ofCard(config: ProjectConfig, task: Task, viewer: string | null = null): TaskWait | null {
-    return this.of(config, [task], viewer).get(task.key) ?? null;
+  ofCard(
+    config: ProjectConfig,
+    task: Task,
+    viewer: string | null = null,
+    ignore?: (item: InboxItem) => boolean,
+  ): TaskWait | null {
+    return this.of(config, [task], viewer, ignore).get(task.key) ?? null;
   }
 }

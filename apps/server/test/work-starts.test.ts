@@ -61,15 +61,17 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(sessionsOf(parent)).toHaveLength(1);
   });
 
-  it('automatically starts a card whose subtasks are all closed', async () => {
+  it('leaves a card whose subtasks are all closed unassigned', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const parent = await create('Collecting card');
     const child = (await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR))
       .key;
     await h.domain.tasks.cancel('AR', child, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
     await move(parent);
-    await vi.waitFor(() => expect(task(parent).assignee).toBe('dev-1'));
-    expect(sessionsOf(parent)).toHaveLength(1);
+    await h.domain.admission.retryDeferred();
+    await flush();
+    expect(task(parent).assignee).toBeNull();
+    expect(sessionsOf(parent)).toEqual([]);
   });
 
   it('rechecks open subtasks after the admission check', async () => {

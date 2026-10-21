@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { assertOwnApproval } from '../../kernel';
 import {
   BoundaryTarget,
   SubmitBoundaryRequest,
@@ -212,6 +213,7 @@ export class BoundaryService {
     input: DecideBoundaryRequest,
     opts: { delegatedOnly?: boolean } = {},
   ): Promise<BoundaryRequest> {
+    assertOwnApproval();
     const args = DecideBoundaryRequest.parse(input);
     const project = await this.projects.load(projectKey);
     this.current(projectKey, project);

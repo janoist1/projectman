@@ -11,6 +11,8 @@ import {
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
+  isSenior,
+  stageOwners,
   memberOf,
   openPrerequisites,
   seniorsOf,
@@ -21,6 +23,7 @@ import {
 import type {
   AiMemberConfig,
   CapacityHolder,
+  DeveloperCandidate,
   EngineId,
   FocusPlace,
   ProjectConfig,
@@ -37,6 +40,7 @@ import { highestUsagePercent } from '../usage';
 import type { PlanUsageCache } from '../usage';
 import type { ProjectService } from '../../core/projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
+import { prerequisiteCards } from '../../core/tasks';
 import type { TaskService } from '../../core/tasks';
 import { KeyedMutex } from '../../kernel';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
@@ -77,6 +81,10 @@ export interface FocusPulling {
   run(): Promise<void>;
 }
 
+export interface StartRounding {
+  run(): Promise<void>;
+}
+
 /**
  * Admission: every AI session start that no person asked for directly (task start, stage
  * hand-over, message wake-up, schedule run) passes the same checks, in this order: the
@@ -101,6 +109,7 @@ export class Admission {
   private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
   private readonly locks = new KeyedMutex();
   private pull: FocusPulling | undefined;
+  private round: StartRounding | undefined;
   private retrying: Promise<void> | null = null;
   private retryAgain = false;
   private readonly onOutageRefusal?: (
@@ -275,6 +284,37 @@ export class Admission {
     if (!engines.get(engineId))
       throw conflict('engine_offline', `engine ${engineId} is not connected`, { engine: engineId });
     return engineId;
+  }
+
+  engineOffline(projectKey: string, handle: string): { engine?: EngineId } | null {
+    if (!this.engines) return null;
+    const engine = this.engines.engineFor(projectKey, handle);
+    if (engine === null) return {};
+    return this.engines.get(engine) ? null : { engine };
+  }
+
+  startFrame(config: ProjectConfig): 'ai_disabled' | 'team_paused' | 'ai_limit_reached' | null {
+    if (!config.team.limits.aiEnabled) return 'ai_disabled';
+    if (isWorkPaused(this.ctx.repos.pauses.open(), config.project.key)) return 'team_paused';
+    if (aiLimitReached(config, this.sessions.busyCount())) return 'ai_limit_reached';
+    return null;
+  }
+
+  /** AI owners with capacity and no deferred start waiting for them. */
+  freeDevelopers(config: ProjectConfig, stageId: string): DeveloperCandidate[] {
+    const stage = config.pipeline.stages.find((s) => s.id === stageId);
+    if (!stage) return [];
+    const owners = new Set(stageOwners(config, stage));
+    const waitedFor = this.membersWaitedFor(config.project.key);
+    const free: DeveloperCandidate[] = [];
+    config.team.members.forEach((member, index) => {
+      if (member.kind !== 'ai' || member.temp || !owners.has(member.handle)) return;
+      if (isHandleOnLeave(config, member.handle) || waitedFor.has(member.handle)) return;
+      const load = this.memberLoad(config, member.handle);
+      if (load >= member.capacity) return;
+      free.push({ handle: member.handle, senior: isSenior(member), temp: false, load, index });
+    });
+    return free;
   }
 
   /**
@@ -483,7 +523,9 @@ export class Admission {
       // A start that waits for prerequisites is retried when the open ones change (one closed, a
       // relation removed): with the same ones open, a retry could only be refused again.
       if (reason === 'prerequisite_open' && task) {
-        const open = openPrerequisites(task, this.tasks.list(task.projectKey)).map((card) => card.key);
+        const open = openPrerequisites(task, prerequisiteCards(this.tasks, task.projectKey, task)).map(
+          (card) => card.key,
+        );
         const waiting = entry.waiting.prerequisites ?? [];
         if (open.length > 0 && open.length === waiting.length && open.every((key) => waiting.includes(key)))
           continue;
@@ -506,6 +548,11 @@ export class Admission {
       await this.pull?.run();
     } catch (err) {
       this.ctx.logger.warn({ err }, 'focus pull failed');
+    }
+    try {
+      await this.round?.run();
+    } catch (err) {
+      this.ctx.logger.warn({ err }, 'start round failed');
     }
   }
 
@@ -541,6 +588,10 @@ export class Admission {
    */
   usePull(pull: FocusPulling): void {
     this.pull = pull;
+  }
+
+  useRound(round: StartRounding): void {
+    this.round = round;
   }
 
   /** The members a stored deferred start of the project waits for (`FocusPull` leaves them out: they are not free). */

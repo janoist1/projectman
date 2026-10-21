@@ -8,6 +8,7 @@ import { AwsCli } from './aws-cli';
 import type { CloudContext } from './context';
 import type { PipeEnd, RunResult } from './deps';
 import { CloudError, refused } from './errors';
+import type { CloudTransportError } from './errors';
 import { expandHome } from './config';
 import { writeSecret } from './secrets';
 import { withEc2Host } from './ec2-host';
@@ -50,8 +51,44 @@ export const HOST_SUBCOMMANDS = [
   'send-data',
   'guard-check',
   'public-check',
+  /** The board's control socket through the fixed client in the container (PM-749); never read-only, never repeated. */
+  'release-control',
+  /** The read-only look at one immutable image, the lock and the schema (PM-751); never repeated by the transport. */
+  'release-probe',
 ] as const;
 export type HostSubcommand = (typeof HOST_SUBCOMMANDS)[number];
+
+/**
+ * Subcommands that change nothing on the machine (PM-748). Explicit on purpose: a subcommand that is not
+ * listed is treated as a state change, so it waits for the load check and is never repeated by the transport.
+ */
+export const READ_ONLY_SUBCOMMANDS: ReadonlySet<HostSubcommand> = new Set([
+  'status',
+  'logs',
+  'seed-check',
+  'seed-digest',
+  'send-data',
+  'trial-reset-inspect',
+  'guard-check',
+  'public-check',
+  'release-probe',
+]);
+/** The only subcommand the transport may repeat after a lost connection; a new subcommand is not retried. */
+export const RETRYABLE_READS: ReadonlySet<HostSubcommand> = new Set(['status']);
+
+/** What a transport adds to a session (the EC2 one: bounded retries, load check, failure diagnosis). */
+export interface HostTransport {
+  /** Runs once per session, before its first state-changing subcommand; throws to refuse it. */
+  beforeMutation(): Promise<void>;
+  /** Repeats a read-only connection within the transport's time budget; `attempt` gets its time limit. */
+  readWithRetry(
+    subcommand: HostSubcommand,
+    attempt: (timeoutMs: number | undefined) => Promise<RunResult>,
+    timeoutMs: number | undefined,
+  ): Promise<RunResult>;
+  /** The transport failure behind an ssh result, or null when the remote script itself failed. */
+  classify(subcommand: HostSubcommand, result: RunResult): CloudTransportError | null;
+}
 
 // ---- the answers of the CLI ----
 
@@ -182,6 +219,11 @@ export interface HostSession {
   call(subcommand: HostSubcommand, args?: string[], options?: HostRunOptions): Promise<string>;
   /** The ssh command of a subcommand, for `deps.pipe` (a tar stream). */
   command(subcommand: HostSubcommand, args?: string[]): Promise<PipeEnd>;
+  /**
+   * The transport failure behind the result of a stream (`deps.pipe` with `command`), or null. After a lost
+   * answer the write may have happened (`commandStarted: 'unknown'`): the caller reconciles the machine's state.
+   */
+  transportError(subcommand: HostSubcommand, result: RunResult): CloudTransportError | null;
   /** An interactive shell on the machine. */
   shell(): Promise<RunResult>;
 }
@@ -200,6 +242,7 @@ export function createHostSession(
   address: string,
   signal: AbortSignal,
   sshArgs: () => Promise<string[]>,
+  transport?: HostTransport,
 ): HostSession {
   const remoteCommand = (subcommand: HostSubcommand, args: string[]): string => {
     const script = readRepoFile(hostScriptPath(context.deps.repoRoot));
@@ -207,17 +250,29 @@ export function createHostSession(
       throw new Error('deploy/aws/host.sh is too large to send');
     return ['sudo', 'bash', '-c', script, 'host.sh', subcommand, ...args].map(shellQuote).join(' ');
   };
+  const gate = async (subcommand: HostSubcommand) => {
+    if (transport && !READ_ONLY_SUBCOMMANDS.has(subcommand)) await transport.beforeMutation();
+  };
   const host: HostSession = {
     address,
     signal,
     async run(subcommand, args = [], options = {}) {
-      const argv = await sshArgs();
-      return context.deps.run('ssh', [...argv, remoteCommand(subcommand, args)], { ...options, signal });
+      await gate(subcommand);
+      const attempt = async (timeoutMs: number | undefined) => {
+        const argv = await sshArgs();
+        const limits = timeoutMs === undefined ? options : { ...options, timeoutMs };
+        return context.deps.run('ssh', [...argv, remoteCommand(subcommand, args)], { ...limits, signal });
+      };
+      if (transport && RETRYABLE_READS.has(subcommand))
+        return transport.readWithRetry(subcommand, attempt, options.timeoutMs);
+      return attempt(options.timeoutMs);
     },
     async call(subcommand, args = [], options = {}) {
       const result = await host.run(subcommand, args, options);
       if (signal.aborted) throw new CloudError('interrupted', 1);
       if (result.code !== 0) {
+        const lost = host.transportError(subcommand, result);
+        if (lost) throw lost;
         const detail = lastLines(result.stderr || result.stdout, 3) || `exit status ${result.code}`;
         if (result.code === 3) throw refused(detail.replace(/^host\.sh: refused: /, ''));
         throw new CloudError(`${subcommand} failed on the machine (status ${result.code}): ${detail}`);
@@ -225,8 +280,12 @@ export function createHostSession(
       return result.stdout;
     },
     async command(subcommand, args = []) {
+      await gate(subcommand);
       const argv = await sshArgs();
       return { command: 'ssh', args: [...argv, remoteCommand(subcommand, args)], signal };
+    },
+    transportError(subcommand, result) {
+      return transport?.classify(subcommand, result) ?? null;
     },
     async shell() {
       return context.deps.run('ssh', await sshArgs(), { stdio: 'inherit', signal });

@@ -72,6 +72,11 @@ async function sendCode(value = address) {
   fireEvent.click(screen.getByRole('button', { name: t('auth.emailLogin.sendCode') }));
 }
 
+async function sentCode(backend: MockBackend) {
+  await screen.findByLabelText(t('auth.emailLogin.codeLabel'));
+  return backend.emailLogin.lastCodeTo(address)!;
+}
+
 async function typeCode(code: string) {
   const input = await screen.findByLabelText(t('auth.emailLogin.codeLabel'));
   fireEvent.change(input, { target: { value: code } });
@@ -162,7 +167,7 @@ describe('LoginPage with the e-mail code login', () => {
     expect(screen.getByTestId('where').textContent).toBe('/login');
     expect(ofPath(requests, '/api/auth/email/request')[0]?.body).toEqual({ email: address });
 
-    const code = backend.emailLogin.lastCodeTo(address)!;
+    const code = await sentCode(backend);
     await typeCode(`${code.slice(0, 3)} ${code.slice(3)}`);
     await screen.findByText(t('team.title'));
     expect(ofPath(requests, '/api/auth/email/verify')[0]?.body).toEqual({ email: address, code });
@@ -205,6 +210,7 @@ describe('LoginPage with the e-mail code login', () => {
   it('says plainly that the login is unavailable', async () => {
     invite(backend);
     renderLogin(backend);
+    await screen.findByRole('button', { name: t('auth.emailLogin.sendCode') });
     backend.emailLogin.enabled = false;
     await sendCode();
     expect(await screen.findByText(t('auth.emailLogin.unavailable'))).toBeTruthy();
@@ -250,7 +256,7 @@ describe('LoginPage with the e-mail code login', () => {
     expect(second).not.toBe(first);
     expect((screen.getByLabelText(t('auth.emailLogin.codeLabel')) as HTMLInputElement).value).toBe('');
     await typeCode(second);
-    await screen.findByText(t('team.title'), undefined, { timeout: 2000 });
+    await screen.findByText(t('team.title'));
   });
 
   it('refuses a code of the wrong shape without asking the server', async () => {
@@ -266,7 +272,7 @@ describe('LoginPage with the e-mail code login', () => {
     invite(backend, '');
     const requests = renderLogin(backend);
     await sendCode();
-    const code = backend.emailLogin.lastCodeTo(address)!;
+    const code = await sentCode(backend);
     await typeCode(code);
     const name = await screen.findByLabelText(t('auth.emailLogin.nameLabel'));
     expect(screen.getByText(t('auth.emailLogin.nameTitle'))).toBeTruthy();
@@ -286,7 +292,7 @@ describe('LoginPage with the e-mail code login', () => {
     invite(backend);
     renderLogin(backend);
     await sendCode();
-    const code = backend.emailLogin.lastCodeTo(address)!;
+    const code = await sentCode(backend);
     backend.invitations[0]!.revokedAt = new Date().toISOString();
     await typeCode(code);
     expect(await screen.findByText(t('errors.codes.email_login_no_access'))).toBeTruthy();
@@ -367,7 +373,7 @@ describe('LoginPage with the e-mail code login', () => {
     backend.extraMeProjects = [{ key: 'BD', name: 'Bar', access: 'client', roles: [] }];
     renderLogin(backend);
     await sendCode();
-    await typeCode(backend.emailLogin.lastCodeTo(address)!);
+    await typeCode(await sentCode(backend));
     await screen.findByText('home');
     expect(screen.getByTestId('where').textContent).toBe('/');
   });
@@ -376,16 +382,19 @@ describe('LoginPage with the e-mail code login', () => {
     existingClient(backend);
     renderLogin(backend, `/login?next=${encodeURIComponent('/p/AC/tasks')}`);
     await sendCode();
-    await typeCode(backend.emailLogin.lastCodeTo(address)!);
+    await typeCode(await sentCode(backend));
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/p/AC/tasks'));
   });
 
-  it('ignores an outside next', async () => {
-    existingClient(backend);
-    renderLogin(backend, `/login?next=${encodeURIComponent('//evil.test')}`);
-    await sendCode();
-    await typeCode(backend.emailLogin.lastCodeTo(address)!);
-    await screen.findByText(t('team.title'));
-    expect(screen.getByTestId('where').textContent).toBe('/p/AC');
-  });
+  it.each(['//evil.test', '/\\evil.test', '/\\\\evil.test', '/\t/evil.test', '/\n/evil.test'])(
+    'ignores the unsafe next %j and lands in the client project',
+    async (next) => {
+      existingClient(backend);
+      renderLogin(backend, `/login?next=${encodeURIComponent(next)}`);
+      await sendCode();
+      await typeCode(await sentCode(backend));
+      await screen.findByText(t('team.title'));
+      expect(screen.getByTestId('where').textContent).toBe('/p/AC');
+    },
+  );
 });

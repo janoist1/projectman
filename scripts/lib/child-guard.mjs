@@ -11,6 +11,7 @@
  * (a server's agent sessions, Vite's esbuild service). It inherits the guard's output.
  */
 import { spawn } from 'node:child_process';
+import { constants } from 'node:os';
 
 const GRACE_MS = 5_000;
 const [command, ...args] = process.argv.slice(2);
@@ -46,7 +47,7 @@ child.once('exit', (code, signal) => {
   clearTimeout(killTimer);
   // The leader is gone, but a member of its group may remain: nothing may outlive the guard.
   killGroup('SIGKILL');
-  process.exit(code ?? (signal ? 128 + (signal === 'SIGKILL' ? 9 : 15) : 1));
+  process.exit(code ?? (signal ? 128 + (constants.signals[signal] ?? 15) : 1));
 });
 
 process.stdin.on('end', stop);

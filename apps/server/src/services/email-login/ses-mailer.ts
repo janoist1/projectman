@@ -1,4 +1,4 @@
-import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
+import type { SESv2Client } from '@aws-sdk/client-sesv2';
 import { hu } from '@projectman/templates';
 import { EmailCodeDeliveryError } from '../../contracts';
 import type { EmailCodeDeliveryReason, EmailCodeMailInput, EmailCodeMailer } from '../../contracts';
@@ -17,6 +17,7 @@ export interface SesEmailCodeMailerOptions {
 const REGION = /^[a-z]{2}(-[a-z]+)+-\d$/;
 /** One plain address: no display name, comma, angle bracket, quote or white space (nothing that adds a header or a recipient). */
 const ADDRESS = /^[^\s@<>,;"()[\]\\]+@[^\s@<>,;"()[\]\\]+$/;
+let ses: Promise<typeof import('@aws-sdk/client-sesv2')> | undefined;
 
 export function isSesRegion(region: string): boolean {
   return REGION.test(region);
@@ -63,16 +64,19 @@ function validUntil(expiresAt: string): string {
 export function createSesEmailCodeMailer(options: SesEmailCodeMailerOptions): EmailCodeMailer {
   if (!REGION.test(options.region)) throw new TypeError('the SES region is not an AWS region name');
   const { accessKeyId, secretAccessKey, sessionToken } = options.credentials;
-  const client = new SESv2Client({
+  const clientOptions = {
     region: options.region,
     // Pinned, so an AWS_ENDPOINT_URL in the environment cannot redirect the mail.
     endpoint: options.endpoint ?? `https://email.${options.region}.amazonaws.com`,
     credentials: { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}) },
-  });
+  };
+  let client: SESv2Client | undefined;
   return {
     async send(input: EmailCodeMailInput): Promise<void> {
       if (!ADDRESS.test(input.to)) throw new TypeError('the recipient is not a plain address');
       if (!input.code) throw new TypeError('the code is empty');
+      const { SESv2Client, SendEmailCommand } = await (ses ??= import('@aws-sdk/client-sesv2'));
+      client ??= new SESv2Client(clientOptions);
       const text = hu.emailLoginCode;
       const command = new SendEmailCommand({
         FromEmailAddress: options.from,

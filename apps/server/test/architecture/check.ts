@@ -26,12 +26,30 @@ export function importSpecifiers(source: string): string[] {
   return sourceImports(source).specifiers;
 }
 
+// Only proven expression starts admit a regex literal; a slash after an identifier or a
+// closing delimiter stays visible. In particular, a division must never hide an import.
+const SOURCE_TRIVIA =
+  /\/\/[^\n]*|\/\*[\s\S]*?\*\/|(?<=(?:^|[(,=:[!&|?;{]|(?:^|[;{}])\s*return)\s*)\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+\/[a-z]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g;
+
+/** Preserve offsets while removing trivia; `code` also masks ordinary string literals. */
+export function sourceSyntax(source: string): { clean: string; code: string } {
+  const blank = (text: string) => text.replace(/[^\r\n]/g, ' ');
+  return {
+    clean: source.replace(SOURCE_TRIVIA, (token) => (token.startsWith('/') ? blank(token) : token)),
+    code: source.replace(SOURCE_TRIVIA, blank),
+  };
+}
+
 /** Parse dependencies without evaluating either revision's code. */
 export function sourceImports(source: string): { specifiers: string[]; uncertain: boolean } {
   // Consume comments and ordinary strings so examples cannot become edges.
   // A dynamic literal prefix followed by an expression is still uncertain.
-  const pattern =
-    /\/\/[^\n]*|\/\*[\s\S]*?\*\/|\bimport\s*\(\s*(['"`])([^'"`\n]*)\1\s*\)|\b(?:import\s*|(?:import|export)\s+[^;'"`]*?\bfrom\s*)(['"])([^'"\n]+)\3|\bimport\s*\.\s*meta\b|\b(import)\b|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g;
+  const pattern = new RegExp(
+    SOURCE_TRIVIA.source +
+      /|\bimport\s*\(\s*(['"`])([^'"`\n]*)\1\s*\)|\b(?:import\s*|(?:import|export)\s+[^;'"`]*?\bfrom\s*)(['"])([^'"\n]+)\3|\bimport\s*\.\s*meta\b|\b(import)\b/
+        .source,
+    'g',
+  );
   const specifiers: string[] = [];
   let uncertain = false;
   for (const match of source.matchAll(pattern)) {

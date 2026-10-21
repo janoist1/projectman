@@ -20,6 +20,17 @@ RUN_UID=10001
 RUN_GID=10001
 SERVER_PORT="${PORT:-4700}"
 
+# The server's V8 old-space limit (PM-775): empty or unset leaves node's default (a share of the machine's
+# memory); otherwise a whole number of megabytes from 128 to 4096. Checked before anything starts.
+HEAP_LIMIT_MB="${PROJECTMAN_HEAP_LIMIT_MB:-}"
+if [ -n "$HEAP_LIMIT_MB" ]; then
+  if ! [[ $HEAP_LIMIT_MB =~ ^[0-9]+$ ]] || [ "${#HEAP_LIMIT_MB}" -gt 4 ] || [ "$((10#$HEAP_LIMIT_MB))" -lt 128 ] || [ "$((10#$HEAP_LIMIT_MB))" -gt 4096 ]; then
+    echo "entrypoint: invalid PROJECTMAN_HEAP_LIMIT_MB: $HEAP_LIMIT_MB (a whole number from 128 to 4096, or empty)" >&2
+    exit 64
+  fi
+  HEAP_LIMIT_MB=$((10#$HEAP_LIMIT_MB))
+fi
+
 # Phase 1, as root: the volume is mounted root-owned. Hand it to the unprivileged user and drop to it.
 if [ "$(id -u)" = 0 ]; then
   mkdir -p "$DATA_DIR"
@@ -89,10 +100,11 @@ restore_state() { # restore_state <home> <write marker: yes|no>
 }
 
 start_server() { # start_server <home> <port> [extra NAME=value...]; sets server_pid
-  local home=$1 port=$2
+  local home=$1 port=$2 node_args=()
   shift 2
+  if [ -n "$HEAP_LIMIT_MB" ]; then node_args+=("--max-old-space-size=$HEAP_LIMIT_MB"); fi
   env -i "${base_env[@]}" "${server_env[@]}" PROJECTMAN_HOME="$home" PORT="$port" HOST=127.0.0.1 PROJECTMAN_MODE=cloud "$@" \
-    node "$APP_DIR/apps/server/dist/index.js" &
+    node ${node_args[@]+"${node_args[@]}"} "$APP_DIR/apps/server/dist/index.js" &
   server_pid=$!
 }
 
@@ -190,7 +202,7 @@ rehearse() {
   trap 'terminate; exit 143' TERM INT
   # The standby copy sends no login mail from the production sender (PM-669), whatever cloud.env says. It is not
   # the public board either (PM-672): that needs the mail login, which is off here.
-  start_server "$scratch" "$port" PROJECTMAN_EMAIL_LOGIN_ENABLED=0 PROJECTMAN_PUBLIC_BOARD=0
+  start_server "$scratch" "$port" PROJECTMAN_EMAIL_LOGIN_ENABLED=0 PROJECTMAN_PUBLIC_BOARD=0 PROJECTMAN_WEB_PUSH_ENABLED=0
   wait_for_server "$port"
   "$APP_DIR/deploy/cloud/smoke.sh" "http://127.0.0.1:$port" || {
     terminate

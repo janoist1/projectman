@@ -7,13 +7,20 @@ import {
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationMessageId,
   ProposeOperatorKnowledgeRequest,
+  roleBundle,
 } from '@projectman/shared';
 import type { AiMemberConfig, OperatorKnowledgeChange, OperatorOperation, Session } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
 import { OperatorRequests } from '../src/services/operator';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  restartDomainHarness,
+  waitForSession,
+} from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, settle } from './helpers/fakes';
 
@@ -77,7 +84,7 @@ async function setup(persistent = false) {
     { awaitWake: true },
   );
   await flush();
-  const session = h.domain.sessions.list('AR', { member: 'operator' })[0]!;
+  const session = await waitForSession(h.domain, { member: 'operator' });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
 }
 function propose(change = agreement, operations: OperatorOperation[] = [], revision = 0) {
@@ -94,6 +101,59 @@ const document = () => h.domain.operatorKnowledge.readKnowledge('AR');
 const payload = (id: string) => operatorKnowledgeApprovalOf(h.domain.inbox.get('AR', id))!;
 
 describe('owner-approved Operator knowledge', () => {
+  it('stores targeted agreement operations and replays them against fresh unrelated role overrides', async () => {
+    await setup();
+    const before = await h.domain.projects.load('AR');
+    await h.domain.projects.patch(
+      'AR',
+      {
+        baseVersion: before.version,
+        roleOverrides: {
+          developer: { ...roleBundle(before.config, 'developer'), instructions: 'Original instructions.' },
+          architect: { ...roleBundle(before.config, 'architect'), instructions: 'Original architect.' },
+        },
+      },
+      { actor: OWNER_ACTOR, author: OWNER },
+    );
+    const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });
+    const operation: OperatorOperation = {
+      op: 'config_patch',
+      patch: {
+        roleOverrides: {
+          developer: { ...read.effective, instructions: read.effective.instructions + '\nAdded rule.' },
+        },
+      },
+    };
+    const proposal = await propose(agreement, [operation]);
+    expect(payload(proposal.inbox_item_id).operations).toEqual([operation]);
+    await resolve(proposal.inbox_item_id);
+    const approved = payload(proposal.inbox_item_id);
+    const loaded = await h.domain.projects.load('AR');
+    await h.domain.projects.patch(
+      'AR',
+      {
+        baseVersion: loaded.version,
+        roleOverrides: {
+          ...loaded.config.team.roleOverrides,
+          architect: {
+            ...roleBundle(loaded.config, 'architect'),
+            instructions: 'Changed after agreement approval.',
+          },
+        },
+      },
+      { actor: OWNER_ACTOR, author: OWNER },
+    );
+    const requests = new OperatorRequests({ ctx: h.domain.ctx });
+    requests.closeForSession(ctx.sessionId);
+    h.domain.messages.markRecipientDelivered(operatorKnowledgeContinuationMessageId(approved.id), 'operator');
+    expect(
+      await h.domain.teamTools.operate(ctx, { title: 'Extend developer instructions', operation }),
+    ).toMatchObject({ status: 'done' });
+    const saved = (await h.domain.projects.config('AR')).team.roleOverrides!;
+    expect(saved.developer?.instructions).toBe('Original instructions.\nAdded rule.');
+    expect(saved.architect?.instructions).toBe('Changed after agreement approval.');
+    expect(payload(proposal.inbox_item_id).operations).toEqual([operation]);
+  });
   it('does not load or lock projects without pending knowledge approvals during recovery', async () => {
     await setup();
     const lock = vi.spyOn(h.domain.projects, 'withConfigurationLock');

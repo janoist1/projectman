@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import type { Controller, Draft, State } from '../controller';
-import { tipOf } from '../anchor';
+import { areaOf, tipOf } from '../anchor';
 import { t } from '../i18n';
 import { Avatar, colorVar, personName } from './common';
 import { useViewTick } from './hooks';
@@ -27,17 +27,20 @@ export function DraftPin({
   const tip = tipOf(resolution, draft.target.anchor, scroll);
   if (!person || !tip || resolution.place !== 'located') return null;
   const color = { '--pc': colorVar(person) };
-  const box = resolution.element?.getBoundingClientRect() ?? null;
+  // Only an element mark outlines its element; a point or an area pinned to one just follows it.
+  const box =
+    draft.target.anchor.kind === 'element' ? (resolution.element?.getBoundingClientRect() ?? null) : null;
+  const area = areaOf(resolution, draft.target.anchor, scroll);
   return (
     <div class="pins" aria-hidden="true">
-      {resolution.rect && (
+      {area && (
         <div
           class="frame draft"
           style={{
-            left: `${resolution.rect.x}px`,
-            top: `${resolution.rect.y}px`,
-            width: `${resolution.rect.width}px`,
-            height: `${resolution.rect.height}px`,
+            left: `${area.x}px`,
+            top: `${area.y}px`,
+            width: `${area.width}px`,
+            height: `${area.height}px`,
             ...color,
           }}
         />
@@ -87,17 +90,20 @@ export function Pins({ controller, state }: { controller: Controller; state: Sta
           text,
         });
         const outline =
-          resolution.element && hot === mark.id ? resolution.element.getBoundingClientRect() : null;
+          mark.anchor.kind === 'element' && resolution.element && hot === mark.id
+            ? resolution.element.getBoundingClientRect()
+            : null;
+        const area = areaOf(resolution, mark.anchor, scroll);
         return (
           <div key={mark.id} class="pin-wrap">
-            {mark.anchor.kind === 'area' && resolution.rect && (
+            {area && (
               <div
                 class={`frame${closed ? ' closed' : ''}`}
                 style={{
-                  left: `${resolution.rect.x}px`,
-                  top: `${resolution.rect.y}px`,
-                  width: `${resolution.rect.width}px`,
-                  height: `${resolution.rect.height}px`,
+                  left: `${area.x}px`,
+                  top: `${area.y}px`,
+                  width: `${area.width}px`,
+                  height: `${area.height}px`,
                   '--pc': colorVar(mark.author),
                 }}
                 aria-hidden="true"

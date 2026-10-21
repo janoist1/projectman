@@ -6,7 +6,7 @@ this way: [VISION.md](VISION.md); decisions taken: [DECISIONS.md](DECISIONS.md).
 updates this file at the owner's request, together with decisions that change the plan, and
 before a release after the owner's yes (decision 50).
 
-Last reviewed: 2026-10-06, after the board triage (decisions 36–40). Live: v2026.10.6.
+Last reviewed: 2026-10-18, the owner's priority order of that day (A–G below).
 
 ## Where we stand
 
@@ -21,35 +21,25 @@ PM-356).
 
 ## Now
 
-Less churn, less load, safer providers. Roughly in this order:
+Hybrid mode (PM-286, decision 45) runs live: the board in the cloud, the AI work on the Mac's
+engine (PM-675, PM-731, PM-732, PM-739, PM-740). The owner's order of 2026-10-18:
 
-- **Stop repeated work rounds (PM-368):** a team message kind that wakes only for a valid task
-  (PM-369), pending messages as one input with the card's state (PM-370), waiting for a
-  permission visible to the sender (PM-371), only branches without conflicts with `main` go on
-  (PM-372). Collecting cards close themselves when all their parts are done (PM-373). Idle
-  conversations: PM-297 finishes PM-288.
-- **Fewer test runs (PM-380):** members run targeted tests only; the full test runs once, at the
-  merge (decision 40).
-- **Members' network and sandboxes:** outgoing network per member (PM-355); Codex members'
-  worktree `.codex` (PM-357), network (PM-358) and read boundary (PM-360), the owner's hooks
-  (PM-49), managed preferences (PM-375); shared temporary folders (PM-353, PM-365); Gemini's
-  sandbox and permissions (PM-361, PM-366, PM-367); the control channel (PM-293).
-- **Providers in use:** NanoGPT members stuck after a 429 and without team tools (PM-377), the
-  NanoGPT model picker (PM-364), a Codex locale warning that fails tests (PM-352), Codex prompt
-  detection (PM-125).
-- **Housekeeping:** rewrite the public repository's history to remove a client's name (PM-354,
-  decision 39); these documents (PM-381).
+- **A) The work must not stop (high):** the collecting card PM-796, member workspaces (PM-738),
+  PM-794, PM-792, PM-795, PM-714, the developers' merge-from-main rule (PM-747), and PM-797, the
+  bug that keeps the finished collecting cards PM-733, PM-735, PM-737 and PM-772 from closing.
+- **B) Finish the super mode (high):** PM-784.
+- **G) Relieve the Mac (normal):** a load of 15–20 drops the engine link; measure what loads it
+  (parallel sessions, vitest workers, Docker) and propose worker and session limits (PM-798,
+  related to PM-777).
 
-## Next: hybrid mode (PM-286, decision 45)
+## Next
 
-The board in the cloud, AI work in an office or as remote work (decision 38). In order: an engine
-interface in front of the machine-dependent parts (PM-311), disk and terminal behind it (PM-312),
-engine registry, machine keys and protocol (PM-313), the engine process on the Mac (PM-314), the
-cloud build (PM-315), the engine's state in the UI (PM-316), cloud deployment: the container
-on AWS Lightsail behind a Cloudflare tunnel and Access at chopper.istvan.io (PM-317, PM-532,
-absorbs PM-200; decision 51), moving between single-machine and
-hybrid mode (PM-318). Then remote work on RunPod and the like (PM-310) and, when needed, a cloud
-office (PM-378).
+- **C) Hybrid and cloud remainders (normal):** PM-675, PM-736, PM-703, PM-713, PM-723, PM-753,
+  PM-754.
+- **E) History search, continued (later):** PM-767, PM-768.
+- **D) An isolated engine for the Operator (later):** PM-699, PM-701, PM-704–706.
+- **F) AROOM client work:** last.
+- Remote work on RunPod and the like (PM-310) and, when needed, a cloud office (PM-378).
 
 ## Later
 

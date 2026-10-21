@@ -433,6 +433,19 @@ describe('ready_waiting signal', () => {
     expect(open('ready_waiting')[0]!.deliveredAt).not.toBeNull();
   });
 
+  it('is not raised for a card the pm was asked to start (PM-804): its start obligation follows it', async () => {
+    await setup({ adjust: withReadyQueue });
+    const card = await place({ stageId: 'ready', status: 'active' });
+    await h.domain.admission.retryDeferred();
+    expect(h.repos.obligations.listLive('AR', card.key).filter((row) => row.kind === 'start')).toHaveLength(
+      1,
+    );
+    await sweep();
+    later(OPERATOR_READY_WAITING_MINUTES);
+    await sweep();
+    expect(open('ready_waiting')).toEqual([]);
+  });
+
   const deliverReady = async () => {
     await sweep();
     later(OPERATOR_READY_WAITING_MINUTES);

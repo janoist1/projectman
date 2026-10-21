@@ -143,6 +143,37 @@ const hold = (over: Partial<FixLimit> = {}): FixLimit => ({
 
 const handles = (result: ReturnType<typeof wait>) => result?.next.map((member) => member.handle);
 
+it('shows an intentional ready hold with its own start time, leaving ordinary ready unchanged', () => {
+  const task = card({ stageId: 'ready', assignee: null, labels: ['scope-ok'] });
+  const hold = { reason: 'focus_order' as const, since: NOW };
+  expect(wait({ ...task, readyHold: hold })).toMatchObject({
+    reason: 'ready',
+    hold,
+    since: NOW,
+    toStageId: 'dev',
+    next: [],
+  });
+  expect(wait(task)).toMatchObject({ reason: 'ready', since: task.createdAt });
+  expect(wait(task)).not.toHaveProperty('hold');
+});
+
+it('waits for the member asked to start a startable card (PM-804), and a hold wins', () => {
+  const task = card({ stageId: 'ready', assignee: null, labels: ['scope-ok'] });
+  const startOffer = { to: 'pm', since: NOW };
+  expect(wait({ ...task, startOffer })).toMatchObject({
+    reason: 'ready',
+    since: NOW,
+    toStageId: 'dev',
+    next: [{ handle: 'pm' }],
+  });
+  const readyHold = { reason: 'focus_order' as const, since: NOW };
+  expect(wait({ ...task, startOffer, readyHold })).toMatchObject({
+    reason: 'ready',
+    hold: readyHold,
+    next: [],
+  });
+});
+
 it('ignores legacy refinement completion notices while retaining actionable alerts', () => {
   const notice = item({
     kind: 'alert',
@@ -392,6 +423,60 @@ describe('every reason', () => {
       reason: 'fix_limit',
       inboxItemId: 'inb_fix',
     });
+  });
+
+  it('fix_limit: keeps integrator decisions out of the owner actor list and restores owner takeover', () => {
+    const fixLimit = hold({
+      phase: 'owner',
+      recipient: 'integrator',
+      decider: null,
+      deciders: ['owner', 'kata'],
+      reason: 'extra_exhausted',
+    });
+    const decision = item({
+      id: 'inb_integrator_fix',
+      kind: 'decision',
+      source: 'system',
+      payload: {
+        recipient: 'integrator',
+        integratorOpenedAt: NOW,
+        fixLimit: {
+          taskKey: 'AC-1',
+          rounds: 3,
+          limit: 3,
+          changeRequests: 3,
+          designChangeRequests: 0,
+          sendBacks: 0,
+          reason: 'extra_exhausted',
+          decider: null,
+          note: null,
+        },
+      },
+      options: [{ id: 'another_round', label: 'Continue', style: 'secondary' }],
+    });
+    for (const viewer of [null, 'owner'])
+      for (const openItems of [[], [decision]]) {
+        expect(wait(card({ fixLimit }), { viewer, openItems })).toMatchObject({
+          reason: 'fix_limit',
+          next: [],
+          inboxItemId: openItems.length ? decision.id : null,
+        });
+      }
+    const owned = card({ fixLimit: { ...fixLimit, recipient: 'owner' } });
+    const transferred = {
+      ...decision,
+      payload: { ...decision.payload, recipient: 'owner', integratorEscalatedAt: NOW },
+    };
+    expect(handles(wait(owned, { openItems: [transferred], viewer: 'owner' }))).toEqual(['owner', 'kata']);
+    expect(handles(wait(owned))).toEqual(['owner', 'kata']);
+    expect(
+      handles(wait(card({ fixLimit: { ...fixLimit, recipient: undefined } }), { viewer: 'owner' })),
+    ).toEqual(['owner', 'kata']);
+    for (const phase of ['lead', 'replan'] as const) {
+      expect(
+        handles(wait(card({ fixLimit: { ...fixLimit, phase, decider: 'lead' } }), { viewer: 'owner' })),
+      ).toEqual(['lead']);
+    }
   });
 
   it('working: somebody works on it now, in the order given', () => {

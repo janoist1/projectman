@@ -16,7 +16,7 @@ import type {
 import type { FastifyBaseLogger } from 'fastify';
 import type { MachineProbe, MachineSnapshot, ProcessRecord, RunningSessionInfo } from '../../contracts';
 import { processShortName } from '@projectman/shared';
-import { conflict } from '../../kernel';
+import { conflict, integratorExecution, forbidden } from '../../kernel';
 import { MachineRounds, sleepFor } from './machine-rounds';
 
 /**
@@ -629,6 +629,14 @@ export class MachineMonitor {
     items: StopOrphansRequest['orphans'],
     userId: string,
   ): Promise<Array<{ pid: number; startedAt: string; outcome: OrphanStopOutcome }>> {
+    const context = integratorExecution();
+    if (context)
+      return Promise.reject(
+        forbidden(
+          context.principal.mode === 'read' ? 'integrator_read_only' : 'integrator_not_allowed',
+          'machine process termination is not a registered integrator operation',
+        ),
+      );
     const run = this.stopQueue.then(() => this.stopNow(items, userId));
     this.stopQueue = run.catch(() => undefined);
     return run;

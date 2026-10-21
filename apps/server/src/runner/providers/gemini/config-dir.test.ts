@@ -1,6 +1,7 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEPENDENCY_GATE_WAIT_S } from '../../hook-forwarder';
 import { tempDirs } from '../../test-helpers';
 import { prepareGeminiDir } from './config-dir';
 import { geminiSpec, CONVERSATION_ID } from './test-helpers';
@@ -10,9 +11,11 @@ describe('Gemini conversation directory', () => {
   it('writes private configuration and reuses the original directory on resume', async () => {
     const cwd = await dirs.make();
     const config = await dirs.make();
+    const sessionConfigDir = await dirs.make();
     const input = {
       spec: geminiSpec(cwd),
       hookUrl: 'http://127.0.0.1:4700/hooks/new',
+      sessionConfigDir,
       permissionTimeoutMs: 600000,
     };
     const dir = await prepareGeminiDir(config, input);
@@ -25,9 +28,20 @@ describe('Gemini conversation directory', () => {
     ])
       expect((await stat(path.join(dir, file))).mode & 0o777).toBe(0o600);
     const hooks = JSON.parse(await readFile(path.join(dir, 'config/hooks.json'), 'utf8')).projectman;
-    expect(hooks.PreToolUse[0].hooks[0]).toMatchObject({ timeout: 630 });
-    expect(hooks.PreToolUse[0].hooks[0].command).toContain('/PreToolUse');
+    expect(hooks.PreToolUse[0].hooks[0]).toMatchObject({ timeout: 630 + DEPENDENCY_GATE_WAIT_S });
+    expect(DEPENDENCY_GATE_WAIT_S).toBe(80);
+    // Each event names its own target file in the session's private folder; no token reaches the
+    // provider folder, which outlives the session (PM-156).
+    expect(hooks.PreToolUse[0].hooks[0].command).toContain(
+      path.join(sessionConfigDir, 'hook-PreToolUse.curl'),
+    );
     expect(hooks.PreToolUse[0].hooks[0].command).toContain('blocked');
+    expect(hooks.Stop[0].command).toContain(path.join(sessionConfigDir, 'hook-Stop.curl'));
+    expect(await readFile(path.join(sessionConfigDir, 'hook-PreToolUse.curl'), 'utf8')).toBe(
+      'url = "http://127.0.0.1:4700/hooks/new/PreToolUse"\n',
+    );
+    expect((await stat(path.join(sessionConfigDir, 'hook-Stop.curl'))).mode & 0o777).toBe(0o600);
+    expect(await readFile(path.join(dir, 'config/hooks.json'), 'utf8')).not.toContain('/hooks/new');
     expect(
       JSON.parse(await readFile(path.join(dir, 'config/mcp_config.json'), 'utf8')).mcpServers.team.url,
     ).toBe(input.spec.mcpUrl);
@@ -36,6 +50,8 @@ describe('Gemini conversation directory', () => {
     expect(
       await prepareGeminiDir(config, {
         ...input,
+        // A resumed conversation gets a new private folder with new targets.
+        sessionConfigDir: await dirs.make(),
         spec: { ...input.spec, sessionId: 'ses_resume', resume: true },
       }),
     ).toBe(dir);
@@ -48,7 +64,12 @@ describe('Gemini conversation directory', () => {
     const cwd = path.join(root, 'work');
     await mkdir(cwd);
     const config = await dirs.make();
-    const input = { spec: geminiSpec(cwd), hookUrl: 'http://127.0.0.1:1/hooks/x', permissionTimeoutMs: 1000 };
+    const input = {
+      spec: geminiSpec(cwd),
+      hookUrl: 'http://127.0.0.1:1/hooks/x',
+      sessionConfigDir: await dirs.make(),
+      permissionTimeoutMs: 1000,
+    };
     await expect(prepareGeminiDir(undefined, input)).rejects.toThrow('required');
     await expect(
       prepareGeminiDir(config, { ...input, spec: { ...input.spec, sessionId: '..' } }),

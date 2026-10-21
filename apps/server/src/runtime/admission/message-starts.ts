@@ -1,4 +1,6 @@
+import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import {
+  hasSuperOrigin,
   isOpenTask,
   isOperator,
   memberOf,
@@ -59,6 +61,8 @@ export class MessageStarts {
     return this.admission.exclusive(async () => {
       const config = await this.projects.config(projectKey);
       const member = requireAiMember(config, handle);
+      assertIntegratorAccess(config, 'write', by);
+      assertSuperMutation(config, { kind: 'runtime_start', providers: [member.provider ?? 'claude'] }, by);
       // The Operator talks with each person in a conversation of their own (PM-475); only the
       // owners' one stays outside the capacity.
       const workItem: WorkItemRef =
@@ -318,11 +322,14 @@ export class MessageStarts {
                 : origin?.kind === 'answer'
                   ? 'answer'
                   : 'message',
-          by: {
-            kind: memberOf(config, first.from)?.kind ?? 'system',
-            handle: first.from,
-            ...(first.via ? { via: first.via } : {}),
-          },
+          by:
+            hasSuperOrigin(first.actor) && first.actor.handle === first.from
+              ? first.actor
+              : {
+                  kind: memberOf(config, first.from)?.kind ?? 'system',
+                  handle: first.from,
+                  ...(first.via ? { via: first.via } : {}),
+                },
           messageId: first.id,
           ...(origin?.kind === 'note' ? { eventId: origin.eventId } : {}),
           ...(origin?.kind === 'label'

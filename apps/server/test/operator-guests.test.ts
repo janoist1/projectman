@@ -96,6 +96,17 @@ async function finish(session: Session | undefined): Promise<void> {
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;
 
 describe('the Operator talks with every person in a conversation of their own (PM-475)', () => {
+  it('refuses role configuration reads in guest conversations without writing a step', async () => {
+    await setup();
+    await say('cleo');
+    const ctx = toolOf(conversationWith('cleo'));
+    const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
+    expect(await refusal(h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' }))).toContain(
+      'operator_owner_only',
+    );
+    expect(OPERATOR_GUEST_TOOLS.has('get_role_configuration')).toBe(false);
+    expect(h.repos.operatorRequests.steps(request.id)).toEqual([]);
+  });
   it('wakes the client’s own conversation, which opens a request of theirs', async () => {
     await setup();
     await say('cleo', 'What is going on?');
@@ -239,13 +250,17 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     );
     expect(OPERATOR_GUEST_TOOLS.has('get_project_state')).toBe(false);
     expect([...OPERATOR_GUEST_TOOLS].sort()).toEqual([
+      // Only a human admin's own request reaches the statistics: the handler refuses every other guest (PM-787).
+      'get_history_search_stats',
       'get_operator_preference',
       'get_task',
       'list_attachments',
       'list_members',
       'list_tasks',
       'read_attachment',
+      'read_history_source',
       'read_message_attachment',
+      'search_history',
       'send_message',
       'set_operator_preference',
     ]);
@@ -380,11 +395,38 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     expect(shared).not.toHaveProperty('cardQuestions');
     expect(shared).not.toHaveProperty('workingSessionIds');
     expect((await h.domain.teamTools.listTasks(tool, {})).map((t) => t.key)).toEqual(['AR-2']);
+    // A merge check with a card the client cannot see is left out of both readings (PM-876).
+    const checked = (id: string, taskKeys: string[]) =>
+      h.repos.mergeCheckRuns.start({
+        id,
+        projectKey: 'AR',
+        repo: 'web',
+        kind: 'merge',
+        trainId: null,
+        taskKeys,
+        commit: 'a'.repeat(40),
+        base: null,
+        maxWorkers: 4,
+        runner: 'engine',
+        requestedAt: new Date().toISOString(),
+      });
+    checked('mergecheck_shared', ['AR-2']);
+    checked('mergecheck_mixed', ['AR-1', 'AR-2']);
+    const runIds = (runs: Array<{ id: string }> | undefined) => runs?.map((run) => run.id);
+    expect(runIds((await h.domain.teamTools.getTask(tool, { taskKey: 'AR-2' })).mergeChecks)).toEqual([
+      'mergecheck_shared',
+    ]);
+    // The listing is no tool of a client conversation at all.
+    expect(await refusal(h.domain.teamTools.listMergeChecks(tool, {}))).toMatch(/^operator_owner_only:/);
     // A developer sees the whole project, and reads it the same way.
     await finish(conversationWith('cleo'));
     await say('dana');
     const developer = toolOf(conversationWith('dana'));
     expect((await h.domain.teamTools.getTask(developer, { taskKey: 'AR-1' })).task.key).toBe('AR-1');
+    expect(runIds((await h.domain.teamTools.getTask(developer, { taskKey: 'AR-2' })).mergeChecks)).toEqual([
+      'mergecheck_mixed',
+      'mergecheck_shared',
+    ]);
     expect((await h.domain.teamTools.listTasks(developer, {})).map((t) => t.key).sort()).toEqual([
       'AR-1',
       'AR-2',
@@ -421,13 +463,20 @@ describe('a guest conversation has the team tools alone (PM-475)', () => {
     const render = (spec: typeof guest) => {
       const settings = buildSettings({
         hookUrl: 'http://127.0.0.1:1/hook',
+        hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
         allowedTools: spec.allowedTools,
         deniedTools: spec.deniedTools,
         policy: spec.policy,
         permissionTimeoutMs: 1000,
         sandbox: spec.sandbox,
       });
-      return { settings, args: buildClaudeArgs(spec, settings) };
+      return {
+        settings,
+        args: buildClaudeArgs(spec, {
+          settingsPath: '/run/ses_1.0123456789abcdef/claude-settings.json',
+          mcpConfigPath: '/run/ses_1.0123456789abcdef/claude-mcp.json',
+        }),
+      };
     };
     const { settings, args } = render(guest);
     expect(guest.policy).toMatchObject({ teamToolsOnly: true });

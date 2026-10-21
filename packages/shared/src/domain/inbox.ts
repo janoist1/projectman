@@ -2,9 +2,17 @@ import { z } from 'zod';
 import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
+import { ExternalToolOrigin } from './external-tool-origin';
+import {
+  FixLimitAssessment,
+  FixLimitOptionId,
+  FixRoundHistoryEntry,
+  MAX_FIX_EXTRA_ROUNDS,
+} from './fix-limit';
 import { LabelId } from './label';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
+import { ObligationRef } from './obligation';
 import { StageId } from './pipeline';
 import { ReleaseStep } from './release';
 import { TaskRelationKind } from './relations';
@@ -103,8 +111,14 @@ export type InboxState = z.infer<typeof InboxState>;
 export const PENDING_INBOX_STATES = ['open', 'screening'] as const;
 
 /** True for a question that still waits for its answer: open, or with the Operator for screening. */
-export function isPendingQuestion(item: Pick<InboxItem, 'kind' | 'state'>): boolean {
-  return item.kind === 'question' && (PENDING_INBOX_STATES as readonly string[]).includes(item.state);
+export function isPendingQuestion(
+  item: Pick<InboxItem, 'kind' | 'state'> & Partial<Pick<InboxItem, 'payload'>>,
+): boolean {
+  return (
+    item.kind === 'question' &&
+    item.payload?.groupWithdrawn !== true &&
+    (PENDING_INBOX_STATES as readonly string[]).includes(item.state)
+  );
 }
 
 /**
@@ -143,6 +157,9 @@ export const InboxResolutionRule = z.enum([
   'assignee_changed',
   /** The asking member withdrew the question (PM-556). */
   'withdrawn',
+  'group_withdrawn',
+  /** The obligation an integrator todo asked about was fulfilled or cancelled meanwhile (PM-806). */
+  'obligation_closed',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -153,7 +170,9 @@ export const QuestionCloseRule = InboxResolutionRule.extract([
   'handed_off',
   'assignee_changed',
   'withdrawn',
+  'group_withdrawn',
   'operator_moot',
+  'obligation_closed',
 ]);
 export type QuestionCloseRule = z.infer<typeof QuestionCloseRule>;
 
@@ -176,6 +195,18 @@ export const InboxItem = z.object({
   resolution: z
     .object({
       via: z.literal('integrator').optional(),
+      /** The full origin when the Operator's super mode resolved it (PM-757); older resolutions have none. */
+      actor: Actor.optional(),
+      /** The Operator decided this on the owner's authority (PM-875). */
+      superDecision: z.literal(true).optional(),
+      /**
+       * True when the integrator relayed the owner's answer to a simple information question (PM-762):
+       * the owner did not decide this with their own login, so it is no evidence of an owner decision.
+       */
+      ownerAnswerRelayed: z.literal(true).optional(),
+      integratorTodo: z.literal(true).optional(),
+      /** The integrator decided a fix round limit item through the dedicated endpoint (PM-714). */
+      integratorFixLimit: z.literal(true).optional(),
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),
@@ -199,6 +230,7 @@ export function canSeeInboxItem(
   viewer: TaskViewer & { via?: 'integrator' },
   item: Pick<InboxItem, 'state' | 'assignees' | 'payload'>,
 ): boolean {
+  if (hasIntegratorTodoOrigin(item.payload) && viewer.access !== 'owner') return false;
   // Check the field itself: malformed or historical private proposals must also stay private.
   if (item.payload && 'operatorKnowledge' in item.payload)
     return !viewer.via && canSeeAllTeamMessages(viewer);
@@ -272,7 +304,13 @@ export const LOOP_LET_RUN_OPTION: InboxOption = { id: 'let_run', label: 'let_run
  * (`rounds`: `changeRequests` of the code review, `designChangeRequests` of the UI/UX review, `sendBacks`)
  * and a person decides how it goes on. `reason`: `no_ai_decider` no AI lead developer could be asked,
  * `passed_on` the lead (`decider`) gave it to a person (`note` is its reason), `again` it reached the limit
- * again after one more round. The item is closed by the system when the hold ends otherwise.
+ * again after one more round (items from before PM-714 only), `extra_exhausted` the lead had already given
+ * all of its extra rounds. The item is closed by the system when the hold ends otherwise.
+ *
+ * PM-714 adds, all optional so that older items still parse: `history` the counted rounds (and the extra
+ * rounds given) at the moment the item opened, `testsFailed` the failed full tests inside `sendBacks`,
+ * `extraRounds` the extra rounds given so far (more than the limit when people allowed more),
+ * `remainingExtraRounds`, `extraRoundLimit` and `assessment` the lead's judgement of a `passed_on` item.
  */
 export const FixLimitDecisionPayload = z.object({
   taskKey: TaskKey,
@@ -281,7 +319,13 @@ export const FixLimitDecisionPayload = z.object({
   changeRequests: z.number().int().nonnegative(),
   designChangeRequests: z.number().int().nonnegative(),
   sendBacks: z.number().int().nonnegative(),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again']),
+  testsFailed: z.number().int().nonnegative().optional(),
+  extraRounds: z.number().int().nonnegative().optional(),
+  remainingExtraRounds: z.number().int().nonnegative().optional(),
+  extraRoundLimit: z.literal(MAX_FIX_EXTRA_ROUNDS).optional(),
+  history: z.array(FixRoundHistoryEntry).optional(),
+  assessment: FixLimitAssessment.optional(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted', 'decider_timeout']),
   decider: MemberHandle.nullable(),
   note: z.string().nullable(),
 });
@@ -553,13 +597,21 @@ export const QUESTION_SCREENING_MINUTES = 10;
 export const ScreeningOutcome = z.enum(['answered', 'forwarded', 'moot', 'decision', 'todo']);
 export type ScreeningOutcome = z.infer<typeof ScreeningOutcome>;
 
+export const QuestionRecipient = z.enum(['owner', 'integrator']);
+export type QuestionRecipient = z.infer<typeof QuestionRecipient>;
+export const QuestionRecipientRefusal = z.enum(['protected_question', 'integrator_unavailable']);
+export type QuestionRecipientRefusal = z.infer<typeof QuestionRecipientRefusal>;
+
 /** A task for a person that the Operator made out of a question: what to do, where, and what is expected. */
 export const QuestionTodo = z.object({
   what: z.string().min(1).max(2000),
   where: z.string().min(1).max(500),
   expected: z.string().min(1).max(1000),
+  recipient: QuestionRecipient.optional(),
 });
 export type QuestionTodo = z.infer<typeof QuestionTodo>;
+export const ScreeningTodo = QuestionTodo.extend({ recipient: QuestionRecipient });
+export type ScreeningTodo = z.infer<typeof ScreeningTodo>;
 
 /** The whole screening window in milliseconds (`QUESTION_SCREENING_MINUTES`). */
 export const QUESTION_SCREENING_MS = QUESTION_SCREENING_MINUTES * 60_000;
@@ -597,6 +649,7 @@ export const QuestionScreening = z.object({
   forwardedTo: z.string().optional(),
   /** Outcome `todo`. */
   todo: QuestionTodo.optional(),
+  recipientRefusal: QuestionRecipientRefusal.optional(),
   /** Released to the people with no outcome. */
   fallback: z.enum(['timeout', 'unavailable']).optional(),
   /** The feedback item (PM-472) of a todo. */
@@ -664,7 +717,200 @@ export type ScreenedQuestionsResponse = z.infer<typeof ScreenedQuestionsResponse
  * before the plain-language fields carry only `question` and `options`, and stay valid: everything
  * else is optional.
  */
+export const QuestionGroup = z.object({
+  primaryItemId: z.string(),
+  itemIds: z.array(z.string()),
+  combinedQuestion: z.string(),
+  originalQuestion: z.string(),
+  primaryTaskKey: TaskKey.nullable().optional(),
+  note: z.string().min(1).max(2000).optional(),
+  answeredCount: z.number().int().min(0).max(10).optional(),
+  sources: z
+    .array(
+      z.object({
+        itemId: z.string(),
+        taskKey: TaskKey.nullable(),
+        taskTitle: z.string().nullable(),
+        asker: MemberHandle,
+        question: z.string().nullable(),
+        createdAt: z.string().datetime({ offset: true }),
+        state: z.enum(['live', 'withdrawn', 'deleted']),
+      }),
+    )
+    .optional(),
+});
+export type QuestionGroup = z.infer<typeof QuestionGroup>;
+
+/** Withdrawn and deleted originals do not receive the shared answer. */
+export function questionGroupLiveItemIds(group: QuestionGroup): string[] {
+  return group.sources
+    ? group.sources.filter((source) => source.state === 'live').map((source) => source.itemId)
+    : group.itemIds;
+}
+
+export const CombineQuestionsRequest = z.object({
+  itemIds: z
+    .array(z.string().min(1))
+    .min(2)
+    .max(10)
+    .refine((ids) => new Set(ids).size === ids.length, 'Question ids must be unique'),
+  question: z.string().trim().min(1).max(2000),
+  note: z.string().trim().min(1).max(2000),
+});
+export type CombineQuestionsRequest = z.infer<typeof CombineQuestionsRequest>;
+export interface CombineQuestionsResult {
+  primaryItemId: string;
+  linkedItemIds: string[];
+}
+
+/** Compatibility is structural; the PM must also establish that the decisions mean the same thing. */
+export function questionGroupCompatible(a: InboxItem, b: InboxItem): boolean {
+  // A question the integrator asked through the bearer MCP (PM-784) never joins a member's group.
+  if (questionPayloadOf(a)?.externalQuestion || questionPayloadOf(b)?.externalQuestion) return false;
+  const signature = (item: InboxItem) => {
+    const p = questionPayloadOf(item);
+    return JSON.stringify({
+      project: item.projectKey,
+      assignees: [...item.assignees].sort(),
+      options: item.options.map(({ id, label, consequence }) => ({ id, label, consequence })),
+      recommended: p?.recommended ?? null,
+      attachments: (p?.attachments ?? []).map((file) => file.id).sort(),
+      approval: p?.approvalLabel ?? null,
+      // An information question and an owner decision never share a group (PM-762): one answer closes all.
+      purpose: p?.responsePurpose ?? 'owner_decision',
+    });
+  };
+  return signature(a) === signature(b);
+}
+
+export function isLinkedQuestion(item: Pick<InboxItem, 'id' | 'payload'>): boolean {
+  const group = questionPayloadOf(item)?.group;
+  return !!group && group.primaryItemId !== item.id;
+}
+
+/** The same group projection is used for REST, live events and the web fake. */
+export function visibleQuestionItem(
+  viewer: TaskViewer,
+  item: InboxItem,
+  canSeeKey: (key: string) => boolean,
+): InboxItem {
+  const { groupWithdrawn: _withdrawn, ...publicPayload } = item.payload;
+  const group = questionPayloadOf(item)?.group;
+  if (!group) return 'groupWithdrawn' in item.payload ? { ...item, payload: publicPayload } : item;
+  if (viewer.access === 'client') {
+    return {
+      ...item,
+      title: group.originalQuestion || item.title,
+      payload: {
+        ...publicPayload,
+        group: {
+          primaryItemId: group.primaryItemId,
+          itemIds: [],
+          combinedQuestion: '',
+          originalQuestion: '',
+          primaryTaskKey: null,
+        },
+      },
+    };
+  }
+  if (group.primaryItemId !== item.id)
+    return {
+      ...item,
+      payload: {
+        ...publicPayload,
+        group: {
+          primaryItemId: group.primaryItemId,
+          itemIds: [],
+          combinedQuestion: '',
+          originalQuestion: group.originalQuestion,
+          primaryTaskKey:
+            group.primaryTaskKey && canSeeKey(group.primaryTaskKey) ? group.primaryTaskKey : null,
+        },
+      },
+    };
+  return {
+    ...item,
+    payload: {
+      ...publicPayload,
+      group: {
+        ...group,
+        primaryTaskKey: group.primaryTaskKey && canSeeKey(group.primaryTaskKey) ? group.primaryTaskKey : null,
+        ...(group.sources
+          ? {
+              sources: group.sources.map((source) =>
+                source.taskKey && !canSeeKey(source.taskKey)
+                  ? { ...source, taskKey: null, taskTitle: null, question: null }
+                  : source,
+              ),
+            }
+          : {}),
+      },
+    },
+  };
+}
+
+/** What a question's answer is for (PM-762). */
+export const QuestionResponsePurpose = z.enum(['information', 'owner_decision']);
+export type QuestionResponsePurpose = z.infer<typeof QuestionResponsePurpose>;
+
+/** What the owner's question about a super operation carries, so the answer binds exactly one operation and version. */
+export const SuperOperationQuestionPayload = z.strictObject({
+  operationId: z.string(),
+  commandHash: z.string(),
+  expectedConfigVersion: z.string().nullable(),
+  expiresAt: z.iso.datetime(),
+});
+export type SuperOperationQuestionPayload = z.infer<typeof SuperOperationQuestionPayload>;
+
+/**
+ * True when the answer to this question may be relayed by the integrator: an explicit information question
+ * only. A question that asks for an approval label, or that the Operator made a todo of, is an owner's
+ * action whatever its declared purpose, and so is one bound to a super operation.
+ */
+export function isRelayableQuestion(
+  payload: Pick<
+    QuestionPayload,
+    'responsePurpose' | 'superOperation' | 'approvalLabel' | 'screening' | 'externalQuestion'
+  >,
+) {
+  return (
+    payload.responsePurpose === 'information' &&
+    !payload.externalQuestion &&
+    !payload.superOperation &&
+    !payload.approvalLabel &&
+    !payload.screening?.todo &&
+    payload.screening?.outcome !== 'todo'
+  );
+}
+
+/** The payload keys of the approvals the server builds; an item that carries one is never a plain question. */
+export const APPROVAL_PAYLOAD_KEYS = [
+  'gate',
+  'release',
+  'permission',
+  'boundary',
+  'approval',
+  'operatorApproval',
+  'operatorKnowledge',
+] as const;
+
+/** The whole-item form of `isRelayableQuestion`: also looks at the approval payload keys and the todo options. */
+export function isRelayableQuestionItem(item: Pick<InboxItem, 'kind' | 'payload' | 'options'>): boolean {
+  if (item.kind !== 'question') return false;
+  const payload = questionPayloadOf(item);
+  if (!payload || !isRelayableQuestion(payload)) return false;
+  if (APPROVAL_PAYLOAD_KEYS.some((key) => key in item.payload)) return false;
+  return !item.options.some(
+    (option) => option.id === TODO_DONE_OPTION.id || option.id === TODO_CANNOT_OPTION.id,
+  );
+}
+
 export const QuestionPayload = z.object({
+  requestedRecipient: QuestionRecipient.optional(),
+  recipient: QuestionRecipient.optional(),
+  integratorOpenedAt: z.iso.datetime().optional(),
+  integratorEscalatedAt: z.iso.datetime().optional(),
+  group: QuestionGroup.optional(),
   question: z.string(),
   /** The approval this question appears to request. An answer never sets it; setting it closes the question (approval_given). */
   approvalLabel: LabelId.optional(),
@@ -689,13 +935,261 @@ export const QuestionPayload = z.object({
   unscreened: z.object({ reason: z.string().min(1).max(1000), previousItemId: z.string() }).optional(),
   /** Whether the answer reached the asking member (PM-556). */
   answerDelivery: AnswerDelivery.optional(),
+  /**
+   * What the answer is for (PM-762): `information` may be relayed by the super-mode integrator, an
+   * `owner_decision` only the owner's own login answers. A missing value counts as `owner_decision`.
+   */
+  responsePurpose: QuestionResponsePurpose.optional(),
+  /** Binds the question to one durable super operation (PM-762); such a question is always an owner decision. */
+  superOperation: SuperOperationQuestionPayload.optional(),
+  /**
+   * Present when the integrator asked this question through the bearer MCP (PM-784): who it came from. It
+   * is provenance only; such a question is answered by a person's own login, never by a token.
+   */
+  externalQuestion: ExternalToolOrigin.optional(),
+  /** The durable message that carries the answer of an `externalQuestion` (PM-784); no session reads it. */
+  externalAnswerMessageId: z.string().optional(),
+  /** The obligation this integrator todo hands over (PM-806): the system opened it, no member asked. */
+  obligation: ObligationRef.optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
+
+/**
+ * Why a token (the integrator in any mode, or a person through a key) may not answer an integrator-asked
+ * question (PM-784), or null when the answerer is not one. The question's own answer is never relayed
+ * (`super_relay_refused`); a decision needs the owner's own login (`owner_approval_required`).
+ */
+export function externalQuestionAnswerRefusal(
+  payload: Pick<QuestionPayload, 'externalQuestion' | 'responsePurpose'>,
+  by: { via?: unknown; superActor?: unknown },
+): 'super_relay_refused' | 'owner_approval_required' | null {
+  if (!payload.externalQuestion || (!by.via && !by.superActor)) return null;
+  return payload.responsePurpose === 'information' ? 'super_relay_refused' : 'owner_approval_required';
+}
+
+/** Decisions reserved to a person's own login, even on the owner's authority (PM-883). */
+export function superDecisionRefusal(
+  item: Pick<InboxItem, 'kind' | 'payload' | 'source'>,
+  facts: { operatorHandle: string | null; sessionMember?: string | null },
+): 'owner_approval_required' | null {
+  if (
+    !facts.operatorHandle ||
+    item.kind === 'permission' ||
+    item.kind === 'boundary' ||
+    ['superOperation', 'operatorApproval', 'operatorKnowledge'].some((key) => key in item.payload) ||
+    (item.kind === 'approval' && 'operator' in item.payload) ||
+    item.source === facts.operatorHandle ||
+    facts.sessionMember === facts.operatorHandle
+  )
+    return 'owner_approval_required';
+  return null;
+}
 
 /** The question payload of an item, or null when it has none (or an unreadable one). */
 export function questionPayloadOf(item: Pick<InboxItem, 'payload'>): QuestionPayload | null {
   const parsed = QuestionPayload.safeParse(item.payload);
   return parsed.success ? parsed.data : null;
+}
+
+/** Protected fields are checked before parsing: even a null approval is never delegated. */
+export function hasProtectedQuestionPayload(item: Pick<InboxItem, 'kind' | 'payload'>): boolean {
+  if (!item.payload || typeof item.payload !== 'object') return true;
+  return (
+    item.kind !== 'question' ||
+    ['approvalLabel', 'superOperation', ...APPROVAL_PAYLOAD_KEYS].some((key) => key in item.payload)
+  );
+}
+
+function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const screening = payload.screening;
+  const todo = screening && typeof screening === 'object' && 'todo' in screening ? screening.todo : null;
+  return (
+    payload.recipient === 'integrator' ||
+    'integratorOpenedAt' in payload ||
+    'integratorEscalatedAt' in payload ||
+    !!(todo && typeof todo === 'object' && 'recipient' in todo && todo.recipient === 'integrator')
+  );
+}
+
+export function selectTodoRecipient(
+  item: InboxItem,
+  requested: QuestionRecipient,
+  integratorAvailable: boolean,
+): { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal } {
+  if (requested === 'owner') return { recipient: 'owner' };
+  if (hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload)
+    return { recipient: 'owner', recipientRefusal: 'protected_question' };
+  if (!integratorAvailable) return { recipient: 'owner', recipientRefusal: 'integrator_unavailable' };
+  return { recipient: 'integrator' };
+}
+
+/** State and authentication are checked by the operation, independently of durable addressing. */
+export function isIntegratorTodo(item: InboxItem): boolean {
+  const p = questionPayloadOf(item);
+  return (
+    !hasProtectedQuestionPayload(item) &&
+    !!p &&
+    p.recipient === 'integrator' &&
+    p.screening?.outcome === 'todo' &&
+    p.screening.todo?.recipient === 'integrator' &&
+    !!p.integratorOpenedAt &&
+    !('integratorEscalatedAt' in item.payload) &&
+    !('group' in item.payload) &&
+    item.options.length === 2 &&
+    new Set(item.options.map((o) => o.id)).size === 2 &&
+    item.options.every((o) => o.id === TODO_DONE_OPTION.id || o.id === TODO_CANNOT_OPTION.id)
+  );
+}
+
+export function questionRecipientOf(item: InboxItem): QuestionRecipient {
+  return isIntegratorTodo(item) ? 'integrator' : 'owner';
+}
+
+export function wasIntegratorTodo(item: InboxItem): boolean {
+  return item.kind === 'question' && !!questionPayloadOf(item)?.integratorOpenedAt;
+}
+
+/** Why a fix limit decision item went from the integrator to the owners (PM-714). */
+export const IntegratorEscalationReason = z.enum(['integrator_timeout', 'integrator_passed_on']);
+export type IntegratorEscalationReason = z.infer<typeof IntegratorEscalationReason>;
+
+/**
+ * The payload keys a fix limit decision item may carry to be delegated to the integrator (PM-714). An allow
+ * list on purpose: a payload with any other key (an approval, a loop, a Senior wait, a structural review, a
+ * gate, anything mixed in) is never delegated.
+ */
+const FIX_LIMIT_ITEM_PAYLOAD_KEYS: readonly string[] = [
+  'fixLimit',
+  'recipient',
+  'recipientRefusal',
+  'integratorOpenedAt',
+  'integratorEscalatedAt',
+  'integratorEscalationReason',
+];
+
+const FIX_LIMIT_OPTION_IDS: readonly string[] = FixLimitOptionId.options;
+
+/**
+ * Whether `item` is a fix round limit decision of the system that an integrator may be given at all (PM-714):
+ * the shape only, not the addressing. A `decision` item of source `system` whose `payload.fixLimit` is valid
+ * and about the item's own card, whose payload has no key beyond the fix limit's and the addressing's, and
+ * whose options are unique and all one of the three fix limit outcomes. Null, mixed or approval payloads fail.
+ */
+export function isDelegableFixLimitDecision(
+  item: Pick<InboxItem, 'kind' | 'source' | 'taskKey' | 'payload' | 'options'>,
+): boolean {
+  if (item.kind !== 'decision' || item.source !== 'system') return false;
+  if (!item.payload || typeof item.payload !== 'object' || Array.isArray(item.payload)) return false;
+  if (Object.keys(item.payload).some((key) => !FIX_LIMIT_ITEM_PAYLOAD_KEYS.includes(key))) return false;
+  const fixLimit = fixLimitDecisionOf(item);
+  if (!fixLimit || !item.taskKey || fixLimit.taskKey !== item.taskKey) return false;
+  const ids = item.options.map((option) => option.id);
+  return (
+    ids.length > 0 && new Set(ids).size === ids.length && ids.every((id) => FIX_LIMIT_OPTION_IDS.includes(id))
+  );
+}
+
+/**
+ * A fix round limit decision currently addressed to the integrator (PM-714): the narrow shape and
+ * `recipient: 'integrator'` with a valid `integratorOpenedAt` and no `integratorEscalatedAt`. State and
+ * authentication are checked by the operation, independently of this durable addressing.
+ */
+export function isIntegratorFixLimitDecision(item: InboxItem): boolean {
+  if (!isDelegableFixLimitDecision(item)) return false;
+  const { recipient, integratorOpenedAt } = item.payload;
+  return (
+    recipient === 'integrator' &&
+    typeof integratorOpenedAt === 'string' &&
+    z.iso.datetime().safeParse(integratorOpenedAt).success &&
+    !('integratorEscalatedAt' in item.payload)
+  );
+}
+
+/** An item the integrator is the recipient of: an integrator todo, or the narrow fix limit decision. */
+export function isIntegratorInboxItem(item: InboxItem): boolean {
+  return isIntegratorTodo(item) || isIntegratorFixLimitDecision(item);
+}
+
+/** Whether the item was ever opened to the integrator, whatever happened to it since (PM-714). */
+export function wasIntegratorInboxItem(item: InboxItem): boolean {
+  if (wasIntegratorTodo(item)) return true;
+  return (
+    item.kind === 'decision' &&
+    !!item.payload &&
+    typeof item.payload === 'object' &&
+    'integratorOpenedAt' in item.payload
+  );
+}
+
+/** Who an item is for: the integrator for `isIntegratorInboxItem`, else the owners. */
+export function inboxRecipientOf(item: InboxItem): QuestionRecipient {
+  return isIntegratorInboxItem(item) ? 'integrator' : 'owner';
+}
+
+/** The recipient a new fix limit decision goes to: the integrator when one is available and the shape is delegable. */
+export function selectFixLimitRecipient(
+  item: Pick<InboxItem, 'kind' | 'source' | 'taskKey' | 'payload' | 'options'>,
+  integratorAvailable: boolean,
+): { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal } {
+  if (!isDelegableFixLimitDecision(item))
+    return { recipient: 'owner', recipientRefusal: 'protected_question' };
+  if (!integratorAvailable) return { recipient: 'owner', recipientRefusal: 'integrator_unavailable' };
+  return { recipient: 'integrator' };
+}
+
+export function humanInboxAssignment(item: InboxItem, handle: string | null): boolean {
+  return inboxRecipientOf(item) === 'owner' && (handle === null || item.assignees.includes(handle));
+}
+
+export const INTEGRATOR_TODO_TIMEOUT_MS = 86_400_000;
+
+export function planIntegratorTodoEscalation(
+  item: InboxItem,
+  now: string,
+  owners: readonly string[],
+): Pick<InboxItem, 'payload' | 'assignees'> | null {
+  if (item.state !== 'open' || !isIntegratorTodo(item) || !owners.length) return null;
+  const openedAt = questionPayloadOf(item)!.integratorOpenedAt!;
+  if (!(Date.parse(now) >= Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS)) return null;
+  return {
+    payload: { ...item.payload, recipient: 'owner', integratorEscalatedAt: now },
+    assignees: [...owners],
+  };
+}
+
+/**
+ * The change that gives an open integrator item to the owners (PM-714), or null when it stays. A todo
+ * follows `planIntegratorTodoEscalation`. A fix limit decision goes after 24 hours (`integrator_timeout`) or at
+ * once when the integrator passes it on (`integrator_passed_on`); the payload and options are kept, only the
+ * addressing changes, so no second decision item is made. `assignees` are the people who then decide.
+ */
+export function planIntegratorInboxEscalation(
+  item: InboxItem,
+  now: string,
+  owners: readonly string[],
+  reason: IntegratorEscalationReason = 'integrator_timeout',
+): Pick<InboxItem, 'payload' | 'assignees'> | null {
+  if (item.state !== 'open' || !owners.length) return null;
+  if (isIntegratorTodo(item)) {
+    return reason === 'integrator_timeout' ? planIntegratorTodoEscalation(item, now, owners) : null;
+  }
+  if (!isIntegratorFixLimitDecision(item)) return null;
+  const openedAt = item.payload.integratorOpenedAt as string;
+  if (
+    reason === 'integrator_timeout' &&
+    !(Date.parse(now) >= Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS)
+  )
+    return null;
+  return {
+    payload: {
+      ...item.payload,
+      recipient: 'owner',
+      integratorEscalatedAt: now,
+      integratorEscalationReason: reason,
+    },
+    assignees: [...owners],
+  };
 }
 
 /**

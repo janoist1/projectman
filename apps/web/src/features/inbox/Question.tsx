@@ -13,8 +13,10 @@ import { inboxItemDomId, optionLabel } from '../../lib/inbox';
 import type { ApprovalHint } from '../../lib/inbox';
 import styles from './Question.module.css';
 
+export type QuestionChoice = InboxOption & { unavailable?: string };
+
 export interface QuestionChoicesProps {
-  choices: readonly InboxOption[];
+  choices: readonly QuestionChoice[];
   /** Id of the option the asking member recommends. */
   recommendedOptionId: string | null;
   /** One sentence: why; shown below the recommended option. */
@@ -22,9 +24,11 @@ export interface QuestionChoicesProps {
   size: ButtonSize;
   variantOf: (option: InboxOption) => ButtonVariant;
   disabled?: boolean;
+  pendingOptionId?: string | null;
   /** Phone layout: full-width 44px buttons. */
   mobile?: boolean;
   onPick: (option: InboxOption) => void;
+  describedBy?: string;
 }
 
 /**
@@ -39,12 +43,14 @@ export function QuestionChoices({
   size,
   variantOf,
   disabled = false,
+  pendingOptionId,
   mobile = false,
   onPick,
+  describedBy,
 }: QuestionChoicesProps) {
   const base = useId();
   return (
-    <ul className={clsx(styles.choices, mobile && styles.mobile)}>
+    <ul className={clsx(styles.choices, mobile && styles.mobile)} aria-describedby={describedBy}>
       {choices.map((option) => {
         const recommended = option.id === recommendedOptionId;
         const badgeId = `${base}-${option.id}-badge`;
@@ -53,20 +59,26 @@ export function QuestionChoices({
         const reason = recommended ? recommendationReason : null;
         // The button is named by its label; the badge, the consequence and the reason describe it.
         const describedBy =
-          [recommended ? badgeId : null, option.consequence ? consequenceId : null, reason ? reasonId : null]
+          [
+            recommended ? badgeId : null,
+            option.consequence || option.unavailable ? consequenceId : null,
+            reason ? reasonId : null,
+          ]
             .filter(Boolean)
             .join(' ') || undefined;
         return (
           <li key={option.id} className={clsx(styles.choice, recommended && styles.recommended)}>
             <div className={styles.choiceHead}>
               <Button
-                variant={variantOf(option)}
+                variant={option.unavailable ? 'secondary' : variantOf(option)}
                 size={size}
-                disabled={disabled}
+                disabled={disabled || Boolean(option.unavailable)}
                 aria-describedby={describedBy}
                 onClick={() => onPick(option)}
               >
-                {optionLabel(option)}
+                {disabled && pendingOptionId === option.id
+                  ? t('inbox.fixLimit.sending')
+                  : optionLabel(option)}
               </Button>
               {recommended ? (
                 <Chip id={badgeId} tone="accent" icon="check">
@@ -74,9 +86,12 @@ export function QuestionChoices({
                 </Chip>
               ) : null}
             </div>
-            {option.consequence ? (
-              <p id={consequenceId} className={styles.consequence}>
-                <InlineMarkdown text={option.consequence} />
+            {option.consequence || option.unavailable ? (
+              <p
+                id={consequenceId}
+                className={clsx(styles.consequence, option.unavailable && styles.unavailable)}
+              >
+                <InlineMarkdown text={option.unavailable ?? option.consequence ?? ''} />
               </p>
             ) : null}
             {reason ? (
@@ -199,7 +214,7 @@ const FLASH_MS = 1400;
 const flashTimers = new WeakMap<HTMLElement, number>();
 
 /** Brings the card of an inbox item into view, puts the focus on its heading and lights its frame once. */
-function showInboxItem(target: HTMLElement) {
+export function showInboxItem(target: HTMLElement) {
   const reduceMotion =
     typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });

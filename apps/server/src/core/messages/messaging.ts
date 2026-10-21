@@ -2,11 +2,13 @@ export function createMessaging(deps: ConstructorParameters<typeof Messaging>[0]
   return new Messaging(deps);
 }
 
+import { createHash } from 'node:crypto';
 import {
   cardBusyGroups,
   coordinationActorRefusal,
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
+  hasSuperOrigin,
   isOpenTask,
   isOperator,
   isProjectManager,
@@ -55,6 +57,7 @@ import { answerText } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
+import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';
 
@@ -103,6 +106,8 @@ export interface SendOptions {
    * wake-up goes on in the background (`message_waiting`) and the send is not slowed. Internal, not a contract.
    */
   awaitWake?: boolean;
+  /** Server-owned group fanout only; never accepted from send_message or an HTTP request. */
+  questionGroupShare?: { primaryItemId: string; itemId: string };
 }
 
 /** What the send needs to wake a recipient and learn the result (`MessageStarts.wake`). */
@@ -116,6 +121,14 @@ export interface MessageSignals {
   decision(projectKey: string, signalId: string, by: string, accepted: boolean): void;
   present(projectKey: string, signalId: string, messageId: string, actionable: boolean): void;
 }
+
+type SendReport = { message: TeamMessage; recipients: SentMessageRecipient[] };
+
+interface PreparedSend {
+  record(): TeamMessage;
+  deliver(message: TeamMessage): SendReport | Promise<SendReport>;
+}
+
 /** A card-level hold another module answers; who is held stays messaging's rule. */
 export type CardHoldReason = Extract<SentMessageHold, 'fix_limit' | 'full_test'>;
 export interface CardHold {
@@ -163,7 +176,10 @@ export class Messaging {
   private readonly messages: MessageService;
   private readonly delivery: MessageDeliveryPort;
   private readonly refinement: MessageRefinement;
-  private readonly messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
+  private readonly messageAttachments: Pick<
+    MessageAttachmentService,
+    'assertSendable' | 'bindForSend' | 'shareForQuestionGroupAnswer'
+  >;
   private readonly engines: Pick<EngineDirectory, 'engineFor' | 'get'> | undefined;
   private readonly cardHolds = new Map<CardHoldReason, CardHold>();
 
@@ -178,7 +194,10 @@ export class Messaging {
     /** The engines (PM-315): a message to a member whose engine is not connected waits for it. */
     engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
     /** The files a message carries (PM-516): checked before the message is sent, bound to it as it is recorded. */
-    messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
+    messageAttachments: Pick<
+      MessageAttachmentService,
+      'assertSendable' | 'bindForSend' | 'shareForQuestionGroupAnswer'
+    >;
   }) {
     this.messageAttachments = deps.messageAttachments;
     this.engines = deps.engines;
@@ -224,19 +243,42 @@ export class Messaging {
   }
 
   /** `send`, and what happens to the message for each recipient (PM-144), in the order of `input.to`. */
-  async sendReporting(
+  sendReporting(
     projectKey: string,
     from: string,
     input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
     opts: SendOptions = {},
   ): Promise<{ message: TeamMessage; recipients: SentMessageRecipient[] }> {
+    return this.prepareSend(projectKey, from, input, opts, (prepared) => prepared.deliver(prepared.record()));
+  }
+
+  /** Continue before yielding: ordinary sends record and deliver immediately; groups retain the preparation. */
+  private async prepareSend<T>(
+    projectKey: string,
+    from: string,
+    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
+    opts: SendOptions,
+    complete: (prepared: PreparedSend) => T | Promise<T>,
+  ): Promise<T> {
     const config = await this.projects.config(projectKey);
+    assertIntegratorAccess(config, 'write', opts.actor);
     const text = input.text.trim();
     const attachmentIds = input.attachmentIds ?? [];
     // Empty text is a message of files alone (PM-516).
     if (!text && attachmentIds.length === 0)
       throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
     const recipients = unique(input.to).filter((handle) => handle !== from);
+    assertSuperMutation(
+      config,
+      {
+        kind: 'runtime_start',
+        providers: recipients.flatMap((handle) => {
+          const member = memberOf(config, handle);
+          return member?.kind === 'ai' ? [member.provider ?? DEFAULT_AGENT_PROVIDER] : [];
+        }),
+      },
+      opts.actor,
+    );
     if (recipients.length === 0)
       throw invalid('invalid_request', 'the message names no recipient but its sender', { field: 'to' });
     const unknown = recipients.filter((handle) => !memberOf(config, handle));
@@ -293,7 +335,8 @@ export class Messaging {
     const sender = opts.actor ?? humanActor(from);
     // The files are checked before anything else is done for the message (a refusal leaves nothing behind)
     // and bound to it in its own unit of work below.
-    if (attachmentIds.length > 0) this.messageAttachments.assertSendable(projectKey, sender, attachmentIds);
+    if (attachmentIds.length > 0 && !opts.questionGroupShare)
+      this.messageAttachments.assertSendable(projectKey, sender, attachmentIds);
     const taskKey = input.taskKey ?? null;
     const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
@@ -369,85 +412,105 @@ export class Messaging {
             reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
           }
         : undefined;
-    const message = this.ctx.unitOfWork(() => {
-      opts.beforeRecord?.();
-      if (signals.length > 0) {
-        if (coordinationActorRefusal(this.projects.cachedConfig(projectKey)!, sender))
-          throw forbidden('project_manager_only', 'the coordination actor changed before presentation');
-        for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id, from);
-      }
-      if (opts.operatorSignal !== undefined && !coordinator)
-        this.messageSignals!.decision(projectKey, opts.operatorSignal, from, true);
-      const id = newId('msg');
-      const attachments =
-        attachmentIds.length > 0
-          ? this.messageAttachments.bindForSend(projectKey, sender, attachmentIds, id)
-          : undefined;
-      const recorded = this.messages.record({
-        id,
-        projectKey,
-        from,
-        to: recipients,
-        taskKey,
-        body: text,
-        attachments,
-        actor: sender,
-        sessionId: opts.sessionId ?? null,
-        humanRecipients: humans,
-        delivered: recipients.every((handle) => humans.includes(handle)),
-        routes,
-        answer: opts.answer,
-        origin: opts.origin,
-        kind: opts.kind ?? 'action',
-        subject: opts.subject,
-        operatorRequest: opts.operatorRequest,
-        operatorSignal: coordinator
-          ? signals.length === 1
-            ? signals[0]!.id
-            : undefined
-          : opts.operatorSignal,
-        version,
+    const record = () =>
+      this.ctx.unitOfWork(() => {
+        opts.beforeRecord?.();
+        if (signals.length > 0) {
+          if (coordinationActorRefusal(this.projects.cachedConfig(projectKey)!, sender))
+            throw forbidden('project_manager_only', 'the coordination actor changed before presentation');
+          for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id, from);
+        }
+        if (opts.operatorSignal !== undefined && !coordinator)
+          this.messageSignals!.decision(projectKey, opts.operatorSignal, from, true);
+        const id =
+          opts.answer && recipients.length === 1
+            ? `msg_answer_${createHash('sha256')
+                .update(JSON.stringify([opts.answer.inboxItemId, recipients[0]]))
+                .digest('hex')}`
+            : newId('msg');
+        const previous = opts.answer ? this.ctx.repos.messages.get(id) : null;
+        if (previous) return previous;
+        const attachments =
+          attachmentIds.length > 0
+            ? opts.questionGroupShare
+              ? this.messageAttachments.shareForQuestionGroupAnswer(
+                  projectKey,
+                  opts.questionGroupShare.primaryItemId,
+                  opts.questionGroupShare.itemId,
+                  attachmentIds,
+                )
+              : this.messageAttachments.bindForSend(projectKey, sender, attachmentIds, id)
+            : undefined;
+        const recorded = this.messages.record({
+          id,
+          projectKey,
+          from,
+          to: recipients,
+          taskKey,
+          body: text,
+          attachments,
+          actor: sender,
+          sessionId: opts.sessionId ?? null,
+          humanRecipients: humans,
+          delivered: recipients.every((handle) => humans.includes(handle)),
+          routes,
+          answer: opts.answer,
+          origin: opts.origin,
+          kind: opts.kind ?? 'action',
+          subject: opts.subject,
+          operatorRequest: opts.operatorRequest,
+          operatorSignal: coordinator
+            ? signals.length === 1
+              ? signals[0]!.id
+              : undefined
+            : opts.operatorSignal,
+          version,
+        });
+        for (const signal of signals)
+          this.messageSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
+        return recorded;
       });
-      for (const signal of signals)
-        this.messageSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
-      return recorded;
-    });
-    const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
-    // The wake-ups the send waits for (`awaitWake`): not emitted as events, but started below.
-    const awaited: { handle: string; workItem: WorkItemRef }[] = [];
-    const waker = opts.awaitWake ? this.waker : undefined;
-    for (const { handle, workItem: where, running, hold } of placed)
-      decided.set(
-        handle,
-        hold
-          ? { delivery: 'held', hold }
-          : this.deliverOrWake(
-              config,
-              projectKey,
-              handle,
-              where,
-              running,
-              message,
-              opts.untilInput === true && opts.kind === 'info',
-              waker ? () => awaited.push({ handle, workItem: where }) : undefined,
-            ),
-      );
-    if (waker) {
-      const starts = await Promise.all(
+    const deliver = (message: TeamMessage) => {
+      const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
+      // The wake-ups the send waits for (`awaitWake`): not emitted as events, but started below.
+      const awaited: { handle: string; workItem: WorkItemRef }[] = [];
+      const waker = opts.awaitWake ? this.waker : undefined;
+      for (const { handle, workItem: where, running, hold } of placed)
+        decided.set(
+          handle,
+          hold
+            ? { delivery: 'held', hold }
+            : this.deliverOrWake(
+                config,
+                projectKey,
+                handle,
+                where,
+                running,
+                message,
+                opts.untilInput === true && opts.kind === 'info',
+                waker ? () => awaited.push({ handle, workItem: where }) : undefined,
+              ),
+        );
+      const report = (): SendReport => ({
+        message,
+        recipients: recipients.map((handle) => ({
+          handle,
+          ...(decided.get(handle) ?? { delivery: 'inbox' as const }),
+        })),
+      });
+      // Preserve ordinary send completion timing; only explicit wake-result waits add a promise.
+      if (!waker) return report();
+      return Promise.all(
         awaited.map(({ handle, workItem: where }) => this.awaitStart(waker, projectKey, handle, where)),
-      );
-      awaited.forEach(({ handle }, index) => {
-        const entry = decided.get(handle);
-        if (entry) decided.set(handle, { ...entry, start: starts[index]! });
+      ).then((starts) => {
+        awaited.forEach(({ handle }, index) => {
+          const entry = decided.get(handle);
+          if (entry) decided.set(handle, { ...entry, start: starts[index]! });
+        });
+        return report();
       });
-    }
-    return {
-      message,
-      recipients: recipients.map((handle) => ({
-        handle,
-        ...(decided.get(handle) ?? { delivery: 'inbox' as const }),
-      })),
     };
+    return complete({ record, deliver });
   }
 
   /**
@@ -469,6 +532,16 @@ export class Messaging {
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
     const config = await this.projects.config(projectKey);
     this.assertMayWriteToOperator(config, from, [session.member], actor);
+    assertIntegratorAccess(config, 'write', actor);
+    const recipient = memberOf(config, session.member);
+    assertSuperMutation(
+      config,
+      {
+        kind: 'runtime_start',
+        providers: recipient?.kind === 'ai' ? [recipient.provider ?? DEFAULT_AGENT_PROVIDER] : [],
+      },
+      actor,
+    );
     // A person writes into their own conversation with the Operator, not into another person's (PM-475).
     if (
       isOperator(memberOf(config, session.member)) &&
@@ -485,6 +558,7 @@ export class Messaging {
           body,
           session.workItem.type === 'task' ? session.workItem.taskKey : null,
           actor.via,
+          actor,
         )
       : body;
     const running = this.sessions.isRunning(session.id);
@@ -647,6 +721,8 @@ export class Messaging {
     if (item.kind !== 'question' || !resolution || !item.taskKey) return;
     // A forwarded question is not answered yet: the member it went to answers the asker.
     if (resolution.rule === 'operator_forwarded') return;
+    // An obligation todo (PM-806) is the system's own; no member on the card asked it.
+    if (questionPayloadOf(item)?.obligation) return;
     const task = this.tasks.find(item.projectKey, item.taskKey);
     if (!task || !isOpenTask(task)) return;
     const config = await this.projects.config(item.projectKey);
@@ -707,6 +783,7 @@ export class Messaging {
   ): Promise<InboxItem | null> {
     const resolution = item.resolution;
     if (item.kind !== 'question' || !resolution) return null;
+    if (questionPayloadOf(item)?.externalQuestion) return this.answerExternal(item, attachmentIds, close);
     const config = await this.projects.config(item.projectKey);
     const asker = memberOf(config, item.source);
     if (asker?.kind !== 'ai') return null;
@@ -717,16 +794,20 @@ export class Messaging {
     let closed: InboxItem | null = null;
     const result = await this.sendReporting(
       item.projectKey,
-      resolution.by,
+      resolverSender(resolution),
       {
         to: [asker.handle],
-        text:
-          todo && !byOperator
+        text: resolution.integratorTodo
+          ? `The integrator resolved its own task (not an owner answer, decision or approval). Result for your question "${question}":\n\n${answerText(item)}`
+          : todo && !byOperator
             ? `Answer to your question "${question}":\n\nThe Operator turned it into a task for a person: ` +
               `${todo.what} (where: ${todo.where}; expected: ${todo.expected}). The person's result:\n\n${answerText(item)}`
             : `Answer to your question "${question}":\n\n${answerText(item)}` +
               (byOperator
                 ? `\n\n(This answer is from the Operator, not from a person. ${reaskHint(item.id)})`
+                : '') +
+              (resolution.ownerAnswerRelayed
+                ? "\n\n(The integrator relayed this on the owner's behalf. It answers information only: it is not an owner decision or approval.)"
                 : ''),
         taskKey: item.taskKey,
         attachmentIds: [...attachmentIds],
@@ -741,10 +822,13 @@ export class Messaging {
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
         actor:
-          memberOf(config, resolution.by)?.kind === 'ai'
-            ? aiActor(resolution.by)
-            : { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
-        origin: { kind: 'answer', inboxItemId: item.id },
+          memberOf(config, resolution.by)?.kind === 'ai' ? aiActor(resolution.by) : resolverActor(resolution),
+        origin: {
+          kind: 'answer',
+          inboxItemId: item.id,
+          ...(resolution.ownerAnswerRelayed ? { ownerAnswerRelayed: true as const } : {}),
+          ...(resolution.integratorTodo ? { integratorTodo: true as const } : {}),
+        },
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
     );
@@ -767,6 +851,54 @@ export class Messaging {
     return closed ? this.ctx.repos.inbox.get(item.id) : null;
   }
 
+  /**
+   * An owner answered a question the integrator asked through the bearer MCP (PM-784). No session waits for it:
+   * the answer stays on the question, and a durable message (already delivered, so no wake and no pending
+   * delivery) carries its text and files; the question's payload points to it. The files go through the same
+   * send checks as any message, and the question closes in the same transaction.
+   */
+  private async answerExternal(
+    item: InboxItem,
+    attachmentIds: readonly string[],
+    close: () => InboxItem,
+  ): Promise<InboxItem | null> {
+    const resolution = item.resolution!;
+    const sender = resolverActor(resolution);
+    if (attachmentIds.length > 0)
+      this.messageAttachments.assertSendable(item.projectKey, sender, attachmentIds);
+    const id = newId('msg');
+    let closed: InboxItem | null = null;
+    this.ctx.unitOfWork(() => {
+      const attachments =
+        attachmentIds.length > 0
+          ? this.messageAttachments.bindForSend(item.projectKey, sender, attachmentIds, id)
+          : undefined;
+      this.messages.record({
+        id,
+        projectKey: item.projectKey,
+        from: resolverSender(resolution),
+        to: [item.source],
+        taskKey: item.taskKey,
+        body: answerText(item),
+        attachments,
+        actor: sender,
+        sessionId: null,
+        humanRecipients: [],
+        delivered: true,
+        routes: {},
+        origin: { kind: 'answer', inboxItemId: item.id },
+        kind: 'info',
+      });
+      this.ctx.repos.inbox.updatePayload(
+        item.id,
+        { ...item.payload, externalAnswerMessageId: id },
+        isoNow(this.ctx),
+      );
+      closed = close();
+    });
+    return closed ? this.ctx.repos.inbox.get(item.id) : null;
+  }
+
   /** The same effective route for sending an answer and previewing its admission. */
   async answerWorkItem(item: InboxItem): Promise<WorkItemRef> {
     const config = await this.projects.config(item.projectKey);
@@ -786,6 +918,57 @@ export class Messaging {
       false,
       item.resolution?.by ?? item.assignees[0],
     ).workItem;
+  }
+
+  /** All rows and durable answer messages commit together; delivery starts only after that commit. */
+  async answerGroup(items: InboxItem[], attachmentIds: readonly string[], close: () => void): Promise<void> {
+    const prepared: PreparedSend[] = [];
+    for (const item of items) {
+      const resolution = item.resolution!;
+      const config = await this.projects.config(item.projectKey);
+      if (memberOf(config, item.source)?.kind !== 'ai') continue;
+      if (item.taskKey && !this.tasks.find(item.projectKey, item.taskKey)) continue;
+      const question = questionPayloadOf(item)?.question ?? item.title;
+      const workItem = await this.answerWorkItem(item);
+      prepared.push(
+        await this.prepareSend(
+          item.projectKey,
+          resolverSender(resolution),
+          {
+            to: [item.source],
+            taskKey: item.taskKey,
+            text: `Answer to your question "${question}":\n\n${answerText(item)}`,
+            attachmentIds: [...attachmentIds],
+          },
+          {
+            actor: resolverActor(resolution),
+            sessionId: item.sessionId,
+            workItem,
+            duringRefinement: true,
+            origin: { kind: 'answer', inboxItemId: item.id },
+            answer: { inboxItemId: item.id, question, answer: answerText(item) },
+            ...(prepared.length > 0
+              ? {
+                  questionGroupShare: {
+                    primaryItemId: this.ctx.repos.inbox.groupOf(item.id)!.primaryItemId,
+                    itemId: item.id,
+                  },
+                }
+              : {}),
+            beforeRecord: () => {
+              if (item.taskKey && !this.tasks.find(item.projectKey, item.taskKey))
+                throw conflict('question_group_incompatible', 'a source card was deleted before delivery');
+            },
+          },
+          (send) => send,
+        ),
+      );
+    }
+    const messages = this.ctx.unitOfWork(() => {
+      close();
+      return prepared.map((send) => send.record());
+    });
+    for (const [index, send] of prepared.entries()) await send.deliver(messages[index]!);
   }
 
   /**
@@ -1029,7 +1212,7 @@ export class Messaging {
       if (!config) continue;
       for (const member of config.team.members) {
         if (member.kind !== 'ai' || this.engines.engineFor(summary.key, member.handle) !== engineId) continue;
-        count += this.ctx.repos.messages.pending(summary.key, member.handle).length;
+        count += this.ctx.repos.messages.pendingCount(summary.key, member.handle);
       }
     }
     return count;
@@ -1244,6 +1427,21 @@ export class Messaging {
   }
 }
 
+/** The actor a question's resolution is delivered as: the super origin when it has one (PM-757). */
+function resolverActor(resolution: {
+  by: string;
+  via?: 'integrator' | undefined;
+  actor?: Actor | undefined;
+}): Actor {
+  if (hasSuperOrigin(resolution.actor)) return resolution.actor;
+  return { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) };
+}
+
+/** The sender handle of that answer: the Operator in the super mode, so the message and its actor agree. */
+function resolverSender(resolution: { by: string; actor?: Actor | undefined }): string {
+  return hasSuperOrigin(resolution.actor) ? resolution.actor.handle : resolution.by;
+}
+
 /** How much of a question and of its answer the notice to the card's other workers carries. */
 const QUESTION_NOTICE_LIMIT = 200;
 const ANSWER_NOTICE_LIMIT = 500;
@@ -1263,7 +1461,9 @@ const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {
   handed_off: 'the card it was about was handed to someone else',
   assignee_changed: 'the card it was about has a new assignee',
   withdrawn: 'it was withdrawn',
+  group_withdrawn: 'every asker withdrew the shared question',
   operator_moot: 'the Operator found it moot: nothing is left to answer',
+  obligation_closed: 'the step it handed over was done or dropped meanwhile',
 };
 
 /** Why a session joined a card, as the joined notice says it (empty when nothing is known). */

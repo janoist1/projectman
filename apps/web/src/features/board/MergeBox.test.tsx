@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
-import { alertPayloadOf } from '@projectman/shared';
+import { alertPayloadOf, MERGE_ENGINE_WAIT_MINUTES } from '@projectman/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -199,6 +199,22 @@ describe('the merge box in the drawer (PM-453)', () => {
     ).toBeNull();
   });
 
+  it('shows only the active engine wait while the connection is lost', async () => {
+    const project = mergeProject();
+    withoutMergeItems(project.backend);
+    startMerge(project.backend);
+    project.backend.advanceMerge('AC-27');
+    project.backend.findTask('AC-27')!.merge!.step = 'engine_waiting';
+    project.render(drawer, route);
+    const box = within(await mergeBox());
+    expect(box.getAllByRole('listitem')).toHaveLength(1);
+    const wait = box.getByRole('listitem');
+    expect(wait.getAttribute('data-state')).toBe('active');
+    expect(wait.textContent).toContain(
+      t('task.merge.running.engineWaiting', { minutes: MERGE_ENGINE_WAIT_MINUTES }),
+    );
+  });
+
   it('shows a conflict with the files and offers to merge again or send the card back', async () => {
     const project = mergeProject();
     project.backend.setMergeOutcome('AC-27', 'conflict');
@@ -223,6 +239,41 @@ describe('the merge box in the drawer (PM-453)', () => {
     project.render(drawer, route);
     await mergeBox();
     expect(screen.getByRole('heading', { name: t('task.merge.failed.checkTitle') })).toBeTruthy();
+  });
+
+  it('names where the running check runs, from the repository’s runner, and has no link yet (PM-918)', async () => {
+    const project = mergeProject();
+    project.backend.config.project.repos.forEach((repo) => {
+      repo.reviewTest = { command: 'npm test', maxWorkers: 2, timeoutMinutes: 15, runner: 'github_actions' };
+    });
+    withoutMergeItems(project.backend);
+    startMerge(project.backend);
+    project.backend.advanceMerge('AC-27');
+    project.backend.advanceMerge('AC-27');
+    project.backend.advanceMerge('AC-27');
+    project.render(drawer, route);
+    const place = within(await mergeBox()).getByTestId('merge-check-place');
+    expect(place.textContent).toContain(t('task.merge.checkPlace.github_actions'));
+    expect(within(place).queryByRole('link')).toBeNull();
+  });
+
+  it('links a failed GitHub Actions check to its run in a new tab (PM-918)', async () => {
+    const project = mergeProject();
+    project.backend.setMergeOutcome('AC-27', 'check_failed');
+    startMerge(project.backend);
+    project.backend.runMerge('AC-27');
+    const url = 'https://github.com/acme/web/actions/runs/7';
+    project.backend.findTask('AC-27')!.merge!.check = {
+      command: 'npm test',
+      status: 'failed',
+      runner: 'github_actions',
+      url,
+    };
+    withoutMergeItems(project.backend);
+    project.render(drawer, route);
+    const link = within(await mergeBox()).getByRole('link', { name: t('task.merge.checkPlace.openFailed') });
+    expect(link.getAttribute('href')).toBe(url);
+    expect(link.getAttribute('target')).toBe('_blank');
   });
 
   it('shows a blocked merge with a retry for the merger', async () => {

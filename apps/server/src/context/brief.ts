@@ -22,6 +22,7 @@ import type { ContextPackInput, RelatedSession } from '../contracts';
 import { cardQuestionsBlock, cardWorkersBlock } from './card-thread';
 import { handoffBlock, previousConversationBlock } from './handoff';
 import {
+  cardBranchMergeRule,
   code,
   codeList,
   fullTestLine,
@@ -96,7 +97,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   const fixing = isMergeFixer(task.merge, input.member.handle);
   if (mergeRepo && requiresMerge(mergeRepo) && !fixing)
     sections.push(
-      `Before the merge target, the card merger must use merge_task to merge its approved commit into ${code(mergeRepo.defaultBranch)} and push it when the branch has an upstream. AI members must never merge or push manually. The project manager must not request a manual git merge.`,
+      `Before the merge target, the card merger must use merge_task to merge its approved commit into ${code(mergeRepo.defaultBranch)} and push it when the branch has an upstream. ${cardBranchMergeRule(mergeRepo.defaultBranch)} The project manager must not request a manual git merge into ${code(mergeRepo.defaultBranch)}.`,
     );
 
   if (task.merge?.merger === input.member.handle) {

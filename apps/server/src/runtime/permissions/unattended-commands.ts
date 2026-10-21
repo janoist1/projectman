@@ -81,7 +81,7 @@ export function describeSessionFolder(sessionFolder: string, provider: AgentProv
     provider === 'codex'
       ? `put images and other files to attach there; ${code('attach_file')} takes their absolute path, and an image there opens with ${code('view_image')} (the shell does not show images). Make screenshots with the ${code('take_screenshots')} tool, not by running the shots script in the shell: the browser does not start in your sandbox, so the server runs the scenario (written as in ${code('docs/SCREENSHOTS.md')}) in its own and the images land in ${code('shots/')} of this folder; if the tool answers ${code('running')}, wait for the end with ${code('get_screenshot_run')}.`
       : provider === 'gemini'
-        ? `write the files to attach there with your file tools (not in plan mode); ${code('attach_file')} takes their absolute path, and a file there opens with ${code('view_file')}. There is no screenshot tool for you.`
+        ? `write the files to attach there with your file tools (not in plan mode); ${code('attach_file')} takes their absolute path, and a file there opens with ${code('read_file')} (${code('view_file')} on older CLI versions). There is no screenshot tool for you.`
         : `put screenshots and other files to attach there; ${code('attach_file')} takes their absolute path.`;
   return `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): ${putThere} Only you write it; the other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) you read without asking, for example a screenshot a teammate names. A folder is deleted when its session's process stops (a stop, a restart), so attach what should stay before you end your turn. A resumed session gets a new folder: folder paths from earlier in this conversation no longer exist, while the files attached to cards stay (${code('list_attachments')}, ${code('read_attachment')}).`;
 }
@@ -139,7 +139,7 @@ export function describeSandbox(input: {
       ? `- Writing: only the temp directory (${code('$TMPDIR')})${sessionFolder ? ` and your session folder` : ''}. Your working directory ${code(cwd)}${extra.length > 0 ? ` and ${extra.map(code).join(', ')}` : ''} are read-only, for the shell (the sandbox) and for the file tools (deny rules). Read, query git, run the tests and the type checks there, but change nothing. Send caches and output files to ${code('$TMPDIR')}; a Vite or Vitest configuration loads with ${code('--configLoader runner')} (the project's ${code('npm test')} may already pass it).`
       : `- Writing: your working directory ${code(cwd)} with its git metadata (not its hooks or configuration), the temp directory (${code('$TMPDIR')})${sandbox.allowWrite.length > 0 ? ` and ${sandbox.allowWrite.map(code).join(', ')}` : ''}.${
           extra.length > 0
-            ? ` Never these paths of the shared git directory (the default branch, the integrating checkout, replacements and grafts): ${extra
+            ? ` Never these paths of the shared git directory (the default branch, the integrating checkout, replacements, server-managed snapshot refs and grafts): ${extra
                 .filter((file) => !file.endsWith('.lock'))
                 .map(code)
                 .join(', ')} (and their lock files); commit on your own branch.`

@@ -4,6 +4,22 @@ import {
   TASK_CREATE_MIN_ACCESS,
   OperatorApprovalWaiverRequest,
   canReadOperatorKnowledge,
+  SuperAuditQuery,
+  ExecuteSuperHandoffRequest,
+  ListSuperHandoffsQuery,
+  AdministrationLogsQuery,
+  AdministrationStatusQuery,
+  SuperDiagnosticsRequest,
+  SuperOperateRequest,
+} from '@projectman/shared';
+import type {
+  ExecuteSuperHandoffResponse,
+  ListSuperHandoffsResponse,
+  SuperHandoffDetail,
+  SuperAuditPage,
+  SuperDiagnosticsResponse,
+  SuperOperateResponse,
+  SuperOperationDetail,
 } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
@@ -22,12 +38,100 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
     const input = parseBody(OperatorApprovalWaiverRequest, request.body);
     return domain.projects.setOperatorApprovalWaiver(key, input, {
       actor: actorOf(access),
-      author: authorOf(request),
+      author: authorOf(request, access),
     });
   });
+  /** The super mode's audit (PM-757): the owner's own login reads it by token prefix; never a key. */
+  app.get<ProjectParams>(routes.operatorSuperAudit(':key'), async (request): Promise<SuperAuditPage> => {
+    const key = request.params.key;
+    const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+    if (access.via)
+      throw forbidden('insufficient_access', 'the audit is for the owner using their own login');
+    return domain.superAudit.list(key, parseBody(SuperAuditQuery, request.query));
+  });
+  /** The durable handoffs to the super-mode integrator (PM-762): the owner and the integrator's token read them. */
+  app.get<ProjectParams>(
+    routes.superHandoffs(':key'),
+    async (request): Promise<ListSuperHandoffsResponse> => {
+      const key = request.params.key;
+      await requireAccess(domain, request, key, { minimum: 'owner' });
+      const query = parseBody(ListSuperHandoffsQuery, request.query);
+      return { handoffs: domain.superHandoffs.list(key, query) };
+    },
+  );
+  /** Reads an individual handoff even after it leaves the bounded list. */
+  app.get<{ Params: { key: string; handoffId: string } }>(
+    routes.superHandoff(':key', ':handoffId'),
+    async (request): Promise<SuperHandoffDetail> => {
+      const { key, handoffId } = request.params;
+      await requireAccess(domain, request, key, { minimum: 'owner' });
+      return { handoff: domain.superHandoffs.handoff(key, handoffId) };
+    },
+  );
+
+  /** The integrator starts (or, after the owner's yes, resumes) the operation of a handoff. */
+  app.post<{ Params: { key: string; handoffId: string } }>(
+    routes.executeSuperHandoff(':key', ':handoffId'),
+    async (request, reply): Promise<ExecuteSuperHandoffResponse> => {
+      const { key, handoffId } = request.params;
+      const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+      const body = parseBody(ExecuteSuperHandoffRequest, request.body);
+      const operation = await domain.superHandoffs.execute(key, handoffId, body.requestId, access);
+      reply.code(202);
+      return { operation };
+    },
+  );
+  /** The super mode's administration (PM-764): every call is bound to the project and to an engine linked to it. */
+  app.post<ProjectParams>(
+    routes.superOperations(':key'),
+    async (request, reply): Promise<SuperOperateResponse> => {
+      const key = request.params.key;
+      const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+      const operation = await domain.superAdministration.operate(
+        key,
+        parseBody(SuperOperateRequest, request.body),
+        access,
+      );
+      reply.code(202);
+      return { operation };
+    },
+  );
+  app.get<{ Params: { key: string; operationId: string } }>(
+    routes.superOperation(':key', ':operationId'),
+    async (request): Promise<SuperOperationDetail> => {
+      const { key, operationId } = request.params;
+      await requireAccess(domain, request, key, { minimum: 'owner' });
+      return domain.superAdministration.operation(key, operationId);
+    },
+  );
+  app.get<ProjectParams>(routes.superAdministrationStatus(':key'), async (request) => {
+    const key = request.params.key;
+    await requireAccess(domain, request, key, { minimum: 'owner' });
+    const query = parseBody(AdministrationStatusQuery, request.query);
+    return { status: await domain.superAdministration.status(key, query.target) };
+  });
+  app.get<ProjectParams>(routes.superAdministrationLogs(':key'), async (request) => {
+    const key = request.params.key;
+    await requireAccess(domain, request, key, { minimum: 'owner' });
+    const query = parseBody(AdministrationLogsQuery, request.query);
+    const { target, ...options } = query;
+    return domain.superAdministration.logs(key, target, options);
+  });
+  app.post<ProjectParams>(
+    routes.superDiagnosticsQuery(':key'),
+    async (request): Promise<SuperDiagnosticsResponse> => {
+      const key = request.params.key;
+      await requireAccess(domain, request, key, { minimum: 'owner' });
+      return domain.superAdministration.query(key, parseBody(SuperDiagnosticsRequest, request.body));
+    },
+  );
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    if (access.via || !canReadOperatorKnowledge({ access: access.access }))
+    if (
+      (access.via && !request.principal) ||
+      request.principal?.mode === 'legacy' ||
+      !canReadOperatorKnowledge({ access: access.access })
+    )
       throw forbidden(
         'operator_owner_only',
         'shared knowledge requires an owner or admin using their own login',
@@ -36,13 +140,15 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
   });
   app.get<ProjectParams>(routes.operatorPreferences(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
-    if (access.via) throw forbidden('operator_owner_only', 'preferences require a person’s own login');
+    if (access.via && request.principal?.mode === 'legacy')
+      throw forbidden('operator_owner_only', 'preferences require a person’s own login');
     return domain.operatorPreferences.list(request.params.key);
   });
 
   app.get<ProjectParams>(routes.operatorPreferenceMe(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    if (access.via) throw forbidden('operator_owner_only', 'preferences require a person’s own login');
+    if (access.via && request.principal?.mode === 'legacy')
+      throw forbidden('operator_owner_only', 'preferences require a person’s own login');
     return domain.operatorPreferences.me(request.params.key, access.handle);
   });
 

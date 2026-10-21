@@ -1,12 +1,29 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { InboxKind, InboxState, ResolveInboxRequest, routes } from '@projectman/shared';
+import {
+  InboxKind,
+  InboxState,
+  RelayOwnerAnswerRequest,
+  ResolveInboxRequest,
+  ResolveIntegratorFixLimitRequest,
+  ResolveIntegratorTodoRequest,
+  humanInboxAssignment,
+  routes,
+  visibleQuestionItem,
+  canSeeTask,
+  isLinkedQuestion,
+} from '@projectman/shared';
 import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
 import { notFound } from '../kernel';
+import {
+  relayOwnerAnswer,
+  resolveIntegratorFixLimit,
+  resolveIntegratorTodo,
+} from '../services/super-operator';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
@@ -38,7 +55,14 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const mine = query.mine === 'true' || query.mine === '1';
     const items = domain.inbox
       .list(key, { state, kind: query.kind, limit: 500 })
-      .filter((item) => canSeeInboxItem(access, item) && (!mine || item.assignees.includes(access.handle)));
+      .filter((item) => canSeeInboxItem(access, item) && (!mine || humanInboxAssignment(item, access.handle)))
+      .filter((item) => state === undefined || !isLinkedQuestion(item))
+      .map((item) =>
+        visibleQuestionItem(access, item, (taskKey) => {
+          const task = domain.tasks.find(key, taskKey);
+          return !!task && canSeeTask(access, task);
+        }),
+      );
     return { items: await domain.inbox.withAskerStart(key, items) };
   });
 
@@ -53,12 +77,58 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     },
   );
 
+  /**
+   * The integrator in super mode relays the owner's words to a plain information question (PM-762). It is
+   * not an owner decision: a question that is not an explicit information question is refused.
+   */
+  app.post<ItemParams>(
+    routes.relayOwnerAnswer(':key', ':itemId'),
+    async (request): Promise<{ item: InboxItem }> => {
+      const { key, itemId } = request.params;
+      const access = await requireAccess(domain, request, key);
+      const body = parseBody(RelayOwnerAnswerRequest, request.body);
+      return relayOwnerAnswer(domain, key, itemId, body.answer, access);
+    },
+  );
+
+  app.post<ItemParams>(routes.resolveIntegratorTodo(':key', ':itemId'), async (request) => {
+    const { key, itemId } = request.params;
+    const access = await requireAccess(domain, request, key);
+    return resolveIntegratorTodo(
+      domain,
+      key,
+      itemId,
+      parseBody(ResolveIntegratorTodoRequest, request.body),
+      access,
+    );
+  });
+
+  /**
+   * The integrator in super mode decides the fix round limit item addressed to it, or hands it on to the
+   * owners with a reason (PM-714). Only that narrow item; it is not an owner decision or approval.
+   */
+  app.post<ItemParams>(routes.resolveIntegratorFixLimit(':key', ':itemId'), async (request) => {
+    const { key, itemId } = request.params;
+    const access = await requireAccess(domain, request, key);
+    return resolveIntegratorFixLimit(
+      domain,
+      key,
+      itemId,
+      parseBody(ResolveIntegratorFixLimitRequest, request.body),
+      access,
+    );
+  });
+
   /** Assignees resolve items; owners may also answer permission requests and questions. */
   app.post<ItemParams>(routes.resolveInbox(':key', ':itemId'), async (request): Promise<InboxItem> => {
     const { key, itemId } = request.params;
     const access = await requireAccess(domain, request, key);
     const body = parseBody(ResolveInboxRequest, request.body);
     if (!canSeeInboxItem(access, domain.inbox.get(key, itemId))) throw notFound('inbox item', itemId);
-    return domain.inbox.resolve(key, itemId, body, access);
+    const resolved = await domain.inbox.resolve(key, itemId, body, access);
+    return visibleQuestionItem(access, resolved, (taskKey) => {
+      const task = domain.tasks.find(key, taskKey);
+      return !!task && canSeeTask(access, task);
+    });
   });
 }

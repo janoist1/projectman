@@ -1,6 +1,14 @@
 import { z } from 'zod';
+import { EngineId } from './engine';
 import { HumanAccess, MemberHandle } from './member';
-import { Release, ReleaseReport } from './release';
+import {
+  HybridDeployment,
+  Release,
+  ReleaseDeployBegin,
+  ReleaseDeployChange,
+  ReleaseDrainStatus,
+  ReleaseReport,
+} from './release';
 import { PausePoint, WorkItemRef } from './session';
 
 /** What a pause covers (PM-219): the whole instance, or one project. Not a single member. */
@@ -102,8 +110,69 @@ export const ControlRequest = z.discriminatedUnion('op', [
   /** The watcher starts the deploy of an approved release; `previousCommit` is what runs now. */
   z.object({ op: z.literal('release_claim'), releaseId: z.string(), previousCommit: z.string().nullable() }),
   z.object({ op: z.literal('release_report'), releaseId: z.string(), report: ReleaseReport }),
+  /** Reads one release of the instance, in any state (PM-749): how a lost claim or report answer is reconciled. */
+  z.object({ op: z.literal('release_get'), releaseId: z.string() }),
+  /** The connected engines as the cloud registry knows them (PM-749); `[]` in single mode. */
+  z.object({ op: z.literal('engine_status') }),
+  /** The hybrid release's durable deployment (PM-752): reads it (and the drain state) of one release. */
+  z.strictObject({ op: z.literal('release_deploy_get'), releaseId: z.string() }),
+  z.strictObject({ op: z.literal('release_deploy_begin'), ...ReleaseDeployBegin.shape }),
+  z.strictObject({ op: z.literal('release_deploy_change'), ...ReleaseDeployChange.shape }),
 ]);
 export type ControlRequest = z.infer<typeof ControlRequest>;
+
+/** The longest control request taken on the admin channel (PM-749), its newline included; the socket's own limit. */
+export const MAX_CONTROL_REQUEST_BYTES = 16 * 1024;
+/** The longest control response line the admin channel relays. */
+export const MAX_CONTROL_RESPONSE_BYTES = 64 * 1024;
+
+export type ControlRequestInput =
+  { ok: true; request: ControlRequest; line: string } | { ok: false; reason: string };
+
+/**
+ * The admin channel's input rule (PM-749), one place for both ends: exactly one UTF-8 line of at most
+ * `MAX_CONTROL_REQUEST_BYTES`, ending in a newline, that is a `ControlRequest`. The text is data only; the
+ * reason of a refusal never repeats it.
+ */
+export function parseControlRequestInput(bytes: Uint8Array): ControlRequestInput {
+  if (bytes.length > MAX_CONTROL_REQUEST_BYTES)
+    return { ok: false, reason: 'the request is longer than 16 KiB' };
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return { ok: false, reason: 'the request is not UTF-8' };
+  }
+  const newline = text.indexOf('\n');
+  if (newline < 0) return { ok: false, reason: 'the request has no terminating newline' };
+  if (newline !== text.length - 1) return { ok: false, reason: 'exactly one request line is accepted' };
+  const line = text.slice(0, -1);
+  if (!line.trim()) return { ok: false, reason: 'the request is empty' };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    return { ok: false, reason: 'the request is not JSON' };
+  }
+  const parsed = ControlRequest.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return {
+      ok: false,
+      reason: `not a control request: ${issue?.path.join('.') || 'request'}: ${issue?.message ?? 'invalid'}`,
+    };
+  }
+  return { ok: true, request: parsed.data, line };
+}
+
+/** One engine as `engine_status` reports it: only what the registry already holds (PM-749). */
+export const ReleaseEngineStatus = z.object({
+  id: EngineId,
+  online: z.boolean(),
+  version: z.string().nullable(),
+  lastSeenAt: z.string().nullable(),
+});
+export type ReleaseEngineStatus = z.infer<typeof ReleaseEngineStatus>;
 
 /**
  * One JSON line back: the instance's pause as it is after the request (null: none is open). Every
@@ -116,6 +185,12 @@ export const ControlResponse = z.discriminatedUnion('ok', [
     pause: PauseStatus.nullable(),
     release: Release.nullable().optional(),
     appVersion: z.string().nullable().optional(),
+    /** `engine_status` only (PM-749). */
+    engines: z.array(ReleaseEngineStatus).optional(),
+    /** The `release_deploy_*` ops (PM-752): the deployment, the drain state and the schema the database has. */
+    deployment: HybridDeployment.nullable().optional(),
+    drain: ReleaseDrainStatus.optional(),
+    databaseSchemaVersion: z.number().int().nonnegative().optional(),
   }),
   z.object({ ok: z.literal(false), error: z.object({ code: z.string(), message: z.string() }) }),
 ]);

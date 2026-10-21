@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   AiMemberConfig,
   EngineId,
+  InboxItem,
   MemberHandle,
   ProjectConfig,
   RoleId,
@@ -12,6 +13,18 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import type { EnsureSessionResult } from '../../contracts';
+
+/** The hub checks whether a current owner has usable explicit super access. No key data crosses this port. */
+export interface IntegratorTodoAccess {
+  available(config: ProjectConfig): boolean;
+}
+
+/** Records all original answers and their durable messages in one unit of work, before delivery. */
+export type QuestionGroupAnswerer = (
+  items: InboxItem[],
+  attachmentIds: readonly string[],
+  close: () => void,
+) => Promise<void>;
 
 /** The runtime's existing engine and command policy, evaluated with the session engine's paths. */
 export interface InboxPermissionPolicy {

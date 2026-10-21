@@ -17,12 +17,51 @@ import {
   ScreeningOutcome,
   screeningDeadline,
   screeningFrozenRemainingMs,
+  superDecisionRefusal,
   questionAttachmentsOf,
   questionChoices,
   questionPayloadOf,
   withQuestionAttachmentGone,
 } from './inbox';
 import { MessageOrigin } from './involvement';
+
+describe('superDecisionRefusal', () => {
+  const item = { kind: 'question' as const, source: 'dev', payload: {} };
+  it.each(['permission', 'boundary'] as const)('reserves %s to a person', (kind) => {
+    expect(superDecisionRefusal({ ...item, kind }, { operatorHandle: 'operator' })).toBe(
+      'owner_approval_required',
+    );
+  });
+  it.each(['superOperation', 'operatorApproval', 'operatorKnowledge'])('protects the raw %s key', (key) => {
+    expect(superDecisionRefusal({ ...item, payload: { [key]: null } }, { operatorHandle: 'operator' })).toBe(
+      'owner_approval_required',
+    );
+  });
+  it('protects Operator proposals in the existing approval payload', () => {
+    expect(
+      superDecisionRefusal(
+        { ...item, kind: 'approval', payload: { operator: {} } },
+        { operatorHandle: 'operator' },
+      ),
+    ).toBe('owner_approval_required');
+  });
+  it('refuses the Operator as the source', () => {
+    expect(superDecisionRefusal({ ...item, source: 'operator' }, { operatorHandle: 'operator' })).toBe(
+      'owner_approval_required',
+    );
+  });
+  it('refuses the Operator as the session member', () => {
+    expect(superDecisionRefusal(item, { operatorHandle: 'operator', sessionMember: 'operator' })).toBe(
+      'owner_approval_required',
+    );
+  });
+  it('requires a configured Operator', () => {
+    expect(superDecisionRefusal(item, { operatorHandle: null })).toBe('owner_approval_required');
+  });
+  it('allows another member’s question', () => {
+    expect(superDecisionRefusal(item, { operatorHandle: 'operator' })).toBeNull();
+  });
+});
 
 const request = {
   requestId: 'gat_1',
@@ -218,7 +257,9 @@ describe('screening contract (PM-556)', () => {
       'handed_off',
       'assignee_changed',
       'withdrawn',
+      'group_withdrawn',
       'operator_moot',
+      'obligation_closed',
     ]);
     expect(() => QuestionCloseRule.parse('operator_answered')).toThrow();
     for (const outcome of ['answered', 'forwarded', 'moot', 'decision', 'todo'])

@@ -38,6 +38,8 @@ export const EngineConfig = z.strictObject({
   keyFile: z.string().optional(),
   /** A JSON object of extra link headers (e.g. Cloudflare Access service token); must be 0600. */
   linkHeadersFile: z.string().optional(),
+  /** PM-846: a work volume's root inside the engine home; worktrees/, workspaces/ and tmp/ live below it. Absent: today's paths. */
+  workRoot: z.string().min(1).optional(),
   projects: z.array(z.strictObject({ project: ProjectKey, workspacePath: z.string().min(1) })),
   repos: z.array(
     z.strictObject({
@@ -45,6 +47,15 @@ export const EngineConfig = z.strictObject({
       repo: RepoName,
       path: z.string().min(1),
       fullTestCommand: z.string().min(1).max(500).optional(),
+      workspaceSetup: z
+        .discriminatedUnion('kind', [
+          z.strictObject({
+            kind: z.literal('npm_ci'),
+            timeoutMs: z.number().int().min(1_000).max(1_800_000).optional(),
+          }),
+          z.strictObject({ kind: z.literal('none') }),
+        ])
+        .optional(),
       /**
        * The one branch the cloud may merge into and push to with this machine's git login (PM-451).
        * Absent: every `merge.*` call for the repo is refused.
@@ -216,7 +227,7 @@ export function httpUrl(cloudUrl: string, urlPath: string): string {
   return new URL(urlPath, cloudOrigin(cloudUrl)).toString();
 }
 
-export interface ResolvedEngineConfig extends EngineConfig {
+export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
   name: string;
   keyFile: string;
   /** Real (symlink-free) absolute paths. */
@@ -226,6 +237,7 @@ export interface ResolvedEngineConfig extends EngineConfig {
     repo: string;
     path: string;
     fullTestCommand?: string;
+    workspaceSetup: { kind: 'npm_ci'; timeoutMs: number } | null;
     mergeBranch?: string;
   }>;
 }
@@ -272,6 +284,8 @@ export function resolveEngineConfig(
   options: { tmpdir?: string } = {},
 ): ResolvedEngineConfig {
   cloudOrigin(config.cloudUrl);
+  if (config.workRoot !== undefined && !path.isAbsolute(config.workRoot))
+    throw new EngineConfigError('config_invalid', 'invalid engine.json: workRoot must be an absolute path');
   assertHomeNotInUse(home);
   const projects = config.projects.map((entry) => ({
     project: entry.project,
@@ -291,7 +305,14 @@ export function resolveEngineConfig(
         'repo_outside_workspace',
         `The repo ${entry.project}/${entry.repo} is not inside the workspace of ${entry.project}.`,
       );
-    return { ...entry, path: real };
+    return {
+      ...entry,
+      path: real,
+      workspaceSetup:
+        entry.workspaceSetup?.kind === 'npm_ci'
+          ? { kind: 'npm_ci' as const, timeoutMs: entry.workspaceSetup.timeoutMs ?? 600_000 }
+          : null,
+    };
   });
   const keyFile = realOrAbsolute(config.keyFile ?? engineFiles(home).key, 'The engine key file');
   const linkHeadersFile = config.linkHeadersFile
@@ -304,6 +325,12 @@ export function resolveEngineConfig(
     path.join(realHome, 'worktrees'),
     path.join(realHome, 'workspaces'),
     path.join(realHome, 'member-caches'),
+    ...(config.workRoot
+      ? [
+          path.join(realOrAbsolute(config.workRoot, 'The work root'), 'worktrees'),
+          path.join(realOrAbsolute(config.workRoot, 'The work root'), 'workspaces'),
+        ]
+      : []),
   ];
   for (const [what, target] of [
     ['The engine key file', keyFile],

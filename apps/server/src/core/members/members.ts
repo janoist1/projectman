@@ -139,7 +139,8 @@ export class MemberService {
     const projectKey = config.project.key;
     const openTasks = new Map(
       this.ctx.repos.tasks
-        .list(projectKey)
+        // Only the open cards count (PM-771): the closed history is never loaded for a roster.
+        .readScheduling(projectKey, { kind: 'open' })
         // A theme is carried by nobody and never counts as work (PM-192).
         .filter((t) => isOpenTask(t) && !isTheme(t))
         .map((t) => [t.key, t]),
@@ -543,8 +544,7 @@ export class MemberService {
       this.prepareRetire(draft, handle, handoverTo);
       return `Retire ${handle}${handoverTo ? ` (handover to ${handoverTo})` : ''}`;
     });
-    for (const item of this.inbox.cancelOpenFromSource(projectKey, handle))
-      await this.ctx.events.emit('inbox_cancelled', item);
+    await this.inbox.cancelOpenFromSource(projectKey, handle);
 
     this.timeline.append({
       projectKey,
@@ -730,8 +730,8 @@ export class MemberProfiles {
       config.pipeline.stages.filter((s) => stageApprovers(config, s).includes(handle)).map((s) => s.id),
     );
     const openInbox = this.inbox
-      .list(projectKey)
-      .filter((i) => i.state === 'open' && i.assignees.includes(handle));
+      .list(projectKey, { state: 'open' })
+      .filter((i) => i.assignees.includes(handle));
     const awaitingKeys = new Set(openInbox.map((i) => i.taskKey));
     const visibleTasks = visibleTasksOf(viewer, this.tasks.list(projectKey));
     const capacityHolders =

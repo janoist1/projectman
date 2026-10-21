@@ -36,6 +36,70 @@ const human = (handle: string) => ({ handle, kind: 'human' as const });
 const ai = (handle: string) => ({ handle, kind: 'ai' as const });
 
 describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
+  it.each([{ nextActors: [] }, { nextActors: [human('owner')] }])(
+    'names the integrator with current or legacy next actors $nextActors',
+    ({ nextActors }) => {
+      const held: Task = {
+        ...task,
+        fixLimit: {
+          phase: 'owner',
+          recipient: 'integrator',
+          rounds: 6,
+          limit: 6,
+          changeRequests: 6,
+          designChangeRequests: 0,
+          sendBacks: 0,
+          decider: null,
+          deciders: ['owner'],
+          reason: 'extra_exhausted',
+          heldAt: '2026-10-18T12:00:00Z',
+        },
+      };
+      const next = deriveNext(held, wait({ reason: 'fix_limit', next: nextActors }), ctx())!;
+      expect(next).toMatchObject({
+        head: t('involvement.integrator'),
+        you: false,
+        who: [],
+        noWho: t('involvement.integrator'),
+        tone: 'neutral',
+      });
+      expect(next.todo).toBe(t('taskStatus.next.todo.fixLimitOther', { who: t('involvement.integrator') }));
+      expect(next.line).not.toContain(t('taskStatus.next.you'));
+    },
+  );
+  it.each([
+    'ai_disabled',
+    'team_paused',
+    'ai_limit_reached',
+    'engine_offline',
+    'no_free_member',
+    'senior_busy',
+    'focus_order',
+  ] as const)('shows the intentional ready wait %s', (reason) => {
+    const next = deriveNext(
+      task,
+      wait({ reason: 'ready', hold: { reason, since: '2026-10-18T10:00:00Z' } }),
+      ctx(),
+    )!;
+    expect(next.waiting).toBe(t(`taskStatus.next.readyHolds.${reason}`));
+    expect(next.long).toBe(t('taskStatus.next.long.readyHold'));
+    expect(next.todo).toBe(t('taskStatus.next.todo.auto'));
+    expect(deriveNext(task, wait({ reason: 'ready' }), ctx())).toBeNull();
+  });
+  it('shows the member asked to start a startable card (PM-804)', () => {
+    const next = deriveNext(task, wait({ reason: 'ready', next: [ai('pm')], toStageId: 'dev' }), ctx())!;
+    expect(next.waiting).toBe(t('taskStatus.next.short.startOffer'));
+    expect(next.long).toBe(t('taskStatus.next.long.startOffer'));
+    expect(next.todo).toBe(t('taskStatus.next.todo.startOffer'));
+    expect(next.who.map((actor) => actor.handle)).toEqual(['pm']);
+    expect(next.you).toBe(false);
+    const mine = deriveNext(
+      task,
+      wait({ reason: 'ready', next: [human('owner')], toStageId: 'dev' }),
+      ctx({ myHandle: 'owner' }),
+    )!;
+    expect(mine.you).toBe(true);
+  });
   it('asks the selected human merger to merge the approved work before advancing', () => {
     const next = deriveNext(
       task,

@@ -31,7 +31,7 @@ import { machineKeyHash, sensitivePaths } from '../src/runtime/sessions';
 import { loadEngineConfig } from '../src/engine-link/engine-config';
 import { instanceRole } from '../src/instance';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';
-import { createSourceHome } from './helpers/migration-source';
+import { stoppedSourceHomes } from './helpers/migration-source';
 import type { SourceHome } from './helpers/migration-source';
 
 /**
@@ -56,20 +56,26 @@ let out: string;
 let result: HybridPackageResult;
 const apps: FastifyInstance[] = [];
 
-beforeEach(async () => {
-  src = await createSourceHome();
-  await src.stop();
+// The stopped source home with the cloud package made from it is built once and put back for every test.
+const sourceHomes = stoppedSourceHomes(async (home) => {
   // A file of a team message (PM-516): binary, so a byte-exact copy is told from a text one.
-  mkdirSync(join(src.home, 'message-attachments', 'AR'), { recursive: true, mode: 0o700 });
-  writeFileSync(join(src.home, 'message-attachments', 'AR', MESSAGE_FILE), MESSAGE_BYTES, { mode: 0o600 });
-  out = join(src.root, 'cloud-package');
-  result = await createHybridPackage({
-    home: src.home,
-    out,
+  mkdirSync(join(home.home, 'message-attachments', 'AR'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(home.home, 'message-attachments', 'AR', MESSAGE_FILE), MESSAGE_BYTES, { mode: 0o600 });
+  return createHybridPackage({
+    home: home.home,
+    out: join(home.root, 'cloud-package'),
     engineName: 'MacBook',
     cloudUrl: CLOUD_URL,
     now: () => AT,
   });
+});
+
+// The tests that need a second home, from before the move, take a plain one.
+const plainHomes = stoppedSourceHomes();
+
+beforeEach(async () => {
+  ({ src, prepared: result } = await sourceHomes());
+  out = join(src.root, 'cloud-package');
 });
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
@@ -150,6 +156,7 @@ describe('the cloud package', () => {
       'memory',
       'message-attachments',
       'secret',
+      'secrets',
     ]);
     expect(readdirSync(out).sort()).toEqual(['home', 'manifest.json']);
 
@@ -166,6 +173,10 @@ describe('the cloud package', () => {
     expect(notCarried).not.toEqual(expect.arrayContaining(['db.sqlite', 'secret', 'customization']));
     expect(mode(join(out, 'home', 'db.sqlite'))).toBe(0o600);
     expect(mode(join(out, 'home', 'secret'))).toBe(0o600);
+    expect(mode(join(out, 'home', 'secrets'))).toBe(0o700);
+    const pushKey = join('secrets', 'web-push.json');
+    expect(mode(join(out, 'home', pushKey))).toBe(0o600);
+    expect(sha256(join(out, 'home', pushKey))).toBe(sha256(join(src.home, pushKey)));
     expect(existsSync(join(out, 'home', 'db.sqlite-wal'))).toBe(false);
   });
 
@@ -251,9 +262,8 @@ describe('the cloud package', () => {
   });
 
   it('refuses an insecure cloud address and a package inside the home', async () => {
-    const fresh = await createSourceHome();
+    const { src: fresh } = await plainHomes();
     try {
-      await fresh.stop();
       await expect(
         createHybridPackage({
           home: fresh.home,
@@ -286,9 +296,8 @@ describe('the cloud package', () => {
 
 describe('plan', () => {
   it('lists what goes to the cloud and what stays, without any content', async () => {
-    const fresh = await createSourceHome();
+    const { src: fresh } = await plainHomes();
     try {
-      await fresh.stop();
       const sheet = renderHybridPlan(await buildHybridPlan({ home: fresh.home }));
       expect(sheet).toContain('## Goes to the cloud');
       expect(sheet).toContain('- db.sqlite');
@@ -447,9 +456,8 @@ describe('a new package after the way back (PM-728)', () => {
   });
 
   it('still refuses an active engine, default or not, and leaves nothing behind', async () => {
-    const fresh = await createSourceHome();
+    const { src: fresh } = await plainHomes();
     try {
-      await fresh.stop();
       const db = new Database(join(fresh.home, 'db.sqlite'));
       try {
         const repo = createRepositories(db).engines;
@@ -495,9 +503,8 @@ describe('the engine role', () => {
   });
 
   it('refuses a home without the engine’s files', async () => {
-    const fresh = await createSourceHome();
+    const { src: fresh } = await plainHomes();
     try {
-      await fresh.stop();
       expect(() => engineHome(fresh.home, 'hybrid')).toThrow(/engine\.key|engine\.json/);
       expect(instanceRole(fresh.home)).toBe('active');
     } finally {

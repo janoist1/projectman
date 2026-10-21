@@ -129,8 +129,26 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
   switch (wait.reason) {
     case 'working':
     case 'handing_off':
-    case 'ready':
       return null;
+    case 'ready':
+      if (!wait.hold) {
+        // A startable card the system asked the pm (or the operator) to start (PM-804).
+        if (wait.next.length === 0) return null;
+        return build({
+          head: names,
+          you: meNext,
+          waiting: t('taskStatus.next.short.startOffer'),
+          long: t('taskStatus.next.long.startOffer'),
+          todo: t('taskStatus.next.todo.startOffer'),
+        });
+      }
+      return build({
+        head: t('taskStatus.next.heads.start'),
+        waiting: t(`taskStatus.next.readyHolds.${wait.hold.reason}`),
+        long: t('taskStatus.next.long.readyHold'),
+        todo: t('taskStatus.next.todo.auto'),
+        noWho: t('task.whyBox.nobodyAuto'),
+      });
 
     case 'start_waiting': {
       const waiting = wait.startWaiting;
@@ -334,6 +352,20 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
 
     case 'fix_limit': {
       const rounds = task.fixLimit?.rounds ?? 0;
+      if (task.fixLimit?.recipient === 'integrator') {
+        const who = t('involvement.integrator');
+        return {
+          ...build({
+            head: who,
+            you: false,
+            waiting: t('taskStatus.next.short.fixLimit', { rounds }),
+            long: t('taskStatus.next.long.fixLimit', { rounds }),
+            todo: t('taskStatus.next.todo.fixLimitOther', { who }),
+          }),
+          who: [],
+          noWho: who,
+        };
+      }
       return build({
         head: names || t('taskStatus.next.heads.nobody'),
         you: meNext,

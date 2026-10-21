@@ -80,7 +80,7 @@ function reviewTestSignature(config: ProjectConfig): string {
  * An existing AI member's mode, approver, or outbound network setting differs, or a new AI member does not start with the
  * default mode, approver, and outbound network setting. An absent approver counts as `human`, so restating it changes nothing.
  */
-function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+export function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   const signature = (member: AiMemberConfig | undefined) =>
     member
       ? `${member.permissionMode}:${approverOf(member)}:${outboundNetworkOf(member)}`
@@ -92,9 +92,9 @@ function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boole
   });
 }
 
-/** Stage and condition ordering do not alter the approval policy. Removal does. */
-export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
-  const boundarySignature = (config: ProjectConfig) =>
+/** The boundary delegation: its settings and who, by member or by role, holds `boundary_authorization`. */
+export function boundaryDelegationChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  const signature = (config: ProjectConfig) =>
     JSON.stringify({
       settings: config.team.boundary ?? { enabled: false, leadTimeoutSeconds: 120 },
       holders: dutyMembers(config, 'boundary_authorization')
@@ -104,7 +104,12 @@ export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConf
         .filter((r) => roleBundle(config, r).duties.includes('boundary_authorization'))
         .sort(),
     });
-  if (boundarySignature(previous) !== boundarySignature(next)) return true;
+  return signature(previous) !== signature(next);
+}
+
+/** Stage and condition ordering do not alter the approval policy. Removal does. */
+export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  if (boundaryDelegationChanged(previous, next)) return true;
   // Approvals are gate labels only humans may set; their holders are part of the policy.
   const signature = (config: ProjectConfig) =>
     JSON.stringify(

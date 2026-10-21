@@ -47,7 +47,13 @@ export type SessionStartCause = z.infer<typeof SessionStartCause>;
 export const MessageOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('note'), eventId: z.string() }),
   z.object({ kind: z.literal('label'), labels: z.array(LabelId).min(1), eventId: z.string().optional() }),
-  z.object({ kind: z.literal('answer'), inboxItemId: z.string() }),
+  z.object({
+    kind: z.literal('answer'),
+    inboxItemId: z.string(),
+    /** The integrator relayed the owner's words (PM-762); the answer is no decision made with their own login. */
+    ownerAnswerRelayed: z.literal(true).optional(),
+    integratorTodo: z.literal(true).optional(),
+  }),
   /** The Operator passed a screened question to the recipient (PM-556). */
   z.object({ kind: z.literal('question_forward'), inboxItemId: z.string() }),
   /** A server-generated continuation after a human approved shared Operator knowledge. */

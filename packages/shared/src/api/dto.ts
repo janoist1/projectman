@@ -1,18 +1,5 @@
 import { z } from 'zod';
 
-/** Empty starts or retries; fixConflict creates a checkout; resolution submits its committed fix (PM-481). */
-export const StartMergeRequest = z.object({
-  fixConflict: z.boolean().optional(),
-  resolution: z.string().trim().min(1).max(2000).optional(),
-});
-export type StartMergeRequest = z.infer<typeof StartMergeRequest>;
-
-/** The reason a queued merge is put at the front of the queue, in the person's words (PM-576). */
-export const PRIORITIZE_MERGE_REASON_MAX = 500;
-export const PrioritizeMergeRequest = z.object({
-  reason: z.string().trim().min(1).max(PRIORITIZE_MERGE_REASON_MAX),
-});
-export type PrioritizeMergeRequest = z.infer<typeof PrioritizeMergeRequest>;
 import { BoardPlacement } from '../domain/board-order';
 import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { DutyId } from '../domain/duty';
@@ -21,10 +8,10 @@ import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } fr
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
 import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
-import { PatchConfigRequest } from '../config/edit';
+import { OperatorConfigPatch } from '../config/edit';
 import { ERROR_CODES } from './error-codes';
 import { TaskWait } from '../config/task-wait';
-import { TimelineEvent } from '../domain/event';
+import { Actor, TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem, InboxOption } from '../domain/inbox';
 import { WorkOutage } from '../domain/outage';
@@ -42,12 +29,13 @@ import {
   PermissionMode,
   SelectablePermissionMode,
 } from '../domain/member';
+import { SessionState } from '../domain/session';
 import { TeamMessage } from '../domain/message';
 import { MAX_MESSAGE_ATTACHMENTS, MessageAttachmentId } from '../domain/message-attachment';
 import { LabelDefinition, LabelId } from '../domain/label';
 import { ProjectPauseView } from '../domain/pause';
 import { BoardColumn, GateCondition, Stage, StageId } from '../domain/pipeline';
-import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
+import { BuiltInRoleId, CustomRoleDefinition, RoleBundle, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
 import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
@@ -62,6 +50,34 @@ import {
   TaskStartWaiting,
   Visibility,
 } from '../domain/task';
+
+/** Empty starts or retries; fixConflict creates a checkout; resolution submits its committed fix (PM-481). */
+export const StartMergeRequest = z.object({
+  fixConflict: z.boolean().optional(),
+  resolution: z.string().trim().min(1).max(2000).optional(),
+});
+export type StartMergeRequest = z.infer<typeof StartMergeRequest>;
+
+/** The reason a queued merge is put at the front of the queue, in the person's words (PM-576). */
+export const PRIORITIZE_MERGE_REASON_MAX = 500;
+export const PrioritizeMergeRequest = z.object({
+  reason: z.string().trim().min(1).max(PRIORITIZE_MERGE_REASON_MAX),
+});
+export type PrioritizeMergeRequest = z.infer<typeof PrioritizeMergeRequest>;
+
+/** A complete permutation of the repository's queued cards, guarded by its revision (PM-759). */
+export const OrderMergeQueueRequest = z.strictObject({
+  repo: z.string().trim().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  taskKeys: z.array(TaskKey),
+  reason: z.string().trim().min(1).max(PRIORITIZE_MERGE_REASON_MAX),
+});
+export type OrderMergeQueueRequest = z.infer<typeof OrderMergeQueueRequest>;
+export const MergeQueueOrder = z.object({
+  revision: z.number().int().nonnegative(),
+  taskKeys: z.array(TaskKey),
+});
+export type MergeQueueOrder = z.infer<typeof MergeQueueOrder>;
 
 export const CheckOutageResponse = z.object({
   item: InboxItem,
@@ -112,6 +128,9 @@ export const OperatorAction = z.enum([
   'docs_write',
   'decision_offer',
   'knowledge_change',
+  'structural_review',
+  'super_handoff',
+  'operation',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([
@@ -139,6 +158,8 @@ export const OperatorStep = z.object({
   inboxItemId: z.string().nullable(),
   /** The system signal the Operator acted on without an owner's request (PM-545). */
   signalId: z.string().nullable(),
+  /** The super operation an `operation` step started on the shared path (PM-888). */
+  operationId: z.string().nullable().optional(),
   refusal: z.object({ code: z.enum(ERROR_CODES), message: z.string() }).nullable(),
 });
 export type OperatorStep = z.infer<typeof OperatorStep>;
@@ -166,6 +187,7 @@ export const OPERATOR_UNRELEASED_HOURS = 24;
 /** Startable cards and free capacity together for this long wake the Operator. */
 export const OPERATOR_READY_WAITING_MINUTES = 30;
 export const OperatorSignalKind = z.enum([
+  'loop_suspected',
   'process_cleanup_failed',
   'outage',
   'nobody',
@@ -177,8 +199,29 @@ export const OperatorSignalKind = z.enum([
   'unreleased',
   'ready_waiting',
   'answer_stalled',
+  'structural_pattern',
+  'milestone_closed',
+  'refinement_stalled',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+/**
+ * The facts of a `refinement_stalled` signal (PM-702): the recorded turn, the member's latest session and the
+ * open question ids of the card; never a transcript or tool input.
+ */
+export const RefinementStallFacts = z.object({
+  label: z.string(),
+  member: MemberHandle,
+  turnAt: z.string().datetime(),
+  session: z
+    .object({
+      id: z.string(),
+      state: SessionState,
+      lastActivityAt: z.string().datetime(),
+    })
+    .nullable(),
+  openQuestionIds: z.array(z.string()),
+});
+export type RefinementStallFacts = z.infer<typeof RefinementStallFacts>;
 /** The facts of an `answer_stalled` signal (PM-694): the evidence is a delivered answer or message, never its text. */
 export const AnswerStalledFacts = z.object({
   evidenceId: z.string(),
@@ -262,6 +305,83 @@ export const CreateIntegratorKeyRequest = z.object({
 });
 export const CreatedIntegratorKey = z.object({ key: IntegratorKeyInfo, secret: z.string() });
 export type CreatedIntegratorKey = z.infer<typeof CreatedIntegratorKey>;
+
+export const IntegratorKeyMode = z.enum(['legacy', 'super', 'read']);
+export type IntegratorKeyMode = z.infer<typeof IntegratorKeyMode>;
+export const IntegratorChannel = z.enum(['mcp', 'cli', 'rest']);
+export type IntegratorChannel = z.infer<typeof IntegratorChannel>;
+export const IntegratorAccessKeyInfo = IntegratorKeyInfo.extend({
+  id: z.string(),
+  mode: IntegratorKeyMode,
+  lastUsedChannel: IntegratorChannel.nullable(),
+});
+export type IntegratorAccessKeyInfo = z.infer<typeof IntegratorAccessKeyInfo>;
+export const IntegratorAccessKeysResponse = z.object({ keys: z.array(IntegratorAccessKeyInfo) });
+export type IntegratorAccessKeysResponse = z.infer<typeof IntegratorAccessKeysResponse>;
+export const IntegratorAccessKeyResponse = z.object({ key: IntegratorAccessKeyInfo });
+export type IntegratorAccessKeyResponse = z.infer<typeof IntegratorAccessKeyResponse>;
+export const CreateIntegratorAccessKeyRequest = z.object({
+  mode: z.enum(['super', 'read']),
+  expiresInDays: z.union([z.literal(1), z.literal(7), z.literal(30)]).default(7),
+});
+export type CreateIntegratorAccessKeyRequest = z.infer<typeof CreateIntegratorAccessKeyRequest>;
+export const CreatedIntegratorAccessKey = z.object({ key: IntegratorAccessKeyInfo, secret: z.string() });
+export type CreatedIntegratorAccessKey = z.infer<typeof CreatedIntegratorAccessKey>;
+export const IntegratorKeyAuditEntry = z.object({
+  seq: z.number().int().positive(),
+  keyId: z.string(),
+  action: z.enum(['created', 'revoked']),
+  prefix: z.string(),
+  mode: IntegratorKeyMode,
+  at: z.string(),
+});
+export type IntegratorKeyAuditEntry = z.infer<typeof IntegratorKeyAuditEntry>;
+export const IntegratorKeyAuditQuery = z.object({
+  before: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type IntegratorKeyAuditQuery = z.infer<typeof IntegratorKeyAuditQuery>;
+export const IntegratorKeyAuditPage = z.object({
+  entries: z.array(IntegratorKeyAuditEntry),
+  nextBefore: z.number().int().positive().nullable(),
+});
+export type IntegratorKeyAuditPage = z.infer<typeof IntegratorKeyAuditPage>;
+
+/** How long the owner's grant for machine operations lasts (PM-881); `until_revoked` has no end. */
+export const OPERATOR_GRANT_DURATIONS = ['until_revoked', '12h', '7d'] as const;
+export const OperatorGrantDuration = z.enum(OPERATOR_GRANT_DURATIONS);
+export type OperatorGrantDuration = z.infer<typeof OperatorGrantDuration>;
+export const OperatorGrantState = z.object({
+  active: z.boolean(),
+  grantId: z.string().nullable(),
+  grantedAt: z.string().nullable(),
+  /** The name of the owner who granted it. */
+  grantedBy: z.string().nullable(),
+  /** Null: until revoked, or there is no active grant. */
+  expiresAt: z.string().nullable(),
+  lastUsedAt: z.string().nullable(),
+  /** The viewer is the host owner with their own login. */
+  canManage: z.boolean(),
+});
+export type OperatorGrantState = z.infer<typeof OperatorGrantState>;
+export const OperatorGrantResponse = z.object({ grant: OperatorGrantState });
+export type OperatorGrantResponse = z.infer<typeof OperatorGrantResponse>;
+export const CreateOperatorGrantRequest = z.object({
+  duration: OperatorGrantDuration.default('until_revoked'),
+});
+export type CreateOperatorGrantRequest = z.infer<typeof CreateOperatorGrantRequest>;
+export const OperatorGrantAuditEntry = z.object({
+  grantId: z.string(),
+  action: z.enum(['granted', 'revoked', 'replaced', 'expired']),
+  at: z.string(),
+  expiresAt: z.string().nullable(),
+  /** Who granted or revoked it; for `expired`, who granted it. */
+  by: z.string(),
+});
+export type OperatorGrantAuditEntry = z.infer<typeof OperatorGrantAuditEntry>;
+/** Newest first, at most 100. */
+export const OperatorGrantAuditPage = z.object({ entries: z.array(OperatorGrantAuditEntry) });
+export type OperatorGrantAuditPage = z.infer<typeof OperatorGrantAuditPage>;
 
 export const SetupRequest = z.object({
   name: z.string().min(1),
@@ -559,10 +679,18 @@ export const OperatorPlan = z.strictObject({
   reversible: z.boolean(),
 });
 export type OperatorPlan = z.infer<typeof OperatorPlan>;
+export const RoleConfigurationRead = z.strictObject({
+  version: z.string(),
+  role: BuiltInRoleId,
+  override: RoleBundle.nullable(),
+  effective: RoleBundle,
+});
+export type RoleConfigurationRead = z.infer<typeof RoleConfigurationRead>;
+
 export const OperatorOperation = z.discriminatedUnion('op', [
   z.strictObject({
     op: z.literal('config_patch'),
-    patch: PatchConfigRequest.omit({ baseVersion: true, message: true }),
+    patch: OperatorConfigPatch,
   }),
   z.strictObject({ op: z.literal('member_update'), handle: MemberHandle, changes: OperatorMemberChanges }),
   z.strictObject({ op: z.literal('member_hire'), request: HireMemberRequest }),
@@ -1149,6 +1277,28 @@ export const ResolveInboxRequest = z.object({
 });
 export type ResolveInboxRequest = z.infer<typeof ResolveInboxRequest>;
 
+export const ResolveIntegratorTodoRequest = z.strictObject({
+  optionId: z.enum(['todo_done', 'todo_cannot']),
+  note: z.string().trim().max(10_000).optional(),
+});
+export type ResolveIntegratorTodoRequest = z.infer<typeof ResolveIntegratorTodoRequest>;
+
+/**
+ * The integrator's decision about a fix round limit item addressed to it (PM-714): one of the three
+ * outcomes, or `to_owner` to hand the same item to the owners (a note is then required: why). `to_owner` is
+ * a change of recipient, not a fourth outcome.
+ */
+export const ResolveIntegratorFixLimitRequest = z
+  .strictObject({
+    optionId: z.enum(['replan', 'reassign', 'another_round', 'to_owner']),
+    note: z.string().trim().max(10_000).optional(),
+  })
+  .refine((request) => request.optionId !== 'to_owner' || !!request.note, {
+    path: ['note'],
+    message: 'a note is required when the item goes on to the owners',
+  });
+export type ResolveIntegratorFixLimitRequest = z.infer<typeof ResolveIntegratorFixLimitRequest>;
+
 /* ---------- configuration ---------- */
 
 export const ConfigVersionEntry = z.object({
@@ -1160,6 +1310,10 @@ export const ConfigVersionEntry = z.object({
   request: z.string().optional(),
   approvedBy: MemberHandle.optional(),
   via: z.literal('integrator').optional(),
+  /** The full origin of a change made in the Operator's super mode (PM-757), read back from the commit trailers. */
+  actor: Actor.optional(),
+  /** The audit entry that began this super-mode commit (PM-757): how a lost response is settled from the commit. */
+  superAuditId: z.string().optional(),
   version: z.string(),
   message: z.string(),
   author: z.string(),

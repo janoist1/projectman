@@ -2,24 +2,32 @@ import {
   FIX_ANOTHER_ROUND_OPTION,
   FIX_REASSIGN_OPTION,
   FIX_REPLAN_OPTION,
+  FixLimitAssessment as FixLimitAssessmentSchema,
+  MAX_FIX_EXTRA_ROUNDS,
   countFixRounds,
   fixLimitDeciders,
+  fixRoundHistory,
   formatInjectedTeamMessage,
   fixLimitDecisionOf,
   fixLimitLead,
   fixLimitPlanner,
   fixLimitPlannerForOwner,
   fixLimitReached,
+  inboxRecipientOf,
   isOpenTask,
   isWorkPaused,
   isTheme,
   maxFixRoundsOf,
   memberOf,
+  remainingFixExtraRounds,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
 import type {
   Actor,
+  FixLimitAssessment,
+  FixLimitDecisionPayload,
+  FixRoundHistoryEntry,
   FixRounds,
   InboxItem,
   InboxOption,
@@ -33,7 +41,7 @@ import { ownerHandles } from '@projectman/shared';
 import type { Admission, TaskStarts } from '../admission';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
-import { conflict, forbidden } from '../../kernel';
+import { conflict, forbidden, invalid } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
 import type { Messaging } from '../../core/messages';
 import type { MessageDelivery } from '../delivery';
@@ -42,6 +50,7 @@ import type { SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from '../../kernel';
+import { assertIntegratorAccess, assertOwnOrSuperApproval, integratorExecution } from '../../kernel';
 
 type FixLimitEvent = TimelineEventData['task_fix_limit'];
 type Phase = NonNullable<TaskFixLimitRecord['holdPhase']>;
@@ -57,9 +66,12 @@ export type FixLimitPhase = 'released' | 'replan' | 'owner';
  * project's limit is held back: what AI members write to its AI assignee is stored but does not wake it,
  * and the hand-over into the work stage does not tell it. Who decides how it goes on: the lead developer
  * first (an AI member; it continues, asks for a more exact plan, or passes the card to the people), a
- * planner when it asked for a plan, the people when no AI member can decide, when the lead passed it on, or
- * when the card reaches the limit again after one more round. A person's Start of the card is one more
- * round. The hold ends with a decision, a change of the assignee or the card's closing.
+ * planner when it asked for a plan, the people when no AI member can decide or when the lead passed it on.
+ * The lead decides at every limit reach while fewer than `MAX_FIX_EXTRA_ROUNDS` extra rounds were given
+ * since the count began; after the third the decision goes to the people at every reach (PM-714). A
+ * person's Start of the card is one more round, counted the same way. The item for the people goes to the
+ * integrator first when one is available (`InboxService.createFixLimitDecision`). The hold ends with a
+ * decision, a change of the assignee or the card's closing.
  *
  * Opening a hold and the checks around it are synchronous (so that no message slips between the count and
  * the hold); only what starts sessions waits for the card's lock.
@@ -152,6 +164,10 @@ export class FixLimitWatch {
     const config = this.projects.cachedConfig(task.projectKey);
     if (!record?.holdPhase || !record.heldAt || !config) return undefined;
     const rounds = this.roundsOf(task, config, record);
+    const item =
+      record.holdPhase === 'owner' && record.inboxItemId
+        ? this.ctx.repos.inbox.get(record.inboxItemId)
+        : null;
     return {
       phase: record.holdPhase,
       rounds: rounds.rounds,
@@ -159,9 +175,14 @@ export class FixLimitWatch {
       changeRequests: rounds.changeRequests,
       designChangeRequests: rounds.designChangeRequests,
       sendBacks: rounds.sendBacks,
+      testsFailed: rounds.testsFailed,
+      extraRounds: record.extraRounds,
+      remainingExtraRounds: remainingFixExtraRounds(record.extraRounds),
+      extraRoundLimit: MAX_FIX_EXTRA_ROUNDS,
       decider: record.decider,
       deciders: record.deciders,
       reason: record.reason,
+      ...(item?.state === 'open' ? { recipient: inboxRecipientOf(item) } : {}),
       heldAt: record.heldAt,
     };
   }
@@ -200,7 +221,9 @@ export class FixLimitWatch {
    * The AI member who decides (the lead; the planner once it was asked for a plan) decides how a held
    * card goes on: `continue` (the lead: one more round; the planner: the card starts anew with the plan),
    * `replan` (the lead: another technical direction holder makes a more exact plan first), `to_owner`
-   * (the people decide; `reason` goes with it).
+   * (the people decide; `reason` goes with it, and so does the required `assessment` of the lead: whether
+   * the fault comes back, where the work stands, and the outcome it recommends). A refused decision changes
+   * nothing.
    */
   async decide(
     member: string,
@@ -208,9 +231,12 @@ export class FixLimitWatch {
     taskKey: string,
     decision: FixLimitDecision,
     reason: string,
+    assessment?: unknown,
   ): Promise<{ phase: FixLimitPhase }> {
+    assertOwnOrSuperApproval();
     return this.cards.run(taskKey, async () => {
       const config = await this.projects.config(projectKey);
+      assertIntegratorAccess(config, 'write');
       const task = this.tasks.get(projectKey, taskKey);
       const record = this.ctx.repos.taskFixLimits.get(taskKey);
       if (!record?.holdPhase || record.holdPhase === 'owner')
@@ -220,7 +246,7 @@ export class FixLimitWatch {
           'fix_limit_not_decider',
           `${member} does not decide the fix round limit of ${taskKey}`,
         );
-      const actor = aiActor(member);
+      const actor = integratorExecution()?.actor ?? aiActor(member);
       if (decision === 'continue') {
         if (record.holdPhase === 'lead') this.anotherRound(task, record, actor, reason);
         else this.freshStart(task, record, actor, 'continue', reason);
@@ -228,7 +254,8 @@ export class FixLimitWatch {
         return { phase: 'released' };
       }
       if (decision === 'to_owner') {
-        this.passOn(config, task, record, actor, reason);
+        const checked = this.checkAssessment(config, task, assessment);
+        this.passOn(config, task, record, actor, reason, checked);
         return { phase: 'owner' };
       }
       const planner = fixLimitPlanner(config, [member, ...(task.assignee ? [task.assignee] : [])]);
@@ -249,7 +276,11 @@ export class FixLimitWatch {
       if (!record || record.inboxItemId !== item.id || record.holdPhase !== 'owner' || !task) return;
       const config = await this.projects.config(item.projectKey);
       const by = item.resolution?.by ?? 'system';
-      const actor = humanActor(by);
+      // The integrator's decision keeps its authenticated origin (PM-714); a person's is theirs.
+      const actor =
+        (item.resolution?.integratorFixLimit || item.resolution?.superDecision) && item.resolution.actor
+          ? item.resolution.actor
+          : humanActor(by);
       const note = item.resolution?.note ?? null;
       switch (item.resolution?.optionId) {
         case FIX_ANOTHER_ROUND_OPTION.id:
@@ -270,7 +301,7 @@ export class FixLimitWatch {
           // Paused: another implementer would start and the first one stop. The card stays held with its
           // item answered, and `afterResume` makes the decision then.
           if (isWorkPaused(this.ctx.repos.pauses.open(), task.projectKey)) return;
-          await this.reassign(task, { ...record, inboxItemId: null }, by, note);
+          await this.reassign(task, { ...record, inboxItemId: null }, actor, note);
           break;
       }
     });
@@ -338,7 +369,10 @@ export class FixLimitWatch {
     return maxFixRoundsOf(config.team.limits) + (record?.extraRounds ?? 0);
   }
 
-  /** The card reached the limit: the lead decides first, the people when there is no AI lead or it is the second time. */
+  /**
+   * The card reached the limit: the lead decides while fewer than three extra rounds were given since the
+   * count began, the people when those are used up or there is no AI lead (PM-714).
+   */
   private open(
     config: ProjectConfig,
     task: Task,
@@ -346,9 +380,13 @@ export class FixLimitWatch {
     rounds: FixRounds,
   ): void {
     const base = record ?? this.blank(task);
+    if (base.extraRounds >= MAX_FIX_EXTRA_ROUNDS) {
+      this.toOwner(config, task, base, rounds, 'extra_exhausted', null, null, null);
+      return;
+    }
     const lead = fixLimitLead(config, task.assignee ? [task.assignee] : []);
-    if (!lead || base.extraRounds > 0) {
-      this.toOwner(config, task, base, rounds, lead ? 'again' : 'no_ai_decider', null, null);
+    if (!lead) {
+      this.toOwner(config, task, base, rounds, 'no_ai_decider', null, null, null);
       return;
     }
     this.ctx.unitOfWork(() => {
@@ -365,10 +403,101 @@ export class FixLimitWatch {
     });
     this.tasks.publish(this.tasks.get(task.projectKey, task.key));
     const canReplan = fixLimitPlanner(config, [lead, ...(task.assignee ? [task.assignee] : [])]) !== null;
-    this.tell(task, lead, leadNotice(task, rounds, this.limitOf(config, base), canReplan));
+    const history = this.historyOf(task, config, base);
+    this.tell(
+      task,
+      lead,
+      leadNotice(
+        task,
+        rounds,
+        this.limitOf(config, base),
+        { replan: canReplan, reassign: this.otherDevelopers(config, task).length > 0 },
+        base.extraRounds,
+        history,
+      ),
+    );
   }
 
-  /** The card goes to the people: one decision item with the buttons that apply. */
+  /** The AI decider let the obligation lapse: hand it over through the existing decision routing. */
+  async timeOut(
+    projectKey: string,
+    taskKey: string,
+    decider: string,
+  ): Promise<{ decisionItemId: string } | null> {
+    const config = await this.projects.config(projectKey);
+    return this.cards.run(taskKey, async () => {
+      const record = this.ctx.repos.taskFixLimits.get(taskKey);
+      const task = this.tasks.find(projectKey, taskKey);
+      if (
+        !task ||
+        !isOpenTask(task) ||
+        record?.projectKey !== projectKey ||
+        (record.holdPhase !== 'lead' && record.holdPhase !== 'replan') ||
+        record.decider !== decider
+      )
+        return null;
+      this.toOwner(
+        config,
+        task,
+        record,
+        this.roundsOf(task, config, record),
+        'decider_timeout',
+        decider,
+        null,
+        null,
+      );
+      const decisionItemId = this.ctx.repos.taskFixLimits.get(taskKey)?.inboxItemId;
+      return decisionItemId ? { decisionItemId } : null;
+    });
+  }
+
+  /** The rounds list of the current count: what the lead reads in its notice and the item carries. */
+  private historyOf(
+    task: Pick<Task, 'projectKey' | 'key'>,
+    config: ProjectConfig,
+    record: TaskFixLimitRecord | null,
+  ): FixRoundHistoryEntry[] {
+    const events = this.ctx.repos.timeline.roundEvents(task.projectKey, task.key);
+    return fixRoundHistory(events, config, record?.countedFrom ?? null);
+  }
+
+  /** The outcomes that can be carried out on this card now (`replan` needs a planner, `reassign` another developer). */
+  private executableOptions(config: ProjectConfig, task: Task): InboxOption[] {
+    const options: InboxOption[] = [];
+    if (this.plannerFor(config, task)) options.push(FIX_REPLAN_OPTION);
+    if (this.otherDevelopers(config, task).length > 0) options.push(FIX_REASSIGN_OPTION);
+    options.push(FIX_ANOTHER_ROUND_OPTION);
+    return options;
+  }
+
+  /**
+   * The lead's judgement that goes with `to_owner`: required, well formed, and recommending an outcome the
+   * people can pick. Throws before anything changed.
+   */
+  private checkAssessment(config: ProjectConfig, task: Task, assessment: unknown): FixLimitAssessment {
+    if (assessment === undefined || assessment === null)
+      throw invalid(
+        'fix_limit_assessment_required',
+        'to_owner needs an assessment: whether the same fault comes back, where the work stands now, and the outcome you recommend',
+      );
+    const parsed = FixLimitAssessmentSchema.safeParse(assessment);
+    if (!parsed.success)
+      throw invalid('invalid_request', 'invalid assessment', { issues: parsed.error.issues });
+    const available = this.executableOptions(config, task).map((option) => option.id);
+    if (!available.includes(parsed.data.recommendation.optionId))
+      throw invalid(
+        'fix_limit_invalid_recommendation',
+        `the recommended outcome ${parsed.data.recommendation.optionId} cannot be carried out now; choose one of: ${available.join(', ')}`,
+        { available },
+      );
+    return parsed.data;
+  }
+
+  /**
+   * The card goes to the people: one decision item with the buttons that apply, in the project's language,
+   * addressed to the integrator when one is available. It carries the extra rounds, every round and, when the
+   * lead passed the card on, its assessment.
+   */
   private toOwner(
     config: ProjectConfig,
     task: Task,
@@ -377,36 +506,36 @@ export class FixLimitWatch {
     reason: NonNullable<TaskFixLimitRecord['reason']>,
     decider: string | null,
     note: string | null,
+    assessment: FixLimitAssessment | null,
   ): void {
     const deciders = fixLimitDeciders(config, ownerHandles(config));
-    const options: InboxOption[] = [];
-    if (this.plannerFor(config, task)) options.push(FIX_REPLAN_OPTION);
-    if (this.otherDevelopers(config, task).length > 0) options.push(FIX_REASSIGN_OPTION);
-    options.push(FIX_ANOTHER_ROUND_OPTION);
+    const options = this.executableOptions(config, task);
     const limit = maxFixRoundsOf(config.team.limits) + base.extraRounds;
+    const fixLimit: FixLimitDecisionPayload = {
+      taskKey: task.key,
+      rounds: rounds.rounds,
+      limit,
+      changeRequests: rounds.changeRequests,
+      designChangeRequests: rounds.designChangeRequests,
+      sendBacks: rounds.sendBacks,
+      testsFailed: rounds.testsFailed,
+      extraRounds: base.extraRounds,
+      remainingExtraRounds: remainingFixExtraRounds(base.extraRounds),
+      extraRoundLimit: MAX_FIX_EXTRA_ROUNDS,
+      history: this.historyOf(task, config, base),
+      ...(assessment ? { assessment } : {}),
+      reason,
+      decider,
+      note,
+    };
     this.ctx.unitOfWork(() => {
       const item =
         deciders.length > 0
-          ? this.inbox.create({
+          ? this.inbox.createFixLimitDecision(config, {
               projectKey: task.projectKey,
-              kind: 'decision',
-              assignees: deciders,
-              source: 'system',
               taskKey: task.key,
-              title: `Fix round limit on ${task.key}: ${rounds.rounds} rounds`,
-              payload: {
-                fixLimit: {
-                  taskKey: task.key,
-                  rounds: rounds.rounds,
-                  limit,
-                  changeRequests: rounds.changeRequests,
-                  designChangeRequests: rounds.designChangeRequests,
-                  sendBacks: rounds.sendBacks,
-                  reason,
-                  decider,
-                  note,
-                },
-              },
+              assignees: deciders,
+              fixLimit,
               options,
             })
           : null;
@@ -425,7 +554,14 @@ export class FixLimitWatch {
         config,
         rounds,
         base.holdPhase
-          ? { phase: 'passed_on', decider, deciders, reason, ...(note ? { note } : {}) }
+          ? {
+              phase: 'passed_on',
+              decider,
+              deciders,
+              reason,
+              ...(note ? { note } : {}),
+              ...(assessment ? { assessment } : {}),
+            }
           : { phase: 'reached', deciders, reason },
       );
     });
@@ -453,6 +589,7 @@ export class FixLimitWatch {
     record: TaskFixLimitRecord,
     actor: Actor,
     reason: string,
+    assessment: FixLimitAssessment,
   ): void {
     this.toOwner(
       config,
@@ -462,6 +599,7 @@ export class FixLimitWatch {
       'passed_on',
       actor.handle ?? null,
       reason,
+      assessment,
     );
   }
 
@@ -576,11 +714,10 @@ export class FixLimitWatch {
   private async reassign(
     task: Task,
     record: TaskFixLimitRecord,
-    by: string,
+    actor: Actor,
     note: string | null,
   ): Promise<void> {
     const previous = task.assignee;
-    const actor = humanActor(by);
     // The first implementer's own session stays until the handoff (PM-342) took its note; the others stop.
     await this.sessions.stopTask(
       task.projectKey,
@@ -702,6 +839,10 @@ export class FixLimitWatch {
         changeRequests: rounds.changeRequests,
         designChangeRequests: rounds.designChangeRequests,
         sendBacks: rounds.sendBacks,
+        testsFailed: rounds.testsFailed,
+        // The extra rounds as the decision left them (the record is saved before its event).
+        extraRounds: record?.extraRounds ?? 0,
+        remainingExtraRounds: remainingFixExtraRounds(record?.extraRounds ?? 0),
         ...data,
       },
     });
@@ -709,18 +850,55 @@ export class FixLimitWatch {
 }
 
 /** What the lead developer is told when a card reached the limit. */
-function leadNotice(task: Task, rounds: FixRounds, limit: number, canReplan: boolean): string {
-  return [
+function leadNotice(
+  task: Task,
+  rounds: FixRounds,
+  limit: number,
+  can: { replan: boolean; reassign: boolean },
+  extraRounds: number,
+  history: readonly FixRoundHistoryEntry[],
+): string {
+  const recommendable = [can.replan ? 'replan' : null, can.reassign ? 'reassign' : null, 'another_round']
+    .filter(Boolean)
+    .join(', ');
+  const left = remainingFixExtraRounds(extraRounds);
+  const summary = [
     `${task.key} has had ${rounds.rounds} fix rounds (the limit is ${limit}): ${rounds.changeRequests} code review change requests,`,
-    `${rounds.designChangeRequests} UI/UX change requests and ${rounds.sendBacks} send-backs.`,
+    `${rounds.designChangeRequests} UI/UX change requests and ${rounds.sendBacks} send-backs (${rounds.testsFailed} of them failed full tests).`,
+    `Extra rounds given so far: ${extraRounds} of ${MAX_FIX_EXTRA_ROUNDS}; you can give ${left} more, after that the people decide at every limit.`,
     `Its implementer ${task.assignee ?? ''} is held back: what AI members write to it waits.`,
     `Read the card and decide with decide_fix_limit (task_key ${task.key}, a reason in one or two sentences):`,
     '"continue" lets the implementer have one more round;',
-    canReplan ? '"replan" asks another technical direction holder for a more exact plan first;' : null,
-    '"to_owner" gives the decision to the people.',
+    can.replan ? '"replan" asks another technical direction holder for a more exact plan first;' : null,
+    '"to_owner" gives the decision to the people and REQUIRES an assessment:',
+    'recurrence (one sentence: does the same fault come back), current_state (where the work stands now)',
+    `and recommendation (option_id: one of ${recommendable}, and its reason).`,
   ]
     .filter(Boolean)
     .join(' ');
+  return history.length > 0
+    ? `${summary}\nEvery round so far:\n${history.map(historyLine).join('\n')}`
+    : summary;
+}
+
+/** One round of the list a decider reads, in English: the marker, the time, who, what and the note. */
+function historyLine(entry: FixRoundHistoryEntry): string {
+  const marker =
+    entry.kind === 'extra_round'
+      ? `+${entry.extraRound ?? 0}`
+      : entry.round === null
+        ? '-'
+        : `${entry.round}.`;
+  const what =
+    entry.kind === 'tests_failed'
+      ? `failed full test${entry.command ? ` (${entry.command})` : ''}`
+      : entry.kind === 'branch_moved'
+        ? 'branch moved (not counted)'
+        : entry.kind === 'extra_round'
+          ? 'one more round was given'
+          : entry.kind.replace('_', ' ');
+  const note = entry.note ? `: ${entry.note}` : '';
+  return `${marker} ${entry.at.slice(0, 16).replace('T', ' ')} ${entry.actor.handle ?? 'system'} - ${what}${note}`;
 }
 
 /** What the planner is told when the lead asks it for a more exact plan. */

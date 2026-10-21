@@ -1,10 +1,12 @@
 import {
   BoundaryAuditReason,
+  FixLimitAssessment,
   BoundaryState,
   ReleaseFailure,
   ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
+  ObligationKind,
   QuestionCloseRule,
   TaskRelationKind,
   TaskPriority,
@@ -256,11 +258,15 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
   switch (d.phase) {
     case 'passed_on':
       // The row's header names who did it, so the text does not.
-      return t('fixLimit.events.passed_on', {
-        decides: decidesText(strings(d.deciders), ctx.members, ctx.myHandle),
-        note: withNote,
-      });
+      return (
+        t('fixLimit.events.passed_on', {
+          decides: decidesText(strings(d.deciders), ctx.members, ctx.myHandle),
+          note: withNote,
+        }) + assessmentText(d.assessment)
+      );
     case 'decided': {
+      if (d.decision === 'another_round' && typeof d.extraRounds === 'number')
+        return t('fixLimit.events.decidedExtra', { i: d.extraRounds, note: withNote });
       const decision = (FIX_LIMIT_DECISIONS as readonly string[]).includes(str(d.decision))
         ? t(`fixLimit.decisions.${str(d.decision) as (typeof FIX_LIMIT_DECISIONS)[number]}`)
         : str(d.decision);
@@ -286,6 +292,7 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
         changeRequests: Number(d.changeRequests) || 0,
         designChangeRequests: Number(d.designChangeRequests) || 0,
         sendBacks: Number(d.sendBacks) || 0,
+        testsFailed: typeof d.testsFailed === 'number' ? d.testsFailed : undefined,
       });
       // The limit is named only when it is not the number of rounds itself.
       return rounds === limit
@@ -293,6 +300,18 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
         : t('fixLimit.events.reachedLimit', { rounds, limit, parts, who });
     }
   }
+}
+
+function assessmentText(value: unknown): string {
+  const assessment = FixLimitAssessment.safeParse(value);
+  if (!assessment.success) return '';
+  const { recurrence, currentState, recommendation } = assessment.data;
+  return t('fixLimit.events.assessment', {
+    recurrence,
+    currentState,
+    decision: t(`fixLimit.decisions.${recommendation.optionId}`),
+    reason: recommendation.reason,
+  });
 }
 
 /** Attributed, translated text of a timeline event. Free text (notes, messages) stays as written. */
@@ -527,7 +546,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             ...names,
             pinned: shortCommit(str(moved.pinned)),
             head: shortCommit(str(moved.head)),
-          }),
+          }) +
+            '. ' +
+            t('fixLimit.events.notCounted'),
         );
       const testsFailed = record(d.testsFailed);
       if (testsFailed)
@@ -605,6 +626,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'task_loop':
       return normal(loopEventText(d, ctx));
+    case 'loop_triaged':
+      return normal(t('timeline.events.loop_triaged'));
     case 'task_fix_limit':
       return normal(fixLimitEventText(d, ctx));
     case 'task_link_added':
@@ -865,8 +888,59 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
       };
     }
+    case 'question_recipient_escalated':
+      return normal(t('timeline.events.question_recipient_escalated'));
+    case 'fix_limit_recipient_escalated':
+      return d.reason === 'integrator_passed_on'
+        ? normal(
+            t('timeline.events.fix_limit_recipient_escalated_passed_on', {
+              note: str(d.note) ? t('fixLimit.events.note', { note: str(d.note) }) : '',
+            }),
+          )
+        : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
+    case 'obligation_woken':
+    case 'obligation_handed_over': {
+      const kind = ObligationKind.safeParse(d.kind);
+      return normal(
+        t(
+          event.type === 'obligation_handed_over' && str(d.recipientRefusal)
+            ? 'timeline.events.obligation_handed_over_refused'
+            : `timeline.events.${event.type}`,
+          {
+            responsible: nameOf(str(d.responsible), ctx.members, ctx.myHandle),
+            step: kind.success
+              ? t(`timeline.obligationSteps.${kind.data}`)
+              : t('timeline.obligationSteps.step'),
+            minutes: typeof d.minutes === 'number' ? d.minutes : 0,
+            reason: str(d.recipientRefusal),
+          },
+        ),
+      );
+    }
     case 'question_answered':
-      return normal(t('timeline.events.question_answered', { answer: str(d.answer) }));
+      if (d.integratorTodo && typeof d.integratorTodo === 'object') {
+        const result = d.integratorTodo as { optionId?: string; note?: string | null };
+        return normal(
+          t(
+            result.optionId === 'todo_cannot'
+              ? 'timeline.events.integrator_todo_cannot'
+              : 'timeline.events.integrator_todo_done',
+            { note: result.note ?? '' },
+          ),
+        );
+      }
+      return normal(
+        t(
+          d.groupPrimaryItemId
+            ? 'timeline.events.question_answered_grouped'
+            : 'timeline.events.question_answered',
+          { answer: str(d.answer) },
+        ),
+      );
+    case 'question_grouped':
+      return normal(
+        t('timeline.events.question_grouped', { count: Array.isArray(d.itemIds) ? d.itemIds.length : 0 }),
+      );
     case 'question_screened': {
       const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
       const note = str(d.note);
@@ -884,6 +958,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         case 'decision':
           return normal(t('timeline.events.question_screened_decision', { note }));
         case 'todo':
+          if (d.recipient === 'integrator')
+            return normal(t('timeline.events.question_screened_integrator', { note }));
           // Only a todo that was recorded as a missing feature (PM-472) says so.
           return normal(
             t(
@@ -959,6 +1035,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'team_resumed':
       return normal(
         t(d.scope === 'instance' ? 'timeline.events.team_resumed_instance' : 'timeline.events.team_resumed'),
+      );
+    case 'super_handoff_changed':
+      return normal(
+        t('timeline.events.super_handoff_changed', {
+          state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
+        }),
+      );
+    case 'super_operation_changed':
+      return normal(
+        t('timeline.events.super_operation_changed', {
+          state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
+        }),
       );
     case 'focus_changed':
       return normal(

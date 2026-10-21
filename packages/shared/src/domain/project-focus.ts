@@ -133,7 +133,7 @@ export function pullSourceStage(config: Pick<ProjectConfig, 'pipeline'>): Stage 
 /**
  * The cards that may be pulled into development, in order: the urgent ones in board order, then the
  * focus cards by place (the board order within one place). A card is a candidate when it is an active card
- * (not a theme or a collector with open subtasks) in the source stage with no assignee and no open
+ * (not a theme or a collector with subtasks) in the source stage with no assignee and no open
  * prerequisite, its start is not blocked (`startBlock`: not being refined, no holding label, no approval pending) and the gates on the way
  * ask for nothing more: no missing label and no approval to request.
  */

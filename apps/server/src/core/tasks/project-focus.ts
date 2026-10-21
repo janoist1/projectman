@@ -10,11 +10,19 @@ import type {
   ProjectFocus,
   ProjectFocusItem,
   ProjectFocusView,
+  Task,
   TimelineEvent,
 } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
-import { DomainError, conflict, forbidden, notFound } from '../../kernel';
+import {
+  DomainError,
+  conflict,
+  forbidden,
+  notFound,
+  assertIntegratorAccess,
+  assertSuperMutation,
+} from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TaskService } from './service';
 import type { TimelineService } from '../timeline';
@@ -29,14 +37,14 @@ import type { TimelineService } from '../timeline';
 export class ProjectFocusService {
   private readonly ctx: DomainContext;
   private readonly projects: Pick<ProjectService, 'config'>;
-  private readonly tasks: Pick<TaskService, 'list' | 'find'>;
+  private readonly tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
   private readonly timeline: Pick<TimelineService, 'append'>;
   private readonly listeners: Array<(projectKey: string) => void> = [];
 
   constructor(deps: {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'config'>;
-    tasks: Pick<TaskService, 'list' | 'find'>;
+    tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
     timeline: Pick<TimelineService, 'append'>;
   }) {
     this.ctx = deps.ctx;
@@ -58,12 +66,27 @@ export class ProjectFocusService {
 
   /** Key -> place of every open card and theme the focus covers (`projectFocusPlaces`). */
   places(projectKey: string): Map<string, FocusPlace> {
-    return projectFocusPlaces(this.get(projectKey).items, this.tasks.list(projectKey));
+    return this.covered(projectKey).places;
+  }
+
+  /**
+   * The places and the stored cards that decide them (PM-770): the focus items and what open items cover,
+   * read for exactly those keys, not the project's whole list. An empty focus reads no card.
+   */
+  covered(projectKey: string): { places: Map<string, FocusPlace>; cards: Task[] } {
+    const items = this.get(projectKey).items;
+    if (items.length === 0) return { places: new Map(), cards: [] };
+    const cards = this.tasks.readSchedulingTasks(projectKey, {
+      kind: 'focus',
+      keys: items.map((item) => item.key),
+    });
+    return { places: projectFocusPlaces(items, cards), cards };
   }
 
   /** Puts a theme or card into the focus at `position` (1-based; absent or past the end: last). */
   async add(projectKey: string, key: string, actor: Actor, position?: number): Promise<ProjectFocus> {
     await this.check(projectKey, actor);
+    const config = await this.projects.config(projectKey);
     return this.write(projectKey, () => {
       const task = this.tasks.find(projectKey, key);
       if (!task) throw notFound('task', key);
@@ -77,6 +100,11 @@ export class ProjectFocusService {
       const place = Math.min(Math.max(position ?? items.length + 1, 1), items.length + 1);
       const item: ProjectFocusItem = { key, addedAt: isoNow(this.ctx), addedBy: actor };
       const next = [...items.slice(0, place - 1), item, ...items.slice(place - 1)];
+      assertSuperMutation(
+        config,
+        { kind: 'focus_change', before: items.map((i) => i.key), after: next.map((i) => i.key) },
+        actor,
+      );
       this.ctx.repos.projectFocus.replace(projectKey, next);
       this.timeline.append({
         projectKey,
@@ -92,8 +120,10 @@ export class ProjectFocusService {
   /** Moves an item to `position` (1-based, clamped to the length of the list). */
   async move(projectKey: string, key: string, position: number, actor: Actor): Promise<ProjectFocus> {
     await this.check(projectKey, actor);
+    const config = await this.projects.config(projectKey);
     return this.write(projectKey, () => {
       const items = this.ctx.repos.projectFocus.list(projectKey);
+      const before = items.map((i) => i.key);
       const from = items.findIndex((item) => item.key === key);
       if (from < 0) throw unknownItem(key);
       const place = Math.min(Math.max(position, 1), items.length);
@@ -101,6 +131,7 @@ export class ProjectFocusService {
       if (place === from + 1) return null;
       const [item] = items.splice(from, 1);
       items.splice(place - 1, 0, item!);
+      assertSuperMutation(config, { kind: 'focus_change', before, after: items.map((i) => i.key) }, actor);
       this.ctx.repos.projectFocus.replace(projectKey, items);
       this.timeline.append({
         projectKey,
@@ -122,11 +153,17 @@ export class ProjectFocusService {
   /** Takes an item out of the focus. */
   async remove(projectKey: string, key: string, actor: Actor): Promise<ProjectFocus> {
     await this.check(projectKey, actor);
+    const config = await this.projects.config(projectKey);
     return this.write(projectKey, () => {
       const items = this.ctx.repos.projectFocus.list(projectKey);
       const from = items.findIndex((item) => item.key === key);
       if (from < 0) throw unknownItem(key);
       const next = items.filter((item) => item.key !== key);
+      assertSuperMutation(
+        config,
+        { kind: 'focus_change', before: items.map((i) => i.key), after: next.map((i) => i.key) },
+        actor,
+      );
       this.ctx.repos.projectFocus.replace(projectKey, next);
       this.timeline.append({
         projectKey,
@@ -157,7 +194,9 @@ export class ProjectFocusService {
 
   /** Whether the actor may set the focus: the shared rule decides. */
   private async check(projectKey: string, actor: Actor): Promise<void> {
-    const refusal = projectFocusRefusal(await this.projects.config(projectKey), actor);
+    const config = await this.projects.config(projectKey);
+    if (assertIntegratorAccess(config, 'write', actor)) return;
+    const refusal = projectFocusRefusal(config, actor);
     if (refusal) {
       throw forbidden(
         refusal,

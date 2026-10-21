@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
   operatorSignalBudget,
@@ -105,6 +106,24 @@ describe('operatorSignalStepRefusal', () => {
               : null,
         );
       }
+    }
+  });
+
+  it('keeps refinement_stalled report-only at every level, and dismissible', () => {
+    expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('refinement_stalled');
+    for (const level of ['report', 'unblock', 'drive'] as const) {
+      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('refinement_stalled');
+      for (const tool of ['start_task', 'start_member'] as const)
+        expect(
+          operatorSignalStepRefusal({
+            ...base,
+            level,
+            kind: 'refinement_stalled',
+            tool,
+            target: { member: tool === 'start_member' ? 'dev-1' : null, taskKey: 'AR-1' },
+            allowed: { startTask: 'AR-1', members: ['dev-1'], taskKey: 'AR-1' },
+          }),
+        ).toEqual({ code: 'operator_no_request', reason: level === 'report' ? 'level' : 'kind' });
     }
   });
 

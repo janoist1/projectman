@@ -1,3 +1,5 @@
+import { hasSuperOrigin } from '../domain/actor-origin';
+import type { ActorCredential, SuperActor } from '../domain/actor-origin';
 import type { Actor } from '../domain/event';
 import type { MemberHandle } from '../domain/member';
 import type { WorkItemRef } from '../domain/session';
@@ -57,4 +59,33 @@ export function isOperatorActor(
   actor: Pick<Actor, 'kind' | 'handle' | 'via'>,
 ): boolean {
   return actor.kind === 'ai' && !actor.via && isOperator(memberOf(config, actor.handle));
+}
+
+/**
+ * The actor of the Operator's super mode (PM-757): the project's Operator, acting through the integrator
+ * with the credential's id and prefix. The handle is the server's (`operatorOf`), never a request's;
+ * null when the project has no Operator. Only the authenticated execution context may call this.
+ */
+export function superActorOf(
+  config: Pick<ProjectConfig, 'team'>,
+  credential: ActorCredential,
+): SuperActor | null {
+  const operator = operatorOf(config);
+  if (!operator) return null;
+  return {
+    kind: 'ai',
+    handle: operator.handle,
+    via: 'integrator',
+    operatorMode: 'super',
+    credential: { id: credential.id, prefix: credential.prefix },
+  };
+}
+
+/**
+ * Whether the actor has the super mode's origin and is the Operator the project has now. It tells the
+ * origin apart (the direct base mode stays `isOperatorActor`); it grants nothing: an actor read from a
+ * JSON body or a stored row is not authority, only the authenticated principal is.
+ */
+export function isSuperOperatorActor(config: Pick<ProjectConfig, 'team'>, actor: Actor): boolean {
+  return hasSuperOrigin(actor) && operatorOf(config)?.handle === actor.handle;
 }

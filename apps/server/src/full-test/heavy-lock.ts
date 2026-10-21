@@ -3,14 +3,14 @@ import { runPromise } from '../kernel';
 import { holderHeartbeat, waitForLock } from './heavy-lock-core';
 import type { LockWaitAborted, LockWaitTimedOut, LockQueueUnusable } from './heavy-lock-core';
 import { randomBytes } from 'node:crypto';
-import { realpathSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+export { defaultHeavyLockDir } from './heavy-lock-dir';
 
 /**
  * The machine's heavy-run queue (PM-332, PM-336): one full test, type check or screenshot run at a time
  * across the members' sandboxes, the server's full test and the integrating session. Only node built-ins and Effect (through heavy-lock-core and kernel)
- * are used: the CLI (`scripts/heavy/cli.ts`) imports this file directly, and `full-test/index.ts` loads the
+ * are used: the CLI (`scripts/heavy/cli.ts`) imports this file directly, independently of the
  * sandbox runtime. macOS has no `flock` or `lockf`, so the lock is a directory.
  *
  * Layout of the queue folder `dir` (its parent, `projectman-<uid>`, is ours and 0700):
@@ -74,10 +74,6 @@ const DEFAULT_HEARTBEAT_MS = 5_000;
 const DEFAULT_STALE_MS = 30_000;
 const DEFAULT_POLL_MS = 500;
 const DEFAULT_NOTIFY_MS = 30_000;
-
-export function defaultHeavyLockDir(): string {
-  return path.join(realpathSync('/tmp'), `projectman-${process.getuid?.() ?? 'user'}`, 'heavy');
-}
 
 const layout = (dir: string) => ({
   holder: path.join(dir, 'holder'),

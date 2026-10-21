@@ -231,6 +231,16 @@ pre-allowed and denied tools), `--model`, `--effort`, `--permission-mode`, `--ad
 `-n <display name>`. The runner pre-accepts the workspace trust dialog for session
 directories.
 
+**No token on the command line (PM-156).** `--mcp-config` and `--settings` name files, not JSON:
+`claude-mcp.json` and `claude-settings.json` in the session's private launch folder
+(`<app home>/run/<session id>.<random>`, 0700, files 0600; `runner/session-config.ts`). The team
+MCP URL and the hook URL hold the session's tokens, so `ps` shows neither. Hook commands of a
+sandboxed session run the forwarder with `--config '<folder>/hook.curl'` (or read the same file in
+the Node fallback); the file holds the one line `url = "<hook URL>"`. The folder is new for every
+start, a resume included, and is removed when the session's process has exited. Claude Code
+reads the files itself, outside the Bash sandbox. The fake CLI takes both flags as inline JSON or
+as a file.
+
 **Reach (PM-208).** The session runs under the owner's account, so by default it would load the
 owner's claude.ai connectors (Gmail, Drive, Calendar, ClickUp, ...) and Claude in Chrome (the
 owner's logged-in browser). Every session, new or resumed, therefore also gets
@@ -860,7 +870,10 @@ continue, the TUI replays the history (`print-mode/resume-conversation.ndjson`,
   `antigravity-cli/brain/<id>/`.
 
 `cache/last_conversations.json` maps a workspace to its last id. So, like Codex, the id is
-learned from the first hook rather than set by us. _Not tested:_ `--continue`, and
+learned from the first hook rather than set by us. _PM-156:_ the provider folder outlives the
+session, so `config/hooks.json` holds no hook token either: each event's command names
+`hook-<event>.curl` in the session's private launch folder. A resume rewrites `hooks.json` with the
+new folder's files; `config/mcp_config.json` still holds the team MCP URL (see `docs/SECURITY.md`). _Not tested:_ `--continue`, and
 `--input-format stream-json` (multi-turn over stdin, a possible alternative to scraping the PTY).
 
 ### Q7. Transcript

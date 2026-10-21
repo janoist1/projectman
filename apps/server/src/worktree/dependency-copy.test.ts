@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -13,11 +12,12 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execCommand, type ExecCommandOptions } from '../exec';
 import { copyDependencyTrees } from './dependency-copy';
 
-vi.mock('node:child_process', async (original) => {
-  const actual = await original<typeof import('node:child_process')>();
-  return { ...actual, execFile: vi.fn(actual.execFile) };
+vi.mock('../exec', async (original) => {
+  const actual = await original<typeof import('../exec')>();
+  return { ...actual, execCommand: vi.fn(actual.execCommand) };
 });
 
 let root: string;
@@ -37,11 +37,11 @@ beforeEach(() => {
   target = path.join(root, 'target');
   mkdirSync(source);
   mkdirSync(target);
-  vi.mocked(execFile).mockClear();
+  vi.mocked(execCommand).mockClear();
 });
 afterEach(async () => {
-  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
-  vi.mocked(execFile).mockImplementation(actual.execFile);
+  const actual = await vi.importActual<typeof import('../exec')>('../exec');
+  vi.mocked(execCommand).mockImplementation(actual.execCommand);
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -83,25 +83,23 @@ describe('shared dependency tree copying', () => {
 
   it('falls back from a failed Darwin clone to a plain copy', async () => {
     write(source, 'node_modules/pkg/index.js');
-    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
-    vi.mocked(execFile).mockImplementation(((
+    const actual = await vi.importActual<typeof import('../exec')>('../exec');
+    vi.mocked(execCommand).mockImplementation(((
       file: string,
       args: string[],
-      options: object,
-      callback: (err: Error | null) => void,
+      options: ExecCommandOptions & { encoding?: 'utf8' },
     ) => {
       if (args.includes('-c')) {
         mkdirSync(path.join(target, 'node_modules'));
         write(target, 'node_modules/partial');
-        setTimeout(() => callback(new Error('clone unsupported')), 0);
-        return { kill: () => true };
+        return Promise.reject(new Error('clone unsupported'));
       }
       expect(existsSync(path.join(target, 'node_modules'))).toBe(false);
-      return actual.execFile(file, args, options, callback);
-    }) as typeof execFile);
+      return actual.execCommand(file, args, options);
+    }) as unknown as typeof execCommand);
     expect(await copy({ platform: 'darwin' })).toEqual(['node_modules']);
     expect(readFileSync(path.join(target, 'node_modules/pkg/index.js'), 'utf8')).toBe('package');
-    expect(vi.mocked(execFile).mock.calls.map((args) => args[1])).toEqual([
+    expect(vi.mocked(execCommand).mock.calls.map((args) => args[1])).toEqual([
       ['-c', '-R', '-P', path.join(source, 'node_modules'), path.join(target, 'node_modules')],
       ['-R', '-P', path.join(source, 'node_modules'), path.join(target, 'node_modules')],
     ]);
@@ -111,27 +109,25 @@ describe('shared dependency tree copying', () => {
     write(source, 'node_modules/pkg/index.js');
     const controller = new AbortController();
     let stopped = false;
-    vi.mocked(execFile).mockImplementation(((
+    vi.mocked(execCommand).mockImplementation((async (
       _file: string,
       _args: string[],
-      _options: object,
-      callback: (err: Error) => void,
+      options: ExecCommandOptions,
     ) => {
       if (kind === 'abort') setTimeout(() => controller.abort(), 1);
-      return {
-        kill: () => {
-          setTimeout(() => {
-            stopped = true;
-            callback(new Error('stopped'));
-          }, 20);
-          return true;
-        },
-      };
-    }) as typeof execFile);
+      await new Promise<void>((resolve) => {
+        if (kind === 'abort')
+          options.cancelSignal?.addEventListener('abort', () => resolve(), { once: true });
+        else setTimeout(resolve, options.timeoutMs);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      stopped = true;
+      throw new Error('stopped');
+    }) as unknown as typeof execCommand);
     await expect(
       copy({ signal: controller.signal, timeoutMs: kind === 'timeout' ? 10 : 1000, platform: 'darwin' }),
     ).rejects.toThrow();
     expect(stopped).toBe(true);
-    expect(execFile).toHaveBeenCalledTimes(1);
+    expect(execCommand).toHaveBeenCalledTimes(1);
   });
 });

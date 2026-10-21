@@ -9,6 +9,7 @@ import {
   PermissionMode,
 } from '../domain/member';
 import { FeedbackConfig } from '../domain/feedback';
+import { MergeCheckRunner } from '../domain/merge-test';
 import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
@@ -233,6 +234,11 @@ export const TeamLimits = z.object({
    * Absent: `DEFAULT_SENIOR_WAIT_MINUTES`.
    */
   seniorWaitMinutes: z.number().int().min(5).max(1440).optional(),
+  /**
+   * How many minutes an obligation (PM-806) waits before each of its two deadlines: the reminder to the
+   * responsible, then the integrator todo. Absent: `DEFAULT_OBLIGATION_MINUTES`.
+   */
+  obligationMinutes: z.number().int().min(5).max(1440).optional(),
   tempWorkers: z
     .object({
       enabled: z.boolean().default(false),
@@ -252,6 +258,17 @@ export const ReviewTestConfig = z.object({
   maxWorkers: z.number().int().min(1).max(8).default(2),
   /** Wall-clock limit of one run. */
   timeoutMinutes: z.number().int().min(1).max(60).default(15),
+  /**
+   * Shell command prefix that runs only the given test files; the server appends the
+   * repository-relative paths, each shell-quoted. Absent: a failed train is halved as before (PM-844).
+   */
+  filesCommand: z.string().min(1).max(500).optional(),
+  /**
+   * Where the merge check runs (PM-900): absent or 'engine' = the card's engine (full test sandbox,
+   * heavy-run queue); 'github_actions' = the repository's merge-check workflow. The merge check only;
+   * a review-time full test stays on the engine.
+   */
+  runner: MergeCheckRunner.optional(),
 });
 export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
 

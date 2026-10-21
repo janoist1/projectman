@@ -3,6 +3,7 @@ import { createEngineRpc, createRpcState, EngineRpcError } from './rpc';
 import { decodeFrame, encodeFrame, ENGINE_MAX_FRAME_BYTES, EngineFrame } from './protocol';
 import type { EngineFrame as Frame } from './protocol';
 import { methods } from './methods';
+import { testConfig } from '../../test/helpers/test-template';
 
 describe('engine RPC', () => {
   it('coalesces concurrent retries and preserves results over reconnection for five minutes', async () => {
@@ -99,6 +100,24 @@ describe('engine RPC', () => {
     ]);
     await expect(rpc.receive({ ...frame, seq: 3 })).rejects.toMatchObject({ code: 'invalid_params' });
     rpc.close();
+  });
+
+  it('accepts only strict ended or unknown full_test.attach responses (PM-790)', () => {
+    const { params, result } = methods['full_test.attach'];
+    const fullResult = { outcome: 'passed', exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+    expect(params.safeParse({ runId: 'run' }).success).toBe(true);
+    expect(params.safeParse({ runId: 'run', extra: true }).success).toBe(false);
+    expect(result.safeParse({ state: 'unknown' }).success).toBe(true);
+    expect(result.safeParse({ state: 'ended', result: fullResult }).success).toBe(true);
+    for (const invalid of [
+      { state: 'running' },
+      { state: 'ended' },
+      { state: 'ended', result: fullResult, extra: true },
+      { state: 'ended', result: { ...fullResult, extra: true } },
+      { state: 'unknown', extra: true },
+      { state: 'unknown', result: fullResult },
+    ])
+      expect(result.safeParse(invalid).success).toBe(false);
   });
 
   it('takes requireHeavyLock in the strict full_test.run spec as an optional boolean only (PM-658)', () => {
@@ -281,6 +300,176 @@ describe('engine RPC', () => {
     expect(handler).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith(encodeFrame({ t: 'ack', seq: 1 }));
     replacement.close();
+  });
+
+  describe('workspace.findTaskBranch over the wire', () => {
+    const key = {
+      project: testConfig({ workspacePath: '/cloud/path' }),
+      repoName: testConfig().project.repos[0]!.name,
+      member: 'dev',
+    };
+    /** A cloud and an engine side joined by real JSON frames; the engine's handler records its arguments. */
+    function link() {
+      const toEngine: string[] = [];
+      const toCloud: string[] = [];
+      const cloud = createEngineRpc({ side: 'cloud', send: (data) => toEngine.push(data) });
+      const engine = createEngineRpc({ side: 'engine', send: (data) => toCloud.push(data) });
+      const received: unknown[][] = [];
+      engine.handle('workspace.findTaskBranch', (params) => {
+        received.push([...params]);
+        return { branch: 'PM-1-work', source: null };
+      });
+      const pump = async () => {
+        for (const data of toEngine.splice(0)) await engine.receive(decodeFrame(data));
+        for (const data of toCloud.splice(0)) await cloud.receive(decodeFrame(data));
+      };
+      return { cloud, engine, received, pump, toEngine };
+    }
+
+    it.each([
+      ['an omitted preferred branch', undefined],
+      ['a preferred branch', 'PM-1-wanted'],
+    ])('delivers %s to the handler as undefined or the string', async (_name, preferred) => {
+      const { cloud, engine, received, pump, toEngine } = link();
+      const call = cloud.call('workspace.findTaskBranch', [key, 'PM-1', preferred] as never);
+      // The JSON on the wire turns the trailing undefined into null.
+      expect(JSON.parse(toEngine[0]!).params[2]).toBe(preferred ?? null);
+      await pump();
+      await expect(call).resolves.toEqual({ branch: 'PM-1-work', source: null });
+      expect(received).toEqual([[key, 'PM-1', preferred]]);
+      expect(received[0]).toHaveLength(3);
+      cloud.close();
+      engine.close();
+    });
+
+    it('accepts a missing third element and refuses numbers, objects and extra parameters', () => {
+      const params = methods['workspace.findTaskBranch'].params;
+      expect(params.parse([key, 'PM-1'])[2]).toBeUndefined();
+      expect(params.parse([key, 'PM-1', null])[2]).toBeUndefined();
+      expect(params.parse([key, 'PM-1', undefined])[2]).toBeUndefined();
+      expect(params.parse([key, 'PM-1', 'wanted'])[2]).toBe('wanted');
+      for (const bad of [1, {}, [], true]) expect(params.safeParse([key, 'PM-1', bad]).success).toBe(false);
+      expect(params.safeParse([key, 'PM-1', null, 'extra']).success).toBe(false);
+    });
+
+    it('names the method and the failing fields, never the values, on both sides', async () => {
+      const frames: Frame[] = [];
+      const engine = createEngineRpc({ side: 'engine', send: (data) => frames.push(decodeFrame(data)) });
+      engine.handle('workspace.findTaskBranch', () => null);
+      await engine.receive({
+        t: 'req',
+        id: 'bad',
+        method: 'workspace.findTaskBranch',
+        params: [key, 'PM-1', 'ok', 'sk-secret-extra'],
+      });
+      await engine.receive({
+        t: 'req',
+        id: 'bad2',
+        method: 'workspace.findTaskBranch',
+        params: [{ ...key, member: 7 }, 'PM-1', { token: 'sk-secret-value' }],
+      });
+      const messages = frames.map((frame) => (frame.t === 'res' && !frame.ok ? frame.error : null));
+      expect(messages[0]).toMatchObject({ code: 'invalid_params' });
+      expect(messages[1]!.message).toContain('workspace.findTaskBranch');
+      expect(messages[1]!.message).toContain('0.member');
+      expect(messages[1]!.message).toContain('2');
+      expect(JSON.stringify(messages)).not.toContain('sk-secret');
+      const cloud = createEngineRpc({ side: 'cloud', send: () => {} });
+      await expect(cloud.call('workspace.findTaskBranch', [key, 'PM-1', 5] as never)).rejects.toMatchObject({
+        code: 'invalid_params',
+        message: expect.stringMatching(/workspace\.findTaskBranch \(2\)/),
+      });
+      engine.close();
+      cloud.close();
+    });
+  });
+
+  it('limits dependency preparation to a workspace key and a strict ready or skipped result', () => {
+    const { params, result } = methods['workspace.prepareDependencies'];
+    const key = { project: testConfig(), repoName: testConfig().project.repos[0]!.name, member: 'dev' };
+    expect(params.safeParse([key]).success).toBe(true);
+    for (const value of [
+      [key, { waitMs: 1 }],
+      [{ ...key, cwd: '/other' }],
+      [{ ...key, command: 'npm install' }],
+    ])
+      expect(params.safeParse(value).success).toBe(false);
+    expect(result.safeParse({ status: 'ready', key: 'a'.repeat(64), changed: true }).success).toBe(true);
+    expect(result.safeParse({ status: 'skipped', reason: 'not_configured' }).success).toBe(true);
+    expect(result.safeParse({ status: 'ready', key: '', changed: true }).success).toBe(false);
+    expect(
+      result.safeParse({ status: 'ready', key: 'a'.repeat(64), changed: true, output: 'extra' }).success,
+    ).toBe(false);
+  });
+
+  describe('workspace.publishTaskBranch over the wire (PM-739)', () => {
+    const key = {
+      project: testConfig({ workspacePath: '/cloud/path' }),
+      repoName: testConfig().project.repos[0]!.name,
+      member: 'dev',
+    };
+    const commit = 'a'.repeat(40);
+
+    it('carries four parameters out and exactly the path and the ref back', async () => {
+      const toEngine: string[] = [];
+      const toCloud: string[] = [];
+      const cloud = createEngineRpc({ side: 'cloud', send: (data) => toEngine.push(data) });
+      const engine = createEngineRpc({ side: 'engine', send: (data) => toCloud.push(data) });
+      const received: unknown[][] = [];
+      engine.handle('workspace.publishTaskBranch', (params) => {
+        received.push([...params]);
+        return { path: '/engine/repo', ref: `refs/projectman/workspaces/dev/PM-1/${commit}` };
+      });
+      const call = cloud.call('workspace.publishTaskBranch', [key, 'PM-1', 'PM-1-work', commit]);
+      for (const data of toEngine.splice(0)) await engine.receive(decodeFrame(data));
+      for (const data of toCloud.splice(0)) await cloud.receive(decodeFrame(data));
+      await expect(call).resolves.toEqual({
+        path: '/engine/repo',
+        ref: `refs/projectman/workspaces/dev/PM-1/${commit}`,
+      });
+      expect(received).toEqual([[key, 'PM-1', 'PM-1-work', commit]]);
+      cloud.close();
+      engine.close();
+    });
+
+    it('refuses a missing or extra parameter and a result with more than the path and the ref', () => {
+      const { params, result } = methods['workspace.publishTaskBranch'];
+      expect(params.safeParse([key, 'PM-1', 'PM-1-work', commit]).success).toBe(true);
+      expect(params.safeParse([key, 'PM-1', 'PM-1-work']).success).toBe(false);
+      expect(params.safeParse([key, 'PM-1', 'PM-1-work', commit, 'extra']).success).toBe(false);
+      expect(params.safeParse([key, 'PM-1', 'PM-1-work', 5]).success).toBe(false);
+      expect(result.safeParse({ path: '/p', ref: 'refs/x' }).success).toBe(true);
+      expect(result.safeParse({ path: '/p', ref: 'refs/x', token: 'sk-secret' }).success).toBe(false);
+    });
+  });
+
+  it('keeps an unrecognised exception out of the response and the log, naming only method and class', async () => {
+    const frames: Frame[] = [];
+    const failures: unknown[] = [];
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const engine = createEngineRpc({
+      side: 'cloud',
+      send: (data) => frames.push(decodeFrame(data)),
+      onFailed: (failure) => failures.push(failure),
+    });
+    engine.handle('permission.cancel', () => {
+      throw new TypeError('connect failed with token sk-secret-token at /Users/x/.projectman/secret');
+    });
+    await engine.receive({ t: 'req', id: 'boom', method: 'permission.cancel', params: { reqId: 'x' } });
+    expect(frames[0]).toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: 'Engine request failed' },
+    });
+    expect(failures).toEqual([{ method: 'permission.cancel', category: 'TypeError' }]);
+    expect(JSON.stringify([frames, failures])).not.toContain('sk-secret');
+    expect(logged).not.toHaveBeenCalled();
+    engine.handle('permission.cancel', () => {
+      throw Object.assign(new Error('x'), { name: 'sk-secret name with spaces' });
+    });
+    await engine.receive({ t: 'req', id: 'boom2', method: 'permission.cancel', params: { reqId: 'y' } });
+    expect(failures[1]).toEqual({ method: 'permission.cancel', category: 'Error' });
+    logged.mockRestore();
+    engine.close();
   });
 
   it('refuses unknown methods, wrong direction, unsafe machine inputs and oversized frames', async () => {

@@ -1,5 +1,18 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
+  superAccessVerdict,
+  superDecisionRefusal,
+  externalQuestionAnswerRefusal,
+  isRelayableQuestionItem,
+  isCoordinatorOnlySignal,
+  humanInboxAssignment,
+  isIntegratorTodo,
+  planIntegratorInboxEscalation,
+  ownerHandles,
+  superActorOf,
+  ownerReservedEffect,
+  integratorConfigRefusal,
+  canonical,
   canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
   OperatorApprovalWaiverRequest,
@@ -11,6 +24,11 @@ import {
   StopOrphansRequest,
   StopSessionRequest,
   CreateIntegratorKeyRequest,
+  CreateIntegratorAccessKeyRequest,
+  IntegratorKeyAuditQuery,
+  SuperAuditQuery,
+  ListSuperHandoffsQuery,
+  SUPER_OPEN_STATES,
   InvolvementQuery,
   canManageInstancePause,
   canManageProviderKeys,
@@ -36,15 +54,11 @@ import {
   AgentProvider,
   CancelTaskRequest,
   CloseThemeRequest,
-  ChangeTaskLabelsRequest,
   CreateInviteRequest,
   CreateProjectRequest,
-  CreateTaskCommentRequest,
   CreateTaskRequest,
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
-  HANDOFF_TIMEOUT_MS,
-  planHandoff,
   hasPlanUsage,
   pausesOnPlanUsage,
   HireMemberRequest,
@@ -68,10 +82,10 @@ import {
   StartTaskRequest,
   StartMergeRequest,
   PrioritizeMergeRequest,
+  OrderMergeQueueRequest,
+  mergeQueueOrderRefusal,
   UpdateMemberRequest,
   UpdateSessionRequest,
-  UpdateTaskRequest,
-  priorityRefusal,
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
@@ -85,6 +99,9 @@ import {
   canReadAttachments,
   canSeeTask,
   canSeeInboxItem,
+  visibleQuestionItem,
+  isPendingQuestion,
+  questionGroupLiveItemIds,
   canSeeTeamMessage,
   isUnreadBy,
   threadPeersOf,
@@ -103,7 +120,6 @@ import {
   handOnRequestOf,
   holdersAllow,
   isBuiltInRole,
-  isHandleOnLeave,
   isOnLeave,
   isRequiredOperator,
   isRequiredProjectManager,
@@ -182,14 +198,17 @@ import {
   countCardRounds,
   countFixRounds,
   fixLimitDecisionOf,
+  fixRoundHistory,
+  remainingFixExtraRounds,
+  MAX_FIX_EXTRA_ROUNDS,
+  FixLimitAssessment,
+  selectFixLimitRecipient,
   fixLimitDeciders,
   fixLimitLead,
   fixLimitPlanner,
   fixLimitPlannerForOwner,
   fixLimitReached,
   maxFixRoundsOf,
-  canSetDeveloperLevel,
-  DEVELOPER_LEVEL_REASON_MAX,
   developerLevelOf,
   isSenior,
   pickDeveloper,
@@ -211,6 +230,7 @@ import {
 } from '@projectman/shared';
 import type {
   CardBusyDetails,
+  TaskDetail,
   PartsClosed,
   MessageAttachment,
   MessageAttachmentRef,
@@ -218,7 +238,6 @@ import type {
   EngineStatusView,
   EngineView,
   HandoffFallbackReason,
-  HandoffStart,
   HandoffStep,
   TaskHandoff,
   TaskHandoffRecord,
@@ -290,9 +309,11 @@ import {
   roleViews,
 } from '@projectman/templates';
 import * as fixtures from './fixtures';
+import { t } from '../i18n/t';
 import { MockEmailLogin } from './email-login';
 import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
+import { MockPush } from './push';
 import { mockId, mockUuid, nowIso } from './time';
 
 export type MockAuthState = 'ready' | 'setup' | 'login';
@@ -441,6 +462,9 @@ export class MockBackend {
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;
   viewerHandle: string = fixtures.OWNER;
+  /** Tests can exercise the same credential policy as REST without an HTTP bearer secret. */
+  integratorMode: 'legacy' | 'super' | 'read' | null = null;
+  private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
   refuseReleaseApproval = false;
   user = { ...fixtures.mockUser };
@@ -452,6 +476,11 @@ export class MockBackend {
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
   integratorKey: import('@projectman/shared').IntegratorKeyInfo | null = null;
+  integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
+  integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
+  superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
+  superHandoffs: import('@projectman/shared').SuperHandoff[] = [];
+  superOperations: import('@projectman/shared').SuperOperation[] = [];
   private viewerAccess(): import('@projectman/shared').HumanAccess {
     const member = memberOf(this.config, this.viewerHandle);
     return member?.kind === 'human' ? member.access : 'viewer';
@@ -535,6 +564,8 @@ export class MockBackend {
     addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
     emit: (event) => this.emit(event),
   });
+  /** The viewer's web push devices and settings (PM-815); a test fills the device list. */
+  readonly push = new MockPush();
   /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
   operatorRequests: OperatorRequestView[] = [];
   operatorKnowledge: OperatorKnowledgeDocument = {
@@ -824,6 +855,7 @@ export class MockBackend {
     data: Record<string, unknown>,
     sessionId: string | null = null,
     createdAt = nowIso(),
+    actor?: Actor,
   ): TimelineEvent {
     const member = who ? this.findMember(who) : undefined;
     const event: TimelineEvent = {
@@ -831,7 +863,8 @@ export class MockBackend {
       projectKey: fixtures.PROJECT_KEY,
       taskKey,
       sessionId,
-      actor: who ? { kind: member?.kind ?? 'system', handle: who } : { kind: 'system', handle: null },
+      actor:
+        actor ?? (who ? { kind: member?.kind ?? 'system', handle: who } : { kind: 'system', handle: null }),
       type,
       data,
       createdAt,
@@ -1067,6 +1100,10 @@ export class MockBackend {
       changeRequests: rounds.changeRequests,
       designChangeRequests: rounds.designChangeRequests,
       sendBacks: rounds.sendBacks,
+      testsFailed: rounds.testsFailed,
+      extraRounds: this.fixState(taskKey).extraRounds,
+      remainingExtraRounds: remainingFixExtraRounds(this.fixState(taskKey).extraRounds),
+      extraRoundLimit: MAX_FIX_EXTRA_ROUNDS as 3,
     };
   }
 
@@ -1081,8 +1118,14 @@ export class MockBackend {
     const state = this.fixState(taskKey);
     if (!fixLimitReached(rounds.rounds, maxFixRoundsOf(this.config.team.limits), state.extraRounds)) return;
     const lead = fixLimitLead(this.config, [task.assignee]);
-    if (!lead || state.extraRounds > 0) {
-      this.holdForPeople(task, rounds, lead ? 'again' : 'no_ai_decider', null, null);
+    if (!lead || remainingFixExtraRounds(state.extraRounds) === 0) {
+      this.holdForPeople(
+        task,
+        rounds,
+        remainingFixExtraRounds(state.extraRounds) === 0 ? 'extra_exhausted' : 'no_ai_decider',
+        null,
+        null,
+      );
       return;
     }
     this.updateTask(taskKey, {
@@ -1102,6 +1145,19 @@ export class MockBackend {
     });
   }
 
+  /** Simulate an expired AI decision without running the server's obligation clock. */
+  timeOutFixLimit(taskKey: string, decider: string): string | null {
+    const task = this.findTask(taskKey);
+    const held = task?.fixLimit;
+    if (!task || !held || (held.phase !== 'lead' && held.phase !== 'replan') || held.decider !== decider)
+      return null;
+    this.holdForPeople(task, this.fixRoundsOf(taskKey), 'decider_timeout', decider, null);
+    return (
+      this.inbox.find((item) => item.taskKey === taskKey && item.state === 'open' && fixLimitDecisionOf(item))
+        ?.id ?? null
+    );
+  }
+
   /** The card goes to the people: one decision item with the buttons that apply. */
   private holdForPeople(
     task: Task,
@@ -1109,6 +1165,7 @@ export class MockBackend {
     reason: NonNullable<TaskFixLimit['reason']>,
     decider: string | null,
     note: string | null,
+    assessment?: FixLimitAssessment,
   ): void {
     const deciders = fixLimitDeciders(this.config, boundaryOwners(this.config));
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
@@ -1122,7 +1179,7 @@ export class MockBackend {
       ...(others.length > 0 ? [FIX_REASSIGN_OPTION] : []),
       FIX_ANOTHER_ROUND_OPTION,
     ];
-    const data = this.fixLimitData(task.key, rounds);
+    const data = { ...this.fixLimitData(task.key, rounds), ...(assessment ? { assessment } : {}) };
     const passedOn = task.fixLimit !== undefined;
     this.updateTask(task.key, {
       fixLimit: {
@@ -1134,7 +1191,7 @@ export class MockBackend {
         heldAt: task.fixLimit?.heldAt ?? nowIso(),
       },
     });
-    this.upsertInbox({
+    const item: InboxItem = {
       id: mockId('inb'),
       projectKey: fixtures.PROJECT_KEY,
       kind: 'decision',
@@ -1142,14 +1199,38 @@ export class MockBackend {
       source: 'system',
       sessionId: null,
       taskKey: task.key,
-      title: `Fix round limit on ${task.key}: ${rounds.rounds} rounds`,
+      title: t('inbox.fixLimit.subject', { key: task.key }),
       body: null,
-      payload: { fixLimit: { taskKey: task.key, ...data, reason, decider, note } },
+      payload: {
+        fixLimit: {
+          taskKey: task.key,
+          ...data,
+          reason,
+          decider,
+          note,
+          history: fixRoundHistory(
+            this.timeline.filter((event) => event.taskKey === task.key),
+            this.config,
+            this.fixState(task.key).countedFrom,
+          ),
+        },
+      },
       options,
       state: 'open',
       resolution: null,
       createdAt: nowIso(),
-    });
+    };
+    const recipient = selectFixLimitRecipient(
+      item,
+      this.integratorKeys.some((key) => key.mode === 'super' && key.state === 'active'),
+    );
+    item.payload = {
+      ...item.payload,
+      ...recipient,
+      ...(recipient.recipient === 'integrator' ? { integratorOpenedAt: nowIso() } : {}),
+    };
+    this.updateTask(task.key, { fixLimit: { ...task.fixLimit!, recipient: recipient.recipient } });
+    this.upsertInbox(item);
     this.addTimeline(
       task.key,
       decider,
@@ -1189,6 +1270,7 @@ export class MockBackend {
     fresh: boolean,
   ): void {
     const state = this.fixState(task.key);
+    if (!fresh) state.extraRounds += 1;
     this.addTimeline(task.key, by, 'task_fix_limit', {
       phase: 'decided',
       ...this.fixLimitData(task.key, this.fixRoundsOf(task.key)),
@@ -1197,7 +1279,6 @@ export class MockBackend {
       ...(note ? { note } : {}),
     });
     if (fresh) this.fixLimitState.set(task.key, { countedFrom: nowIso(), extraRounds: 0 });
-    else state.extraRounds += 1;
     this.endFixLimit(task.key, 'decided');
   }
 
@@ -1243,7 +1324,13 @@ export class MockBackend {
    * The AI member who decides a held card (the tool `decide_fix_limit`): the lead lets it have one more
    * round, asks for a more exact plan or passes it on; the planner then lets it start anew.
    */
-  decideFixLimit(taskKey: string, decision: 'continue' | 'replan' | 'to_owner', reason: string): void {
+  decideFixLimit(
+    taskKey: string,
+    decision: 'continue' | 'replan' | 'to_owner',
+    reason: string,
+    assessment?: FixLimitAssessment,
+  ): void {
+    if (decision === 'to_owner') assessment = FixLimitAssessment.parse(assessment);
     const task = this.findTask(taskKey);
     const held = task?.fixLimit;
     if (!task || !held || held.phase === 'owner' || !held.decider) return;
@@ -1267,7 +1354,7 @@ export class MockBackend {
       });
       this.updateTask(taskKey, { fixLimit: { ...held, phase: 'replan', decider: planner } });
     } else if (decision === 'to_owner') {
-      this.holdForPeople(task, this.fixRoundsOf(taskKey), 'passed_on', held.decider, reason);
+      this.holdForPeople(task, this.fixRoundsOf(taskKey), 'passed_on', held.decider, reason, assessment);
     }
   }
 
@@ -1619,6 +1706,51 @@ export class MockBackend {
     }
   }
 
+  sweepIntegratorTodos(now: string): void {
+    for (const item of this.inbox) {
+      const patch = planIntegratorInboxEscalation(item, now, ownerHandles(this.config));
+      if (!patch) continue;
+      this.upsertInbox({ ...item, ...patch });
+      if (fixLimitDecisionOf(item)) {
+        const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+        if (task?.fixLimit)
+          this.updateTask(task.key, {
+            fixLimit: { ...task.fixLimit, recipient: 'owner', deciders: patch.assignees },
+          });
+        this.addTimeline(
+          item.taskKey,
+          null,
+          'fix_limit_recipient_escalated',
+          {
+            inboxItemId: item.id,
+            from: 'integrator',
+            to: 'owner',
+            reason: 'integrator_timeout',
+            openedAt: item.payload.integratorOpenedAt as string,
+          },
+          null,
+          now,
+        );
+        continue;
+      }
+      this.addTimeline(
+        item.taskKey,
+        null,
+        'question_recipient_escalated',
+        {
+          inboxItemId: item.id,
+          asker: item.source,
+          from: 'integrator',
+          to: 'owner',
+          openedAt: questionPayloadOf(item)!.integratorOpenedAt!,
+          reason: 'integrator_timeout',
+        },
+        item.sessionId,
+        now,
+      );
+    }
+  }
+
   private commitConfig(message: string): void {
     this.syncPermissionViews();
     this.configVersion = Math.random().toString(16).slice(2, 9);
@@ -1637,6 +1769,7 @@ export class MockBackend {
   }
 
   private board(): BoardView {
+    this.sweepIntegratorTodos(nowIso());
     const stages = resolvedStages(this.config);
     return {
       project: {
@@ -1658,7 +1791,7 @@ export class MockBackend {
       openInboxCount: this.inbox.filter(
         (item) =>
           item.state === 'open' &&
-          item.assignees.includes(this.owner) &&
+          humanInboxAssignment(item, this.owner) &&
           canSeeInboxItem(this.taskViewer(), item),
       ).length,
       aiEnabled: this.config.team.limits.aiEnabled,
@@ -1735,6 +1868,86 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/me/push' || path.startsWith('/api/me/push/'))
+      return (
+        this.push.handle(method, path.slice('/api/me/push'.length), body) ??
+        error(404, 'not_found', 'Unknown route')
+      );
+    if (path === '/api/auth/integrator-keys' || path.startsWith('/api/auth/integrator-keys/')) {
+      if (this.integratorMode) {
+        const verdict = superAccessVerdict(this.config, {
+          mode: this.integratorMode,
+          operation: 'key_management',
+          ownerMembership: this.viewerAccess() === 'owner',
+        });
+        if (!verdict.allowed) return error(403, verdict.code, 'Credential management refused');
+      }
+      if (!this.me().hostOwner) return error(403, 'owner_only', 'Own host-owner login required');
+      this.integratorKeys = this.integratorKeys.map((key) =>
+        key.state === 'active' && key.expiresAt && key.expiresAt <= nowIso()
+          ? { ...key, state: 'expired' }
+          : key,
+      );
+      if (path.endsWith('/audit')) {
+        const input = IntegratorKeyAuditQuery.safeParse(Object.fromEntries(query));
+        if (!input.success) return error(400, 'invalid_request', 'Invalid audit query');
+        const entries = this.integratorKeyAudits
+          .filter((entry) => input.data.before === undefined || entry.seq < input.data.before)
+          .sort((a, b) => b.seq - a.seq);
+        const page = entries.slice(0, input.data.limit);
+        return ok({
+          entries: clone(page),
+          nextBefore: entries.length > page.length ? page.at(-1)!.seq : null,
+        });
+      }
+      if (method === 'POST' && path === '/api/auth/integrator-keys') {
+        const input = CreateIntegratorAccessKeyRequest.safeParse(body);
+        if (!input.success) return error(400, 'invalid_request', 'Invalid key request');
+        const at = nowIso();
+        this.integratorKeys = this.integratorKeys.map((key) =>
+          key.mode === input.data.mode && key.state === 'active'
+            ? { ...key, state: 'revoked', revokedAt: at }
+            : key,
+        );
+        const key: import('@projectman/shared').IntegratorAccessKeyInfo = {
+          id: `mock_key_${this.integratorKeys.length + 1}`,
+          mode: input.data.mode,
+          prefix: `pmi_mock_${this.integratorKeys.length + 1}`,
+          state: 'active',
+          createdAt: at,
+          expiresAt: new Date(Date.parse(at) + input.data.expiresInDays * 86_400_000).toISOString(),
+          lastUsedAt: null,
+          lastUsedChannel: null,
+          revokedAt: null,
+        };
+        this.integratorKeys.push(key);
+        this.integratorKeyAudits.push({
+          seq: this.integratorKeyAudits.length + 1,
+          keyId: key.id,
+          action: 'created',
+          prefix: key.prefix,
+          mode: key.mode,
+          at,
+        });
+        return { status: 201, body: { key: clone(key), secret: 'pmi_mock_key_for_ui_tests_only' } };
+      }
+      if (method === 'DELETE') {
+        const key = this.integratorKeys.find((entry) => entry.id === path.split('/').at(-1));
+        if (!key) return error(404, 'not_found', 'Key not found');
+        key.state = 'revoked';
+        key.revokedAt = nowIso();
+        this.integratorKeyAudits.push({
+          seq: this.integratorKeyAudits.length + 1,
+          keyId: key.id,
+          action: 'revoked',
+          prefix: key.prefix,
+          mode: key.mode,
+          at: key.revokedAt,
+        });
+        return ok({ key: clone(key) });
+      }
+      return ok({ keys: clone(this.integratorKeys) });
+    }
     if (path === '/api/auth/integrator-key') {
       if (!this.me().hostOwner) return error(403, 'owner_only', 'Only the host owner may manage the key');
       if (method === 'POST') {
@@ -2047,7 +2260,71 @@ export class MockBackend {
   }
 
   private handleProject(method: string, rest: string, body: unknown, query: URLSearchParams): MockResponse {
+    if (this.integratorMode) {
+      const verdict = superAccessVerdict(this.config, {
+        mode: this.integratorMode,
+        operation: method === 'GET' || method === 'HEAD' ? 'read' : 'write',
+        ownerMembership: this.viewerAccess() === 'owner',
+      });
+      if (!verdict.allowed) return error(403, verdict.code, 'Credential access refused');
+    }
     let m: RegExpExecArray | null;
+    if (rest === '/operator-super/audit') {
+      if (this.viewerAccess() !== 'owner' || this.integratorMode)
+        return error(403, 'owner_only', 'Own owner login required');
+      const input = SuperAuditQuery.safeParse(Object.fromEntries(query));
+      if (!input.success) return error(400, 'invalid_request', 'Invalid audit query');
+      const all = this.superAudits.filter(
+        (entry) => !input.data.prefix || entry.prefix === input.data.prefix,
+      );
+      const start = input.data.before ? all.findIndex((entry) => entry.id === input.data.before) + 1 : 0;
+      const entries = all.slice(start, start + input.data.limit);
+      return ok({
+        entries: clone(entries),
+        nextBefore: start + entries.length < all.length ? entries.at(-1)!.id : null,
+      });
+    }
+    if (rest === '/operator-super/handoffs') {
+      if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');
+      const input = ListSuperHandoffsQuery.safeParse(Object.fromEntries(query));
+      if (!input.success) return error(400, 'invalid_request', 'Invalid handoff query');
+      return ok({
+        handoffs: clone(
+          this.superHandoffs
+            .filter((entry) =>
+              input.data.state ? entry.state === input.data.state : SUPER_OPEN_STATES.includes(entry.state),
+            )
+            .slice(0, input.data.limit),
+        ),
+      });
+    }
+    if ((m = /^\/operator-super\/handoffs\/([^/]+)$/.exec(rest))) {
+      if (this.viewerAccess() !== 'owner') return error(403, 'insufficient_access', 'Owner access required');
+      const handoff = this.superHandoffs.find(
+        (entry) => entry.id === decodeURIComponent(m![1]!) && entry.projectKey === this.config.project.key,
+      );
+      return handoff ? ok({ handoff: clone(handoff) }) : error(404, 'not_found', 'Handoff not found');
+    }
+    if ((m = /^\/operator-super\/operations\/([^/]+)$/.exec(rest))) {
+      if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');
+      const operation = this.superOperations.find((entry) => entry.id === m![1]);
+      return operation
+        ? ok({ operation: clone(operation), result: null })
+        : error(404, 'not_found', 'Operation not found');
+    }
+    if (rest === '/merge-queue/order') {
+      if (method === 'GET') return ok(clone(this.mergeQueueOrder(query.get('repo') ?? '')));
+      const parsed = OrderMergeQueueRequest.safeParse(body);
+      if (!parsed.success) return error(400, 'invalid_request', 'Invalid queue order');
+      if (this.viewerAccess() !== 'owner') return error(403, 'insufficient_access', 'Owner access required');
+      const current = this.mergeQueueOrder(parsed.data.repo);
+      if (mergeQueueOrderRefusal(current, parsed.data))
+        return error(409, 'merge_queue_conflict', 'The merge queue changed');
+      const changed = current.taskKeys.some((key, index) => parsed.data.taskKeys[index] !== key);
+      const ordered = { revision: current.revision + Number(changed), taskKeys: [...parsed.data.taskKeys] };
+      this.mergeOrders.set(parsed.data.repo, ordered);
+      return ok(clone(ordered));
+    }
     const restricted =
       rest.startsWith('/invites') ||
       (rest === '/roles' && method !== 'GET') ||
@@ -2055,19 +2332,13 @@ export class MockBackend {
       (rest.startsWith('/members') && method !== 'GET' && !rest.endsWith('/conversation')) ||
       /\/tasks\/[^/]+\/cancel$/.test(rest) ||
       // A theme is reopened from developer access, any other card by an admin (like the server).
-      this.reopensNonTheme(rest) ||
-      (rest.startsWith('/tasks/') &&
-        method === 'PATCH' &&
-        body !== null &&
-        typeof body === 'object' &&
-        'assignee' in body);
+      this.reopensNonTheme(rest);
     const viewer = this.findMember(this.viewerHandle);
     if (!viewer) return error(403, 'not_a_member', 'Not a member');
     if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
       return error(403, 'insufficient_access', 'Owner or admin required');
     if (
       (rest === '/tasks' && method === 'POST') ||
-      (rest.startsWith('/tasks/') && method === 'PATCH') ||
       /\/tasks\/[^/]+\/(close-theme|reopen|board-move)$/.test(rest)
     ) {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
@@ -2156,44 +2427,11 @@ export class MockBackend {
       if (method === 'POST') return this.createTask(body);
       return ok(clone(this.tasks));
     }
-    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)$/.exec(rest))) {
-      const task = this.findTask(m[1]!);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      if (method === 'PATCH') {
-        const input = parseBody(UpdateTaskRequest, body);
-        if (!input) return error(400, 'invalid_request', 'Invalid task update');
-        return this.changeTask(task, input);
-      }
-      return ok(this.taskDetail(task));
-    }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/handoffs\/([^/]+)$/.exec(rest)) && method === 'GET') {
       const record = this.handoffRecords.get(m[2]!);
       if (!record || record.taskKey !== m[1]) return error(404, 'not_found', 'Unknown handoff');
       const { taskKey: _taskKey, ...view } = record;
       return ok(clone(view));
-    }
-    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/comments$/.exec(rest)) && method === 'POST') {
-      if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
-        return error(403, 'insufficient_access', 'Developer access required');
-      const input = parseBody(CreateTaskCommentRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid comment');
-      if ((input.importedAuthor !== undefined || input.importedAt !== undefined) && viewer.role !== 'owner')
-        return error(403, 'insufficient_access', 'Owner access required');
-      const task = this.findTask(m[1]!);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      const { text, ...importedFrom } = input;
-      this.recordNote(task, text, this.viewerActor(), importedFrom);
-      return { status: 201, body: this.taskDetail(task) };
-    }
-    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/labels$/.exec(rest)) && method === 'POST') {
-      if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
-        return error(403, 'insufficient_access', 'Developer access required');
-      const input = parseBody(ChangeTaskLabelsRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid label change');
-      const task = this.findTask(m[1]!);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      const refused = this.applyLabels(task, input, this.viewerActor(), { comment: input.comment });
-      return refused ?? ok(this.taskDetail(task));
     }
     if ((m = /^\/message-attachments(?:\/(msa_[a-z0-9]+)(?:\/(content|download|thumbnail))?)?$/.exec(rest))) {
       return this.handleMessageAttachments(method, m[1], m[2], body);
@@ -2481,14 +2719,23 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.refreshBoundaryInbox();
+      this.sweepIntegratorTodos(nowIso());
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(
-          this.inbox.filter(
-            (item) =>
-              canSeeInboxItem(this.taskViewer(), item) &&
-              (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
-          ),
+          this.inbox
+            .filter(
+              (item) =>
+                canSeeInboxItem(this.taskViewer(), item) &&
+                (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
+                (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
+            )
+            .map((item) =>
+              visibleQuestionItem(this.taskViewer(), item, (key) => {
+                const task = this.findTask(key);
+                return !!task && this.canSee(task);
+              }),
+            ),
         ),
       });
     }
@@ -2534,6 +2781,15 @@ export class MockBackend {
 
   /** The server's checks on every configuration change: access, owner-only changes, invariants. */
   private configChangeFailure(next: ProjectConfig): MockResponse | null {
+    if (this.integratorMode === 'super') {
+      const effect = ownerReservedEffect(this.config, { kind: 'config_change', next });
+      if (effect)
+        return error(403, 'owner_approval_required', 'A specific owner authorization is required', {
+          effect,
+        });
+    }
+    if (this.integratorMode === 'legacy' && integratorConfigRefusal(this.config, next))
+      return error(403, 'owner_login_required', 'The legacy credential cannot change this setting');
     if (operatorWaiverChanged(this.config, next))
       return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const viewer = memberOf(this.config, this.viewerHandle);
@@ -3090,7 +3346,7 @@ export class MockBackend {
     return ok(clone(member));
   }
 
-  private taskPullRequests(task: Task) {
+  private taskPullRequests(task: Task): TaskDetail['pullRequests'] {
     return task.links
       .filter((link) => link.kind === 'pull_request' && link.repo)
       .map((link) => ({
@@ -3098,7 +3354,7 @@ export class MockBackend {
         number: Number(link.ref),
         url: `https://github.com/${link.repo}/pull/${link.ref}`,
         title: link.title ?? null,
-        state: link.state ?? null,
+        state: (link.state as TaskDetail['pullRequests'][number]['state']) ?? null,
         checks: 'passing',
         reviewDecision: 'approved',
         additions: 42,
@@ -3178,6 +3434,11 @@ export class MockBackend {
   }
 
   private viewerActor(): Actor {
+    if (this.integratorMode === 'super') {
+      const actor = superActorOf(this.config, { id: 'mock_integrator', prefix: 'pmi_mock' });
+      if (actor) return actor;
+    }
+    if (this.integratorMode) return { kind: 'human', handle: this.viewerHandle, via: 'integrator' };
     return { kind: 'human', handle: this.viewerHandle };
   }
 
@@ -3323,12 +3584,13 @@ export class MockBackend {
 
   /** A task as the viewer sees it: the merge is the team's, a client never gets it (like the server). */
   private forViewer(task: Task): Task {
+    // Derived ready holds are supplied by fixtures, without a second scheduling implementation.
     if (this.findMember(this.viewerHandle)?.role !== 'client') return clone(task);
     const { merge: _merge, merged: _merged, ...visible } = task;
     return clone(visible);
   }
 
-  private taskDetail(task: Task) {
+  taskDetail(task: Task): TaskDetail {
     const client = this.findMember(this.viewerHandle)?.role === 'client';
     const wait = client ? null : this.taskWaitOf(task);
     return {
@@ -3370,271 +3632,6 @@ export class MockBackend {
       .sort((a, b) => (a.closedAt! < b.closedAt! ? 1 : -1))
       .map((task) => measureClosedCard(task, this.taskSessions(task.key), this.cardRounds(task.key)));
     return { since, days, cards: clone(cards) };
-  }
-
-  /**
-   * Like the server's all-or-nothing task update: the whole change is validated first (label
-   * rules, then the gates against the labels the task will have, and whether someone may give
-   * the approvals the move needs); fields, assignee and labels are applied before the move, and
-   * a move that needs an approval requests it with the rest applied.
-   */
-  private changeTask(task: Task, input: UpdateTaskRequest): MockResponse {
-    const actor = this.viewerActor();
-    const patch: Partial<Task> = {};
-    const fields: string[] = [];
-    // A theme does not move, have an assignee or a repository.
-    if (
-      isTheme(task) &&
-      ((input.stageId !== undefined && input.stageId !== task.stageId) ||
-        (input.assignee !== undefined && input.assignee !== null) ||
-        (input.repo !== undefined && input.repo !== null) ||
-        (input.priority !== undefined && input.priority !== null))
-    )
-      return error(409, 'task_is_theme', 'A theme has no stage, assignee or repository');
-    // Like the server (`planDeveloperLevel`): who may, theme, closed, then the reason; the same level and reason is no change.
-    let levelEvent: TimelineEventData['task_level_changed'] | null = null;
-    if (input.developerLevel) {
-      if (!canSetDeveloperLevel(this.config, this.viewerHandle))
-        return error(403, 'developer_level_forbidden', 'Not allowed to set the recommended developer');
-      if (isTheme(task)) return error(409, 'task_is_theme', 'A theme has no recommended developer');
-      if (!isOpenTask(task)) return error(409, 'task_closed', `Task ${task.key} is ${task.status}`);
-      const reason = input.developerLevel.reason?.trim() || null;
-      if (reason && reason.length > DEVELOPER_LEVEL_REASON_MAX)
-        return error(400, 'invalid_request', 'The reason is too long');
-      if (input.developerLevel.level === 'senior' && !reason)
-        return error(400, 'developer_level_reason_required', 'A Senior task needs a reason');
-      const before = task.developerLevel
-        ? { level: task.developerLevel.level, reason: task.developerLevel.reason }
-        : null;
-      if (!(before && before.level === input.developerLevel.level && before.reason === reason)) {
-        patch.developerLevel = {
-          level: input.developerLevel.level,
-          reason,
-          setBy: this.viewerHandle,
-          setAt: nowIso(),
-        };
-        levelEvent = { level: input.developerLevel.level, reason, previous: before };
-      }
-    }
-    if (input.priority !== undefined) {
-      const refusal = priorityRefusal(actor, this.config);
-      if (refusal)
-        return error(403, refusal, 'The priority of a card is set by people and the project manager only');
-      if (input.priority !== task.priority) {
-        patch.priority = input.priority;
-        fields.push('priority');
-      }
-    }
-    if (input.title !== undefined && input.title.trim() !== task.title) {
-      patch.title = input.title.trim();
-      if (!patch.title) return error(400, 'invalid_request', 'Empty title');
-      fields.push('title');
-    }
-    if (input.description !== undefined && input.description !== task.description) {
-      patch.description = input.description;
-      fields.push('description');
-    }
-    if (input.visibility !== undefined && input.visibility !== task.visibility) {
-      patch.visibility = input.visibility;
-      fields.push('visibility');
-    }
-    if (input.relations && input.parentKey !== undefined)
-      return error(400, 'invalid_request', 'Give the parent in parentKey or in relations, not both');
-    const relationPlan = input.relations ? this.planRelationChange(task, input.relations) : null;
-    if (relationPlan && 'status' in relationPlan) return relationPlan;
-    if (relationPlan?.closes && input.stageId !== undefined && input.stageId !== task.stageId)
-      return error(400, 'invalid_request', 'A card marked as a duplicate cannot move in the same call');
-    if (input.parentKey) {
-      const refusal = this.validateParent(task.key, input.parentKey, task.kind);
-      if (refusal) return refusal;
-    }
-    if (input.parentKey !== undefined && input.parentKey !== (task.parentKey ?? null)) {
-      patch.parentKey = input.parentKey;
-      fields.push('parentKey');
-    }
-    // Like the server: the theme the card stores (a subtask stores none), the rule, and the loss of the
-    // card's own theme when it becomes a subtask.
-    const ownTheme = task.parentKey ? null : (task.themeKey ?? null);
-    let themeAfter = ownTheme;
-    let parentAfter = input.parentKey !== undefined ? input.parentKey : (task.parentKey ?? null);
-    for (const step of relationPlan?.steps ?? [])
-      if (step.type === 'parent' && step.child === task.key) parentAfter = step.parent;
-    if (input.themeKey !== undefined && input.themeKey !== ownTheme) {
-      if (input.themeKey !== null) {
-        const refusal = this.themeError(input.themeKey, task, parentAfter);
-        if (refusal) return refusal;
-      }
-      themeAfter = input.themeKey;
-    }
-    if (parentAfter) themeAfter = null;
-    if (themeAfter !== ownTheme) patch.themeKey = themeAfter;
-    // Like the server: a repository of the project, and not while a session of the task runs.
-    if (input.repo !== undefined && input.repo !== task.repo) {
-      if (input.repo !== null && !repoOf(this.config, input.repo))
-        return error(400, 'unknown_repo', 'Unknown repository');
-      const live = this.taskSessions(task.key).find((session) => this.isLive(session));
-      if (live) return error(409, 'task_session_live', 'A session is still live', { sessionId: live.id });
-      patch.repo = input.repo;
-      fields.push('repo');
-    }
-    if (input.assignee !== undefined) {
-      if (input.assignee !== null && !memberOf(this.config, input.assignee))
-        return error(400, 'unknown_member', 'Unknown member');
-      // A live session of the old assignee is no obstacle (PM-342): the server asks it for a handoff note.
-      if (input.assignee !== task.assignee) {
-        if (isHandleOnLeave(this.config, input.assignee))
-          return error(409, 'member_on_leave', `${input.assignee} is on leave`);
-        patch.assignee = input.assignee;
-      }
-    }
-    const wanted = input.labels && unique(input.labels.map((label) => label.trim()).filter(Boolean));
-    const labels = planLabelChange(
-      this.config,
-      { ...task, ...patch },
-      wanted
-        ? {
-            add: wanted.filter((label) => !task.labels.includes(label)),
-            remove: task.labels.filter((label) => !wanted.includes(label)),
-          }
-        : {},
-      actor,
-    );
-    if (!labels.ok) return labelChangeError(labels.refusal);
-    const moving = input.stageId !== undefined && input.stageId !== task.stageId;
-    if (moving) {
-      if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
-      const target = stageOf(this.config, input.stageId!);
-      if (!target) return error(400, 'unknown_stage', 'Unknown stage');
-      const unmerged = this.mergeGate(task, target.id, labels.labels);
-      if (unmerged) return unmerged;
-      const prospective = { ...task, ...patch, labels: labels.labels };
-      const evaluation = this.partsClosedOf(prospective, target.id)
-        ? { unmet: [], approvals: [] }
-        : evaluateMove(prospective, this.config, task.stageId, target.id);
-      if (evaluation.unmet.length) return gateBlockedError(evaluation);
-      const nobody = this.noApproverError(
-        { ...task, ...patch, labels: labels.labels },
-        target,
-        evaluation.approvals,
-      );
-      if (nobody) return nobody;
-    }
-
-    const previous = {
-      assignee: task.assignee,
-      parentKey: task.parentKey ?? null,
-      repo: task.repo,
-      priority: task.priority,
-    };
-    const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
-    let handoffStart: HandoffStart | undefined;
-    if (
-      fields.length ||
-      patch.assignee !== undefined ||
-      patch.themeKey !== undefined ||
-      labelsChanged ||
-      levelEvent
-    ) {
-      this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
-      if (levelEvent) this.addTimeline(task.key, actor.handle, 'task_level_changed', { ...levelEvent });
-      if (fields.length)
-        this.addTimeline(task.key, actor.handle, 'task_updated', {
-          fields,
-          ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: previous.repo } : {}),
-          ...(patch.priority !== undefined
-            ? { priority: patch.priority, previousPriority: previous.priority }
-            : {}),
-        });
-      if (labelsChanged) this.recordLabels(task, labels, actor, {});
-      if (patch.assignee !== undefined)
-        this.addTimeline(task.key, actor.handle, 'task_assigned', {
-          assignee: task.assignee,
-          previous: previous.assignee,
-        });
-      if (patch.assignee !== undefined)
-        handoffStart = this.handOver(task, previous.assignee, patch.assignee, actor.handle);
-      if (patch.parentKey !== undefined)
-        this.recordParentChange(task.key, previous.parentKey, task.parentKey ?? null);
-      if (patch.themeKey !== undefined) this.recordThemeChange(task.key, ownTheme, themeAfter);
-      this.settleSeniorWaits();
-    }
-    if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
-    this.syncSubtaskThemes();
-    return moving
-      ? this.move(task, input.stageId!, actor)
-      : ok({ ...clone(task), ...(handoffStart ? { handoffStart } : {}) });
-  }
-
-  /**
-   * What a change of the assignee starts (PM-342), by the shared `planHandoff` rule the server uses: the
-   * old session is asked for a note (`live`, the card carries `handoff`), or the transcript summary stands
-   * in at once (`fallback`, the card carries `lastHandoff`). Giving the card back to the old assignee
-   * cancels the open handoff, a third member takes it over as the receiver.
-   */
-  private handOver(
-    task: Task,
-    previous: string | null,
-    next: string | null,
-    by: string | null,
-  ): HandoffStart | undefined {
-    const open = task.handoff;
-    if (open) {
-      if (next === open.from) {
-        this.updateTask(task.key, { handoff: undefined });
-        this.addTimeline(task.key, by, 'task_handoff', this.handoffEventData('cancelled', open));
-        return undefined;
-      }
-      const toProvider = next ? this.providerOf(next) : null;
-      this.updateTask(task.key, { handoff: { ...open, to: next, toProvider } });
-      this.addTimeline(
-        task.key,
-        by,
-        'task_handoff',
-        this.handoffEventData('retargeted', { ...open, to: next, toProvider }),
-      );
-      return undefined;
-    }
-    if (!previous) return undefined;
-    const from = memberOf(this.config, previous);
-    const conversation = this.taskSessions(task.key)
-      .filter((session) => session.member === previous)
-      .at(-1);
-    const plan = planHandoff({
-      from: from
-        ? {
-            kind: from.kind,
-            provider: this.providerOf(previous),
-            onLeave: isHandleOnLeave(this.config, previous),
-          }
-        : null,
-      conversation: conversation
-        ? { provider: conversation.provider ?? this.providerOf(previous), transcript: this.handoffTranscript }
-        : null,
-    });
-    if (!plan) return undefined;
-    const fromProvider = this.providerOf(previous);
-    const base: TaskHandoff = {
-      id: mockId('hnd'),
-      from: previous,
-      to: next,
-      fromProvider,
-      toProvider: next ? this.providerOf(next) : null,
-      reason: 'manual',
-      step: plan.mode === 'live' ? 'waiting_point' : 'closing',
-      startedAt: nowIso(),
-      deadlineAt: plan.mode === 'live' ? new Date(Date.now() + HANDOFF_TIMEOUT_MS).toISOString() : null,
-    };
-    this.addTimeline(task.key, by, 'task_handoff', {
-      ...this.handoffEventData('started', base),
-      mode: plan.mode,
-      reason: base.reason,
-    });
-    if (plan.mode === 'live') {
-      this.updateTask(task.key, { handoff: base });
-      return { mode: 'live', from: previous };
-    }
-    this.closeHandoff(task, base, { fallbackReason: plan.reason, summary: 'Where the work stood.' }, false);
-    return { mode: 'fallback', from: previous, reason: plan.reason };
   }
 
   private handoffEventData(phase: TimelineEventData['task_handoff']['phase'], handoff: TaskHandoff) {
@@ -3758,22 +3755,15 @@ export class MockBackend {
     return task;
   }
 
-  /** Adds a comment; the members it mentions get it as a team message (imported ones do not). */
-  private recordNote(
-    task: Task,
-    text: string,
-    actor: Actor,
-    imported: Pick<CreateTaskCommentRequest, 'importedAuthor' | 'importedAt'> = {},
-  ): void {
+  /** Adds the comment of a label change and notifies the mentioned members. */
+  private recordNote(task: Task, text: string, actor: Actor): void {
     const mentions = commentMentions(
       text,
       this.config.team.members.map((member) => member.handle),
       actor.handle,
     );
-    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions, ...imported });
-    const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
-    if (!isImported && mentions.length && actor.handle)
-      this.sendTeamMessage(actor.handle, mentions, task.key, text);
+    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions });
+    if (mentions.length && actor.handle) this.sendTeamMessage(actor.handle, mentions, task.key, text);
   }
 
   /** Records a label change already written to the task: the event, the comment, the assignee's notice. */
@@ -3871,9 +3861,12 @@ export class MockBackend {
 
   /** Writes a card's merge state and its merged result, and announces the card. */
   private writeMerge(task: Task, merge: TaskMergeState | undefined, merged?: TaskMerged): void {
+    const repo = merge?.repo ?? task.merge?.repo;
+    if (repo) this.mergeQueueOrder(repo);
     if (merge) task.merge = merge;
     else delete task.merge;
     if (merged) task.merged = merged;
+    if (repo) this.mergeQueueOrder(repo);
     task.updatedAt = nowIso();
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
   }
@@ -4071,10 +4064,29 @@ export class MockBackend {
     return ok({ task: clone(task) });
   }
 
-  /**
-   * The prioritize route: the card's merger or an owner puts its queued merge first. The fake has no queue
-   * order of its own; it keeps the timeline entry the server writes, listing the queued merges of the repository.
-   */
+  private mergeQueueOrder(repo: string): { revision: number; taskKeys: string[] } {
+    const keys = this.tasks
+      .filter((task) => task.merge?.repo === repo && task.merge.state === 'queued')
+      .map((task) => task.key);
+    const previous = this.mergeOrders.get(repo);
+    if (!previous) {
+      const initial = { revision: 0, taskKeys: keys };
+      this.mergeOrders.set(repo, initial);
+      return initial;
+    }
+    const taskKeys = [
+      ...previous.taskKeys.filter((key) => keys.includes(key)),
+      ...keys.filter((key) => !previous.taskKeys.includes(key)),
+    ];
+    if (canonical(previous.taskKeys) !== canonical(taskKeys)) {
+      const updated = { revision: previous.revision + 1, taskKeys };
+      this.mergeOrders.set(repo, updated);
+      return updated;
+    }
+    return previous;
+  }
+
+  /** The old prioritize operation and the complete permutation use the same order and revision. */
   private prioritizeMerge(taskKey: string, body?: unknown): MockResponse {
     const parsed = PrioritizeMergeRequest.safeParse(body ?? {});
     if (!parsed.success) return error(400, 'invalid_request', 'Invalid prioritize request');
@@ -4091,13 +4103,13 @@ export class MockBackend {
       return error(409, 'merge_not_prioritizable', 'Only a queued merge can be moved forward', {
         reason: !merge ? 'no_merge' : merge.state === 'running' ? 'running' : 'not_queued',
       });
-    const ahead = this.tasks
-      .filter(
-        (other) =>
-          other.key !== task.key && other.merge?.state === 'queued' && other.merge.repo === merge.repo,
-      )
-      .map((other) => other.key);
+    const order = this.mergeQueueOrder(merge.repo);
+    const ahead = order.taskKeys.slice(0, order.taskKeys.indexOf(task.key));
     if (ahead.length === 0) return ok({ task: clone(task), moved: false });
+    this.mergeOrders.set(merge.repo, {
+      revision: order.revision + 1,
+      taskKeys: [task.key, ...order.taskKeys.filter((key) => key !== task.key)],
+    });
     this.addTimeline(taskKey, this.viewerHandle, 'task_merge_prioritized', {
       mergeId: merge.id,
       repo: merge.repo,
@@ -4121,6 +4133,7 @@ export class MockBackend {
       this.writeMerge(task, { ...merge, state: 'running', step: 'merging' });
       return task.merge;
     }
+    if (merge.step === 'engine_waiting') return task.merge;
     const step = merge.step === 'queued' || !merge.step ? 'merging' : merge.step;
     if (outcome === 'conflict' && step === 'merging')
       return this.failMerge(task, merge, {
@@ -4808,6 +4821,18 @@ export class MockBackend {
   private createTask(body: unknown): MockResponse {
     const input = parseBody(CreateTaskRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid task');
+    if (this.integratorMode && input.importedAt !== undefined)
+      return error(403, 'owner_approval_required', 'Historical human attribution requires an own login');
+    if (
+      this.integratorMode === 'super' &&
+      ownerReservedEffect(this.config, {
+        kind: 'task_visibility',
+        taskKey: null,
+        before: null,
+        after: input.visibility ?? 'internal',
+      })
+    )
+      return error(403, 'owner_approval_required', 'Publication requires a specific owner authorization');
     const actor = this.viewerActor();
     if (input.importedAt !== undefined && this.findMember(this.viewerHandle)?.role !== 'owner')
       return error(403, 'owner_only', 'Only an owner may import tasks');
@@ -5686,11 +5711,12 @@ export class MockBackend {
       : undefined;
     const sessionId = session?.id ?? null;
     const readOnly = viewer.role !== 'owner';
+    const signals = this.operatorSignals.filter((signal) => !isCoordinatorOnlySignal(signal.kind));
     const rest = {
       requests: clone(this.operatorRequests),
       readOnly,
-      signals: readOnly ? [] : clone(this.operatorSignals),
-      openSignals: readOnly ? 0 : this.operatorSignals.filter((s) => s.state === 'open').length,
+      signals: readOnly ? [] : clone(signals),
+      openSignals: readOnly ? 0 : signals.filter((s) => s.state === 'open' && !s.resolvedAt).length,
     };
     if (!operator) return ok({ member: null, state: 'missing', sessionId, ...rest });
     const member = {
@@ -6061,6 +6087,18 @@ export class MockBackend {
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
+    this.sweepIntegratorTodos(nowIso());
+    const pending = this.inbox.find((item) => item.id === itemId);
+    if (pending && isIntegratorTodo(pending) && (this.integratorMode || this.viewerAccess() !== 'owner'))
+      return error(403, 'super_relay_refused', 'Use the dedicated super endpoint or the owner login');
+    if (this.integratorMode && pending && !['question', 'alert'].includes(pending.kind)) {
+      const verdict = superAccessVerdict(this.config, {
+        mode: this.integratorMode,
+        operation: 'approval',
+        ownerMembership: this.viewerAccess() === 'owner',
+      });
+      if (!verdict.allowed) return error(403, verdict.code, 'A human decision is required');
+    }
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
     if (!input) return error(400, 'invalid_request', 'Invalid inbox resolution');
@@ -6069,6 +6107,27 @@ export class MockBackend {
     if (input.attachmentIds !== undefined && item.kind !== 'question')
       return error(400, 'invalid_request', 'Only questions accept attachmentIds', { field: 'attachmentIds' });
     if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already resolved');
+    let relayed = false;
+    if (this.integratorMode === 'super') {
+      const group = questionPayloadOf(item)?.group;
+      const members = [
+        item,
+        ...(group?.itemIds ?? []).flatMap((id) => {
+          const row = this.inbox.find((entry) => entry.id === id);
+          return row && row.id !== item.id && isPendingQuestion(row) ? [row] : [];
+        }),
+      ];
+      for (const member of members) {
+        const refusal = superDecisionRefusal(member, {
+          operatorHandle: operatorOf(this.config)?.handle ?? null,
+          sessionMember: this.sessions.find((session) => session.id === member.sessionId)?.member,
+        });
+        const question = member.kind === 'question' ? member.payload : null;
+        if (refusal || (question && externalQuestionAnswerRefusal(question, { via: 'integrator' })))
+          return error(403, 'owner_approval_required', 'A person must decide this item');
+      }
+      relayed = members.every(isRelayableQuestionItem);
+    }
     if (!item.options.some((option) => option.id === input.optionId)) {
       return error(400, 'unknown_option', `Unknown option ${input.optionId}`);
     }
@@ -6196,20 +6255,51 @@ export class MockBackend {
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',
-      resolution: { optionId: input.optionId, by: viewer.handle, at: nowIso(), note },
+      resolution: {
+        optionId: input.optionId,
+        by: viewer.handle,
+        at: nowIso(),
+        note,
+        ...(this.integratorMode ? { via: 'integrator' as const } : {}),
+        ...(this.integratorMode === 'super'
+          ? {
+              actor: this.viewerActor(),
+              ...(relayed ? { ownerAnswerRelayed: true as const } : { superDecision: true as const }),
+            }
+          : {}),
+      },
     };
     this.upsertInbox(resolved);
     if (release && item.taskKey) {
       const approved = input.optionId === 'approve';
-      this.addTimeline(item.taskKey, viewer.handle, 'release_changed', {
-        releaseId: release.releaseId,
-        state: approved ? 'approved' : 'rejected',
-        previousState: 'proposed',
-        commit: release.commit,
-        ...(!approved && note ? { note } : {}),
-      });
+      this.addTimeline(
+        item.taskKey,
+        viewer.handle,
+        'release_changed',
+        {
+          releaseId: release.releaseId,
+          state: approved ? 'approved' : 'rejected',
+          previousState: 'proposed',
+          commit: release.commit,
+          ...(!approved && note ? { note } : {}),
+        },
+        null,
+        nowIso(),
+        resolved.resolution?.actor,
+      );
     }
-    this.afterResolve(resolved, attached as MessageAttachmentRef[]);
+    const group = questionPayloadOf(item)?.group;
+    const groupLive = group ? new Set(questionGroupLiveItemIds(group)) : null;
+    if (!groupLive || groupLive.has(item.id)) this.afterResolve(resolved, attached as MessageAttachmentRef[]);
+    if (group && group.primaryItemId === item.id) {
+      for (const id of group.itemIds.filter((id) => id !== item.id)) {
+        const linked = this.inbox.find((entry) => entry.id === id);
+        if (!linked || !isPendingQuestion(linked)) continue;
+        const next: InboxItem = { ...linked, state: 'resolved', resolution: resolved.resolution };
+        this.upsertInbox(next);
+        if (groupLive?.has(id)) this.afterResolve(next, attached as MessageAttachmentRef[]);
+      }
+    }
     return ok(clone(resolved));
   }
 
@@ -6382,10 +6472,12 @@ export class MockBackend {
         'question_answered',
         { inboxItemId: item.id, answer },
         sessionId,
+        resolution.at,
+        resolution.actor,
       );
       const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
       const message = this.sendTeamMessage(
-        resolution.by,
+        resolution.actor?.handle ?? resolution.by,
         [item.source],
         item.taskKey,
         answer,
@@ -6409,7 +6501,7 @@ export class MockBackend {
       const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
       const target = request ? stageOf(this.config, request.toStageId) : undefined;
       if (task && target && task.stageId !== target.id)
-        this.applyMove(task, target, { kind: 'human', handle: resolution.by }, {});
+        this.applyMove(task, target, resolution.actor ?? { kind: 'human', handle: resolution.by }, {});
       return;
     }
     const gate = item.kind === 'decision' ? gateRequestOf(item) : null;

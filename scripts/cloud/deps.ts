@@ -57,6 +57,8 @@ export interface CloudDeps {
    * what it opened); the result removes the handler.
    */
   onInterrupt(handler: () => void): () => void;
+  /** The standard input, for the commands that take a request on it (`release-control`); absent in most fakes. */
+  stdin?: AsyncIterable<Uint8Array>;
   /** The user's home directory (the secrets store is under it). */
   homeDir: string;
   /** The checkout the command runs from. */
@@ -277,6 +279,7 @@ export function realDeps(): CloudDeps {
         for (const signal of signals) process.off(signal, handler);
       };
     },
+    stdin: process.stdin,
     homeDir: os.homedir(),
     repoRoot: path.resolve(fileURLToPath(new URL('../..', import.meta.url))),
   };

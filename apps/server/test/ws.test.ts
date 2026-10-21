@@ -1,3 +1,4 @@
+import { waitForSession } from './helpers/domain-harness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { ServerEvent, TaskDetail } from '@projectman/shared';
@@ -70,6 +71,21 @@ describe('websocket', () => {
 
   it('rejects connections without a login cookie', async () => {
     await expect(h.app.injectWS('/ws', { headers: {} })).rejects.toThrow('401');
+  });
+
+  it('tracks visible connections and removes them on disconnect', async () => {
+    const first = await connect();
+    const second = await connect();
+    first.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(true));
+    first.ws.terminate();
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: false }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(false));
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(true));
+    second.ws.terminate();
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(false));
   });
 
   it('streams project events to subscribers and terminal data to attached clients', async () => {
@@ -199,7 +215,7 @@ describe('websocket', () => {
     });
     expect(sent.statusCode).toBe(202);
     await new Promise((r) => setTimeout(r, 50));
-    const session = h.app.projectman.domain.sessions.list('AR', { member: 'operator' })[0]!;
+    const session = await waitForSession(h.app.projectman.domain, { member: 'operator' });
     const adminCookie = await addHumanAndLogin(h.app, { handle: 'ada', name: 'Ada', access: 'admin' });
 
     const admin = await connect({ cookie: adminCookie });

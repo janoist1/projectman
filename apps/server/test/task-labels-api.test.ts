@@ -72,7 +72,11 @@ describe('task labels API', () => {
       expect.objectContaining({
         type: 'task_labels_changed',
         actor: { kind: 'human', handle: 'tester' },
-        data: { added: ['qa-ok'], removed: ['qa-failed'] },
+        data: {
+          added: ['qa-ok'],
+          removed: ['qa-failed'],
+          noteExcerpt: 'Acme checkout verified.',
+        },
       }),
     );
     expect(detail.timeline).toContainEqual(

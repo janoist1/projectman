@@ -9,6 +9,7 @@
 //   gh pr create --repo=<owner/name> --head=<branch> --base=<branch> --title=<t> --body=<b>
 //   gh pr merge <number> --repo=<owner/name>            refused for an identity that may not merge
 //   gh api --method=PUT repos/<owner/name>/pulls/<n>/merge   the same refusal through the API
+// and any other `gh api` call (the Actions endpoints, PM-907) from the scenario's "api".
 //
 // Environment:
 //   FAKE_GH_SCENARIO  path of the scenario JSON (required)
@@ -23,6 +24,8 @@
 //     "pullRequests": { "owner/name#12": Response | Response[] }, default: "Could not resolve" error
 //     "branches":     { "owner/name@branch": Response | Response[] } default: []
 //     "create":       { "owner/name@branch": Response | Response[] } default: a created pull request
+//     "api":          { "GET repos/o/n/actions/runs/7": Response | Response[] }  key: method + endpoint without
+//                                                                default: an error   its query; the argv is in the call log
 //     "identities":   { "<token>": { "login": "bot", "canMerge": false } }   default: login "bot", no merge
 //     "firstNumber":  100                                        number of the first created pull request
 //   }
@@ -61,7 +64,7 @@ const PR_FIELDS = new Set([
   'updatedAt',
   'url',
 ]);
-const BOOLEAN_FLAGS = new Set(['active']);
+const BOOLEAN_FLAGS = new Set(['active', 'allow-escape-sequences']);
 
 function parseArgs(argv) {
   const positional = [];
@@ -187,9 +190,13 @@ function resolve(scenario, positional, flags, logPath) {
     if (merge) {
       return { key: 'api merge', merge: { number: merge[2], repo: merge[1] }, response: { stdout: '' } };
     }
+    // The scripted calls (the Actions endpoints, PM-907): "<METHOD> <endpoint without the query>".
+    const key = `${String(flags.method ?? 'GET').toUpperCase()} ${endpoint.split('?')[0]}`;
+    const scripted = scenario.api?.[key];
+    if (scripted) return { key: `api ${key}`, response: scripted };
     return {
-      key: `api ${endpoint}`,
-      response: { stderr: 'the fake gh api only models merges', exitCode: 1 },
+      key: `api ${key}`,
+      response: { stderr: `the fake gh api has no answer for ${key}`, exitCode: 1 },
     };
   }
   return { key: command, response: { stderr: `unknown command "${command}" for "gh"`, exitCode: 1 } };

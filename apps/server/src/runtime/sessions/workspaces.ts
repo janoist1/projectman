@@ -1,8 +1,11 @@
 import {
   effectiveRepo,
+  isMergeFixer,
   isOpenTask,
   isWorkingOnTask,
   roleSessionAccess,
+  memberDuties,
+  memberOf,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
@@ -18,12 +21,21 @@ import type {
   WorkspaceCheckout,
   WorkspaceSource,
 } from '../../contracts';
+import { isEngineLinkLost } from '../../contracts';
 import type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from '../../db';
 import { taskBranchName } from '@projectman/shared';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { conflict, DomainError } from '../../kernel';
 import { KeyedMutex, newId } from '../../kernel';
+
+/** The default branch as `MemberWorkspaceManager.fetchBase` leaves it in the workspace. */
+type FetchedBase = Awaited<ReturnType<MemberWorkspaceManager['fetchBase']>>;
+
+/** The refs of commits a developer's workspace handed over to the project repository (PM-739). */
+const SNAPSHOT_REF_PREFIX = 'refs/projectman/workspaces/';
+/** Where `MemberWorkspaceManager.fetchBase` leaves the default branch in the member's own clone. */
+const BASE_TRACKING_REF_PREFIX = 'refs/remotes/upstream/';
 
 /** Where a task session works in its member's workspace, as `SessionOrchestrator.start` uses it. */
 export interface WorkspacePlacement {
@@ -82,12 +94,14 @@ export class MemberWorkspaces {
   /**
    * How the member works on the task in its workspace: `work` (the task's branch) for a role that
    * changes files, unless it is a reviewer or tester of a later stage who is not the assignee;
-   * `review` for review and testing duties; null for roles that only read, or without a repository.
+   * `review` also for a designer without implementation duties inspecting another member's work;
+   * null for roles that only read, or without a repository.
    */
   kindFor(config: ProjectConfig, member: AiMemberConfig, task: Task): 'work' | 'review' | null {
     if (!effectiveRepo(config, task)) return null;
     const access = roleSessionAccess(config, member.role);
     if (access.worktree) {
+      if (this.isDesignReview(config, member, task)) return 'review';
       const stage = stageOf(config, task.stageId);
       const reviewing =
         access.reviewCopy &&
@@ -100,8 +114,19 @@ export class MemberWorkspaces {
     return access.reviewCopy ? 'review' : null;
   }
 
+  private isDesignReview(config: ProjectConfig, member: AiMemberConfig, task: Task): boolean {
+    const duties = memberDuties(config, member);
+    return (
+      task.assignee !== member.handle &&
+      duties.includes('ux_design') &&
+      !duties.includes('implementation') &&
+      this.workOf(config.project.key, task.key, member.handle) !== null
+    );
+  }
+
   /** Admission: refuses with `workspace_busy` while another task's live session holds the workspace. */
   check(config: ProjectConfig, member: AiMemberConfig, task: Task): void {
+    if (isMergeFixer(task.merge, member.handle)) return;
     if (!this.kindFor(config, member, task)) return;
     const repo = effectiveRepo(config, task)!;
     const record = this.ctx.repos.memberWorkspaces.find(config.project.key, member.handle, repo);
@@ -160,10 +185,14 @@ export class MemberWorkspaces {
         }
         record = store.get(record.id)!;
         const previous = store.binding(projectKey, task.key, member.handle, record.id);
+        // Every start, new or continued, begins from a fresh default branch (PM-740): the one fetch of
+        // this preparation, before anything is checked out. A failed fetch ends the start.
+        const base = await this.manager.fetchBase(key);
         const prepared =
           kind === 'work'
-            ? await this.prepareWork(config, key, task, record, previous)
-            : await this.prepareReview(config, key, task, record, previous);
+            ? await this.prepareWork(config, key, task, record, previous, base)
+            : await this.prepareReview(config, key, task, record, previous, base);
+        await this.manager.prepareDependencies(key);
         const now = isoNow(this.ctx);
         const binding: TaskWorkspaceBinding = {
           ...prepared.binding,
@@ -242,15 +271,44 @@ export class MemberWorkspaces {
    * still in a turn wait (they are not typed into the old round) until it idles and restarts.
    */
   roundDue(session: Session): boolean {
-    if (session.workItem.type !== 'task') return false;
+    if (session.workItem.type !== 'task' || !this.isWorkspacePath(session.cwd)) return false;
     return this.ctx.repos.memberWorkspaces
       .bindingsOfTask(session.projectKey, session.workItem.taskKey)
-      .some((b) => b.member === session.member && b.kind === 'review' && b.refresh);
+      .some((b) => b.member === session.member && b.refresh);
   }
 
   /** A new review round is due: for every reviewer of the task, or for one member. */
-  requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
+  requestReviewRound(projectKey: string, taskKey: string, member?: string, config?: ProjectConfig): void {
     this.ctx.repos.memberWorkspaces.requestReviewRound(projectKey, taskKey, member);
+    // A designer may still be running in the writable workspace used for planning. Mark it
+    // for a restart too; prepare will move it to a review copy after the current turn finishes.
+    const task = this.ctx.repos.tasks.get(taskKey);
+    if (!config || !task || task.projectKey !== projectKey) return;
+    for (const binding of this.ctx.repos.memberWorkspaces.bindingsOfTask(projectKey, taskKey)) {
+      if (binding.kind !== 'work' || (member && binding.member !== member)) continue;
+      const reviewer = memberOf(config, binding.member);
+      if (reviewer?.kind === 'ai' && this.kindFor(config, reviewer, task) === 'review')
+        this.ctx.repos.memberWorkspaces.saveBinding({ ...binding, refresh: true });
+    }
+  }
+
+  /**
+   * Brings the default branch of the member's workspace for the task up to date without starting
+   * anything (PM-740): a developer's running session is about to be told by a reviewer, e.g. to merge
+   * main. Only tracking refs (and a fast-forward of an unused own default branch) move: the checkout,
+   * the task branch, its files and the binding's pins stay as they are, and the reservation is kept.
+   * Without a workspace of the member for the task it does nothing; a failed fetch throws.
+   */
+  async refreshBase(config: ProjectConfig, task: Task, member: string): Promise<void> {
+    const binding = this.ctx.repos.memberWorkspaces
+      .bindingsOfTask(config.project.key, task.key)
+      .find((b) => b.member === member && b.kind === 'work');
+    const record = binding ? this.ctx.repos.memberWorkspaces.get(binding.workspaceId) : null;
+    if (!record) return;
+    const key: MemberWorkspaceKey = { project: config, repoName: record.repo, member };
+    await this.manager.fetchBase(key).catch((err: unknown) => {
+      throw toDomainError(err, member);
+    });
   }
 
   /**
@@ -314,6 +372,7 @@ export class MemberWorkspaces {
     task: Task,
     record: MemberWorkspaceRecord,
     previous: TaskWorkspaceBinding | null,
+    base: FetchedBase,
   ) {
     let checkout: WorkspaceCheckout | null = null;
     let baseCommit: string | null = null;
@@ -372,8 +431,7 @@ export class MemberWorkspaces {
         // The task had a branch: it is not started over from the default branch.
         throw lost;
       } else {
-        // A new task: its own branch from the freshly fetched default branch.
-        const base = await this.manager.fetchBase(key);
+        // A new task: its own branch from the default branch fetched for this start.
         checkout = await this.manager.checkoutTaskBranch(key, {
           mode: 'create',
           branch: wanted,
@@ -413,10 +471,19 @@ export class MemberWorkspaces {
     task: Task,
     record: MemberWorkspaceRecord,
     previous: TaskWorkspaceBinding | null,
+    base: FetchedBase,
   ) {
+    const member = memberOf(config, key.member);
+    // Design review can start in the work stage, before any stage hand-over pin exists.
+    // Every actual start inspects the current developer tip, including a manual resume.
+    const designSource =
+      member?.kind === 'ai' && this.isDesignReview(config, member, task)
+        ? await this.reviewSource(config, key, task)
+        : null;
     const sameRound =
       previous?.kind === 'review' &&
       !previous.refresh &&
+      (!designSource || designSource.commit === previous.sourceCommit) &&
       previous.sourcePath !== null &&
       previous.sourceRef !== null &&
       previous.sourceCommit !== null;
@@ -434,14 +501,14 @@ export class MemberWorkspaces {
       );
       binding = { ...previous, kind: 'review' };
     } else {
-      // A new round: the handed-over branch's commit now, and the default branch now.
-      const source = await this.reviewSource(key, task);
-      const commit = source ? await this.manager.resolveSource(source) : null;
-      if (!source || !commit)
-        throw conflict('workspace_source_missing', `task ${task.key} has no committed branch to review yet`, {
-          taskKey: task.key,
-        });
-      const base = await this.manager.fetchBase(key);
+      // A new round: the handed-over branch's commit now, and the default branch fetched for this start.
+      // A card with no branch yet (one being worked out) is read on the fetched default branch.
+      const selected = designSource ??
+        (await this.reviewSource(config, key, task)) ?? {
+          source: { path: record.path, ref: `${BASE_TRACKING_REF_PREFIX}${base.branch}` },
+          commit: base.commit,
+        };
+      const { source, commit } = selected;
       checkout = await this.manager.checkoutReview(key, source, commit);
       binding = {
         kind: 'review',
@@ -458,7 +525,7 @@ export class MemberWorkspaces {
         'review round pinned',
       );
     }
-    const sourceBranch = binding.sourceRef!.replace(/^refs\/(heads|remotes\/origin)\//, '');
+    const sourceBranch = this.sourceBranchOf(task, binding.sourceRef!);
     const baseBranch = config.project.repos.find((r) => r.name === key.repoName)?.defaultBranch;
     return {
       checkout,
@@ -481,15 +548,62 @@ export class MemberWorkspaces {
     };
   }
 
-  /** Where the task's handed-over work is: a developer's workspace, else a branch of the repository. */
-  private async reviewSource(key: MemberWorkspaceKey, task: Task): Promise<WorkspaceSource | null> {
-    const teammate = this.workSource(key.project.project.key, task.key, key.member);
-    if (teammate) return teammate;
+  /**
+   * Where the task's handed-over work is and the commit of a new round: the developer's committed
+   * branch tip, handed over to the project repository as a snapshot that stays as it is while the
+   * developer goes on (PM-739); else a branch of the repository.
+   */
+  private async reviewSource(
+    config: ProjectConfig,
+    key: MemberWorkspaceKey,
+    task: Task,
+  ): Promise<{ source: WorkspaceSource; commit: string } | null> {
+    const work = this.workOf(key.project.project.key, task.key, key.member);
+    if (work) {
+      const commit = await this.manager.resolveSource({
+        path: work.record.path,
+        ref: `refs/heads/${work.binding.branch}`,
+      });
+      if (!commit) return null;
+      const source = await this.manager.publishTaskBranch(
+        { project: config, repoName: work.record.repo, member: work.record.member },
+        task.key,
+        work.binding.branch!,
+        commit,
+      );
+      return { source, commit };
+    }
     const found = await this.manager.findTaskBranch(key, task.key);
     if (!found) return null;
-    return (
-      found.source ?? { path: (await this.manager.location(key)).path, ref: `refs/heads/${found.branch}` }
-    );
+    const source = found.source ?? {
+      path: (await this.manager.location(key)).path,
+      ref: `refs/heads/${found.branch}`,
+    };
+    const commit = await this.manager.resolveSource(source);
+    return commit ? { source, commit } : null;
+  }
+
+  /** The branch name a review shows: a snapshot's is the developer's branch, not its internal ref. */
+  private sourceBranchOf(task: Task, ref: string): string {
+    if (ref.startsWith(BASE_TRACKING_REF_PREFIX)) return ref.slice(BASE_TRACKING_REF_PREFIX.length);
+    if (!ref.startsWith(SNAPSHOT_REF_PREFIX)) return ref.replace(/^refs\/(heads|remotes\/origin)\//, '');
+    return this.workOf(task.projectKey, task.key)?.binding.branch ?? taskBranchNameOf(task);
+  }
+
+  /**
+   * Makes the approved commit of a merge readable in the project repository (PM-739): the
+   * developer's workspace hands over its committed branch, once, as a snapshot (a snapshot that is
+   * there already changes nothing). Without a developer workspace of the task the commit is
+   * expected in the repository already. Never another branch's commit instead.
+   */
+  async prepareMergeSource(config: ProjectConfig, task: Task, commit: string): Promise<void> {
+    const work = this.workOf(config.project.key, task.key);
+    if (!work?.binding.branch) return;
+    const key = { project: config, repoName: work.record.repo, member: work.record.member };
+    await this.manager.publishTaskBranch(key, task.key, work.binding.branch, commit).catch((err: unknown) => {
+      if (isEngineLinkLost(err)) throw err;
+      throw toDomainError(err, work.record.member);
+    });
   }
 
   /** Takes the reservation for the session, or refuses (`workspace_busy`). */
@@ -572,6 +686,9 @@ function toDomainError(err: unknown, member: string): DomainError {
       return conflict('workspace_dirty', message, details);
     case 'workspace_fetch_failed':
       return conflict('workspace_fetch_failed', message, details);
+    case 'workspace_dependencies_pending':
+    case 'workspace_dependencies_failed':
+      return conflict(code, message, details);
     case 'workspace_branch_missing':
       return conflict('workspace_branch_missing', message, details);
     case 'workspace_source_missing':

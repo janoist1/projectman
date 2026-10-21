@@ -1,8 +1,6 @@
 import {
   developerLevelOf,
   developmentStage,
-  isHandleOnLeave,
-  isSenior,
   isWorkPaused,
   pickDeveloper,
   pullCandidates,
@@ -11,16 +9,10 @@ import {
   stageOwners,
   startClass,
 } from '@projectman/shared';
-import type {
-  AiMemberConfig,
-  DeveloperCandidate,
-  FocusPlace,
-  ProjectConfig,
-  StagePull,
-  Task,
-} from '@projectman/shared';
+import type { FocusPlace, StagePull, Task } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
+import { startContext } from '../../core/tasks';
 import type { ProjectFocusService } from '../../core/tasks';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
@@ -48,9 +40,9 @@ import type { WorkStarts } from './work-starts';
 export class FocusPull implements FocusPulling {
   private readonly ctx: DomainContext;
   private readonly projects: Pick<ProjectService, 'config'>;
-  private readonly tasks: Pick<TaskService, 'list' | 'find'>;
-  private readonly focus: Pick<ProjectFocusService, 'places'>;
-  private readonly admission: Pick<Admission, 'memberLoad' | 'membersWaitedFor'>;
+  private readonly tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
+  private readonly focus: Pick<ProjectFocusService, 'places' | 'covered'>;
+  private readonly admission: Pick<Admission, 'freeDevelopers'>;
   private readonly seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
   private readonly starts: Pick<WorkStarts, 'pull'>;
   private active: Promise<void> | null = null;
@@ -59,9 +51,9 @@ export class FocusPull implements FocusPulling {
   constructor(deps: {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'config'>;
-    tasks: Pick<TaskService, 'list' | 'find'>;
-    focus: Pick<ProjectFocusService, 'places'>;
-    admission: Pick<Admission, 'memberLoad' | 'membersWaitedFor'>;
+    tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
+    focus: Pick<ProjectFocusService, 'places' | 'covered'>;
+    admission: Pick<Admission, 'freeDevelopers'>;
     seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
     starts: Pick<WorkStarts, 'pull'>;
   }) {
@@ -115,12 +107,22 @@ export class FocusPull implements FocusPulling {
     const source = pullSourceStage(config);
     const development = developmentStage(config);
     if (!source || !development) return;
-    const tasks = this.tasks.list(projectKey);
-    const places = this.focus.places(projectKey);
-    const candidates = pullCandidates({ config, tasks, places });
-    if (candidates.length === 0) return;
-    let free = this.freeDevelopers(config, development.id);
+    // Nobody free: no card is read (PM-770). Then the focus and the pull candidates are read for exactly
+    // their keys, with the subtasks and prerequisites the unchanged shared rules look at.
+    let free = this.admission.freeDevelopers(config, development.id);
     if (free.length === 0) return;
+    const { places, cards: focusCards } = this.focus.covered(projectKey);
+    const pullable = this.tasks.readSchedulingTasks(projectKey, {
+      kind: 'pull',
+      stageId: source.id,
+      focusedKeys: [...places.keys()],
+    });
+    const candidates = pullCandidates({
+      config,
+      tasks: startContext(this.tasks, projectKey, pullable),
+      places,
+    });
+    if (candidates.length === 0) return;
     const owners = stageOwners(config, development);
     const seniors = seniorsOf(config, development)
       .map((senior) => senior.handle)
@@ -139,7 +141,7 @@ export class FocusPull implements FocusPulling {
         continue;
       }
       const developer = pick.handle;
-      const pulled = pullOf(card, places, tasks);
+      const pulled = pullOf(card, places, focusCards);
       let taken = false;
       let developerOut = false;
       try {
@@ -182,27 +184,6 @@ export class FocusPull implements FocusPulling {
       if (taken || developerOut) free = free.filter((candidate) => candidate.handle !== developer);
     }
   }
-
-  /** The AI owners of the development stage who take a card now (see the class comment). */
-  private freeDevelopers(config: ProjectConfig, stageId: string): DeveloperCandidate[] {
-    const stage = config.pipeline.stages.find((s) => s.id === stageId);
-    if (!stage) return [];
-    const owners = new Set(stageOwners(config, stage));
-    const waitedFor = this.admission.membersWaitedFor(config.project.key);
-    const free: DeveloperCandidate[] = [];
-    config.team.members.forEach((member, index) => {
-      if (member.kind !== 'ai' || member.temp || !owners.has(member.handle)) return;
-      if (isHandleOnLeave(config, member.handle) || waitedFor.has(member.handle)) return;
-      const load = this.admission.memberLoad(config, member.handle);
-      if (load >= member.capacity) return;
-      free.push(candidateOf(member, index, load));
-    });
-    return free;
-  }
-}
-
-function candidateOf(member: AiMemberConfig, index: number, load: number): DeveloperCandidate {
-  return { handle: member.handle, senior: isSenior(member), temp: false, load, index };
 }
 
 /** Why the card is pulled: it is urgent, or the focus item that covers it (the card itself, or the one it is under). */

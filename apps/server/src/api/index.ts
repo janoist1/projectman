@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { registerWebPushRoutes } from './web-push';
 import type { AuthService } from '../auth';
 import type { ApiDomain } from './ports';
 import type { EngineRegistry } from '../runtime/sessions';
@@ -12,6 +13,7 @@ import { registerInvolvementRoutes } from './involvements';
 import { registerFeedbackRoutes } from './feedback';
 import { registerFeedbackWidgetRoutes } from './feedback-widget';
 import { registerProjectFocusRoutes } from './project-focus';
+import { registerProjectEventRoutes } from './project-events';
 import { registerStructureRoutes } from './structure';
 import { registerBoundaryRoutes } from './boundary';
 import { registerInvitationRoutes } from './invitations';
@@ -25,6 +27,7 @@ import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
 import { registerMergeRoutes } from './merges';
+import { forbidden } from '../kernel';
 
 export type { ApiDomain } from './ports';
 
@@ -42,7 +45,44 @@ export interface ApiServices {
 /** Every route of the shared route table except auth (src/auth) and the websocket (src/ws). */
 export function registerApiRoutes(app: FastifyInstance, services: ApiServices): void {
   const { domain } = services;
+  app.addHook('onRoute', (route) => {
+    if (!route.url.startsWith('/api/')) return;
+    const handler = route.handler;
+    // A closed operation identifier from the registered route, never the caller's raw URL.
+    const targetName = route.url
+      .replace('/api/', '')
+      .replace(/:[A-Za-z]+/g, '')
+      .replace(/[^a-z0-9]+/g, '_');
+    route.handler = function (request, reply) {
+      if (route.url.startsWith('/api/me/push') && (request.via === 'integrator' || request.principal))
+        throw forbidden('web_push_integrator_refused', 'Web push requires a personal login');
+      if (!request.principal || request.principal.mode === 'legacy')
+        return handler.call(this, request, reply);
+      services.auth.assertActive(request.principal);
+      if (request.principal.mode === 'read' && request.method !== 'GET' && request.method !== 'HEAD')
+        throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
+      const context = { principal: request.principal, email: request.user!.email, requestId: request.id };
+      const params = request.params as { key?: string; taskKey?: string };
+      const run = async () => handler.call(this, request, reply);
+      if (params.key)
+        return domain.superOperator.execute(
+          context,
+          {
+            projectKey: params.key,
+            taskKey: params.taskKey,
+            operation: `rest_${request.method.toLowerCase()}_${targetName}`.slice(0, 64),
+          },
+          run,
+        );
+      return domain.superOperator.executeInstance(
+        context,
+        `rest_${request.method.toLowerCase()}_${targetName}`.slice(0, 64),
+        run,
+      );
+    };
+  });
   registerEngineRoutes(app, services);
+  registerWebPushRoutes(app, domain);
   registerProviderRoutes(app, domain);
   registerProjectRoutes(app, services);
   registerOperatorRoutes(app, services);
@@ -59,6 +99,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerInboxRoutes(app, domain);
   registerInvolvementRoutes(app, domain);
   registerProjectFocusRoutes(app, domain);
+  registerProjectEventRoutes(app, services);
   registerStructureRoutes(app, domain);
   registerFeedbackRoutes(app, domain);
   registerFeedbackWidgetRoutes(app, {

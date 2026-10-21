@@ -43,6 +43,46 @@ export function partsClosedWaiver(
 }
 
 /**
+ * Whether a collecting card has code of its own (PM-797): `none` is proven, `present` means a durable trace of
+ * a source (a branch, a pull request, a hand-over, a workspace, a merge), `unknown` is everything else. A trace
+ * says a source existed, not that it is readable or merged.
+ */
+export type CollectingSourceState = 'none' | 'present' | 'unknown';
+
+/** What the hub's own records say about a card's source; every field is required, so a gap cannot pass for `none`. */
+export interface CollectingSourceEvidence {
+  /** A branch or pull request link, a review pin, a hand-over, a workspace binding, a session branch or a merge, now or in the card's history. */
+  sourceRecorded: boolean;
+  /** The card has an assignee or had one: somebody may have worked on it. */
+  workRecorded: boolean;
+  /** Where the card came from, read from its `task_created` event. */
+  origin: 'native' | 'imported' | 'unknown';
+}
+
+/**
+ * The source state of a collecting card, from the card's current or planned assignee and the recorded evidence.
+ * Missing evidence, a card that was not created here, or any sign of work is `unknown`: only a native card that
+ * nobody ever worked on and that never had a source is `none`.
+ */
+export function collectingSourceStateOf(
+  task: Pick<Task, 'assignee'>,
+  evidence: CollectingSourceEvidence | null,
+): CollectingSourceState {
+  if (!evidence) return 'unknown';
+  if (evidence.sourceRecorded) return 'present';
+  if (evidence.origin !== 'native' || evidence.workRecorded || task.assignee !== null) return 'unknown';
+  return 'none';
+}
+
+/** Whether a move that has the parts-closed waiver may also skip the merge check: the card provably has no code of its own. */
+export function canSkipCollectingMerge(
+  partsClosed: PartsClosed | null,
+  sourceState: CollectingSourceState,
+): boolean {
+  return partsClosed !== null && sourceState === 'none';
+}
+
+/**
  * Whether the system closes the card by itself now, and where it goes. Besides the waiver the card must be
  * `active` or `waiting` (not `blocked`) and stand before the development stage (before the done stage when
  * there is none): a card somebody works on is not closed under them, a person moves it. Null: it does not.

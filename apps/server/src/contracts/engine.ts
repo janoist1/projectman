@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { Readable } from 'node:stream';
 import type { Attachment, EngineId, MemberHandle } from '@projectman/shared';
 import type { MemberWorkspaceManager, WorktreeManager } from './context';
@@ -29,6 +30,13 @@ export interface EnginePaths {
   heavyLockDir: string | null;
   /** The user's global git excludes file, computed once. */
   gitExcludesFile: string | null;
+}
+
+export const MERGE_CHECK_DIR = '_merge';
+
+/** The merge check checkout of a merge or a train on its engine: `<worktreesRoot>/_merge/<mergeId>`. */
+export function mergeCheckPath(worktreesRoot: string, mergeId: string): string {
+  return path.join(worktreesRoot, MERGE_CHECK_DIR, mergeId);
 }
 
 /**
@@ -172,6 +180,21 @@ export type MergeBuildResult =
 
 export type MergePushResult =
   { ok: true } | { ok: false; reason: 'non_fast_forward' | 'rejected' | 'unreachable'; message: string };
+
+/**
+ * The check branches of the GitHub Actions merge check (PM-900), on the base's upstream remote. Used
+ * inside one engine only: there is no wire method for it. Branch names are `pm-check/<time>/<id>`.
+ */
+export interface CheckBranchGit {
+  /** "owner/name" of the base's upstream remote when its URL is a github.com one (ssh or https); null otherwise. */
+  upstreamRepo(ref: MergeRepoRef, input: { base: string }): Promise<string | null>;
+  /** Pushes `commit` to refs/heads/<branch> of that remote, never forced. */
+  push(ref: MergeRepoRef, input: { base: string; commit: string; branch: string }): Promise<MergePushResult>;
+  /** Deletes refs/heads/<branch> there; a missing branch is fine. */
+  remove(ref: MergeRepoRef, input: { base: string; branch: string }): Promise<void>;
+  /** The branch names under `prefix` there (ls-remote), at most 100. */
+  list(ref: MergeRepoRef, input: { base: string; prefix: string }): Promise<string[]>;
+}
 
 export type MergeAdvanceResult =
   { ok: true } | { ok: false; reason: 'checkout_in_the_way' | 'moved'; message: string; paths: string[] };
@@ -361,6 +384,25 @@ export interface EngineAttachments {
   }): Promise<string>;
 }
 
+/** A call failed because the engine link was lost, not because the engine refused it (PM-777). */
+export class EngineLinkLostError extends Error {
+  /** true: the link was already waited for (the executor's linkWaitMs ran out). */
+  readonly waited: boolean;
+  constructor(message: string, waited = false) {
+    super(message);
+    this.name = 'EngineLinkLostError';
+    this.waited = waited;
+  }
+}
+
+/** A timeout or a refusal is not a lost engine link. */
+export function isEngineLinkLost(err: unknown): boolean {
+  return (
+    err instanceof EngineLinkLostError ||
+    (typeof err === 'object' && err !== null && 'linkCode' in err && err.linkCode === 'link_down')
+  );
+}
+
 export interface EngineDirectory {
   /** The engine while it can be used (connected); otherwise null. */
   get(id: EngineId): EngineHost | null;
@@ -372,6 +414,12 @@ export interface EngineDirectory {
    */
   engineFor(projectKey: string, member: MemberHandle): EngineId | null;
   onChange(listener: (id: EngineId, online: boolean) => void): () => void;
+  /** Waits until the engine's link is up and its connect steps ran, at most waitMs (0: answers at once). */
+  awaitConnected?(
+    id: EngineId,
+    waitMs: number,
+    signal?: AbortSignal,
+  ): Promise<'connected' | 'timeout' | 'aborted'>;
 }
 
 /** Whether a process (or any process of its group) still exists. */

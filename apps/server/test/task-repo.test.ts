@@ -6,7 +6,7 @@ import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { aiActor } from '../src/kernel';
 import { LOCAL_ONLY_DENIED_TOOLS } from '../src/runtime/sessions';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { settle } from './helpers/fakes';
@@ -463,7 +463,7 @@ describe('a task without a repository', () => {
       await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
       h.runner.failNextStart = new Error('spawn failed');
       await rejection(h.domain.sessions.ensureSession('AR', 'dev-1', onTask('AR-1')));
-      expect(h.domain.sessions.list('AR')[0]!.state).toBe('failed');
+      expect((await waitForSession(h.domain, {})).state).toBe('failed');
 
       await h.domain.tasks.update('AR', 'AR-1', { repo: 'api' }, OWNER_ACTOR);
 

@@ -78,6 +78,49 @@ describe('FeedbackAnchor', () => {
     ).toBeGreaterThan(0);
     expect(issuePaths({ ...none, kind: 'page', extra: 1 }).length).toBeGreaterThan(0);
   });
+
+  describe('a point or an area pinned to an element (PM-917)', () => {
+    const point = { ...none, kind: 'point', pagePoint: { x: 1, y: 2 } };
+    const area = { ...none, kind: 'area', rect: { x: 1, y: 2, width: 40, height: 30 } };
+    const rect = { x: 0.1, y: 0.2, width: 0.5, height: 0.4 };
+
+    it('accepts older marks that have no elementRect key', () => {
+      expect(issuePaths(point)).toEqual([]);
+      expect(issuePaths(area)).toEqual([]);
+    });
+
+    it('accepts a pinned point and a pinned area', () => {
+      expect(issuePaths({ ...point, selector: 'main > p', elementOffset: { x: 0.2, y: 0.9 } })).toEqual([]);
+      expect(issuePaths({ ...area, selector: 'main > p', elementRect: rect })).toEqual([]);
+    });
+
+    it.each([
+      ['a point with a selector but no offset', { ...point, selector: 'p' }, ['elementOffset']],
+      ['a point with an offset but no selector', { ...point, elementOffset: { x: 0, y: 0 } }, ['selector']],
+      ['an area with a selector but no elementRect', { ...area, selector: 'p' }, ['elementRect']],
+      ['an area with an elementRect but no selector', { ...area, elementRect: rect }, ['selector']],
+      [
+        'an elementRect that sticks out of the element',
+        { ...area, selector: 'p', elementRect: { ...rect, x: 0.8 } },
+        ['elementRect'],
+      ],
+      ['an elementRect on a point', { ...point, elementRect: rect }, ['elementRect']],
+      [
+        'an elementRect on an element mark',
+        {
+          ...none,
+          kind: 'element',
+          selector: 'p',
+          elementOffset: { x: 0, y: 0 },
+          pagePoint: { x: 1, y: 1 },
+          elementRect: rect,
+        },
+        ['elementRect'],
+      ],
+    ])('refuses %s', (_label, anchor, paths) => {
+      expect(issuePaths(anchor)).toEqual(paths);
+    });
+  });
 });
 
 describe('feedback surface addresses', () => {

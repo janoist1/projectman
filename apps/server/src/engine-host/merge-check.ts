@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile as readFileBytes, realpath, rm, unlink } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile as readFileBytes, realpath, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
   MERGE_CHECK_DIR,
@@ -28,6 +28,35 @@ export interface MergeCheckOptions {
   platform: NodeJS.Platform;
   /** The budget for copying dependencies into a check checkout. */
   copyTimeoutMs?: number;
+}
+
+/**
+ * Removes the check checkouts a crash left behind (PM-837): the direct children of
+ * `<worktreesRoot>/_merge` named like a merge id and not touched for `olderThanMs`. A link is judged by
+ * `lstat` and unlinked, never followed. The git worktree entry of a removed checkout is pruned by the
+ * next `releaseCheck`. Returns how many it removed.
+ */
+export async function sweepStaleChecks(
+  worktreesRoot: string,
+  olderThanMs: number,
+  now: number = Date.now(),
+): Promise<number> {
+  const root = path.join(await realpath(worktreesRoot), MERGE_CHECK_DIR);
+  const known = await lstat(root).catch(() => null);
+  if (!known?.isDirectory() || known.isSymbolicLink()) return 0;
+  const names = await readdir(root);
+  let removed = 0;
+  for (const name of names) {
+    if (!isMergeId(name)) continue;
+    const target = path.join(root, name);
+    const info = await lstat(target).catch(() => null);
+    if (!info || now - info.mtimeMs <= olderThanMs) continue;
+    if (info.isSymbolicLink()) await unlink(target);
+    else if (info.isDirectory()) await rm(target, { recursive: true, force: true });
+    else continue;
+    removed += 1;
+  }
+  return removed;
 }
 
 export function createMergeChecks(

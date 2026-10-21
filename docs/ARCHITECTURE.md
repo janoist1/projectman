@@ -1803,6 +1803,20 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Startup sweep of crash leftovers (PM-837)** — when the engine host is created (the server in local mode,
+  the engine process in hybrid mode) two one-shot background sweeps remove what a crash left behind, each
+  logging a warning on failure and never throwing: `sweepStaleChecks` (`engine-host/merge-check.ts`, called by
+  `createLocalEngine`) over the direct children of `<worktreesRoot>/_merge` named like a merge id, and
+  `sweepStaleRunDirs` (`full-test/sandbox.ts`, called by `createFullTestExecutor`) over the direct children of
+  `os.tmpdir()` and `SHORT_ROOT` named `pmft-<up to 8 alphanumerics>` (full test and screenshot runs). Only
+  entries older than `STALE_LEFTOVER_MS` (24 h by mtime, `contracts/engine.ts`) go; links are judged by `lstat`
+  and never followed (a `_merge` link is unlinked, a `pmft-*` link is left); a `pmft-*` directory must also be
+  owned by the engine's uid. The git worktree entry of a removed check is pruned by the next `releaseCheck`.
+  **Machine assumptions:** the engine's local temp and worktrees roots, the shared `/tmp` (`/private/tmp` on
+  macOS), which another instance of the same user may use (hence the uid and age checks), and POSIX `getuid`.
+  **Remote engine:** the same code runs on the engine over its own directories; the cloud takes no part and
+  nothing crosses the server/engine boundary.
+
 - **One-shot external commands (PM-903)** — `apps/server/src/exec/` runs short commands through
   execa without a shell, preserving the supplied environment and final newlines. Timeouts,
   cancellation and output limits send SIGTERM, followed by SIGKILL after a fixed 5-second grace

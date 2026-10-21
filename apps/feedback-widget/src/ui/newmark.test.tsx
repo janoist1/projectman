@@ -238,6 +238,56 @@ describe('the new-mark card', () => {
       const target = await drag([100, 100], [101, 101]);
       expect(target?.kind).toBe('point');
     });
+
+    describe('pinned to the element under it (PM-917)', () => {
+      let section: HTMLElement;
+      const place = (box: DOMRect): void => {
+        section = document.createElement('section');
+        section.id = 'card';
+        section.textContent = 'Product card';
+        section.getBoundingClientRect = () => box;
+        document.body.append(section);
+        vi.spyOn(document, 'elementFromPoint').mockReturnValue(section);
+      };
+      afterEach(() => {
+        vi.restoreAllMocks();
+        section.remove();
+      });
+
+      it('pins an area to the smallest element that holds it, as fractions of that element', async () => {
+        place(new DOMRect(100, 100, 400, 200));
+        const target = await drag([200, 150], [300, 250]);
+        expect(target?.anchor).toMatchObject({
+          kind: 'area',
+          selector: '#card',
+          textSnippet: 'Product card',
+          elementRect: { x: 0.25, y: 0.25, width: 0.25, height: 0.5 },
+        });
+      });
+
+      it('pins a point to the element under it with its place inside that element', async () => {
+        place(new DOMRect(100, 100, 400, 200));
+        const target = await drag([200, 150], [200, 150]);
+        expect(target?.anchor).toMatchObject({
+          kind: 'point',
+          selector: '#card',
+          elementOffset: { x: 0.25, y: 0.25 },
+          pagePoint: { x: 200, y: 150 },
+        });
+      });
+
+      it('keeps the coordinates only when the element covers most of the page', async () => {
+        place(new DOMRect(0, 0, window.innerWidth, window.innerHeight));
+        const target = await drag([200, 150], [300, 250]);
+        expect(target?.anchor).toMatchObject({ kind: 'area', selector: null, elementRect: null });
+      });
+
+      it('keeps the coordinates only when no element holds the whole area', async () => {
+        place(new DOMRect(100, 100, 150, 100));
+        const target = await drag([200, 150], [400, 250]);
+        expect(target?.anchor).toMatchObject({ kind: 'area', selector: null, elementRect: null });
+      });
+    });
   });
 
   it('does not disable send on an empty text: it moves to the field instead and requests nothing', async () => {

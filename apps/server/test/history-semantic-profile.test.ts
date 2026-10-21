@@ -726,6 +726,29 @@ describe('the synthetic fixture of the release run (PM-913)', () => {
     expect(check.checkModel(model).problems).toEqual(['model_file_hash:weights.bin']);
   });
 
+  it('finds the better-sqlite3 native file in both layouts, only this CPU in the prebuilds', async () => {
+    const check = await import(
+      pathToFileURL(join(root, 'deploy/cloud/history-semantic-image-check.mjs')).href
+    );
+    const prebuilt = join(temp, 'sqlite-prebuilt');
+    mkdirSync(join(prebuilt, 'prebuilds'), { recursive: true });
+    for (const name of ['linux-arm64', 'linux-x64', 'linuxmusl-arm64', 'darwin-arm64'])
+      writeFileSync(join(prebuilt, 'prebuilds', `${name}.node`), 'x');
+    expect(check.betterSqliteFiles(prebuilt, 'arm64')).toEqual([
+      join(prebuilt, 'prebuilds', 'linux-arm64.node'),
+    ]);
+    expect(check.betterSqliteFiles(prebuilt, 'x64')).toEqual([join(prebuilt, 'prebuilds', 'linux-x64.node')]);
+
+    const compiled = join(temp, 'sqlite-compiled');
+    mkdirSync(join(compiled, 'build', 'Release', 'obj.target'), { recursive: true });
+    writeFileSync(join(compiled, 'build', 'Release', 'better_sqlite3.node'), 'x');
+    expect(check.betterSqliteFiles(compiled, 'arm64')).toEqual([
+      join(compiled, 'build', 'Release', 'better_sqlite3.node'),
+    ]);
+
+    expect(check.betterSqliteFiles(join(temp, 'sqlite-none'), 'arm64')).toEqual([]);
+  });
+
   it('refuses a missing option on the command line', async () => {
     const generator = await loadGenerator();
     expect(() => generator.parseArgs(['--docs', docsDir])).toThrow(/required/);

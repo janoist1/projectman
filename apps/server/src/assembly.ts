@@ -114,6 +114,7 @@ import type { ProjectAccess } from './core/members';
 import {
   Admission,
   DeferredStarts,
+  StartQueue,
   FocusPull,
   StartRound,
   MessageStarts,
@@ -172,7 +173,7 @@ import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
 import { MemberQueue } from './core/member-queue';
 import { MessageDelivery } from './runtime/delivery';
-import { MemberQueueWorker, messageLane } from './runtime/member-queue';
+import { MemberQueueWorker, messageLane, startLane } from './runtime/member-queue';
 import { PlanUsageMonitor } from './runtime/usage';
 import { PresenceService } from './core/members';
 import { OWNER_HANDLE, ProjectService } from './core/projects';
@@ -594,7 +595,7 @@ export function createDomain(opts: DomainOptions) {
       ),
     );
   // Registers itself with the message and inbox repositories: every write of a source reaches it (PM-894).
-  const memberQueue = new MemberQueue({ ctx, projects });
+  const memberQueue = new MemberQueue({ ctx, projects, timeline });
   const inbox = createInboxService({
     ctx,
     timeline,
@@ -635,7 +636,8 @@ export function createDomain(opts: DomainOptions) {
       );
     });
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
-  const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
+  const startQueue = new StartQueue({ ctx, projects, queue: memberQueue });
+  const deferredStarts = new DeferredStarts(opts.repos.deferredStarts, startQueue);
   const operatorRequests = new OperatorRequests({ ctx });
   const coordinationRequests = new CoordinationRequests({ ctx, projects });
   const operatorPreferences = new OperatorPreferences({
@@ -1004,6 +1006,16 @@ export function createDomain(opts: DomainOptions) {
     type: (session, item, text) => delivery.notice(session, item.from ?? SYSTEM_SENDER, text, item.taskKey),
   });
   memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messaging, delivery }));
+  memberQueueDriver.register(
+    startLane({
+      ctx,
+      projects,
+      queue: startQueue,
+      deferred: deferredStarts,
+      admission,
+      rebuild: (spec) => rebuildDeferredStart(spec),
+    }),
+  );
   messaging.registerWaker({
     wake: (projectKey, handle, workItem) => memberQueueDriver.wake(projectKey, handle, workItem),
     // A hold lifted by the messaging (a release, a resumed session) is no turn boundary of its own: the lane
@@ -1273,6 +1285,7 @@ export function createDomain(opts: DomainOptions) {
     messaging,
     messages,
     timeline,
+    memberQueue,
     refinement,
     fixLimit,
     startOffers: { stateOf: (projectKey, taskKey) => startRound.offerState(projectKey, taskKey) },
@@ -2164,6 +2177,7 @@ export function createDomain(opts: DomainOptions) {
   // Later stages owned by AI members (review, QA, release, …) get their owner started, in the
   // background so a session start does not hold up the move.
   events.on('task_stage_changed', (change) => {
+    if (taskStarts.ownsMove(change)) return;
     background.run(
       () => handOver.handOff(change),
       (err) => opts.logger.warn({ err }, 'stage hand-over failed'),
@@ -2313,7 +2327,19 @@ export function createDomain(opts: DomainOptions) {
   };
   const ensureMembersOfCard = (projectKey: string, taskKey: string): void => {
     const members = new Set(
-      ctx.repos.memberQueue.listOpenMessagesOfTask(projectKey, taskKey).map((item) => item.member),
+      ctx.repos.memberQueue
+        .listOpenMembers()
+        .filter(
+          (open) =>
+            open.projectKey === projectKey &&
+            ctx.repos.memberQueue
+              .listOpen(projectKey, open.member)
+              .some(
+                (item) =>
+                  item.taskKey === taskKey || (item.place.type === 'task' && item.place.taskKey === taskKey),
+              ),
+        )
+        .map((open) => open.member),
     );
     for (const member of members) ensureMember(projectKey, member);
   };

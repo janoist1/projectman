@@ -396,6 +396,22 @@ export class Admission {
         // The previous deferral of this start stays stored until the attempt settles.
         const previous = this.deferred.take(start.key);
         const since = previous?.start.stillValid(this.taskOf(start)) ? previous.waiting : undefined;
+        if (!start.stillValid(this.taskOf(start))) {
+          this.deferred.drop(start.key);
+          return { kind: 'done' };
+        }
+        if (this.deferred.held(start)) {
+          const waiting: TaskStartWaiting = since ?? {
+            reason: 'label_missing',
+            since: isoNow(this.ctx),
+            member: start.waitsFor(),
+          };
+          this.deferred.keep({
+            start: { ...start, waitsFor: () => start.waitsFor() ?? since?.member },
+            waiting,
+          });
+          return { kind: 'deferred', waiting };
+        }
         try {
           await start.run();
         } catch (err) {
@@ -420,7 +436,7 @@ export class Admission {
           return { kind: 'deferred', waiting };
         }
         // The start happened, or it no longer applies.
-        this.deferred.drop(start.key);
+        this.deferred.started(start.key);
         return { kind: 'done' };
       }),
     );
@@ -504,6 +520,7 @@ export class Admission {
     for (const entry of this.retryOrder()) {
       if (!this.deferred.holds(entry)) continue;
       const { start } = entry;
+      if (this.deferred.queued(start.key)) continue;
       const task = this.taskOf(start);
       if (start.taskKey !== null && (!task || !start.stillValid(task))) {
         this.deferred.drop(start.key);
@@ -511,6 +528,7 @@ export class Admission {
         continue;
       }
       const { reason, member } = entry.waiting;
+      if (this.deferred.held(start)) continue;
       // Nothing starts while the project is paused: resuming retries them.
       if (reason === 'team_paused' && isWorkPaused(this.ctx.repos.pauses.open(), start.projectKey)) continue;
       if (reason === 'ai_disabled' || reason === 'member_on_leave') {

@@ -36,6 +36,7 @@ type FetchedBase = Awaited<ReturnType<MemberWorkspaceManager['fetchBase']>>;
 const SNAPSHOT_REF_PREFIX = 'refs/projectman/workspaces/';
 /** Where `MemberWorkspaceManager.fetchBase` leaves the default branch in the member's own clone. */
 const BASE_TRACKING_REF_PREFIX = 'refs/remotes/upstream/';
+const WORKSPACE_YIELD_IDLE_MS = 2 * 60_000;
 
 /** Where a task session works in its member's workspace, as `SessionOrchestrator.start` uses it. */
 export interface WorkspacePlacement {
@@ -133,7 +134,7 @@ export class MemberWorkspaces {
     const holder = record?.holder;
     if (holder?.cleanupFailed) throw this.busy(member.handle, repo, holder);
     if (!holder || holder.taskKey === task.key || !this.holds(holder)) return;
-    if (this.yieldingSession(config, holder)) return;
+    if (this.yieldingSession(config, holder, task.key)) return;
     throw this.busy(member.handle, repo, holder);
   }
 
@@ -616,11 +617,11 @@ export class MemberWorkspaces {
     const holder = record.holder;
     if (holder?.cleanupFailed) throw this.busy(record.member, record.repo, holder);
     if (holder && holder.sessionId !== sessionId && this.holds(holder)) {
-      const yielding = this.yieldingSession(config, holder);
+      const yielding = this.yieldingSession(config, holder, taskKey);
       if (!yielding) throw this.busy(record.member, record.repo, holder);
       this.ctx.logger.info(
         { member: record.member, repo: record.repo, from: holder.taskKey, to: taskKey },
-        'stopping an idle session that moved on, to switch its workspace to another task',
+        'stopping an idle session to switch its workspace to another task',
       );
       await this.deps.stop(record.projectKey, yielding.id);
       const after = this.ctx.repos.memberWorkspaces.get(record.id)?.holder;
@@ -651,14 +652,34 @@ export class MemberWorkspaces {
 
   /**
    * The holder's running session when it may be stopped for another task: it idles (no turn,
-   * no question pending) on a task that is closed or that the member no longer works on.
+   * no question pending) on a task that is closed or that the member no longer works on. An
+   * idle member with no queued work on its current card also yields to its queue after two minutes.
    */
-  private yieldingSession(config: ProjectConfig, holder: WorkspaceHolder): Session | null {
+  private yieldingSession(config: ProjectConfig, holder: WorkspaceHolder, taskKey: string): Session | null {
     if (!this.deps.isRunning(holder.sessionId)) return null;
     const session = this.ctx.repos.sessions.get(holder.sessionId);
     if (!session || session.state !== 'idle') return null;
     const task = this.ctx.repos.tasks.get(holder.taskKey);
-    if (task && isOpenTask(task) && isWorkingOnTask(config, task, session.member, session.state)) return null;
+    if (task && isOpenTask(task) && isWorkingOnTask(config, task, session.member, session.state)) {
+      const idleSince = Date.parse(session.stateSince ?? session.lastActivityAt);
+      if (!Number.isFinite(idleSince) || this.ctx.now().getTime() - idleSince < WORKSPACE_YIELD_IDLE_MS)
+        return null;
+      const items = this.ctx.repos.memberQueue.listOpen(session.projectKey, session.member);
+      if (
+        items.some(
+          (item) =>
+            item.taskKey === holder.taskKey ||
+            (item.place.type === 'task' && item.place.taskKey === holder.taskKey),
+        )
+      )
+        return null;
+      if (
+        !items.some(
+          (item) => item.state === 'queued' && item.place.type === 'task' && item.place.taskKey === taskKey,
+        )
+      )
+        return null;
+    }
     return session;
   }
 

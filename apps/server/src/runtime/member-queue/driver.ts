@@ -25,7 +25,7 @@ export interface MemberQueueDriverDeps {
   projects: {
     config(projectKey: string): Promise<ProjectConfig>;
   };
-  queue: Pick<MemberQueue, 'publish'>;
+  queue: Pick<MemberQueue, 'publish' | 'closeStart'>;
   admission: Pick<Admission, 'exclusive' | 'start'>;
   sessions: Pick<SessionOrchestrator, 'find' | 'findRunning' | 'isRunning' | 'close'>;
   /** Types a rendered item into the idle session; false: the session did not take it. */
@@ -175,6 +175,10 @@ export class MemberQueueWorker implements MemberQueueDriver {
     reason: NonNullable<StoredMemberQueueItem['closeReason']>,
     at: string,
   ): void {
+    if (item.kind === 'start' && (reason === 'source_closed' || reason === 'started')) {
+      this.deps.queue.closeStart(item, reason);
+      return;
+    }
     this.deps.ctx.repos.memberQueue.closeBySource(item.projectKey, item.source, {
       state,
       reason,
@@ -187,12 +191,11 @@ export class MemberQueueWorker implements MemberQueueDriver {
     const { ctx } = this.deps;
     const config = await this.deps.projects.config(projectKey);
     const memberConfig = memberOf(config, member);
-    if (memberConfig?.kind !== 'ai') return;
     const repo = ctx.repos.memberQueue;
     const at = isoNow(ctx);
     let changed = await this.settleProcessing(projectKey, member, at);
 
-    const entries: Entry[] = [];
+    let entries: Entry[] = [];
     for (const item of repo.listOpenByUrgency(projectKey, member)) {
       const lane = this.laneOf(item);
       if (!lane || item.state !== 'queued') continue;
@@ -221,6 +224,36 @@ export class MemberQueueWorker implements MemberQueueDriver {
       const wakes = lane.wakes?.(item, config) ?? item.wake;
       if (wakes !== item.wake) repo.setWake(item.id, wakes);
       entries.push({ item: { ...item, place, wake: wakes }, lane, place, held, wakes });
+    }
+    if (memberConfig?.kind !== 'ai') {
+      if (changed) this.deps.queue.publish(projectKey, member);
+      return;
+    }
+
+    // Automatic starts own their specifications and admission lock. Every unheld one gets its
+    // attempt, even at a live place; the other lanes read the running sessions afterwards.
+    const automatic = entries.filter(
+      (entry) => entry.lane.attemptStart && entry.lane.render(entry.item) === null,
+    );
+    entries = entries.filter((entry) => !automatic.includes(entry));
+    for (const { item, lane, held } of automatic) {
+      if (held) {
+        if (item.wait?.code !== held) {
+          repo.setWait(item.id, held, at, item.waitDetails ?? undefined);
+          changed = true;
+        }
+        continue;
+      }
+      const result = await lane.attemptStart!(item);
+      if (result.kind !== 'deferred')
+        this.close(
+          item,
+          result.kind === 'started' ? 'done' : 'cancelled',
+          result.kind === 'started' ? 'started' : 'source_closed',
+          at,
+        );
+      // The facade's keep owns both the wait code and its details; do not clear them here.
+      changed = true;
     }
 
     // Each wait is noted once per run: the first refusal of the run, else the hold, else none.

@@ -4826,6 +4826,8 @@ export const hu = {
         'Az integrátor a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
       obligation_woken:
         'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
+      member_queue_item_closed:
+        'A várakozó indítás lezárult: az indítás oka megszűnt vagy az indítás nem teljesíthető.',
       obligation_handed_over:
         'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért teendő lett belőle ({minutes} perc).',
       obligation_handed_over_refused:

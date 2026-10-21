@@ -9,6 +9,7 @@ import {
 } from '@projectman/shared';
 import type { CapacityHolder, ProjectConfig, Task } from '@projectman/shared';
 import type { DeferredStartRecord, StoredMemberQueueItem } from '../../db';
+import type { StartQueue } from './start-queue';
 
 /**
  * What an automatic start needs to be rebuilt when the server starts again: plain data, stored
@@ -190,10 +191,15 @@ export class DeferredStarts {
   private readonly store: DeferredStartStore | undefined;
   private capacityOf: CapacityReader | undefined;
   private queueWaitReader: QueueWaitReader | undefined;
+  private readonly queue: StartQueue | undefined;
+  private rebuild: ((spec: StartSpec) => AutomaticStart | null) | undefined;
+  private readonly inFlight = new Set<string>();
+  private listing = false;
 
   /** `store`: where the deferrals are kept besides memory (none: only in memory). */
-  constructor(store?: DeferredStartStore) {
+  constructor(store?: DeferredStartStore, queue?: StartQueue) {
     this.store = store;
+    this.queue = queue;
   }
 
   /**
@@ -202,19 +208,45 @@ export class DeferredStarts {
    * settles, so that a restart in the middle of one does not lose the start.
    */
   take(key: string): DeferredStart | undefined {
-    const entry = this.entries.get(key);
+    const entry = this.entries.get(key) ?? this.list().find((entry) => entry.start.key === key);
     this.entries.delete(key);
+    this.inFlight.add(key);
     return entry;
   }
 
   keep(entry: DeferredStart): void {
+    this.inFlight.delete(entry.start.key);
     this.entries.set(entry.start.key, entry);
-    this.store?.save(recordOf(entry));
+    const write = () => {
+      if (this.queue?.keep(entry)) this.store?.remove(entry.start.key);
+      else this.store?.save(recordOf(entry));
+    };
+    if (this.queue) this.queue.persist(write);
+    else write();
   }
 
   drop(key: string): void {
+    this.inFlight.delete(key);
     this.entries.delete(key);
     this.store?.remove(key);
+    this.queue?.close(key, false);
+  }
+
+  /** The taken start ran successfully; its durable item may now close. */
+  started(key: string): void {
+    this.inFlight.delete(key);
+    this.entries.delete(key);
+    this.store?.remove(key);
+    this.queue?.close(key, true);
+  }
+
+  held(start: AutomaticStart): boolean {
+    return this.queue?.held(start) ?? false;
+  }
+
+  /** Queued starts are retried by their lane, after the legacy retry round. */
+  queued(key: string): boolean {
+    return this.queue?.has(key) ?? false;
   }
 
   /** Whether this very deferral is still kept (a retry may have replaced or dropped it). */
@@ -224,7 +256,22 @@ export class DeferredStarts {
 
   /** The deferrals, oldest first. */
   list(): DeferredStart[] {
-    return [...this.entries.values()];
+    const entries = new Map(this.entries);
+    // Rebuilding reads task views, whose startWaiting in turn reads this list.
+    if (this.listing) return [...entries.values()];
+    this.listing = true;
+    try {
+      for (const record of this.queue?.records() ?? []) {
+        if (entries.has(record.key) || this.inFlight.has(record.key)) continue;
+        const spec = StartSpec.safeParse(record.spec);
+        const waiting = TaskStartWaiting.safeParse(record.waiting);
+        const start = spec.success ? this.rebuild?.(spec.data) : null;
+        if (start && waiting.success) entries.set(record.key, { start, waiting: waiting.data });
+      }
+    } finally {
+      this.listing = false;
+    }
+    return [...entries.values()];
   }
 
   /** Binds what the member queue waits for (built after this store): its wake-ups are never deferred here. */
@@ -241,7 +288,7 @@ export class DeferredStarts {
   waitingFor(task: Task): TaskStartWaiting | undefined {
     const waiting = [
       ...this.forTask(task)
-        .filter((entry) => entry.start.stillValid(task))
+        .filter((entry) => entry.start.stillValid(task) && !this.held(entry.start))
         .map((entry) => entry.waiting),
       ...(this.queueWaitReader?.ofTask(task) ?? []),
     ].sort((a, b) => a.since.localeCompare(b.since))[0];
@@ -269,23 +316,27 @@ export class DeferredStarts {
    * be rebuilt (its shape is unknown, or `rebuild` has no task for it any more) is removed.
    */
   restore(rebuild: (spec: StartSpec) => AutomaticStart | null): { restored: number; removed: number } {
+    this.rebuild = rebuild;
     let restored = 0;
     let removed = 0;
-    for (const record of this.store?.list() ?? []) {
+    for (const record of [...(this.store?.list() ?? []), ...(this.queue?.records() ?? [])]) {
       const spec = StartSpec.safeParse(record.spec);
       const waiting = TaskStartWaiting.safeParse(record.waiting);
       const start = spec.success && waiting.success ? rebuild(spec.data) : null;
       if (!start || !waiting.success) {
-        this.store?.remove(record.key);
+        this.drop(record.key);
         removed++;
         continue;
       }
-      const entry = { start, waiting: waiting.data };
-      this.entries.set(start.key, entry);
+      // A restored factory may choose its member only when run; the persisted wait remembers it.
+      const entry = {
+        start: { ...start, waitsFor: () => start.waitsFor() ?? waiting.data.member },
+        waiting: waiting.data,
+      };
+      this.keep(entry);
       if (start.key !== record.key) {
         // The key is made up differently than when the start was stored.
-        this.store?.remove(record.key);
-        this.store?.save(recordOf(entry));
+        this.drop(record.key);
       }
       restored++;
     }
@@ -293,7 +344,7 @@ export class DeferredStarts {
   }
 
   private forTask(task: Task): DeferredStart[] {
-    return [...this.entries.values()].filter(
+    return this.list().filter(
       (entry) => entry.start.projectKey === task.projectKey && entry.start.taskKey === task.key,
     );
   }

@@ -252,7 +252,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   path. A workspace serves one task session at a time, for the life of its process group, idle or
   not (the reservation in `member_workspaces`): every start (admission, a person's resume, a
   message wake-up) checks it, a session of another task gives way only when it idles on a task it
-  no longer works on (it is stopped; its conversation stays), and otherwise the start waits
+  no longer works on (it is stopped; its conversation stays). It also yields after two idle minutes
+  when its member has no open queue item on that card and a queued item needs another card (PM-927).
+  Otherwise the start waits
   (`workspace_busy`). A branch switch needs a clean workspace with no unfinished git operation
   (`workspace_dirty`); nothing is stashed, reset, cleaned or removed, and done or cancelled tasks
   leave the workspace, its branches and dependencies in place. A conversation of an older
@@ -920,7 +922,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
   changes nothing. The pending counts, `get_project_state` and the diagnostics read the queue.
 - **Driver** (PM-925, `apps/server/src/runtime/member-queue/`): `MemberQueueDriver { ensure(projectKey, member), sweep(),
-  register(lane) }`. Everything that could give a member work (an item queued, a turn over, a hold lifted, a limit gone)
+register(lane) }`. Everything that could give a member work (an item queued, a turn over, a hold lifted, a limit gone)
   calls `ensure`, which works the member's queue by level under a keyed mutex (idempotent, one run at a time): items
   whose source no longer owes them are cancelled, items on a closed card go to the desk or end (`place_closed`), a hold
   puts its code on the item, a live session gets its items at the turn boundary, and the first waking item without a
@@ -1824,6 +1826,12 @@ workers follow the machine's size.
   own; it runs in the server process and reads only the database. **Remote engine:** the driver, the sweep and the
   database run on the hub; the session start crosses the server/engine boundary as it did, and an offline engine
   becomes the item's wait (`engine_offline`), retried by the sweep.
+  **Start lane and workspace yielding (PM-927):** known-member deferred starts live in the queue;
+  their specifications are rebuilt and retried through admission. `runtime/sessions/workspaces.ts`
+  also stops a holder idle for two minutes when its card has no open item and its member's queue
+  needs another card. The hub decides from persisted session and queue state; the existing session
+  RPC stops the process on its engine, whose workspace manager still refuses dirty checkouts.
+  No new path, process or transport assumption is introduced.
 
 - **Startup sweep of crash leftovers (PM-837)** — when the engine host is created (the server in local mode,
   the engine process in hybrid mode) two one-shot background sweeps remove what a crash left behind, each

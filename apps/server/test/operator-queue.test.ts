@@ -278,6 +278,22 @@ describe('the Operator queue', () => {
     });
   });
 
+  it('starts the Operator for its queue although the project cap of running AI sessions is reached', async () => {
+    await h.domain.stop();
+    await h.cleanup();
+    h = await createDomainHarness({
+      adjust: (config) => void (config.team.limits.maxConcurrentAi = 1),
+      integratorTodoAccess: { available: operatorQueueAvailable },
+    });
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+    const opened = await openTodo();
+
+    const { queueItem } = await working();
+
+    expect(queueItem.source).toMatchObject({ inboxItemId: opened.itemId });
+    expect(h.runner.started.some((spec) => spec.member === 'operator')).toBe(true);
+  });
+
   describe('when the Operator becomes unavailable', () => {
     it('gives the open todo and its queue item to the owners at the next sweep', async () => {
       const opened = await openTodo();

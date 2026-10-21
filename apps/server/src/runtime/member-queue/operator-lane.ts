@@ -5,6 +5,7 @@ import {
   pendingRecipientsOf,
   questionPayloadOf,
   sessionWorkItemOf,
+  SYSTEM_SENDER,
 } from '@projectman/shared';
 import { operatorQueueText } from '../../agent-text';
 import type { StoredMemberQueueItem } from '../../db';
@@ -135,7 +136,7 @@ export function operatorLane(deps: OperatorLaneDeps): MemberQueueLane {
         messageId: item.source.type === 'message' ? item.source.id : null,
         inboxItemId: item.source.type === 'inbox' ? item.source.id : null,
         queueItemId: item.id,
-        from: item.from ?? 'system',
+        from: item.from ?? SYSTEM_SENDER,
         text: item.title,
       });
     },

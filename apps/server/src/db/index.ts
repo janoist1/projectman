@@ -78,6 +78,13 @@ import { createMemberWorkspaceRepository } from './member-workspaces';
 import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
+import { createMemberQueueRepository } from './member-queue';
+export type {
+  MemberQueueClose,
+  MemberQueueSourceKey,
+  NewMemberQueueItem,
+  StoredMemberQueueItem,
+} from './member-queue';
 import { createCounterRepository, createProjectRepository } from './projects';
 import { createOperatorRequestRepository } from './operator-requests';
 import { createOperatorSignalRepository } from './operator-signals';
@@ -184,6 +191,7 @@ export function createRepositories(db: Db) {
     memberWorkspaces: createMemberWorkspaceRepository(db),
     sessionCleanups: createSessionCleanupRepository(db),
     messages: createMessageRepository(db),
+    memberQueue: createMemberQueueRepository(db),
     inbox: createInboxRepository(db),
     boundary: createBoundaryRepository(db),
     memberState: createMemberStateRepository(db),

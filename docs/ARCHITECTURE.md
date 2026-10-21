@@ -891,8 +891,41 @@ a task in it), `task_review_pins` (PM-183: the commit handed over with the task'
 test stage); the feedback tables (PM-506, migration 55): `feedback_marks`, `feedback_events` (the
 thread of a mark), `feedback_reads`, `feedback_marker_colors`, `feedback_launch_codes` (single use,
 two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on customer pages, kept as
-hashes); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+hashes); `member_queue_items` (PM-894, migration 98: one row per item in an AI member's queue, see "Member
+queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
+
+## Member queue (PM-894)
+
+Every AI member has one durable queue of what is waiting for them: a message, an Operator todo, a fix limit decision
+(later slices add permission requests, signals, obligations and starts). Slice A (this one) stores and shows; waking
+and delivery are unchanged and move onto the queue in PM-925.
+
+- **Storage**: `member_queue_items` (`apps/server/src/db/member-queue.ts`). One row per (project, member, source type,
+  source id), unique, so enqueueing twice is a no-op. Columns: `kind` (`message`, `todo`, `fix_limit`, ...), the `place`
+  the member works it in (a card, or `general` = the member's desk with no workspace), `wake`, `state`
+  (`queued`, `processing`, `done`, `cancelled`), the close reason, `attempts`, a wait code and the Operator's outcome.
+  The contract is `packages/shared/src/domain/member-queue.ts` (`MemberQueueItem`, `MemberQueueView`,
+  `MemberQueuesView`, `nominalMessagePlace`, `memberQueueSourceId`).
+- **Enqueue**: `core/member-queue` (`MemberQueue`). The two source repositories run listeners inside the transaction of
+  every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
+  remember it. A message gets an item for each AI recipient it is pending for (`team_message_pending`); the item closes
+  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the pending row goes away any other way. An open
+  inbox item that is addressed to the integrator (`isIntegratorInboxItem`: a todo or the narrow fix limit decision)
+  gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator answered, else
+  `cancelled`/`source_closed` (escalation to the owner included). Both reconcilers are idempotent and a failure is
+  logged and never changes what the source write does.
+- **Invariant**: the open message items are exactly the `team_message_pending` rows. `recover()` runs at startup (after
+  `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again changes nothing.
+- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/member-queues` (every AI member in
+  configuration order, zeros included), `GET /api/projects/:key/members/:handle/queue?closedSince=` (open items and the
+  items closed since; default 24 hours; an unknown or non-AI handle is 404 `unknown_member`, a bad date 400
+  `invalid_request`) and `GET /api/projects/:key/operator/queue`. Access: a person's own login (developer or more) or
+  an integrator read or super key; the legacy integrator key is refused (`insufficient_access`, on the Operator route
+  `operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
+- **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
+- **Remote engine**: no machine-dependent part is added. The queue lives in the server's database and is written by
+  the server; nothing crosses to an engine.
 
 ## Durable super-mode handoff (PM-762, part of the super mode PM-757)
 

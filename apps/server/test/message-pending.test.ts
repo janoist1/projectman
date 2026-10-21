@@ -315,7 +315,13 @@ describe('pending message repository', () => {
       createRepositories(db);
       const queries = prepare.mock.calls
         .map(([sql]) => sql)
-        .filter((sql) => /SELECT.*|SELECT\s/s.test(sql) && sql.includes('FROM team_message_pending'));
+        .filter(
+          (sql) =>
+            /SELECT.*|SELECT\s/s.test(sql) &&
+            sql.includes('FROM team_message_pending') &&
+            // The member queue's own reconciliation reads (PM-894) join the table to its items.
+            !sql.includes('member_queue_items'),
+        );
       prepare.mockRestore();
       // Two read a recipient's queue; two more (PM-813) read the queue by project and by message.
       expect(queries).toHaveLength(4);

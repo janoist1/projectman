@@ -95,7 +95,24 @@ export function createInboxRepository(db: Db) {
     return row ? toItem(row) : null;
   };
 
+  const listeners: Array<(item: InboxItem) => void> = [];
+  /** Runs `write` and the change listeners in one transaction, so what a listener derives commits with the item. */
+  const changing = <T>(id: string, write: () => T): T =>
+    db.transaction(() => {
+      const result = write();
+      const item = listeners.length > 0 ? get(id) : null;
+      if (item) for (const listener of listeners) listener(item);
+      return result;
+    })();
+
   return {
+    /**
+     * `listener` runs inside the transaction of every write that changes an item, with the item as it is
+     * then (the member queue keeps its rows of the item true, PM-894). It must be idempotent.
+     */
+    onChange(listener: (item: InboxItem) => void): void {
+      listeners.push(listener);
+    },
     groupOf(id: string): {
       primaryItemId: string;
       projectKey: string;
@@ -167,17 +184,20 @@ export function createInboxRepository(db: Db) {
       options: InboxItem['options'],
       at: string,
     ): InboxItem | null {
-      db.prepare(
-        "UPDATE inbox_items SET payload = ?, options = ?, updated_at = ? WHERE id = ? AND state = 'open'",
-      ).run(toJson(payload), toJson(options), at, id);
+      changing(id, () =>
+        db
+          .prepare(
+            "UPDATE inbox_items SET payload = ?, options = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+          )
+          .run(toJson(payload), toJson(options), at, id),
+      );
       return get(id);
     },
     updateBoundary(id: string, payload: Record<string, unknown>, assignees: string[], at: string): void {
-      db.prepare('UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ?').run(
-        toJson(payload),
-        toJson(assignees),
-        at,
-        id,
+      changing(id, () =>
+        db
+          .prepare('UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ?')
+          .run(toJson(payload), toJson(assignees), at, id),
       );
     },
     /**
@@ -191,7 +211,7 @@ export function createInboxRepository(db: Db) {
       at: string,
       body?: string,
     ): InboxItem | null {
-      const changes =
+      const changes = changing(id, () =>
         body === undefined
           ? db
               .prepare(
@@ -202,31 +222,34 @@ export function createInboxRepository(db: Db) {
               .prepare(
                 "UPDATE inbox_items SET payload = ?, assignees = ?, body = ?, updated_at = ? WHERE id = ? AND state = 'open'",
               )
-              .run(toJson(payload), toJson(assignees), body, at, id).changes;
+              .run(toJson(payload), toJson(assignees), body, at, id).changes,
+      );
       return changes > 0 ? get(id) : null;
     },
     get,
     insert(item: InboxItem): void {
-      statements.insert.run(
-        item.id,
-        item.projectKey,
-        item.kind,
-        toJson(item.assignees),
-        item.source,
-        item.sessionId,
-        item.taskKey,
-        item.title,
-        item.body,
-        toJson(item.payload),
-        toJson(item.options),
-        item.state,
-        item.resolution ? toJson(item.resolution) : null,
-        item.createdAt,
-        item.createdAt,
+      changing(item.id, () =>
+        statements.insert.run(
+          item.id,
+          item.projectKey,
+          item.kind,
+          toJson(item.assignees),
+          item.source,
+          item.sessionId,
+          item.taskKey,
+          item.title,
+          item.body,
+          toJson(item.payload),
+          toJson(item.options),
+          item.state,
+          item.resolution ? toJson(item.resolution) : null,
+          item.createdAt,
+          item.createdAt,
+        ),
       );
     },
     updateAssignees(id: string, assignees: string[], at: string): InboxItem | null {
-      statements.updateAssignees.run(toJson(assignees), at, id);
+      changing(id, () => statements.updateAssignees.run(toJson(assignees), at, id));
       return get(id);
     },
     /**
@@ -239,7 +262,10 @@ export function createInboxRepository(db: Db) {
       resolution: InboxItem['resolution'],
       at: string,
     ): InboxItem | null {
-      const changes = statements.close.run(state, resolution ? toJson(resolution) : null, at, id).changes;
+      const changes = changing(
+        id,
+        () => statements.close.run(state, resolution ? toJson(resolution) : null, at, id).changes,
+      );
       return changes > 0 ? get(id) : null;
     },
     /**
@@ -251,7 +277,10 @@ export function createInboxRepository(db: Db) {
       change: { payload: Record<string, unknown>; options: InboxItem['options']; at: string },
     ): boolean {
       return (
-        statements.release.run(toJson(change.payload), toJson(change.options), change.at, id).changes > 0
+        changing(
+          id,
+          () => statements.release.run(toJson(change.payload), toJson(change.options), change.at, id).changes,
+        ) > 0
       );
     },
     /** Items of a project, oldest first. */
@@ -328,7 +357,7 @@ export function createInboxRepository(db: Db) {
     },
     /** Replaces the payload of an item in any state (PM-498: a file of a question was deleted). */
     updatePayload(id: string, payload: Record<string, unknown>, at: string): InboxItem | null {
-      const changes = statements.updatePayload.run(toJson(payload), at, id).changes;
+      const changes = changing(id, () => statements.updatePayload.run(toJson(payload), at, id).changes);
       return changes > 0 ? get(id) : null;
     },
     countOpenFor(projectKey: string, handle: string): number {

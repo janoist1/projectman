@@ -358,6 +358,7 @@ describe('history index', () => {
         'web_push_devices',
         'web_push_settings',
         'web_push_items',
+        'member_queue_items',
       ])
         old.exec(`DROP TABLE ${table}`);
       // The hot read indexes (migration 91) do not exist at version 83 either; migrating recreates them.

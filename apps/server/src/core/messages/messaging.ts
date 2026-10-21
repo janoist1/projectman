@@ -21,6 +21,7 @@ import {
   messageRoute,
   messageWakeBlock,
   messageWakes,
+  nominalMessagePlace,
   operatorConversationOf,
   projectRefines,
   routeFor,
@@ -1108,12 +1109,8 @@ export class Messaging {
     ownCard = false,
     from?: string,
   ): { workItem: WorkItemRef; running: Session | null } {
-    const recipient = memberOf(config, handle);
     // The Operator has one conversation per person who is not an owner, and one for the others (PM-475).
-    workItem =
-      from !== undefined && isOperator(recipient) && (workItem.type === 'task' || workItem.type === 'general')
-        ? operatorConversationOf(config, from)
-        : sessionWorkItemOf(recipient, workItem);
+    workItem = nominalMessagePlace(config, handle, workItem, from);
     const own = this.sessions.findRunning(projectKey, handle, workItem);
     if (own || workItem.type !== 'task') return { workItem, running: own };
     // Meant for the work on this card (an analyst check): not for the member's session on a family card.

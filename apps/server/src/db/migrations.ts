@@ -2055,4 +2055,44 @@ migrations.push({
     ALTER TABLE history_searches ADD COLUMN semantic_duration_ms INTEGER
       CHECK (semantic_duration_ms IS NULL OR semantic_duration_ms >= 0);`,
 });
+migrations.push({
+  version: 98,
+  name: 'member queue',
+  // PM-894: one durable queue per AI member. A row is one source's item for one member (the unique key), with
+  // the place the member works it (`place`, a work item as JSON) and whether it wakes the member. `state`
+  // is queued, processing or closed (done, handed_off, cancelled) and `close_reason` says why. `payload` is
+  // the owning lane's internal state; it is never shown. The later slices' lanes (PM-925..927, PM-885) write
+  // the columns they own (attempts, restarted_at, session_id, wait_*, outcome) and nothing else reads them.
+  sql: `CREATE TABLE member_queue_items (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+      member TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('message','todo','fix_limit','permission','boundary','screening','signal','start')),
+      source_type TEXT NOT NULL CHECK (source_type IN ('message','inbox','boundary','signal','fix_limit','obligation','start')),
+      source_id TEXT NOT NULL,
+      place TEXT NOT NULL,
+      task_key TEXT,
+      place_task_key TEXT,
+      wake INTEGER NOT NULL DEFAULT 0 CHECK (wake IN (0, 1)),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','processing','done','handed_off','cancelled')),
+      title TEXT NOT NULL DEFAULT '',
+      from_handle TEXT,
+      queued_at TEXT NOT NULL,
+      started_at TEXT,
+      closed_at TEXT,
+      close_reason TEXT CHECK (close_reason IS NULL OR close_reason IN ('delivered','resolved','finished','handed_off','started','place_closed','source_closed','stale','member_removed','attempts_exhausted')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      restarted_at TEXT,
+      session_id TEXT,
+      wait_code TEXT,
+      wait_at TEXT,
+      outcome TEXT,
+      payload TEXT,
+      UNIQUE (project_key, member, source_type, source_id)
+    );
+    CREATE INDEX member_queue_items_member ON member_queue_items(project_key, member, state, queued_at);
+    CREATE INDEX member_queue_items_place ON member_queue_items(project_key, place_task_key)
+      WHERE state IN ('queued','processing');
+    CREATE INDEX member_queue_items_closed ON member_queue_items(project_key, member, closed_at);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

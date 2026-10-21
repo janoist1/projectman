@@ -145,6 +145,13 @@ modules:
     summary: Emberi kérdések, jóváhagyások, engedélydöntések és a kérdések életciklusa.
     paths:
       - apps/server/src/core/inbox/
+  - id: core/member-queue
+    area: core
+    kind: core
+    name: Tagonkénti munkasor
+    summary: Az AI tagoknak címzett üzenetek és teendők tartós sora, és a sor olvasása.
+    paths:
+      - apps/server/src/core/member-queue/
   - id: core/attachments
     area: core
     kind: core
@@ -632,6 +639,8 @@ links:
     to: core/messages
   - from: api
     to: core/inbox
+  - from: api
+    to: core/member-queue
   - from: api
     to: core/timeline
   - from: api

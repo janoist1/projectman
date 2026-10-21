@@ -38,6 +38,15 @@ export function createDomainContext(deps: {
   const bus: EventBus = {
     publish(event) {
       const buffer = pending.at(-1);
+      // A queue change only says "read the queue again": one per unit of work and member is enough (PM-894).
+      if (
+        buffer &&
+        event.type === 'member_queue_changed' &&
+        buffer.some(
+          (e) => e.type === event.type && e.projectKey === event.projectKey && e.member === event.member,
+        )
+      )
+        return;
       if (buffer) buffer.push(event);
       else deps.bus.publish(event);
     },

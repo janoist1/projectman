@@ -158,13 +158,25 @@ export function createMessageRepository(db: Db) {
 
   // Each caller owns a transaction, including standalone repository calls. better-sqlite3 nests
   // these as savepoints, so the enclosing domain unitOfWork can still roll back both tables.
+  const pendingListeners: Array<(message: TeamMessage) => void> = [];
   const refreshPending = (id: string): void => {
     statements.clearPending.run(id);
     statements.derivePending.run(id);
+    if (pendingListeners.length === 0) return;
+    const message = get(id);
+    if (message) for (const listener of pendingListeners) listener(message);
   };
 
   return {
     get,
+    /**
+     * `listener` runs inside the transaction of every write that may change who a message is still pending
+     * for (a new message, a receipt change, a delivery), after the pending rows are derived anew (the member
+     * queue keeps its message items equal to them, PM-894). It must be idempotent.
+     */
+    onPendingChange(listener: (message: TeamMessage) => void): void {
+      pendingListeners.push(listener);
+    },
     /** Every durable carrier, without a recent-message limit (shared question answers, PM-695). */
     listByAttachment(projectKey: string, attachmentId: string): TeamMessage[] {
       const rows = db
@@ -303,6 +315,10 @@ export function createMessageRepository(db: Db) {
         message: toMessage(row),
         handles: (statements.pendingHandles.all(row.id) as { handle: string }[]).map((h) => h.handle),
       }));
+    },
+    /** The handles one message is still pending for (`team_message_pending`). */
+    pendingHandlesOf(messageId: string): string[] {
+      return (statements.pendingHandles.all(messageId) as { handle: string }[]).map((h) => h.handle);
     },
     /** The same recipient set without reading or decoding message rows. */
     pendingCount(projectKey: string, handle: string): number {

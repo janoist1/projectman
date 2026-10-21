@@ -182,6 +182,8 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   integrator_key_audit: 'key audit, not project state',
   integrator_keys: 'credentials, not project state',
   invitations: 'member administration; the configuration version changes when one is accepted',
+  member_queue_items:
+    'member queue (PM-894); its sources (messages, inbox items) are journaled and it announces itself',
   member_state: 'activity pattern; no durability is promised',
   member_workspaces: 'machine-local workspace bookkeeping of the runner',
   merge_check_run_tasks: 'written in the same transaction as its merge_check_runs row, which is journaled',

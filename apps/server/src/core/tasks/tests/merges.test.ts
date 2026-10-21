@@ -612,6 +612,10 @@ describe('member initiated merge', () => {
       await fix({ fixConflict: true }, aiActor('cr'));
       h!.runner.setState(session.id, 'idle');
       await vi.waitFor(() => expect(h!.runner.started.length).toBe(before + 1));
+      // The restarted session takes the messages waiting for it at its first idle moment; one left waiting
+      // wakes the member again once the session is stopped, as the member queue is level driven (PM-925).
+      h!.runner.setState(session.id, 'idle');
+      await vi.waitFor(() => expect(h!.domain.messages.waiting('AR', 'cr', session.workItem)).toEqual([]));
 
       const tree = [...h!.worktrees.fixes.values()][0]!;
       h!.worktrees.heads.get(tree.path)!.commit = 'resolved';

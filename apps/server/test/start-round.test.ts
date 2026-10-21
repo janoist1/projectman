@@ -25,7 +25,7 @@ describe('intentional ready waits', () => {
   const settle = () => h.domain.admission.retryDeferred();
   const hold = (key: string) => h.domain.tasks.get('AR', key).readyHold;
 
-  it('shares concurrent rounds and ignores holds outside the active unassigned source queue', async () => {
+  it('shares concurrent rounds and ignores holds outside the active source queue', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const card = await create();
     const config = await h.domain.projects.config('AR');
@@ -59,7 +59,6 @@ describe('intentional ready waits', () => {
     expect(round.holdOf(card)).toMatchObject({ reason: 'ai_disabled' });
     expect(round.holdOf({ ...card, status: 'done' })).toBeUndefined();
     expect(round.holdOf({ ...card, stageId: 'development' })).toBeUndefined();
-    expect(round.holdOf({ ...card, assignee: 'dev-1' })).toBeUndefined();
     config.team.limits.aiEnabled = true;
     await round.run();
     expect(round.holdOf(card)).toBeUndefined();

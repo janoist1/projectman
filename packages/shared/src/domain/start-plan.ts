@@ -45,6 +45,16 @@ export function planStarts(input: {
       compareStartOrder(a, b, places),
   );
   for (const card of ordered) {
+    // An assigned card is started by its assignee when the pm moves it (PM-879): it keeps that developer when
+    // they are free, and waits for them otherwise. The pull assigns a developer itself, so it never takes it.
+    if (card.assignee) {
+      const own = free.find((member) => member.handle === card.assignee);
+      if (own) {
+        plan.set(card.key, { kind: 'offer', developer: own.handle });
+        free = free.filter((member) => member !== own);
+      }
+      continue;
+    }
     const choose = (candidates: readonly DeveloperCandidate[]) =>
       pickDeveloper({
         level: developerLevelOf(card),

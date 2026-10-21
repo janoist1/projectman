@@ -252,6 +252,24 @@ describe('the start offer to the project manager', () => {
     expect(startRows(key)).toHaveLength(1);
   });
 
+  it('offers a card that already has an assignee once that assignee is free (PM-879)', async () => {
+    await harness();
+    const busy = await busyDevelopers();
+    const key = await create('Assigned card');
+    h.domain.tasks.assign('AR', key, 'dev-1', OWNER_ACTOR);
+    await settle();
+    expect(offers().filter((m) => m.taskKey === key)).toEqual([]);
+    for (const card of busy) await h.domain.tasks.cancel('AR', card, { reason: 'Fictional.' }, OWNER_ACTOR);
+    await settle();
+    expect(offers().filter((m) => m.taskKey === key)).toHaveLength(1);
+    expect(startRows(key)).toMatchObject([{ responsible: 'pm', state: 'open' }]);
+    await settle();
+    expect(offers().filter((m) => m.taskKey === key)).toHaveLength(1);
+    await pmMove(key);
+    await vi.waitFor(() => expect(task(key).stageId).toBe('development'));
+    expect(task(key).assignee).toBe('dev-1');
+  });
+
   describe('urgent and focus cards', () => {
     it('are not offered: the pull starts them', async () => {
       await harness();

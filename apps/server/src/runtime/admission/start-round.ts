@@ -157,8 +157,7 @@ export class StartRound implements StartRounding {
 
   private stateOfQueued(task: Task): ProjectRound | undefined {
     const state = this.states.get(task.projectKey);
-    if (!state || task.stageId !== state.sourceStageId || task.status !== 'active' || task.assignee)
-      return undefined;
+    if (!state || task.stageId !== state.sourceStageId || task.status !== 'active') return undefined;
     return state;
   }
 
@@ -230,6 +229,7 @@ export class StartRound implements StartRounding {
       tasks: startContext(tasks, key, queued),
       fromStageId: source.id,
       toStageId: development.id,
+      assigned: true,
     });
     const owners = stageOwners(config, development);
     const seniors = seniorsOf(config, development)

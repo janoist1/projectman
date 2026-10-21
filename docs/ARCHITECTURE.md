@@ -4342,6 +4342,9 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   work start is dropped on retry when its card gains a subtask. Explicit manual starts remain available.
   A new round starts at once on a focus change (`ProjectFocusService.onChange`), on a priority set to `urgent` (the
   internal `task_priority_changed` event) and on a card entering the queue stage, besides the freeing of a developer.
+  The start round (`StartRound`) reads the whole active queue (`queue` read), assigned cards too (PM-879): an
+  assigned card is offered to its own assignee when they are free and never pulled; the pm moves it, so the
+  assignee starts it. Without this a card assigned in the queue stage was never offered and nobody was woken.
 - **Targeted reads (PM-770).** The retry, the pull and the startup recovery do not read a project's whole card list.
   `TaskSchedulingReader.readSchedulingTasks(projectKey, query)` (`contracts/task-scheduling.ts`, implemented by
   `TaskService` over `TaskRepository.readScheduling` in `db/tasks.ts`) returns stored rows with their own links, in

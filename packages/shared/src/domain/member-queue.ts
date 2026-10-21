@@ -163,7 +163,7 @@ export const MemberQueueView = z.object({
   member: MemberHandle,
   /** Open items (queued, processing), the oldest first. */
   items: z.array(MemberQueueItem),
-  /** Items closed since `closedSince` (default 24 hours), the newest first, at most 200. */
+  /** Items closed since `closedSince` (default 24 hours), the newest first, at most `MEMBER_QUEUE_CLOSED_LIMIT`. */
   closed: z.array(MemberQueueItem),
   /** Whether the member ever had an item: the "first use" state of the screen. */
   everQueued: z.boolean(),
@@ -188,7 +188,7 @@ export const MemberQueueQuery = z.strictObject({ closedSince: z.iso.datetime({ o
 export type MemberQueueQuery = z.infer<typeof MemberQueueQuery>;
 
 /** The closed items one view lists at most. */
-export const MEMBER_QUEUE_CLOSED_LIMIT = 200;
+export const MEMBER_QUEUE_CLOSED_LIMIT = 50;
 /** How far back `closedSince` goes when a request names none. */
 export const MEMBER_QUEUE_CLOSED_DEFAULT_MS = 24 * 60 * 60_000;
 

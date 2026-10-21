@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MemberQueuesView, MemberQueueView, routes, TODO_DONE_OPTION } from '@projectman/shared';
+import {
+  MEMBER_QUEUE_CLOSED_LIMIT,
+  MemberQueuesView,
+  MemberQueueView,
+  routes,
+  TODO_DONE_OPTION,
+} from '@projectman/shared';
 import type { InboxItem, ServerEvent } from '@projectman/shared';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -312,6 +318,19 @@ describe('member queue', () => {
       );
       expect(recent.closed).toHaveLength(0);
       expect(recent.everQueued).toBe(true);
+    });
+
+    it('lists at most MEMBER_QUEUE_CLOSED_LIMIT closed items, the newest first', async () => {
+      const ids: string[] = [];
+      for (let i = 0; i <= MEMBER_QUEUE_CLOSED_LIMIT; i++) {
+        now = new Date(Date.parse(START) + i * 1000);
+        const message = send(['dev-1'], `Message ${i}`);
+        domain().messages.markRecipientDelivered(message.id, 'dev-1');
+        ids.push(message.id);
+      }
+      const body = MemberQueueView.parse((await get(routes.memberQueue('AR', 'dev-1'))).json());
+      expect(body.closed).toHaveLength(MEMBER_QUEUE_CLOSED_LIMIT);
+      expect(body.closed[0]!.source).toEqual({ type: 'message', messageId: ids.at(-1) });
     });
 
     it('answers 404 unknown_member for a handle that is not an AI member', async () => {

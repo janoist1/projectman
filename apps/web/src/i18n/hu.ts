@@ -1159,6 +1159,8 @@ export const hu = {
       invite_password_account_required: 'Ezt a meghívót csak jelszavas fiókkal lehet elfogadni.',
       gate_blocked: 'A kapu még nem enged tovább.',
       approval_requested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
+      hand_on_requested: 'A kártyát nem mozgattuk: a kártyamozgatót kértük meg, hogy lépje tovább.',
+      update_not_applied: 'A módosítás nem érvényesült: a szakasz vagy a felelős nem változott.',
       not_a_member: 'Nem vagy tagja ennek a projektnek.',
       insufficient_access: 'Ehhez nincs elég jogod.',
       owner_only: 'Ezt csak a tulajdonos teheti meg.',
@@ -1421,17 +1423,13 @@ export const hu = {
       passwordRequired: 'Add meg a jelszavad.',
       setupCodeRequired: 'Add meg a szerver naplójában olvasható beállítókódot.',
     },
-    /** The e-mail login of invited clients (PM-671); shown only when the server says it is enabled. */
+    /** The e-mail code login of invited clients (PM-671); only on the invitation page, never on the login page (PM-930). */
     emailLogin: {
-      subtitle: 'Add meg az e-mail címed, és küldünk rá egy belépőkódot.',
-      passwordSubtitle: 'Lépj be az e-mail címeddel és a jelszavaddal.',
       sendCode: 'Kód küldése',
       sending: 'Küldés…',
       sendCodeWait: 'Kód küldése ({time})',
       hasPassword: 'Van jelszavad?',
       usePassword: 'Belépés jelszóval',
-      noPassword: 'Nincs jelszavad?',
-      useCode: 'Belépés e-mailes kóddal',
       codeTitle: 'Nézd meg a leveleidet',
       codeSubtitle:
         'Ha ehhez a címhez meghívás vagy fiók tartozik, elküldtük rá a {digits} jegyű belépőkódot. {minutes} percig érvényes.',
@@ -1452,8 +1450,6 @@ export const hu = {
       announceSent: 'Elküldtük a kódot, ha a címhez meghívás vagy fiók tartozik.',
       announceSentInvite: 'Elküldtük a kódot a meghívott címre.',
       announceResendReady: 'Most már kérhetsz új kódot.',
-      nameTitle: 'Mi a neved?',
-      nameSubtitle: 'Ez az első belépésed. Így látnak majd a csapatban.',
       nameLabel: 'Neved',
       tooMany: 'Túl sok kérés érkezett. Várj egy kicsit, utána újra kérhetsz kódot.',
       unavailable: 'Az e-mailes belépés most nem működik. Próbáld újra később.',

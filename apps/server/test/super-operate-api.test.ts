@@ -338,6 +338,34 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect(event?.actor).toMatchObject(operator);
   });
 
+  it('clears the assignee and moves a card back in one update', async () => {
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    const taskKey = created.taskKey!;
+    await submit({ kind: 'task_start', taskKey, request: { assignee: 'dev-1' } });
+    const operation = await submit({
+      kind: 'task_update',
+      taskKey,
+      request: { assignee: null, stageId: 'backlog' },
+    });
+    expect(operation.state).toBe('succeeded');
+    expect(app.app.projectman.domain.tasks.get('AR', taskKey)).toMatchObject({
+      assignee: null,
+      stageId: 'backlog',
+    });
+  });
+
+  it('fails an update whose move became a hand-on request instead of reporting success', async () => {
+    await edit((draft) => {
+      draft.team.cardMover = { kind: 'human', handle: 'owner' };
+    });
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    const taskKey = created.taskKey!;
+    await submit({ kind: 'task_start', taskKey, request: { assignee: 'dev-1' } });
+    const operation = await submit({ kind: 'task_update', taskKey, request: { stageId: 'code_review' } });
+    expect(operation).toMatchObject({ state: 'failed', errorCode: 'hand_on_requested' });
+    expect(app.app.projectman.domain.tasks.get('AR', taskKey).stageId).toBe('development');
+  });
+
   it('sets a scope label and an approval label on the owner’s delegated authority', async () => {
     await edit((draft) =>
       draft.pipeline.labels.push({

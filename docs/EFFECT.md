@@ -101,6 +101,10 @@ Each card edits only its own item; the bold first line never changes.
   The abort signal is cooperative, not an interruption: a round that takes the lock is never cut.
   A held lock's heartbeat keeps the process alive until `release()`.
 
+- **PM-600 shared Effect helper (kernel)**
+
+  File: `apps/server/src/kernel/effect.ts`. Facade: `runFork`, `runPromise` and `abortable` (same file, exported by `kernel/index.ts`): the inline scheduler and the run functions every program above shares (see "Running on the caller's stack").
+
 Everything else stays plain TypeScript. Do not start using Effect in another module, in a route
 handler, in `packages/shared` or in the web app without a card that says so. **No Effect type crosses
 a facade, a contract or the engine-link**: a caller of a facade sees methods, promises and the errors

@@ -15,6 +15,8 @@ export interface MemberQueueLane {
   readonly completion: MemberQueueCompletion;
   /** True: a session works one item of the lane at a time; the others wait in the queue. */
   readonly oneAtATime: boolean;
+  /** Absent: the lane takes every item of its kinds. Present: only the items it says are its own (lanes may then share a kind). */
+  owns?(item: StoredMemberQueueItem): boolean;
   /** Why the session that the item wakes starts. */
   cause(item: StoredMemberQueueItem): SessionStartCause;
   /** The text the member is given; null: the lane delivers its items itself (`deliverLive`, `start`). */

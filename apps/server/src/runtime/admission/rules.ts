@@ -127,6 +127,11 @@ const DEFERRABLE = new Set<ErrorCode>([
   'engine_offline',
 ] satisfies (DeferrableReason | 'task_handoff_open')[]);
 
+/** Whether `code` (an error code, or the wait code of a deferred start) is one an automatic start waits for. */
+export function isDeferrableCode(code: string): boolean {
+  return DEFERRABLE.has(code as ErrorCode) || code === 'handoff_open';
+}
+
 /** `also`: the further refusals the start in question waits for. */
 export function isDeferrable(
   err: unknown,

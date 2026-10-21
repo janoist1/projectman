@@ -869,7 +869,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         text: t(
           d.cause === 'timeout'
             ? 'timeline.events.permission_escalated_timeout'
-            : 'timeline.events.permission_escalated_lead',
+            : d.cause === 'undelivered' || d.cause === 'unavailable'
+              ? 'timeline.events.permission_escalated_unreached'
+              : 'timeline.events.permission_escalated_lead',
         ),
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
         ...(str(d.reason) ? { detail: str(d.reason) } : {}),

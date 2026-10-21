@@ -198,6 +198,17 @@ it('shows the AI decider reason as a detail, and an escalation to a person', () 
       open,
     ),
   ).toMatchObject({ text: t('timeline.events.permission_escalated_timeout'), emphasis: 'needs' });
+  for (const cause of ['undelivered', 'unavailable'] as const)
+    expect(
+      describeEvent(
+        {
+          ...escalated,
+          actor: { kind: 'system', handle: null },
+          data: { ...escalated.data, cause },
+        },
+        open,
+      ),
+    ).toMatchObject({ text: t('timeline.events.permission_escalated_unreached'), emphasis: 'needs' });
 });
 
 it('describes checks recorded before labels replaced them', () => {

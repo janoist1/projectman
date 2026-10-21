@@ -188,6 +188,34 @@ describe('fix round limit', () => {
       await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'lead')).resolves.toBeNull();
     });
 
+    it('keeps the clock still while the lead deliberates at the desk, and closes its queue item with the decision', async () => {
+      await prepareHold();
+      const desk = h.domain.sessions.findRunning('AR', 'lead', { type: 'general' })!;
+      expect(h.repos.memberQueue.listOpen('AR', 'lead')).toMatchObject([
+        { kind: 'fix_limit', state: 'processing', place: { type: 'general' } },
+      ]);
+      h.runner.setState(desk.id, 'working');
+      advance(90);
+      await sweep();
+      expect(reminders()).toHaveLength(0);
+      expect(items()).toHaveLength(0);
+      await tool('lead', 'continue');
+      expect(h.repos.memberQueue.listOpen('AR', 'lead')).toEqual([]);
+    });
+
+    it('hands the decision to the owners at once when no lead can be reached any more', async () => {
+      await prepareHold();
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        const lead = config.team.members.find((m) => m.handle === 'lead')!;
+        if (lead.kind === 'ai') lead.onLeave = true;
+        return 'Send the lead on leave';
+      });
+      await stop();
+      await settle();
+      expect(items()).toMatchObject([{ payload: { fixLimit: { reason: 'no_ai_decider' } } }]);
+      expect(h.repos.memberQueue.listOpen('AR', 'lead')).toEqual([]);
+    });
+
     it.each([false, true])(
       'does not hand over when the lead decides (after reminder: %s)',
       async (wakeFirst) => {

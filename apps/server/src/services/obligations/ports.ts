@@ -15,6 +15,8 @@ export interface ObligationSession {
 export interface ObligationSessions {
   /** The member's sessions on the card, any state. */
   ofMember(projectKey: string, taskKey: string, member: string): ObligationSession[];
+  /** Whether the session is running and working a turn now (not idle, not waiting for its first input). */
+  atWork(sessionId: string): boolean;
 }
 
 /** What the tracking needs from admission: the code that would refuse the member's next start on the card. */

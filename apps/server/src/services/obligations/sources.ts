@@ -79,6 +79,8 @@ export interface SourceDeps {
   fixLimit: ObligationFixLimit;
   startOffers: ObligationStartOffers;
   fixLimits: Repositories['taskFixLimits'];
+  /** Whether the member has the fix limit decision of the card in hand at its desk (a `processing` item of its queue, its session alive). */
+  decidingAtDesk(projectKey: string, taskKey: string, member: string): boolean;
   roundsOf(projectKey: string, taskKey: string): number;
   /** The state of a merge by its id: how it ended, null when there is no such merge. */
   mergeState(mergeId: string): string | null;
@@ -378,9 +380,11 @@ function fixLimitSource(deps: SourceDeps): ObligationSource {
             responsible: held.decider,
             subject: `${held.heldAt}:${held.holdPhase}`,
             since: held.heldAt,
-            active: deps.sessions
-              .ofMember(held.projectKey, held.taskKey, held.decider)
-              .some((s) => s.running && s.atWork),
+            active:
+              deps.decidingAtDesk(held.projectKey, held.taskKey, held.decider) ||
+              deps.sessions
+                .ofMember(held.projectKey, held.taskKey, held.decider)
+                .some((s) => s.running && s.atWork),
           },
         ];
       });

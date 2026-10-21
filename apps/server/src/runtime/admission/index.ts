@@ -20,6 +20,7 @@ export {
   assertNotPaused,
   assertRepoChosen,
   isDeferrable,
+  isDeferrableCode,
   waitingOf,
 } from './rules';
 export { SeniorWaits } from './senior-waits';

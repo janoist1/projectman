@@ -408,11 +408,12 @@ export interface TimelineEventData {
   };
   /**
    * An AI decider passed a request to a person (PM-169): it chose to (`cause: 'lead'`, with its
-   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system).
+   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system). A decider that was never
+   * started in time (`undelivered`) or cannot be started at all (`unavailable`) is the system's too (PM-926).
    */
   permission_escalated: {
     inboxItemId: string;
-    cause: 'lead' | 'timeout';
+    cause: 'lead' | 'timeout' | 'undelivered' | 'unavailable';
     assignees: string[];
     reason?: string;
   };

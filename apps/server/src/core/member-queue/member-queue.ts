@@ -10,6 +10,7 @@ import type {
   TeamMessage,
 } from '@projectman/shared';
 import {
+  BoundaryRequest,
   MEMBER_QUEUE_CLOSED_DEFAULT_MS,
   MEMBER_QUEUE_CLOSED_LIMIT,
   isIntegratorFixLimitDecision,
@@ -21,6 +22,7 @@ import {
   nominalMessagePlace,
   operatorOf,
   pendingRecipientsOf,
+  permissionDelegationOf,
   SYSTEM_SENDER,
   stageOf,
 } from '@projectman/shared';
@@ -220,6 +222,10 @@ export class MemberQueue {
       this.ctx.logger.warn({ id: item.id }, 'the member queue has no configuration for an inbox item');
       return;
     }
+    if (item.kind === 'permission' || item.kind === 'boundary') {
+      this.syncDecision(item, config);
+      return;
+    }
     if (item.kind !== 'question' && item.kind !== 'decision') return;
     const repo = this.ctx.repos.memberQueue;
     const source: MemberQueueSourceKey = { type: 'inbox', id: item.id };
@@ -257,6 +263,112 @@ export class MemberQueue {
   }
 
   /**
+   * The decision lane's items of a permission request or a boundary request (PM-926): a row per AI decider
+   * while the decider still has it to decide, closed when anything ends that. The deciding member's row is
+   * done, the other deciders' are cancelled, and every row is handed off when the request went to a person.
+   */
+  private syncDecision(item: InboxItem, config: ProjectConfig): void {
+    const repo = this.ctx.repos.memberQueue;
+    const boundary = item.kind === 'boundary' ? BoundaryRequest.safeParse(item.payload.boundary) : null;
+    if (boundary && !boundary.success) return;
+    const request = boundary?.data ?? null;
+    const delegation = request ? null : permissionDelegationOf(item);
+    const source: MemberQueueSourceKey = { type: request ? 'boundary' : 'inbox', id: item.id };
+    const touched: StoredMemberQueueItem[] = [];
+    const at = isoNow(this.ctx);
+    const pending =
+      item.state === 'open' &&
+      (request ? request.state === 'pending_lead' : delegation?.state === 'pending_lead');
+    if (pending) {
+      const deciders = request ? request.assignees : (delegation?.leads ?? []);
+      for (const handle of new Set(deciders)) {
+        if (memberOf(config, handle)?.kind !== 'ai') continue;
+        const row = {
+          id: newId('mqi'),
+          projectKey: item.projectKey,
+          member: handle,
+          kind: request ? ('boundary' as const) : ('permission' as const),
+          source,
+          place: { type: 'general' as const },
+          taskKey: request ? request.taskKey : item.taskKey,
+          wake: true,
+          title: titleOf(item.title),
+          from: request ? request.member : item.source,
+          queuedAt: at,
+        };
+        if (repo.insert(row)) touched.push(repo.get(row.id)!);
+      }
+    } else {
+      const decider = request
+        ? request.state === 'allowed' || request.state === 'denied'
+          ? (request.decidedBy?.handle ?? null)
+          : null
+        : item.state === 'resolved'
+          ? (item.resolution?.by ?? null)
+          : null;
+      // A boundary request's inbox item stays open until it ends, so only its own state says a person has it.
+      const toPerson = request ? request.state === 'pending_owner' : item.state === 'open';
+      for (const open of repo.listOpenOfSource(item.projectKey, source)) {
+        const decided = open.member === decider;
+        touched.push(
+          ...repo.closeBySource(item.projectKey, source, {
+            state: decided ? 'done' : toPerson && !decider ? 'handed_off' : 'cancelled',
+            reason: decided ? 'resolved' : toPerson && !decider ? 'handed_off' : 'source_closed',
+            at,
+            member: open.member,
+          }),
+        );
+      }
+    }
+    this.changed(touched);
+  }
+
+  /** The lead decision of a held fix limit (PM-926): one item for the deciding lead, at the desk. */
+  openFixLimit(args: {
+    projectKey: string;
+    taskKey: string;
+    heldAt: string;
+    member: string;
+    title: string;
+  }): void {
+    const repo = this.ctx.repos.memberQueue;
+    const row = {
+      id: newId('mqi'),
+      projectKey: args.projectKey,
+      member: args.member,
+      kind: 'fix_limit' as const,
+      source: { type: 'fix_limit' as const, id: `${args.taskKey}@${args.heldAt}` },
+      place: { type: 'general' as const },
+      taskKey: args.taskKey,
+      wake: true,
+      title: titleOf(args.title),
+      from: null,
+      queuedAt: isoNow(this.ctx),
+    };
+    if (repo.insert(row)) this.changed([repo.get(row.id)!]);
+  }
+
+  /** The held fix limit's lead decision ended: the lead decided, it went to a person, or the hold ended some other way. */
+  closeFixLimit(
+    projectKey: string,
+    taskKey: string,
+    heldAt: string,
+    outcome: 'decided' | 'handed_off' | 'ended',
+  ): void {
+    const closed = this.ctx.repos.memberQueue.closeBySource(
+      projectKey,
+      { type: 'fix_limit', id: `${taskKey}@${heldAt}` },
+      {
+        state: outcome === 'decided' ? 'done' : outcome === 'handed_off' ? 'handed_off' : 'cancelled',
+        reason:
+          outcome === 'decided' ? 'resolved' : outcome === 'handed_off' ? 'handed_off' : 'source_closed',
+        at: isoNow(this.ctx),
+      },
+    );
+    this.changed(closed);
+  }
+
+  /**
    * Startup: fills in what the source writes did not (an item of before this slice, a failed sync), and closes
    * what no longer holds. Safe to run any number of times.
    */
@@ -268,7 +380,11 @@ export class MemberQueue {
     const { repos } = this.ctx;
     this.ctx.unitOfWork(() => {
       for (const item of repos.inbox.listOpen()) this.guarded('inbox', item.id, () => this.syncInbox(item));
-      for (const row of repos.memberQueue.listOpenOfType('inbox')) {
+      // A boundary request's item is the inbox item of its id; a fix limit's is made true by its lane (`stillOwed`).
+      for (const row of [
+        ...repos.memberQueue.listOpenOfType('inbox'),
+        ...repos.memberQueue.listOpenOfType('boundary'),
+      ]) {
         const item = repos.inbox.get(row.source.id);
         if (item) this.guarded('inbox', item.id, () => this.syncInbox(item));
         else

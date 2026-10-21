@@ -247,7 +247,8 @@ export class MemberQueue {
         : item.state === 'resolved'
           ? (item.resolution?.by ?? null)
           : null;
-      const toPerson = item.state === 'open';
+      // A boundary request's inbox item stays open until it ends, so only its own state says a person has it.
+      const toPerson = request ? request.state === 'pending_owner' : item.state === 'open';
       for (const open of repo.listOpenOfSource(item.projectKey, source)) {
         const decided = open.member === decider;
         touched.push(

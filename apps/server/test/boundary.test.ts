@@ -305,6 +305,25 @@ describe('boundary requests', () => {
     expect(h.repos.memberQueue.listOpen('AR', 'cr')).toEqual([]);
   });
 
+  it('cancels the decider item of a request that ends without a decision, and hands it off when it goes to the owner', async () => {
+    const revoked = await submit({}, 'revoked');
+    await flush();
+    await h.domain.boundary.revoke('AR', revoked.id, 'owner');
+    expect(h.repos.memberQueue.findBySource('AR', 'cr', { type: 'boundary', id: revoked.id })).toMatchObject({
+      state: 'cancelled',
+      closeReason: 'source_closed',
+    });
+    const escalated = await submit({}, 'escalated');
+    await flush();
+    await h.domain.boundary.escalateUnreached('AR', escalated.id);
+    expect(
+      h.repos.memberQueue.findBySource('AR', 'cr', { type: 'boundary', id: escalated.id }),
+    ).toMatchObject({
+      state: 'handed_off',
+      closeReason: 'handed_off',
+    });
+  });
+
   it('expires unanswered owner requests, including after restart', async () => {
     const request = await submit({ operation: 'spend' });
     now = new Date('2026-10-01T12:00:00.000Z');

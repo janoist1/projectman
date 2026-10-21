@@ -152,7 +152,7 @@ export function createMemberQueueRepository(db: Db) {
       `SELECT * FROM member_queue_items WHERE source_type = ? AND state IN ('queued','processing')
        ORDER BY queued_at, rowid`,
     ),
-    // The urgency order is `memberQueueUrgency`; the CASE keeps SQL and the rule in step (a test checks them).
+    // The urgency order is `memberQueueUrgency`; the CASE keeps SQL and the rule in step (test/member-queue.test.ts checks them).
     openByUrgency: db.prepare(
       `SELECT * FROM member_queue_items
        WHERE project_key = ? AND member = ? AND state IN ('queued','processing')

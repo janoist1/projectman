@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   MEMBER_QUEUE_CLOSED_LIMIT,
+  MEMBER_QUEUE_ITEM_KINDS,
+  memberQueueUrgency,
   MemberQueuesView,
   MemberQueueView,
   pendingRecipientsOf,
@@ -124,6 +126,31 @@ describe('member queue', () => {
     expect(view('dev-1').items).toHaveLength(0);
     expect(view('dev-1').closed[0]).toMatchObject({ state: 'cancelled', closeReason: 'source_closed' });
     expect(openMessageItems()).toEqual(pendingRows());
+  });
+
+  it('orders the open items in SQL as memberQueueUrgency does, then by queue time', () => {
+    for (const kind of [...MEMBER_QUEUE_ITEM_KINDS].reverse())
+      repos().memberQueue.insert({
+        id: `mqi_${kind}`,
+        projectKey: 'AR',
+        member: 'dev-1',
+        kind,
+        source: { type: 'message', id: `msg_${kind}` },
+        place: { type: 'general' },
+        taskKey: null,
+        wake: true,
+        title: kind,
+        from: null,
+        queuedAt: START,
+      });
+    const expected = [...MEMBER_QUEUE_ITEM_KINDS]
+      .reverse()
+      .sort((a, b) => memberQueueUrgency(a) - memberQueueUrgency(b));
+    expect(
+      repos()
+        .memberQueue.listOpenByUrgency('AR', 'dev-1')
+        .map((item) => item.kind),
+    ).toEqual(expected);
   });
 
   it('does not queue an item twice for the same message', () => {

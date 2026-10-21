@@ -485,11 +485,12 @@ export class Admission {
         do {
           this.retryAgain = false;
           await this.retryRound();
+          // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
+          // Inside the loop: a round asked for while the queue retries goes once more.
+          await this.queueRetry?.().catch((err: unknown) => {
+            this.ctx.logger.warn({ err }, 'member queue retry failed');
+          });
         } while (this.retryAgain);
-        // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
-        await this.queueRetry?.().catch((err: unknown) => {
-          this.ctx.logger.warn({ err }, 'member queue retry failed');
-        });
       } finally {
         this.retrying = null;
       }

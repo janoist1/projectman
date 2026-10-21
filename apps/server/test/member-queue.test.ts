@@ -3,6 +3,7 @@ import {
   MEMBER_QUEUE_CLOSED_LIMIT,
   MemberQueuesView,
   MemberQueueView,
+  pendingRecipientsOf,
   routes,
   TODO_DONE_OPTION,
 } from '@projectman/shared';
@@ -57,14 +58,15 @@ describe('member queue', () => {
     });
   const view = (member: string, since?: string) =>
     domain().memberQueue.view('AR', member, since ? new Date(since) : undefined);
+  /** The AI recipients every message is still pending for, from the receipts. */
   const pendingRows = () =>
-    (
-      repos().db.prepare('SELECT message_id AS id, handle FROM team_message_pending').all() as Array<{
-        id: string;
-        handle: string;
-      }>
-    )
-      .map((row) => `${row.id}:${row.handle}`)
+    repos()
+      .messages.list('AR', { limit: 1000 })
+      .flatMap((message) =>
+        pendingRecipientsOf(message)
+          .filter((handle) => handle !== 'owner')
+          .map((handle) => `${message.id}:${handle}`),
+      )
       .sort();
   const openMessageItems = () =>
     (
@@ -135,7 +137,10 @@ describe('member queue', () => {
       const missing = send(['dev-1']);
       const stale = send(['dev-2']);
       repos().db.prepare('DELETE FROM member_queue_items WHERE source_id = ?').run(missing.id);
-      repos().db.prepare('DELETE FROM team_message_pending WHERE message_id = ?').run(stale.id);
+      // The message was delivered behind the queue's back: its receipts say nobody is left.
+      repos()
+        .db.prepare("UPDATE team_messages SET delivered_at = ?, receipts = '[]' WHERE id = ?")
+        .run(START, stale.id);
       await domain().memberQueue.recover();
       expect(view('dev-1').items).toHaveLength(1);
       expect(view('dev-2').items).toHaveLength(0);

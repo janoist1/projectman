@@ -95,11 +95,8 @@ export interface WaitingStarts {
     };
     waiting: TaskStartWaiting;
   }[];
-}
-/** The message wake-ups (MessageStarts). */
-export interface OperatorMessageStarts {
-  wakeKey(projectKey: string, handle: string, workItem: WorkItemRef): string;
-  lastFailure(projectKey: string, handle: string, workItem: WorkItemRef): { code: string; at: string } | null;
+  /** The member queue's wake-ups that wait for a code a start can wait for (PM-925). */
+  queueWaits(): readonly { projectKey: string; taskKey: string | null; waiting: TaskStartWaiting }[];
 }
 /** Releases (services/releases). */
 export interface OperatorReleases {

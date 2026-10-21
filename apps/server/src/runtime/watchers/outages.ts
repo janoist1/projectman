@@ -407,15 +407,25 @@ export class WorkOutages {
   }
 
   private hasSetupWait(entry: MemberTarget): boolean {
-    return this.deps.deferred
-      .list()
-      .some(
-        ({ start, waiting }) =>
-          start.projectKey === entry.projectKey &&
-          (waiting.member ?? start.waitsFor()) === entry.member.handle &&
-          isSetupRefusal(waiting.reason) &&
-          start.stillValid(start.taskKey ? this.deps.ctx.repos.tasks.get(start.taskKey) : null),
-      );
+    return (
+      this.deps.deferred
+        .list()
+        .some(
+          ({ start, waiting }) =>
+            start.projectKey === entry.projectKey &&
+            (waiting.member ?? start.waitsFor()) === entry.member.handle &&
+            isSetupRefusal(waiting.reason) &&
+            start.stillValid(start.taskKey ? this.deps.ctx.repos.tasks.get(start.taskKey) : null),
+        ) ||
+      this.deps.deferred
+        .queueWaits()
+        .some(
+          ({ projectKey, waiting }) =>
+            projectKey === entry.projectKey &&
+            waiting.member === entry.member.handle &&
+            isSetupRefusal(waiting.reason),
+        )
+    );
   }
 
   private makeOutage(
@@ -525,6 +535,15 @@ export class WorkOutages {
               ?.id === payload.outage.id
           )
             keys.add(start.taskKey);
+        }
+        for (const { projectKey, taskKey, waiting } of this.deps.deferred.queueWaits()) {
+          if (
+            projectKey === key &&
+            taskKey &&
+            this.outageForWaiting(key, waiting.reason, waiting.member, waiting.engine)?.id ===
+              payload.outage.id
+          )
+            keys.add(taskKey);
         }
         if (payload.outage.kind === 'engine')
           for (const handle of payload.members)

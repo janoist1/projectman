@@ -373,7 +373,12 @@ describe('provider-neutral session policy', () => {
     // The user's home is denied and contains the app home, so the work volume below it is denied with it.
     expect(sandbox.denyRead).toContain('/fictional/user');
     expect(sandbox.allowRead).toContain(own);
-    for (const open of [`${appHome}/work`, `${appHome}/work/worktrees`, `${appHome}/work/workspaces`, appHome])
+    for (const open of [
+      `${appHome}/work`,
+      `${appHome}/work/worktrees`,
+      `${appHome}/work/workspaces`,
+      appHome,
+    ])
       expect(sandbox.allowRead).not.toContain(open);
   });
 

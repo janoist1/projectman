@@ -8,7 +8,7 @@ import {
   WorkItemRef,
 } from '@projectman/shared';
 import type { CapacityHolder, ProjectConfig, Task } from '@projectman/shared';
-import type { DeferredStartRecord } from '../../db';
+import type { DeferredStartRecord, StoredMemberQueueItem } from '../../db';
 
 /**
  * What an automatic start needs to be rebuilt when the server starts again: plain data, stored
@@ -145,6 +145,32 @@ export type CapacityReader = (
   handle: string,
 ) => { holders: CapacityHolder[]; capacity: number } | undefined;
 
+/** A queued wake-up (PM-925) that waits for a code a start can wait for, and the card it is about. */
+export interface QueueWait {
+  projectKey: string;
+  taskKey: string | null;
+  waiting: TaskStartWaiting;
+}
+
+/** What the member queue's wake-ups wait for: they carry the wait on the queue item, not a deferral. */
+export interface QueueWaitReader {
+  ofTask(task: Task): TaskStartWaiting[];
+  all(): QueueWait[];
+}
+
+/** The wait of a queued item as a card shows it; null for a code no start waits for (a hold, an unknown one). */
+export function queueItemWaiting(item: StoredMemberQueueItem): TaskStartWaiting | null {
+  const reason = item.wait ? TaskStartWaiting.shape.reason.safeParse(item.wait.code) : null;
+  if (!item.wait || !reason?.success) return null;
+  const waiting = TaskStartWaiting.safeParse({
+    member: item.member,
+    ...item.waitDetails,
+    reason: reason.data,
+    since: item.wait.at,
+  });
+  return waiting.success ? waiting.data : { reason: reason.data, since: item.wait.at, member: item.member };
+}
+
 /** Where the deferrals are kept besides memory (the `deferred_starts` table). */
 export interface DeferredStartStore {
   save(record: DeferredStartRecord): void;
@@ -163,6 +189,7 @@ export class DeferredStarts {
   private readonly entries = new Map<string, DeferredStart>();
   private readonly store: DeferredStartStore | undefined;
   private capacityOf: CapacityReader | undefined;
+  private queueWaitReader: QueueWaitReader | undefined;
 
   /** `store`: where the deferrals are kept besides memory (none: only in memory). */
   constructor(store?: DeferredStartStore) {
@@ -200,12 +227,24 @@ export class DeferredStarts {
     return [...this.entries.values()];
   }
 
-  /** Why AI work on the task waits: its earliest deferral that still applies, if any. */
+  /** Binds what the member queue waits for (built after this store): its wake-ups are never deferred here. */
+  useQueueWaits(reader: QueueWaitReader): void {
+    this.queueWaitReader = reader;
+  }
+
+  /** The queued wake-ups that wait for a code a start can wait for, in every project. */
+  queueWaits(): QueueWait[] {
+    return this.queueWaitReader?.all() ?? [];
+  }
+
+  /** Why AI work on the task waits: its earliest deferral that still applies or its earliest queued wake-up that waits, if any. */
   waitingFor(task: Task): TaskStartWaiting | undefined {
-    const waiting = this.forTask(task)
-      .filter((entry) => entry.start.stillValid(task))
-      .map((entry) => entry.waiting)
-      .sort((a, b) => a.since.localeCompare(b.since))[0];
+    const waiting = [
+      ...this.forTask(task)
+        .filter((entry) => entry.start.stillValid(task))
+        .map((entry) => entry.waiting),
+      ...(this.queueWaitReader?.ofTask(task) ?? []),
+    ].sort((a, b) => a.since.localeCompare(b.since))[0];
     if (waiting?.reason !== 'member_at_capacity' || !waiting.member) return waiting;
     // What holds the member's places is read now, never stored: it shows the present situation (PM-297).
     const capacity = this.capacityOf?.(task.projectKey, waiting.member);

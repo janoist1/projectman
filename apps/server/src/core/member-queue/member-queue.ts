@@ -19,6 +19,7 @@ import {
   messageWakes,
   nominalMessagePlace,
   operatorOf,
+  pendingRecipientsOf,
   SYSTEM_SENDER,
 } from '@projectman/shared';
 import type { MemberQueueSourceKey, StoredMemberQueueItem } from '../../db';
@@ -75,6 +76,16 @@ export class MemberQueue {
     }
   }
 
+  private readonly changeListeners: Array<(projectKey: string, member: string) => void> = [];
+
+  /**
+   * `listener` hears of every member whose queue a source write changed (an item queued or closed): the
+   * driver wakes the member (PM-925). It runs inside the write's transaction and must not wait for anything.
+   */
+  onChange(listener: (projectKey: string, member: string) => void): void {
+    this.changeListeners.push(listener);
+  }
+
   private changed(items: Array<Pick<StoredMemberQueueItem, 'projectKey' | 'member'>>): void {
     const seen = new Set<string>();
     for (const { projectKey, member } of items) {
@@ -82,7 +93,13 @@ export class MemberQueue {
       if (seen.has(key)) continue;
       seen.add(key);
       this.ctx.bus.publish({ type: 'member_queue_changed', projectKey, member });
+      for (const listener of this.changeListeners) listener(projectKey, member);
     }
+  }
+
+  /** The driver changed the member's items (claimed, moved, closed, a wait code): the views hear of it, nobody is woken. */
+  publish(projectKey: string, member: string): void {
+    this.ctx.bus.publish({ type: 'member_queue_changed', projectKey, member });
   }
 
   /**
@@ -96,7 +113,7 @@ export class MemberQueue {
       return;
     }
     const repo = this.ctx.repos.memberQueue;
-    const pending = new Set(this.ctx.repos.messages.pendingHandlesOf(message.id));
+    const pending = new Set(pendingRecipientsOf(message));
     const source: MemberQueueSourceKey = { type: 'message', id: message.id };
     const touched: StoredMemberQueueItem[] = [];
     const at = isoNow(this.ctx);
@@ -204,9 +221,10 @@ export class MemberQueue {
             }),
           );
       }
+      // The messages not delivered to everyone, and the ones an open item is of: each makes its items true.
       const messageIds = new Set([
-        ...repos.memberQueue.pendingMessagesWithoutItem().map((p) => p.messageId),
-        ...repos.memberQueue.openMessageItemsNotPending().map((q) => q.source.id),
+        ...repos.messages.undeliveredIds(),
+        ...repos.memberQueue.listOpenMessages().map((q) => q.source.id),
       ]);
       for (const id of messageIds) {
         const message = repos.messages.get(id);

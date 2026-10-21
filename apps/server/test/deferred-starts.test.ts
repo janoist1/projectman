@@ -82,12 +82,13 @@ describe('deferred starts across a restart', () => {
       text: 'Inspect this fictional task.',
       taskKey: task.key,
     });
-    const waiting = await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting);
-    expect(waiting).toMatchObject({ reason: 'ai_disabled', member: 'dev-1' });
-    expect(stored(h)).toEqual(['message:AR:dev-1:task:AR-1']);
+    // The message waits in the member's queue with the code of what stops it, not in the deferred starts.
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'dev-1')[0]?.wait);
+    expect(h.repos.memberQueue.listOpen('AR', 'dev-1')[0]?.wait).toMatchObject({ code: 'ai_disabled' });
+    expect(stored(h)).toEqual([]);
 
     h = await restartDomainHarness(h);
-    expect(h.domain.tasks.get('AR', task.key).startWaiting).toEqual(waiting);
+    expect(h.repos.memberQueue.listOpen('AR', 'dev-1')).toHaveLength(1);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
 
     await setEnabled(h, true);
@@ -95,9 +96,8 @@ describe('deferred starts across a restart', () => {
     expect(h.runner.started).toHaveLength(1);
     expect(h.runner.lastStarted().initialMessage).toContain('Inspect this fictional task.');
     expect(h.runner.messages).toEqual([]);
-    expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
-    expect(stored(h)).toEqual([]);
-    await h.domain.admission.retryDeferred();
+    expect(h.repos.memberQueue.listOpen('AR', 'dev-1')).toEqual([]);
+    await h.domain.memberQueueDriver.sweep();
     expect(h.runner.started).toHaveLength(1);
   });
 
@@ -188,15 +188,18 @@ describe('deferred starts across a restart', () => {
     const task = await h.domain.tasks.create('AR', { title: 'Fictional review' }, OWNER_ACTOR);
     await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
     await h.domain.messaging.send('AR', 'owner', { to: ['cr'], text: 'Please review.', taskKey: task.key });
-    await waitFor(() => stored(h).length === 2);
-    expect(stored(h)).toEqual(['hand-over:AR:AR-1', 'message:AR:cr:task:AR-1']);
+    await waitFor(() => stored(h).length === 1 && h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait);
+    expect(stored(h)).toEqual(['hand-over:AR:AR-1']);
 
     if (how === 'done') h.repos.tasks.update(task.id, { status: 'done' });
     else await h.domain.members.retire('AR', 'cr', {}, { actor: OWNER_ACTOR, author: OWNER });
     h.runnerModule.planUsage.value = planUsage(10);
     await h.domain.admission.retryDeferred();
     expect(stored(h)).toEqual([]);
-    expect(h.runner.started).toHaveLength(0);
+    // The owner's message about the finished card goes to the desk and starts it there; a retired member starts nothing.
+    await h.domain.memberQueueDriver.sweep();
+    await flush();
+    expect(h.runner.started.map((spec) => spec.member)).toEqual(how === 'done' ? ['cr'] : []);
   });
 
   it('does not start work that was never deferred: imported and idle tasks stay as they are after a restart', async () => {
@@ -350,13 +353,10 @@ describe('the retry timer', () => {
     await setEnabled(h, false);
     const task = await h.domain.tasks.create('AR', { title: 'Fictional question' }, OWNER_ACTOR);
     await h.domain.messaging.send('AR', 'owner', { to: ['cr'], text: 'Please look.', taskKey: task.key });
-    await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting);
-    const wake = vi.spyOn(h.domain.messageStarts, 'wake');
-    const info = vi.spyOn(h.log.logger, 'info');
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait);
     await tick();
     await tick();
-    expect(wake).not.toHaveBeenCalled();
-    expect(logged(info, 'team message start deferred')).toEqual([]);
+    expect(h.runner.started).toHaveLength(0);
     await setEnabled(h, true);
     await waitFor(() => h.runner.started.length === 1);
   });
@@ -383,7 +383,7 @@ describe('message wake-ups at startup and the member capacity (PM-242)', () => {
         text: 'Please look.',
         taskKey: task.key,
       });
-    await waitFor(() => stored(h).length === 2);
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'dev-1').length === 2);
 
     h = await restartDomainHarness(h);
     // The CLI of a started session can take input (it is idle) before its first input is typed.
@@ -394,16 +394,16 @@ describe('message wake-ups at startup and the member capacity (PM-242)', () => {
     expect(h.runner.started).toHaveLength(1);
     const running = h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: first.key });
     expect(running).not.toBeNull();
-    expect(h.domain.tasks.get('AR', second.key).startWaiting).toMatchObject({
-      reason: 'member_at_capacity',
-      member: 'dev-1',
-    });
+    await h.domain.memberQueueDriver.sweep();
+    expect(h.repos.memberQueue.listOpen('AR', 'dev-1').map((item) => item.wait?.code)).toEqual([
+      'member_at_capacity',
+    ]);
 
     // The first session ends: the second message wakes its recipient now.
     await h.domain.sessions.stop('AR', running!.id);
     await waitFor(() => h.runner.started.length === 2);
     expect(h.runner.lastStarted().initialMessage).toContain('Second question');
-    expect(h.domain.tasks.get('AR', second.key).startWaiting).toBeUndefined();
+    expect(h.repos.memberQueue.listOpen('AR', 'dev-1')).toEqual([]);
   });
 
   it('stops counting a session that answered and idles on a card the member does not work on', async () => {
@@ -416,7 +416,7 @@ describe('message wake-ups at startup and the member capacity (PM-242)', () => {
         text: 'Please look.',
         taskKey: task.key,
       });
-    await waitFor(() => stored(h).length === 2);
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'dev-1').length === 2);
 
     h = await restartDomainHarness(h);
     h.runner.idleOnStart = true;
@@ -429,7 +429,7 @@ describe('message wake-ups at startup and the member capacity (PM-242)', () => {
     const sessionId = h.runner.started[0]!.sessionId;
     h.runner.setState(sessionId, 'working');
     h.runner.setState(sessionId, 'idle');
-    await h.domain.admission.retryDeferred();
+    await h.domain.memberQueueDriver.sweep();
     await waitFor(() => h.runner.started.length === 2);
   });
 });

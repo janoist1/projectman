@@ -64,6 +64,8 @@ export interface AdmissionRequest {
   workItem?: WorkItemRef;
   /** Whether the member's capacity applies (default true); a task's assignee keeps working on it. */
   capacity?: boolean;
+  /** Whether the team's concurrent AI limit applies (default true); a queue item the team waits on skips it (PM-925). */
+  aiLimit?: boolean;
   /**
    * The messages that cause the start, oldest first, as they are typed in: the session takes them
    * in its first input (see `SessionOrchestrator.ensureSession`).
@@ -112,6 +114,7 @@ export class Admission {
   private round: StartRounding | undefined;
   private retrying: Promise<void> | null = null;
   private retryAgain = false;
+  private queueRetry: (() => Promise<void>) | undefined;
   private readonly onOutageRefusal?: (
     projectKey: string,
     handle: string,
@@ -250,7 +253,7 @@ export class Admission {
         });
     }
     const busy = this.sessions.busyCount();
-    if (aiLimitReached(config, busy)) {
+    if (request.aiLimit !== false && aiLimitReached(config, busy)) {
       const max = config.team.limits.maxConcurrentAi;
       throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
     }
@@ -483,6 +486,10 @@ export class Admission {
           this.retryAgain = false;
           await this.retryRound();
         } while (this.retryAgain);
+        // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
+        await this.queueRetry?.().catch((err: unknown) => {
+          this.ctx.logger.warn({ err }, 'member queue retry failed');
+        });
       } finally {
         this.retrying = null;
       }
@@ -588,6 +595,11 @@ export class Admission {
    */
   usePull(pull: FocusPulling): void {
     this.pull = pull;
+  }
+
+  /** Binds the member queue's retry (built after this class): it runs at the end of every `retryDeferred`. */
+  useQueueRetry(retry: () => Promise<void>): void {
+    this.queueRetry = retry;
   }
 
   useRound(round: StartRounding): void {

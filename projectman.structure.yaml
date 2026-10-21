@@ -179,6 +179,12 @@ modules:
     summary: Üzenetek kézbesítése a tagok munkameneteinek.
     paths:
       - apps/server/src/runtime/delivery/
+  - id: runtime/member-queue
+    area: runtime
+    name: Munkasor-ébresztő
+    summary: A tagonkénti sor ébresztő sofőrje, üzenetsávja és söprése.
+    paths:
+      - apps/server/src/runtime/member-queue/
   - id: runtime/permissions
     area: runtime
     name: Futtatási engedélyek

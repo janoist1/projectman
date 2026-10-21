@@ -190,6 +190,22 @@ export function messageRoute(
   return message.receipts?.find((r) => r.handle === handle)?.route ?? routeFor(message.taskKey);
 }
 
+/**
+ * The AI handles a message is still to be delivered to (PM-925). A message with receipts: each addressed
+ * handle whose AI receipt has no `deliveredAt`. A legacy message without receipts: every addressed handle,
+ * while the message itself has no `deliveredAt`. Whether the handle is an AI member is the caller's to check
+ * for the legacy ones; the member queue only creates items for AI members.
+ */
+export function pendingRecipientsOf(message: Pick<TeamMessage, 'to' | 'receipts' | 'deliveredAt'>): string[] {
+  const addressed = [...new Set(message.to)].sort();
+  if (!message.receipts) return message.deliveredAt ? [] : addressed;
+  return addressed
+    .filter((handle) =>
+      message.receipts!.some((r) => r.handle === handle && r.kind === 'ai' && !r.deliveredAt),
+    )
+    .sort();
+}
+
 export function sameWorkItem(a: WorkItemRef, b: WorkItemRef): boolean {
   if (a.type !== b.type) return false;
   switch (a.type) {

@@ -175,6 +175,19 @@ export class MessageService {
     });
   }
 
+  /**
+   * The recipient gets the message at another place from now on (PM-925: a closed card's message goes to the
+   * member's desk). The receipt keeps the route, so `waiting` finds the message there.
+   */
+  rerouteRecipient(id: string, handle: string, route: WorkItemRef): TeamMessage | null {
+    const before = this.ctx.repos.messages.get(id);
+    if (!before?.receipts) return before;
+    const receipts = before.receipts.map((r) => (r.handle === handle ? { ...r, route } : r));
+    const message = this.ctx.repos.messages.updateReceipts(id, receipts, before.deliveredAt);
+    if (message) this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+    return message;
+  }
+
   markRecipientDelivered(id: string, handle: string): TeamMessage | null {
     // Receipt and authorization must commit together: a crash cannot consume a continuation
     // without opening its request, nor open a request for a receipt that rolled back.

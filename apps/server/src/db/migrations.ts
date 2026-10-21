@@ -2095,4 +2095,14 @@ migrations.push({
       WHERE state IN ('queued','processing');
     CREATE INDEX member_queue_items_closed ON member_queue_items(project_key, member, closed_at);`,
 });
+migrations.push({
+  version: 99,
+  name: 'drop the message pending index',
+  // PM-925: the member queue (version 98) is the one place a waiting message lives; the index it replaces is
+  // no longer written or read. The queue is brought true from the messages themselves at startup. A wait
+  // keeps what the refusal said besides its code (`wait_details`: the provider, the engine, a time), as a
+  // deferred start did, so a card shows the same.
+  sql: `DROP TABLE IF EXISTS team_message_pending;
+    ALTER TABLE member_queue_items ADD COLUMN wait_details TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

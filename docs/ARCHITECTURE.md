@@ -898,8 +898,8 @@ the server refuses a database a newer build migrated.
 ## Member queue (PM-894)
 
 Every AI member has one durable queue of what is waiting for them: a message, an Operator todo, a fix limit decision
-(later slices add permission requests, signals, obligations and starts). Slice A (this one) stores and shows; waking
-and delivery are unchanged and move onto the queue in PM-925.
+(later slices add permission requests, signals, obligations and starts). Slice A (PM-894) stores and shows; slice B
+(PM-925) adds the driver that wakes members from the queue (see "Driver" below).
 
 - **Storage**: `member_queue_items` (`apps/server/src/db/member-queue.ts`). One row per (project, member, source type,
   source id), unique, so enqueueing twice is a no-op. Columns: `kind` (`message`, `todo`, `fix_limit`, ...), the `place`
@@ -909,14 +909,28 @@ and delivery are unchanged and move onto the queue in PM-925.
   `MemberQueuesView`, `nominalMessagePlace`, `memberQueueSourceId`).
 - **Enqueue**: `core/member-queue` (`MemberQueue`). The two source repositories run listeners inside the transaction of
   every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
-  remember it. A message gets an item for each AI recipient it is pending for (`team_message_pending`); the item closes
-  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the pending row goes away any other way. An open
+  remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
+  `team_message_pending` table is gone since migration 99); the item closes
+  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. An open
   inbox item that is addressed to the integrator (`isIntegratorInboxItem`: a todo or the narrow fix limit decision)
   gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator answered, else
   `cancelled`/`source_closed` (escalation to the owner included). Both reconcilers are idempotent and a failure is
   logged and never changes what the source write does.
-- **Invariant**: the open message items are exactly the `team_message_pending` rows. `recover()` runs at startup (after
-  `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again changes nothing.
+- **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
+  startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
+  changes nothing. The pending counts, `get_project_state` and the diagnostics read the queue.
+- **Driver** (PM-925, `apps/server/src/runtime/member-queue/`): `MemberQueueDriver { ensure(projectKey, member), sweep(),
+  register(lane) }`. Everything that could give a member work (an item queued, a turn over, a hold lifted, a limit gone)
+  calls `ensure`, which works the member's queue by level under a keyed mutex (idempotent, one run at a time): items
+  whose source no longer owes them are cancelled, items on a closed card go to the desk or end (`place_closed`), a hold
+  puts its code on the item, a live session gets its items at the turn boundary, and the first waking item without a
+  session starts one through `admission.start`. A refused start leaves the items queued with `wait` (code plus
+  `wait_details`); there is no deferred-start row for it. The sweep (`DomainOptions.memberQueueSweepMs`, default 30 s,
+  in the kernel's sweep list) calls `ensure` for every member with an open item, so a lost wake or a limit that lifted
+  without an event is found at the next sweep. A lane (`MemberQueueLane`) says what its items are; the message lane
+  delivers as before (receipt and item close together). Items a session works (`processing`) return to the queue
+  when the session is gone, after `MEMBER_QUEUE_MAX_ATTEMPTS` they are handed off, and after 45 minutes the session is
+  stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/member-queues` (every AI member in
   configuration order, zeros included), `GET /api/projects/:key/members/:handle/queue?closedSince=` (open items and the
   items closed since; default 24 hours; an unknown or non-AI handle is 404 `unknown_member`, a bad date 400
@@ -924,8 +938,9 @@ and delivery are unchanged and move onto the queue in PM-925.
   an integrator read or super key; the legacy integrator key is refused (`insufficient_access`, on the Operator route
   `operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
-- **Remote engine**: no machine-dependent part is added. The queue lives in the server's database and is written by
-  the server; nothing crosses to an engine.
+- **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
+  database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
+  `engine_offline` as the item's wait, and the sweep starts it when the engine is back.
 
 ## Durable super-mode handoff (PM-762, part of the super mode PM-757)
 
@@ -1802,6 +1817,13 @@ workers follow the machine's size.
   markers have the same candidate-code trust boundary as the script and its exit code.
 
 ## Machine-dependent parts (PM-341)
+
+- **Member queue driver (PM-925)** — `apps/server/src/runtime/member-queue/` (driver, message lane), the sweep in
+  the kernel's sweep list (`DomainOptions.memberQueueSweepMs`), `member_queue_items` with the wait columns
+  (migration 99). It wakes members from their queue through `admission.start`. **Machine assumptions:** none of its
+  own; it runs in the server process and reads only the database. **Remote engine:** the driver, the sweep and the
+  database run on the hub; the session start crosses the server/engine boundary as it did, and an offline engine
+  becomes the item's wait (`engine_offline`), retried by the sweep.
 
 - **One-shot external commands (PM-903)** — `apps/server/src/exec/` runs short commands through
   execa without a shell, preserving the supplied environment and final newlines. Timeouts,

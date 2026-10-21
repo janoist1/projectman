@@ -45,6 +45,7 @@ export const hu = {
       refinement: 'kidolgozás, ő következik',
       schedule: 'ütemezés',
       message: 'csapatüzenet',
+      member_queue: 'munkasor',
       merge: 'beolvasztás',
       mention: '@említés',
       answer: 'válasz a kérdésére',

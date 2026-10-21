@@ -67,7 +67,12 @@ const collapse = (text: string) => text.replace(/\s+/g, ' ').trim();
 export function chunkExcerpt(text: string, startChar: number, endChar: number): string {
   const chars = Array.from(collapse(text.slice(startChar, endChar)));
   const max = HISTORY_EXCERPT_MAX_CHARS;
-  return chars.length <= max ? chars.join('') : `${chars.slice(0, max - 1).join('').trimEnd()}${ELLIPSIS}`;
+  return chars.length <= max
+    ? chars.join('')
+    : `${chars
+        .slice(0, max - 1)
+        .join('')
+        .trimEnd()}${ELLIPSIS}`;
 }
 
 /**

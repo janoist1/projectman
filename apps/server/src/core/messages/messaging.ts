@@ -111,9 +111,13 @@ export interface SendOptions {
   questionGroupShare?: { primaryItemId: string; itemId: string };
 }
 
-/** What the send needs to wake a recipient and learn the result (`MessageStarts.wake`). */
+/**
+ * What the send needs to wake a recipient and learn the result, and what the end of a hold calls (the member
+ * queue's driver, PM-925): the member's queue is worked through, whatever the reason it is looked at again.
+ */
 export interface MessageWaker {
   wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<WakeStart>;
+  ensure(projectKey: string, handle: string): Promise<void>;
 }
 
 /** What presenting or accepting Operator signals records with the message (PM-593). */
@@ -1179,25 +1183,24 @@ export class Messaging {
    * holds them back for another reason.
    */
   async releaseForEngine(engineId: string): Promise<void> {
-    if (!this.engines) return;
+    if (!this.engines || !this.waker) return;
     for (const summary of this.projects.summaries()) {
       const config = await this.projects.config(summary.key);
       for (const member of config.team.members) {
         if (member.kind !== 'ai' || this.engines.engineFor(summary.key, member.handle) !== engineId) continue;
-        const places: WorkItemRef[] = [];
-        for (const message of this.ctx.repos.messages.pending(summary.key, member.handle)) {
-          const route = sessionWorkItemOf(member, messageRoute(message, member.handle));
-          if (!places.some((place) => sameWorkItem(place, route))) places.push(route);
-        }
-        for (const workItem of places) {
-          if (await this.holdsMessagesOf({ projectKey: summary.key, member: member.handle, workItem }))
-            continue;
-          const running = this.sessions.findRunning(summary.key, member.handle, workItem);
-          for (const message of this.messages.waiting(summary.key, member.handle, workItem))
-            this.deliverOrWake(config, summary.key, member.handle, workItem, running, message);
-        }
+        await this.waker.ensure(summary.key, member.handle);
       }
     }
+  }
+
+  /** Why a message to AI member `handle` is held back as it waits (the same holds as at the send), or null. */
+  holdNameOf(
+    config: ProjectConfig,
+    task: Task | null,
+    from: string,
+    handle: string,
+  ): 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | 'engine' | null {
+    return this.holdOf(config, task, from, handle, {});
   }
 
   /** How many messages wait for members that work on the engine (PM-315, the engine's settings view). */
@@ -1259,12 +1262,8 @@ export class Messaging {
    * The messages that wait for `handle` on a card (held back by its fix round limit or its full test) reach it: typed into
    * its running session, or one wake-up for all of them.
    */
-  async releaseWaiting(projectKey: string, taskKey: string, handle: string): Promise<void> {
-    const config = await this.projects.config(projectKey);
-    const workItem = sessionWorkItemOf(memberOf(config, handle), routeFor(taskKey));
-    const waiting = this.messages.waiting(projectKey, handle, workItem);
-    const running = this.sessions.findRunning(projectKey, handle, workItem);
-    for (const message of waiting) this.deliverOrWake(config, projectKey, handle, workItem, running, message);
+  async releaseWaiting(projectKey: string, _taskKey: string, handle: string): Promise<void> {
+    await this.waker?.ensure(projectKey, handle);
   }
 
   /**
@@ -1309,18 +1308,7 @@ export class Messaging {
    * process ended meanwhile (PM-219), wake their recipient the usual way, unless the card holds them back.
    */
   async wakeWaiting(session: Pick<Session, 'projectKey' | 'member' | 'workItem'>): Promise<void> {
-    if (await this.holdsMessagesOf(session)) return;
-    const config = await this.projects.config(session.projectKey);
-    const first = this.messages
-      .waiting(session.projectKey, session.member, session.workItem)
-      .find((message) => wakesFor(this.ctx, config, message, session.member));
-    if (!first) return;
-    void this.ctx.events.emit('message_waiting', {
-      projectKey: session.projectKey,
-      handle: session.member,
-      workItem: session.workItem,
-      messageId: first.id,
-    });
+    await this.waker?.ensure(session.projectKey, session.member);
   }
 
   /**

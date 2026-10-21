@@ -202,7 +202,6 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   sessions: 'terminal and activity pattern; no durability is promised',
   sqlite_sequence: 'SQLite internal',
   task_workspace_bindings: 'machine-local workspace bookkeeping of the runner',
-  team_message_pending: 'delivery queue; the message row records the delivery',
   token_usage: 'usage statistics, not a reader view',
   users: 'accounts, not project state',
 };

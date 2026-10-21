@@ -178,6 +178,7 @@ describe('closing finished and idle sessions', () => {
       h.runner.setState(dev.id, 'idle');
       await waitingMessage(dev);
       vi.spyOn(h.domain.messaging, 'holdsMessagesOf').mockResolvedValue(true);
+      vi.spyOn(h.domain.messaging, 'holdNameOf').mockReturnValue('fix_limit');
       await handOver();
       await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
       await flush();
@@ -526,7 +527,9 @@ describe('closing finished and idle sessions', () => {
         { actor: OWNER_ACTOR },
       );
       await vi.waitFor(() =>
-        expect(h.domain.tasks.get('AR', 'AR-2').startWaiting).toMatchObject({ reason: 'member_at_capacity' }),
+        expect(h.repos.memberQueue.listOpen('AR', 'dev-1')[0]?.wait).toMatchObject({
+          code: 'member_at_capacity',
+        }),
       );
       h.runner.setState(dev.id, 'idle');
       advance(SESSION_IDLE_CLOSE_MINUTES);
@@ -535,7 +538,7 @@ describe('closing finished and idle sessions', () => {
 
       await vi.waitFor(() => expect(h.runner.started.some((s) => s.sessionId !== dev.id)).toBe(true));
       expect(h.runner.lastStarted().initialMessage).toContain('Please look at the second page.');
-      expect(h.domain.tasks.get('AR', 'AR-2').startWaiting).toBeUndefined();
+      expect(h.repos.memberQueue.listOpen('AR', 'dev-1')).toEqual([]);
     });
   });
 
@@ -682,14 +685,16 @@ describe('closing finished and idle sessions', () => {
         { actor: OWNER_ACTOR },
       );
       await vi.waitFor(() =>
-        expect(h.domain.tasks.get('AR', 'AR-2').startWaiting).toMatchObject({ reason: 'member_at_capacity' }),
+        expect(h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait).toMatchObject({
+          code: 'member_at_capacity',
+        }),
       );
 
       await verdict(cr, changes);
       h.runner.setState(cr.id, 'idle');
       await vi.waitFor(() => expect(h.runner.isRunning(cr.id)).toBe(false));
       await vi.waitFor(() => expect(h.runner.lastStarted().initialMessage).toContain('second page'));
-      expect(h.domain.tasks.get('AR', 'AR-2').startWaiting).toBeUndefined();
+      expect(h.repos.memberQueue.listOpen('AR', 'cr').every((i) => !i.wait)).toBe(true);
     });
 
     it('keeps the reason of a send-back made in the same call', async () => {

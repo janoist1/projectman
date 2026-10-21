@@ -151,6 +151,13 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     sealed: true,
   },
   {
+    id: 'runtime/member-queue',
+    layer: 'runtime',
+    target: 'runtime/member-queue',
+    pass: 'none',
+    sealed: true,
+  },
+  {
     id: 'runtime/permissions',
     layer: 'runtime',
     target: 'runtime/permissions',

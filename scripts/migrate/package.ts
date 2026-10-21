@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import {
   chmodSync,
   copyFileSync,
-  cpSync,
   createReadStream,
   existsSync,
   lstatSync,
@@ -19,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
 import { execCommand, ExecCommandError } from '../../apps/server/src/exec';
+import { copyTree } from './copy';
 import { backupDatabase, snapshotDatabase } from './database';
 import { git, isGitRepository } from './git';
 import { buildInventory, isDirty } from './inventory';
@@ -282,11 +282,7 @@ export async function createPackage(options: PackageOptions): Promise<PackageRes
       notCarried.push({ name, bytes: entry?.bytes ?? 0 });
       continue;
     }
-    cpSync(source, join(homeOut, name), {
-      recursive: true,
-      preserveTimestamps: true,
-      verbatimSymlinks: true,
-    });
+    copyTree(source, join(homeOut, name));
   }
   if (existsSync(join(homeOut, 'secret'))) chmodSync(join(homeOut, 'secret'), 0o600);
 

@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
-  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -31,6 +30,7 @@ import {
 } from '../../apps/server/src/engine-link/engine-config';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import { instanceRole } from '../../apps/server/src/instance';
+import { copyTree } from './copy';
 import { backupDatabase, databaseFiles, snapshotDatabase } from './database';
 import { isGitRepository } from './git';
 import { HYBRID_CLOUD_ENTRIES, HYBRID_NEVER_CARRIED } from './hybrid-entries';
@@ -301,11 +301,7 @@ export async function createHybridPackage(options: HybridPackageOptions): Promis
     // --- the closed list of entries
     for (const entry of HYBRID_CLOUD_ENTRIES) {
       if (entry === 'db.sqlite' || !existsSync(join(home, entry))) continue;
-      cpSync(join(home, entry), join(homeOut, entry), {
-        recursive: true,
-        preserveTimestamps: true,
-        verbatimSymlinks: true,
-      });
+      copyTree(join(home, entry), join(homeOut, entry));
     }
     if (existsSync(join(homeOut, 'secret'))) chmodSync(join(homeOut, 'secret'), 0o600);
     const notCarried: PackageManifest['notCarried'] = [];
@@ -505,11 +501,7 @@ export async function hybridBack(options: HybridBackOptions): Promise<HybridBack
   try {
     for (const entry of HYBRID_CLOUD_ENTRIES) {
       if (entry === 'db.sqlite' || !existsSync(join(from, entry))) continue;
-      cpSync(join(from, entry), join(stage, entry), {
-        recursive: true,
-        preserveTimestamps: true,
-        verbatimSymlinks: true,
-      });
+      copyTree(join(from, entry), join(stage, entry));
       staged.push(entry);
     }
     if (existsSync(join(stage, 'secret'))) chmodSync(join(stage, 'secret'), 0o600);

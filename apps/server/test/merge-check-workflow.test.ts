@@ -54,4 +54,12 @@ describe('the merge-check workflow', () => {
   it('has the step the engine follows', () => {
     expect(steps.some((step) => step.name === 'merge-test')).toBe(true);
   });
+
+  it('installs Homebrew Bash on PATH before the tests run', () => {
+    const install = steps.findIndex((step) => step.run?.includes('brew install bash'));
+    const check = steps.findIndex((step) => step.name === 'merge-test');
+    expect(install).toBeGreaterThanOrEqual(0);
+    expect(install).toBeLessThan(check);
+    expect(steps[install]?.run).toContain('echo "$(brew --prefix bash)/bin" >> "$GITHUB_PATH"');
+  });
 });

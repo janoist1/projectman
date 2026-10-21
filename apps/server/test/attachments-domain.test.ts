@@ -1,5 +1,4 @@
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -14,6 +13,7 @@ import { join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MAX_ATTACHMENT_BYTES } from '@projectman/shared';
+import { copyTree } from '../../../scripts/migrate/copy';
 import type { Attachment, ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
 import { aiActor } from '../src/kernel';
@@ -512,7 +512,7 @@ describe('attachments service', () => {
 
       // The backup: everything under the home, as DEPLOY.md says; restored to another place.
       const restoredDir = mkdtempSync(join(tmpdir(), 'pm-restore-'));
-      cpSync(h.dir, restoredDir, { recursive: true, preserveTimestamps: true });
+      copyTree(h.dir, restoredDir);
       const restored = await createDomainHarness({ directory: restoredDir });
       try {
         expect(restored.dir).not.toBe(h.dir);

@@ -1,6 +1,5 @@
 import {
   chmodSync,
-  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -15,6 +14,7 @@ import Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyPackage } from '../../../scripts/migrate/apply';
+import { copyTree } from '../../../scripts/migrate/copy';
 import {
   buildHybridPlan,
   createHybridPackage,
@@ -94,7 +94,7 @@ const dbRows = <T>(home: string, sql: string, ...params: unknown[]): T[] => {
 /** The cloud's volume as the person downloads it: a copy of the package's `home/`, private. */
 const cloudData = (name = 'cloud-data'): string => {
   const dir = join(src.root, name);
-  cpSync(join(out, 'home'), dir, { recursive: true, verbatimSymlinks: true });
+  copyTree(join(out, 'home'), dir);
   chmodSync(dir, 0o700);
   return dir;
 };

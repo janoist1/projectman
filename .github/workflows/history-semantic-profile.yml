@@ -1,0 +1,102 @@
+# The release measurement of the history search's local embedding on Linux ARM64 (PM-913, PM-910, PM-767).
+# Docs: docs/HYBRID.md "History semantic profile". It builds the cloud release image with the pinned model, checks
+# the model asset and the native libraries inside it, then runs deploy/cloud/history-semantic-profile.mjs in the
+# image under `--network none --memory 2g --memory-swap 2g` (cgroup v2, no swap) over a synthetic history of the
+# live size. Start it by hand: `gh workflow run history-semantic-profile.yml [-f mixed_seconds=600]`.
+#
+# The job fails when the report's outcome is not `pass`. Only report.json and report.md (numbers, versions and
+# technical codes) go to the job summary and the artifact; the run's home, logs and databases stay on the runner.
+# It sets no live environment variable: turning the semantic search on in the cloud is the owner's own decision.
+name: history-semantic-profile
+run-name: history-semantic-profile (${{ inputs.mixed_seconds }} s mixed phase)
+on:
+  workflow_dispatch:
+    inputs:
+      mixed_seconds:
+        description: Length of the mixed phase in seconds (at least 600)
+        required: false
+        default: '600'
+        type: string
+permissions:
+  contents: read
+jobs:
+  profile:
+    name: profile (linux/arm64, 2 GiB, no swap)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      IMAGE: projectman-cloud:history-semantic-profile
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Machine
+        run: |
+          uname -srm
+          docker info --format 'docker {{.ServerVersion}}, cgroup v{{.CgroupVersion}}, {{.Architecture}}, {{.NCPU}} CPUs'
+          node --version
+      - name: Build the cloud release image (with the model)
+        run: |
+          docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION="$GITHUB_SHA" -t "$IMAGE" .
+          # The image is not pushed, so its digest is the image id (the digest of its config).
+          digest="$(docker image inspect "$IMAGE" --format '{{.Id}}')"
+          echo "PROJECTMAN_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+          echo "image $digest (commit $GITHUB_SHA)"
+      - name: Check the model asset and the native libraries in the image
+        run: |
+          docker run --rm --network none -v "$PWD/deploy/cloud/history-semantic-image-check.mjs:/check.mjs:ro" \
+            -w /app --entrypoint node "$IMAGE" /check.mjs --arch arm64
+      - name: Make the synthetic fixture
+        run: |
+          mkdir -p "$RUNNER_TEMP/in"
+          node deploy/cloud/history-semantic-fixture.mjs --docs docs --out "$RUNNER_TEMP/in/fixture.json"
+          chmod 0644 "$RUNNER_TEMP/in/fixture.json"
+      - name: Run the profile
+        id: profile
+        env:
+          MIXED_SECONDS: ${{ inputs.mixed_seconds }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out" "$RUNNER_TEMP/report"
+          sudo chown 10001:10001 "$RUNNER_TEMP/out"
+          set +e
+          docker run --rm --network none --memory 2g --memory-swap 2g --user 10001:10001 \
+            -e PROJECTMAN_IMAGE_DIGEST \
+            -v "$RUNNER_TEMP/out:/out" -v "$RUNNER_TEMP/in/fixture.json:/in/fixture.json:ro" \
+            --entrypoint node "$IMAGE" /app/deploy/cloud/history-semantic-profile.mjs \
+            --server /app/apps/server/dist/history-semantic-profile.js \
+            --model-dir /app/apps/server/dist/models/history \
+            --fixture /in/fixture.json --out /out/profile --mixed-seconds "$MIXED_SECONDS"
+          status=$?
+          set -e
+          echo "exit status $status"
+          # Only the two report files leave the run directory.
+          for file in report.json report.md; do
+            sudo cp "$RUNNER_TEMP/out/profile/$file" "$RUNNER_TEMP/report/$file" || true
+          done
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/report"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Report
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/report/report.md" ]; then
+            cat "$RUNNER_TEMP/report/report.md"
+            cat "$RUNNER_TEMP/report/report.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no report was written"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: history-semantic-profile-report
+          path: ${{ runner.temp }}/report/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Verdict
+        env:
+          STATUS: ${{ steps.profile.outputs.status }}
+        run: |
+          echo "profile exit status: ${STATUS:-none}"
+          test "$STATUS" = "0"

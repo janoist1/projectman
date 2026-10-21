@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -651,5 +652,83 @@ describe('seeding the disposable database', () => {
     } finally {
       await h.cleanup();
     }
+  });
+});
+
+const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+
+describe('the synthetic fixture of the release run (PM-913)', () => {
+  const generatorPath = join(root, 'deploy/cloud/history-semantic-fixture.mjs');
+  const docsDir = join(root, 'docs');
+  const loadGenerator = (): Promise<any> => import(pathToFileURL(generatorPath).href);
+
+  it('is a valid fixture of the live size, with the 20 decisions as targets', async () => {
+    const generator = await loadGenerator();
+    const built = generator.buildFixture({ docsDir });
+    const { validateFixture } = await load();
+    expect(validateFixture(built)).toBe(built);
+    const count = (type: string) => built.sources.filter((s: { type: string }) => s.type === type).length;
+    expect(built.sources).toHaveLength(17_955);
+    expect([count('task'), count('message'), count('note'), count('question'), count('document')]).toEqual([
+      1000, 9200, 7000, 753, 2,
+    ]);
+    const characters = built.sources.reduce(
+      (sum: number, s: { title: string; body: string }) => sum + s.title.length + s.body.length,
+      0,
+    );
+    expect(characters / built.sources.length).toBeGreaterThan(900);
+    expect(characters / built.sources.length).toBeLessThan(1100);
+    expect(built.questions).toHaveLength(20);
+    const ids = new Set(built.sources.map((s: { id: string }) => s.id));
+    for (const item of built.questions) expect(ids.has(item.targetId)).toBe(true);
+  });
+
+  it('gives the same file for the same seed and another for another seed', async () => {
+    const generator = await loadGenerator();
+    const counts = { tasks: 5, messages: 5, notes: 25, questions: 5 };
+    const build = (seed: number) => JSON.stringify(generator.buildFixture({ docsDir, seed, counts }));
+    expect(build(1)).toBe(build(1));
+    expect(build(1)).not.toBe(build(2));
+  });
+
+  it('checks the image: ELF machine of a native file and the model manifest', async () => {
+    const check = await import(
+      pathToFileURL(join(root, 'deploy/cloud/history-semantic-image-check.mjs')).href
+    );
+    const elf = (machine: number) => {
+      const head = Buffer.alloc(64);
+      head.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
+      head.writeUInt16LE(machine, 18);
+      return head;
+    };
+    expect(check.elfMachineOf(elf(183))).toBe(183);
+    expect(check.elfMachineOf(Buffer.from('not an elf at all, just text'))).toBeNull();
+    const arm = join(temp, 'arm.node');
+    const intel = join(temp, 'intel.node');
+    writeFileSync(arm, elf(183));
+    writeFileSync(intel, elf(62));
+    expect(check.checkElf([arm], 'arm64').problems).toEqual([]);
+    expect(check.checkElf([arm, intel], 'arm64').problems).toHaveLength(1);
+
+    expect(check.checkModel(temp).problems).toEqual(['model_manifest_missing']);
+    const model = join(temp, 'model');
+    mkdirSync(join(model, 'org', 'name'), { recursive: true });
+    writeFileSync(join(model, 'org', 'name', 'weights.bin'), 'weights');
+    const manifest = {
+      modelId: 'org/name',
+      revision: 'a'.repeat(40),
+      files: [{ path: 'weights.bin', sha256: sha256('weights'), bytes: 7 }],
+    };
+    writeFileSync(join(model, 'manifest.json'), JSON.stringify(manifest));
+    expect(check.checkModel(model)).toMatchObject({ problems: [], files: 1 });
+    manifest.files[0]!.sha256 = sha256('other');
+    writeFileSync(join(model, 'manifest.json'), JSON.stringify(manifest));
+    expect(check.checkModel(model).problems).toEqual(['model_file_hash:weights.bin']);
+  });
+
+  it('refuses a missing option on the command line', async () => {
+    const generator = await loadGenerator();
+    expect(() => generator.parseArgs(['--docs', docsDir])).toThrow(/required/);
+    expect(generator.parseArgs(['--docs', docsDir, '--out', join(temp, 'f.json')]).seed).toBe(913);
   });
 });

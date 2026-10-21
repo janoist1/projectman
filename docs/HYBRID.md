@@ -567,6 +567,31 @@ searches by text only. Before the run, confirm that the ARM64 image has `dist/mo
 `node -e "require('onnxruntime-node')"` and the `sqlite-vec` extension load on it, and write the image digest in
 `PROJECTMAN_IMAGE_DIGEST`. A model folder without a manifest is `model_unavailable`, not a pass.
 
+**The release run (PM-913).** The GitHub Actions workflow `.github/workflows/history-semantic-profile.yml` does all
+of the above on a GitHub-hosted Linux ARM64 runner (`ubuntu-24.04-arm`, free for the public repository); start it
+with `gh workflow run history-semantic-profile.yml [-f mixed_seconds=600]`. In order it:
+
+1. builds the cloud release image (`deploy/cloud/Dockerfile`, with `npm run prepare:history-model`) and records the
+   image id as `PROJECTMAN_IMAGE_DIGEST` (the image is not pushed, so there is no registry digest) with the commit;
+2. runs `deploy/cloud/history-semantic-image-check.mjs` inside the image (`--network none`): the model folder's
+   `manifest.json` is valid and every file has its pinned size and SHA-256; the native files of `onnxruntime-node`,
+   `sharp`, `sqlite-vec` and `better-sqlite3` for `linux/arm64` are present and are ELF AArch64 (`e_machine` 183);
+   all of them load, and `vec_version()` answers. It prints facts only and exits 1 on any failure;
+3. makes the synthetic fixture with `deploy/cloud/history-semantic-fixture.mjs` (below);
+4. runs the profile with exactly the command above (`--user 10001:10001`, `--network none --memory 2g --memory-swap 2g`);
+5. puts `report.md` in the job summary and uploads `report.json` and `report.md` (only these) as the artifact
+   `history-semantic-profile-report`; the job fails unless the exit status is 0 (`outcome: pass`).
+
+**The synthetic fixture.** No live history text leaves the owner's machine, so the run uses a seeded synthetic one
+(seed 913, the same file every time). It is sized after the live history counted on 2026-10-21: 17 955 sources of
+about 1 000 characters (1 000 cards, 9 200 team messages, 7 000 task notes, 753 answered questions, the two project
+documents) of mixed Hungarian and English filler about everyday product work. The ~48 000 timeline events of the live
+database are mostly not history sources and are not made. The 20 questions are the PM-767 recall set; each target is
+a note holding the text of one decision of the public `docs/DECISIONS.md`, and the 5 negative controls are
+off-topic. The fixture's `origin` says all this, and it is copied to the report. It tests the memory and the time of
+the search at the live size and the recall on the real decisions; it is not a recall measurement on real history
+text, which only a copy of the cloud's history on the owner's machine could be.
+
 ## What is not covered, and what was not verified
 
 - The cloud runs one machine. High availability, a read replica and several regions are not

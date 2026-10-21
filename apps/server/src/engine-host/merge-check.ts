@@ -41,7 +41,12 @@ export async function sweepStaleChecks(
   olderThanMs: number,
   now: number = Date.now(),
 ): Promise<number> {
-  const root = path.join(await realpath(worktreesRoot), MERGE_CHECK_DIR);
+  const realRoot = await realpath(worktreesRoot).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return null;
+    throw err;
+  });
+  if (realRoot === null) return 0;
+  const root = path.join(realRoot, MERGE_CHECK_DIR);
   const known = await lstat(root).catch(() => null);
   if (!known?.isDirectory() || known.isSymbolicLink()) return 0;
   const names = await readdir(root);

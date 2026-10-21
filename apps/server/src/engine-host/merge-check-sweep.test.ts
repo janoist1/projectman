@@ -57,6 +57,10 @@ describe('sweepStaleChecks', () => {
     }
   });
 
+  it('does nothing when the worktrees root does not exist yet', async () => {
+    expect(await sweepStaleChecks(path.join(worktreesRoot, 'missing'), STALE_LEFTOVER_MS)).toBe(0);
+  });
+
   it('does nothing when there is no _merge directory', async () => {
     await rm(checks, { recursive: true });
     expect(await sweepStaleChecks(worktreesRoot, STALE_LEFTOVER_MS)).toBe(0);

@@ -46,8 +46,10 @@ AI tagi sandboxnak nem adunk credentials-kivételt.
    engedélye már megvan; ezt nem kell újra kérni.
 4. Pause → Mac single és watcher stop → stopped-source package/verify → üres cloud
    seed → Mac engine ugyanazzal a SHA-val → privát ellenőrzés.
-5. A kész belépési és public edge változat független security eredménye után külön
-   hagyd jóvá a public deploy/edge/publish lépéseket. Backup, izolált restore,
+5. A kész belépési és public edge változat független security eredménye után az
+   integrátor végzi a kapcsolást a PM-675 aktuális tulajdonosi iránya szerint.
+   A PM-703/713-at tartalmazó verzión a nyilvános megnyitásra nem kérünk újabb igent.
+   Backup, izolált restore,
    Mac-off/on, valódi meghívott ügyfél és owner elfogadás zárja az átállást.
 6. Hibánál először edge-zár, majd cloud pause/stop és végleges adatletöltés;
    csak ennek visszahozása után indulhat újra a Mac single és watcher.
@@ -292,11 +294,12 @@ végleges változtatását. A kártyák beolvasztása önmagában nem igazolja a
 verziót: a cloud image forrás-SHA-ját és az engine SHA-ját külön rögzíteni kell.
 A login/public határ végleges változata független security-átnézést igényel.
 
-`<CONFIG>` `access.boardMode=public`, `<PRIVATE_CONFIG>` private. A pontos SHA-ra,
-public deploy/edge/publish lépésekre, hostname/widgetre és rollbackre vonatkozó
-tulajdonosi engedély a PM-675-ön legyen rögzítve; a már megadott engedélyt nem
-kérjük újra. A megvalósítás és a száraz próba nem helyettesíti ezt az élő kaput.
-Jóváhagyás előtt csak a végleges CLI read-only preview-ja:
+`<CONFIG>` `access.boardMode=public`, `<PRIVATE_CONFIG>` private. A PM-675 aktuális
+tulajdonosi iránya alapján a nyilvános megnyitásra nem kell külön ismételt igen,
+ha a futó kép tartalmazza a PM-703 és a PM-713 javításait. A kiadás a PM-735 útján
+megy; a konkrét SHA, képazonosító, hostname/widget, végrehajtó és rollback a
+végrehajtási csomagban legyen rögzítve. Az integrátor az élő kapcsolás előtt végzi
+a végleges CLI read-only preview-ját:
 
 ```sh
 npm run cloud -- edge --dry-run --config <CONFIG>
@@ -304,7 +307,7 @@ npm run cloud -- deploy --ref <APPROVED_SHA> --dry-run --config <CONFIG>
 npm run cloud -- publish --feedback --dry-run --config <CONFIG>
 ```
 
-Külön elfogadott public kapcsolás után:
+A végleges megvalósítás és a képcsomag ellenőrzése után az integrátor egy menetben futtatja:
 
 ```sh
 npm run cloud -- edge --config <CONFIG>

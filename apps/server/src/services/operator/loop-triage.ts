@@ -45,12 +45,14 @@ export class LoopTriages {
       const current = this.deps.ctx.repos.operatorSignals.get(signal.id);
       if (current?.deliveredAt && current.deliveredTo === member.handle)
         return { state: 'delivered', signalId };
-      // The queue closes the item of a start that failed for good (a wait is no failure).
-      const item = this.deps.ctx.repos.memberQueue.findBySource(input.projectKey, member.handle, {
+      // The signal lane marks the item of a start that failed for good (a wait is no failure).
+      const repo = this.deps.ctx.repos.memberQueue;
+      const item = repo.findBySource(input.projectKey, member.handle, {
         type: 'signal',
         id: memberQueueSourceId({ type: 'signal', signalId: signal.id, followUpAt: null }),
       });
-      return { state: item?.closeReason === 'source_closed' ? 'failed' : 'queued', signalId };
+      const refused = !!item && repo.payloadOf<{ startRefused?: boolean }>(item.id)?.startRefused === true;
+      return { state: refused ? 'failed' : 'queued', signalId };
     } catch (err) {
       this.deps.ctx.logger.warn({ err, taskKey: input.taskKey }, 'could not report a suspected loop');
       return { state: 'failed', signalId };

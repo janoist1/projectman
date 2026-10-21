@@ -8,6 +8,7 @@ export interface SignalLaneSignals {
   holdsBack(projectKey: string, signalId: string): boolean;
   noticeText(projectKey: string, signalIds: string[]): string;
   markDelivered(projectKey: string, member: string, signalId: string, followUpAt: string | null): void;
+  markStartRefused(itemId: string): void;
 }
 
 /** The hold code while the wake interval (or the structural window) keeps a signal from the coordinator. */
@@ -44,8 +45,12 @@ export function signalLane(deps: { signals: SignalLaneSignals }): MemberQueueLan
     },
     hold: async (item) =>
       signals.holdsBack(item.projectKey, signalOf(item).signalId) ? SIGNAL_INTERVAL_HOLD : null,
-    // No `refused`: a start that fails keeps the item queued for the next attempt. A closed item would keep the
-    // signal from ever being queued again (the source key is unique over closed rows too).
+    // A start that fails for good keeps the item queued for the next attempt, marked for the loop triage. A closed
+    // item would keep the signal from ever being queued again (the source key is unique over closed rows too).
+    refused: async (item) => {
+      signals.markStartRefused(item.id);
+      return 'wait';
+    },
     delivered: (item) => {
       const { signalId, followUpAt } = signalOf(item);
       signals.markDelivered(item.projectKey, item.member, signalId, followUpAt);

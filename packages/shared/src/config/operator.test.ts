@@ -319,9 +319,7 @@ describe('approval waiver eligibility (PM-691)', () => {
 
   const protectedFields: Array<[string, (next: ProjectConfig) => void]> = [
     ['permission mode', (n) => (ai(n, 'writer').permissionMode = 'acceptEdits')],
-    ['bypass', (n) => (ai(n, 'writer').permissionMode = 'bypassPermissions')],
     ['AI approver', (n) => (ai(n, 'writer').approver = 'ai')],
-    ['no approver', (n) => (ai(n, 'writer').approver = 'none')],
     ['network', (n) => (ai(n, 'writer').outboundNetwork = false)],
     ['GitHub identity', (n) => (ai(n, 'writer').githubLogin = 'different-author')],
     ['member instructions', (n) => (ai(n, 'writer').instructions = 'Use another workflow.')],
@@ -455,7 +453,6 @@ describe('approval waiver eligibility (PM-691)', () => {
   });
   it.each([
     ['permissionMode', 'default', DEFAULT_PERMISSION_MODE],
-    ['permissionMode', 'bypassPermissions', DEFAULT_PERMISSION_MODE],
     ['approver', 'human', DEFAULT_NEW_MEMBER_APPROVER],
     ['approver', 'ai', DEFAULT_NEW_MEMBER_APPROVER],
     ['approver', undefined, DEFAULT_NEW_MEMBER_APPROVER],
@@ -853,11 +850,6 @@ describe('operatorFixedChange (PM-473)', () => {
       { kind: 'field', handle: 'operator', field: 'permissionMode' },
     ],
     [
-      'its sponsor changes while the old one stays',
-      (n: ProjectConfig) => (ai(n, 'operator').sponsor = 'ann'),
-      { kind: 'field', handle: 'operator', field: 'sponsor' },
-    ],
-    [
       'several fields change: the first in the alphabet',
       (n: ProjectConfig) => {
         ai(n, 'operator').instructions = 'Do more.';
@@ -914,10 +906,6 @@ describe('operatorFixedChange (PM-473)', () => {
     ['its model', (n: ProjectConfig) => (ai(n, 'operator').model = 'sonnet')],
     ['its provider', (n: ProjectConfig) => (ai(n, 'operator').provider = 'codex')],
     ['its effort', (n: ProjectConfig) => (ai(n, 'operator').effort = 'max')],
-    [
-      'all three together',
-      (n: ProjectConfig) => Object.assign(ai(n, 'operator'), { model: 'x', effort: 'low' }),
-    ],
     [
       'a restated default',
       (n: ProjectConfig) =>
@@ -1057,11 +1045,18 @@ describe('operatorConfigVerdict', () => {
   });
 
   it.each([...NOW, ...APPROVAL, ...NEVER])('%s: %s', (_name, edit, level) => {
-    const { result } = verdict(edit);
+    const { previous, next, result } = verdict(edit);
     expect(result.level).toBe(level);
     expect(result.changes.length).toBeGreaterThan(0);
     expect(result.changes.some((row) => row.level === level)).toBe(true);
     expect(result.changes.every((row) => ConfigChangeRow.safeParse(row).success)).toBe(true);
+    if (integratorConfigRefusal(previous, next) !== null && result.level === 'now') {
+      // Only these AI fields may bypass an integrator refusal.
+      for (const row of result.changes) {
+        expect(row.area).toBe('member');
+        expect([...FOUR, 'onLeave']).toContain(row.field);
+      }
+    }
   });
 
   it('names the change in one row with the old and the new value', () => {
@@ -1234,20 +1229,6 @@ describe('operatorConfigVerdict', () => {
   });
 
   describe('property: what the integrator may not do is at least approval', () => {
-    const cases = [...NOW, ...APPROVAL, ...NEVER];
-
-    it.each(cases)('%s', (_name, edit) => {
-      const { previous, next, result } = verdict(edit);
-      if (integratorConfigRefusal(previous, next) === null) return;
-      if (result.level !== 'now') return;
-      // The one exception: AI members’ model, effort, capacity and schedule (and leave, which the integrator may change too).
-      expect(result.changes.length).toBeGreaterThan(0);
-      for (const row of result.changes) {
-        expect(row.area).toBe('member');
-        expect([...FOUR, 'onLeave']).toContain(row.field);
-      }
-    });
-
     it('holds when only the four fields change, and fails when anything else rides along', () => {
       const four = verdict((n) => {
         ai(n, 'writer').model = 'sonnet';

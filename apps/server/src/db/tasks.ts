@@ -135,7 +135,7 @@ export const SCHEDULING_SQL = {
   pullUrgent: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
       AND t.assignee IS NULL AND t.priority = 1 ORDER BY t.seq`,
   queue: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
-      AND t.assignee IS NULL ORDER BY t.seq`,
+      ORDER BY t.seq`,
   pullFocused: `${TASK_SELECT} WHERE +t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
       AND t.assignee IS NULL AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
   open: `${TASK_SELECT} WHERE t.project_key = ? AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,

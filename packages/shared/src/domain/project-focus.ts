@@ -158,20 +158,23 @@ export function pullCandidates(input: {
 }
 
 /** The cards of a queue stage a developer could start into the given work stage now (PM-665),
- * in the order of `tasks`: the rules of `pullCandidates` without its urgent or focus condition. */
+ * in the order of `tasks`: the rules of `pullCandidates` without its urgent or focus condition.
+ * A card that already has an assignee is left out unless `assigned` is set (PM-879): its assignee keeps it
+ * and a `start_task` moves it into the work stage, which a plain move does not do. */
 export function startableCards(input: {
   config: ProjectConfig;
   tasks: readonly Task[];
   fromStageId: string;
   toStageId: string;
+  assigned?: boolean;
 }): Task[] {
-  const { config, tasks, fromStageId, toStageId } = input;
+  const { config, tasks, fromStageId, toStageId, assigned } = input;
   return tasks.filter((task) => {
     if (
       !canAutomaticallyStartTask(task, tasks) ||
       task.status !== 'active' ||
       task.stageId !== fromStageId ||
-      task.assignee
+      (task.assignee && !assigned)
     )
       return false;
     if (openPrerequisites(task, tasks).length > 0) return false;

@@ -70,6 +70,21 @@ describe('start plan', () => {
     expect(base.free).toEqual([dev]);
   });
 
+  it('offers an assigned card to its assignee only, and leaves it out while they are not free', () => {
+    const cards = [card(1, { assignee: 'senior', priority: 'urgent' }), card(2)];
+    const plan = planStarts({ ...base, cards, free: [dev, senior] });
+    expect(plan.get('AC-1')).toEqual({ kind: 'offer', developer: 'senior' });
+    expect(plan.get('AC-2')).toEqual({ kind: 'offer', developer: 'dev' });
+    expect(planStarts({ ...base, cards, free: [dev] }).has('AC-1')).toBe(false);
+    // The assignee is reserved before a card that comes earlier in the start order.
+    const reserved = planStarts({
+      ...base,
+      cards: [card(3, { priority: 'urgent' }), card(4, { assignee: 'dev' })],
+    });
+    expect(reserved.get('AC-4')).toEqual({ kind: 'offer', developer: 'dev' });
+    expect(reserved.get('AC-3')).toMatchObject({ kind: 'hold' });
+  });
+
   it('only gives Senior cards to Seniors unless an any decision allows another developer', () => {
     const cards = [
       card(1, {

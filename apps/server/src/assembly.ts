@@ -962,6 +962,7 @@ export function createDomain(opts: DomainOptions) {
   messaging.registerCardHold('fix_limit', { holds: (task, config) => fixLimit.heldFor(task, config) });
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
+  startRound.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
   const messageStarts = new MessageStarts({ ctx, projects, tasks, admission, messages, delivery });
   messaging.registerWaker(messageStarts);

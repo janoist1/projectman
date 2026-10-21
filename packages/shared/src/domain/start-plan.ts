@@ -39,12 +39,24 @@ export function planStarts(input: {
   const { cards, places, seniors, anyDecided, offered } = input;
   let free = [...input.free];
   const plan = new Map<string, StartPlanEntry>();
+  // The assigned cards reserve their own developer first, so no other card takes the member they wait for.
   const ordered = [...cards].sort(
     (a, b) =>
+      Number(!!b.assignee) - Number(!!a.assignee) ||
       Number(offered?.has(b.key) ?? false) - Number(offered?.has(a.key) ?? false) ||
       compareStartOrder(a, b, places),
   );
   for (const card of ordered) {
+    // An assigned card is started by its assignee when the pm starts it with start_task (PM-879): it keeps that developer when
+    // they are free, and waits for them otherwise. The pull assigns a developer itself, so it never takes it.
+    if (card.assignee) {
+      const own = free.find((member) => member.handle === card.assignee);
+      if (own) {
+        plan.set(card.key, { kind: 'offer', developer: own.handle });
+        free = free.filter((member) => member !== own);
+      }
+      continue;
+    }
     const choose = (candidates: readonly DeveloperCandidate[]) =>
       pickDeveloper({
         level: developerLevelOf(card),

@@ -3892,7 +3892,14 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   explicitly to handle its `cpSync` regression (nodejs/node#65488, PM-923). **Remote engine:**
   the same on the engine's machine with its own `gh` login and remote; the server sends only the existing
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
-  Related tasks: PM-900, PM-906, PM-907, PM-923.
+  Real dependency-clone integration tests (`worktree/{worktree-manager,dependencies}.test.ts`)
+  use `test/helpers/apfs.ts` to check that the test temp volume is APFS, rather than assuming
+  every macOS temp volume supports cloning (PM-928). The injected dependency-clone unit tests
+  still run on other filesystems; clone failures on APFS remain failures. The process-group
+  timeout test accepts TERM or the grace-period KILL when the guard cannot start within its
+  50 ms budget. These are test-host assumptions only; remote engines need no new capability
+  or server/engine messages.
+  Related tasks: PM-900, PM-906, PM-907, PM-923, PM-928.
   **Module:** `full-test`, `engine-host`, `services/github`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).

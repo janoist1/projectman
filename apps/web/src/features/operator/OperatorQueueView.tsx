@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { MEMBER_QUEUE_CLOSED_LIMIT } from '@projectman/shared';
 import type { MemberQueueView, OperatorChannel, OperatorGrantState } from '@projectman/shared';
@@ -90,6 +90,7 @@ export function OperatorQueueStrip({
   channel: OperatorChannel | undefined;
   onOpen: () => void;
 }) {
+  const hintId = useId();
   const strip = operatorStripOf(channel);
   if (!strip) return null;
   const text =
@@ -102,9 +103,13 @@ export function OperatorQueueStrip({
     <button
       type="button"
       className={styles.strip}
-      aria-label={t('operator.queue.strip.label')}
+      aria-describedby={hintId}
+      data-testid="operator-queue-strip"
       onClick={onOpen}
     >
+      <span id={hintId} className={styles.hidden}>
+        {t('operator.queue.strip.label')}
+      </span>
       <span
         className={clsx(styles.stripDot, strip.kind === 'now' && styles.stripDotLive)}
         aria-hidden="true"
@@ -129,8 +134,12 @@ export function OperatorQueueView({ onBack }: { onBack: () => void }) {
   const [earlier, setEarlier] = useState(false);
   const closedSince = (earlier ? weekAgo(dayStart) : dayStart).toISOString();
   const queue = useOperatorQueue(key, closedSince, true);
+  const heading = useRef<HTMLHeadingElement>(null);
   const closedHeading = useRef<HTMLHeadingElement>(null);
   const earlierShown = useRef(false);
+
+  // The view opens with the focus on its title.
+  useEffect(() => heading.current?.focus(), []);
 
   // "Korábbiak" replaces itself with the longer list: the focus goes to its title.
   useEffect(() => {
@@ -156,7 +165,9 @@ export function OperatorQueueView({ onBack }: { onBack: () => void }) {
       <Button variant="ghost" size="lg" icon="chevronLeft" className={styles.back} onClick={onBack}>
         {t('operator.queue.back')}
       </Button>
-      <h3 className={styles.heading}>{t('operator.queue.title')}</h3>
+      <h3 ref={heading} tabIndex={-1} className={styles.heading}>
+        {t('operator.queue.title')}
+      </h3>
       {queue.isPending ? (
         <div className={styles.skeleton} role="status" aria-label={t('app.loading')}>
           <span />

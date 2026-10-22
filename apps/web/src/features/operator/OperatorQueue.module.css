@@ -46,6 +46,33 @@
 
 .stripDotLive {
   background: var(--c-accent);
+  animation: operator-strip-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes operator-strip-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stripDotLive {
+    animation: none;
+  }
+}
+
+/* Read by a screen reader, not shown. */
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .stripText {

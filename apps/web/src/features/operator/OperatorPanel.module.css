@@ -50,6 +50,24 @@
   min-width: 0;
 }
 
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The grant of machine operations is active: the chip beside the name. */
+.superChip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
 .name {
   margin: 0;
   font-size: var(--text-lg);

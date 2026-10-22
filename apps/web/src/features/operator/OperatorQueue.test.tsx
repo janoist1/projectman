@@ -133,11 +133,14 @@ describe('the strip in the panel', () => {
     ];
     renderLayout(project);
     fireEvent.click(await button());
-    const strip = await screen.findByRole('button', { name: t('operator.queue.strip.label') });
+    const strip = await screen.findByTestId('operator-queue-strip');
     expect(strip.textContent).toContain(t('operator.queue.strip.now', { title: 'Állítsd át a szövegírót' }));
     expect(strip.textContent).toContain(t('operator.queue.strip.more', { count: 2 }));
+    // The visible text is the name; the purpose is the description (WCAG 2.5.3).
+    expect(screen.getByRole('button', { name: new RegExp('Állítsd át a szövegírót') })).toBe(strip);
     fireEvent.click(strip);
-    expect(await screen.findByRole('heading', { name: t('operator.queue.title') })).toBeTruthy();
+    const heading = await screen.findByRole('heading', { name: t('operator.queue.title') });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
   });
 
   it('is not there for an empty queue', async () => {
@@ -145,7 +148,7 @@ describe('the strip in the panel', () => {
     renderLayout(project);
     fireEvent.click(await button());
     await toggle();
-    expect(screen.queryByRole('button', { name: t('operator.queue.strip.label') })).toBeNull();
+    expect(screen.queryByTestId('operator-queue-strip')).toBeNull();
   });
 
   it('is not offered to a person without developer access', async () => {
@@ -155,7 +158,17 @@ describe('the strip in the panel', () => {
     fireEvent.click(await button());
     await screen.findByRole('textbox', { name: t('operator.composer.label') });
     expect(screen.queryByRole('button', { name: new RegExp(`^${t('operator.queue.toggle')}`) })).toBeNull();
-    expect(screen.queryByRole('button', { name: t('operator.queue.strip.label') })).toBeNull();
+    expect(screen.queryByTestId('operator-queue-strip')).toBeNull();
+  });
+
+  it('shows the super chip beside the name in the head while the grant is active', async () => {
+    const project = mockProject();
+    project.backend.operatorGrant = { ...project.backend.operatorGrant, active: true, grantId: 'g1' };
+    renderLayout(project);
+    fireEvent.click(await button());
+    const panel = await screen.findByRole('dialog');
+    const chip = await within(panel).findByText(t('operator.queue.superChip'));
+    expect(chip.getAttribute('title')).toContain(t('operator.queue.grant.untilRevoked'));
   });
 });
 

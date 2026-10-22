@@ -19,7 +19,7 @@ import { OperatorKnowledgeView } from './OperatorKnowledgeView';
 import { OperatorQueueStrip, OperatorQueueView } from './OperatorQueueView';
 import type { FailedOperatorMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
-import { operatorStatusText } from './operatorChannel';
+import { operatorGrantExpiryText, operatorStatusText } from './operatorChannel';
 import { useOperator } from './useOperator';
 import styles from './OperatorPanel.module.css';
 
@@ -38,7 +38,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const { pathname } = useLocation();
   const openedAt = useRef(pathname);
   const board = useBoard(key);
-  const { channel, state, handle, member } = useOperator();
+  const { channel, state, handle, member, grant } = useOperator();
   const send = useSendTeamMessage(key);
   const uploads = useMessageAttachmentUploads(key);
   const [dragging, setDragging] = useState(false);
@@ -174,9 +174,19 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
       <header className={styles.head}>
         <Avatar member={member} handle={handle ?? 'operator'} size="lg" />
         <div className={styles.who}>
-          <h2 id={titleId} className={styles.name}>
-            {name}
-          </h2>
+          <div className={styles.nameRow}>
+            <h2 id={titleId} className={styles.name}>
+              {name}
+            </h2>
+            {grant?.active ? (
+              <span
+                className={styles.superChip}
+                title={t('operator.queue.superChipTitle', { expiry: operatorGrantExpiryText(grant) })}
+              >
+                {t('operator.queue.superChip')}
+              </span>
+            ) : null}
+          </div>
           <div className={styles.status}>
             {status}
             {status && !readOnly && !missing ? ` · ${t('operator.panel.subline')}` : ''}

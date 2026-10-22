@@ -5827,7 +5827,6 @@ export const hu = {
     },
     /** The e-mail channel (PM-892, PM-942): the project switch, who may write, who wants mail, the log. */
     email: {
-      lead: 'Az AI-tagok e-mailben is tarthatják a kapcsolatot.',
       loadFailed: 'Nem sikerült betölteni az e-mail beállításokat.',
       saveFailed: 'Nem sikerült menteni. A kapcsoló visszaállt.',
       saved: 'Mentve',

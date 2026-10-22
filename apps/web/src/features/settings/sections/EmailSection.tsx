@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import type {
@@ -16,6 +17,7 @@ import {
   useRoles,
   useSetEmailContact,
 } from '../../../api/queries';
+import { queryKeys } from '../../../api/queryKeys';
 import { useProject } from '../../../app/contexts';
 import { Avatar } from '../../../components/Avatar';
 import { Button } from '../../../components/Button';
@@ -33,11 +35,12 @@ import shared from '../settings.module.css';
 import styles from './EmailSection.module.css';
 import { SettingsSection } from './SettingsSection';
 
-/** Display names by handle, from the people the channel view lists. */
+/** Display names by handle: the whole team, since the log and the source lines also name members who no longer write. */
 type Names = ReadonlyMap<string, string>;
 
-function namesOf(view: EmailChannelView): Names {
+function namesOf(view: EmailChannelView, members: readonly MemberView[] | undefined): Names {
   return new Map([
+    ...(members ?? []).map((member) => [member.handle, member.displayName] as const),
     ...view.senders.map((sender) => [sender.handle, sender.displayName] as const),
     ...view.contacts.map((contact) => [contact.handle, contact.displayName] as const),
   ]);
@@ -76,8 +79,11 @@ function ChannelCard({ view, version }: { view: EmailChannelView; version: strin
   const patch = usePatchConfig(key);
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
+  const client = useQueryClient();
   const [lastTarget, setLastTarget] = useState(false);
-  const target = patch.isPending ? lastTarget : view.enabled;
+  // True from the saved config until the channel view is read again, so the switch does not jump back.
+  const [settling, setSettling] = useState(false);
+  const target = patch.isPending || settling ? lastTarget : view.enabled;
   const aiCount = view.senders.length;
   const humanCount = view.contacts.filter((contact) => contact.wants).length;
 
@@ -88,7 +94,11 @@ function ChannelCard({ view, version }: { view: EmailChannelView; version: strin
       {
         onSuccess: () => {
           setConfirming(false);
+          setSettling(true);
           toast.show(t('settings.email.saved'));
+          void client
+            .invalidateQueries({ queryKey: queryKeys.emailChannel(key) })
+            .finally(() => setSettling(false));
         },
         onError: () => setConfirming(false),
       },
@@ -145,7 +155,13 @@ function ChannelCard({ view, version }: { view: EmailChannelView; version: strin
           <Button type="button" variant="secondary" size="md" onClick={() => setConfirming(false)}>
             {t('common.cancel')}
           </Button>
-          <Button type="button" size="md" loading={patch.isPending} onClick={() => save(true)}>
+          <Button
+            type="button"
+            variant="primary"
+            size="md"
+            loading={patch.isPending}
+            onClick={() => save(true)}
+          >
             {t('settings.email.channel.confirm')}
           </Button>
         </DialogActions>
@@ -202,11 +218,18 @@ function SendersBlock({
   );
 }
 
-function ContactsBlock({ view, onEdit }: { view: EmailChannelView; onEdit: (handle: string) => void }) {
+function ContactsBlock({
+  view,
+  names,
+  onEdit,
+}: {
+  view: EmailChannelView;
+  names: Names;
+  onEdit: (handle: string) => void;
+}) {
   const { key, myHandle } = useProject();
   const set = useSetEmailContact(key);
   const toast = useToast();
-  const names = namesOf(view);
   const nobody = view.enabled && !view.contacts.some((contact) => contact.wants);
   return (
     <>
@@ -246,6 +269,7 @@ function ContactsBlock({ view, onEdit }: { view: EmailChannelView; onEdit: (hand
                     />
                     <span className={styles.personText}>
                       <span className={shared.strong}>{contact.displayName}</span>
+                      <span className={shared.muted}>{t(`roles.human.${contact.access}`)}</span>
                       {line ? <span className={styles.source}>{line}</span> : null}
                     </span>
                   </span>
@@ -517,21 +541,25 @@ export function EmailSection({ config, version }: { config: ProjectConfig; versi
       </SettingsSection>
     );
   const view = channel.data;
-  const names = namesOf(view);
+  const names = namesOf(view, members.data);
   return (
     <>
       <SettingsSection id="settings-email" title={title}>
         <ChannelCard view={view} version={version} />
       </SettingsSection>
-      <SettingsSection title={t('settings.email.senders.title')}>
-        <SendersBlock view={view} members={members.data} onEdit={setEditing} />
-      </SettingsSection>
-      <SettingsSection title={t('settings.email.contacts.title')}>
-        <ContactsBlock view={view} onEdit={setEditing} />
-      </SettingsSection>
-      <SettingsSection title={t('settings.email.log.title')}>
-        <LogBlock names={names} />
-      </SettingsSection>
+      {view.enabled ? (
+        <>
+          <SettingsSection title={t('settings.email.senders.title')}>
+            <SendersBlock view={view} members={members.data} onEdit={setEditing} />
+          </SettingsSection>
+          <SettingsSection title={t('settings.email.contacts.title')}>
+            <ContactsBlock view={view} names={names} onEdit={setEditing} />
+          </SettingsSection>
+          <SettingsSection title={t('settings.email.log.title')}>
+            <LogBlock names={names} />
+          </SettingsSection>
+        </>
+      ) : null}
       <EditMemberDialog
         member={memberOf(members.data, editing)}
         config={config}

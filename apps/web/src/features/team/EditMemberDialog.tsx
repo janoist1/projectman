@@ -263,7 +263,7 @@ function EditMemberForm({
                 />
                 {t('memberEdit.emailSendWithoutApproval')}
               </label>
-              <p id={`${formId}-email-auto`} className={clsx(styles.toggleHint, styles.nested)}>
+              <p id={`${formId}-email-auto`} className={clsx(styles.toggleHint, styles.nestedHint)}>
                 {!isOwner
                   ? t('memberEdit.emailOwnerOnly')
                   : emailEnabled && emailAuto

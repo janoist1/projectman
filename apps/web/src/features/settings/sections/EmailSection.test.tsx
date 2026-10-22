@@ -137,6 +137,53 @@ describe('the e-mail settings section', () => {
     expect((kata as HTMLInputElement).checked).toBe(true);
   });
 
+  it('shows only the channel card while the channel is off', async () => {
+    const p = mailProject({ enabled: false });
+    await open(p);
+    expect(screen.queryByText(t('settings.email.senders.title'))).toBeNull();
+    expect(screen.queryByText(t('settings.email.contacts.title'))).toBeNull();
+    expect(screen.queryByText(t('settings.email.log.title'))).toBeNull();
+  });
+
+  it('names the person and their role in the contacts table', async () => {
+    const p = mailProject();
+    await open(p);
+    const kata = await screen.findByRole('switch', {
+      name: t('settings.email.contacts.wantsOf', { name: 'Kata' }),
+    });
+    const access = p.backend.email.view().contacts.find((contact) => contact.handle === 'kata')!.access;
+    expect(kata.closest('tr')!.textContent).toContain(t(`roles.human.${access}`));
+  });
+
+  it('credits a change to the member by name, also one who does not write mail', async () => {
+    const p = mailProject();
+    p.backend.email.records.set('kata', {
+      wants: true,
+      changedBy: 'be-1',
+      changedAt: new Date().toISOString(),
+      requestedBy: 'be-1',
+      source: 'settings',
+    });
+    await open(p);
+    const kata = await screen.findByRole('switch', {
+      name: t('settings.email.contacts.wantsOf', { name: 'Kata' }),
+    });
+    const row = kata.closest('tr')!;
+    expect(row.textContent).toContain(p.backend.findMember('be-1')!.displayName);
+    expect(row.textContent).not.toContain(
+      t('settings.email.contacts.bySystem', { state: '', time: '' }).slice(0, 12),
+    );
+  });
+
+  it('names a member in the log who no longer writes mail', async () => {
+    const p = mailProject();
+    p.backend.email.log = [outbound(0, { member: 'be-1' })];
+    await open(p);
+    const head = (await screen.findByText('Subject 0')).closest('button') as HTMLElement;
+    expect(head.textContent).toContain(p.backend.findMember('be-1')!.displayName);
+    expect(head.textContent).not.toContain('be-1');
+  });
+
   it('says that no mail goes out while nobody asks for it', async () => {
     const p = mailProject();
     await open(p);

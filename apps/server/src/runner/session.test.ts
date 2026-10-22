@@ -184,6 +184,13 @@ describe('session process scope lifecycle', () => {
 });
 describe('Gemini pre-tool gate', () => {
   const adapter = () => createGeminiAdapter({ bin: 'unused', logger: silentLogger() });
+  async function beginTurn(session: ReturnType<typeof start>) {
+    const answer = session.hook({ hook_event_name: 'PreInvocation' });
+    // The fake PTY printed its bracketed-paste mode. Let xterm parse that queued write
+    // and take the pre-prompt snapshot before awaiting the hook's answer.
+    await vi.advanceTimersByTimeAsync(0);
+    return answer;
+  }
   const payload = (command: string): HookPayload => ({
     hook_event_name: 'PreToolUse',
     tool_name: 'Bash',
@@ -197,7 +204,7 @@ describe('Gemini pre-tool gate', () => {
     const gs = geminiSpec();
     gs.policy!.deniedOperations = ['git_push'];
     const s = start({ adapter: adapter(), spec: gs, broker: { decide } });
-    await s.hook({ hook_event_name: 'PreInvocation' });
+    await beginTurn(s);
     expect(await s.hook(payload('npm test'))).toEqual({ decision: 'allow' });
     expect(s.session.state.activity).toContain('npm test');
     expect(await s.hook(payload('git push'))).toMatchObject({ decision: 'deny', reason: expect.any(String) });
@@ -225,7 +232,7 @@ describe('Gemini pre-tool gate', () => {
         }),
     );
     const s = start({ adapter: adapter(), spec: geminiSpec(), broker: { decide } });
-    await s.hook({ hook_event_name: 'PreInvocation' });
+    await beginTurn(s);
     const request = s.hook(payload('echo unknown'));
     expect(s.session.state.state).toBe('waiting_permission');
     resolve({ behavior: 'allow', rememberForSession: true });
@@ -236,7 +243,7 @@ describe('Gemini pre-tool gate', () => {
   });
   it('denies timeout, withdrawn requests and missing policy', async () => {
     const s = start({ adapter: adapter(), spec: geminiSpec() });
-    await s.hook({ hook_event_name: 'PreInvocation' });
+    await beginTurn(s);
     const request = s.hook(payload('echo unknown'));
     await vi.advanceTimersByTimeAsync(PERMISSION_TIMEOUT_MS);
     expect(await request).toMatchObject({ decision: 'deny' });
@@ -249,7 +256,7 @@ describe('Gemini pre-tool gate', () => {
   });
   it('injects each invocation without submitting another prompt inside a turn', async () => {
     const s = start({ adapter: adapter(), spec: geminiSpec() });
-    expect(await s.hook({ hook_event_name: 'PreInvocation' })).toMatchObject({
+    expect(await beginTurn(s)).toMatchObject({
       injectSteps: [{ ephemeralMessage: 'Member instructions' }],
     });
     await s.hook(payload('npm test'));

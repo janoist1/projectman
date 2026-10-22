@@ -154,6 +154,7 @@ export class AgentSession {
   private authFailure: string | null = null;
   private rateLimitFailure: string | null = null;
   private quotaScreenPending = false;
+  private quotaScreenNeedsFlush = false;
   private quotaScreenBeforePrompt = new Map<string, number>();
 
   /** The compaction the server asked for, until PostCompact or until it is given up (PM-213). */
@@ -306,6 +307,7 @@ export class AgentSession {
     if (proc.pid <= 1 && this.scope) this.cleanup ??= this.scope.close('start_failed', { force: true });
     proc.onData((data) => {
       this.screen.write(data);
+      this.quotaScreenNeedsFlush = true;
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
       // PTY chunks may split the error from its reset duration. Read the rendered screen
       // after the burst, including for providers whose startup watcher has already stopped.
@@ -1267,7 +1269,10 @@ export class AgentSession {
   private async rememberQuotaScreen(): Promise<void> {
     if (!this.adapter.detectRateLimitScreen) return;
     // PTY writes are parsed asynchronously; include every row received before the prompt hook.
-    await this.screen.flush();
+    if (this.quotaScreenNeedsFlush) {
+      this.quotaScreenNeedsFlush = false;
+      await this.screen.flush();
+    }
     this.quotaScreenBeforePrompt.clear();
     for (const line of this.screen.screenText().split('\n')) {
       const key = line.trim();

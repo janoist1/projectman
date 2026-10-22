@@ -3479,6 +3479,18 @@ assumption or remote-engine RPC.
   Exit carries `SessionCleanup` only after closure; failed cleanup holds the workspace and raises an
   owner-facing Operator signal, later `scope_recovered` releases it. Old engines without cleanup
   retain the process-probe fallback. A remote pid is never signalled on the server.
+  **Audited release (PM-935):** when a cleanup cannot be proven clean, the owner, or the
+  Operator on the owner's explicit request, runs the `workspace_release` super command
+  (`scopeId`, mandatory `reason`; a routine mutation with no owner-reserved effect, reachable only
+  through the integrator/owner super path, never by members). `SessionOrchestrator.releaseCleanupScope`
+  calls `CleanupFailures.release`, which in one transaction frees the member workspaces held under
+  that scope and deletes the `session_cleanups` row, then appends the append-only
+  `workspace_released` timeline event (scope, session, workspaces, reason, actor) and emits
+  `session_cleanup_released`, which resolves the Operator signal. The minute retry skips a
+  `closeScopes` result for a scope whose row is gone, so a late failed result cannot re-insert it;
+  startup recovery is not guarded. **Remote engine:** only server-side SQLite state changes. No
+  engine call is made, and the retry stops because `closeScopes` is sent only server rows, so any
+  surviving process on the engine is left running and unmanaged.
   Lifecycle tests use `runner/test-helpers.ts` (`fixtureScopeProcesses`) and identity records from
   `test/fixtures/fake-tui.mjs`, with null-signal liveness checks limited to disposable fixture pids.
   This keeps pipe and PTY tests independent of host-wide `ps` permissions; production inspection

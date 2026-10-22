@@ -29,6 +29,7 @@ export interface SuperCommandDeps {
   invitations: Pick<InvitationService, 'create'>;
   user(id: string): InvitationUser | null;
   revokeCredential?(userId: string, keyId: string): unknown;
+  releaseWorkspace?(projectKey: string, scopeId: string, release: { actor: Actor; reason: string }): void;
   starts: {
     start(
       projectKey: string,
@@ -163,6 +164,13 @@ export function createCommandExecutor(deps: SuperCommandDeps): SuperCommandExecu
             status: 422,
           });
         if (!deps.revokeCredential(user.id, command.keyId)) throw notFound('credential', command.keyId);
+        return;
+      case 'workspace_release':
+        if (!deps.releaseWorkspace)
+          throw new DomainError('super_operation_unsupported', 'workspace release is unavailable', {
+            status: 422,
+          });
+        deps.releaseWorkspace(projectKey, command.scopeId, { actor, reason: command.reason });
         return;
       default:
         throw new DomainError('super_operation_unsupported', 'this command has no domain executor', {

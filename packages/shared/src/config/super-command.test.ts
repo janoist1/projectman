@@ -70,6 +70,7 @@ describe('super command classification (PM-762)', () => {
     expect(effects(operate({ op: 'project_pause' }))).toEqual([]);
     expect(effects(operate({ op: 'project_resume' }))).toEqual([]);
     expect(effects(operate({ op: 'session_stop', sessionId: 'ses_1' }))).toEqual([]);
+    expect(effects({ kind: 'workspace_release', scopeId: 'scp_1', reason: 'Checked by hand' })).toEqual([]);
     expect(
       effects({ kind: 'member_update', handle: 'dev-1', request: { displayName: 'Fictional name' } }),
     ).toEqual([]);

@@ -57,7 +57,7 @@ it('raises a failed process cleanup signal and resolves it on confirmed recovery
   const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'process_cleanup_failed');
   expect(signal).toMatchObject({
     caseKey: `cleanup:${cleanup.scopeId}`,
-    subject: sessionId,
+    subject: cleanup.scopeId,
     taskKey: 'AR-1',
     resolvedAt: null,
   });

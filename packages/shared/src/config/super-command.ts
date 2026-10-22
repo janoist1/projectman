@@ -181,6 +181,7 @@ export function superCommandMutations(
     case 'task_labels':
     case 'task_start':
     case 'inbox_resolve':
+    case 'workspace_release':
       return [{ kind: 'routine', operation: command.kind }];
     case 'task_cancel':
       return [{ kind: 'routine', operation: 'task_write' }];

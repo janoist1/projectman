@@ -1062,6 +1062,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
         }),
       );
+    case 'workspace_released':
+      return normal(t('timeline.events.workspace_released', { reason: str(d.reason) }));
     case 'focus_changed':
       return normal(
         t(`timeline.events.focus_${d.action === 'added' || d.action === 'removed' ? d.action : 'moved'}`, {

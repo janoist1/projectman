@@ -45,6 +45,7 @@ export type SuperRoutineMutation =
   | 'project_resume'
   | 'session_stop'
   | 'session_restart'
+  | 'workspace_release'
   | 'release_prepare'
   | 'release_propose'
   | 'member_update';
@@ -107,6 +108,7 @@ const routines = new Set<SuperRoutineMutation>([
   'project_resume',
   'session_stop',
   'session_restart',
+  'workspace_release',
   'release_prepare',
   'release_propose',
   'member_update',

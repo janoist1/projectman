@@ -126,6 +126,7 @@ export const TimelineEventType = z.enum([
   'obligation_woken',
   'member_queue_item_closed',
   'obligation_handed_over',
+  'workspace_released',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
 
@@ -149,6 +150,8 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 export interface TimelineEventData {
   super_handoff_changed: { handoffId: string; state: string };
   super_operation_changed: { operationId: string; state: string; resultKind: string | null };
+  /** The owner's override freed the workspaces a failed process-scope cleanup kept reserved (PM-935). */
+  workspace_released: { scopeId: string; sessionId: string; workspaceIds: string[]; reason: string };
   task_hand_on_requested: {
     fromStageId: string;
     toStageId: string;

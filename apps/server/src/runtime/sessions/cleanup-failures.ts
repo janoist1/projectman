@@ -47,11 +47,8 @@ export class CleanupFailures {
     });
   }
   find(projectKey: string, scopeId: string): SessionCleanupFailure | null {
-    return (
-      this.ctx.repos.sessionCleanups
-        .list()
-        .find((record) => record.projectKey === projectKey && record.scopeId === scopeId) ?? null
-    );
+    const record = this.ctx.repos.sessionCleanups.get(scopeId);
+    return record?.projectKey === projectKey ? record : null;
   }
   hasSession(sessionId: string): boolean {
     return this.ctx.repos.sessionCleanups.forSession(sessionId).length > 0;

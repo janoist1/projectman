@@ -23,6 +23,12 @@ export function createSessionCleanupRepository(db: Db) {
         .prepare(`SELECT ${columns} FROM session_cleanups ORDER BY failed_at, scope_id`)
         .all() as SessionCleanupFailure[];
     },
+    get(scopeId: string): SessionCleanupFailure | null {
+      return (
+        (db.prepare(`SELECT ${columns} FROM session_cleanups WHERE scope_id = ?`).get(scopeId) as
+          SessionCleanupFailure | undefined) ?? null
+      );
+    },
     forSession(sessionId: string): SessionCleanupFailure[] {
       return db
         .prepare(`SELECT ${columns} FROM session_cleanups WHERE session_id = ?`)

@@ -405,8 +405,18 @@ export class SessionOrchestrator {
             for (let offset = 0; offset < scopes.length; offset += 50) {
               const batch = scopes.slice(offset, offset + 50);
               for (const scope of batch) this.cleanupFailures.attempted(scope.scopeId);
-              for (const result of await this.deps.runner.closeScopes(batch))
+              for (const result of await this.deps.runner.closeScopes(batch)) {
+                // A result that returns after the owner released the scope must not bring its record back.
+                const session = this.find(result.sessionId);
+                if (!session || !this.cleanupFailures.find(session.projectKey, result.cleanup.scopeId)) {
+                  this.ctx.logger.debug(
+                    { sessionId: result.sessionId, scopeId: result.cleanup.scopeId },
+                    'process scope result ignored: the record was released',
+                  );
+                  continue;
+                }
                 this.handleRunnerEvent({ type: 'scope_recovered', ...result });
+              }
             }
           } catch (err) {
             this.ctx.logger.warn(
@@ -1025,6 +1035,37 @@ export class SessionOrchestrator {
     if (stop) this.live.stopReasons.set(session.id, stop);
     if (this.isRunning(session.id)) await this.deps.runner.stop(session.id);
     return this.markEnded(session.id, null, null, stop) ?? this.get(projectKey, sessionId);
+  }
+
+  /**
+   * The audited override of an unresolved process-scope cleanup (PM-935): the record is closed and the
+   * workspaces it reserves are freed although the engine could not prove that every process stopped.
+   * Who did it and why stays on the timeline; the Operator signal of the scope is closed by the event.
+   */
+  releaseCleanupScope(projectKey: string, scopeId: string, release: { actor: Actor; reason: string }): void {
+    const record = this.cleanupFailures.find(projectKey, scopeId);
+    if (!record) throw notFound('cleanup_scope', scopeId);
+    this.ctx.repos.transaction(() => {
+      const { memberWorkspaces } = this.cleanupFailures.release(record);
+      this.deps.timeline.append({
+        projectKey,
+        taskKey: record.taskKey,
+        sessionId: record.sessionId,
+        actor: release.actor,
+        type: 'workspace_released',
+        data: {
+          scopeId,
+          sessionId: record.sessionId,
+          workspaceIds: memberWorkspaces,
+          reason: release.reason,
+        },
+      });
+    });
+    void this.ctx.events.emit('session_cleanup_released', {
+      projectKey,
+      sessionId: record.sessionId,
+      scopeId,
+    });
   }
 
   // ---------------------------------------------------------------- closing idle sessions (PM-288)

@@ -358,6 +358,17 @@ export const ERROR_CODES = [
   'history_source_changed',
   // The private search statistics are not for this caller or this request (403, PM-787).
   'history_stats_forbidden',
+  // System feedback (PM-472).
+  // The item is not in the state the action needs (409).
+  'system_feedback_wrong_state',
+  // The forwarding mode does not allow the action (409).
+  'system_feedback_forwarding_mode',
+  // The project already recorded the most new items a day allows (409).
+  'system_feedback_limit',
+  // The address is not an issue of the public projectman repository (400).
+  'system_feedback_issue_url',
+  // Only the Operator records system feedback (403).
+  'system_feedback_operator_only',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

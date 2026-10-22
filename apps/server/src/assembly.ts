@@ -522,7 +522,9 @@ export function createDomain(opts: DomainOptions) {
   // The journal itself is written by triggers inside the changing transactions (db/change-triggers.ts); an
   // event that goes out after a commit only wakes the readers waiting on the project, which read the database.
   const unsubscribeJournalWake = bus.subscribe((event) => {
-    if ('projectKey' in event && !QUIET_EVENTS.has(event.type)) ctx.journal.notify(event.projectKey);
+    // `system_feedback_changed` has a null project when the forwarding setting changed: no project to wake.
+    if ('projectKey' in event && event.projectKey !== null && !QUIET_EVENTS.has(event.type))
+      ctx.journal.notify(event.projectKey);
   });
   const templates = opts.templates ?? defaultTemplateRegistry;
   const background = new BackgroundTasks();

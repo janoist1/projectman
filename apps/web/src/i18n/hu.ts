@@ -1152,6 +1152,7 @@ export const hu = {
       owner_settings: 'tulajdonosi beállítás',
       members: 'tagok kezelése; a kulcs csak szabadságra küldhet és visszahívhat',
       invitations: 'meghívó létrehozása',
+      system_feedback: 'a rendszer-visszajelzések továbbításának beállítása',
     },
     conflict: 'Közben valaki más is módosította. Frissíts, és próbáld újra.',
     /** The conditions say what is needed themselves ("Kell: …", "Nem lehet rajta: …"). */
@@ -1448,6 +1449,11 @@ export const hu = {
       history_unavailable: 'Az előzménykereső most nem használható.',
       history_source_changed: 'A dokumentum közben megváltozott: keress újra.',
       history_stats_forbidden: 'A keresési statisztikát ez a kérés nem olvashatja.',
+      system_feedback_wrong_state: 'A visszajelzés állapota közben megváltozott. Frissíts, és próbáld újra.',
+      system_feedback_forwarding_mode: 'Ezt a továbbítás jelenlegi módja nem engedi.',
+      system_feedback_limit: 'Ez a projekt ma már a megengedett számú új visszajelzést rögzítette.',
+      system_feedback_issue_url: 'Ez nem a projectman nyilvános tárolójának egyik hibajegye.',
+      system_feedback_operator_only: 'Visszajelzést csak az Operátor rögzíthet.',
       integrator_https_required: 'A Claude Code-kulcs csak HTTPS-en vagy ezen a gépen használható.',
       integrator_host_required: 'A Claude Code-kulcsot a külön gépi címen kell használni.',
       invalid_event_cursor: 'A változáskövetési kurzor érvénytelen, vagy másik projekté.',
@@ -3333,7 +3339,12 @@ export const hu = {
         structural_review: 'Alkalmi architektúraszemle',
         super_handoff: 'Gépi munka átadása (régi)',
         operation: 'Művelet végrehajtása',
+        system_feedback: 'Visszajelzés rögzítése',
       },
+      /** The step line of a recorded system feedback (PM-472). */
+      systemFeedbackNew: 'Visszajelzést rögzítettem: {title}',
+      /** The same gap seen again; `n` counts the occurrence. */
+      systemFeedbackKnown: 'Ismert hiányosság, új előfordulás: {title} ({n}.)',
     },
     change: {
       instead: 'helyett',

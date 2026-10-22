@@ -43,6 +43,7 @@ export const IntegratorRefusal = z.enum([
   'members',
   'invitations',
   'engines',
+  'system_feedback',
 ]);
 export type IntegratorRefusal = z.infer<typeof IntegratorRefusal>;
 

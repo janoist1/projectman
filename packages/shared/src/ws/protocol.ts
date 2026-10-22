@@ -72,6 +72,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project_focus_changed'), projectKey: z.string(), focus: ProjectFocus }),
   /** A feedback mark changed (PM-506): every human member, a client included, refetches. It names no card. */
   z.object({ type: z.literal('feedback_changed'), projectKey: z.string(), markId: z.string() }),
+  /** System feedback changed (PM-472); `projectKey` null: the forwarding setting changed. Names no text. */
+  z.object({ type: z.literal('system_feedback_changed'), projectKey: z.string().nullable() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

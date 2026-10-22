@@ -100,6 +100,8 @@ export function invalidateAttachments(client: QueryClient, key: string, taskKey:
  * data that is not in the cache are ignored; it is fetched fresh when a screen needs it.
  */
 export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
+  // System feedback (PM-472) is the installation's, not a project's: its screen reads it fresh.
+  if (event.type === 'system_feedback_changed') return;
   if (
     'projectKey' in event &&
     [

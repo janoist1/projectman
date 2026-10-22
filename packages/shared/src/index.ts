@@ -45,6 +45,7 @@ export * from './domain/permission-delegation';
 export * from './domain/handoff';
 export * from './domain/feedback';
 export * from './domain/feedback-rules';
+export * from './domain/system-feedback';
 export * from './domain/project-focus';
 export * from './domain/start-plan';
 export * from './domain/ready-hold';

@@ -465,6 +465,13 @@ export const en: TemplateLocale = {
     failedAction: (title) => `Take a look: ${title}`,
     failedSummary: 'The Operator did not finish the item.',
   },
+  systemFeedback: {
+    what: 'What happened',
+    workaround: 'How it was worked around',
+    fix: 'What the fix would be',
+    version: 'projectman version',
+    occurrences: 'Occurrences',
+  },
   stageApproval: (stageName) => `${stageName}: approved`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

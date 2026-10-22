@@ -28,6 +28,7 @@ import {
 import type { MethodParams } from '../src/engine-link';
 import { InstanceMarkerError, writeInstanceMarker } from '../src/instance';
 import { createFakeRunnerModule } from './helpers/fakes';
+import { waitFor } from './helpers/wait';
 import type { FakeRunnerModule } from './helpers/fakes';
 import { FakeGithub } from './helpers/fakes';
 import { startFakeCloud } from './helpers/fake-cloud';
@@ -48,14 +49,6 @@ async function freePort(): Promise<number> {
       server.close(() => resolve(port));
     });
   });
-}
-
-async function waitFor(check: () => boolean, what: string, ms = 10_000): Promise<void> {
-  const until = Date.now() + ms;
-  while (!check()) {
-    if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 /** A request with chosen headers (fetch cannot set `Host`). */

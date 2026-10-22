@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { InstanceApiError, startInstance } from '../../../scripts/lib/instance.mjs';
 import type { Instance } from '../../../scripts/lib/instance.mjs';
+import { waitUntil } from './helpers/wait';
 
 /**
  * scripts/lib/instance.mjs (PM-269): real servers and Vite on free ports, the fake CLIs, no
@@ -44,15 +45,6 @@ async function answers(url: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function waitUntil(check: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await check()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return check();
 }
 
 describe('startInstance', () => {
@@ -195,8 +187,9 @@ describe('startInstance', () => {
         expect(await answers(serverUrl)).toBe(true);
         expect(await answers(webUrl)).toBe(true);
         parent.kill('SIGKILL');
-        expect(await waitUntil(async () => !(await answers(serverUrl)), 20_000)).toBe(true);
-        expect(await waitUntil(async () => !(await answers(webUrl)), 20_000)).toBe(true);
+        const options = { timeoutMs: 20_000, intervalMs: 100 };
+        expect(await waitUntil(async () => !(await answers(serverUrl)), options)).toBe(true);
+        expect(await waitUntil(async () => !(await answers(webUrl)), options)).toBe(true);
       } finally {
         parent.kill('SIGKILL');
         // A killed parent cannot remove its temporary directory. Its children may still finish

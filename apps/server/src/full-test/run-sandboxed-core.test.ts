@@ -200,16 +200,7 @@ describe('process group execution', () => {
     const end = await run('sleep 30 >/dev/null 2>&1 & echo $!');
     const pid = Number(end.output.trim());
     expect(pid).toBeGreaterThan(0);
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try {
-        process.kill(pid, 0);
-      } catch (error) {
-        expect(error).toMatchObject({ code: 'ESRCH' });
-        return;
-      }
-      await new Promise(setImmediate);
-    }
-    expect(() => process.kill(pid, 0)).toThrow();
+    await expect.poll(() => isGone(pid), { timeout: 5000, interval: 50 }).toBe(true);
   });
 });
 

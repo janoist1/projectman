@@ -3961,14 +3961,16 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   still run on other filesystems; clone failures on APFS remain failures. The process-group
   timeout tests leave 5 s for the Node guard and shell to start on slower CI hosts; the
   TERM-resistant case checks its readiness output and retains the grace-period KILL assertion
-  (PM-947). After run completion the executor re-reads empty or nonterminal shard job states
+  (PM-947). The background-grandchild cleanup test in `full-test/run-sandboxed-core.test.ts`
+  polls for POSIX `ESRCH` every 50 ms for up to 5 s, allowing asynchronous reaping on loaded
+  hosts (PM-948). After run completion the executor re-reads empty or nonterminal shard job states
   for up to 120 s, bounded by the original check deadline, before reporting a missing verdict;
   cancellation still stops the wait. This uses the existing engine-local GitHub client without
   a new dispatch or server/engine contract. The `runner/cli.test.ts` output-preservation timeout test gives Node startup
   and initial pipe writes 5 s; `test/permission-delegation.integration.test.ts` polls each fake-CLI
   phase for up to 30 s within a 150 s test budget (PM-936). These are test-host assumptions only;
   remote engines need no new capability or server/engine messages.
-  Related tasks: PM-900, PM-906, PM-907, PM-923, PM-928, PM-936, PM-947.
+  Related tasks: PM-900, PM-906, PM-907, PM-923, PM-928, PM-936, PM-947, PM-948.
   **Module:** `full-test`, `engine-host`, `services/github`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).

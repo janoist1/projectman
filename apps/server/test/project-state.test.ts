@@ -270,6 +270,18 @@ describe('project state from server records', () => {
     expect((await h.domain.projectState.overview('AR')).openOwnerItems).toEqual([]);
   });
 
+  it('counts only open cards per stage, leaving out themes and closed cards', async () => {
+    h = await createDomainHarness();
+    await h.domain.tasks.create('AR', { title: 'Open' }, OWNER_ACTOR);
+    await h.domain.tasks.create('AR', { title: 'Theme', kind: 'theme' }, OWNER_ACTOR);
+    const done = await h.domain.tasks.create('AR', { title: 'Done' }, OWNER_ACTOR);
+    const cancelled = await h.domain.tasks.create('AR', { title: 'Cancelled' }, OWNER_ACTOR);
+    h.repos.tasks.update(done.id, { status: 'done' });
+    h.repos.tasks.update(cancelled.id, { status: 'cancelled' });
+    const overview = await h.domain.projectState.overview('AR');
+    expect(overview.stages.find((s) => s.stageId === 'backlog')?.count).toBe(1);
+  });
+
   it('has no release block when this instance does not release the project', async () => {
     h = await createDomainHarness();
     const overview = await h.domain.projectState.overview('AR');

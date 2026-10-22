@@ -317,7 +317,8 @@ export class ProjectState {
       signals: this.deps.operatorSignals.active(projectKey),
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,
-        count: cards.filter((t) => t.stageId === s.id).length,
+        // The board shows only open cards; done and cancelled ones stay in their last stage.
+        count: cards.filter((t) => isOpenTask(t) && t.stageId === s.id).length,
       })),
       sessions: ctx.repos.sessions
         .list(projectKey)

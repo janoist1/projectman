@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { IntegratorAccessKeyInfo } from '@projectman/shared';
+import type { CreateIntegratorAccessKeyRequest, IntegratorAccessKeyInfo } from '@projectman/shared';
 import { Link } from 'react-router';
 import { api } from '../../../api/endpoints';
 import { useOperatorGrant } from '../../../api/queries';
@@ -40,7 +40,7 @@ export function IntegratorSection() {
   });
   const [dialog, setDialog] = useState<'create' | 'revoke' | null>(null);
   const [mode, setMode] = useState<'super' | 'read'>('super');
-  const [days, setDays] = useState<1 | 7 | 30>(7);
+  const [days, setDays] = useState<CreateIntegratorAccessKeyRequest['expiresInDays']>(7);
   const [target, setTarget] = useState<IntegratorAccessKeyInfo | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -367,15 +367,23 @@ export function IntegratorSection() {
             </fieldset>
             <SelectField
               label={t('integratorKey.expiry')}
-              value={days}
+              value={days ?? 'never'}
+              hint={days === null ? t('integratorKey.noExpiryHint') : undefined}
               disabled={pending}
-              onChange={(event) => setDays(Number(event.target.value) as 1 | 7 | 30)}
+              onChange={(event) =>
+                setDays(
+                  event.target.value === 'never'
+                    ? null
+                    : (Number(event.target.value) as CreateIntegratorAccessKeyRequest['expiresInDays']),
+                )
+              }
             >
-              {([1, 7, 30] as const).map((value) => (
+              {([1, 7, 30, 365] as const).map((value) => (
                 <option key={value} value={value}>
                   {t(`integratorKey.days${value}`)}
                 </option>
               ))}
+              <option value="never">{t('integratorKey.never')}</option>
             </SelectField>
             {replacing ? (
               <p className={styles.warning} role="status">

@@ -1411,7 +1411,12 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   and board bare `/mcp` is 404. The same guard is enabled during private staging; a public cloud with
   no machine hostname has no bearer fallback. Forwarded-host headers and the tunnel's loopback source
   cannot bypass it. Legacy private installations without a configured hostname retain their previous
-  transport. Keep the expiry short, revoke on suspicion and read the `mcp_<tool>` super audit rows.
+  transport. The host owner's own login can issue `super` and `read` keys for 1, 7, 30 or 365 days,
+  or without expiry (PM-825); the default remains 7 days. A non-expiring key has `expiresAt: null`
+  and stays valid until revoked or replaced. The creation dialog warns that a leaked key remains
+  usable until revocation and can be revoked at any time; no imminent-expiry warning is shown
+  for it. Store the key only on the client's machine, in a mode-600 file inside a mode-700
+  directory. Prefer a short expiry, revoke on suspicion and read the `mcp_<tool>` super audit rows.
   The member door `/mcp/<token>` is unchanged and stays closed at the tunnel.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after

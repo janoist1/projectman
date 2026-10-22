@@ -209,6 +209,8 @@ export const hu = {
     readHint: 'Scripteknek: olvasás és események követése, változtatni nem tud.',
     days1: '1 nap',
     days7: '7 nap',
+    days365: '365 nap',
+    noExpiryHint: 'A kiszivárgott kulcs a visszavonásig érvényes. Bármikor visszavonhatod.',
     readSecretTitle: 'Új olvasó kulcs',
     superSecretTitle: 'Új Claude Code-kulcs',
     details: 'Részletesen',

@@ -193,6 +193,70 @@ describe('integrator key settings', () => {
     fireEvent.click(await screen.findByText(t('integratorKey.past', { n: 1 })));
     expect(await screen.findByText(t('integratorKey.states.revoked'), { exact: true })).toBeTruthy();
   });
+  it('creates a key lasting 365 days', async () => {
+    const project = mockProject();
+    project.context.me.hostOwner = true;
+    project.render(<IntegratorSection />);
+    fireEvent.click(await screen.findByRole('button', { name: t('integratorKey.create') }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(t('integratorKey.expiry')), {
+      target: { value: '365' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: t('integratorKey.submit') }));
+    await screen.findByText('pmi_mock_key_for_ui_tests_only');
+    expect(
+      project.requests.find(
+        (request) => request.method === 'POST' && request.path.endsWith('/integrator-keys'),
+      )?.body,
+    ).toEqual({ mode: 'super', expiresInDays: 365 });
+    const created = project.backend.integratorKeys[0]!;
+    expect(Date.parse(created.expiresAt!) - Date.parse(created.createdAt)).toBe(365 * 86_400_000);
+  });
+  it('warns about a non-expiring key and creates it without an imminent-expiry warning', async () => {
+    const project = mockProject();
+    project.context.me.hostOwner = true;
+    project.render(<IntegratorSection />);
+    fireEvent.click(await screen.findByRole('button', { name: t('integratorKey.create') }));
+    const dialog = screen.getByRole('dialog');
+    const expiry = within(dialog).getByLabelText(t('integratorKey.expiry'));
+    expect(expiry.getAttribute('aria-describedby')).toBeNull();
+    fireEvent.change(expiry, { target: { value: 'never' } });
+    const warningId = expiry.getAttribute('aria-describedby');
+    expect(warningId).toBeTruthy();
+    expect(document.getElementById(warningId!)?.textContent).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Scripteknek/ }));
+    expect(expiry.getAttribute('aria-describedby')).toBe(warningId);
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Claude Code-nak/ }));
+    fireEvent.change(expiry, { target: { value: '7' } });
+    expect(expiry.getAttribute('aria-describedby')).toBeNull();
+    fireEvent.change(expiry, { target: { value: 'never' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: t('integratorKey.submit') }));
+    await screen.findByText('pmi_mock_key_for_ui_tests_only');
+    fireEvent.click(screen.getByRole('button', { name: t('integratorKey.done') }));
+    expect(
+      project.requests.find(
+        (request) => request.method === 'POST' && request.path.endsWith('/integrator-keys'),
+      )?.body,
+    ).toEqual({ mode: 'super', expiresInDays: null });
+    expect(await screen.findByText(t('integratorKey.never'))).toBeTruthy();
+    expect(project.backend.integratorKeys[0]!.expiresAt).toBeNull();
+    expect(screen.queryByText(t('integratorKey.today'))).toBeNull();
+    expect(screen.queryByText(t('integratorKey.soon', { n: 1 }))).toBeNull();
+  });
+  it('resets the lifetime to seven days when reopening key creation', async () => {
+    const project = mockProject();
+    project.context.me.hostOwner = true;
+    project.render(<IntegratorSection />);
+    fireEvent.click(await screen.findByRole('button', { name: t('integratorKey.create') }));
+    fireEvent.change(screen.getByLabelText(t('integratorKey.expiry')), {
+      target: { value: 'never' },
+    });
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: t('common.cancel') }));
+    fireEvent.click(screen.getByRole('button', { name: t('integratorKey.create') }));
+    const expiry = screen.getByLabelText(t('integratorKey.expiry')) as HTMLSelectElement;
+    expect(expiry.value).toBe('7');
+    expect(expiry.getAttribute('aria-describedby')).toBeNull();
+  });
   it('is hidden for anyone who is not the host owner', () => {
     const project = mockProject();
     project.context.me.hostOwner = false;

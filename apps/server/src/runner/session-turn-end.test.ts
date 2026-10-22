@@ -160,7 +160,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'continue' });
     const before = Date.now();
     output('\r\nRESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 10m.\r\n');
-    expect(await waitFor(() => events.some((event) => event.type === 'exit'))).toBe(true);
+    expect(await waitUntil(() => events.some((event) => event.type === 'exit'))).toBe(true);
     const failure = events.find((event) => event.type === 'rate_limited')!;
     expect(Date.parse(failure.resetsAt!) - before).toBeGreaterThanOrEqual(10 * 60_000);
     expect(Date.parse(failure.resetsAt!) - Date.now()).toBeLessThanOrEqual(10 * 60_000);
@@ -170,7 +170,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     const before = Date.now();
     output('RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\n');
     output('Resets in 65h10m58s.\r\n');
-    expect(await waitFor(() => events.some((event) => event.type === 'exit'))).toBe(true);
+    expect(await waitUntil(() => events.some((event) => event.type === 'exit'))).toBe(true);
     const failures = events.filter((event) => event.type === 'rate_limited');
     expect(failures).toHaveLength(1);
     expect(failures[0]).toMatchObject({ provider: 'gemini', resetsAt: expect.any(String) });

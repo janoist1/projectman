@@ -254,6 +254,7 @@ describe('a worker of a run that did not go through the heavy CLI (PM-869)', () 
     const worker = `
       import { guardWorkerParent } from ${JSON.stringify(pathToFileURL(GUARD).href)};
       process.on('SIGTERM', () => {});
+      process.exit = () => { throw new Error('process.exit is replaced, as in a vitest worker'); };
       guardWorkerParent({ intervalMs: 100 });
       process.send('ready');
       setInterval(() => {}, 1000);`;

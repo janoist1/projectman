@@ -1647,7 +1647,8 @@ workers follow the machine's size.
   **Direct runs (PM-869).** A member's own `npx vitest run` / `related` is not under the guard, and an
   interrupted one used to leave its forked workers (about 4 GB each in `apps/server`). Every vitest config
   lists `scripts/lib/vitest-parent-guard.setup.mjs` in `setupFiles` (`PARENT_GUARD_SETUP`): a forked worker
-  exits when the IPC channel to its parent closes (`disconnect`) or its parent pid changes
+  ends itself with SIGKILL (vitest replaces `process.exit` in a worker with a throwing function) when the
+  IPC channel to its parent closes (`disconnect`) or its parent pid changes
   (`scripts/lib/worker-parent-guard.mjs`, polled every 2 s). Worker threads die with their process and are
   left alone. A worker stuck in a synchronous loop cannot run the handler; the heavy CLI's process-group
   kill is the only thing that reaches it.

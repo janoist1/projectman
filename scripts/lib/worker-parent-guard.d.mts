@@ -2,7 +2,8 @@
 
 export interface WorkerParentGuardOptions {
   target?: NodeJS.Process;
-  exit?: (code: number) => void;
+  /** Default: SIGKILL to itself (a vitest worker's `process.exit` throws). */
+  exit?: () => void;
   intervalMs?: number;
 }
 

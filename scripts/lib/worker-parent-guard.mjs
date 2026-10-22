@@ -20,16 +20,17 @@ const DEFAULT_INTERVAL_MS = 2_000;
  */
 export function guardWorkerParent({
   target = process,
-  exit = (code) => process.exit(code),
+  // Not `process.exit`: vitest replaces it in a worker with a function that throws, before the
+  // setup files run. The parent has gone, so nothing is left to report to or to clean up for.
+  exit = () => process.kill(process.pid, 'SIGKILL'),
   intervalMs = DEFAULT_INTERVAL_MS,
 } = {}) {
   if (typeof target.send !== 'function' || target[INSTALLED]) return false;
   target[INSTALLED] = true;
   const parent = target.ppid;
-  // The parent has gone: nothing is left to report to, so the exit code does not matter.
-  target.on('disconnect', () => exit(0));
+  target.on('disconnect', () => exit());
   setInterval(() => {
-    if (target.ppid !== parent) exit(0);
+    if (target.ppid !== parent) exit();
   }, intervalMs).unref();
   return true;
 }

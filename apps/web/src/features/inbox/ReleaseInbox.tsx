@@ -67,7 +67,7 @@ function Commit({ commit }: { commit: string }) {
 }
 
 /** Whether the element's content is taller than the box it is cut to. */
-function useOverflowing(ref: RefObject<HTMLElement | null>, text: string, open: boolean): boolean {
+export function useOverflowing(ref: RefObject<HTMLElement | null>, text: string, open: boolean): boolean {
   const [overflowing, setOverflowing] = useState(false);
   useLayoutEffect(() => {
     const measure = () => {
@@ -207,9 +207,28 @@ export function ReleaseInboxBody({ item }: { item: InboxItem }) {
   );
 }
 
+/** The words of an approve / reject row; a release says them one way, an e-mail another (PM-942). */
+export interface ApprovalWords {
+  approve: string;
+  reject: string;
+  rejectLabel: string;
+  rejectOptional: string;
+  rejectPlaceholder: string;
+  rejectCancel: string;
+}
+
+const releaseWords = (): ApprovalWords => ({
+  approve: t('inbox.options.approve'),
+  reject: t('inbox.options.reject'),
+  rejectLabel: t('inbox.release.rejectLabel'),
+  rejectOptional: t('inbox.release.rejectOptional'),
+  rejectPlaceholder: t('inbox.release.rejectPlaceholder'),
+  rejectCancel: t('inbox.release.rejectCancel'),
+});
+
 /**
  * The buttons of a release item: "Jóváhagyom", and "Elutasítom", which opens a box for the optional
- * reason in place of the row.
+ * reason in place of the row. An e-mail approval uses the same row with its own words.
  */
 export function ReleaseInboxActions({
   item,
@@ -217,12 +236,14 @@ export function ReleaseInboxActions({
   pending,
   detailsHref,
   onResolve,
+  words = releaseWords(),
 }: {
   item: InboxItem;
   size: 'lg' | 'xl';
   pending: boolean;
   detailsHref?: string | null;
   onResolve: (item: InboxItem, body: ResolveInboxRequest) => void;
+  words?: ApprovalWords;
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [chosen, setChosen] = useState<'approve' | 'reject' | null>(null);
@@ -248,7 +269,7 @@ export function ReleaseInboxActions({
       <>
         <div className={releaseStyles.reject}>
           <label htmlFor={noteId} className={releaseStyles.rejectLabel}>
-            {t('inbox.release.rejectLabel')} <span>{t('inbox.release.rejectOptional')}</span>
+            {words.rejectLabel} <span>{words.rejectOptional}</span>
           </label>
           <textarea
             id={noteId}
@@ -256,7 +277,7 @@ export function ReleaseInboxActions({
             className={releaseStyles.rejectInput}
             rows={2}
             value={note}
-            placeholder={t('inbox.release.rejectPlaceholder')}
+            placeholder={words.rejectPlaceholder}
             onChange={(event) => setNote(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
@@ -276,10 +297,10 @@ export function ReleaseInboxActions({
             disabled={pending}
             onClick={() => decide('reject')}
           >
-            {t('inbox.options.reject')}
+            {words.reject}
           </Button>
           <Button variant="ghost" size={size} disabled={pending} onClick={() => setRejecting(false)}>
-            {t('inbox.release.rejectCancel')}
+            {words.rejectCancel}
           </Button>
         </div>
       </>
@@ -293,7 +314,7 @@ export function ReleaseInboxActions({
         disabled={pending}
         onClick={() => decide('approve')}
       >
-        {t('inbox.options.approve')}
+        {words.approve}
       </Button>
       <Button
         ref={rejectOpen}
@@ -302,7 +323,7 @@ export function ReleaseInboxActions({
         disabled={pending}
         onClick={() => setRejecting(true)}
       >
-        {t('inbox.options.reject')}
+        {words.reject}
       </Button>
       {detailsHref && size !== 'xl' ? (
         <>

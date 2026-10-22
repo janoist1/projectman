@@ -339,4 +339,68 @@ describe('EditMemberDialog', () => {
       expect(project.backend.findMember('be-1')).toMatchObject({ provider: 'claude', model: 'opus' }),
     );
   });
+
+  describe('e-mail correspondence (PM-942)', () => {
+    const renderEmail = (channelOn: boolean, isOwner = true) => {
+      const project = mockProject();
+      project.backend.config.project.email = { enabled: channelOn };
+      project.render(
+        <EditMemberDialog
+          member={project.backend.findMember('qa')!}
+          config={project.backend.config}
+          roles={builtInRoles}
+          onClose={() => {}}
+        />,
+        '/',
+        { isOwner },
+      );
+      const enabled = () =>
+        screen.getByRole('checkbox', { name: t('memberEdit.emailEnabled') }) as HTMLInputElement;
+      const auto = () =>
+        screen.getByRole('checkbox', { name: t('memberEdit.emailSendWithoutApproval') }) as HTMLInputElement;
+      return { project, enabled, auto };
+    };
+
+    const memberPatches = (project: ReturnType<typeof mockProject>) =>
+      project.requests.filter(
+        (request) => request.method === 'PATCH' && request.path.endsWith('/members/qa'),
+      );
+
+    it('lets the second switch work only once the member may write, and saves both', async () => {
+      const { project, enabled, auto } = renderEmail(true);
+      expect(auto().disabled).toBe(true);
+      fireEvent.click(enabled());
+      expect(auto().disabled).toBe(false);
+      fireEvent.click(auto());
+      fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+      await waitFor(() => expect(memberPatches(project)).toHaveLength(1));
+      expect(memberPatches(project)[0]!.body).toMatchObject({
+        email: { enabled: true, sendWithoutApproval: true },
+      });
+    });
+
+    it('sends no e-mail setting when none was touched', async () => {
+      const { project } = renderEmail(true);
+      fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+      await waitFor(() => expect(memberPatches(project)).toHaveLength(1));
+      expect(memberPatches(project)[0]!.body).not.toHaveProperty('email');
+    });
+
+    it('keeps the approval-free sending read-only for an admin', () => {
+      const { enabled, auto } = renderEmail(true, false);
+      fireEvent.click(enabled());
+      expect(auto().disabled).toBe(true);
+      expect(screen.getByText(t('memberEdit.emailOwnerOnly'))).toBeTruthy();
+    });
+
+    it('warns that nothing goes out while the channel is off, with a way to switch it on', () => {
+      const { enabled } = renderEmail(false);
+      expect(screen.queryByText(t('memberEdit.emailChannelOff'), { exact: false })).toBeNull();
+      fireEvent.click(enabled());
+      expect(screen.getByText(t('memberEdit.emailChannelOff'), { exact: false })).toBeTruthy();
+      expect(
+        screen.getByRole('link', { name: t('memberEdit.emailChannelOffLink') }).getAttribute('href'),
+      ).toContain('/settings/email');
+    });
+  });
 });

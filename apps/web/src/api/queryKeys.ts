@@ -80,6 +80,9 @@ export const queryKeys = {
   /** The marks of one card (the "From feedback" row of its drawer). */
   feedbackOfTask: (key: string, taskKey: string) => ['project', key, 'feedback', 'task', taskKey] as const,
   feedbackMark: (key: string, markId: string) => ['project', key, 'feedback', 'mark', markId] as const,
+  /** The e-mail channel (PM-942): its state, and its log (the pages of one infinite query). */
+  emailChannel: (key: string) => ['project', key, 'email', 'channel'] as const,
+  emailLog: (key: string) => ['project', key, 'email', 'log'] as const,
   /** The project manager's channel state (PM-429); its own prefix, reloaded on the events that change it. */
   projectManager: (key: string) => ['project', key, 'project-manager'] as const,
   /** The viewer's Operator channel (PM-447); reloaded on the same events and on the signals. */

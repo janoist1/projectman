@@ -195,6 +195,17 @@ export function createEmailChannelRepository(db: Db) {
           .get(projectKey, value, since, ...(statuses ?? [])) as { count: number }
       ).count;
     },
+    /** Parked mails since `since` that raised an alert (the daily limit counts these). */
+    countAlertedSince(projectKey: string, since: string): number {
+      return (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS count FROM email_messages WHERE project_key = ? AND direction = 'inbound'
+            AND status = 'parked' AND inbox_item_id IS NOT NULL AND created_at >= ?`,
+          )
+          .get(projectKey, since) as { count: number }
+      ).count;
+    },
     /** Cursor is the last (timestamp,id) pair, so equal timestamps never skip a row. */
     log(projectKey: string, before: string | null = null, limit = EMAIL_LOG_PAGE): EmailLogResponse {
       const cursor = before

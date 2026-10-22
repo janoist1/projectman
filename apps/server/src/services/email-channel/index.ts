@@ -1,5 +1,5 @@
 export { createEmailChannelService } from './service';
-export type { EmailChannelService } from './types';
+export type { DeliveryEvent, EmailChannelService, EmailInbound, InboundMail, Verdict } from './types';
 export type { EmailChannelEnv } from './config';
 export {
   EMAIL_CHANNEL_ENV_NAMES,

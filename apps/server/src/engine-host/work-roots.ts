@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { isWithin } from './within';
+import { isWithin } from '../kernel';
 
 /**
  * The work roots (PM-846): where the worktrees and the member workspaces live. By default they lie directly in the home; a `workRoot` moves them below one root, which a person

@@ -1,16 +1,11 @@
 import path from 'node:path';
+import { isWithin } from '../../kernel';
 
 /**
  * Where the words of a shell command point, read from the text alone (nothing touches the disk):
  * the automatic command rules let a command through only when every path in it stays inside the
  * directories it may use.
  */
-
-/** `child` is `parent` itself or lies inside it. */
-export function isWithin(parent: string, child: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
-}
 
 export function isWithinAny(parents: readonly string[], child: string): boolean {
   return parents.some((parent) => isWithin(parent, child));

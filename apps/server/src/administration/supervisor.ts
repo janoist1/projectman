@@ -1,6 +1,6 @@
 import { ERROR_CODES } from '@projectman/shared';
 import type { ErrorCode } from '@projectman/shared';
-import { DomainError, conflict, notFound, unavailable } from '../kernel';
+import { DomainError, conflict, notFound, sleep as defaultSleep, unavailable } from '../kernel';
 import type {
   AdministrationCapability,
   AdministrationCommand,
@@ -73,7 +73,7 @@ const knownCode = (value: unknown): value is ErrorCode =>
 
 export function createSupervisor(deps: SupervisorDeps): Supervisor {
   const now = deps.now ?? (() => new Date());
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const sleep = deps.sleep ?? defaultSleep;
   const restartTimeoutMs = deps.restartTimeoutMs ?? DEFAULT_RESTART_TIMEOUT_MS;
   const pollMs = deps.pollMs ?? DEFAULT_POLL_MS;
   const executors = deps.executors ?? {};

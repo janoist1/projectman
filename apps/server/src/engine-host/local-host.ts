@@ -1,13 +1,14 @@
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { EngineHost, EngineSessionFolders } from '../contracts';
+import { isWithin } from '../kernel';
 import { isDirectory, isRealDirectory, realpathOf, resolveGitDir } from './disk';
 import { userExcludesFile } from './git-excludes';
 import { prepareMemberSandboxDir, preparePortablePaths } from './sandbox-dirs';
 import { listImages, resolveScenario } from './screenshots';
 import { SessionFolders } from './session-folders';
 import { prepareSessionFoldersRoot, prepareSessionTmpRoot, sharedClaudeTmpRoots } from './session-roots';
-import { isWithin, realpathOfNearest } from './within';
+import { realpathOfNearest } from './within';
 import { openWorkspaceFile } from './workspace-file';
 
 /** The disk operations the local engine host answers, besides the places the domain assembles itself. */

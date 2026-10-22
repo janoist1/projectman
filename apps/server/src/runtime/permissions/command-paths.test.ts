@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   hasGlobCharacter,
-  isWithin,
   isWithinAny,
   looksLikePath,
   namesDirectory,
@@ -12,14 +11,7 @@ import {
 } from './command-paths';
 
 describe('command paths', () => {
-  it('tells what lies inside a directory, by its text', () => {
-    expect(isWithin('/work', '/work')).toBe(true);
-    expect(isWithin('/work', '/work/a/b')).toBe(true);
-    expect(isWithin('/work', '/work/..a')).toBe(true);
-    expect(isWithin('/work', '/')).toBe(false);
-    expect(isWithin('/work', '/elsewhere')).toBe(false);
-    expect(isWithin('/work', '/work-other')).toBe(false);
-    expect(isWithin('/work/a', '/work')).toBe(false);
+  it('tells whether a path lies inside any of the directories', () => {
     expect(isWithinAny(['/a', '/b'], '/b/c')).toBe(true);
     expect(isWithinAny(['/a', '/b'], '/c')).toBe(false);
     expect(isWithinAny([], '/a')).toBe(false);

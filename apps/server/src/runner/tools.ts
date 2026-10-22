@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { excerpt } from '../kernel';
 
 /** Tool name of the team tools' send_message, as Claude Code sees it. */
 export const TEAM_SEND_MESSAGE_TOOL = 'mcp__team__send_message';
@@ -33,8 +34,7 @@ export function oneLine(text: string, max = 120): string {
       .split(/\r?\n/)
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? '';
-  const collapsed = line.replace(/\s+/g, ' ');
-  return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
+  return excerpt(line, max);
 }
 
 /** A path relative to `cwd` when it is inside it (shorter to read), otherwise unchanged. */

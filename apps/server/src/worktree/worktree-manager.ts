@@ -9,9 +9,10 @@ import type {
   WorktreeManagerOptions,
 } from '../contracts';
 import { isTaskBranch, taskBranchName } from '@projectman/shared';
+import { isStrictlyWithin } from '../kernel';
 import { cloneDependencies, dependencyState } from './dependencies';
 import { git, gitSucceeds, isoOrNull, tryGit } from './git';
-import { canonical, createKeyedLock, isInside } from './paths';
+import { canonical, createKeyedLock } from './paths';
 
 /** A fetch that takes longer is abandoned; the worktree starts from the last known state. */
 const FETCH_TIMEOUT_MS = 60_000;
@@ -100,15 +101,15 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     const repoPath = path.resolve(project.project.workspacePath, repo.path);
     const workspace = await canonical(project.project.workspacePath);
     const resolvedRepo = await canonical(repoPath);
-    if (resolvedRepo !== workspace && !isInside(resolvedRepo, workspace))
+    if (resolvedRepo !== workspace && !isStrictlyWithin(workspace, resolvedRepo))
       throw new WorktreeError('outside_root', 'repository must be inside its workspace');
     if (!(await gitSucceeds(['check-ref-format', '--branch', repo.defaultBranch])))
       throw new WorktreeError('no_start_point', 'invalid default branch');
     const target = path.join(rootDir, project.project.key, `${taskKey}-${repo.name}`);
 
     if (
-      !isInside(await canonical(target), await canonical(path.join(rootDir, project.project.key))) ||
-      !isInside(await canonical(path.join(rootDir, project.project.key)), await canonical(rootDir))
+      !isStrictlyWithin(await canonical(path.join(rootDir, project.project.key)), await canonical(target)) ||
+      !isStrictlyWithin(await canonical(rootDir), await canonical(path.join(rootDir, project.project.key)))
     )
       throw new WorktreeError('outside_root', 'worktree must stay inside its project folder');
     await assertRepositoryRoot(repoPath);
@@ -249,7 +250,12 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
             `branch ${local} is checked out in the main checkout ${holder.path}; switch that checkout to another branch first`,
           );
         }
-        if (!isInside(await canonical(holder.path), await canonical(path.join(rootDir, project.project.key))))
+        if (
+          !isStrictlyWithin(
+            await canonical(path.join(rootDir, project.project.key)),
+            await canonical(holder.path),
+          )
+        )
           throw new WorktreeError('outside_root', 'existing task worktree is outside its project folder');
         log.info(
           { repo: repo.name, taskKey, path: holder.path, branch },
@@ -360,7 +366,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
       log.debug({ path: dir }, 'worktree already removed');
       return;
     }
-    if (!isInside(await canonical(dir), await canonical(rootDir))) {
+    if (!isStrictlyWithin(await canonical(rootDir), await canonical(dir))) {
       throw new WorktreeError(
         'outside_root',
         `${dir} is not under ${rootDir}; only worktrees created by projectman are removed`,

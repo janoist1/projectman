@@ -1,7 +1,7 @@
 import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ScenarioRefusal } from '../contracts';
-import { isWithin } from './within';
+import { isWithin } from '../kernel';
 
 /**
  * The disk of a screenshot run (PM-351), on the engine the session runs on: the scenario the agent

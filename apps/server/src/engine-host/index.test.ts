@@ -18,7 +18,6 @@ describe('engine-host index', () => {
       'isMergeId',
       'isMergeMessage',
       'isRepoFilePath',
-      'isWithin',
       'listImages',
       'openWorkspaceFile',
       'prepareSessionFoldersRoot',

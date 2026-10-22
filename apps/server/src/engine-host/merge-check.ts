@@ -7,11 +7,11 @@ import {
   type BranchMerger,
   type MergeRepoRef,
 } from '../contracts';
+import { isWithin } from '../kernel';
 import { copyDependencyTrees, DEPENDENCY_LOCKFILE, findDependencyReference } from '../worktree';
 import { runGit } from './merge-git';
 import { invalidInput, isMergeId, type MergeArgs } from './merge-input';
 import { listWorktrees, must } from './merge-repo';
-import { isWithin } from './within';
 
 /**
  * The check checkout of a merge and the dependencies copied into it (PM-451, PM-580): a detached

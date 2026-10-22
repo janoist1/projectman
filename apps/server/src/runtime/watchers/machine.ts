@@ -16,8 +16,8 @@ import type {
 import type { FastifyBaseLogger } from 'fastify';
 import type { MachineProbe, MachineSnapshot, ProcessRecord, RunningSessionInfo } from '../../contracts';
 import { processShortName } from '@projectman/shared';
-import { conflict, integratorExecution, forbidden } from '../../kernel';
-import { MachineRounds, sleepFor } from './machine-rounds';
+import { conflict, integratorExecution, forbidden, sleep } from '../../kernel';
+import { MachineRounds } from './machine-rounds';
 
 /**
  * The machine display's server side (PM-320): measures the machine and the processes now and then,
@@ -154,7 +154,7 @@ export class MachineMonitor {
   constructor(options: MachineMonitorOptions) {
     this.o = options;
     this.now = options.now ?? (() => new Date());
-    this.sleep = options.sleep ?? sleepFor;
+    this.sleep = options.sleep ?? sleep;
     this.rounds = new MachineRounds({
       measure: () => this.measure(),
       nextDelay: () => {

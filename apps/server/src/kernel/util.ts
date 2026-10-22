@@ -70,6 +70,11 @@ export class KeyedMutex {
   }
 }
 
+/** Resolves after `ms` milliseconds. */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Short one-line excerpt of free text (for timeline data). */
 export function excerpt(text: string, max = 140): string {
   const line = text.replace(/\s+/g, ' ').trim();

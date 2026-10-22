@@ -16,6 +16,8 @@ import {
 import {
   CANCEL_WAIT_MS,
   DISPATCH_RETRIES,
+  JOB_WAIT_MAX_MS,
+  LOG_POLL_MS,
   RUN_APPEAR_MAX_MS,
   STALE_BRANCH_MS,
   STALE_BRANCHES_PER_SWEEP,
@@ -256,6 +258,51 @@ describe('withGithubActions', () => {
       listJobs: vi.fn(async () => [job(11, 'timed_out', [step('merge-test', 'cancelled')])]),
     });
     await expect(runIt(s)).resolves.toMatchObject({ outcome: 'error', reason: 'timeout' });
+  });
+
+  it.each([
+    ['a queued shard', [{ ...job(12, null, []), status: 'queued' }]],
+    ['an empty job list', []],
+  ])('waits for %s after run completion and preserves the eventual test failure', async (_name, pending) => {
+    const s = setup({
+      listJobs: vi.fn().mockResolvedValueOnce(pending).mockResolvedValue([greenJob(), redJob()]),
+    });
+    await expect(runIt(s)).resolves.toMatchObject({ outcome: 'failed', exitCode: 1 });
+    expect(s.actions.listJobs).toHaveBeenCalledTimes(2);
+    expect(s.clock.sleeps).toContain(LOG_POLL_MS);
+    expect(s.actions.dispatchWorkflow).toHaveBeenCalledOnce();
+  });
+
+  it('ends with a run error when a shard never finishes, after a bounded wait', async () => {
+    const s = setup({
+      listJobs: vi.fn(async () => [greenJob(), { ...job(12, null, []), status: 'in_progress' }]),
+    });
+    await expect(runIt(s)).resolves.toMatchObject({ outcome: 'error', reason: 'github_run_error' });
+    expect(s.clock.now() - T0).toBe(10_000 + JOB_WAIT_MAX_MS);
+    expect(s.actions.jobLog).not.toHaveBeenCalled();
+    expect(s.branches.remove).toHaveBeenCalled();
+  });
+
+  it('bounds the job-state wait by the original check deadline', async () => {
+    const s = setup({ listJobs: vi.fn(async () => []) });
+    await expect(runIt(s, { spec: spec({ timeoutMs: 12_000 }) })).resolves.toMatchObject({
+      outcome: 'error',
+      reason: 'github_run_error',
+    });
+    expect(s.clock.now() - T0).toBe(12_000);
+  });
+
+  it('stops waiting for shard states on abort and removes the check branch', async () => {
+    const controller = new AbortController();
+    const s = setup({ listJobs: vi.fn(async () => []) }, {}, (ms) => {
+      if (ms === LOG_POLL_MS) controller.abort();
+    });
+    await expect(runIt(s, { signal: controller.signal })).resolves.toMatchObject({
+      outcome: 'error',
+      reason: 'killed',
+    });
+    expect(s.actions.listJobs).toHaveBeenCalledOnce();
+    expect(s.branches.remove).toHaveBeenCalled();
   });
 
   it('cancels the run and ends as a timeout when it does not finish within the limit', async () => {

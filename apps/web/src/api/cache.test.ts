@@ -273,6 +273,21 @@ describe('applyServerEvent', () => {
   });
 });
 
+describe('the Operator queue events', () => {
+  it('reads the queue, the corner and the grant again when the queue or the grant changes', () => {
+    const client = new QueryClient();
+    const keys = [
+      queryKeys.operator(KEY),
+      queryKeys.operatorQueue(KEY, '2026-10-22T00:00:00.000Z'),
+      queryKeys.operatorGrant,
+    ];
+    keys.forEach((key) => client.setQueryData(key, {}));
+    applyServerEvent(client, { type: 'member_queue_changed', projectKey: KEY, member: 'operator' });
+    applyServerEvent(client, { type: 'operator_grant_changed' });
+    keys.forEach((key) => expect(client.getQueryState(key)!.isInvalidated).toBe(true));
+  });
+});
+
 describe('contract follow-up events', () => {
   it('keeps provider usage separate and preserves the legacy Claude value', () => {
     const client = seed();

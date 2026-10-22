@@ -135,6 +135,7 @@ import {
   labelDefinition,
   labelHolders,
   memberDuties,
+  MEMBER_QUEUE_CLOSED_LIMIT,
   memberOf,
   memberRoles,
   modelForProvider,
@@ -230,6 +231,8 @@ import {
 } from '@projectman/shared';
 import type {
   CardBusyDetails,
+  MemberQueueItem,
+  OperatorGrantState,
   TaskDetail,
   PartsClosed,
   MessageAttachment,
@@ -578,6 +581,18 @@ export class MockBackend {
   operatorPreferences: Record<string, OperatorPreferenceDocument> = {};
   /** The Operator's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
   operatorSignals: OperatorSignal[] = [];
+  /** The member queues (PM-894), every AI member's items in one list; a test fills it, the views are computed from it. */
+  queueItems: MemberQueueItem[] = [];
+  /** The grant of machine operations the Operator works with (PM-890): off, and the viewer can manage it. */
+  operatorGrant: OperatorGrantState = {
+    active: false,
+    grantId: null,
+    grantedAt: null,
+    grantedBy: null,
+    expiresAt: null,
+    lastUsedAt: null,
+    canManage: true,
+  };
   memories: Record<string, string> = {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
@@ -1948,6 +1963,8 @@ export class MockBackend {
       }
       return ok({ keys: clone(this.integratorKeys) });
     }
+    if (path === '/api/auth/operator-grant' && method === 'GET')
+      return ok({ grant: clone(this.operatorGrant) });
     if (path === '/api/auth/integrator-key') {
       if (!this.me().hostOwner) return error(403, 'owner_only', 'Only the host owner may manage the key');
       if (method === 'POST') {
@@ -2366,11 +2383,11 @@ export class MockBackend {
     }
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     if (rest === '/operator' && method === 'GET') return this.operatorChannel();
-    if (rest === '/member-queues' && method === 'GET') return this.memberQueue(null);
+    if (rest === '/member-queues' && method === 'GET') return this.memberQueue(null, query);
     if (rest === '/operator/queue' && method === 'GET')
-      return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator');
+      return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator', query);
     const queueMatch = /^\/members\/([\w-]+)\/queue$/.exec(rest);
-    if (queueMatch && method === 'GET') return this.memberQueue(queueMatch[1]!);
+    if (queueMatch && method === 'GET') return this.memberQueue(queueMatch[1]!, query);
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
@@ -5722,7 +5739,7 @@ export class MockBackend {
       readOnly,
       signals: readOnly ? [] : clone(signals),
       openSignals: readOnly ? 0 : signals.filter((s) => s.state === 'open' && !s.resolvedAt).length,
-      queue: { open: 0, current: null },
+      queue: this.operatorQueueSummary(),
     };
     if (!operator) return ok({ member: null, state: 'missing', sessionId, ...rest });
     const member = {
@@ -5744,27 +5761,57 @@ export class MockBackend {
     return ok({ member, state: 'available', sessionId, ...rest });
   }
 
+  /** The length of the Operator's queue and the item it works on, as its channel carries them. */
+  private operatorQueueSummary(): { open: number; current: { id: string; title: string } | null } {
+    const operator = operatorOf(this.config);
+    const open = operator ? this.openQueueItems(operator.handle) : [];
+    const current = open.find((item) => item.state === 'processing');
+    return { open: open.length, current: current ? { id: current.id, title: current.title } : null };
+  }
+
+  /** The open items of one member, the oldest first (a test fills `queueItems`). */
+  private openQueueItems(handle: string): MemberQueueItem[] {
+    return this.queueItems
+      .filter((item) => item.member === handle && (item.state === 'queued' || item.state === 'processing'))
+      .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
+  }
+
   /**
-   * The member queues (PM-894): the fake keeps no queue, so every AI member's is empty (`handle` null: the
-   * summaries of all of them). Access and the unknown-member answer follow the server.
+   * The member queues (PM-894), computed from `queueItems` (`handle` null: the summaries of all AI members).
+   * The closed items are those closed since `closedSince` (default 24 hours), the newest first, at most the
+   * limit. Access and the unknown-member answer follow the server.
    */
-  private memberQueue(handle: string | null): MockResponse {
+  private memberQueue(handle: string | null, query = new URLSearchParams()): MockResponse {
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
       return error(403, 'insufficient_access', 'Requires developer access');
     const ai = this.config.team.members.filter((m) => m.kind === 'ai');
     if (handle === null)
       return ok({
-        members: ai.map((m) => ({
-          member: m.handle,
-          queued: 0,
-          processing: 0,
-          waking: 0,
-          oldestQueuedAt: null,
-        })),
+        members: ai.map((m) => {
+          const open = this.openQueueItems(m.handle);
+          return {
+            member: m.handle,
+            queued: open.filter((item) => item.state === 'queued').length,
+            processing: open.filter((item) => item.state === 'processing').length,
+            waking: 0,
+            oldestQueuedAt: open[0]?.queuedAt ?? null,
+          };
+        }),
       });
     if (!ai.some((m) => m.handle === handle)) return error(404, 'unknown_member', 'Unknown AI member');
-    return ok({ member: handle, items: [], closed: [], everQueued: false });
+    const since = new Date(query.get('closedSince') ?? Date.now() - 24 * 60 * 60_000).getTime();
+    const own = this.queueItems.filter((item) => item.member === handle);
+    const closed = own
+      .filter((item) => item.closedAt !== null && new Date(item.closedAt).getTime() >= since)
+      .sort((a, b) => b.closedAt!.localeCompare(a.closedAt!))
+      .slice(0, MEMBER_QUEUE_CLOSED_LIMIT);
+    return ok({
+      member: handle,
+      items: clone(this.openQueueItems(handle)),
+      closed: clone(closed),
+      everQueued: own.length > 0,
+    });
   }
 
   /** "Most ne": only the owner sets an open signal aside; a closed one is a 409 the card shows. */

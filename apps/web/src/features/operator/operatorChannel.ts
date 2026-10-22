@@ -1,5 +1,5 @@
-import type { ProjectManagerChannel } from '@projectman/shared';
-import { formatTime } from '../../i18n/format';
+import type { OperatorChannel, OperatorGrantState, ProjectManagerChannel } from '@projectman/shared';
+import { daysBetween, formatDate, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 
 /** What a message to the Operator waits for, if anything; it names the line under the message. */
@@ -59,6 +59,43 @@ export function operatorStatusText(channel: ProjectManagerChannel | undefined): 
     default:
       return '';
   }
+}
+
+/** The status line with the length of the Operator's queue behind it: "Dolgozik… · sorban 3". */
+export function operatorStatusWithQueue(channel: OperatorChannel | undefined): string {
+  const status = operatorStatusText(channel);
+  const open = channel?.queue.open ?? 0;
+  return open > 0
+    ? [status, t('operator.button.queue', { count: open })].filter(Boolean).join(' · ')
+    : status;
+}
+
+/**
+ * The strip above the conversation while the queue has items: the item being worked on, or why none is (PM-890).
+ * Without a current item the Operator is on its way ("starting") or cannot start ("waiting": paused, out of quota).
+ */
+export type OperatorStrip =
+  | { kind: 'now'; title: string; more: number }
+  | { kind: 'starting' }
+  | { kind: 'waiting'; status: string; open: number };
+
+export function operatorStripOf(channel: OperatorChannel | undefined): OperatorStrip | null {
+  const queue = channel?.queue;
+  if (!channel || !queue || queue.open <= 0) return null;
+  if (queue.current) return { kind: 'now', title: queue.current.title, more: queue.open - 1 };
+  if (channel.state === 'waiting') {
+    return { kind: 'waiting', status: operatorStatusText(channel), open: queue.open };
+  }
+  return { kind: 'starting' };
+}
+
+/** When the grant ends: "visszavonásig", "ma 20:55-ig" or "okt. 27. 20:55-ig". */
+export function operatorGrantExpiryText(grant: OperatorGrantState, now: Date = new Date()): string {
+  if (!grant.expiresAt) return t('operator.queue.grant.untilRevoked');
+  const time = formatTime(grant.expiresAt);
+  return daysBetween(grant.expiresAt, now) === 0
+    ? t('operator.queue.grant.untilToday', { time })
+    : t('operator.queue.grant.untilDate', { date: formatDate(grant.expiresAt, now), time });
 }
 
 /** The line under an own message that the Operator has not taken yet. */

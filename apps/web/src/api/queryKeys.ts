@@ -11,6 +11,12 @@ export interface AllMessagesFilter {
  */
 export const queryKeys = {
   operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
+  /** The Operator's queue (PM-894); the shorter key is every `closedSince` of it. */
+  operatorQueueAll: (key: string) => ['project', key, 'operator-queue'] as const,
+  operatorQueue: (key: string, closedSince: string) =>
+    ['project', key, 'operator-queue', closedSince] as const,
+  /** The Operator's grant for machine operations (PM-881); one for the whole instance. */
+  operatorGrant: ['operator-grant'] as const,
   operatorPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
   operatorPreferenceMe: (key: string, handle: string | null) =>
     ['project', key, 'operator-preference', handle] as const,

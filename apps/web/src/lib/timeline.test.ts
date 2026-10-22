@@ -298,6 +298,15 @@ describe('open-step reminders on the timeline (PM-806)', () => {
   });
 });
 
+describe('a released workspace on the timeline (PM-935)', () => {
+  it('shows the reason the owner gave', () => {
+    const data = { scopeId: 'scp_1', sessionId: 'ses_1', workspaceIds: ['mws_1'], reason: 'Checked by hand' };
+    expect(describeEvent({ ...creation, type: 'workspace_released', data }, context).text).toBe(
+      t('timeline.events.workspace_released', { reason: 'Checked by hand' }),
+    );
+  });
+});
+
 describe('card relations on the timeline (PM-192)', () => {
   const relation = (type: 'task_relation_added' | 'task_relation_removed', kind: string, ref: string) =>
     describeEvent({ ...creation, type, data: { kind, ref } }, context).text;

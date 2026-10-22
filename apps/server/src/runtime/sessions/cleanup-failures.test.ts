@@ -206,4 +206,48 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
       vi.useRealTimers();
     }
   });
+  it('closes the Operator signal when the owner releases the scope, and refuses another project’s scope', async () => {
+    const session = await start();
+    h.runner.emit({
+      type: 'exit',
+      sessionId: session.id,
+      exitCode: 0,
+      signal: null,
+      cleanup: cleanup('failed'),
+    });
+    await flush();
+    const release = { actor: OWNER_ACTOR, reason: 'Checked by hand' };
+    expect(() => h.domain.sessions.releaseCleanupScope('ZZ', cleanup('failed').scopeId, release)).toThrow(
+      expect.objectContaining({ code: 'not_found' }),
+    );
+    expect(h.repos.sessionCleanups.forSession(session.id)).toHaveLength(1);
+    h.domain.sessions.releaseCleanupScope('AR', cleanup('failed').scopeId, release);
+    await flush();
+    expect(h.repos.sessionCleanups.forSession(session.id)).toEqual([]);
+    expect(
+      h.repos.operatorSignals.list('AR').find((signal) => signal.kind === 'process_cleanup_failed')
+        ?.resolvedAt,
+    ).not.toBeNull();
+  });
+  it('ignores a retry result that returns after the scope was released', async () => {
+    const session = await start();
+    h.runner.emit({
+      type: 'exit',
+      sessionId: session.id,
+      exitCode: 0,
+      signal: null,
+      cleanup: cleanup('failed'),
+    });
+    const closeScopes = vi.fn(async () => {
+      h.domain.sessions.releaseCleanupScope('AR', cleanup('failed').scopeId, {
+        actor: OWNER_ACTOR,
+        reason: 'Checked by hand',
+      });
+      return [{ sessionId: session.id, cleanup: cleanup('failed') }];
+    });
+    Object.assign(h.runner, { closeScopes });
+    await h.domain.sessions.reconcileAfterRestart();
+    expect(closeScopes).toHaveBeenCalledOnce();
+    expect(h.repos.sessionCleanups.list()).toEqual([]);
+  });
 });

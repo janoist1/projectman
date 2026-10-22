@@ -70,6 +70,7 @@ import {
 } from '@projectman/shared';
 import path from 'node:path';
 import type {
+  Actor,
   EngineId,
   HybridReleaseTarget,
   Me,
@@ -1500,12 +1501,15 @@ export function createDomain(opts: DomainOptions) {
       projectKey,
       kind: 'process_cleanup_failed',
       caseKey: `cleanup:${scopeId}`,
-      subject: sessionId,
+      subject: scopeId,
       taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
     });
     wakeOperatorSignals(projectKey);
   });
   events.on('session_cleanup_recovered', ({ projectKey, scopeId }) =>
+    operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
+  );
+  events.on('session_cleanup_released', ({ projectKey, scopeId }) =>
     operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
   );
   events.on('work_outage_ended', ({ projectKey, outageId }) =>
@@ -2051,6 +2055,8 @@ export function createDomain(opts: DomainOptions) {
     merges,
     user: (id: string) => ctx.repos.users.get(id),
     revokeCredential: opts.revokeIntegratorAccessKey,
+    releaseWorkspace: (projectKey: string, scopeId: string, release: { actor: Actor; reason: string }) =>
+      sessions.releaseCleanupScope(projectKey, scopeId, release),
   };
   const commandExecutor = createCommandExecutor(commandDeps);
   for (const kind of [
@@ -2064,6 +2070,7 @@ export function createDomain(opts: DomainOptions) {
     'member_update',
     'invite_create',
     'credential_revoke',
+    'workspace_release',
     'inbox_resolve',
   ] as const)
     superHandoffs.registerExecutor(kind, commandExecutor);

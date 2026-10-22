@@ -249,7 +249,7 @@ function signalLine(signal: OperatorSignal): string {
     loop_suspected:
       'A suspected loop awaits PM assessment with triage_loop; report only, no stop or approval authority.',
     process_cleanup_failed:
-      "An ended session still has running processes; its workspace remains reserved. Bring this to the owners; never stop another member's processes yourself.",
+      "An ended session still has running processes; its workspace remains reserved (subject: the process scope). Bring this to the owners; never stop another member's processes yourself. Only if an owner explicitly asks to free the workspace, run workspace_release with the subject as scopeId and the owner's reason.",
     outage: 'A provider or engine outage needs attention.',
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',

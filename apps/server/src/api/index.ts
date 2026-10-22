@@ -24,6 +24,7 @@ import { registerProjectRoutes } from './projects';
 import { registerRoleRoutes } from './roles';
 import { registerPauseRoutes } from './pause';
 import { registerMachineRoutes } from './machine';
+import { registerSystemFeedbackRoutes } from './system-feedback';
 import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
@@ -104,6 +105,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerProjectEventRoutes(app, services);
   registerStructureRoutes(app, domain);
   registerFeedbackRoutes(app, domain);
+  registerSystemFeedbackRoutes(app, domain);
   registerFeedbackWidgetRoutes(app, {
     domain,
     clientIpHeader: services.clientIpHeader,

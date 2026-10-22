@@ -39,12 +39,15 @@ export interface OperatorStepRecord {
   signalId: string | null;
   /** The super operation an `operation` step started (PM-888). */
   operationId?: string | null;
+  /** The system feedback a `system_feedback` step recorded (PM-479). */
+  systemFeedback?: { id: string; title: string; occurrence: number } | null;
   refusal: { code: string; message: string } | null;
 }
 
-interface StepRow extends Omit<OperatorStepRecord, 'changes' | 'refusal'> {
+interface StepRow extends Omit<OperatorStepRecord, 'changes' | 'refusal' | 'systemFeedback'> {
   changes: string;
   refusal: string | null;
+  systemFeedback: string | null;
 }
 
 const requestColumns = `id, project_key AS projectKey, session_id AS sessionId, source,
@@ -52,7 +55,8 @@ const requestColumns = `id, project_key AS projectKey, session_id AS sessionId, 
   from_handle AS fromHandle, quote, opened_at AS openedAt, closed_at AS closedAt`;
 const stepColumns = `id, request_id AS requestId, at, action, status, task_key AS taskKey, member, changes,
   config_version AS configVersion, inbox_item_id AS inboxItemId, signal_id AS signalId, refusal,
-  agreement_version AS agreementVersion, approval_mode AS approvalMode, operation_id AS operationId`;
+  agreement_version AS agreementVersion, approval_mode AS approvalMode, operation_id AS operationId,
+  system_feedback AS systemFeedback`;
 
 export interface OperatorExecutionIntent {
   id: string;
@@ -76,6 +80,7 @@ const toStep = (row: StepRow): OperatorStepRecord => ({
   ...row,
   changes: parseJson<ConfigChangeRow[]>(row.changes, []),
   refusal: row.refusal ? parseJson(row.refusal, null) : null,
+  systemFeedback: row.systemFeedback ? parseJson(row.systemFeedback, null) : null,
 });
 
 /** The owner's requests to the Operator and the steps it took for them (PM-463). */
@@ -98,8 +103,8 @@ export function createOperatorRequestRepository(db: Db) {
        ORDER BY opened_at DESC, rowid DESC LIMIT ?) ORDER BY openedAt, n`,
     ),
     insertStep: db.prepare(`INSERT INTO operator_steps
-      (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, signal_id, refusal, agreement_version, approval_mode, operation_id)
-      VALUES (@id, @requestId, @at, @action, @status, @taskKey, @member, @changes, @configVersion, @inboxItemId, @signalId, @refusal, @agreementVersion, @approvalMode, @operationId)`),
+      (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, signal_id, refusal, agreement_version, approval_mode, operation_id, system_feedback)
+      VALUES (@id, @requestId, @at, @action, @status, @taskKey, @member, @changes, @configVersion, @inboxItemId, @signalId, @refusal, @agreementVersion, @approvalMode, @operationId, @systemFeedback)`),
     stepsOf: db.prepare(`SELECT ${stepColumns} FROM operator_steps WHERE request_id = ? ORDER BY at, rowid`),
     stepsOfSignal: db.prepare(
       `SELECT ${stepColumns} FROM operator_steps WHERE signal_id = ? ORDER BY at, rowid`,
@@ -212,6 +217,7 @@ export function createOperatorRequestRepository(db: Db) {
         agreementVersion: step.agreementVersion ?? null,
         approvalMode: step.approvalMode ?? null,
         operationId: step.operationId ?? null,
+        systemFeedback: step.systemFeedback ? toJson(step.systemFeedback) : null,
         changes: toJson(step.changes),
         refusal: step.refusal ? toJson(step.refusal) : null,
       });

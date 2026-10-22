@@ -1,5 +1,6 @@
 import {
   FeedbackTools,
+  SystemFeedbackTools,
   OperatorTools,
   MemberTools,
   TaskTools,
@@ -210,6 +211,8 @@ import {
   FeedbackScreenshotStore,
   FeedbackService,
   FeedbackWidgetService,
+  SystemFeedbackContext,
+  SystemFeedbackService,
 } from './services/feedback';
 import { ProjectFocusService } from './core/tasks';
 import { AgentQuestions } from './core/inbox';
@@ -738,6 +741,18 @@ export function createDomain(opts: DomainOptions) {
     publicBaseUrl: opts.feedbackPublicUrl ?? null,
   });
   const feedbackWidget = new FeedbackWidgetService({ ctx, projects, feedback });
+  const systemFeedback = new SystemFeedbackService({
+    ctx,
+    projects,
+    tasks,
+    version: opts.appVersion ?? 'dev',
+    context: new SystemFeedbackContext({
+      ctx,
+      projects,
+      secrets: async () => [await providerKeys?.nanogptKey()],
+      paths: [opts.appHome, opts.userHome, opts.workspacesRootDir],
+    }),
+  });
   const messageAttachments = new MessageAttachmentService({
     ctx,
     projects,
@@ -1702,6 +1717,7 @@ export function createDomain(opts: DomainOptions) {
         docWrites,
         decisionCandidates,
       }),
+      systemFeedback: new SystemFeedbackTools({ calls: toolCaller, projects, systemFeedback }),
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       operator: new OperatorTools({
@@ -2516,6 +2532,7 @@ export function createDomain(opts: DomainOptions) {
     attachments,
     feedback,
     feedbackWidget,
+    systemFeedback,
     messageAttachments,
     members,
     roles,

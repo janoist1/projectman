@@ -32,6 +32,8 @@ export const TEAM_TOOL_NAMES = [
   'get_machine_logs',
   'read_project_doc',
   'write_project_docs',
+  'list_system_feedback',
+  'record_system_feedback',
   'list_decision_candidates',
   'mark_decision_candidates',
   'search_history',

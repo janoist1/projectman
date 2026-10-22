@@ -2138,4 +2138,39 @@ migrations.push({
     CREATE INDEX operator_steps_signal ON operator_steps(signal_id) WHERE signal_id IS NOT NULL;
     ${V100_REBUILT_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
+migrations.push({
+  version: 101,
+  name: 'system feedback',
+  // PM-479 (PM-472): the gaps in projectman the Operator found, per installation. The text is stored already
+  // filtered; an item's occurrences keep the first one; the forwarding setting is append-only (the latest row
+  // counts, none means `manual`). A `system_feedback` Operator step keeps what it recorded in its own column.
+  sql: `CREATE TABLE system_feedback_items (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL REFERENCES projects(key),
+      title TEXT NOT NULL, what TEXT NOT NULL, workaround TEXT NOT NULL, fix TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('new', 'forwarded', 'dismissed')),
+      created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, version TEXT NOT NULL,
+      session_id TEXT,
+      forwarded_kind TEXT CHECK (forwarded_kind IN ('card', 'issue')),
+      forwarded_project TEXT, forwarded_task TEXT, forwarded_url TEXT,
+      forwarded_by TEXT,
+      forwarded_at TEXT,
+      dismissed_reason TEXT, dismissed_by TEXT, dismissed_at TEXT,
+      card_error TEXT
+    );
+    CREATE INDEX system_feedback_items_project ON system_feedback_items(project_key, last_seen_at);
+    CREATE TABLE system_feedback_occurrences (
+      item_id TEXT NOT NULL REFERENCES system_feedback_items(id),
+      at TEXT NOT NULL, version TEXT NOT NULL, session_id TEXT
+    );
+    CREATE INDEX system_feedback_occurrences_item ON system_feedback_occurrences(item_id, at);
+    CREATE TABLE system_feedback_forwarding (
+      id TEXT PRIMARY KEY,
+      mode TEXT NOT NULL CHECK (mode IN ('manual', 'card', 'off')),
+      project_key TEXT REFERENCES projects(key),
+      changed_by TEXT NOT NULL, changed_at TEXT NOT NULL,
+      CHECK ((mode = 'card') = (project_key IS NOT NULL))
+    );
+    ALTER TABLE operator_steps ADD COLUMN system_feedback TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

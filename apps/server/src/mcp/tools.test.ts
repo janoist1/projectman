@@ -92,6 +92,7 @@ describe('team tool registration', () => {
         'forward_feedback',
         'close_feedback',
       ],
+      'services/feedback/system': ['list_system_feedback', 'record_system_feedback'],
       'core/inbox': ['ask_human', 'withdraw_question', 'decide_permission_request'],
       'core/messages': ['send_message'],
       'runtime/admission': ['hand_off'],

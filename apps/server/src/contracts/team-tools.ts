@@ -637,6 +637,7 @@ export interface TeamToolsHandler
     ReleaseToolsHandler,
     OperatorToolsHandler,
     ProjectDocToolsHandler,
+    SystemFeedbackToolsHandler,
     HistoryToolsHandler,
     InboxToolsHandler,
     MessageToolsHandler,
@@ -843,6 +844,29 @@ export interface McpModuleOptions {
 export interface McpModule {
   /** Registers the MCP endpoints: /mcp/:token (localhost only) and, with `external`, the bearer POST /mcp. */
   registerRoutes(app: FastifyInstance): void;
+}
+
+/** One row of `list_system_feedback`: the owner's decisions and reasons are not part of it. */
+export interface SystemFeedbackToolRow {
+  id: string;
+  state: 'new' | 'forwarded' | 'dismissed';
+  title: string;
+  occurrences: number;
+  last_seen_at: string;
+}
+
+/** The tools of services/feedback/system (PM-472, PM-479). Only the Operator calls them. */
+export interface SystemFeedbackToolsHandler {
+  /** list_system_feedback: the project's own items in any state, the latest 50. A look; needs no open request. */
+  listSystemFeedback(ctx: ToolContext): Promise<{ items: SystemFeedbackToolRow[] }>;
+  /**
+   * record_system_feedback: a gap in projectman the Operator worked around. `sameAs` adds an occurrence to an
+   * item of this project instead of opening a new one.
+   */
+  recordSystemFeedback(
+    ctx: ToolContext,
+    args: { title: string; what: string; workaround: string; fix: string; sameAs?: string },
+  ): Promise<{ id: string; state: 'new' | 'forwarded' | 'dismissed'; created: boolean; occurrences: number }>;
 }
 
 /** The tools of services/project-docs (PM-495, PM-496). */

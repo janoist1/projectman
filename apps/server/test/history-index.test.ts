@@ -380,6 +380,14 @@ describe('history index', () => {
         old.exec(`DROP INDEX ${index}`);
       // Migration 96 (PM-888) added a column; migrating adds it again.
       old.exec('ALTER TABLE operator_steps DROP COLUMN operation_id');
+      // Migration 101 (PM-479) added a column and three tables; migrating creates them again.
+      old.exec('ALTER TABLE operator_steps DROP COLUMN system_feedback');
+      for (const table of [
+        'system_feedback_forwarding',
+        'system_feedback_occurrences',
+        'system_feedback_items',
+      ])
+        old.exec(`DROP TABLE ${table}`);
       old.pragma('user_version = 83');
       expect(old.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE 'history%'").get()).toEqual(
         { n: 0 },

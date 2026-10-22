@@ -40,6 +40,8 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   get_machine_logs: OPERATOR,
   list_decision_candidates: OPERATOR,
   mark_decision_candidates: OPERATOR,
+  list_system_feedback: OPERATOR,
+  record_system_feedback: OPERATOR,
   get_history_search_stats: PRIVATE_STATS,
   screen_question: OPERATOR,
   combine_questions: OPERATOR,

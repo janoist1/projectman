@@ -23,7 +23,7 @@ import type { HandoffService, MessageStarts, TaskStarts } from '../runtime/admis
 import type { PauseService, SessionOrchestrator } from '../runtime/sessions';
 import type { MachineMonitor, WorkOutages } from '../runtime/watchers';
 import type { ProviderKeys } from '../runtime/usage';
-import type { FeedbackService, FeedbackWidgetService } from '../services/feedback';
+import type { FeedbackService, FeedbackWidgetService, SystemFeedbackService } from '../services/feedback';
 import type { BoundaryService } from '../services/boundary';
 import type { Merges } from '../services/merges';
 import type { ScheduleService } from '../services/schedules';
@@ -47,6 +47,7 @@ export interface ApiDomain extends AuthDomain {
   readonly cardMeasure: CardMeasure;
   readonly feedback: FeedbackService;
   readonly feedbackWidget: FeedbackWidgetService;
+  readonly systemFeedback: SystemFeedbackService;
   readonly handoffs: HandoffService;
   readonly inbox: InboxService;
   readonly invitations: InvitationService;

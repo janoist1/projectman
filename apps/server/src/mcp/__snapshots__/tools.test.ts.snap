@@ -3959,6 +3959,23 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "List the recorded system feedback",
+    },
+    "description": "Only the Operator; needs no open owner request. The gaps in projectman itself that this project's Operator recorded earlier, in any state, the latest 50: id, state (new, forwarded, dismissed), title, how many times it occurred and when it was last seen. Look here before record_system_feedback, so the same gap is not recorded twice.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "name": "list_system_feedback",
+    "title": "List the recorded system feedback",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "List tasks",
     },
     "description": "Read the project board as a compact list, newest update first. Defaults to open tasks (active, waiting or blocked). Filter by status, stage or assignee; use get_task for details. A theme (a card that groups other cards) is marked kind "theme"; it is in no stage, so a stage filter leaves themes out. A card in the project focus (what the team works on now) carries its place as "focus" (position, and via: the theme or card that covers it).",
@@ -7310,6 +7327,60 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "read_project_doc",
     "title": "Read a project document",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Record a gap in projectman",
+    },
+    "description": "Only the Operator; needs no open owner request. Record ONE gap in projectman itself (a missing tool, a refusal that made no sense, a flow that could not do what the owner asked) that you had to work around. The owner decides what happens to it. Write it in English, without secrets, passwords, tokens, file paths, e-mail addresses or the names of people, projects or clients: describe the gap in general terms (what is covered is replaced by a marker, and the owner reads the text before anything leaves the installation). If list_system_feedback shows the same gap, pass its id as same_as instead: it only adds an occurrence and the other fields are ignored. At most 10 new items per project in 24 hours.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "fix": {
+          "description": "What change in projectman would remove the need for the workaround.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "same_as": {
+          "description": "The id (fb_…) of an item of this project that this is another occurrence of.",
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string",
+        },
+        "title": {
+          "description": "A short title naming the gap, not the symptom.",
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string",
+        },
+        "what": {
+          "description": "What happened and what projectman could not do.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "workaround": {
+          "description": "How you worked around it.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+        "what",
+        "workaround",
+        "fix",
+      ],
+      "type": "object",
+    },
+    "name": "record_system_feedback",
+    "title": "Record a gap in projectman",
   },
   {
     "annotations": {

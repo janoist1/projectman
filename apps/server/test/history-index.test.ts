@@ -359,6 +359,9 @@ describe('history index', () => {
         'web_push_settings',
         'web_push_items',
         'member_queue_items',
+        'email_contacts',
+        'email_contact_events',
+        'email_messages',
       ])
         old.exec(`DROP TABLE ${table}`);
       // Migration 99 (PM-925) dropped the pending recipients table, which version 83 still has and 84 to 98 read.

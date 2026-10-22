@@ -18,6 +18,7 @@ import { registerStructureRoutes } from './structure';
 import { registerBoundaryRoutes } from './boundary';
 import { registerInvitationRoutes } from './invitations';
 import { registerMemberRoutes } from './members';
+import { registerEmailChannelRoutes } from './email-channel';
 import { registerOperatorRoutes } from './operator';
 import { registerMemberQueueRoutes } from './member-queue';
 import { registerProjectRoutes } from './projects';
@@ -94,6 +95,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerAttachmentRoutes(app, services);
   registerMessageAttachmentRoutes(app, services);
   registerMemberRoutes(app, domain);
+  registerEmailChannelRoutes(app, domain);
   registerRoleRoutes(app, domain);
   registerSessionRoutes(app, domain);
   registerScheduleRoutes(app, domain);

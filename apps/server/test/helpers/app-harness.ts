@@ -65,6 +65,8 @@ export interface AppHarnessOptions {
     | 'publicBoard'
     | 'integratorHostname'
     | 'setupCode'
+    | 'emailChannelSender'
+    | 'emailChannelEnv'
     | 'appVersion'
     | 'claudeTmpRoots'
     | 'workRoot'

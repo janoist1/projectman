@@ -289,6 +289,12 @@ modules:
     summary: Belépési kódok küldése és ellenőrzése e-mailben.
     paths:
       - apps/server/src/services/email-login/
+  - id: services/email-channel
+    area: service
+    name: Kimenő levél
+    summary: Engedélyezett AI-tagok rövid összefoglaló leveleinek szűrése, jóváhagyása és küldése.
+    paths:
+      - apps/server/src/services/email-channel/
   - id: services/history
     area: service
     name: Előzménykereső

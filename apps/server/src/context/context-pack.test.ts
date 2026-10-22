@@ -1121,6 +1121,26 @@ describe('system prompt', () => {
     });
   });
 
+  it('includes the e-mail channel only for an enabled sender in an enabled project', () => {
+    const heading = '# E-mail channel';
+    const project = buildProject();
+    project.project.email = { enabled: true };
+    aiMember(project, 'fe-1').email = { enabled: true };
+    expect(builder.build(input({ project, handle: 'fe-1' })).appendSystemPrompt).toContain(heading);
+
+    const projectOff = buildProject();
+    aiMember(projectOff, 'fe-1').email = { enabled: true };
+    expect(builder.build(input({ project: projectOff, handle: 'fe-1' })).appendSystemPrompt).not.toContain(
+      heading,
+    );
+
+    const senderOff = buildProject();
+    senderOff.project.email = { enabled: true };
+    expect(builder.build(input({ project: senderOff, handle: 'fe-1' })).appendSystemPrompt).not.toContain(
+      heading,
+    );
+  });
+
   it('describes a temporary stand-in and leaves retired members out', () => {
     const project = buildProject();
     const temp: AiMemberConfig = {

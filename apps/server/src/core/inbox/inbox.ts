@@ -32,6 +32,7 @@ import {
   canDecidePermission,
   deliveredLeadDeadline,
   effectiveSessionPermissions,
+  emailApprovalOf,
   externalQuestionAnswerRefusal,
   superDecisionRefusal,
   gateRequestOf,
@@ -215,6 +216,7 @@ export type InboxDeciderKey =
   | 'merge_request'
   | 'release'
   | 'hand_on'
+  | 'email'
   | 'operator_approval'
   | 'operator_knowledge'
   | 'operator_structural_review';
@@ -1352,6 +1354,14 @@ export class InboxService {
     if (operatorKnowledgeApprovalOf(item)) {
       const decide = this.deciders.get('operator_knowledge');
       if (!decide) throw forbidden('operator_owner_only', 'Operator knowledge decisions are unavailable');
+      await decide(item, by, req.optionId, note);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    }
+    if (emailApprovalOf(item)) {
+      const decide = this.deciders.get('email');
+      if (!decide) throw conflict('inbox_item_closed', 'e-mail decisions are unavailable');
       await decide(item, by, req.optionId, note);
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);

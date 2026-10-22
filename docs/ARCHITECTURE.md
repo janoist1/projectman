@@ -2391,6 +2391,17 @@ workers follow the machine's size.
   work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
   and no engine protocol or payload changes.
 
+- **E-mail channel sender (SES) (PM-941)** —
+  `apps/server/src/services/email-channel/{service,ses-sender,render,config}.ts`,
+  `apps/server/src/mcp/email-channel/`, `apps/server/src/api/email-channel.ts`,
+  `apps/server/src/auth/secret.ts` (`deriveEmailReplyKey`). **What it does:** an enabled AI member sends a
+  filtered, rate-limited e-mail to a consenting human, immediately or after owner approval; the hub stores
+  only a hash of the reply token. **Machine assumptions:** the hub reads `PROJECTMAN_EMAIL_CHANNEL_ENABLED`,
+  `PROJECTMAN_SES_*`, `PROJECTMAN_EMAIL_*` from `cloud.env` in `index.ts`, deletes them before starting a
+  child process, and makes the outgoing HTTPS call to the region's SES v2 endpoint with explicit keys.
+  **Does this work on a remote engine?** Yes: sending, filtering, approval and token generation all run on
+  the hub; an engine receives no AWS credentials, no SES request and no protocol change.
+
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
   `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/index.ts` only), the table family

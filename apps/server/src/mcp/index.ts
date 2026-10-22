@@ -33,6 +33,7 @@ export { AdmissionTools } from './admission';
 export { WatcherTools } from './watchers';
 export { OperatorQueueTools } from './operator-queue';
 export { SessionTools } from './sessions';
+export { EmailChannelTools } from './email-channel';
 export { ExternalTools } from './super-operator/handler';
 
 export {

@@ -393,6 +393,10 @@ export const en: TemplateLocale = {
     text: ({ code, validUntil }) =>
       `Your login code: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message.\n`,
   },
+  email: {
+    footer: ({ member, project }) =>
+      `This message was written by the ${project} project's AI member (${member}) from projectman. Reply whenever you like; your reply reaches them. If you do not want more messages, say so in a reply and no more will be sent.`,
+  },
   fixLimitItem: {
     title: 'Fix round limit: {key}',
     summary: '{key} did not pass after {rounds} fix rounds ({parts}). {reason}',

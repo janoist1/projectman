@@ -61,11 +61,13 @@ export function describeEvent(
     }
     case 'task_full_test': {
       const commit = text('commit')?.slice(0, 12) ?? '?';
-      if (text('outcome') === 'passed') return `the full test passed on commit ${commit}`;
+      const test = text('runner') === 'github_actions' ? 'the GitHub Actions full test' : 'the full test';
+      const page = text('externalUrl') ? ` (${text('externalUrl')})` : '';
+      if (text('outcome') === 'passed') return `${test} passed on commit ${commit}${page}`;
       if (text('outcome') === 'error')
-        return `the full test could not run on commit ${commit} (${text('reason') ?? 'unknown reason'})`;
+        return `${test} could not run on commit ${commit} (${text('reason') ?? 'unknown reason'})${page}`;
       const files = list('failedFiles');
-      return `the full test failed on commit ${commit}${files.length > 0 ? `: ${oneLine(files.join(', '), textLimit)}` : ''}`;
+      return `${test} failed on commit ${commit}${files.length > 0 ? `: ${oneLine(files.join(', '), textLimit)}` : ''}${page}`;
     }
     case 'task_assigned':
       return text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it';

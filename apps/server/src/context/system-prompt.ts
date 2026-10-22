@@ -13,6 +13,7 @@ import {
   projectDocsOf,
   repoOf,
   reviewTestBeforeReview,
+  reviewTestRunnerBeforeReview,
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
@@ -106,9 +107,11 @@ function untestedChecksSection({ project, member, task, workItem }: ContextPackI
   const where =
     repo.reviewTest === undefined
       ? 'The reviewer reads your note.'
-      : reviewTestBeforeReview(repo)
-        ? "The server runs the card's full test before the review, outside the members' sandboxes, and the reviewer reads your note."
-        : "The server runs the card's full test at the merge, outside the members' sandboxes, and the reviewer reads your note.";
+      : reviewTestRunnerBeforeReview(repo) === 'github_actions'
+        ? "GitHub Actions runs the card's full test before the review, outside the members' sandboxes, and the reviewer reads your note."
+        : reviewTestBeforeReview(repo)
+          ? "The server runs the card's full test before the review, outside the members' sandboxes, and the reviewer reads your note."
+          : "The server runs the card's full test at the merge, outside the members' sandboxes, and the reviewer reads your note.";
   return [
     '# Tests that do not run here',
     `Some tests and checks cannot run in your session: the sandbox refuses them (for example a test that listens on a local port or opens a pseudo-terminal), or the heavy-run queue cannot be used (exit status 78). Do not ask anyone to run them outside your sandbox, and do not wait for it: ${instead}. Run what does run here, note on the card with update_task which tests or commands did not run and their error line, and hand over as usual. ${where}`,

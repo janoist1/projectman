@@ -1986,6 +1986,36 @@ describe('member initiated merge', () => {
     expect(executor.run).not.toHaveBeenCalled();
   });
 
+  it('does not take a GitHub Actions review result for the merge candidate’s own check (PM-909)', async () => {
+    const executor = fakeExecutor();
+    await setup({
+      executor,
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    const at = new Date().toISOString();
+    h!.repos.fullTestRuns.queue({
+      id: 'review-run',
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      repo: 'web',
+      branch: 'task/AR-1',
+      commit: 'approved-AR-1',
+      runner: 'github_actions',
+      createdAt: at,
+    });
+    h!.repos.fullTestRuns.finish('review-run', { status: 'passed', finishedAt: at });
+    merger.isAncestor.mockImplementation(
+      async (_ref, input) => input.ancestor === 'base' && input.commit === 'approved-AR-1',
+    );
+    await start();
+    await merged();
+    expect(task().merged?.check).toMatchObject({ status: 'passed' });
+    expect(task().merged?.check?.reused).toBeUndefined();
+    expect(executor.run).toHaveBeenCalledTimes(1);
+  });
+
   it('blocks if the gate changes while the commit is built', async () => {
     await setup();
     const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();

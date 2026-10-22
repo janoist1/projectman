@@ -20,6 +20,7 @@ import {
   refinementTurn,
   repoOf,
   resolvedStages,
+  reviewTestRunnerBeforeReview,
   roleBundle,
   stageOwners,
 } from '@projectman/shared';
@@ -490,6 +491,9 @@ function testsAtMerge(input: ContextPackInput, task: Task): boolean {
 /** The checks a developer runs depend on who owns the full test. */
 function developerTests(input: ContextPackInput, task: Task): string {
   const reviewTest = repoOf(input.project, effectiveRepo(input.project, task))?.reviewTest;
+  const repo = repoOf(input.project, effectiveRepo(input.project, task));
+  if (input.serverFullTest && reviewTest && repo && reviewTestRunnerBeforeReview(repo) === 'github_actions')
+    return `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: GitHub Actions runs ${code(reviewTest.command)} once on the commit you hand over, and the task goes back to you if it fails.`;
   return input.serverFullTest && reviewTest
     ? `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: the server runs ${code(reviewTest.command)} once on the commit you hand over, PTY tests included, and sends the task back if it fails.`
     : testsAtMerge(input, task)

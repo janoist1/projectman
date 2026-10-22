@@ -95,7 +95,13 @@ describe('command line', () => {
   it('has the documented defaults and resolves the paths', async () => {
     const { parseArgs } = await load();
     const i = inputs();
-    expect(parseArgs(args(i))).toMatchObject({ server: i.server, out: i.out, mixedSeconds: 600 });
+    expect(parseArgs(args(i))).toMatchObject({
+      server: i.server,
+      out: i.out,
+      mixedSeconds: 600,
+      maxSeconds: 0,
+    });
+    expect(parseArgs(args(i, ['--max-seconds', '9000']))).toMatchObject({ maxSeconds: 9000 });
   });
 
   it.each([
@@ -104,6 +110,7 @@ describe('command line', () => {
     ['an unknown option', ['--nope', '1']],
     ['a mixed time below the least', ['--mixed-seconds', '599']],
     ['a mixed time that is no integer', ['--mixed-seconds', '600.5']],
+    ['a deadline below the least', ['--max-seconds', '299']],
   ])('refuses %s', async (_name, extra) => {
     const { parseArgs, UsageError } = await load();
     const full = ['--server', '/a', '--model-dir', '/b', '--fixture', '/c', '--out', '/d'];
@@ -364,6 +371,47 @@ describe('the report', () => {
     for (const secret of ['secret question', 'pm_session', 'hunter2']) expect(text).not.toContain(secret);
   });
 
+  it('carries a failure in its fixed shape, and a passed deadline is a reason of its own', async () => {
+    const { buildReport, renderMarkdown, evaluate, failureRecord } = await load();
+    const failure = {
+      step: 'on',
+      error: 'timed out waiting for the semantic search to be ready',
+      serverExit: 'signal SIGKILL',
+      deadlineExceeded: true,
+      elapsedSeconds: 1234,
+      semanticOff: [{ cause: 'worker_error', code: 'ERR_WORKER_OUT_OF_MEMORY', detail: 'out of memory' }],
+      cgroup: { memoryCurrentBytes: 5, swapCurrentBytes: 0, oomKillsTotal: 1, password: 'hunter2' },
+      index: { chunks: 10, textDirty: 0, semanticDirty: 7, semanticComplete: false },
+      openPhase: { name: 'failed', rssPeakBytes: 3, durationMs: 2000, question: 'secret question' },
+      cookie: 'pm_session=x',
+    };
+    const report = buildReport({
+      sourceVersion: null,
+      imageDigest: null,
+      platform: 'linux',
+      arch: 'arm64',
+      nodeVersion: 'v24',
+      modelIndexKey: null,
+      memoryLimitBytes: 1,
+      swapLimitBytes: 0,
+      corpus: { sources: 1, chunks: 0, inputBytes: 3, origin: 'synthetic' },
+      phases: [],
+      extraRssBytes: null,
+      outcome: 'fail',
+      reasonCodes: ['server_failed'],
+      failure,
+    });
+    expect(Object.keys(report.failure)).toEqual(Object.keys(failureRecord({})));
+    expect(Object.keys(report.failure.openPhase)).toHaveLength(12);
+    const markdown = renderMarkdown(report);
+    expect(markdown).toContain('ERR_WORKER_OUT_OF_MEMORY');
+    const text = JSON.stringify(report) + markdown;
+    for (const secret of ['secret question', 'pm_session', 'hunter2']) expect(text).not.toContain(secret);
+    expect(evaluate({ phases: [], deadlineExceeded: true, serverFailed: true }).reasonCodes).toContain(
+      'deadline_exceeded',
+    );
+  });
+
   it('takes the embedding extra RSS from the two runs, not from their sum', async () => {
     const { extraRssOf } = await load();
     const phases = [
@@ -374,6 +422,30 @@ describe('the report', () => {
     ];
     expect(extraRssOf(phases)).toBe(300);
     expect(extraRssOf(phases.slice(0, 1))).toBeNull();
+  });
+});
+
+describe('reading the server log', () => {
+  it('takes the ready index key and the warnings that turned the semantic search off, as technical text only', async () => {
+    const { readSemanticLog } = await load();
+    const line = (fields: Record<string, unknown>) => JSON.stringify({ level: 40, ...fields });
+    const log = [
+      'not json: the semantic history search is off for now',
+      line({ msg: 'unrelated' }),
+      line({
+        cause: 'worker_error',
+        err: { code: 'ERR_WORKER_OUT_OF_MEMORY', message: 'Worker ran out of\nmemory <b>' },
+        msg: 'the semantic history search is off for now; searches use the words only',
+      }),
+      line({ msg: 'the semantic history search is ready', indexKey: 'key-1' }),
+    ].join('\n');
+    expect(readSemanticLog(log)).toEqual({
+      indexKey: 'key-1',
+      off: [
+        { cause: 'worker_error', code: 'ERR_WORKER_OUT_OF_MEMORY', detail: 'Worker ran out of?memory ?b?' },
+      ],
+    });
+    expect(readSemanticLog('')).toEqual({ indexKey: null, off: [] });
   });
 });
 
@@ -594,6 +666,14 @@ describe('a run against a real server bundle', () => {
       why,
     ).toEqual(['off']);
     expect(logs.some((line) => line.includes('semantic'))).toBe(true);
+    // The run says why it stopped, from the server's own log and long before the wait would have timed out.
+    expect(report.failure).toMatchObject({
+      step: 'on',
+      deadlineExceeded: false,
+      semanticOff: [{ cause: expect.any(String) }],
+      cgroup: { oomKillsTotal: 0 },
+    });
+    expect(report.failure.openPhase.name).toBe('failed');
 
     const db = new Database(join(i.out, 'home-off', 'db.sqlite'), { readonly: true });
     try {

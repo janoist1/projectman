@@ -661,6 +661,8 @@ export interface TimelineEventData {
 export interface PartsClosed {
   done: string[];
   cancelled: string[];
+  /** The subtask whose close triggered the system's automatic close (PM-373); absent on older events, on a person's move and when the card lost its last blocking label. */
+  trigger?: string;
 }
 
 /**

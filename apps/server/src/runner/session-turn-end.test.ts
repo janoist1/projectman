@@ -9,6 +9,7 @@ import { createNanogptAdapter } from './providers/nanogpt';
 import { geminiSpec } from './providers/gemini/test-helpers';
 import { AgentSession, type PtyProcess } from './session';
 import { silentLogger, tempDirs } from './test-helpers';
+import { waitUntil } from '../../test/helpers/wait';
 
 /**
  * A turn the transcript ended (`end_turn`) is over (PM-343): a late tool hook does not reopen it, a
@@ -134,12 +135,6 @@ async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false, submit
   };
 }
 
-const waitFor = async (check: () => boolean, ms = 3_000) => {
-  const until = Date.now() + ms;
-  while (!check() && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 10));
-  return check();
-};
-
 const ENDING = [{ type: 'text', text: 'Done.' }];
 const lateTool = { hook_event_name: 'PreToolUse', tool_name: 'ToolSearch', tool_use_id: 'late' };
 
@@ -187,7 +182,7 @@ describe('a turn the transcript ended (PM-343)', () => {
   it('ignores a stale NanoGPT quota failure from before the latest prompt', async () => {
     const { session, quota, events } = await start(GRACE_MS, false, true);
     await quota(new Date(Date.now() - 60_000));
-    expect(await waitFor(() => events.some((e) => e.type === 'chat'))).toBe(true);
+    expect(await waitUntil(() => events.some((e) => e.type === 'chat'))).toBe(true);
     expect(session.state.state).toBe('working');
     expect(events.some((e) => e.type === 'rate_limited')).toBe(false);
   });
@@ -196,7 +191,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     const { session, quota, pty, events } = await start(GRACE_MS, false, true);
     await quota();
     pty.kill();
-    expect(await waitFor(() => events.some((e) => e.type === 'exit'))).toBe(true);
+    expect(await waitUntil(() => events.some((e) => e.type === 'exit'))).toBe(true);
     expect(session.state).toMatchObject({ state: 'failed', activity: '429 Too Many Requests' });
     expect(events.filter((e) => e.type === 'rate_limited')).toHaveLength(1);
   });
@@ -221,7 +216,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     const { session, assistant } = await start();
     expect(session.state.state).toBe('working');
     await assistant('a1', 'end_turn', ENDING);
-    expect(await waitFor(() => session.state.state === 'idle')).toBe(true);
+    expect(await waitUntil(() => session.state.state === 'idle')).toBe(true);
   });
 
   it('is not reopened by a late tool hook after the Stop hook', async () => {
@@ -242,7 +237,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     await hook(lateTool);
     expect(session.state.state).toBe('working');
     await assistant('a1', 'end_turn', ENDING);
-    expect(await waitFor(() => session.state.state === 'idle')).toBe(true);
+    expect(await waitUntil(() => session.state.state === 'idle')).toBe(true);
   });
 
   it('goes on when the transcript continues after it, and with the next message', async () => {
@@ -269,7 +264,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     expect(session.state.state).toBe('idle');
     await hook(lateTool);
     await assistant('a2', 'tool_use', [{ type: 'tool_use', id: 'bg2', name: 'Bash', input: {} }]);
-    expect(await waitFor(() => session.state.state === 'working')).toBe(true);
+    expect(await waitUntil(() => session.state.state === 'working')).toBe(true);
     // The ghost call has no transcript entry: only the Bash call is a running tool.
     await new Promise((resolve) => setTimeout(resolve, GRACE_MS * 2));
     expect(session.state.state).toBe('working');
@@ -289,7 +284,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'bg2' });
     await hook({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_use_id: 'bg2' });
     await assistant('a2', 'tool_use', [{ type: 'tool_use', id: 'bg2', name: 'Bash', input: {} }]);
-    expect(await waitFor(() => session.state.state === 'working')).toBe(true);
+    expect(await waitUntil(() => session.state.state === 'working')).toBe(true);
   });
 
   it('is not a turn end of the running turn when the entry is older than its prompt', async () => {
@@ -297,7 +292,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     await hook({ hook_event_name: 'Stop' });
     await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'next' });
     await assistant('a1', 'end_turn', ENDING, new Date(Date.now() - 60_000));
-    expect(await waitFor(() => events.some((e) => e.type === 'chat'))).toBe(true);
+    expect(await waitUntil(() => events.some((e) => e.type === 'chat'))).toBe(true);
     await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 't1' });
     await new Promise((resolve) => setTimeout(resolve, GRACE_MS * 2));
     expect(session.state.state).toBe('working');
@@ -307,7 +302,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     const { session, hook, assistant, writes, events } = await start(60_000);
     await hook(lateTool);
     await assistant('a1', 'end_turn', ENDING);
-    expect(await waitFor(() => events.some((e) => e.type === 'chat'))).toBe(true);
+    expect(await waitUntil(() => events.some((e) => e.type === 'chat'))).toBe(true);
     expect(session.state.state).toBe('working');
     await expect(session.pause({ forceAfterMs: 0 })).resolves.toEqual({ point: 'turn_end', tool: null });
     expect(writes.filter((w) => w === '\x1b')).toHaveLength(0);
@@ -320,7 +315,7 @@ describe('a turn the transcript ended (PM-343)', () => {
     const paused = session.pause({ forceAfterMs: 0 });
     expect(writes.filter((w) => w === '\x1b')).toHaveLength(1);
     await assistant('a1', 'end_turn', ENDING);
-    expect(await waitFor(() => events.some((e) => e.type === 'chat'))).toBe(true);
+    expect(await waitUntil(() => events.some((e) => e.type === 'chat'))).toBe(true);
     await expect(paused).resolves.toMatchObject({ point: 'interrupted' });
     expect(session.state.state).toBe('idle');
   });

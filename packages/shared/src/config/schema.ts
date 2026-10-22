@@ -74,8 +74,17 @@ export type MemberSchedule = z.infer<typeof MemberSchedule>;
  */
 export const AutoCompactWindowTokens = z.number().int().min(100_000).max(1_000_000);
 
+export const ProjectEmailConfig = z.object({ enabled: z.boolean() });
+export type ProjectEmailConfig = z.infer<typeof ProjectEmailConfig>;
+export const AiMemberEmail = z.object({
+  enabled: z.boolean(),
+  sendWithoutApproval: z.boolean().optional(),
+});
+export type AiMemberEmail = z.infer<typeof AiMemberEmail>;
+
 export const AiMemberConfig = z.object({
   kind: z.literal('ai'),
+  email: AiMemberEmail.optional(),
   handle: MemberHandle,
   displayName: z.string().min(1),
   githubLogin: GithubLogin.optional(),
@@ -314,6 +323,7 @@ export const DEFAULT_PROJECT_LANGUAGE = 'hu';
 export const ProjectConfig = z.object({
   schemaVersion: z.literal(1),
   project: z.object({
+    email: ProjectEmailConfig.optional(),
     /** Uppercase project key used in task keys ("AR" -> "AR-21"). */
     key: z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/),
     name: z.string().min(1),

@@ -137,6 +137,7 @@ export interface ConfigChange {
 export const OWNER_HANDLE = 'owner';
 
 const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
+  email_send_policy: 'only an owner may change email approval policy',
   locations: 'only an owner may change filesystem locations',
   admin_or_account: 'only an owner may grant admin access or change account bindings',
   approval_policy: 'only an owner may change or remove human approval gates',

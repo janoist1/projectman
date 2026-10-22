@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EmailParkReason } from './email-channel';
 import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
@@ -46,6 +47,34 @@ export const InboxKind = z.enum([
   'release',
 ]);
 export type InboxKind = z.infer<typeof InboxKind>;
+
+/** Approval options are approve (primary) and reject (danger); a note is optional. */
+export const EmailApprovalPayload = z.object({
+  emailId: z.string(),
+  member: MemberHandle,
+  contact: MemberHandle,
+  contactName: z.string(),
+  taskKey: TaskKey.nullable(),
+  subject: z.string(),
+  text: z.string(),
+});
+export type EmailApprovalPayload = z.infer<typeof EmailApprovalPayload>;
+export function emailApprovalOf(item: Pick<InboxItem, 'kind' | 'payload'>): EmailApprovalPayload | null {
+  if (item.kind !== 'approval') return null;
+  const parsed = EmailApprovalPayload.safeParse(item.payload.email);
+  return parsed.success ? parsed.data : null;
+}
+
+export const EmailParkedAlert = z.object({
+  alert: z.literal('email_parked'),
+  emailId: z.string(),
+  reason: EmailParkReason,
+  fromAddress: z.string(),
+  subject: z.string().max(200),
+  excerpt: z.string().max(1000),
+  attachmentNames: z.array(z.string()),
+});
+export type EmailParkedAlert = z.infer<typeof EmailParkedAlert>;
 
 /**
  * `payload.release` of a `release` item: the release an owner approves or rejects. The options are
@@ -128,6 +157,7 @@ export function isPendingQuestion(
  * repository, lockfile installs in a task worktree). The UI names the rule via i18n.
  */
 export const InboxResolutionRule = z.enum([
+  'email_not_allowed',
   'outage_ended',
   'command_policy',
   /** The loop a decision was about ended by itself (PM-261): nothing is left to decide. */
@@ -547,6 +577,7 @@ export const ReleaseFailedAlert = z.object({
 export type ReleaseFailedAlert = z.infer<typeof ReleaseFailedAlert>;
 
 export const AlertPayload = z.discriminatedUnion('alert', [
+  EmailParkedAlert,
   ReleaseFailedAlert,
   WorkOutageAlert,
   MergeBlockedAlert,
@@ -888,6 +919,7 @@ export function isRelayableQuestion(
 
 /** The payload keys of the approvals the server builds; an item that carries one is never a plain question. */
 export const APPROVAL_PAYLOAD_KEYS = [
+  'email',
   'gate',
   'release',
   'permission',
@@ -992,7 +1024,7 @@ export function superDecisionRefusal(
     item.kind === 'permission' ||
     item.kind === 'boundary' ||
     ['superOperation', 'operatorApproval', 'operatorKnowledge'].some((key) => key in item.payload) ||
-    (item.kind === 'approval' && 'operator' in item.payload) ||
+    (item.kind === 'approval' && ('operator' in item.payload || 'email' in item.payload)) ||
     item.source === facts.operatorHandle ||
     facts.sessionMember === facts.operatorHandle
   )

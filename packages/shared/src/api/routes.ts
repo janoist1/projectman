@@ -5,6 +5,12 @@
  * per-session token.
  */
 export const routes = {
+  /** Owner/admin: GET EmailChannelView. */
+  emailChannel: (key: string) => `/api/projects/${key}/email`,
+  /** Owner/admin: PUT SetEmailContactRequest -> EmailContact. */
+  emailContact: (key: string, handle: string) => `/api/projects/${key}/email/contacts/${handle}`,
+  /** Owner/admin: GET ?before=<cursor> -> EmailLogResponse. */
+  emailLog: (key: string) => `/api/projects/${key}/email/log`,
   push: () => '/api/me/push',
   pushSettings: () => '/api/me/push/settings',
   pushDevices: () => '/api/me/push/devices',

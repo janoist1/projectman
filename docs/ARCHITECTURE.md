@@ -361,7 +361,10 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   the members' capacities and the plan usage limit the work), and the provider's plan usage
   against `pauseAbovePlanUsagePercent`. A refused hand-over or message wake-up is retried every 30 s
   while it is still valid; the task shows why it waits. Such a deferred start is kept in
-  SQLite (`deferred_starts`) as well as in memory: the server loads the table back when it
+  SQLite as well as in memory: a start that waits for one chosen AI member is an item of that
+  member's queue (`member_queue_items`, type `start`, PM-927); one with no member chosen yet (nobody
+  free, a Senior, a prerequisite, a label) stays in the `deferred_starts` table, as no member's
+  queue can hold it (PM-949). The server loads both back when it
   starts and retries what it finds, under admission as usual (decision 19); nothing is inferred
   from the state of tasks, so imported or idle tasks start nothing. While the master switch is
   off, no AI session starts or resumes and schedule runs are skipped; running sessions keep

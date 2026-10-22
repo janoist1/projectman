@@ -650,7 +650,8 @@ export function withSessionFolders(
  * - deny: a command that rewrites a file in place (`sed -i`, `perl -pi -e`), with a pointer to
  *   the editing tools, see `in-place-edits.ts`;
  * - allow: a developer's routine steps in the task's own worktree (lockfile install, formatting, `git add`,
- *   `git commit` with a message, `git merge --ff-only`), alone or in a chain with read-only
+ *   `git commit` with a message, `git merge --ff-only`, `git checkout`/`git restore` of named paths
+ *   from HEAD or the index), alone or in a chain with read-only
  *   steps, see `worktree-commands.ts`;
  * - allow: read-only commands inside `readableRoots`, for any AI session on a task, see
  *   `read-only-commands.ts`. Without roots this rule gives no verdict.

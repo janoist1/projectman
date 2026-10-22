@@ -741,6 +741,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 },
                               ],
                             },
+                            "email": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean",
+                                },
+                              },
+                              "required": [
+                                "enabled",
+                              ],
+                              "type": "object",
+                            },
                             "feedback": {
                               "additionalProperties": false,
                               "properties": {
@@ -1747,6 +1759,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 },
                               ],
                             },
+                            "email": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean",
+                                },
+                                "sendWithoutApproval": {
+                                  "type": "boolean",
+                                },
+                              },
+                              "type": "object",
+                            },
                             "instructions": {
                               "type": "string",
                             },
@@ -2120,6 +2144,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "type": "null",
                         },
                       ],
+                    },
+                    "email": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                        },
+                        "sendWithoutApproval": {
+                          "type": "boolean",
+                        },
+                      },
+                      "type": "object",
                     },
                     "instructions": {
                       "type": "string",
@@ -4271,6 +4307,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
+                    "email": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                        },
+                      },
+                      "required": [
+                        "enabled",
+                      ],
+                      "type": "object",
+                    },
                     "feedback": {
                       "additionalProperties": false,
                       "properties": {
@@ -5277,6 +5325,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
+                    "email": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                        },
+                        "sendWithoutApproval": {
+                          "type": "boolean",
+                        },
+                      },
+                      "type": "object",
+                    },
                     "instructions": {
                       "type": "string",
                     },
@@ -5849,6 +5909,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "type": "object",
                           },
                         ],
+                      },
+                      "email": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean",
+                          },
+                        },
+                        "required": [
+                          "enabled",
+                        ],
+                        "type": "object",
                       },
                       "feedback": {
                         "additionalProperties": false,
@@ -6855,6 +6927,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "type": "null",
                           },
                         ],
+                      },
+                      "email": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean",
+                          },
+                          "sendWithoutApproval": {
+                            "type": "boolean",
+                          },
+                        },
+                        "type": "object",
                       },
                       "instructions": {
                         "type": "string",

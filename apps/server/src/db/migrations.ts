@@ -2173,4 +2173,22 @@ migrations.push({
     );
     ALTER TABLE operator_steps ADD COLUMN system_feedback TEXT;`,
 });
+migrations.push({
+  version: 102,
+  name: 'email channel',
+  sql: `CREATE TABLE email_contacts (project_key TEXT NOT NULL, handle TEXT NOT NULL, wants INTEGER NOT NULL,
+    changed_by TEXT NOT NULL, changed_at TEXT NOT NULL, requested_by TEXT, source TEXT NOT NULL,
+    PRIMARY KEY (project_key, handle));
+  CREATE TABLE email_contact_events (id TEXT PRIMARY KEY, project_key TEXT NOT NULL, handle TEXT NOT NULL,
+    wants INTEGER NOT NULL, "by" TEXT NOT NULL, requested_by TEXT, source TEXT NOT NULL, source_ref TEXT,
+    quote TEXT, at TEXT NOT NULL);
+  CREATE TABLE email_messages (id TEXT PRIMARY KEY, project_key TEXT NOT NULL, direction TEXT NOT NULL,
+    member TEXT, contact TEXT, task_key TEXT, subject TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL,
+    park_reason TEXT, note TEXT, from_address TEXT, attachment_names TEXT NOT NULL DEFAULT '[]',
+    reply_token_hash TEXT UNIQUE, reply_expires_at TEXT, in_reply_to TEXT, provider_id TEXT UNIQUE,
+    inbox_item_id TEXT, message_id TEXT, decided_by TEXT, decided_at TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX email_messages_project ON email_messages(project_key, created_at);
+  CREATE INDEX email_contact_events_project ON email_contact_events(project_key, at);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

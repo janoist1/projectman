@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProjectConfig } from '@projectman/shared';
@@ -23,6 +24,7 @@ import { humanActor } from '../../src/kernel';
 import { createAttachmentStorage, createMessageAttachmentStorage } from '../../src/core/attachments';
 import { createTemplateRegistry } from '../../src/core/base';
 import type { ScheduleTimer } from '../../src/services/schedules';
+import type { EmailChannelEnv, EmailSender } from '../../src/services/email-channel';
 import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain, DomainOptions } from '../../src/assembly';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
@@ -128,6 +130,8 @@ export async function createDomainHarness(
     heavyRunSessions?: () => Promise<string[]>;
     /** The history's embedding (PM-767), usually a fake port; absent, the history search uses the words only. */
     historySemantic?: HistorySemanticPort;
+    /** The outgoing e-mail channel (PM-941); absent: the channel is not configured. */
+    emailChannel?: { sender: EmailSender; env: EmailChannelEnv };
     /** How long a closed card's worktree stays (default 3 days). */
     closedWorktreeKeepMs?: number;
     /** The server's full test before review (PM-217); absent, the feature is off. */
@@ -231,6 +235,13 @@ export async function createDomainHarness(
   const auth = new AuthService({ repos, now: opts.now });
   const domain: Domain = createDomain({
     ...(opts.historySemantic ? { historySemantic: opts.historySemantic } : {}),
+    ...(opts.emailChannel
+      ? {
+          emailChannelSender: opts.emailChannel.sender,
+          emailChannelEnv: opts.emailChannel.env,
+          emailReplyKey: randomBytes(32),
+        }
+      : {}),
     integratorCredentials: auth,
     operatorGrants: auth.operatorGrantGate,
     ...(opts.engines

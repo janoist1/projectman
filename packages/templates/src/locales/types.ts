@@ -169,6 +169,10 @@ export interface TemplateLocale {
     subject: string;
     text: (input: { code: string; validUntil: string }) => string;
   };
+  /** The footer of every outgoing channel e-mail (PM-941). */
+  email: {
+    footer: (input: { member: string; project: string }) => string;
+  };
   webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */
   fixLimitItem: FixLimitItemText;

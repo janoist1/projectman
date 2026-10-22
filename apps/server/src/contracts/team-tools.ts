@@ -624,6 +624,28 @@ export interface ReleaseToolsHandler {
   checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
 }
 
+/** The tools of services/email-channel (PM-941). */
+export interface EmailToolsHandler {
+  sendEmail(
+    ctx: ToolContext,
+    args: { to: string; subject: string; text: string; taskKey: string | null },
+  ): Promise<{ emailId: string; status: 'pending_approval' | 'sent' }>;
+  setEmailContact(
+    ctx: ToolContext,
+    args: {
+      handle: string;
+      wants: boolean;
+      requestedBy: string;
+      sourceMessageId?: string;
+      sourceEmailId?: string;
+      quote?: string;
+    },
+  ): Promise<{ handle: string; wants: boolean }>;
+  listEmailContacts(
+    ctx: ToolContext,
+  ): Promise<Array<{ handle: string; displayName: string; wants: boolean; hasAddress: boolean }>>;
+}
+
 export interface TeamToolsHandler
   extends
     MemberToolsHandler,
@@ -635,6 +657,7 @@ export interface TeamToolsHandler
     ScreenshotToolsHandler,
     BoundaryToolsHandler,
     ReleaseToolsHandler,
+    EmailToolsHandler,
     OperatorToolsHandler,
     ProjectDocToolsHandler,
     SystemFeedbackToolsHandler,

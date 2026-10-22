@@ -227,6 +227,9 @@ import { attributedActor, humanActor, SYSTEM_ACTOR } from './kernel';
 import { SYSTEM_SENDER, isSessionAtWork, questionPayloadOf } from '@projectman/shared';
 import { DomainError } from './kernel';
 import { ObligationsService } from './services/obligations';
+import { createEmailChannelService, type EmailChannelEnv } from './services/email-channel';
+import { EmailChannelTools } from './mcp';
+import type { EmailSender } from './services/email-channel';
 
 import { ProviderKeys } from './runtime/usage';
 
@@ -296,6 +299,10 @@ export interface DomainOptions {
    */
   emailCodeMailer?: EmailCodeMailer;
   emailLoginKey?: Buffer;
+  /** The SES sender of the outgoing e-mail channel (PM-941); absent: not configured. */
+  emailChannelSender?: EmailSender;
+  emailChannelEnv?: EmailChannelEnv;
+  emailReplyKey?: Buffer;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
   worktreesRootDir?: string;
   /**
@@ -742,17 +749,18 @@ export function createDomain(opts: DomainOptions) {
     publicBaseUrl: opts.feedbackPublicUrl ?? null,
   });
   const feedbackWidget = new FeedbackWidgetService({ ctx, projects, feedback });
+  const systemFeedbackContext = new SystemFeedbackContext({
+    ctx,
+    projects,
+    secrets: async () => [await providerKeys?.nanogptKey()],
+    paths: [opts.appHome, opts.userHome, opts.workspacesRootDir],
+  });
   const systemFeedback = new SystemFeedbackService({
     ctx,
     projects,
     tasks,
     version: opts.appVersion ?? 'dev',
-    context: new SystemFeedbackContext({
-      ctx,
-      projects,
-      secrets: async () => [await providerKeys?.nanogptKey()],
-      paths: [opts.appHome, opts.userHome, opts.workspacesRootDir],
-    }),
+    context: systemFeedbackContext,
   });
   const messageAttachments = new MessageAttachmentService({
     ctx,
@@ -901,6 +909,22 @@ export function createDomain(opts: DomainOptions) {
     engines,
     messageAttachments,
   });
+  const emailChannel = createEmailChannelService({
+    ctx,
+    repo: opts.repos.emailChannel,
+    inbox,
+    messaging,
+    projects,
+    tasks,
+    redactionContext: () => systemFeedbackContext.current(),
+    sender: opts.emailChannelSender,
+    env: opts.emailChannelEnv,
+    replyKey: opts.emailReplyKey,
+    now,
+  });
+  inbox.registerDecider('email', (item, by, optionId, note) =>
+    emailChannel.decideApproval(item, by, optionId, note),
+  );
   sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
   );
@@ -1779,6 +1803,7 @@ export function createDomain(opts: DomainOptions) {
       watchers: new WatcherTools({ calls: toolCaller, fixLimit }),
       operatorQueue: new OperatorQueueTools({ projects, finisher: operatorQueueFinisher }),
       sessions: new SessionTools({ calls: toolCaller, ctx, sessions }),
+      email: new EmailChannelTools({ calls: toolCaller, projects, email: emailChannel }),
     },
   });
   const agentQuestions = new AgentQuestions({
@@ -1943,6 +1968,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
   events.on('config_changed', () => boundary.sweep());
   events.on('config_changed', () => inbox.sweepDelegations());
+  events.on('config_changed', (change) => emailChannel.onConfigChanged(change.projectKey));
   events.on('task_cancelled', () => boundary.sweep());
   // AI work switched back on: the deferred starts continue.
   events.on('config_changed', (change) => {
@@ -2581,6 +2607,7 @@ export function createDomain(opts: DomainOptions) {
     board,
     profiles,
     invitations,
+    emailChannel,
     emailLogin,
     history,
     cardMeasure,

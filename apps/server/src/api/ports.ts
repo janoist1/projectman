@@ -27,6 +27,7 @@ import type { FeedbackService, FeedbackWidgetService, SystemFeedbackService } fr
 import type { BoundaryService } from '../services/boundary';
 import type { Merges } from '../services/merges';
 import type { ScheduleService } from '../services/schedules';
+import type { EmailChannelService } from '../services/email-channel';
 import type {
   OperatorKnowledge,
   OperatorPreferences,
@@ -73,6 +74,7 @@ export interface ApiDomain extends AuthDomain {
   readonly roles: RoleService;
   readonly runnerModule: RunnerModule;
   readonly schedules: ScheduleService;
+  readonly emailChannel: EmailChannelService;
   readonly sessions: SessionOrchestrator;
   readonly superAudit: SuperAuditService;
   readonly taskStarts: TaskStarts;

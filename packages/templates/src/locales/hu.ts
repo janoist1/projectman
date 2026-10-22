@@ -398,6 +398,10 @@ export const hu: TemplateLocale = {
     text: ({ code, validUntil }) =>
       `A belépési kódod: ${code}\n\nA kód egyszer használható, és eddig érvényes: ${validUntil}.\n\nHa nem te kérted, hagyd figyelmen kívül ezt a levelet.\n`,
   },
+  email: {
+    footer: ({ member, project }) =>
+      `Ezt a levelet a ${project} projekt AI-tagja (${member}) írta, a projectmanből. Válaszolj nyugodtan, a válaszod hozzá kerül. Ha nem kérsz több levelet, írd meg válaszban, és nem írunk többet.`,
+  },
   fixLimitItem: {
     title: 'Javítási körök határa: {key}',
     summary: 'A(z) {key} kártya {rounds} javítási kör után sem ment át ({parts}). {reason}',

@@ -168,18 +168,31 @@ export function createEmailChannelRepository(db: Db) {
         return getMessage('id', id);
       },
     },
+    listOutbound(projectKey: string, status: EmailOutboundStatus): EmailMessageRecord[] {
+      return (
+        db
+          .prepare(
+            `SELECT ${messageSelect} FROM email_messages
+            WHERE project_key = ? AND direction = 'outbound' AND status = ? ORDER BY created_at, id`,
+          )
+          .all(projectKey, status) as MessageRow[]
+      ).map((row) => messageOf(row)!);
+    },
     countOutboundSince(
       projectKey: string,
       filter: { member: string } | { contact: string },
       since: string,
+      statuses?: readonly EmailOutboundStatus[],
     ): number {
       const [column, value] = 'member' in filter ? ['member', filter.member] : ['contact', filter.contact];
+      const statusPlaceholders = statuses?.length ? statuses.map(() => '?').join(', ') : null;
       return (
         db
           .prepare(
-            `SELECT COUNT(*) AS count FROM email_messages WHERE project_key = ? AND direction = 'outbound' AND ${column} = ? AND created_at >= ?`,
+            `SELECT COUNT(*) AS count FROM email_messages WHERE project_key = ? AND direction = 'outbound'
+            AND ${column} = ? AND created_at >= ?${statusPlaceholders ? ` AND status IN (${statusPlaceholders})` : ''}`,
           )
-          .get(projectKey, value, since) as { count: number }
+          .get(projectKey, value, since, ...(statuses ?? [])) as { count: number }
       ).count;
     },
     /** Cursor is the last (timestamp,id) pair, so equal timestamps never skip a row. */

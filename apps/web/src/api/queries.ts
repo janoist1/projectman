@@ -55,6 +55,10 @@ import type { AllMessagesFilter } from './queryKeys';
 
 /* ---------- auth ---------- */
 
+export function useOperatorGrant(enabled = true) {
+  return useQuery({ queryKey: ['operator-grant'], queryFn: api.operatorGrant, enabled });
+}
+
 export function useSetupStatus() {
   return useQuery({ queryKey: queryKeys.setupStatus, queryFn: api.setupStatus, staleTime: Infinity });
 }

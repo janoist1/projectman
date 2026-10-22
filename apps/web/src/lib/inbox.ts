@@ -749,8 +749,8 @@ export function resolutionNote(item: InboxItem): string | null {
     return note
       ? t(
           item.resolution.optionId === 'todo_cannot'
-            ? 'inbox.integrator.reasonNote'
-            : 'inbox.integrator.resultNote',
+            ? 'inbox.handedOff.reasonNote'
+            : 'inbox.handedOff.resultNote',
           { note },
         )
       : null;
@@ -816,7 +816,10 @@ export function screeningOf(item: InboxItem): QuestionScreening | null {
 
 /** A question the Operator made a todo of: "Teendő", not "Kérdés" (PM-556), also after it closed. */
 export function isTodo(item: InboxItem): boolean {
-  return item.kind === 'question' && screeningOf(item)?.outcome === 'todo';
+  return (
+    item.kind === 'question' &&
+    (screeningOf(item)?.outcome === 'todo' || !!questionPayloadOf(item)?.operatorHandoff)
+  );
 }
 
 /** The kind a card shows: a todo is its own kind. */

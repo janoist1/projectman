@@ -179,7 +179,7 @@ describe('fix limit decision details', () => {
     );
   });
 
-  it('groups integrator decisions without increasing the owner count, then takes them over after timeout', async () => {
+  it('keeps Operator queue decisions outside the owner inbox', async () => {
     const f = fixture();
     f.item.payload = {
       ...f.item.payload,
@@ -190,12 +190,8 @@ describe('fix limit decision details', () => {
     held.recipient = 'integrator';
     expect(fixLimitStatus(held, f.members, 'owner')).toContain(t('involvement.integrator'));
     f.project.render(<InboxPage />, '/p/AC/inbox');
-    const summary = (await screen.findByText(t('inbox.integrator.titleCount', { count: 1 }))).closest(
-      'summary',
-    )!;
-    expect(screen.getByText(t('inbox.allDoneEverywhere'))).toBeTruthy();
-    fireEvent.click(summary);
-    expect(summary.closest('details')!.querySelector('article[data-recipient="integrator"]')).toBeTruthy();
+    expect(await screen.findByText(t('inbox.allDoneEverywhere'))).toBeTruthy();
+    expect(document.querySelector('article[data-recipient="integrator"]')).toBeNull();
     const board = f.project.backend.handle('GET', routes.board('AC'), undefined).body as {
       openInboxCount: number;
     };
@@ -206,7 +202,7 @@ describe('fix limit decision details', () => {
     expect(f.project.backend.findTask('AC-21')!.fixLimit?.recipient).toBe('owner');
   });
 
-  it('lists an integrator resolution under closed today instead of the owner decisions', async () => {
+  it('keeps an Operator resolution outside the owner decisions', async () => {
     const f = fixture();
     const at = new Date().toISOString();
     f.item.payload = { ...f.item.payload, recipient: 'integrator', integratorOpenedAt: at };
@@ -220,9 +216,7 @@ describe('fix limit decision details', () => {
       note: null,
     };
     f.project.render(<InboxPage />, '/p/AC/inbox');
-    const summary = (await screen.findByText(t('inbox.integrator.title'))).closest('summary')!;
-    fireEvent.click(summary);
-    expect(within(summary.closest('details')!).getByText(t('inbox.integrator.closedToday'))).toBeTruthy();
+    await screen.findByText(t('inbox.allDoneEverywhere'));
     expect(screen.queryByText(t('inbox.recent'))).toBeNull();
   });
 });

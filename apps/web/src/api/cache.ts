@@ -323,8 +323,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       return;
     // The focus panel (PM-427 4/4) reads it; nothing in the cache holds the focus yet.
     case 'project_focus_changed':
-    // The Settings section of the Operator's grant (PM-881) reads it when the interface card lands.
+      return;
     case 'operator_grant_changed':
+      void client.invalidateQueries({ queryKey: ['operator-grant'] });
+      void client.invalidateQueries({ queryKey: ['operator-grant-audit'] });
+      return;
     case 'hello':
     case 'terminal_data':
     case 'terminal_snapshot':

@@ -15,6 +15,7 @@ export function ActorName({
   myHandle,
   projectKey,
   history = false,
+  machineOperation = false,
   after,
 }: {
   actor: Actor;
@@ -22,6 +23,7 @@ export function ActorName({
   myHandle: string | null;
   projectKey: string;
   history?: boolean;
+  machineOperation?: boolean;
   after?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -36,9 +38,9 @@ export function ActorName({
   return (
     <span className={styles.actor}>
       {t('superMode.name')}{' '}
-      {history ? (
+      {history && machineOperation ? (
         <Chip tone="operator">{t('superMode.badge')}</Chip>
-      ) : (
+      ) : !history && actor.credential.prefix !== 'operator-app' ? (
         <button
           type="button"
           className={styles.badge}
@@ -46,15 +48,13 @@ export function ActorName({
           aria-controls={id}
           onClick={() => setExpanded(!expanded)}
         >
-          <Chip tone="operator">{t('superMode.badge')}</Chip>
+          <Chip tone="operator">{t(machineOperation ? 'superMode.badge' : 'integratorKey.prefix')}</Chip>
         </button>
-      )}
-      {!history ? <span className={styles.muted}> · {t('superMode.driven')}</span> : null}
+      ) : null}
       {after}
-      {history || expanded ? (
+      {(history || expanded) && actor.credential.prefix !== 'operator-app' ? (
         <span id={id} className={styles.detail}>
-          {history ? `${t('superMode.driven')} · ` : `${t('integratorKey.prefix')}: `}
-          <code>{actor.credential.prefix}…</code>{' '}
+          {t('superMode.credentialLead')} <code>{actor.credential.prefix}…</code>{' '}
           <Link
             to={`/p/${projectKey}/sessions?by=super&prefix=${encodeURIComponent(actor.credential.prefix)}`}
           >

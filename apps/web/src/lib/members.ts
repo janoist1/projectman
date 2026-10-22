@@ -63,7 +63,7 @@ export function roleLabel(
 export type MemberIndex = ReadonlyMap<string, MemberView>;
 
 export function actorLabel(actor: Actor, index: MemberIndex, myHandle: string | null): string {
-  if (hasSuperOrigin(actor)) return t('superMode.actor');
+  if (hasSuperOrigin(actor)) return t(actor.credential.prefix === 'operator-app' ? 'superMode.name' : 'superMode.actor');
   return actor.via === 'integrator' ? t('involvement.integrator') : nameOf(actor.handle, index, myHandle);
 }
 

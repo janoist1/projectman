@@ -14,6 +14,19 @@ import { operatorOf } from './operator-member';
  * Operator may do with the super key, in its own name.
  */
 export type OwnerReservedEffect = 'deletion' | 'security' | 'cost';
+/** Machine capabilities shown with the owner's grant (PM-891). */
+export const OPERATOR_MACHINE_OPERATIONS = [
+  'deploy',
+  'restart',
+  'full_test',
+  'image_build',
+  'status',
+  'machine',
+  'logs',
+  'process_cleanup',
+  'owner_command',
+] as const;
+export type OperatorMachineOperation = (typeof OPERATOR_MACHINE_OPERATIONS)[number];
 export type SuperRoutineMutation =
   | 'task_write'
   | 'task_create'

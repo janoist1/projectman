@@ -5,6 +5,24 @@
   color: var(--c-ink-3);
   font-size: var(--text-sm);
 }
+.skeleton {
+  display: grid;
+  gap: 10px;
+}
+.skeleton span {
+  height: 14px;
+  border-radius: 6px;
+  background: var(--c-muted);
+}
+.skeleton span:last-child {
+  width: 70%;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-mark-off);
+}
 .rights p {
   margin-bottom: 0;
 }

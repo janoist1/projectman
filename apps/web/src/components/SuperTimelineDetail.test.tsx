@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import type { SuperHandoff, TimelineEvent } from '@projectman/shared';
 import { setFetchImplementation } from '../api/client';
@@ -7,6 +7,61 @@ import { mockProject } from '../test/mockProject';
 import { SuperTimelineDetail } from './SuperTimelineDetail';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+
+it('shows separate command output streams, failure and truncation in the operation detail', async () => {
+  const project = mockProject();
+  const at = new Date().toISOString();
+  project.backend.superOperations = [
+    {
+      id: 'cmd',
+      projectKey: 'AC',
+      taskKey: null,
+      handoffId: null,
+      state: 'failed',
+      requestId: '00000000-0000-4000-8000-000000000000',
+      ownerQuestionId: null,
+      errorCode: null,
+      createdAt: at,
+      updatedAt: at,
+      command: {
+        kind: 'administration',
+        request: {
+          kind: 'owner_command',
+          target: { kind: 'hub' },
+          command: 'git status',
+          timeoutSeconds: 120,
+          reason: 'Inspect state',
+        },
+      },
+    },
+  ];
+  project.backend.superResults.set('cmd', {
+    kind: 'owner_command',
+    exitCode: 1,
+    signal: 'SIGTERM',
+    stdout: '<literal stdout>',
+    stderr: 'diagnostic stderr',
+    truncated: true,
+    durationMs: 1250,
+  });
+  const event: TimelineEvent = {
+    id: 'result',
+    projectKey: 'AC',
+    taskKey: null,
+    sessionId: null,
+    actor: { kind: 'ai', handle: 'operator' },
+    type: 'super_operation_changed',
+    data: { operationId: 'cmd', state: 'failed' },
+    createdAt: at,
+  };
+  project.render(<SuperTimelineDetail event={event} events={[event]} fallback="Changed" />);
+  expect(await screen.findByText(t('ownerCommand.truncated'))).toBeTruthy();
+  expect(screen.getByRole('alert').textContent).toBe('SIGTERM');
+  fireEvent.click(screen.getByText(t('ownerCommand.stdout')));
+  fireEvent.click(screen.getByText(t('ownerCommand.stderr')));
+  expect(screen.getByText('<literal stdout>').tagName).toBe('PRE');
+  expect(screen.getByText('diagnostic stderr').tagName).toBe('PRE');
+});
 
 it('links a successful operation back to its recorded handoff and preserves the historical event state', async () => {
   const project = mockProject();

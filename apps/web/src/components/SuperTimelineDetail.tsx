@@ -8,6 +8,9 @@ import { ProjectContext } from '../app/contexts';
 import { t } from '../i18n/t';
 import { Button } from './Button';
 import { SuperStateChip } from './SuperStateChip';
+import { Fold } from './Fold';
+import { ErrorBanner } from './ErrorBanner';
+import { Chip } from './Chip';
 
 /** The event keeps only ids and state. Owner-only DTO reads supply the reason and links. */
 export function SuperTimelineDetail({
@@ -35,6 +38,7 @@ export function SuperTimelineDetail({
   });
   const handoff = handoffs.data?.handoff;
   const op = operation.data?.operation;
+  const result = operation.data?.result;
   const state = SuperState.safeParse(event.data.state);
   const source = op?.handoffId
     ? events.find((item) => item.type === 'super_handoff_changed' && item.data.handoffId === op.handoffId)
@@ -63,6 +67,7 @@ export function SuperTimelineDetail({
       {state.success ? (
         <SuperStateChip state={state.data} projectKey={event.projectKey} questionId={op?.ownerQuestionId} />
       ) : null}
+      {op?.command.kind === 'administration' ? <Chip tone="operator">{t('superMode.badge')}</Chip> : null}
       {source ? (
         <>
           {' '}
@@ -89,6 +94,27 @@ export function SuperTimelineDetail({
           >
             {t('app.retry')}
           </Button>
+        </span>
+      ) : null}
+      {result?.kind === 'owner_command' ? (
+        <span style={{ display: 'block' }}>
+          <span>
+            {t('ownerCommand.exit', {
+              n: result.exitCode ?? '—',
+              time: t('ownerCommand.seconds', { n: result.durationMs / 1000 }),
+            })}
+            {result.signal ? ` · ${result.signal}` : ''}
+          </span>
+          {result.exitCode !== 0 ? (
+            <ErrorBanner>{result.signal ?? t('superMode.states.failed')}</ErrorBanner>
+          ) : null}
+          <Fold summary={t('ownerCommand.stdout')}>
+            <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{result.stdout}</pre>
+          </Fold>
+          <Fold summary={t('ownerCommand.stderr')}>
+            <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{result.stderr}</pre>
+          </Fold>
+          {result.truncated ? <span>{t('ownerCommand.truncated')}</span> : null}
         </span>
       ) : null}
     </span>

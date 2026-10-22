@@ -4,6 +4,7 @@ import type { IntegratorAccessKeyInfo } from '@projectman/shared';
 import { Link } from 'react-router';
 import { api } from '../../../api/endpoints';
 import { useOperatorGrant } from '../../../api/queries';
+import { queryKeys } from '../../../api/queryKeys';
 import { isApiError } from '../../../api/client';
 import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
@@ -32,7 +33,7 @@ export function IntegratorSection() {
   const query = useQuery({ queryKey, queryFn: api.integratorKeys, enabled: ownLogin });
   const grant = useOperatorGrant();
   const grantAudit = useQuery({
-    queryKey: ['operator-grant-audit'],
+    queryKey: queryKeys.operatorGrantAudit,
     queryFn: api.operatorGrantAudit,
     enabled: me.hostOwner === true,
     retry: false,
@@ -215,7 +216,7 @@ export function IntegratorSection() {
         <div className={styles.keyRow}>
           <h3>{t('operatorGrant.clientTitle')}</h3>
           <p>{t('integratorKey.intro')}</p>
-          {grant.data?.grant.active === false && active.some((info) => info.mode === 'super') ? (
+          {grant.data?.active === false && active.some((info) => info.mode === 'super') ? (
             <p className={styles.info}>{t('operatorGrant.clientInactive')}</p>
           ) : null}
           {!ownLogin ? <p role="status">{t('integratorKey.ownerOnly')}</p> : null}

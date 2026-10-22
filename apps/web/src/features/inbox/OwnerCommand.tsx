@@ -93,10 +93,10 @@ export function OwnerCommandBody({
           <p>{t('ownerCommand.outputPrivacy')}</p>
         </>
       ) : null}
-      {grant.data?.grant.active === false ? (
+      {grant.data?.active === false ? (
         <div className={styles.warning}>
           <span>{t('ownerCommand.noGrant')}</span>
-          {grant.data.grant.canManage ? (
+          {grant.data.canManage ? (
             <ButtonLink variant="secondary" to={`/p/${projectKey}/settings/integrator#operator-grant`}>
               {t('operatorGrant.grant')}
             </ButtonLink>

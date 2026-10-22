@@ -69,6 +69,8 @@ export const BUDGET = {
 };
 
 export const MIN_MIXED_SECONDS = 600;
+/** The least deadline of a run: below it not even the baseline fits. */
+export const MIN_MAX_SECONDS = 300;
 export const MIN_BASELINE_SECONDS = 60;
 
 /** The phases a passing report holds, in the order they run. */
@@ -87,6 +89,7 @@ export const REASON_CODES = [
   'recall_failed',
   'network_attempt',
   'oom_detected',
+  'deadline_exceeded',
 ];
 
 export const SOURCE_TYPES = ['task', 'note', 'question', 'message', 'document'];
@@ -101,9 +104,10 @@ export class UsageError extends Error {
 }
 
 export const USAGE = `usage: node history-semantic-profile.mjs --server <abs bundle path> --model-dir <abs path>
-  --fixture <abs json path> --out <abs empty dir> [--mixed-seconds <integer> (default ${MIN_MIXED_SECONDS}, least ${MIN_MIXED_SECONDS})]`;
+  --fixture <abs json path> --out <abs empty dir> [--mixed-seconds <integer> (default ${MIN_MIXED_SECONDS}, least ${MIN_MIXED_SECONDS})]
+  [--max-seconds <integer> (the run's own deadline, least ${MIN_MAX_SECONDS}; default none)]`;
 
-const VALUE_OPTIONS = new Set(['server', 'model-dir', 'fixture', 'out', 'mixed-seconds']);
+const VALUE_OPTIONS = new Set(['server', 'model-dir', 'fixture', 'out', 'mixed-seconds', 'max-seconds']);
 
 /** Parses the command line; throws `UsageError` with the reason. Every path must be absolute. */
 export function parseArgs(argv) {
@@ -138,6 +142,15 @@ export function parseArgs(argv) {
       throw new UsageError(`--mixed-seconds must be an integer of at least ${MIN_MIXED_SECONDS}`);
     }
   }
+  // 0 = no deadline of the run's own.
+  let maxSeconds = 0;
+  if (raw.has('max-seconds')) {
+    const text = raw.get('max-seconds').trim();
+    maxSeconds = Number(text);
+    if (!/^\d+$/.test(text) || !Number.isSafeInteger(maxSeconds) || maxSeconds < MIN_MAX_SECONDS) {
+      throw new UsageError(`--max-seconds must be an integer of at least ${MIN_MAX_SECONDS}`);
+    }
+  }
   return {
     help: false,
     server: resolve(raw.get('server')),
@@ -145,6 +158,7 @@ export function parseArgs(argv) {
     fixture: resolve(raw.get('fixture')),
     out: resolve(raw.get('out')),
     mixedSeconds,
+    maxSeconds,
   };
 }
 
@@ -520,9 +534,11 @@ export function evaluate({
   networkAttempts,
   restartInterrupted,
   serverFailed,
+  deadlineExceeded = false,
 }) {
   const reasons = new Set();
   if (serverFailed) reasons.add('server_failed');
+  if (deadlineExceeded) reasons.add('deadline_exceeded');
   for (const name of PHASE_NAMES) {
     const phase = phases.find((entry) => entry.name === name);
     if (!phase || PHASE_NUMBERS.some((key) => !isNumber(phase[key]))) reasons.add('missing_phase');
@@ -605,6 +621,7 @@ const REPORT_KEYS = [
   'extraRssBytes',
   'outcome',
   'reasonCodes',
+  'failure',
 ];
 
 /** A phase with exactly the shared keys; what was not measured is null. */
@@ -612,6 +629,36 @@ export function phaseRecord(values) {
   const phase = {};
   for (const key of PHASE_KEYS) phase[key] = values[key] ?? null;
   return phase;
+}
+
+/** The failure with exactly its documented keys, whatever the caller passed; what was not read is null. */
+export function failureRecord(values) {
+  const cgroup = values.cgroup ?? null;
+  const index = values.index ?? null;
+  return {
+    step: values.step ?? null,
+    error: values.error ?? null,
+    serverExit: values.serverExit ?? null,
+    deadlineExceeded: values.deadlineExceeded === true,
+    elapsedSeconds: values.elapsedSeconds ?? null,
+    semanticOff: (values.semanticOff ?? []).map((entry) => ({
+      cause: entry.cause ?? null,
+      code: entry.code ?? null,
+      detail: entry.detail ?? null,
+    })),
+    cgroup: cgroup && {
+      memoryCurrentBytes: cgroup.memoryCurrentBytes ?? null,
+      swapCurrentBytes: cgroup.swapCurrentBytes ?? null,
+      oomKillsTotal: cgroup.oomKillsTotal ?? null,
+    },
+    index: index && {
+      chunks: index.chunks ?? null,
+      textDirty: index.textDirty ?? null,
+      semanticDirty: index.semanticDirty ?? null,
+      semanticComplete: index.semanticComplete ?? null,
+    },
+    openPhase: values.openPhase ? phaseRecord(values.openPhase) : null,
+  };
 }
 
 /**
@@ -635,6 +682,8 @@ export function buildReport(input) {
     outcome: input.outcome,
     reasonCodes: input.reasonCodes,
   };
+  // Only a failed run carries the facts of its failure (`collectFailure`), and only in that fixed shape.
+  if (input.failure) report.failure = failureRecord(input.failure);
   for (const key of Object.keys(report)) if (!REPORT_KEYS.includes(key)) delete report[key];
   return report;
 }
@@ -699,6 +748,28 @@ export function renderMarkdown(report, extras = {}) {
     `Frame: RSS peak at most ${mib(BUDGET.rssPeakBytes)} MiB, cgroup peak at most ${mib(BUDGET.cgroupPeakBytes)} MiB, no OOM kill, no swap, every warm question within ${BUDGET.searchMaxMs} ms, control HTTP p95 excess within max(${BUDGET.httpP95ExcessRatio * 100}%, ${BUDGET.httpP95ExcessMinMs} ms), at least ${BUDGET.topTenMinimum} of 20 questions with the source in the first 10 and the negative controls unchanged.`,
     'rss peak is the whole server process (the worker thread is part of it); the cgroup peak includes every process of the container, this tool too. semantic used is the share of searches answered by meaning (1 = all).',
   ];
+  if (report.failure) {
+    const failure = report.failure;
+    const open = failure.openPhase;
+    lines.push(
+      '',
+      '## Failure',
+      '',
+      `- stopped in the \`${cell(failure.step)}\` server after ${cell(failure.elapsedSeconds)} s: ${cell(failure.error)}`,
+      `- server ended: ${cell(failure.serverExit)}; run deadline exceeded: ${failure.deadlineExceeded}`,
+      `- container (cumulative): memory ${cell(mib(failure.cgroup?.memoryCurrentBytes))} MiB, swap ${cell(mib(failure.cgroup?.swapCurrentBytes))} MiB, oom kills ${cell(failure.cgroup?.oomKillsTotal)}`,
+      `- index: ${cell(failure.index?.chunks)} chunks, text dirty ${cell(failure.index?.textDirty)}, semantic dirty ${cell(failure.index?.semanticDirty)}, complete ${cell(failure.index?.semanticComplete)}`,
+      ...(open
+        ? [
+            `- phase in progress: rss peak ${cell(mib(open.rssPeakBytes))} MiB, cgroup peak ${cell(mib(open.cgroupPeakBytes))} MiB, swap peak ${cell(mib(open.swapPeakBytes))} MiB, oom kills ${cell(open.oomKills)}, ${cell(round1(open.durationMs / 1000))} s`,
+          ]
+        : []),
+      ...failure.semanticOff.map(
+        (entry) =>
+          `- semantic search turned off: cause ${cell(entry.cause)}, code ${cell(entry.code)}, message "${entry.detail ?? ''}"`,
+      ),
+    );
+  }
   if (extras.recall) {
     lines.push(
       '',
@@ -881,13 +952,18 @@ export function openWindow({ host, handle, probeFile, databaseFacts }) {
   };
   sample();
   const timer = setInterval(sample, SAMPLE_MS);
+  // A window left open by a failed run must not keep the process alive: the report is written after it.
+  timer.unref();
   const window = {
+    stop: () => clearInterval(timer),
     searchMs: [],
     httpMs: [],
     failures: 0,
     externalPeers: 0,
     peakSources: { process: processReset, cgroup: cgroupReset },
+    closed: false,
     close(name) {
+      window.closed = true;
       clearInterval(timer);
       sample();
       let hwm = 0;
@@ -1210,55 +1286,140 @@ export const DEFAULT_TIMING = {
   backfillMs: 3_600_000,
 };
 
-async function waitUntil(srv, what, check, { timeoutMs, pollMs = 500 }) {
-  const deadline = performance.now() + timeoutMs;
+export const PROGRESS_MS = 30_000;
+
+/**
+ * Polls `check` until it is truthy. A `MeasurementError` thrown by `check` ends the wait (a known, final cause);
+ * any other error is a poll that failed and is tried again. `progress(what, seconds)` is called about every
+ * `PROGRESS_MS`.
+ */
+async function waitUntil(srv, what, check, { timeoutMs, pollMs = 500, progress = null }) {
+  const startedAt = performance.now();
+  const deadline = startedAt + timeoutMs;
+  let progressAt = startedAt;
   for (;;) {
     if (srv.handle.exited)
       throw new MeasurementError(`the server ended while waiting for ${what} (${srv.handle.exit})`);
     let value = false;
     try {
       value = await check();
-    } catch {
+    } catch (error) {
+      if (error instanceof MeasurementError) throw error;
       value = false;
     }
     if (value) return value;
-    if (performance.now() > deadline) throw new MeasurementError(`timed out waiting for ${what}`);
+    const now = performance.now();
+    if (now > deadline) throw new MeasurementError(`timed out waiting for ${what}`);
+    if (progress && now - progressAt >= PROGRESS_MS) {
+      progressAt = now;
+      try {
+        progress(what, Math.round((now - startedAt) / 1000));
+      } catch {
+        // A progress line is never worth a failed measurement.
+      }
+    }
     await sleep(pollMs);
   }
 }
 
+/** Free text of an error, cut to the characters of a technical message; paths and codes pass, nothing else. */
+export function safeDetail(value, limit = 200) {
+  return String(value ?? '')
+    .replace(/[^A-Za-z0-9 _.,:;()/'=-]/g, '?')
+    .slice(0, limit);
+}
+
+/**
+ * What the server's log (JSON lines) says of the semantic search: the index key of its "ready" line and the
+ * warnings that turned it off, oldest first, each as { cause, code, detail } (technical codes and a short message).
+ */
+export function readSemanticLog(text) {
+  let indexKey = null;
+  const off = [];
+  for (const line of text.split('\n')) {
+    const ready = line.includes('the semantic history search is ready');
+    if (!ready && !line.includes('the semantic history search is off for now')) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+    if (ready) {
+      if (typeof entry.indexKey === 'string') indexKey = entry.indexKey;
+      continue;
+    }
+    const err = isRecord(entry.err) ? entry.err : {};
+    const code = err.code ?? entry.code;
+    off.push({
+      cause: /^[a-z_:]{1,40}$/.test(entry.cause ?? '') ? entry.cause : null,
+      code: /^[A-Z][A-Z0-9_]{1,60}$/.test(code ?? '') ? code : null,
+      detail: safeDetail(entry.message ?? err.message),
+    });
+  }
+  return { indexKey, off };
+}
+
+const describeOff = (entry) =>
+  [entry.cause, entry.code, entry.detail ? `"${entry.detail}"` : null].filter(Boolean).join(' ');
+
+/** Throws when the server's log says the semantic search turned itself off: nothing will bring it back by waiting. */
+function guardSemantic(srv) {
+  const { off } = readSemanticLog(readText(srv.handle.logFile));
+  if (off.length > 0)
+    throw new MeasurementError(`the semantic search turned itself off (${describeOff(off[0])})`);
+}
+
+/** The line a long wait prints about every 30 s: the server's memory and, when `facts` is given, the index progress. */
+function progressOf(state, srv, facts = null) {
+  return (what, seconds) => {
+    let rss = null;
+    try {
+      rss = state.host.processStatus(srv.handle.pid).rssBytes;
+    } catch {
+      // The process has gone away; the wait's own guard reports it.
+    }
+    const stat = state.host.cgroup.stat();
+    let index = '';
+    if (facts) {
+      const found = facts.index();
+      index = `; chunks ${found.chunks}, text dirty ${found.textDirty}, semantic dirty ${found.semanticDirty}`;
+    }
+    state.log(
+      `${srv.label}: waiting for ${what}, ${seconds} s; rss ${cell(mib(rss))} MiB, cgroup ${cell(mib(stat.current))} MiB, oom kills ${stat.oomKill}${index}`,
+    );
+  };
+}
+
 /** The server is ready when it answers HTTP, its measurement listener answers and, for the semantic run, the worker is ready. */
 async function waitReady(state, srv, { semantic }) {
+  const progress = progressOf(state, srv, semantic ? databaseFactsOf(state, srv.home) : null);
   await waitUntil(
     srv,
     'the HTTP port',
     async () => (await request(srv.base, { path: LOAD_ROUTES.setupStatus })).status === 200,
-    { timeoutMs: state.timing.readyMs },
+    { timeoutMs: state.timing.readyMs, progress },
   );
   await waitUntil(
     srv,
     'the search listener',
     async () =>
       (await request(srv.controlBase, { method: 'POST', path: '/search', body: {} })).status === 401,
-    { timeoutMs: state.timing.readyMs },
+    { timeoutMs: state.timing.readyMs, progress },
   );
   if (!semantic) return null;
   return waitUntil(
     srv,
     'the semantic search to be ready',
     () => {
-      for (const line of readText(srv.handle.logFile).split('\n')) {
-        if (!line.includes('the semantic history search is ready')) continue;
-        try {
-          const key = JSON.parse(line).indexKey;
-          if (typeof key === 'string') return key;
-        } catch {
-          // Not a JSON line.
-        }
-      }
+      const seen = readSemanticLog(readText(srv.handle.logFile));
+      if (seen.indexKey !== null) return seen.indexKey;
+      if (seen.off.length > 0)
+        throw new MeasurementError(`the semantic search turned itself off (${describeOff(seen.off[0])})`);
       return false;
     },
-    { timeoutMs: state.timing.readyMs },
+    { timeoutMs: state.timing.readyMs, progress },
   );
 }
 
@@ -1361,6 +1522,8 @@ function heapLimitOf(env) {
 }
 
 async function launch(state, { label, semantic, home, mode = 'cloud' }) {
+  if (state.deadlineExceeded)
+    throw new MeasurementError('the run deadline passed before this server started');
   const port = await freePort();
   const controlPort = await freePort();
   const runOut = join(state.options.out, label);
@@ -1407,11 +1570,60 @@ async function launch(state, { label, semantic, home, mode = 'cloud' }) {
   return srv;
 }
 
+/**
+ * The technical facts of a failed run, read while the failed server is still in hand: where it stopped, how the
+ * server ended (`running`, `code N`, `signal S`), why the semantic search was off, the container's cumulative OOM
+ * kills and memory, the index progress and what the open phase had measured. Numbers and technical codes; the only
+ * text is the run's own error line and the server's short messages, cut to technical characters (`safeDetail`).
+ */
+export function collectFailure(state, srv, error) {
+  const attempt = (read) => {
+    try {
+      return read();
+    } catch {
+      return null;
+    }
+  };
+  const stat = attempt(() => state.host.cgroup.stat());
+  const open = state.windows.filter((win) => !win.closed).at(-1);
+  return {
+    step: srv?.label ?? null,
+    error: safeDetail(error instanceof Error ? error.message : error, 300),
+    serverExit: srv?.handle.exit ?? null,
+    deadlineExceeded: state.deadlineExceeded,
+    elapsedSeconds: Math.round((performance.now() - state.startedAt) / 1000),
+    semanticOff: srv?.semantic
+      ? (attempt(() => readSemanticLog(readText(srv.handle.logFile)).off.slice(0, 3)) ?? [])
+      : [],
+    cgroup: stat
+      ? {
+          memoryCurrentBytes: stat.current,
+          swapCurrentBytes: stat.swapCurrent,
+          oomKillsTotal: stat.oomKill,
+        }
+      : null,
+    index: srv
+      ? attempt(() => {
+          const { chunks, textDirty, semanticDirty, semanticComplete } = databaseFactsOf(
+            state,
+            srv.home,
+          ).index();
+          return { chunks, textDirty, semanticDirty, semanticComplete };
+        })
+      : null,
+    openPhase: open ? attempt(() => open.close('failed')) : null,
+  };
+}
+
 /** Starts a server, runs `body(srv)` and always stops it (unless the body ended it). */
 async function withServer(state, spec, body) {
   const srv = await launch(state, spec);
   try {
     return await body(srv);
+  } catch (error) {
+    // The facts of a failure are read before the server is stopped; the first failure is the one that counts.
+    state.failure ??= collectFailure(state, srv, error);
+    throw error;
   } finally {
     await stopServer(srv.handle);
     state.current = null;
@@ -1419,16 +1631,20 @@ async function withServer(state, spec, body) {
 }
 
 function openWindowOn(state, srv) {
-  return openWindow({
+  const win = openWindow({
     host: state.host,
     handle: srv.handle,
     probeFile: srv.probeFile,
     databaseFacts: databaseFactsOf(state, srv.home),
   });
+  state.windows.push(win);
+  return win;
 }
 
+/** Closes a window and keeps the phase at once, so a later failure still reports what was measured. */
 function closePhase(state, win, name) {
   const phase = win.close(name);
+  state.phases.push(phase);
   state.networkPeers = Math.max(state.networkPeers, win.externalPeers);
   if (win.failures > 0) state.failed = true;
   state.peakSources = win.peakSources;
@@ -1466,7 +1682,7 @@ async function prepareHome(state) {
           const index = facts.index(expected);
           return index.allPresent && index.textDirty === 0;
         },
-        { timeoutMs: state.timing.backfillMs },
+        { timeoutMs: state.timing.backfillMs, progress: progressOf(state, srv, facts) },
       );
     },
   );
@@ -1485,34 +1701,37 @@ async function measureOff(state, label, name, home, seconds) {
 }
 
 async function measureSemantic(state) {
-  const phases = [];
-  let recall = null;
   await withServer(state, { label: 'on', semantic: true, home: state.homeOn }, async (srv) => {
     const cold = openWindowOn(state, srv);
     state.modelIndexKey = await waitReady(state, srv, { semantic: true });
     await establish(state, srv, { create: false });
-    phases.push(closePhase(state, cold, 'cold_load'));
+    closePhase(state, cold, 'cold_load');
 
     const facts = databaseFactsOf(state, srv.home);
+    // A semantic search that turned itself off does not come back while nobody searches: stop waiting for it.
     const complete = () => {
+      guardSemantic(srv);
       const index = facts.index();
       return index.semanticComplete && index.semanticDirty === 0 && index.textDirty === 0;
     };
     const backfill = openWindowOn(state, srv);
-    await waitUntil(srv, 'the semantic backfill', complete, { timeoutMs: state.timing.backfillMs });
-    phases.push(closePhase(state, backfill, 'backfill'));
+    await waitUntil(srv, 'the semantic backfill', complete, {
+      timeoutMs: state.timing.backfillMs,
+      progress: progressOf(state, srv, facts),
+    });
+    closePhase(state, backfill, 'backfill');
     state.chunks = facts.index().chunks;
 
     const warm = openWindowOn(state, srv);
     for (let pass = 0; pass < WARM_PASSES; pass += 1) {
       const result = await questionPass(state, srv, warm);
-      if (pass === 0) recall = result;
+      if (pass === 0) state.recall = result;
     }
-    phases.push(closePhase(state, warm, 'warm'));
+    closePhase(state, warm, 'warm');
 
     const mixed = openWindowOn(state, srv);
     await driveLoad(state, srv, mixed, state.options.mixedSeconds * 1000);
-    phases.push(closePhase(state, mixed, 'mixed'));
+    closePhase(state, mixed, 'mixed');
 
     // Interrupt the indexing: a burst of new text, and the process is killed while the embedding is still at it.
     const before = facts.index().chunks;
@@ -1541,15 +1760,15 @@ async function measureSemantic(state) {
       srv,
       'the semantic index after the restart',
       () => {
+        guardSemantic(srv);
         const index = facts.index();
         return index.semanticComplete && index.semanticDirty === 0 && index.textDirty === 0;
       },
-      { timeoutMs: state.timing.backfillMs },
+      { timeoutMs: state.timing.backfillMs, progress: progressOf(state, srv, facts) },
     );
     await questionPass(state, srv, win);
-    phases.push(closePhase(state, win, 'restart'));
+    closePhase(state, win, 'restart');
   });
-  return { phases, recall };
 }
 
 /**
@@ -1566,7 +1785,14 @@ export async function runProfile({
   timing = {},
 }) {
   const out = options.out;
+  const startedAt = performance.now();
   const state = {
+    startedAt,
+    phases: [],
+    windows: [],
+    recall: null,
+    failure: null,
+    deadlineExceeded: false,
     options,
     fixture,
     host,
@@ -1599,28 +1825,39 @@ export async function runProfile({
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
-  const phases = [];
-  let recall = null;
+  // The run's own deadline: it ends the server in hand, the run falls through to its report, and the container
+  // is never cut off from outside with nothing written.
+  const deadline =
+    options.maxSeconds > 0
+      ? setTimeout(() => {
+          state.deadlineExceeded = true;
+          state.current?.handle.child.kill('SIGKILL');
+        }, options.maxSeconds * 1000)
+      : null;
+  deadline?.unref();
+
   let serverFailed = false;
   try {
     await prepareHome(state);
-    phases.push(await measureOff(state, 'off', 'off', state.homeOff, state.timing.baselineSeconds));
-    const semantic = await measureSemantic(state);
-    phases.push(...semantic.phases);
-    recall = semantic.recall;
-    phases.push(
-      await measureOff(state, 'off-again', 'off_again', state.homeOn, state.timing.baselineSeconds),
-    );
+    await measureOff(state, 'off', 'off', state.homeOff, state.timing.baselineSeconds);
+    await measureSemantic(state);
+    await measureOff(state, 'off-again', 'off_again', state.homeOn, state.timing.baselineSeconds);
   } catch (error) {
     serverFailed = true;
+    state.failure ??= collectFailure(state, null, error);
     log(`the run stopped: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
+    if (deadline) clearTimeout(deadline);
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
+    for (const win of state.windows) win.stop();
     if (state.current) await stopServer(state.current.handle);
   }
 
-  const ordered = PHASE_NAMES.map((name) => phases.find((phase) => phase.name === name)).filter(Boolean);
+  const { recall } = state;
+  const ordered = PHASE_NAMES.map((name) => state.phases.find((phase) => phase.name === name)).filter(
+    Boolean,
+  );
   const extraRssBytes = extraRssOf(ordered);
   const memoryLimitBytes = host.cgroup.memoryMax;
   const verdict = evaluate({
@@ -1632,6 +1869,7 @@ export async function runProfile({
     networkAttempts: state.networkPeers,
     restartInterrupted: state.restartInterrupted,
     serverFailed: serverFailed || state.failed,
+    deadlineExceeded: state.deadlineExceeded,
   });
   const report = buildReport({
     sourceVersion: /^[0-9A-Za-z._-]{1,64}$/.test(parentEnv.PROJECTMAN_VERSION ?? '')
@@ -1651,6 +1889,7 @@ export async function runProfile({
     extraRssBytes,
     outcome: verdict.outcome,
     reasonCodes: verdict.reasonCodes,
+    failure: state.failure ?? undefined,
   });
   const extras = {
     versions: `heap limit ${state.heapLimitMb} MiB; probe ${PROBE_MS} ms; peaks per phase: process ${state.peakSources?.process ? 'reset' : 'sampled'}, cgroup ${state.peakSources?.cgroup ? 'reset' : 'sampled'}; interrupted indexing before the restart: ${state.restartInterrupted}`,
@@ -1733,5 +1972,7 @@ export async function main(argv, deps = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  process.exitCode = await main(process.argv.slice(2));
+  // The report is written (synchronously) before main returns; nothing a failed run left open may keep the
+  // container waiting for a report that is already on disk.
+  process.exit(await main(process.argv.slice(2)));
 }

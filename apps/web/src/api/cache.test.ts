@@ -27,11 +27,11 @@ import { queryKeys } from './queryKeys';
 const KEY = 'AC';
 it('refreshes grant state and audit after an owner changes machine access', () => {
   const client = new QueryClient();
-  client.setQueryData(['operator-grant'], {});
-  client.setQueryData(['operator-grant-audit'], {});
+  client.setQueryData(queryKeys.operatorGrant, {});
+  client.setQueryData(queryKeys.operatorGrantAudit, {});
   applyServerEvent(client, { type: 'operator_grant_changed' });
-  expect(client.getQueryState(['operator-grant'])?.isInvalidated).toBe(true);
-  expect(client.getQueryState(['operator-grant-audit'])?.isInvalidated).toBe(true);
+  expect(client.getQueryState(queryKeys.operatorGrant)?.isInvalidated).toBe(true);
+  expect(client.getQueryState(queryKeys.operatorGrantAudit)?.isInvalidated).toBe(true);
 });
 it('refreshes super DTOs when their timeline changes without executing an operation', () => {
   const client = new QueryClient();
@@ -278,6 +278,21 @@ describe('applyServerEvent', () => {
     applyServerEvent(client, { type: 'config_changed', projectKey: KEY, version: 'abc1234' });
     expect(client.getQueryState(queryKeys.board(KEY))!.isInvalidated).toBe(true);
     expect(client.getQueryState(queryKeys.members(KEY))!.isInvalidated).toBe(true);
+  });
+});
+
+describe('the Operator queue events', () => {
+  it('reads the queue, the corner and the grant again when the queue or the grant changes', () => {
+    const client = new QueryClient();
+    const keys = [
+      queryKeys.operator(KEY),
+      queryKeys.operatorQueue(KEY, '2026-10-22T00:00:00.000Z'),
+      queryKeys.operatorGrant,
+    ];
+    keys.forEach((key) => client.setQueryData(key, {}));
+    applyServerEvent(client, { type: 'member_queue_changed', projectKey: KEY, member: 'operator' });
+    applyServerEvent(client, { type: 'operator_grant_changed' });
+    keys.forEach((key) => expect(client.getQueryState(key)!.isInvalidated).toBe(true));
   });
 });
 

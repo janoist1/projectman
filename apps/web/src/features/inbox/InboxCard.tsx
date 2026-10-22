@@ -228,9 +228,7 @@ export function InboxCard({
   const handoffPrimary =
     handoff &&
     ((handoff.reason === 'processing_failed' && !!cardHref) ||
-      (handoff.reason === 'no_grant' &&
-        handoffGrant.data?.grant.canManage &&
-        !handoffGrant.data.grant.active));
+      (handoff.reason === 'no_grant' && handoffGrant.data?.canManage && !handoffGrant.data.active));
   const group = question?.group;
   const grouped = !!group?.sources && group.primaryItemId === item.id;
   const groupAskers = [...new Set(group?.sources?.map((source) => source.asker) ?? [])];

@@ -41,8 +41,8 @@ export function SocketProvider({
       void queryClient.invalidateQueries({ queryKey: ['project'] });
       void queryClient.invalidateQueries({ queryKey: ['engines'] });
       void queryClient.invalidateQueries({ queryKey: ['integrator-keys'] });
-      void queryClient.invalidateQueries({ queryKey: ['operator-grant'] });
-      void queryClient.invalidateQueries({ queryKey: ['operator-grant-audit'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.operatorGrant });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.operatorGrantAudit });
     });
     // Whether this tab is on screen goes to the server on connect and on every change (PM-815).
     const reportVisibility = () => client.reportVisibility(document.visibilityState === 'visible');

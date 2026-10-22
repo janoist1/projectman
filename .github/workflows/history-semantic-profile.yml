@@ -28,7 +28,8 @@ jobs:
   profile:
     name: profile (linux/arm64, 2 GiB, no swap)
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 120
+    # The profile ends itself (--max-seconds) and writes its report before the step's and the job's limits.
+    timeout-minutes: 180
     env:
       IMAGE: projectman-cloud:history-semantic-profile
     steps:
@@ -63,6 +64,7 @@ jobs:
           chmod 0644 "$RUNNER_TEMP/in/fixture.json"
       - name: Run the profile
         id: profile
+        timeout-minutes: 160
         env:
           MIXED_SECONDS: ${{ inputs.mixed_seconds }}
         run: |
@@ -75,7 +77,7 @@ jobs:
             --entrypoint node "$IMAGE" /app/deploy/cloud/history-semantic-profile.mjs \
             --server /app/apps/server/dist/history-semantic-profile.js \
             --model-dir /app/apps/server/dist/models/history \
-            --fixture /in/fixture.json --out /out/profile --mixed-seconds "$MIXED_SECONDS"
+            --fixture /in/fixture.json --out /out/profile --mixed-seconds "$MIXED_SECONDS" --max-seconds 9000
           status=$?
           set -e
           echo "exit status $status"

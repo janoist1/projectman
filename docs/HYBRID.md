@@ -485,7 +485,7 @@ owner.** This tool and its tests set no live environment variable.
 docker run --rm --network none --memory 2g --memory-swap 2g -v <out>:/out -v <fixture.json>:/in/fixture.json:ro \
   --entrypoint node <image> /app/deploy/cloud/history-semantic-profile.mjs \
   --server /app/apps/server/dist/history-semantic-profile.js --model-dir /app/apps/server/dist/models/history \
-  --fixture /in/fixture.json --out /out/profile [--mixed-seconds 600]
+  --fixture /in/fixture.json --out /out/profile [--mixed-seconds 600] [--max-seconds 9000]
 ```
 
 (`--memory-swap` equal to `--memory` means no swap; the tool refuses a machine where `memory.swap.max` is not 0.
@@ -528,6 +528,16 @@ negative controls unchanged; a restart that did not follow an interrupted indexi
 searches whose status was `used`). Without the machine (not Linux ARM64, not cgroup v2 with `memory.max` up to
 2 GiB and no swap, or no `manifest.json` in the model folder) the tool writes an `unsupported` report and exits 78.
 A bad parameter, an unsafe or non-empty `--out` or a bad fixture exits 64 before anything starts.
+
+**A run that fails still reports (PM-931).** Every phase is kept as soon as it is closed, so a failed run lists the
+phases it measured. `--max-seconds` (the workflow passes 9000) is the run's own deadline: it ends the server in hand,
+adds `deadline_exceeded` and writes the report before the job's limit cuts the container off. A failed report carries
+a `failure` block (also a section of `report.md`): the server run it stopped in, how that server ended (`code N`,
+`signal S`), the container's cumulative OOM kills and memory, the index progress (chunks, text and semantic dirty
+rows), what the open phase had measured, and the warnings the server's log gave for turning the semantic search off
+(cause, error code and a short message cut to technical characters). A wait ends at once when the log says the
+semantic search turned itself off (it only comes back on a search, and nobody searches during a wait). Long waits
+print a line every 30 s with the server's RSS, the container's memory and the index progress.
 
 **The fixture** is a JSON file the owner of the check provides, and its origin is stated in it:
 `{ schemaVersion: 1, origin, project: { key }, sources: [{ id, type, title, body, path? }], questions:

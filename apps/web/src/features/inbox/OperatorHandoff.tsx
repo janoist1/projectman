@@ -26,9 +26,9 @@ export function OperatorHandoff({
         </Fold>
       ) : null}
       {handoff.reason === 'no_grant' ? (
-        grant.data?.grant.active ? (
+        grant.data?.active ? (
           <p>{t('inbox.handedOff.nowGranted')}</p>
-        ) : grant.data?.grant.canManage ? (
+        ) : grant.data?.canManage ? (
           <ButtonLink variant="primary" to={`/p/${projectKey}/settings/integrator#operator-grant`}>
             {t('inbox.handedOff.grant')}
           </ButtonLink>

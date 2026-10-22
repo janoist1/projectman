@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type {
   CloseFeedbackRequest,
@@ -54,10 +54,6 @@ import { queryKeys } from './queryKeys';
 import type { AllMessagesFilter } from './queryKeys';
 
 /* ---------- auth ---------- */
-
-export function useOperatorGrant(enabled = true) {
-  return useQuery({ queryKey: ['operator-grant'], queryFn: api.operatorGrant, enabled });
-}
 
 export function useSetupStatus() {
   return useQuery({ queryKey: queryKeys.setupStatus, queryFn: api.setupStatus, staleTime: Infinity });
@@ -1077,6 +1073,29 @@ export function useOperatorChannel(key: string, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.operator(key),
     queryFn: () => api.operator(key),
+    enabled,
+  });
+}
+
+/**
+ * The Operator's queue (PM-890): the open items and those closed since `closedSince`. A new `closedSince` keeps the
+ * list on screen while it loads, and a refetch keeps the old list when it fails.
+ */
+export function useOperatorQueue(key: string, closedSince: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.operatorQueue(key, closedSince),
+    queryFn: () => api.operatorQueue(key, closedSince),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+/** The grant of machine operations to the Operator (PM-881): whether it is active, until when, who manages it. */
+export function useOperatorGrant(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.operatorGrant,
+    queryFn: () => api.operatorGrant(),
+    select: (response) => response.grant,
     enabled,
   });
 }

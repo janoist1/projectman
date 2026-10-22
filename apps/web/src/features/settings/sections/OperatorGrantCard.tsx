@@ -6,6 +6,7 @@ import { api } from '../../../api/endpoints';
 import { useProject } from '../../../app/contexts';
 import { isApiError } from '../../../api/client';
 import { useOperatorGrant } from '../../../api/queries';
+import { queryKeys } from '../../../api/queryKeys';
 import { Button } from '../../../components/Button';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
@@ -26,7 +27,7 @@ export function OperatorGrantCard() {
   const toast = useToast();
   const [dialog, setDialog] = useState<'grant' | 'extend' | 'revoke' | null>(null);
   const [duration, setDuration] = useState<OperatorGrantDuration>('until_revoked');
-  const grant = query.data?.grant;
+  const grant = query.data;
   const active = grant?.active && (!grant.expiresAt || Date.parse(grant.expiresAt) > Date.now());
   const today =
     active && grant.expiresAt && new Date(grant.expiresAt).toDateString() === new Date().toDateString();
@@ -57,8 +58,8 @@ export function OperatorGrantCard() {
       ),
     );
     setDialog(null);
-    void client.invalidateQueries({ queryKey: ['operator-grant'] });
-    void client.invalidateQueries({ queryKey: ['operator-grant-audit'] });
+    void client.invalidateQueries({ queryKey: queryKeys.operatorGrant });
+    void client.invalidateQueries({ queryKey: queryKeys.operatorGrantAudit });
   }
   const open = (value: 'grant' | 'extend' | 'revoke') => {
     mutation.reset();

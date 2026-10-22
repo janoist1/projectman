@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from '@lydell/node-pty';
 import { defaultTestWorkers } from '@projectman/shared';
 import { configDefaults, defineConfig } from 'vitest/config';
+import { PARENT_GUARD_SETUP } from '../../scripts/lib/vitest-parent-guard.mjs';
 import { PTY_TESTS, pooledTests } from './test/isolation';
 
 /**
@@ -84,7 +85,9 @@ export default defineConfig({
       },
     ],
     // `vi.waitFor` waits 15 s instead of 1 s unless a test says otherwise (see the file).
-    setupFiles: ['test/setup/wait-for-timeout.ts'],
+    // The guard makes a forked worker leave when its parent is gone (PM-869). The `pooled` project's
+    // workers are threads, which die with the process, and its own `setupFiles` need no guard.
+    setupFiles: ['test/setup/wait-for-timeout.ts', PARENT_GUARD_SETUP],
     exclude: rootExclude,
     // Many tests start git or other child processes and write files; a test that takes under a
     // second alone (config-store "never reads a project while a save rewrites its files": 0.7 s)

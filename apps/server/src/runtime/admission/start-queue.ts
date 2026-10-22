@@ -29,7 +29,12 @@ export class StartQueue {
     this.deps.ctx.unitOfWork(write);
   }
 
-  /** False: no known AI member yet, so the legacy store still owns this start. */
+  /**
+   * False: the legacy `deferred_starts` store still owns this start. That is the case only when no
+   * member's queue can hold it: no member is chosen yet (a start that waits for any free member, a
+   * Senior, a prerequisite or a label), or the chosen one is not a known AI member (the queue driver
+   * never works another member's items, so the retry round must still see the start).
+   */
   keep({ start, waiting }: DeferredStart): boolean {
     const { ctx, projects, queue } = this.deps;
     const member = start.waitsFor();

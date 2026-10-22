@@ -10,6 +10,7 @@ import {
   setupOwner,
 } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { waitFor as waitForCondition } from './helpers/wait';
 
 interface TestSocket {
   send(data: string): void;
@@ -21,19 +22,13 @@ function collectInto(ws: TestSocket, events: ServerEvent[]): void {
   ws.on('message', (data) => events.push(JSON.parse(data.toString()) as ServerEvent));
 }
 
-async function waitFor<T extends ServerEvent>(
-  events: ServerEvent[],
-  predicate: (e: ServerEvent) => e is T,
-  timeoutMs = 2000,
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const found = events.find(predicate);
-    if (found) return found;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`event not received; got ${events.map((e) => e.type).join(', ')}`);
-}
+/** The first collected event the predicate accepts; the failure lists what did arrive. */
+const waitFor = <T extends ServerEvent>(events: ServerEvent[], predicate: (e: ServerEvent) => e is T) =>
+  waitForCondition(() => events.find(predicate), {
+    timeoutMs: 2000,
+    intervalMs: 5,
+    what: () => `an event; got ${events.map((e) => e.type).join(', ')}`,
+  });
 
 const ofType =
   <K extends ServerEvent['type']>(type: K) =>

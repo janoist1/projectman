@@ -127,6 +127,9 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(waiting(second)?.member).toBeUndefined();
     expect(task(second).assignee).toBeNull();
     expect(storedKeys()).toEqual(['work-start:AR:AR-2']);
+    // No member is chosen yet, so no member's queue can hold it: it waits in the legacy table (PM-949).
+    expect(h.repos.deferredStarts.list().map((r) => r.key)).toEqual(['work-start:AR:AR-2']);
+    expect(h.repos.memberQueue.listOpenOfType('start')).toEqual([]);
     expect(h.runner.started).toHaveLength(1);
 
     // Calling the developer back frees a place: the card starts without anyone asking.

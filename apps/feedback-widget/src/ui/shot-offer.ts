@@ -5,7 +5,7 @@ import type { TextKey } from '../i18n/hu';
  * What the new-mark card offers about the browser's screen-sharing picture, and what its status line
  * says (PM-921). Pure, so that every branch of the state table is tested without rendering.
  */
-export type BrowserOffer = 'none' | 'button' | 'link' | 'asking';
+type BrowserOffer = 'none' | 'button' | 'link' | 'asking';
 
 export function browserOffer(draft: Draft, canShare: boolean, sharing: boolean): BrowserOffer {
   if (!canShare) return 'none';
@@ -22,7 +22,7 @@ export function browserOffer(draft: Draft, canShare: boolean, sharing: boolean):
 export const browserAskKey = (draft: Draft): TextKey =>
   draft.shot.status === 'pending' ? 'new.browserShotAskWait' : 'new.browserShotAskReady';
 
-export interface ShotNote {
+interface ShotNote {
   key: TextKey;
   /** The send goes on, but not with what the user asked for: the line is a warning. */
   warn: boolean;

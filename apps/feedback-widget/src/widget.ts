@@ -5,7 +5,7 @@ import { HOST_ATTRIBUTE } from './screenshot';
 import { App } from './ui/App';
 import { paletteVariables } from './ui/common';
 
-export interface MountOptions {
+interface MountOptions {
   win: Window;
   /** The origin of the projectman server the widget talks to. */
   base: string;
@@ -14,7 +14,7 @@ export interface MountOptions {
   fetchImpl?: typeof fetch;
 }
 
-export interface Mounted {
+interface Mounted {
   controller: Controller;
   host: HTMLElement;
   unmount(): void;

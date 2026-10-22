@@ -1,7 +1,7 @@
 import type { FeedbackMarkView } from '@projectman/shared';
 import type { TextKey } from './i18n';
 
-export type StatusKey = 'new' | 'working' | 'answered' | 'card' | 'waiting_owner' | 'closed';
+type StatusKey = 'new' | 'working' | 'answered' | 'card' | 'waiting_owner' | 'closed';
 
 /**
  * The label state of a mark. The widget API does not give the owner's name, so a mark that waits for

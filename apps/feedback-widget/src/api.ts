@@ -38,7 +38,7 @@ export interface Api {
   logout(): Promise<void>;
 }
 
-export interface ApiOptions {
+interface ApiOptions {
   /** The origin the widget script was loaded from. */
   base: string;
   token: () => string | null;

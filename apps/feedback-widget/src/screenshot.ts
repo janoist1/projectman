@@ -14,9 +14,9 @@ import type { Point, Rect } from './anchor';
 export const MAX_SHOT_WIDTH = 1600;
 /** The server's limit (`MAX_FEEDBACK_SCREENSHOT_BYTES`; only types come from `shared` into the bundle). */
 export const MAX_SHOT_BYTES = 2_000_000;
-export const SHOT_QUALITIES = [0.8, 0.6] as const;
+const SHOT_QUALITIES = [0.8, 0.6] as const;
 /** How long one image may take; the whole picture has 20 s (`SHOT_TIMEOUT_MS` in the controller). */
-export const RESOURCE_TIMEOUT_MS = 5000;
+const RESOURCE_TIMEOUT_MS = 5000;
 /** Images this far (CSS px) outside the window are still downloaded, so a small scroll shows no blanks. */
 const OFFSCREEN_MARGIN = 200;
 const MAX_REPORTED_URLS = 5;
@@ -210,7 +210,7 @@ export function createImageFetcher(
 
 // --- the picture
 
-export interface RenderHooks {
+interface RenderHooks {
   /** Nodes that stay out of the picture (the widget's own). */
   skip(node: Node): boolean;
   /** Loads an image as a data URL (never rejects). */
@@ -218,7 +218,7 @@ export interface RenderHooks {
 }
 
 /** The one place that calls the rendering library: the visible part of the page as a canvas. */
-export function renderViewport(
+function renderViewport(
   win: Window,
   size: { width: number; height: number; scale: number },
   hooks: RenderHooks,

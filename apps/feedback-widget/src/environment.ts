@@ -4,7 +4,7 @@ const clamp = (value: number, min: number, max: number): number => Math.min(max,
 const major = (match: RegExpMatchArray | null): string => (match?.[1] ? ` ${match[1]}` : '');
 
 /** The browser name and major version from the user agent (a rough label for the processor). */
-export function browserOf(userAgent: string): string {
+function browserOf(userAgent: string): string {
   const pick = (re: RegExp): RegExpMatchArray | null => re.exec(userAgent);
   const edge = pick(/Edg(?:e|A|iOS)?\/(\d+)/);
   if (edge) return `Edge${major(edge)}`;
@@ -19,7 +19,7 @@ export function browserOf(userAgent: string): string {
   return 'unknown';
 }
 
-export function osOf(userAgent: string): string {
+function osOf(userAgent: string): string {
   if (/Windows/.test(userAgent)) return 'Windows';
   if (/Android/.test(userAgent)) return 'Android';
   if (/iPhone|iPad|iPod/.test(userAgent)) return 'iOS';

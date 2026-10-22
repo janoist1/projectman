@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
 import type { RefObject } from 'preact';
 import type { Controller, State } from '../controller';
 
@@ -45,7 +45,7 @@ export function useViewTick(active: boolean): number {
 }
 
 /** The viewport width at which sheets replace the floating cards. */
-export const PHONE_WIDTH = 640;
+const PHONE_WIDTH = 640;
 
 export function useIsPhone(): boolean {
   const [phone, setPhone] = useState(window.innerWidth < PHONE_WIDTH);
@@ -75,11 +75,4 @@ export function useDialogFocus(
     };
     // Only on open and close.
   }, []);
-}
-
-/** A ref that always holds the latest value (for handlers that outlive a render). */
-export function useLatest<T>(value: T): RefObject<T> {
-  const ref = useRef(value);
-  ref.current = value;
-  return ref;
 }

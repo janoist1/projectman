@@ -134,6 +134,11 @@ export const V92_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('merge_check_runs', 'operation', 'id', WRITES),
 ];
 
+/** Migration 100 (PM-885) rebuilds these two tables of migration 81, which drops their triggers: it creates them again. */
+export const V100_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CHANGE_TRIGGER_TABLES.filter(
+  (entry) => entry.table === 'operator_requests' || entry.table === 'operator_steps',
+);
+
 export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ...V81_CHANGE_TRIGGER_TABLES,
   ...V83_CHANGE_TRIGGER_TABLES,

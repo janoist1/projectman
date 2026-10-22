@@ -17,6 +17,7 @@ import {
   MessageTools,
   AdmissionTools,
   WatcherTools,
+  OperatorQueueTools,
   SessionTools,
   ExternalTools,
 } from './mcp';
@@ -170,9 +171,18 @@ import { QuestionClosing } from './core/inbox';
 import { InvitationService } from './core/members';
 import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
-import { MemberQueue } from './core/member-queue';
+import { MemberQueue, OperatorQueueFinisher } from './core/member-queue';
 import { MessageDelivery } from './runtime/delivery';
-import { MemberQueueWorker, decisionLane, messageLane, startLane } from './runtime/member-queue';
+import {
+  MemberQueueWorker,
+  decisionLane,
+  messageLane,
+  operatorLane,
+  screeningLane,
+  signalLane,
+  startLane,
+  OperatorQueueReminder,
+} from './runtime/member-queue';
 import { PlanUsageMonitor } from './runtime/usage';
 import { PresenceService } from './core/members';
 import { OWNER_HANDLE, ProjectService } from './core/projects';
@@ -604,6 +614,8 @@ export function createDomain(opts: DomainOptions) {
     engines,
     attachmentDirectory,
   });
+  // The Operator ends its queue items here (`finish_queue_item`, and the hand-off of one it could not finish).
+  const operatorQueueFinisher = new OperatorQueueFinisher({ ctx, projects, queue: memberQueue, inbox });
   // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
   const runnerModule = opts.createRunner(
     {
@@ -985,11 +997,26 @@ export function createDomain(opts: DomainOptions) {
     queue: memberQueue,
     admission,
     sessions,
-    type: (session, item, text) => delivery.notice(session, item.from ?? SYSTEM_SENDER, text, item.taskKey),
+    // The screening and the signals are projectman's own notices: the asker of a question is no sender of them.
+    type: (session, item, text) =>
+      item.kind === 'screening' || item.kind === 'signal'
+        ? delivery.notice(session, 'projectman', text, null)
+        : delivery.notice(session, item.from ?? SYSTEM_SENDER, text, item.taskKey),
   });
-  memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messaging, delivery }));
+  // The Operator's lane goes before the messages': it takes the AI and system action messages it applies to.
+  memberQueueDriver.register(
+    operatorLane({
+      ctx,
+      projects,
+      messages,
+      requests: operatorRequests,
+      sessions,
+      finisher: operatorQueueFinisher,
+    }),
+  );
   // What an AI member decides at its desk (PM-926): the lane never waits for a workspace, and the time to decide
-  // counts from the delivery. Each source tells what its request needs of the lane.
+  // counts from the delivery. Each source tells what its request needs of the lane. It owns the lead's fix
+  // limit decisions only; the Operator's fix limit items (an inbox source) are the Operator lane's above.
   const heldAtOf = (item: { source: { id: string } }): string =>
     item.source.id.slice(item.source.id.lastIndexOf('@') + 1);
   memberQueueDriver.register(
@@ -1022,6 +1049,7 @@ export function createDomain(opts: DomainOptions) {
       },
     }),
   );
+  memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messaging, delivery }));
   memberQueueDriver.register(
     startLane({
       ctx,
@@ -1032,6 +1060,22 @@ export function createDomain(opts: DomainOptions) {
       rebuild: (spec) => rebuildDeferredStart(spec),
     }),
   );
+  // An Operator turn that ends with its item open is reminded once, then the item goes to the owner.
+  const operatorQueueReminder = new OperatorQueueReminder({
+    ctx,
+    projects,
+    requests: operatorRequests,
+    delivery,
+    finisher: operatorQueueFinisher,
+  });
+  events.on('session_idle', (session) => {
+    operatorQueueReminder.turnEnded(session).catch((err: unknown) => {
+      opts.logger.warn(
+        { err, sessionId: session.id },
+        'reminding the Operator of its open queue item failed',
+      );
+    });
+  });
   messaging.registerWaker({
     wake: (projectKey, handle, workItem) => memberQueueDriver.wake(projectKey, handle, workItem),
     // A hold lifted by the messaging (a release, a resumed session) is no turn boundary of its own: the lane
@@ -1359,7 +1403,8 @@ export function createDomain(opts: DomainOptions) {
     projects,
     sessions,
     admission,
-    delivery,
+    queue: memberQueue,
+    wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
     releases,
@@ -1392,10 +1437,9 @@ export function createDomain(opts: DomainOptions) {
   const questionScreening = new QuestionScreening({
     ctx,
     projects,
-    sessions,
-    admission,
-    delivery,
     inbox,
+    queue: memberQueue,
+    wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     // The PM's machine from the engine directory; the last confirmed online moment is the registry's own
     // record (`last_seen_at`, written on connect and on every pong), which survives a restart of this server.
     engine: {
@@ -1408,6 +1452,9 @@ export function createDomain(opts: DomainOptions) {
     },
     enabled: opts.screenQuestions ?? true,
   });
+  // The project manager's lanes (PM-885): the questions it screens and the system signals it is given.
+  memberQueueDriver.register(screeningLane({ screening: questionScreening }));
+  memberQueueDriver.register(signalLane({ signals: operatorSignals }));
   const finishOperatorSignals = (session: Session) => {
     const config = projects.cachedConfig(session.projectKey);
     if (config && session.member === coordinationMemberOf(config)?.handle)
@@ -1707,6 +1754,7 @@ export function createDomain(opts: DomainOptions) {
       messages: new MessageTools({ calls: toolCaller, ctx, messaging, operatorRequests, messageAttachments }),
       admission: new AdmissionTools({ calls: toolCaller, handoffs }),
       watchers: new WatcherTools({ calls: toolCaller, fixLimit }),
+      operatorQueue: new OperatorQueueTools({ projects, finisher: operatorQueueFinisher }),
       sessions: new SessionTools({ calls: toolCaller, ctx, sessions }),
     },
   });
@@ -1828,9 +1876,16 @@ export function createDomain(opts: DomainOptions) {
       case 'loop_notice':
         return loopWatch.rebuild(spec);
       case 'operator_signals':
-        return operatorSignals.rebuild(spec);
       case 'question_screening':
-        return questionScreening.rebuild(spec);
+        // Stored by an older build: the PM's queue holds these items now; the row is dropped (PM-885).
+        background.run(
+          () =>
+            spec.kind === 'operator_signals'
+              ? operatorSignals.deliver(spec.projectKey)
+              : questionScreening.enqueue(spec.projectKey),
+          (err) => opts.logger.warn({ err, projectKey: spec.projectKey }, 'working the PM queue failed'),
+        );
+        return null;
       case 'handoff_takeover':
         return handoffs.rebuild(spec);
     }
@@ -1945,7 +2000,7 @@ export function createDomain(opts: DomainOptions) {
       projects,
       hasOpenRequest: (sessionId) => {
         const source = operatorRequests.openFor(sessionId)?.source;
-        return source === 'message' || source === 'answer';
+        return source === 'message' || source === 'answer' || source === 'queue';
       },
     }),
     user: (id) => ctx.repos.users.get(id),
@@ -2683,8 +2738,8 @@ export function createDomain(opts: DomainOptions) {
           run: async () => operatorApprovals.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
         },
-        // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
-        // people (PM-558). A question that waited through a restart is looked at now.
+        // An Operator that cannot process its queue any more leaves no one to look at its todos and held
+        // decisions: they go to the owners (PM-885). No timeout otherwise — the Operator's queue is the clock.
         {
           name: 'integrator-todos',
           everyMs: 30_000,
@@ -2692,6 +2747,8 @@ export function createDomain(opts: DomainOptions) {
           run: () => inbox.sweepIntegratorTodos(),
           onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
         },
+        // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
+        // people (PM-558). A question that waited through a restart is looked at now.
         {
           name: 'question-screening',
           everyMs: opts.questionScreeningMs ?? 30_000,

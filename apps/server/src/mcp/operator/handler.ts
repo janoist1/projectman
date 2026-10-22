@@ -314,8 +314,8 @@ export class OperatorTools implements OperatorToolsHandler {
 
   /**
    * The Operator's own call on the shared super-operation path (PM-888): the base Operator, in its own general
-   * conversation, during a direct internal owner request (a message or an answer; not an approval continuation,
-   * a signal or a guest). Returns the caller whose request the credential of the call stands on.
+   * conversation, during a direct internal owner request (a message or an answer) or a queue item (PM-885); not an
+   * approval continuation, a signal or a guest. Returns the caller whose request the credential of the call stands on.
    */
   private async appCaller(ctx: ToolContext, tool: string) {
     const caller = await this.calls.callerWithRequest(ctx, tool);
@@ -325,7 +325,9 @@ export class OperatorTools implements OperatorToolsHandler {
     if (
       !caller.request ||
       caller.guest ||
-      (caller.request.source !== 'message' && caller.request.source !== 'answer') ||
+      (caller.request.source !== 'message' &&
+        caller.request.source !== 'answer' &&
+        caller.request.source !== 'queue') ||
       !session ||
       session.projectKey !== ctx.projectKey ||
       session.member !== ctx.member ||

@@ -36,6 +36,7 @@ export const ERROR_CODES = [
   'integrator_read_only',
   'merge_queue_conflict',
   'owner_login_required',
+  'queue_item_not_processing',
   // Requests, login and access
   'bad_request',
   'invalid_json',

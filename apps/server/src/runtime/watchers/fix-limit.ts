@@ -335,7 +335,9 @@ export class FixLimitWatch {
       const actor =
         (item.resolution?.integratorFixLimit || item.resolution?.superDecision) && item.resolution.actor
           ? item.resolution.actor
-          : humanActor(by);
+          : item.resolution?.operatorQueue
+            ? aiActor(by)
+            : humanActor(by);
       const note = item.resolution?.note ?? null;
       switch (item.resolution?.optionId) {
         case FIX_ANOTHER_ROUND_OPTION.id:

@@ -16,6 +16,7 @@ import type {
   HistorySourceRead,
   HistoryStatsInput,
   MemberHandle,
+  MemberQueueItem,
   MergeCheckRun,
   MergeCheckRunKind,
   OperatorDiagnostics,
@@ -641,6 +642,7 @@ export interface TeamToolsHandler
     MessageToolsHandler,
     AdmissionToolsHandler,
     WatcherToolsHandler,
+    OperatorQueueToolsHandler,
     SessionToolsHandler {}
 
 /** What read_history_source takes: one source of the project's history, read in lines (PM-787). */
@@ -783,6 +785,30 @@ export interface WatcherToolsHandler {
       assessment?: unknown;
     },
   ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
+}
+
+export interface OperatorQueueToolsHandler {
+  /**
+   * finish_queue_item (PM-885): the Operator ends the item of its work queue it is working on (the session's
+   * own, `processing`): done, or handed to the owner with a reason and the action to take. 409
+   * `queue_item_not_processing` when the item is not this session's open one.
+   */
+  finishQueueItem(
+    ctx: ToolContext,
+    args: {
+      itemId: string;
+      outcome: 'done' | 'handed_off';
+      summary: string;
+      operationIds: string[];
+      fixLimitOption?: 'replan' | 'reassign' | 'another_round';
+      handoff?: {
+        reason: 'owner_reserved' | 'no_typed_operation' | 'no_grant';
+        action: string;
+        detail?: string;
+        operationId?: string;
+      };
+    },
+  ): Promise<{ item: MemberQueueItem }>;
 }
 
 export interface SessionToolsHandler {

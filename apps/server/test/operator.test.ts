@@ -287,12 +287,15 @@ describe('the Operator is fixed (PM-473)', () => {
 });
 
 describe('the Operator works only on the owner’s request (PM-447)', () => {
-  const noWake = async (from: string, via?: 'integrator') => {
+  const noWake = async (from: string, via?: 'integrator', kind?: 'info') => {
     const result = await h.domain.messaging.sendReporting(
       'AR',
       from,
       { to: ['operator'], text: 'Please change something.' },
-      via ? { actor: { ...OWNER_ACTOR, via } } : from === 'owner' ? undefined : { actor: aiActor(from) },
+      {
+        ...(kind ? { kind } : {}),
+        ...(via ? { actor: { ...OWNER_ACTOR, via } } : from === 'owner' ? {} : { actor: aiActor(from) }),
+      },
     );
     await flush();
     return result.recipients;
@@ -304,11 +307,11 @@ describe('the Operator works only on the owner’s request (PM-447)', () => {
     expect(h.runner.started.length).toBeGreaterThan(0);
   });
 
-  it('does not start it for a message from another AI member, and says why', async () => {
+  it('does not start it for an information message from another AI member', async () => {
     h = await createDomainHarness();
     const before = h.runner.started.length;
-    expect(await noWake('dev-1')).toEqual([
-      { handle: 'operator', delivery: 'next_input', noWake: 'operator_owner_only' },
+    expect(await noWake('dev-1', undefined, 'info')).toEqual([
+      { handle: 'operator', delivery: 'next_input', info: true },
     ]);
     expect(h.runner.started).toHaveLength(before);
     // Not lost: it waits for the next time the owner talks to the Operator.

@@ -228,10 +228,11 @@ describe('integrator fix limit decision rules (PM-714)', () => {
     expect(
       planIntegratorInboxEscalation({ ...item, state: 'resolved' }, '2026-10-19T00:00:00.000Z', ['owner']),
     ).toBeNull();
-    // A todo cannot be handed on early: only the timeout moves it.
+    // The Operator hands a todo on at once (PM-885).
     expect(
-      planIntegratorInboxEscalation(todo(), '2026-10-17T11:00:00.000Z', ['owner'], 'integrator_passed_on'),
-    ).toBeNull();
+      planIntegratorInboxEscalation(todo(), '2026-10-17T11:00:00.000Z', ['owner'], 'integrator_passed_on')
+        ?.payload,
+    ).toMatchObject({ recipient: 'owner', integratorEscalationReason: 'integrator_passed_on' });
     expect(planIntegratorInboxEscalation(todo(), '2026-10-18T10:00:00.000Z', ['owner'])).not.toBeNull();
   });
 });

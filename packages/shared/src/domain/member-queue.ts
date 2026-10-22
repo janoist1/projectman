@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { memberOf } from '../config/lookup';
-import { isOperator, operatorConversationOf } from '../config/operator-member';
+import { isOnLeave } from '../config/leave';
+import { isOperator, operatorConversationOf, operatorOf } from '../config/operator-member';
 import { sessionWorkItemOf } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 import { MemberHandle } from './member';
@@ -230,6 +231,15 @@ export function memberQueueStartLimits(
     return { capacity: place?.type === 'general' && place.with !== undefined, aiLimit: false };
   const free = kind === 'permission' || kind === 'boundary' || kind === 'fix_limit' || kind === 'screening';
   return { capacity: !free, aiLimit: !free };
+}
+
+/**
+ * The Operator processes its queue: one exists (`operatorOf`), not on leave, and the team's AI is enabled
+ * (PM-885). Otherwise todos and fix-limit decisions stay the owner's (`integrator_unavailable`).
+ */
+export function operatorQueueAvailable(config: Pick<ProjectConfig, 'team'>): boolean {
+  const operator = operatorOf(config);
+  return !!operator && !isOnLeave(operator) && config.team.limits.aiEnabled;
 }
 
 /**

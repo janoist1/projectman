@@ -6,7 +6,6 @@ import {
   STRUCTURAL_WINDOW_MS,
 } from '../src/services/operator/structural-patterns';
 import type { StructuralSignalRef } from '../src/services/operator/structural-patterns';
-import { conflict } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -35,6 +34,9 @@ async function setup(activePm = false) {
   for (const kind of ['structural_pattern', 'milestone_closed'] as const)
     h.repos.operatorSignals.arm('AR', kind, '2026-09-01T00:00:00.000Z');
 }
+/** The member queue's driver does not run, so only the reads of the signal service itself are counted. */
+const holdTheDriver = () =>
+  vi.spyOn(h.domain.memberQueueDriver, 'ensure').mockImplementation(async () => undefined as never);
 const config = () => h.domain.projects.cachedConfig('AR')!;
 const report = (until?: string) => new StructuralPatterns(h.domain.ctx).report(config(), until);
 const card = (title = 'Card') => h.domain.tasks.create('AR', { title, repo: 'web' }, OWNER_ACTOR);
@@ -348,26 +350,27 @@ describe('synchronous structural evaluations (PM-783)', () => {
     expect(states).toHaveBeenCalledTimes(1);
   });
 
-  it('shares the evaluation across all pending signals and starts a fresh one for each stillValid call', async () => {
+  it('shares the evaluation across all pending signals and starts a fresh one for each holdsBack call', async () => {
     const { refs, subtasks } = await mixed();
-    for (const ref of refs) {
+    const ids = refs.map((ref) => {
       const signal = h.domain.operatorSignals.raise({ ...ref, caseKey: `fixture:${ref.subject}` });
       h.repos.db
         .prepare('UPDATE operator_signals SET raised_at = ? WHERE id = ?')
         .run(ref.raisedAt, signal.id);
-    }
+      return signal.id;
+    });
+    holdTheDriver();
     const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
     const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
-    const start = h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' })!;
-    expect(start).not.toBeNull();
+    await h.domain.operatorSignals.deliver('AR');
     expect(evidence).toHaveBeenCalledTimes(2);
     expect(states).toHaveBeenCalledTimes(1);
-    expect(start.stillValid()).toBe(true);
+    expect(h.domain.operatorSignals.holdsBack('AR', ids[0]!)).toBe(false);
     expect(evidence).toHaveBeenCalledTimes(4);
     // Changing a card invalidates its milestone and the patterns that need both cards.
     h.repos.tasks.update(subtasks[1]!.id, { parentKey: null });
     h.repos.db.prepare('DELETE FROM timeline_events WHERE task_key = ?').run(subtasks[1]!.key);
-    expect(start.stillValid()).toBe(false);
+    expect(h.domain.operatorSignals.holdsBack('AR', ids[0]!)).toBe(true);
     expect(evidence).toHaveBeenCalledTimes(5); // No historical pattern read without a current subject.
     expect(
       h.repos.operatorSignals
@@ -390,10 +393,10 @@ describe('synchronous structural evaluations (PM-783)', () => {
         projectKey: 'missing',
       }),
     ).toBeNull();
-    expect(h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' })).not.toBeNull();
+    await h.domain.operatorSignals.deliver('AR');
     const signal = h.domain.operatorSignals.raise({ ...refs[1]!, caseKey: 'fixture:resolved' });
     h.domain.operatorSignals.resolve('AR', signal.caseKey);
-    h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' });
+    await h.domain.operatorSignals.deliver('AR');
     expect(evidence).not.toHaveBeenCalled();
   });
 
@@ -409,25 +412,21 @@ describe('synchronous structural evaluations (PM-783)', () => {
     expect(evidence).toHaveBeenCalledTimes(2);
   });
 
-  it('shares the sweep report with pre-admission delivery and remains fresh after config awaits', async () => {
+  it('shares the sweep report with the delivery and remains fresh when the lane asks later', async () => {
     const { subtasks } = await mixed();
-    const attempt = vi.spyOn(h.domain.admission, 'attempt').mockResolvedValue({ kind: 'done' });
+    holdTheDriver();
     const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
     const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
     await h.domain.operatorSignals.sweep('AR');
     expect(evidence).toHaveBeenCalledTimes(1); // report, pending and all original windows coincide.
     expect(states).toHaveBeenCalledTimes(1);
-    const start = attempt.mock.calls.find(([entry]) => entry.key === 'operator-signals:AR')![0];
-    const load = h.domain.projects.config.bind(h.domain.projects);
-    vi.spyOn(h.domain.projects, 'config').mockImplementation(async (key) => {
-      const config = await load(key);
-      if (key === 'AR') {
-        h.repos.db.prepare('DELETE FROM timeline_events WHERE task_key = ?').run(subtasks[1]!.key);
-        h.repos.tasks.update(subtasks[1]!.id, { parentKey: null });
-      }
-      return config;
-    });
-    await start.run();
+    const owed = h.repos.operatorSignals
+      .list('AR')
+      .filter((signal) => ['structural_pattern', 'milestone_closed'].includes(signal.kind));
+    expect(owed.length).toBeGreaterThan(0);
+    h.repos.db.prepare('DELETE FROM timeline_events WHERE task_key = ?').run(subtasks[1]!.key);
+    h.repos.tasks.update(subtasks[1]!.id, { parentKey: null });
+    for (const signal of owed) expect(h.domain.operatorSignals.holdsBack('AR', signal.id)).toBe(true);
     expect(h.runner.started).toHaveLength(0);
     expect(
       h.repos.operatorSignals
@@ -445,39 +444,35 @@ describe('synchronous structural evaluations (PM-783)', () => {
         .prepare('UPDATE operator_signals SET raised_at = ? WHERE id = ?')
         .run(ref.raisedAt, signal.id);
     }
-    const start = h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' })!;
+    // The queue's driver does not run: the payload is built, the delivery receipt is not written.
+    holdTheDriver();
+    await h.domain.operatorSignals.deliver('AR');
+    const ids = h.repos.operatorSignals.list('AR').map((signal) => signal.id);
     const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
     const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
-    const admit = vi
-      .spyOn(h.domain.admission, 'start')
-      .mockRejectedValueOnce(conflict('engine_offline', 'Test engine offline'));
-    await expect(start.run()).rejects.toThrow('Test engine offline');
-    expect(evidence).toHaveBeenCalledTimes(4); // Independent pre-await and post-config phases.
-    expect(states).toHaveBeenCalledTimes(2);
-    const payload = admit.mock.calls[0]![0].messages!.join('\n');
+    const payload = h.domain.operatorSignals.noticeText('AR', ids);
+    expect(evidence).toHaveBeenCalledTimes(2);
+    expect(states).toHaveBeenCalledTimes(1);
     expect(payload).toContain(`"windowEndedAt":"${refs[1]!.raisedAt}"`);
     expect(payload).toContain(`"milestoneKey":"${refs[0]!.taskKey}"`);
     expect(h.repos.operatorSignals.list('AR').every((signal) => !signal.deliveredAt)).toBe(true);
-    admit.mockRestore();
-    await h.domain.operatorSignals.deliver('AR');
+    for (const id of ids) h.domain.operatorSignals.markDelivered('AR', 'pm', id, null);
     expect(h.repos.operatorSignals.list('AR').every((signal) => signal.deliveredAt)).toBe(true);
   });
 
-  it.each(['expiry', 'config'] as const)(
-    'rechecks %s when a retained start is actually used',
-    async (change) => {
-      const { refs } = await mixed();
-      const signal = h.domain.operatorSignals.raise({ ...refs[0]!, caseKey: 'fresh:milestone' });
-      const start = h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey: 'AR' })!;
-      expect(start.stillValid()).toBe(true);
-      await Promise.resolve();
-      if (change === 'expiry')
-        vi.spyOn(h.domain.ctx, 'now').mockReturnValue(new Date(NOW.getTime() + STRUCTURAL_WINDOW_MS));
-      else config().pipeline.stages.find((stage) => stage.id === 'done')!.kind = 'work';
-      expect(start.stillValid()).toBe(false);
-      expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
-    },
-  );
+  it.each(['expiry', 'config'] as const)('rechecks %s when the lane asks again', async (change) => {
+    const { refs } = await mixed();
+    const signal = h.domain.operatorSignals.raise({ ...refs[0]!, caseKey: 'fresh:milestone' });
+    holdTheDriver();
+    await h.domain.operatorSignals.deliver('AR');
+    expect(h.domain.operatorSignals.holdsBack('AR', signal.id)).toBe(false);
+    await Promise.resolve();
+    if (change === 'expiry')
+      vi.spyOn(h.domain.ctx, 'now').mockReturnValue(new Date(NOW.getTime() + STRUCTURAL_WINDOW_MS));
+    else config().pipeline.stages.find((stage) => stage.id === 'done')!.kind = 'work';
+    expect(h.domain.operatorSignals.holdsBack('AR', signal.id)).toBe(true);
+    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
+  });
 });
 
 describe('conflict request history sharing (PM-783)', () => {

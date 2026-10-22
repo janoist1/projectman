@@ -303,7 +303,7 @@ describe('Refinement line', () => {
     expect(h.domain.sessions.list('AR', { member: 'pm' })[0]?.workItem).toEqual({ type: 'general' });
   });
 
-  it('delivers the Operator completion notice with the next owner message', async () => {
+  it('wakes the Operator with the completion notice through its work queue', async () => {
     h = await createDomainHarness({ adjust: setup() });
     const config = structuredClone(await h.domain.projects.config('AR'));
     config.team.members = config.team.members.filter(
@@ -313,9 +313,6 @@ describe('Refinement line', () => {
     await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
     await label({ add: ['refine'] });
     await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
-    await flush();
-    expect(h.runner.started).toEqual([]);
-    await h.domain.messaging.send('AR', 'owner', { to: ['operator'], text: 'Review the ready cards' });
     await vi.waitFor(() =>
       expect(h.runner.started.some((start) => start.initialMessage?.includes('Can start now: AR-1'))).toBe(
         true,

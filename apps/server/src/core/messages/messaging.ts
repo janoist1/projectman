@@ -1371,8 +1371,13 @@ export class Messaging {
     };
     if (!running && !wakes) return notWoken;
     const operator = isOperator(memberOf(config, handle));
-    // The Operator takes what does not wake it (an AI member's message) only with the owner's next one (PM-463).
+    // The Operator takes what does not wake it (an information, a blocked message) only with the owner's next
+    // one. What wakes it and is not a person's (PM-885) is a queue item of its lane: the driver delivers it.
     if (operator && !wakes) return notWoken;
+    if (operator && !facts.fromHuman) {
+      wake();
+      return { delivery: 'wake' };
+    }
     if (running && running.state === 'waiting_permission' && memberOf(config, message.from)?.kind !== 'human')
       return {
         delivery: 'after_turn',

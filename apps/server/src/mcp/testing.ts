@@ -458,6 +458,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('decideFixLimit', ctx, args);
       throw new TeamToolError('not_found', 'Unknown fix round limit hold.');
     },
+    async finishQueueItem(ctx, args) {
+      await enter('finishQueueItem', ctx, args);
+      throw new TeamToolError('not_found', 'Unknown work queue item.');
+    },
     async handOff(ctx, args) {
       await enter('handOff', ctx, args);
       return { recorded: true };

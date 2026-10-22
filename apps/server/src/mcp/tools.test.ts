@@ -96,6 +96,7 @@ describe('team tool registration', () => {
       'core/messages': ['send_message'],
       'runtime/admission': ['hand_off'],
       'runtime/watchers': ['decide_fix_limit'],
+      'core/member-queue': ['finish_queue_item'],
       'runtime/sessions': ['set_current_work'],
       'core/members': ['list_members', 'save_memory'],
       'services/releases': ['propose_release', 'check_release'],

@@ -11,7 +11,6 @@ import {
 } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
-import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * The loop watch (PM-261): AI members writing to each other on a card without progress. The first to
@@ -125,9 +124,7 @@ describe('loop watch', () => {
       await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
       await goRound();
       await vi.waitFor(() =>
-        expect(
-          deferredStartRecords(h.repos).map((record) => (record.spec as { kind: string }).kind),
-        ).toContain('operator_signals'),
+        expect(h.repos.memberQueue.listOpen('AR', 'pm').map((queued) => queued.kind)).toContain('signal'),
       );
       expect(h.runner.started).toEqual([]);
       await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);

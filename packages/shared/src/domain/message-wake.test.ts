@@ -164,6 +164,31 @@ describe('message validity and wake-up', () => {
       expect(messageWakeBlock({}, other, 'stage_moved')).toBeNull();
     });
 
+    describe('when the Operator processes its queue (PM-885)', () => {
+      const queueing: WakeFacts = { ...toOperator, operatorQueueAvailable: true };
+
+      it.each([
+        ['an AI member', { ...queueing, fromAi: true }],
+        ['the system', queueing],
+      ])('an action message from %s wakes it and is not blocked', (_who, facts) => {
+        expect(messageWakes({ kind: 'action' }, facts, null)).toBe(true);
+        expect(messageWakeBlock({ kind: 'action' }, facts, null)).toBeNull();
+      });
+
+      it.each([
+        ['an information message', { kind: 'info' as const }, null],
+        ['a stale message', { kind: 'action' as const }, 'stage_moved' as const],
+      ])('%s does not wake it', (_what, message, stale) => {
+        expect(messageWakes(message, { ...queueing, fromAi: true }, stale)).toBe(false);
+      });
+
+      it('a person through the integrator key still does not wake it', () => {
+        const keyed: WakeFacts = { ...queueing, fromHuman: true, fromOwnLogin: false };
+        expect(messageWakes({ kind: 'action' }, keyed, null)).toBe(false);
+        expect(messageWakeBlock({ kind: 'action' }, keyed, null)).toBe('operator_owner_only');
+      });
+    });
+
     it('does not change who wakes the other members', () => {
       expect(messageWakes({}, { ...wake, fromHuman: true, fromOwnLogin: false }, null)).toBe(true);
       expect(messageWakes({}, { ...wake, fromOwnLogin: true }, null)).toBe(true);

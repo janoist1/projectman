@@ -109,7 +109,14 @@ export function isOwner(config: ProjectConfig, handle: string): boolean {
 
 export function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
-  if (['question_group_incompatible', 'question_not_screening', 'operator_signal_closed'].includes(err.code))
+  if (
+    [
+      'question_group_incompatible',
+      'question_not_screening',
+      'operator_signal_closed',
+      'queue_item_not_processing',
+    ].includes(err.code)
+  )
     return new TeamToolError('invalid', `${err.code}: ${err.message}`);
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
   if (err.status === 403) return new TeamToolError('forbidden', err.message);

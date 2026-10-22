@@ -34,6 +34,9 @@ const seconds = (n: number) => {
 const minutes = (n: number) => seconds(n * 60);
 const iso = (offsetSeconds = 0) => new Date(now.getTime() + offsetSeconds * 1000).toISOString();
 const sweep = async () => {
+  // The coordinator ends its turn before the next notice: the queue types at the turn boundary.
+  const coordinator = h.domain.sessions.findRunning('AR', 'pm', { type: 'general' });
+  if (coordinator && coordinator.state !== 'idle') h.runner.setState(coordinator.id, 'idle');
   await h.domain.operatorSignals.sweep('AR');
   await flush();
 };

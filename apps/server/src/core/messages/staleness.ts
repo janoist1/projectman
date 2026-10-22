@@ -8,6 +8,7 @@ import {
   messageStaleReason,
   messageWakeBlock,
   messageWakes,
+  operatorQueueAvailable,
   permissionDelegationOf,
   permissionDelegationState,
   stageOf,
@@ -141,6 +142,7 @@ export function wakeFactsFor(
     // A person's own login only: the integrator key acts for the owner but does not wake the Operator.
     fromOwnLogin: message.via !== 'integrator',
     answersQuestion: message.origin?.kind === 'answer' || message.origin?.kind === 'question_forward',
+    operatorQueueAvailable: operatorQueueAvailable(config),
   };
 }
 

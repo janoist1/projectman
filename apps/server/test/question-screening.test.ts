@@ -3,7 +3,7 @@ import { QUESTION_SCREENING_MINUTES, questionPayloadOf, routes } from '@projectm
 import type { ProjectConfig, ScreenedQuestionsResponse, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { DomainError } from '../src/kernel';
+import { conflict, DomainError } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
@@ -168,19 +168,12 @@ describe('the Operator screens AI members’ questions', () => {
   });
 
   describe('screening delivery acknowledgements', () => {
-    it('waits for the first input while admitting other work and delivering concurrent questions once', async () => {
-      h.runner.holdFirstInput = true;
+    it('admits other work and delivers concurrent questions once', async () => {
       const questions = await Promise.all([ask('Which font?'), ask('Which colour?')]);
       await vi.waitFor(() => expect(sessionsOf('pm')).toHaveLength(1));
       const operator = sessionsOf('pm')[0]!;
-      for (const { inboxItemId } of questions)
-        expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
 
-      // The old persisted spec still rebuilds while the CLI has not acknowledged its notice.
-      const spec = { kind: 'question_screening', projectKey: 'AR' } as const;
-      expect(h.domain.questionScreening.rebuild(spec)?.spec()).toEqual(spec);
-
-      // An unrelated automatic message start must acquire admission while screening waits for input.
+      // An unrelated automatic message start is admitted next to the screening.
       await h.domain.messaging.sendReporting(
         'AR',
         'owner',
@@ -189,7 +182,6 @@ describe('the Operator screens AI members’ questions', () => {
       );
       expect(sessionsOf('dev-2')).toHaveLength(1);
 
-      h.runner.emit({ type: 'first_input_sent', sessionId: operator.id });
       await vi.waitFor(() => {
         for (const { inboxItemId } of questions)
           expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeTruthy();
@@ -197,22 +189,23 @@ describe('the Operator screens AI members’ questions', () => {
       const notices = typedInto(operator.id).join('\n');
       for (const { inboxItemId } of questions) expect(notices.split(inboxItemId)).toHaveLength(2);
       expect(h.runner.started.filter((start) => start.member === 'pm')).toHaveLength(1);
-      expect(h.domain.questionScreening.rebuild(spec)).toBeNull();
       expect(humanQueue()).toEqual([]);
     });
 
-    it('releases the question without marking it delivered when the first input resolves false', async () => {
-      h.runner.holdFirstInput = true;
+    it('keeps the question as the project manager’s queue item until the screening is settled', async () => {
       const { inboxItemId } = await ask();
-      await vi.waitFor(() => expect(sessionsOf('pm')).toHaveLength(1));
-      const operator = sessionsOf('pm')[0]!;
-      expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
+      const source = { type: 'inbox', id: inboxItemId } as const;
+      expect(h.repos.memberQueue.findBySource('AR', 'pm', source)).toMatchObject({
+        kind: 'screening',
+        state: 'processing',
+      });
 
-      await h.domain.sessions.stop('AR', operator.id);
+      await screen({ itemId: inboxItemId, outcome: 'decision', note: 'The owner decides.' });
 
-      await vi.waitFor(() => expect(item(inboxItemId).state).toBe('open'));
-      expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({ fallback: 'unavailable' });
-      expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
+      expect(h.repos.memberQueue.findBySource('AR', 'pm', source)).toMatchObject({
+        state: 'done',
+        closeReason: 'resolved',
+      });
     });
   });
 
@@ -594,12 +587,8 @@ describe('the Operator screens AI members’ questions', () => {
     });
 
     it('opens it for the people when the admission defers the Operator’s start', async () => {
-      const original = h.domain.admission.attempt.bind(h.domain.admission);
-      // Whatever holds the start back (capacity, plan usage, a full disk): only the kind matters here.
-      h.domain.admission.attempt = async (start) =>
-        start.key.startsWith('question-screening:')
-          ? ({ kind: 'deferred' } as unknown as Awaited<ReturnType<typeof original>>)
-          : original(start);
+      // Whatever holds the start back (capacity, plan usage, a full disk): only that it defers matters here.
+      vi.spyOn(h.domain.admission, 'start').mockRejectedValue(conflict('ai_limit_reached', 'limit'));
 
       const { screening, stored } = await askAtOnce();
       await settle();

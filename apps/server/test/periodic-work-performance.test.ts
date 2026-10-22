@@ -570,9 +570,15 @@ async function structuralFixture(
         ),
       )
       .digest('hex');
-    const starts = PROJECTS.map((projectKey) =>
-      h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey })!,
-    );
+    // The member queue's signal items: the lane asks `holdsBack` before a delivery and `noticeText` builds its input.
+    const starts = PROJECTS.map((projectKey) => {
+      const ids = signals.filter((signal) => signal.projectKey === projectKey).map((signal) => signal.id);
+      return {
+        // One evaluation, as the lane's hold asks it once for the batch.
+        stillValid: () => h.domain.operatorSignals.holdsBack(projectKey, ids[0]!),
+        run: async () => h.domain.operatorSignals.noticeText(projectKey, ids),
+      };
+    });
     const markerIds: string[] = [];
     if (hold === 'budget')
       for (const projectKey of PROJECTS) {

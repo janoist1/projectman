@@ -16,6 +16,7 @@ export { focusPlaceText } from './focus';
 export { describeLink, linkTarget, numberedRef } from './links';
 export { describeRelatedCard, relationLines, relationPhrase } from './relations';
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';
+export { operatorQueueReminderText, operatorQueueText, type OperatorQueueFrame } from './operator-queue';
 export { partsLeftText, type PartsLeftText } from './parts-left';
 export { roleLabel } from './role';
 export { collectorNotReadyText, startOfferText, type StartOfferText } from './start-offer';

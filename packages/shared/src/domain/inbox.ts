@@ -10,6 +10,7 @@ import {
   MAX_FIX_EXTRA_ROUNDS,
 } from './fix-limit';
 import { LabelId } from './label';
+import { OperatorHandoffReason } from './member-queue';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { ObligationRef } from './obligation';
@@ -207,6 +208,8 @@ export const InboxItem = z.object({
       integratorTodo: z.literal(true).optional(),
       /** The integrator decided a fix round limit item through the dedicated endpoint (PM-714). */
       integratorFixLimit: z.literal(true).optional(),
+      /** The Operator closed it from its queue item (PM-885): `by` is the Operator member, no person decided. */
+      operatorQueue: z.literal(true).optional(),
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),
@@ -905,6 +908,16 @@ export function isRelayableQuestionItem(item: Pick<InboxItem, 'kind' | 'payload'
   );
 }
 
+/** `payload.operatorHandoff` of an item the Operator passed on (PM-885). */
+export const OperatorHandoff = z.object({
+  queueItemId: z.string(),
+  reason: OperatorHandoffReason,
+  action: z.string().max(300),
+  detail: z.string().max(2000).nullable(),
+  operationId: z.string().nullable(),
+});
+export type OperatorHandoff = z.infer<typeof OperatorHandoff>;
+
 export const QuestionPayload = z.object({
   requestedRecipient: QuestionRecipient.optional(),
   recipient: QuestionRecipient.optional(),
@@ -951,6 +964,8 @@ export const QuestionPayload = z.object({
   externalAnswerMessageId: z.string().optional(),
   /** The obligation this integrator todo hands over (PM-806): the system opened it, no member asked. */
   obligation: ObligationRef.optional(),
+  /** Why the Operator gave this item to the owner (PM-885): its queue item, the reason and the action left for the owner. */
+  operatorHandoff: OperatorHandoff.optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 
@@ -1051,7 +1066,12 @@ export function wasIntegratorTodo(item: InboxItem): boolean {
 }
 
 /** Why a fix limit decision item went from the integrator to the owners (PM-714). */
-export const IntegratorEscalationReason = z.enum(['integrator_timeout', 'integrator_passed_on']);
+export const IntegratorEscalationReason = z.enum([
+  'integrator_timeout',
+  'integrator_passed_on',
+  // The Operator cannot process its queue any more (on leave, AI off, role gone): the item goes to the owners (PM-885).
+  'integrator_unavailable',
+]);
 export type IntegratorEscalationReason = z.infer<typeof IntegratorEscalationReason>;
 
 /**
@@ -1066,6 +1086,7 @@ const FIX_LIMIT_ITEM_PAYLOAD_KEYS: readonly string[] = [
   'integratorOpenedAt',
   'integratorEscalatedAt',
   'integratorEscalationReason',
+  'operatorHandoff',
 ];
 
 const FIX_LIMIT_OPTION_IDS: readonly string[] = FixLimitOptionId.options;
@@ -1172,7 +1193,18 @@ export function planIntegratorInboxEscalation(
 ): Pick<InboxItem, 'payload' | 'assignees'> | null {
   if (item.state !== 'open' || !owners.length) return null;
   if (isIntegratorTodo(item)) {
-    return reason === 'integrator_timeout' ? planIntegratorTodoEscalation(item, now, owners) : null;
+    // The Operator passes a todo on at once (PM-885); the 24-hour timeout is no longer run by the server.
+    return reason === 'integrator_timeout'
+      ? planIntegratorTodoEscalation(item, now, owners)
+      : {
+          payload: {
+            ...item.payload,
+            recipient: 'owner',
+            integratorEscalatedAt: now,
+            integratorEscalationReason: reason,
+          },
+          assignees: [...owners],
+        };
   }
   if (!isIntegratorFixLimitDecision(item)) return null;
   const openedAt = item.payload.integratorOpenedAt as string;

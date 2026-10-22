@@ -462,9 +462,13 @@ export const hu: TemplateLocale = {
     },
     footer: {
       integrator:
-        'Ez a tétel az integrátornak szól: a fenti lehetőségek egyikét választhatja, vagy indoklással továbbadhatja a tulajdonosnak. 24 óra után magától a tulajdonoshoz kerül.',
+        'Ez a tétel az integrátornak szól: a fenti lehetőségek egyikét választhatja, vagy indoklással továbbadhatja a tulajdonosnak.',
       owner: 'Ez a tétel a tulajdonosnak szól.',
     },
+  },
+  operatorQueue: {
+    failedAction: (title) => `Nézd meg: ${title}`,
+    failedSummary: 'Az Operátor nem fejezte be a tételt.',
   },
   stageApproval: (stageName) => `${stageName}: jóváhagyva`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,

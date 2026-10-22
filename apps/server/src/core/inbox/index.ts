@@ -20,8 +20,5 @@ export type {
   QuestionGroupAnswerer,
   IntegratorTodoAccess,
   InboxPermissionPolicy,
-  ScreeningAttempt,
-  ScreeningAdmission,
   ScreeningEngineState,
-  ScreeningSessions,
 } from './ports';

@@ -11,9 +11,11 @@ export interface OperatorRequestRecord {
   id: string;
   projectKey: string;
   sessionId: string;
-  source: 'message' | 'answer' | 'signal' | 'approval';
+  source: 'message' | 'answer' | 'signal' | 'approval' | 'queue';
   messageId: string | null;
   inboxItemId: string | null;
+  /** The member queue item a `queue` request is for (PM-885); null for the other sources. */
+  queueItemId: string | null;
   fromHandle: string;
   quote: string;
   openedAt: string;
@@ -46,8 +48,8 @@ interface StepRow extends Omit<OperatorStepRecord, 'changes' | 'refusal'> {
 }
 
 const requestColumns = `id, project_key AS projectKey, session_id AS sessionId, source,
-  message_id AS messageId, inbox_item_id AS inboxItemId, from_handle AS fromHandle, quote,
-  opened_at AS openedAt, closed_at AS closedAt`;
+  message_id AS messageId, inbox_item_id AS inboxItemId, queue_item_id AS queueItemId,
+  from_handle AS fromHandle, quote, opened_at AS openedAt, closed_at AS closedAt`;
 const stepColumns = `id, request_id AS requestId, at, action, status, task_key AS taskKey, member, changes,
   config_version AS configVersion, inbox_item_id AS inboxItemId, signal_id AS signalId, refusal,
   agreement_version AS agreementVersion, approval_mode AS approvalMode, operation_id AS operationId`;
@@ -80,8 +82,8 @@ const toStep = (row: StepRow): OperatorStepRecord => ({
 export function createOperatorRequestRepository(db: Db) {
   const statements = {
     insertRequest: db.prepare(`INSERT INTO operator_requests
-      (id, project_key, session_id, source, message_id, inbox_item_id, from_handle, quote, opened_at, closed_at)
-      VALUES (@id, @projectKey, @sessionId, @source, @messageId, @inboxItemId, @fromHandle, @quote, @openedAt, NULL)`),
+      (id, project_key, session_id, source, message_id, inbox_item_id, queue_item_id, from_handle, quote, opened_at, closed_at)
+      VALUES (@id, @projectKey, @sessionId, @source, @messageId, @inboxItemId, @queueItemId, @fromHandle, @quote, @openedAt, NULL)`),
     openOfSession: db.prepare(
       `SELECT ${requestColumns} FROM operator_requests WHERE session_id = ? AND closed_at IS NULL
        ORDER BY opened_at DESC, rowid DESC`,
@@ -159,8 +161,10 @@ export function createOperatorRequestRepository(db: Db) {
       ).run(status, version, refusal ? toJson(refusal) : null, id);
       return true;
     },
-    insert(request: Omit<OperatorRequestRecord, 'closedAt'>): void {
-      statements.insertRequest.run(request);
+    insert(
+      request: Omit<OperatorRequestRecord, 'closedAt' | 'queueItemId'> & { queueItemId?: string | null },
+    ): void {
+      statements.insertRequest.run({ ...request, queueItemId: request.queueItemId ?? null });
     },
     get(id: string): OperatorRequestRecord | null {
       return (statements.get.get(id) as OperatorRequestRecord | undefined) ?? null;

@@ -117,10 +117,6 @@ export function createMemberQueueRepository(db: Db) {
          'queued', @title, @from, @queuedAt, @payload)`,
     ),
     get: db.prepare('SELECT * FROM member_queue_items WHERE id = ?'),
-    payload: db.prepare('SELECT payload FROM member_queue_items WHERE id = ?'),
-    setPayload: db.prepare(
-      `UPDATE member_queue_items SET payload = @payload WHERE id = @id AND state IN ('queued','processing')`,
-    ),
     bySource: db.prepare(
       `SELECT * FROM member_queue_items
        WHERE project_key = ? AND member = ? AND source_type = ? AND source_id = ?`,
@@ -190,6 +186,8 @@ export function createMemberQueueRepository(db: Db) {
        WHERE id = @id AND state IN ('queued','processing')`,
     ),
     wake: db.prepare(`UPDATE member_queue_items SET wake = @wake WHERE id = @id AND wake <> @wake`),
+    payload: db.prepare('SELECT payload FROM member_queue_items WHERE id = ?'),
+    setPayload: db.prepare('UPDATE member_queue_items SET payload = @payload WHERE id = @id'),
     openMessagesOfTask: db.prepare(
       `SELECT * FROM member_queue_items
        WHERE project_key = ? AND source_type = 'message' AND state IN ('queued','processing')
@@ -239,10 +237,10 @@ export function createMemberQueueRepository(db: Db) {
       const row = statements.get.get(id) as ItemRow | undefined;
       return row ? toItem(row) : null;
     },
-    /** Internal lane data, deliberately absent from the queue view. */
-    payload(id: string): unknown {
+    /** Internal lane data (written on insert, changed by `setPayload`), deliberately absent from the queue view; null: nothing. */
+    payload<T = unknown>(id: string): T | null {
       const row = statements.payload.get(id) as { payload: string | null } | undefined;
-      return row?.payload ? parseJson<unknown>(row.payload, null) : null;
+      return row?.payload ? parseJson<T | null>(row.payload, null) : null;
     },
     setPayload(id: string, payload: unknown): boolean {
       return statements.setPayload.run({ id, payload: toJson(payload) }).changes > 0;

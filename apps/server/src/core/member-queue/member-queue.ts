@@ -6,6 +6,7 @@ import type {
   MemberQueueSummary,
   MemberQueuesView,
   MemberQueueView,
+  OperatorQueueOutcome,
   ProjectConfig,
   TeamMessage,
 } from '@projectman/shared';
@@ -13,6 +14,8 @@ import {
   BoundaryRequest,
   MEMBER_QUEUE_CLOSED_DEFAULT_MS,
   MEMBER_QUEUE_CLOSED_LIMIT,
+  coordinationMemberOf,
+  questionPayloadOf,
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
   memberOf,
@@ -26,7 +29,7 @@ import {
   SYSTEM_SENDER,
   stageOf,
 } from '@projectman/shared';
-import type { MemberQueueSourceKey, StoredMemberQueueItem } from '../../db';
+import type { MemberQueueSourceKey, NewMemberQueueItem, StoredMemberQueueItem } from '../../db';
 import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -41,6 +44,26 @@ export interface MemberQueueProjects {
 }
 
 const TITLE_MAX = 200;
+
+/** How the Operator ends its item: the state, the reason and what it did. */
+export interface PlannedClose {
+  state: 'done' | 'handed_off';
+  reason: MemberQueueCloseReason;
+  outcome: OperatorQueueOutcome;
+}
+
+/**
+ * How the PM's screening item ends when its question leaves screening: the PM decided it (done), the people
+ * got it because the PM could not or did not (handed off), or something else ended it (null: cancelled).
+ */
+function screeningClose(
+  item: InboxItem,
+): { state: PlannedClose['state']; reason: MemberQueueCloseReason } | null {
+  const screening = questionPayloadOf(item)?.screening;
+  if (screening?.outcome) return { state: 'done', reason: 'resolved' };
+  if (screening?.fallback) return { state: 'handed_off', reason: 'handed_off' };
+  return null;
+}
 
 /** The first line that says anything, cut. */
 const titleOf = (text: string): string =>
@@ -88,6 +111,54 @@ export class MemberQueue {
   }
 
   private readonly changeListeners: Array<(projectKey: string, member: string) => void> = [];
+  private readonly planned = new Map<string, PlannedClose>();
+
+  /**
+   * The Operator ends its item (PM-885): the close of the item's source that follows, inside this process,
+   * ends the item as `close` says. Returns the call that takes the plan back (always call it when done).
+   */
+  plan(itemId: string, close: PlannedClose): () => void {
+    this.planned.set(itemId, close);
+    return () => {
+      this.planned.delete(itemId);
+    };
+  }
+
+  /** One item as the stored row has it, any state; null when there is none. */
+  stored(id: string): StoredMemberQueueItem | null {
+    return this.ctx.repos.memberQueue.get(id);
+  }
+
+  /**
+   * Queues an item of a source that makes its items itself (the system signals); false when the source has one
+   * for the member already, open or closed. The member is woken as for every queued item.
+   */
+  add(item: Omit<NewMemberQueueItem, 'id' | 'queuedAt'>): boolean {
+    const repo = this.ctx.repos.memberQueue;
+    const row = { ...item, id: newId('mqi'), queuedAt: isoNow(this.ctx) };
+    if (!repo.insert(row)) return false;
+    this.changed([row]);
+    return true;
+  }
+
+  /** One item as the views show it; null when there is none. */
+  get(id: string): MemberQueueItem | null {
+    const item = this.ctx.repos.memberQueue.get(id);
+    return item ? toView(item) : null;
+  }
+
+  /** Ends one open item as `close` says (the Operator is done with a message item); the closed item, else null. */
+  finish(item: StoredMemberQueueItem, close: PlannedClose): StoredMemberQueueItem | null {
+    const closed = this.ctx.repos.memberQueue.closeBySource(item.projectKey, item.source, {
+      state: close.state,
+      reason: close.reason,
+      at: isoNow(this.ctx),
+      member: item.member,
+      outcome: close.outcome,
+    });
+    this.changed(closed);
+    return closed[0] ?? null;
+  }
 
   /**
    * `listener` hears of every member whose queue a source write changed (an item queued or closed): the
@@ -199,6 +270,8 @@ export class MemberQueue {
       if (pending.has(open.member)) continue;
       const receipt = message.receipts?.find((r) => r.handle === open.member);
       const delivered = !!receipt?.deliveredAt && !receipt.handedOffTo;
+      // The Operator works a message it has been given until it says it is done (`finish_queue_item`).
+      if (delivered && open.state === 'processing') continue;
       touched.push(
         ...repo.closeBySource(message.projectKey, source, {
           state: delivered ? 'done' : 'cancelled',
@@ -230,32 +303,60 @@ export class MemberQueue {
     const repo = this.ctx.repos.memberQueue;
     const source: MemberQueueSourceKey = { type: 'inbox', id: item.id };
     const touched: StoredMemberQueueItem[] = [];
+    const at = isoNow(this.ctx);
+    // The items the inbox item is owed to now: the Operator's todo or held decision, or the PM's screening.
+    const wanted = new Map<
+      string,
+      { member: string; kind: 'todo' | 'fix_limit' | 'screening'; from: string | null }
+    >();
     const operator = operatorOf(config);
-    if (item.state === 'open' && isIntegratorInboxItem(item)) {
-      if (!operator) return;
+    if (item.state === 'open' && isIntegratorInboxItem(item) && operator)
+      wanted.set(operator.handle, {
+        member: operator.handle,
+        kind: isIntegratorFixLimitDecision(item) ? 'fix_limit' : 'todo',
+        from: null,
+      });
+    const pm = coordinationMemberOf(config);
+    if (item.kind === 'question' && item.state === 'screening' && pm && pm.kind === 'ai') {
+      // A combined group is screened as one: its primary question carries the item.
+      const group = this.ctx.repos.inbox.groupOf(item.id);
+      if (!group || group.primaryItemId === item.id)
+        wanted.set(pm.handle, { member: pm.handle, kind: 'screening', from: item.source });
+    }
+    for (const want of wanted.values()) {
       const row = {
         id: newId('mqi'),
         projectKey: item.projectKey,
-        member: operator.handle,
-        kind: isIntegratorFixLimitDecision(item) ? ('fix_limit' as const) : ('todo' as const),
+        member: want.member,
+        kind: want.kind,
         source,
         place: { type: 'general' as const },
         taskKey: item.taskKey,
         wake: true,
         title: titleOf(item.title),
-        from: null,
+        from: want.from,
         queuedAt: isoNow(this.ctx),
       };
       if (repo.insert(row)) touched.push(repo.get(row.id)!);
-    } else {
-      const resolution = item.state === 'resolved' ? item.resolution : null;
-      const byIntegrator = !!resolution && (resolution.integratorTodo || resolution.integratorFixLimit);
-      const reason: MemberQueueCloseReason = byIntegrator ? 'resolved' : 'source_closed';
+    }
+    const resolution = item.state === 'resolved' ? item.resolution : null;
+    const byIntegrator = !!resolution && (resolution.integratorTodo || resolution.integratorFixLimit);
+    for (const open of repo.listOpenOfSource(item.projectKey, source)) {
+      if (wanted.get(open.member)?.kind === open.kind) continue;
+      // The Operator that ends its item (`finish_queue_item`) says how: its ending wins over the default.
+      const planned = this.planned.get(open.id);
+      const fallback = open.kind === 'screening' ? screeningClose(item) : null;
+      const state: PlannedClose['state'] | 'cancelled' =
+        planned?.state ?? fallback?.state ?? (byIntegrator ? 'done' : 'cancelled');
+      const reason: MemberQueueCloseReason =
+        planned?.reason ?? fallback?.reason ?? (byIntegrator ? 'resolved' : 'source_closed');
       touched.push(
         ...repo.closeBySource(item.projectKey, source, {
-          state: byIntegrator ? 'done' : 'cancelled',
+          state,
           reason,
-          at: isoNow(this.ctx),
+          at,
+          member: open.member,
+          ...(planned ? { outcome: planned.outcome } : {}),
         }),
       );
     }
@@ -380,6 +481,10 @@ export class MemberQueue {
     const { repos } = this.ctx;
     this.ctx.unitOfWork(() => {
       for (const item of repos.inbox.listOpen()) this.guarded('inbox', item.id, () => this.syncInbox(item));
+      // The questions the PM has not settled yet (the PM's screening items).
+      for (const { key } of this.projects.summaries())
+        for (const item of repos.inbox.list(key, { state: 'screening', kind: 'question' }))
+          this.guarded('inbox', item.id, () => this.syncInbox(item));
       // A boundary request's item is the inbox item of its id; a fix limit's is made true by its lane (`stillOwed`).
       for (const row of [
         ...repos.memberQueue.listOpenOfType('inbox'),

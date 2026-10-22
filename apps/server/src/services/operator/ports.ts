@@ -50,39 +50,9 @@ export interface OperatorSessions {
   stop(projectKey: string, sessionId: string, stop?: SessionStop): Promise<Session>;
   detail(projectKey: string, sessionId: string): Promise<SessionDetail>;
 }
-/** The Operator's wake-up as an automatic start; assignable to admission's AutomaticStart. */
-export interface OperatorWakeStart {
-  key: string;
-  projectKey: string;
-  taskKey: null;
-  spec(): { kind: 'operator_signals'; projectKey: string };
-  stillValid(): boolean;
-  run(): Promise<void>;
-  waitsFor(): string | undefined;
-  retry(): Promise<void>;
-  log: { deferred: string; retryFailed: string; fields(): Record<string, unknown> };
-}
 /** Admission (runtime/admission). */
 export interface OperatorAdmission {
-  attempt(start: OperatorWakeStart): Promise<unknown>;
-  start(request: {
-    config: ProjectConfig;
-    member: AiMemberConfig;
-    workItem: WorkItemRef;
-    cause: SessionStartCause;
-    messages: string[];
-  }): Promise<EnsureSessionResult>;
   memberLoad(config: ProjectConfig, handle: string): number;
-}
-/** Message delivery (runtime/delivery). */
-export interface OperatorDelivery {
-  notice(session: Session, from: string, text: string, taskKey: string | null): Promise<boolean>;
-  startAndDeliver(
-    projectKey: string,
-    handle: string,
-    workItem: WorkItemRef,
-    start: (messages: string[]) => Promise<EnsureSessionResult>,
-  ): Promise<void>;
 }
 /** The refused starts that wait for admission (DeferredStarts). */
 export interface WaitingStarts {

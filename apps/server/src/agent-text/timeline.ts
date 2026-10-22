@@ -146,7 +146,11 @@ export function describeEvent(
     case 'question_asked':
       return `asked a human: ${text('question') ?? ''}`.trimEnd();
     case 'question_recipient_escalated':
-      return 'handed the integrator todo to the owner: it was not resolved within 24 hours';
+      if (text('reason') === 'integrator_unavailable')
+        return 'handed the integrator todo to the owner: the Operator cannot process its queue';
+      return text('reason') === 'integrator_passed_on'
+        ? `the Operator handed the integrator todo to the owner${text('note') ? `: ${text('note')}` : ''}`
+        : 'handed the integrator todo to the owner: it was not resolved within 24 hours';
     case 'obligation_woken':
       return `reminded ${member('responsible', 'the responsible')} once about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}): no action in ${text('minutes') ?? '?'} minutes`;
     case 'obligation_handed_over':

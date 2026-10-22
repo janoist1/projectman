@@ -1,6 +1,7 @@
 import {
   V83_CHANGE_TRIGGER_TABLES,
   V92_CHANGE_TRIGGER_TABLES,
+  V100_REBUILT_TRIGGER_TABLES,
   changeTriggerSql,
   changeTriggersSql,
 } from './change-triggers';
@@ -2104,5 +2105,37 @@ migrations.push({
   // deferred start did, so a card shows the same.
   sql: `DROP TABLE IF EXISTS team_message_pending;
     ALTER TABLE member_queue_items ADD COLUMN wait_details TEXT;`,
+});
+migrations.push({
+  version: 100,
+  name: 'operator requests from the member queue',
+  // PM-885: the Operator's queue item is a request source of its own ('queue'), linked to the item by
+  // `queue_item_id`. The source CHECK grows, so both tables are rebuilt as in version 65, and their change
+  // triggers (version 81) are created again.
+  sql: `CREATE TABLE operator_requests_next (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL, session_id TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('message', 'answer', 'signal', 'approval', 'queue')),
+      message_id TEXT, inbox_item_id TEXT, from_handle TEXT NOT NULL, quote TEXT NOT NULL,
+      opened_at TEXT NOT NULL, closed_at TEXT, queue_item_id TEXT
+    );
+    CREATE TABLE operator_steps_next (
+      id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES operator_requests_next(id),
+      at TEXT NOT NULL, action TEXT NOT NULL, status TEXT NOT NULL, task_key TEXT, member TEXT,
+      changes TEXT NOT NULL DEFAULT '[]', config_version TEXT, inbox_item_id TEXT, refusal TEXT, signal_id TEXT,
+      agreement_version INTEGER NULL, approval_mode TEXT NULL, operation_id TEXT NULL
+    );
+    INSERT INTO operator_requests_next (id, project_key, session_id, source, message_id, inbox_item_id, from_handle, quote, opened_at, closed_at)
+      SELECT id, project_key, session_id, source, message_id, inbox_item_id, from_handle, quote, opened_at, closed_at FROM operator_requests;
+    INSERT INTO operator_steps_next (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal, signal_id, agreement_version, approval_mode, operation_id)
+      SELECT id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal, signal_id, agreement_version, approval_mode, operation_id FROM operator_steps;
+    DROP TABLE operator_steps;
+    DROP TABLE operator_requests;
+    ALTER TABLE operator_requests_next RENAME TO operator_requests;
+    ALTER TABLE operator_steps_next RENAME TO operator_steps;
+    CREATE INDEX operator_requests_project ON operator_requests(project_key, opened_at);
+    CREATE INDEX operator_requests_session ON operator_requests(session_id) WHERE closed_at IS NULL;
+    CREATE INDEX operator_steps_request ON operator_steps(request_id, at);
+    CREATE INDEX operator_steps_signal ON operator_steps(signal_id) WHERE signal_id IS NOT NULL;
+    ${V100_REBUILT_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

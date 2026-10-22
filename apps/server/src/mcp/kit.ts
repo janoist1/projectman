@@ -50,6 +50,7 @@ export const TEAM_TOOL_NAMES = [
   'decide_boundary_request',
   'decide_permission_request',
   'decide_fix_limit',
+  'finish_queue_item',
   'hand_off',
   'send_message',
   'list_members',

@@ -47,7 +47,9 @@ it.each([64, 68])('preserves requests, steps and signal links when migrating sch
         refusal: null,
       });
     }
-    const requests = db.prepare('SELECT * FROM operator_requests ORDER BY rowid').all();
+    const requests = (db.prepare('SELECT * FROM operator_requests ORDER BY rowid').all() as object[]).map(
+      (request) => ({ ...request, queue_item_id: null }),
+    );
     const steps = db.prepare('SELECT * FROM operator_steps ORDER BY rowid').all() as Record<
       string,
       unknown

@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { AgentProvider } from '@projectman/shared';
 import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from '../../contracts';
 import type { AgentSandbox } from '../../contracts';
-import { isWithin } from './command-paths';
+import { isWithin } from '../../kernel';
 import {
   GIT_SETTINGS_VARIABLE,
   HEAVY_LOCK_DIR_VARIABLE,

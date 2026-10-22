@@ -1,6 +1,6 @@
 import { realpath } from 'node:fs/promises';
 import type { MemberWorkspaceKey } from '../contracts';
-import { isInside } from './paths';
+import { isStrictlyWithin } from '../kernel';
 
 /**
  * The engine's own record of the member clones it prepared (PM-743): the runner's dependency gate
@@ -30,7 +30,7 @@ export function createMemberWorkspaceRegistry(): MemberWorkspaceRegistry {
       const exact = clones.get(real);
       if (exact) return exact;
       for (const [repoPath, key] of clones) {
-        if (isInside(real, repoPath)) return key;
+        if (isStrictlyWithin(repoPath, real)) return key;
       }
       return null;
     },

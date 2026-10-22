@@ -1,4 +1,4 @@
-export { isWithin, isWithinAny } from './command-paths';
+export { isWithinAny } from './command-paths';
 export { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
 export { isReadOnlyCommand, READ_ONLY_GIT, READ_ONLY_PROGRAMS } from './read-only-commands';
 export { parseShellCommand } from './shell-words';

@@ -14,8 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { SelectablePermissionMode } from '@projectman/shared';
-import { isWithin } from '../engine-host';
-import { isLoopbackHostname } from '../kernel';
+import { isLoopbackHostname, isWithin } from '../kernel';
 import { readInstanceMarker } from '../instance';
 
 /** `<PROJECTMAN_HOME>/engine.json`: what the engine process may serve and where the cloud is (PM-314). */

@@ -14,7 +14,8 @@ import type {
 } from '../contracts';
 import { isTaskBranch } from '@projectman/shared';
 import { git, GitCommandError, isoOrNull } from './git';
-import { canonical, createKeyedLock, isInside } from './paths';
+import { isStrictlyWithin } from '../kernel';
+import { canonical, createKeyedLock } from './paths';
 import { localWorkspaceAccess, SAFE_GIT_SETTINGS } from './workspace-access';
 import type { WorkspaceAccess } from './workspace-access';
 
@@ -171,7 +172,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     const repoPath = path.resolve(project.project.workspacePath, repo.path);
     const workspaceRoot = await canonical(project.project.workspacePath);
     const resolvedRepo = await canonical(repoPath);
-    if (resolvedRepo !== workspaceRoot && !isInside(resolvedRepo, workspaceRoot))
+    if (resolvedRepo !== workspaceRoot && !isStrictlyWithin(workspaceRoot, resolvedRepo))
       throw new MemberWorkspaceError('workspace_invalid', 'the repository must be inside its workspace');
     const info: MemberWorkspaceInfo = {
       path: path.join(dir, 'repo'),

@@ -1,11 +1,6 @@
 import path from 'node:path';
-import {
-  hasGlobCharacter,
-  isWithin,
-  namesDirectory,
-  resolveWord,
-  withoutOwnDirectory,
-} from './command-paths';
+import { isWithin } from '../../kernel';
+import { hasGlobCharacter, namesDirectory, resolveWord, withoutOwnDirectory } from './command-paths';
 import { isReadOnlyCommand } from './read-only-commands';
 import type { ShellCommand, ShellSegment } from './shell-words';
 

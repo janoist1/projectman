@@ -113,7 +113,3 @@ export class MachineRounds {
     await runPromise(Scope.close(this.scope, Exit.void));
   }
 }
-
-export function sleepFor(ms: number): Promise<void> {
-  return runPromise(Effect.sleep(ms));
-}

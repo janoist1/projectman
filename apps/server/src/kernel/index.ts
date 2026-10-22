@@ -22,7 +22,9 @@ export {
   unique,
   KeyedMutex,
   excerpt,
+  sleep,
 } from './util';
+export { isWithin, isStrictlyWithin } from './paths';
 export { BackgroundTasks } from './background';
 
 export { abortable, runFork, runPromise } from './effect';

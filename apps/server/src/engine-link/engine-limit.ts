@@ -18,7 +18,8 @@ import {
   isMergeMessage,
   isRepoFilePath,
 } from '../engine-host';
-import { isWithin, userExcludesFile } from '../engine-host';
+import { userExcludesFile } from '../engine-host';
+import { isWithin } from '../kernel';
 import { BILLING_ENV_VARS } from '../runner';
 import { assertNpmCiCheckout } from '../full-test';
 import { engineFiles } from './engine-config';

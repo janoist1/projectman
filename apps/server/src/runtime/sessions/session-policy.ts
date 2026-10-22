@@ -38,7 +38,8 @@ import {
 import type { FullTestSandbox, SessionPolicy } from '../../contracts';
 import { SANDBOX_HOME_READS, claudeShellRule, claudeToolRules, directoryRulePaths } from '../../contracts';
 import type { AgentSandbox } from '../../contracts';
-import { isWithin, isWithinAny } from '../permissions';
+import { isWithin } from '../../kernel';
+import { isWithinAny } from '../permissions';
 import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from '../permissions';
 import { isReadOnlyCommand } from '../permissions';
 import { parseShellCommand } from '../permissions';

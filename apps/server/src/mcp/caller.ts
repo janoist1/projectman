@@ -22,10 +22,9 @@ import type {
 } from '@projectman/shared';
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type { EngineHost, WorkspaceFile, ToolContext } from '../contracts';
-import { isWithin } from '../runtime/permissions';
 import type { DomainContext } from '../core/base';
 import { isoNow } from '../core/base';
-import { DomainError } from '../kernel';
+import { DomainError, isWithin } from '../kernel';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import {
   OPERATOR_GUEST_TOOLS,

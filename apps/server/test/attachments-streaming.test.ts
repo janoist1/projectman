@@ -10,16 +10,9 @@ import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from '.
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 import { chunkedPost, fileBody, pngBytes } from './helpers/attachments';
+import { waitFor } from './helpers/wait';
 
 const OWNER_AUTHOR = { name: 'Owner', email: 'owner@example.com' };
-
-async function waitUntil(condition: () => boolean, what: string, timeoutMs = 3000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 describe('attachment uploads over a real connection', () => {
   let h: AppHarness;
@@ -54,8 +47,9 @@ describe('attachment uploads over a real connection', () => {
     }
   };
   /** Mid-upload: the server holds the pending row and the temporary file. */
-  const midUpload = () =>
-    waitUntil(() => pending().length === 1 && stored().length === 1, 'the upload to start');
+  const midUpload = async () => {
+    await waitFor(() => pending().length === 1 && stored().length === 1, 'the upload to start');
+  };
   const nothingLeft = (taskKey = 'AR-1') => {
     expect(pending()).toEqual([]);
     expect(stored(taskKey)).toEqual([]);
@@ -82,7 +76,7 @@ describe('attachment uploads over a real connection', () => {
     expect(response.status).toBe(413);
     expect(JSON.parse(response.body)).toMatchObject({ error: { code: 'attachment_too_large' } });
     expect(response.headers.connection).toBe('close');
-    await waitUntil(() => stored().length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
   }, 30_000);
 
@@ -92,7 +86,7 @@ describe('attachment uploads over a real connection', () => {
       abort: true,
     });
     expect(result.status).toBe(0);
-    await waitUntil(() => stored().length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
   });
 
@@ -104,19 +98,19 @@ describe('attachment uploads over a real connection', () => {
       },
     });
     expect(result.status).toBe(401);
-    await waitUntil(() => stored().length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
   });
 
   it('checks the access again at the end: a task that turned internal', async () => {
     const result = await chunkedPost(endpoint('AR-2'), client, fileBody(pngBytes(400_000)), {
       between: async () => {
-        await waitUntil(() => pending().length === 1, 'the upload to start');
+        await waitFor(() => pending().length === 1, 'the upload to start');
         await h.app.projectman.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
       },
     });
     expect(result.status).toBe(404);
-    await waitUntil(() => stored('AR-2').length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored('AR-2').length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft('AR-2');
   });
 
@@ -144,7 +138,7 @@ describe('attachment uploads over a real connection', () => {
     });
     expect(result.status).toBe(status);
     expect(JSON.parse(result.body)).toMatchObject({ error: { code } });
-    await waitUntil(() => stored().length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
   });
 });
@@ -217,12 +211,12 @@ describe('attachment websocket notifications', () => {
 
     const internal = await add('AR-1');
     const shared = await add('AR-2');
-    await waitUntil(() => attachmentEvents(ownerEvents).length === 2, 'the owner events');
+    await waitFor(() => attachmentEvents(ownerEvents).length === 2, 'the owner events');
     expect(attachmentEvents(ownerEvents)).toEqual([
       { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-1' },
       { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-2' },
     ]);
-    await waitUntil(() => attachmentEvents(clientEvents).length === 1, 'the client event');
+    await waitFor(() => attachmentEvents(clientEvents).length === 1, 'the client event');
     expect(attachmentEvents(clientEvents)).toEqual([
       { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-2' },
     ]);
@@ -231,7 +225,7 @@ describe('attachment websocket notifications', () => {
     await h.app.projectman.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
     await attachments.delete('AR', 'AR-2', shared.id, OWNER_ACTOR);
     await attachments.delete('AR', 'AR-1', internal.id, OWNER_ACTOR);
-    await waitUntil(() => attachmentEvents(ownerEvents).length === 4, 'the delete events');
+    await waitFor(() => attachmentEvents(ownerEvents).length === 4, 'the delete events');
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(attachmentEvents(clientEvents)).toHaveLength(1);
     expect(clientEvents.filter((e) => e.type === 'timeline_appended')).toEqual([]);

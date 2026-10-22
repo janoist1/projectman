@@ -23,12 +23,13 @@ import {
   readHeavyRunSessions,
 } from './heavy-lock';
 import type { HeavyLock, HeavyLockEntry } from './heavy-lock';
+import { waitFor } from '../../test/helpers/wait';
 
 const FIXTURE = fileURLToPath(new URL('../../test/fixtures/heavy-holder.ts', import.meta.url));
 
 it('lets a holder process exit naturally after release', async () => {
   const child = holder('released', path.join(root, 'released.log'), 100);
-  await until(() => child.exitCode !== null, 'holder exit after release', 5000);
+  await waitFor(() => child.exitCode !== null, 'holder exit after release');
   expect(child.exitCode).toBe(0);
   expect(child.signalCode).toBeNull();
 });
@@ -87,18 +88,6 @@ async function acquire(label: string, extra: Partial<Parameters<typeof acquireHe
   const lock = await acquireHeavyLock({ dir, label, ...FAST, ...extra });
   locks.push(lock);
   return lock;
-}
-
-async function until(
-  condition: () => boolean | Promise<boolean>,
-  what: string,
-  timeoutMs = 10_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!(await condition())) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 /** A real process that takes the lock, logs, holds it for `holdMs` and releases it. */
@@ -192,7 +181,7 @@ describe('the heavy-run lock', () => {
     // Wait for each published ticket: an atomic write's temporary file is not a queued waiter.
     for (const label of ['a', 'b', 'c']) {
       holder(label, log, 100);
-      await until(
+      await waitFor(
         async () => (await readHeavyQueue(dir)).waiting.some((entry) => entry.label === label),
         `the ticket of ${label}`,
       );
@@ -200,7 +189,7 @@ describe('the heavy-run lock', () => {
     expect((await readHeavyQueue(dir)).waiting.map((e) => e.label)).toEqual(['a', 'b', 'c']);
     expect(logLines(log)).toEqual([]);
     await first.release();
-    await until(() => logLines(log).length === 6, 'the three runs');
+    await waitFor(() => logLines(log).length === 6, 'the three runs');
     expect(logLines(log)).toEqual(['start a', 'end a', 'start b', 'end b', 'start c', 'end c']);
   });
 
@@ -208,7 +197,7 @@ describe('the heavy-run lock', () => {
     const first = await acquire('the holder');
     const waits: { holder: HeavyLockEntry | null; ahead: number; waitedMs: number }[] = [];
     const second = acquire('second', { onWait: (wait) => waits.push(wait), notifyMs: 60 });
-    await until(() => waits.length >= 3, 'three notices');
+    await waitFor(() => waits.length >= 3, 'three notices');
     expect(waits[0]).toMatchObject({ holder: { label: 'the holder' }, ahead: 0 });
     expect(waits[2]!.waitedMs).toBeGreaterThan(waits[0]!.waitedMs);
     await first.release();
@@ -250,7 +239,7 @@ describe('the heavy-run lock', () => {
   it('frees the lock of a holder process that is killed, after its heartbeat is stale', async () => {
     const log = path.join(root, 'log.txt');
     const killed = holder('killed', log, 60_000, 40, 400);
-    await until(() => logLines(log).includes('start killed'), 'the holder to start');
+    await waitFor(() => logLines(log).includes('start killed'), 'the holder to start');
     killed.kill('SIGKILL');
     const lock = await acquire('after');
     expect((await readHeavyQueue(dir)).holder).toMatchObject({ label: 'after' });
@@ -261,7 +250,7 @@ describe('the heavy-run lock', () => {
     const log = path.join(root, 'log.txt');
     // A heartbeat every minute: it never beats in this test.
     holder('silent', log, 60_000, 60_000, 400);
-    await until(() => logLines(log).includes('start silent'), 'the holder to start');
+    await waitFor(() => logLines(log).includes('start silent'), 'the holder to start');
     const started = Date.now();
     const lock = await acquire('after');
     expect(Date.now() - started).toBeGreaterThanOrEqual(250);
@@ -288,7 +277,7 @@ describe('the heavy-run lock', () => {
     const controller = new AbortController();
     const reason = new Error('stop waiting');
     const waiting = acquire('aborted', { signal: controller.signal });
-    await until(() => ticketFiles().length === 1, 'the ticket');
+    await waitFor(() => ticketFiles().length === 1, 'the ticket');
     controller.abort(reason);
     await expect(waiting).rejects.toBe(reason);
     expect(ticketFiles()).toEqual([]);

@@ -9,6 +9,7 @@ import { EXIT_QUEUE_UNAVAILABLE, parseHeavyArgs } from '../../../scripts/heavy/r
 import { guardWorkerParent } from '../../../scripts/lib/worker-parent-guard.mjs';
 import { acquireHeavyLock, readHeavyQueue } from '../src/full-test/heavy-lock';
 import type { HeavyLock } from '../src/full-test/heavy-lock';
+import { waitFor } from './helpers/wait';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const CLI = path.join(ROOT, 'scripts/heavy/cli.ts');
@@ -199,13 +200,8 @@ function alive(pid: number): boolean {
   }
 }
 
-async function until(condition: () => boolean | Promise<boolean>, what: string, ms = 20_000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!(await condition())) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
+/** Starting and stopping a real worker process: slower than the default wait. */
+const WORKER_WAIT_MS = 20_000;
 
 describe('an interrupted heavy run (PM-863)', () => {
   /**
@@ -222,7 +218,10 @@ describe('an interrupted heavy run (PM-863)', () => {
       setInterval(() => {}, 1000);`;
     let started: ChildProcess | undefined;
     const closed = heavy(node(leader), {}, undefined, (child) => (started = child)).then(() => undefined);
-    await until(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 'the worker to start');
+    await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', {
+      what: 'the worker to start',
+      timeoutMs: WORKER_WAIT_MS,
+    });
     return { heavy: started!, closed, worker: Number(readFileSync(pidFile, 'utf8')) };
   }
 
@@ -244,7 +243,7 @@ describe('an interrupted heavy run (PM-863)', () => {
     const run = await startWithWorker();
     run.heavy.kill('SIGKILL');
     await run.closed;
-    await until(() => !alive(run.worker), 'the worker to stop');
+    await waitFor(() => !alive(run.worker), { what: 'the worker to stop', timeoutMs: WORKER_WAIT_MS });
   });
 });
 
@@ -265,11 +264,14 @@ describe('a worker of a run that did not go through the heavy CLI (PM-869)', () 
       worker.once('message', () => writeFileSync(${JSON.stringify(pidFile)}, String(worker.pid)));
       setInterval(() => {}, 1000);`;
     const child = spawn(process.execPath, ['-e', parent], { stdio: 'ignore' });
-    await until(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 'the worker to start');
+    await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', {
+      what: 'the worker to start',
+      timeoutMs: WORKER_WAIT_MS,
+    });
     const pid = Number(readFileSync(pidFile, 'utf8'));
     expect(alive(pid)).toBe(true);
     child.kill('SIGKILL');
-    await until(() => !alive(pid), 'the worker to leave');
+    await waitFor(() => !alive(pid), { what: 'the worker to leave', timeoutMs: WORKER_WAIT_MS });
   });
 
   it('does nothing in a process that was not forked with a channel to its parent', () => {

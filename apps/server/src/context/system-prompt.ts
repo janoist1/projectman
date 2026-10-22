@@ -444,7 +444,7 @@ function unattendedCommandsSection({
     ].join('\n');
   }
   if (isGemini(member))
-    return '# Commands\nYour role commands and reading commands within the allowed roots run immediately; other commands wait for a permission decision in the inbox. Do not chain commands with && or |. Use file tools for reading. Never retry a refused command in another form.';
+    return '# Commands\nYour role commands and reading commands within the allowed roots run immediately; other commands wait for a permission decision in the inbox. In your own worktree, routine git steps also run immediately: `git add`, `git commit -m "…"`, `git checkout -- <file>` or `git checkout HEAD -- <file>`, and `git restore <file>`. Do not chain commands with && or |. Use file tools for reading. Never retry a refused command in another form.';
   // A Claude member in the CLI's own sandbox (PM-167) is told its boundary instead: nothing there
   // waits for a human, whatever the work item. Codex's text does not change.
   if (sandbox && !isCodex(member) && sessionPolicy) {

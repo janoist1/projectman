@@ -652,6 +652,41 @@ describe('member initiated merge', () => {
     expect(events('task_merge_requested')).toHaveLength(1);
   });
 
+  it('queues a fresh merger wake when a later approval arrives, once per label event', async () => {
+    await setup();
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    const request = row()!;
+    const requestedEvent = events('task_merge_requested').at(-1)!;
+    const original = h!.repos.messages
+      .list('AR', { taskKey: 'AR-1' })
+      .find((message) => message.origin?.kind === 'note' && message.origin.eventId === requestedEvent.id)!;
+    h!.domain.messages.markRecipientDelivered(original.id, 'dev-1');
+
+    await h!.domain.tasks.update('AR', 'AR-1', { addLabels: ['security-ok'] }, OWNER_ACTOR);
+    const approval = events('task_labels_changed').at(-1)!;
+    await vi.waitFor(() => {
+      const message = h!.repos.messages
+        .list('AR', { taskKey: 'AR-1' })
+        .find((message) => message.origin?.kind === 'note' && message.origin.eventId === approval.id);
+      expect(message).toMatchObject({ from: 'system', to: ['dev-1'], kind: 'action' });
+      expect(
+        h!.repos.memberQueue.findBySource('AR', 'dev-1', { type: 'message', id: message!.id }),
+      ).toMatchObject({
+        wake: true,
+        place: { type: 'task', taskKey: 'AR-1' },
+      });
+    });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(
+      h!.repos.messages
+        .list('AR', { taskKey: 'AR-1' })
+        .filter((message) => message.origin?.kind === 'note' && message.origin.eventId === approval.id),
+    ).toHaveLength(1);
+    expect(row()).toMatchObject({ id: request.id, state: 'requested' });
+    expect(events('task_merge_requested')).toHaveLength(1);
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
   describe('engine reconnection', () => {
     const withCheck = (config: ProjectConfig) => {
       config.project.repos[0]!.reviewTest = reviewTest;

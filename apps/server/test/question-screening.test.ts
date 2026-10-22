@@ -96,6 +96,101 @@ describe('the Operator screens AI members’ questions', () => {
   const screen = (args: Parameters<typeof h.domain.teamTools.screenQuestion>[1]) =>
     h.domain.teamTools.screenQuestion(operatorTool(), args);
 
+  const todo = {
+    what: 'Sign in',
+    where: 'Vendor console',
+    expected: 'Access enabled',
+    recipient: 'owner' as const,
+  };
+  function feedback(projectKey = 'AR') {
+    if (projectKey !== 'AR') h.repos.projects.insert({ ...h.repos.projects.get('AR')!, key: projectKey });
+    h.repos.systemFeedback.insert({
+      id: 'fb_gap',
+      projectKey,
+      title: 'Missing tool',
+      what: 'A member needed a person',
+      workaround: 'Sent a todo',
+      fix: 'Add the tool',
+      createdAt: now.toISOString(),
+      version: 'dev',
+      sessionId: null,
+    });
+    return 'fb_gap';
+  }
+
+  it('stores a todo feedback reference in the payload and timeline', async () => {
+    const { inboxItemId } = await ask();
+    const feedbackId = feedback();
+    await screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId });
+    expect(item(inboxItemId).state).toBe('open');
+    expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({ feedbackId, outcome: 'todo' });
+    expect(timelineOf('question_screened')[0]?.data).toMatchObject({
+      inboxItemId,
+      feedbackId,
+      outcome: 'todo',
+    });
+  });
+
+  it.each(['foreign', 'missing', 'empty', 'other outcome'])(
+    'refuses %s feedback without changing the inbox or timeline',
+    async (variant) => {
+      const { inboxItemId } = await ask();
+      const feedbackId =
+        variant === 'empty'
+          ? ''
+          : variant === 'missing'
+            ? 'fb_missing'
+            : feedback(variant === 'foreign' ? 'BR' : 'AR');
+      const before = item(inboxItemId);
+      const timeline = h.domain.timeline.list('AR', { taskKey: 'AR-1' });
+      const err = await refusal(
+        screen({
+          itemId: inboxItemId,
+          note: 'Missing tool',
+          feedbackId,
+          ...(variant === 'other outcome'
+            ? { outcome: 'decision' as const }
+            : { outcome: 'todo' as const, todo }),
+        }),
+      );
+      expect(err.code).toBe('invalid');
+      expect(err.message).toContain('invalid_outcome_fields');
+      expect(item(inboxItemId)).toEqual(before);
+      expect(h.domain.timeline.list('AR', { taskKey: 'AR-1' })).toEqual(timeline);
+    },
+  );
+
+  it('rolls back the feedback reference and release if the timeline write fails', async () => {
+    const { inboxItemId } = await ask();
+    const feedbackId = feedback();
+    const before = item(inboxItemId);
+    const append = vi.spyOn(h.domain.timeline, 'append').mockImplementation(() => {
+      throw new Error('Timeline unavailable');
+    });
+    try {
+      await expect(
+        screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId }),
+      ).rejects.toThrow();
+      expect(item(inboxItemId)).toEqual(before);
+    } finally {
+      append.mockRestore();
+    }
+    expect(timelineOf('question_screened')).toEqual([]);
+  });
+
+  it('does not attach feedback to a question already released', async () => {
+    const { inboxItemId } = await ask();
+    const feedbackId = feedback();
+    await screen({ itemId: inboxItemId, outcome: 'decision', note: 'Owner decides' });
+    const before = item(inboxItemId);
+    const err = await refusal(
+      screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId }),
+    );
+    expect(err.message).toContain('question_not_screening');
+    expect(item(inboxItemId)).toEqual(before);
+    expect(timelineOf('question_screened')).toHaveLength(1);
+  });
+
   it('refuses a new todo without a recipient at the direct handler boundary without writing', async () => {
     const { inboxItemId } = await ask();
     const before = item(inboxItemId);

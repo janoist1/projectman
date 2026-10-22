@@ -364,6 +364,12 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
         forward_to: MemberHandle.optional().describe(
           'The AI member to pass the question to; only with forwarded.',
         ),
+        feedback_id: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe('The system feedback id returned by record_system_feedback; only with todo.'),
         todo: z
           .strictObject({
             what: z.string().trim().min(1).max(2000).describe('What the person has to do.'),
@@ -385,6 +391,8 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           issue('forward_to', 'forward_to goes with the outcome forwarded, and only with it.');
         if ((args.outcome === 'todo') !== (args.todo !== undefined))
           issue('todo', 'todo goes with the outcome todo, and only with it.');
+        if (args.feedback_id !== undefined && args.outcome !== 'todo')
+          issue('feedback_id', 'invalid_outcome_fields: feedback_id goes only with todo.');
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(
@@ -395,6 +403,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
             ...(args.answer !== undefined ? { answer: args.answer } : {}),
             ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
             ...(args.todo ? { todo: args.todo } : {}),
+            ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
           }),
         );
       },

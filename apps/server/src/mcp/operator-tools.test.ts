@@ -303,7 +303,13 @@ describe('Operator MCP tools', () => {
       expected: 'The new expiry date',
       recipient: 'owner',
     };
-    const args = tool.inputSchema.parse({ item_id: 'inb_1', outcome: 'todo', note: 'Needs a login', todo });
+    const args = tool.inputSchema.parse({
+      item_id: 'inb_1',
+      outcome: 'todo',
+      note: 'Needs a login',
+      todo,
+      feedback_id: 'fb_1',
+    });
     expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
       inboxItemId: 'inb_1',
       outcome: 'todo',
@@ -311,7 +317,7 @@ describe('Operator MCP tools', () => {
     });
     expect(handler.calls[0]).toMatchObject({
       method: 'screenQuestion',
-      args: { itemId: 'inb_1', outcome: 'todo', note: 'Needs a login', todo },
+      args: { itemId: 'inb_1', outcome: 'todo', note: 'Needs a login', todo, feedbackId: 'fb_1' },
     });
     const ok = (input: Record<string, unknown>) =>
       tool.inputSchema.safeParse({ item_id: 'inb_1', note: 'Why', ...input }).success;
@@ -323,6 +329,8 @@ describe('Operator MCP tools', () => {
     expect(ok({ outcome: 'forwarded' })).toBe(false);
     expect(ok({ outcome: 'decision', forward_to: 'dev-1' })).toBe(false);
     expect(ok({ outcome: 'todo' })).toBe(false);
+    expect(ok({ outcome: 'todo', todo, feedback_id: '' })).toBe(false);
+    expect(ok({ outcome: 'decision', feedback_id: 'fb_1' })).toBe(false);
     expect(ok({ outcome: 'decision', todo })).toBe(false);
     expect(ok({ outcome: 'decision', note: '' })).toBe(false);
     expect(ok({ outcome: 'maybe' })).toBe(false);

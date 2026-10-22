@@ -19,6 +19,10 @@ import type { ProjectService } from '../projects';
 const SCREENING_NOTICE =
   'Projectman question screening. AI members asked questions meant for people. Handle every one of them now ' +
   'with screen_question (item_id, outcome, note; answered also needs answer, forwarded forward_to, todo todo). ' +
+  'Before todo use list_system_feedback then record_system_feedback: describe why the member needed a person, ' +
+  'the workaround of sending the step to the owner as a todo, and the suggested fix. For a repeated gap use same_as. ' +
+  'Pass the returned id as screen_question feedback_id. If recording fails, send the todo without feedback_id; ' +
+  'never invent an id or delay the todo or the ten-minute fallback. ' +
   'First combine substantively equivalent owner decisions with combine_questions (item_ids, question, note); ' +
   'screen only the primary as decision. A group never takes a separate fallback for each linked question. ' +
   'Your instructions say which outcome fits. Start or move nothing on the board while you screen. ' +

@@ -61,6 +61,30 @@ export class SeniorWaits {
     this.retry = deps.retry;
   }
 
+  /** Settle from the current card before a deferred start is retried. */
+  settleCard(task: { projectKey: string; key: string }): void {
+    const config = this.projects.cachedConfig(task.projectKey);
+    const current = this.tasks.find(task.projectKey, task.key);
+    if (config && current) this.settle(current, config);
+  }
+
+  /** A changed roster or wait limit can release a deferred start. */
+  configurationChanged(change: ConfigChange): void {
+    this.configChanged(change);
+    const { previous, next } = change;
+    const seniors = (config: typeof next) =>
+      config.team.members
+        .filter((m) => isSenior(m))
+        .map((m) => m.handle)
+        .join(',');
+    if (
+      previous &&
+      (seniors(previous) !== seniors(next) ||
+        seniorWaitMinutesOf(previous.team.limits) !== seniorWaitMinutesOf(next.team.limits))
+    )
+      this.retry();
+  }
+
   /** The card begins to wait for one of the Seniors; a card that already waits keeps its wait. */
   open(task: Pick<Task, 'projectKey' | 'key'>, seniors: readonly string[]): void {
     if (this.ctx.repos.seniorWaits.open(task.projectKey, task.key)) return;

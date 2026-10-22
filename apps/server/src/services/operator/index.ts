@@ -9,3 +9,4 @@ export { ProjectState } from './project-state';
 export { ProjectManagerChannels } from './project-manager';
 export { PmReplyRelay, RELAY_WINDOW_MS } from './pm-reply-relay';
 export type * from './ports';
+export { wireOperatorSignals } from './signal-events';

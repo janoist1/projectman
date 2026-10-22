@@ -50,12 +50,9 @@ import { createTaskService } from './core/tasks';
 import { createProjectService } from './core/projects';
 import {
   canManageInstancePause,
-  coordinationMemberOf,
   HISTORY_DOC_PATHS,
   isOnLeave,
   isOpenTask,
-  OPERATOR_SILENT_WORK_MINUTES,
-  isSenior,
   isTheme,
   LOCAL_ENGINE_ID,
   memberOf,
@@ -64,7 +61,6 @@ import {
   operatorKnowledgeContinuationMessageId,
   pullSourceStage,
   routeFor,
-  seniorWaitMinutesOf,
   stageOf,
   TaskMerged,
 } from '@projectman/shared';
@@ -126,8 +122,9 @@ import {
   StageHandOver,
   TaskStarts,
   WorkStarts,
+  createDeferredStartRebuilder,
 } from './runtime/admission';
-import type { QueueWait, StartSpec } from './runtime/admission';
+import type { QueueWait } from './runtime/admission';
 import { AttachmentService } from './core/attachments';
 import { MessageAttachmentService } from './core/attachments';
 import { BackgroundTasks } from './kernel';
@@ -139,7 +136,7 @@ import {
   OperatorRequests,
   OperatorSteps,
 } from './services/operator';
-import { LoopTriages, OperatorSignals, StructuralReviews } from './services/operator';
+import { LoopTriages, OperatorSignals, StructuralReviews, wireOperatorSignals } from './services/operator';
 import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
 import { ProjectState } from './services/operator';
@@ -184,6 +181,7 @@ import {
   signalLane,
   startLane,
   OperatorQueueReminder,
+  wireMemberQueue,
 } from './runtime/member-queue';
 import { PlanUsageMonitor } from './runtime/usage';
 import { PresenceService } from './core/members';
@@ -203,7 +201,7 @@ import type { EngineAdministration } from './administration';
 import { conflict, forbidden, notFound } from './kernel';
 import { SessionCloser } from './runtime/sessions';
 import { SessionOrchestrator } from './runtime/sessions';
-import { AutoAdvance } from './runtime/watchers';
+import { AutoAdvance, wireCardAdvance } from './runtime/watchers';
 import { CollectingCloser, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './core/tasks';
 import { TimelineService } from './core/timeline';
 import { InvolvementService } from './core/tasks';
@@ -1473,89 +1471,14 @@ export function createDomain(opts: DomainOptions) {
   // The project manager's lanes (PM-885): the questions it screens and the system signals it is given.
   memberQueueDriver.register(screeningLane({ screening: questionScreening }));
   memberQueueDriver.register(signalLane({ signals: operatorSignals }));
-  const finishOperatorSignals = (session: Session) => {
-    const config = projects.cachedConfig(session.projectKey);
-    if (config && session.member === coordinationMemberOf(config)?.handle)
-      operatorSignals.finish(session.projectKey);
-  };
-  events.on('session_idle', finishOperatorSignals);
-  events.on('session_ended', finishOperatorSignals);
-  const wakeOperatorSignals = (projectKey: string) =>
-    background.run(
-      () => operatorSignals.deliver(projectKey),
-      (err) => opts.logger.warn({ err, projectKey }, 'operator signal delivery failed'),
-    );
-  events.on('work_outage_started', ({ projectKey, outageId, inboxItemId }) => {
-    operatorSignals.raise({
-      projectKey,
-      kind: 'outage',
-      caseKey: `outage:${outageId}`,
-      subject: outageId,
-      inboxItemId,
-    });
-    wakeOperatorSignals(projectKey);
+  const unsubscribeSignalActivity = wireOperatorSignals({
+    ctx,
+    bus,
+    projects,
+    sessions,
+    operatorSignals,
+    background,
   });
-  events.on('session_cleanup_failed', ({ projectKey, sessionId, scopeId }) => {
-    const session = sessions.find(sessionId);
-    operatorSignals.raise({
-      projectKey,
-      kind: 'process_cleanup_failed',
-      caseKey: `cleanup:${scopeId}`,
-      subject: scopeId,
-      taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
-    });
-    wakeOperatorSignals(projectKey);
-  });
-  events.on('session_cleanup_recovered', ({ projectKey, scopeId }) =>
-    operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
-  );
-  events.on('session_cleanup_released', ({ projectKey, scopeId }) =>
-    operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
-  );
-  events.on('work_outage_ended', ({ projectKey, outageId }) =>
-    operatorSignals.resolve(projectKey, `outage:${outageId}`),
-  );
-  events.on('session_input_stalled', ({ projectKey, sessionId, inboxItemId }) => {
-    const session = sessions.find(sessionId);
-    operatorSignals.raise({
-      projectKey,
-      kind: 'stalled',
-      caseKey: `stalled:${sessionId}`,
-      subject: sessionId,
-      inboxItemId,
-      taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
-    });
-    wakeOperatorSignals(projectKey);
-  });
-  const sessionSignalEnded = (session: Session) => {
-    operatorSignals.resolve(session.projectKey, `stalled:${session.id}`);
-    operatorSignals.resolve(session.projectKey, `silent:${session.id}`);
-  };
-  events.on('session_input_released', sessionSignalEnded);
-  events.on('session_ended', sessionSignalEnded);
-  const unsubscribeSignalActivity = bus.subscribe((event) => {
-    if (event.type === 'session_upserted' || event.type === 'chat_appended') {
-      const id = event.type === 'session_upserted' ? event.session.id : event.sessionId;
-      const session = sessions.find(id);
-      if (
-        event.type === 'chat_appended' ||
-        !session ||
-        session.state !== 'working' ||
-        ctx.now().getTime() - Date.parse(session.lastActivityAt) < OPERATOR_SILENT_WORK_MINUTES * 60_000
-      )
-        operatorSignals.resolve(event.projectKey, `silent:${id}`);
-      if (session?.state !== 'waiting_input') operatorSignals.resolve(event.projectKey, `stalled:${id}`);
-    }
-  });
-  const checkOperatorCards = ({ task }: { task: Task }) => {
-    background.run(
-      () => operatorSignals.sweep(task.projectKey),
-      (err) => opts.logger.warn({ err, taskKey: task.key }, 'operator signal card check failed'),
-    );
-  };
-  events.on('task_stage_changed', checkOperatorCards);
-  events.on('task_labels_changed', checkOperatorCards);
-  events.on('task_assigned', checkOperatorCards);
   const operatorDeps = {
     knowledge: opts.operatorKnowledge,
     ctx,
@@ -1878,41 +1801,19 @@ export function createDomain(opts: DomainOptions) {
           opts.logger.warn({ err, engineId: id }, 'could not check the full test sandbox of an engine'),
       );
   });
-  /** A deferred start as it was stored, made again by the module that made it. */
-  const rebuildDeferredStart = (spec: StartSpec) => {
-    switch (spec.kind) {
-      case 'hand_over':
-        return handOver.rebuild(spec);
-      case 'work_start':
-        return workStarts.rebuild(spec);
-      case 'refinement_turn':
-        return refinement.rebuild(spec);
-      case 'message_wake':
-        // Stored by an older build: the member queue wakes the member now, and the row is dropped (PM-925).
-        background.run(
-          () => memberQueueDriver.ensure(spec.projectKey, spec.handle),
-          (err) => opts.logger.warn({ err, member: spec.handle }, 'working the member queue failed'),
-        );
-        return null;
-      case 'provider_resume':
-        return messageStarts.rebuildQuota(spec);
-      case 'loop_notice':
-        return loopWatch.rebuild(spec);
-      case 'operator_signals':
-      case 'question_screening':
-        // Stored by an older build: the PM's queue holds these items now; the row is dropped (PM-885).
-        background.run(
-          () =>
-            spec.kind === 'operator_signals'
-              ? operatorSignals.deliver(spec.projectKey)
-              : questionScreening.enqueue(spec.projectKey),
-          (err) => opts.logger.warn({ err, projectKey: spec.projectKey }, 'working the PM queue failed'),
-        );
-        return null;
-      case 'handoff_takeover':
-        return handoffs.rebuild(spec);
-    }
-  };
+  const rebuildDeferredStart = createDeferredStartRebuilder({
+    handOver,
+    workStarts,
+    refinement,
+    messageStarts,
+    handoffs,
+    rebuildLoopNotice: (spec) => loopWatch.rebuild(spec),
+    memberQueueDriver,
+    operatorSignals,
+    questionScreening,
+    background,
+    logger: opts.logger,
+  });
 
   // The handoff follows what happens to the old member, the receiver and the card meanwhile.
   events.on('config_changed', (change) => handoffs.configChanged(change.projectKey, change.next));
@@ -1962,12 +1863,7 @@ export function createDomain(opts: DomainOptions) {
   // A card that waits for the Senior: the wait ends with its card's assignment, move, closure or level, or
   // with the team's Senior, and the owners' answer to the question is kept (PM-348). These run before the
   // listeners that retry the deferred starts, so a retry sees the wait settled.
-  const settleSeniorWait = (task: { projectKey: string; key: string }) => {
-    const config = projects.cachedConfig(task.projectKey);
-    const current = tasks.find(task.projectKey, task.key);
-    if (config && current) seniorWaits.settle(current, config);
-  };
-  events.on('task_assigned', ({ task }) => settleSeniorWait(task));
+  events.on('task_assigned', ({ task }) => seniorWaits.settleCard(task));
   // A message from an AI member that waits for a member with no role on the card starts nothing (PM-426).
   // The new assignee has a role: their waiting messages wake them now, unless the card holds them back.
   events.on('task_assigned', ({ task }) => {
@@ -1986,26 +1882,14 @@ export function createDomain(opts: DomainOptions) {
         opts.logger.warn({ err, taskKey: task.key }, 'could not wake the new assignee for waiting messages'),
     );
   });
-  events.on('task_stage_changed', (change) => settleSeniorWait(change.task));
-  events.on('task_cancelled', (task) => settleSeniorWait(task));
+  events.on('task_stage_changed', (change) => seniorWaits.settleCard(change.task));
+  events.on('task_cancelled', (task) => seniorWaits.settleCard(task));
   events.on('task_level_changed', ({ task }) => {
-    settleSeniorWait(task);
+    seniorWaits.settleCard(task);
     retryDeferredStarts();
   });
   events.on('config_changed', (change) => {
-    seniorWaits.configChanged(change);
-    const { previous, next } = change;
-    const seniors = (config: typeof next) =>
-      config.team.members
-        .filter((m) => isSenior(m))
-        .map((m) => m.handle)
-        .join(',');
-    if (
-      previous &&
-      (seniors(previous) !== seniors(next) ||
-        seniorWaitMinutesOf(previous.team.limits) !== seniorWaitMinutesOf(next.team.limits))
-    )
-      retryDeferredStarts();
+    seniorWaits.configurationChanged(change);
   });
   events.on('inbox_resolved', (item) => seniorWaits.decided(item));
   // Human decisions.
@@ -2183,41 +2067,7 @@ export function createDomain(opts: DomainOptions) {
   // missing (PM-445): looked at when its labels change or a session of it ends.
   // One run per card at a time (PM-770): an event that arrives while it runs does not start a second run
   // beside it, it asks for one more round that looks at the card afresh, so the last change is never missed.
-  const advancing = new Map<string, { again: boolean }>();
-  const advanceCard = (task: Task | null): void => {
-    if (!task) return;
-    const id = `${task.projectKey}\u0000${task.key}`;
-    const running = advancing.get(id);
-    if (running) {
-      running.again = true;
-      return;
-    }
-    const round = { again: false };
-    advancing.set(id, round);
-    background.run(
-      async () => {
-        try {
-          do {
-            round.again = false;
-            await merges.reconcile(task.projectKey, task.key);
-            const fresh = tasks.find(task.projectKey, task.key);
-            if (fresh) await autoAdvance.check(fresh);
-          } while (round.again);
-        } finally {
-          advancing.delete(id);
-        }
-      },
-      (err) => opts.logger.warn({ err, taskKey: task.key }, 'automatic stage advance failed'),
-    );
-  };
-  events.on('task_labels_changed', ({ task }) => advanceCard(task));
-  events.on('task_stage_changed', (change) => advanceCard(change.task));
-  const advanceSessionCard = (session: Session) =>
-    advanceCard(
-      session.workItem.type === 'task' ? tasks.find(session.projectKey, session.workItem.taskKey) : null,
-    );
-  events.on('session_idle', advanceSessionCard);
-  events.on('session_ended', advanceSessionCard);
+  wireCardAdvance({ events, tasks, merges, autoAdvance, background, logger: opts.logger });
   // A card entering review gets its pinned commit tested, and one that left or got a new pin drops its
   // old run (PM-217); the pin is saved with the move, so it is there when this runs.
   const syncFullTest = (task: { projectKey: string; key: string }) =>
@@ -2427,55 +2277,15 @@ export function createDomain(opts: DomainOptions) {
   // something to do; the sweep is the net under every one of these (PM-925). Never awaited: some of them
   // run under the admission lock the driver takes. The messages of a live session keep their own hooks at the
   // turn boundary above; a change of the queue alone does not type into a session.
-  const ensureMember = (projectKey: string, member: string, deliver = true): void => {
-    if (opts.standby) return;
-    background.run(
-      () => memberQueueDriver.ensure(projectKey, member, { deliver }),
-      (err) => opts.logger.warn({ err, projectKey, member }, 'working the member queue failed'),
-    );
-  };
-  const ensureMembersOfCard = (projectKey: string, taskKey: string): void => {
-    const members = new Set(
-      ctx.repos.memberQueue
-        .listOpenMembers()
-        .filter(
-          (open) =>
-            open.projectKey === projectKey &&
-            ctx.repos.memberQueue
-              .listOpen(projectKey, open.member)
-              .some(
-                (item) =>
-                  item.taskKey === taskKey || (item.place.type === 'task' && item.place.taskKey === taskKey),
-              ),
-        )
-        .map((open) => open.member),
-    );
-    for (const member of members) ensureMember(projectKey, member);
-  };
-  /** Every member of the project (all projects: none given) that has an open item. */
-  const ensureMembers = (projectKey?: string): void => {
-    for (const open of ctx.repos.memberQueue.listOpenMembers())
-      if (projectKey === undefined || open.projectKey === projectKey)
-        ensureMember(open.projectKey, open.member);
-  };
-  // A pause ended, an outage ended or the configuration changed (leave, limits, the provider): holds may have lifted.
-  events.on('pause_changed', ({ projectKey }) => ensureMembers(projectKey));
-  events.on('work_outage_ended', ({ projectKey }) => ensureMembers(projectKey));
-  events.on('config_changed', ({ projectKey }) => ensureMembers(projectKey));
-  engines.onChange((_id, online) => {
-    if (online) ensureMembers();
+  wireMemberQueue({
+    ctx,
+    background,
+    memberQueueDriver,
+    memberQueue,
+    engines,
+    providerKeys,
+    standby: opts.standby,
   });
-  providerKeys?.onChange(() => ensureMembers());
-  memberQueue.onChange((projectKey, member) => ensureMember(projectKey, member, false));
-  events.on('message_waiting', ({ projectKey, handle }) => ensureMember(projectKey, handle));
-  events.on('session_started', (session) => ensureMember(session.projectKey, session.member));
-  events.on('session_idle', (session) => ensureMember(session.projectKey, session.member));
-  events.on('session_ended', (session) => ensureMember(session.projectKey, session.member));
-  events.on('session_input_released', (session) => ensureMember(session.projectKey, session.member));
-  // A card that closed, moved or was relabelled changes what its queued messages are worth and hold for.
-  events.on('task_cancelled', (task) => ensureMembersOfCard(task.projectKey, task.key));
-  events.on('task_stage_changed', ({ task }) => ensureMembersOfCard(task.projectKey, task.key));
-  events.on('task_labels_changed', ({ task }) => ensureMembersOfCard(task.projectKey, task.key));
 
   let sweeps: RunningSweeps | undefined;
   let stopMessageSweep: (() => void) | undefined;

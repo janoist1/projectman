@@ -4804,6 +4804,14 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   dismissal only. No migration or machine-dependent operation is added: configuration and locks stay on the
   server; the existing team-tools relay carries the read and patch for remote engines.
 
+- **Targeted label edit (PM-880).** Operator `config_patch.labels` is a map keyed by label id with `name`,
+  `color` and `meaning` (`null` removes the color or meaning); no other label field is editable this way. A label
+  without a definition is added (its name defaults to its id). `prepareOperatorConfigPatch` merges the entries into
+  the current `pipeline.labels` (or the patch's own `pipeline`) before preview and execution, so stages, columns,
+  gates and the other labels stay unchanged. The rows are the ordinary `label` rows at the `approval` level, with
+  the old and new value. Same boundary as the role patch: configuration stays on the server, nothing
+  machine-dependent is added.
+
 - **System signals** (PM-476, migration 50, `services/operator/signals.ts`). Provider/engine outages,
   cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
   create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.

@@ -211,6 +211,47 @@ describe('targeted Operator role configuration (PM-746)', () => {
     },
   );
 
+  it('previews the old and new value of one label and leaves the rest of the pipeline unchanged (PM-880)', async () => {
+    await setup();
+    const before = (await h.domain.projects.config('AR')).pipeline;
+    const target = before.labels.find((label) => label.color !== 'red')!;
+    const result = await operate({
+      op: 'config_patch',
+      patch: { labels: { [target.id]: { color: 'red' } } },
+    });
+    expect(result.status).toBe('awaiting_approval');
+    expect(result.changes).toEqual([
+      expect.objectContaining({
+        area: 'label',
+        target: target.id,
+        field: 'color',
+        before: target.color ?? null,
+        after: 'red',
+        level: 'approval',
+      }),
+    ]);
+    await resolve(result.inbox_item_id!);
+    const after = (await h.domain.projects.config('AR')).pipeline;
+    expect(after.stages).toEqual(before.stages);
+    expect(after.columns).toEqual(before.columns);
+    expect(after.labels).toEqual(
+      before.labels.map((label) => (label.id === target.id ? { ...label, color: 'red' } : label)),
+    );
+  });
+
+  it('defines a plain tag as a label without touching the others (PM-880)', async () => {
+    await setup();
+    const before = (await h.domain.projects.config('AR')).pipeline;
+    const result = await operate({ op: 'config_patch', patch: { labels: { bug: { color: 'red' } } } });
+    expect(result.status).toBe('awaiting_approval');
+    await resolve(result.inbox_item_id!);
+    const after = (await h.domain.projects.config('AR')).pipeline;
+    expect(after.labels).toEqual([
+      ...before.labels,
+      { id: 'bug', name: 'bug', color: 'red', setBy: 'anyone' },
+    ]);
+  });
+
   it('preserves a different role edited after approval replay and before the final configuration lock', async () => {
     await setup(false, withOverrides);
     const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });

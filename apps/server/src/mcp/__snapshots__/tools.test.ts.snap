@@ -781,6 +781,57 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                               },
                               "type": "object",
                             },
+                            "labels": {
+                              "additionalProperties": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "color": {
+                                    "anyOf": [
+                                      {
+                                        "enum": [
+                                          "gray",
+                                          "blue",
+                                          "teal",
+                                          "green",
+                                          "yellow",
+                                          "orange",
+                                          "red",
+                                          "pink",
+                                          "purple",
+                                        ],
+                                        "type": "string",
+                                      },
+                                      {
+                                        "type": "null",
+                                      },
+                                    ],
+                                  },
+                                  "meaning": {
+                                    "anyOf": [
+                                      {
+                                        "maxLength": 500,
+                                        "type": "string",
+                                      },
+                                      {
+                                        "type": "null",
+                                      },
+                                    ],
+                                  },
+                                  "name": {
+                                    "maxLength": 60,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                },
+                                "type": "object",
+                              },
+                              "propertyNames": {
+                                "maxLength": 40,
+                                "minLength": 1,
+                                "type": "string",
+                              },
+                              "type": "object",
+                            },
                             "limits": {
                               "additionalProperties": false,
                               "properties": {
@@ -4100,7 +4151,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Operate the project",
     },
-    "description": "Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).",
+    "description": "Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. To add or change one pipeline label (name, color, meaning) send only that label in config_patch.labels, keyed by label id, e.g. {"bug": {"color": "red"}}; omitted fields and all other labels, stages and columns stay unchanged, and null removes the color or meaning. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4214,6 +4265,57 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "maxItems": 20,
                           "type": "array",
                         },
+                      },
+                      "type": "object",
+                    },
+                    "labels": {
+                      "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "color": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "gray",
+                                  "blue",
+                                  "teal",
+                                  "green",
+                                  "yellow",
+                                  "orange",
+                                  "red",
+                                  "pink",
+                                  "purple",
+                                ],
+                                "type": "string",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                          },
+                          "meaning": {
+                            "anyOf": [
+                              {
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                          },
+                          "name": {
+                            "maxLength": 60,
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                        },
+                        "type": "object",
+                      },
+                      "propertyNames": {
+                        "maxLength": 40,
+                        "minLength": 1,
+                        "type": "string",
                       },
                       "type": "object",
                     },
@@ -5742,6 +5844,57 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "maxItems": 20,
                             "type": "array",
                           },
+                        },
+                        "type": "object",
+                      },
+                      "labels": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "color": {
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "gray",
+                                    "blue",
+                                    "teal",
+                                    "green",
+                                    "yellow",
+                                    "orange",
+                                    "red",
+                                    "pink",
+                                    "purple",
+                                  ],
+                                  "type": "string",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
+                            "meaning": {
+                              "anyOf": [
+                                {
+                                  "maxLength": 500,
+                                  "type": "string",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
+                            "name": {
+                              "maxLength": 60,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                          },
+                          "type": "object",
+                        },
+                        "propertyNames": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
                         },
                         "type": "object",
                       },

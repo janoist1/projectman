@@ -81,7 +81,7 @@ export function createSesEmailSender(options: SesEmailSenderOptions): EmailSende
         ...(options.configurationSet ? { ConfigurationSetName: options.configurationSet } : {}),
         Content: {
           Simple: {
-            Subject: { Data: input.subject, Charset: 'UTF-8' },
+            Subject: { Data: input.subject.replace(/[\r\n]+/g, ' ').trim(), Charset: 'UTF-8' },
             Body: {
               Text: { Data: input.text, Charset: 'UTF-8' },
               Html: { Data: input.html, Charset: 'UTF-8' },

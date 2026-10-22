@@ -5,6 +5,16 @@ import type { ProjectService } from '../../core/projects';
 import type { ToolCaller } from '../caller';
 import { toToolError } from '../caller';
 import { DomainError } from '../../kernel';
+import { TeamToolError } from '../../contracts';
+
+/** Keeps the e-mail error code (and its reason) in the message: the tool error carries no details. */
+function emailToolError(err: unknown): unknown {
+  if (!(err instanceof DomainError) || !err.code.startsWith('email_')) return toToolError(err);
+  const details = err.details as { reason?: unknown; match?: unknown } | undefined;
+  const reason = typeof details?.reason === 'string' ? ` (${details.reason})` : '';
+  const kind = err.status === 403 || err.status === 429 ? 'forbidden' : 'invalid';
+  return new TeamToolError(kind, `${err.code}${reason}: ${err.message}`);
+}
 
 export class EmailChannelTools {
   private readonly calls: ToolCaller;
@@ -45,10 +55,10 @@ export class EmailChannelTools {
         to: args.to,
         subject: args.subject,
         text: args.text,
-        taskKey: args.taskKey ?? ctx.taskKey,
+        taskKey: args.taskKey,
       });
     } catch (err) {
-      throw toToolError(err);
+      throw emailToolError(err);
     }
   }
 
@@ -74,7 +84,7 @@ export class EmailChannelTools {
         ...(args.quote ? { quote: args.quote } : {}),
       });
     } catch (err) {
-      throw toToolError(err);
+      throw emailToolError(err);
     }
   }
 
@@ -83,7 +93,7 @@ export class EmailChannelTools {
       await this.allowed(ctx, 'list_email_contacts');
       return this.email.contactsForMember(ctx.projectKey);
     } catch (err) {
-      throw toToolError(err);
+      throw emailToolError(err);
     }
   }
 }

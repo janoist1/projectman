@@ -60,6 +60,7 @@ describe('team tool registration', () => {
         TEAM_TOOL_GROUPS.map((group) => [group.module, group.tools.map((tool) => tool.name)]),
       ),
     ).toEqual({
+      'services/email-channel': ['send_email', 'set_email_contact', 'list_email_contacts'],
       'services/github': ['link_pull_request'],
       'services/operator': [
         'get_role_configuration',

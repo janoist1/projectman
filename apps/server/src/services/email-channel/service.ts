@@ -245,11 +245,14 @@ export function createEmailChannelService(deps: {
     const recipientRefusal = emailRecipientRefusal(recipient, wants);
     const senderAllowed = emailSenderOf(config, record.member!);
     const content = await contentRefusals(item.projectKey, config, contact, record);
-    const refusal = recipientRefusal
-      ? { reason: recipientRefusal }
-      : senderAllowed
-        ? content[0]
-        : { reason: 'email_sender_not_enabled' };
+    // The same order as `send`: channel, sender, recipient, content (the daily limit is not checked again).
+    const refusal = !emailChannelOn(config)
+      ? { reason: 'email_channel_off' }
+      : !senderAllowed
+        ? { reason: 'email_sender_not_enabled' }
+        : recipientRefusal
+          ? { reason: recipientRefusal }
+          : content[0];
     if (refusal) {
       const at = now().toISOString();
       const refusalNote = noteOf(refusal);
@@ -511,7 +514,10 @@ export function createEmailChannelService(deps: {
         const address = target?.kind === 'human' ? target.email : null;
         source = {
           kind: 'email',
-          from: message.fromAddress === address ? input.handle : (message.fromAddress ?? ''),
+          from:
+            address && message.fromAddress?.toLowerCase() === address.toLowerCase()
+              ? input.handle
+              : (message.fromAddress ?? ''),
         };
       }
       const changeRefusal: EmailContactRefusal | null = emailContactChangeRefusal({

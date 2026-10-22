@@ -60,19 +60,36 @@ describe('EmailChannelTools', () => {
   });
 
   it.each([
-    { name: 'not configured', configured: false, projectOn: true, senderOn: true },
-    { name: 'the project channel is off', configured: true, projectOn: false, senderOn: true },
-    { name: 'the sender is disabled', configured: true, projectOn: true, senderOn: false },
-  ])('refuses send_email when $name', async ({ configured, projectOn, senderOn }) => {
-    const config = senderConfig(base, projectOn, senderOn);
-    await expect(
-      tools(config, configured).sendEmail(ctx, {
-        to: 'owner',
-        subject: 'Summary',
-        text: 'Ready.',
-        taskKey: null,
-      }),
-    ).rejects.toMatchObject({ code: 'forbidden' });
+    {
+      name: 'not configured',
+      configured: false,
+      projectOn: true,
+      senderOn: true,
+      code: 'email_not_configured',
+    },
+    {
+      name: 'the project channel is off',
+      configured: true,
+      projectOn: false,
+      senderOn: true,
+      code: 'email_channel_off',
+    },
+    {
+      name: 'the sender is disabled',
+      configured: true,
+      projectOn: true,
+      senderOn: false,
+      code: 'email_sender_not_enabled',
+    },
+  ])('refuses every tool when $name', async ({ configured, projectOn, senderOn, code }) => {
+    const channel = tools(senderConfig(base, projectOn, senderOn), configured);
+    const calls = [
+      channel.sendEmail(ctx, { to: 'owner', subject: 'Summary', text: 'Ready.', taskKey: null }),
+      channel.setEmailContact(ctx, { handle: 'owner', wants: true, requestedBy: 'owner' }),
+      channel.listEmailContacts(ctx),
+    ];
+    for (const call of calls)
+      await expect(call).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining(code) });
   });
 
   it('lists contacts without their e-mail addresses', async () => {

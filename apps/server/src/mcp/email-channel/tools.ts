@@ -24,14 +24,13 @@ export const EMAIL_CHANNEL_TOOL_GROUP: TeamToolGroup = {
         task_key: TaskKey.optional().describe('The card the e-mail is about, if any.'),
       },
       async run({ ctx, args, handler }) {
-        return JSON.stringify(
-          await handler.sendEmail(ctx, {
-            to: args.to,
-            subject: args.subject,
-            text: args.text,
-            taskKey: args.task_key ?? null,
-          }),
-        );
+        const sent = await handler.sendEmail(ctx, {
+          to: args.to,
+          subject: args.subject,
+          text: args.text,
+          taskKey: args.task_key ?? null,
+        });
+        return JSON.stringify({ email_id: sent.emailId, status: sent.status });
       },
     }),
     defineTool({
@@ -73,7 +72,15 @@ export const EMAIL_CHANNEL_TOOL_GROUP: TeamToolGroup = {
         'List the human teammates who may receive e-mail, their display names, whether they ask for e-mail, and whether they have an address. E-mail addresses are never returned.',
       input: {},
       async run({ ctx, handler }) {
-        return JSON.stringify(await handler.listEmailContacts(ctx));
+        const contacts = await handler.listEmailContacts(ctx);
+        return JSON.stringify({
+          contacts: contacts.map((contact) => ({
+            handle: contact.handle,
+            display_name: contact.displayName,
+            wants: contact.wants,
+            has_address: contact.hasAddress,
+          })),
+        });
       },
     }),
   ],

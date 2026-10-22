@@ -1,4 +1,3 @@
-import { createHmac, randomBytes } from 'node:crypto';
 import {
   EMAIL_QUOTE_MAX,
   EMAIL_REPLY_TOKEN_DAYS,
@@ -37,6 +36,8 @@ import type { TaskService } from '../../core/tasks';
 import { DomainError } from '../../kernel';
 import type { EmailChannelEnv } from './config';
 import { renderEmail } from './render';
+import { createEmailInbound } from './inbound';
+import { replyToken, replyTokenHash } from './reply-token';
 import type { EmailChannelService } from './types';
 import { EmailSendError } from './ses-sender';
 import type { EmailSender, OutboundMail } from './ses-sender';
@@ -45,22 +46,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function refused(code: ErrorCode, message: string, status = 403, details?: unknown): DomainError {
   return new DomainError(code, message, { status, details });
-}
-
-function replyToken(): string {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
-  const number = BigInt(`0x${randomBytes(16).toString('hex')}`);
-  let value = number;
-  let encoded = '';
-  for (let index = 0; index < 26; index += 1) {
-    encoded = alphabet[Number(value & 31n)] + encoded;
-    value >>= 5n;
-  }
-  return encoded;
-}
-
-function replyTokenHash(key: Buffer, token: string): string {
-  return createHmac('sha256', key).update(`reply:${token}`).digest('hex');
 }
 
 function noteOf(refusal: { reason: string; match?: string }): string {
@@ -213,6 +198,30 @@ export function createEmailChannelService(deps: {
     publishInbox(closed);
   }
 
+  const inbound = createEmailInbound({
+    ctx,
+    repo,
+    inbox,
+    messaging,
+    projects,
+    tasks,
+    env,
+    replyKey,
+    now,
+    changed,
+    notify,
+    publishInbox,
+  });
+  let pruning: ReturnType<typeof setInterval> | undefined;
+  const prune = () => {
+    try {
+      const count = repo.prune(now().toISOString());
+      if (count > 0) ctx.logger.info({ count }, 'old parked e-mails were cleared');
+    } catch (err) {
+      ctx.logger.warn({ err }, 'clearing old parked e-mails failed');
+    }
+  };
+
   async function decide(item: InboxItem, by: Resolver, optionId: string, note: string | null): Promise<void> {
     const payload = emailApprovalOf(item);
     const record = payload?.emailId ? repo.messages.get(payload.emailId) : null;
@@ -289,6 +298,20 @@ export function createEmailChannelService(deps: {
   }
 
   return {
+    inbound,
+
+    start() {
+      if (pruning) return;
+      prune();
+      pruning = setInterval(prune, DAY_MS);
+      pruning.unref();
+    },
+
+    stop() {
+      if (pruning) clearInterval(pruning);
+      pruning = undefined;
+    },
+
     configured,
 
     async view(projectKey) {

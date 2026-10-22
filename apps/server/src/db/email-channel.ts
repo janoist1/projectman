@@ -145,6 +145,10 @@ export function createEmailChannelRepository(db: Db) {
         ).run({ ...record, attachmentNames: toJson(record.attachmentNames) });
         return record;
       },
+      /** Drops a row whose work failed, so the same provider id can be tried again. */
+      remove(id: string): void {
+        db.prepare('DELETE FROM email_messages WHERE id = ?').run(id);
+      },
       get: (id: string) => getMessage('id', id),
       byTokenHash: (hash: string) => getMessage('reply_token_hash', hash),
       byProviderId: (id: string) => getMessage('provider_id', id),
@@ -193,6 +197,17 @@ export function createEmailChannelRepository(db: Db) {
             AND ${column} = ? AND created_at >= ?${statusPlaceholders ? ` AND status IN (${statusPlaceholders})` : ''}`,
           )
           .get(projectKey, value, since, ...(statuses ?? [])) as { count: number }
+      ).count;
+    },
+    /** Parked mails since `since` that raised an alert (the daily limit counts these). */
+    countAlertedSince(projectKey: string, since: string): number {
+      return (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS count FROM email_messages WHERE project_key = ? AND direction = 'inbound'
+            AND status = 'parked' AND inbox_item_id IS NOT NULL AND created_at >= ?`,
+          )
+          .get(projectKey, since) as { count: number }
       ).count;
     },
     /** Cursor is the last (timestamp,id) pair, so equal timestamps never skip a row. */

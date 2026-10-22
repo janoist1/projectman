@@ -54,6 +54,8 @@ export interface RecordMessageInput {
   /** Set on the message that carries a person's answer to an AI member's question (PM-249). */
   answer?: TeamMessageAnswer;
   relayed?: TeamMessage['relayed'];
+  /** The e-mail reply the message carries (PM-943). */
+  email?: TeamMessage['email'];
   origin?: TeamMessage['origin'];
   /** The Operator's request this message was sent during (PM-463). */
   operatorRequest?: string;
@@ -127,6 +129,7 @@ export class MessageService {
       })),
       ...(input.answer ? { answer: input.answer } : {}),
       ...(input.relayed ? { relayed: input.relayed } : {}),
+      ...(input.email ? { email: input.email } : {}),
       ...(input.actor.via ? { via: input.actor.via } : {}),
       ...(hasSuperOrigin(input.actor) ? { actor: input.actor } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
@@ -151,6 +154,7 @@ export class MessageService {
           excerpt: excerpt(message.body || (message.attachments ?? []).map((a) => a.fileName).join(', ')),
           kind: message.kind,
           version: message.version,
+          ...(message.email ? { email: true } : {}),
         },
       });
       return message;

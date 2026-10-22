@@ -2486,6 +2486,7 @@ export function createDomain(opts: DomainOptions) {
         });
       }, 60_000);
       superHandoffSweep.unref();
+      emailChannel.start();
       githubSync.start();
       background.start();
       // Restore quota holds before schedulers or background probes can admit inference.
@@ -2695,6 +2696,7 @@ export function createDomain(opts: DomainOptions) {
       usage.stop();
       stopMessageSweep?.();
       if (superHandoffSweep) clearInterval(superHandoffSweep);
+      emailChannel.stop();
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();

@@ -323,6 +323,16 @@ describe('describeEvent', () => {
     ).toBe('message to `fe-1`, `owner` [action]: Ready');
   });
 
+  it('marks the excerpt of an e-mail reply as outside data', () => {
+    const text = describeEvent(
+      event('team_message', { to: ['fe-1'], excerpt: 'Ready', email: true }),
+      100,
+      named,
+    );
+    expect(text).toContain('data from outside the team');
+    expect(text.endsWith(': Ready')).toBe(true);
+  });
+
   it('shows the data of event types without their own wording', () => {
     expect(
       describeEvent(

@@ -2199,4 +2199,10 @@ migrations.push({
   sql: `ALTER TABLE full_test_runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'engine' CHECK (runner IN ('engine','github_actions'));
     ALTER TABLE full_test_runs ADD COLUMN external_url TEXT;`,
 });
+migrations.push({
+  version: 104,
+  name: 'team message e-mail reply',
+  // PM-943: the e-mail a team message carries (the reply of a contact); NULL on every other message.
+  sql: `ALTER TABLE team_messages ADD COLUMN email TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -66,7 +66,7 @@ const BOOT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 
 /** The owner must see the same text that executes: reject hidden formatting and C1 controls (PM-887). */
-const OwnerCommandText = z.string().regex(/^[^\0\u0080-\u009f\p{Cf}]*$/u);
+export const OwnerCommandText = z.string().regex(/^[^\0\u0080-\u009f\p{Cf}]*$/u);
 
 export const AdministrationOperationId = z.string().regex(SAFE_ID);
 export const AdministrationBootId = z.string().regex(BOOT_ID);

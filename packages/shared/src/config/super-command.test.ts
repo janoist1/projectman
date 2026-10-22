@@ -204,6 +204,12 @@ describe('super command classification (PM-762)', () => {
     ]);
   });
 
+  it('refuses a workspace release reason with hidden formatting characters', () => {
+    const release = (reason: string) => ({ kind: 'workspace_release', scopeId: 'scp_1', reason });
+    expect(SuperCommandSchema.safeParse(release('Checked by hand')).success).toBe(true);
+    expect(SuperCommandSchema.safeParse(release('Checked‮reversed')).success).toBe(false);
+  });
+
   it('reserves credential revocation for the owner', () => {
     expect(effects(SuperCommandSchema.parse({ kind: 'credential_revoke', keyId: 'key_1' }))).toEqual([
       'deletion',

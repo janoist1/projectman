@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AdministrationCommandSchema } from './administration';
+import { AdministrationCommandSchema, OwnerCommandText } from './administration';
 import { Actor } from '../domain/event';
 import { MemberHandle } from '../domain/member';
 import { TaskKey } from '../domain/task';
@@ -48,7 +48,7 @@ export const SuperCommand = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('workspace_release'),
     scopeId: z.string().min(1).max(200),
-    reason: z.string().trim().min(1).max(SUPER_REASON_MAX),
+    reason: OwnerCommandText.trim().min(1).max(SUPER_REASON_MAX),
   }),
 ]);
 export type SuperCommand = z.infer<typeof SuperCommand>;

@@ -3481,8 +3481,10 @@ assumption or remote-engine RPC.
   retain the process-probe fallback. A remote pid is never signalled on the server.
   **Audited release (PM-935):** when a cleanup cannot be proven clean, the owner, or the
   Operator on the owner's explicit request, runs the `workspace_release` super command
-  (`scopeId`, mandatory `reason`; a routine mutation with no owner-reserved effect, reachable only
-  through the integrator/owner super path, never by members). `SessionOrchestrator.releaseCleanupScope`
+  (`scopeId`, mandatory `reason` without hidden or control characters; a routine mutation with no
+  owner-reserved effect, reachable only through the integrator/owner super path, never by members).
+  The Operator's `execute_operation` enforces the owner's request on the server: it runs only when
+  the open request is the owner's own message or answer, never a queue item (`operator_owner_only`). `SessionOrchestrator.releaseCleanupScope`
   calls `CleanupFailures.release`, which in one transaction frees the member workspaces held under
   that scope and deletes the `session_cleanups` row, then appends the append-only
   `workspace_released` timeline event (scope, session, workspaces, reason, actor) and emits

@@ -128,6 +128,16 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       await expect(execute('release-member', release)).rejects.toMatchObject({ code: 'forbidden' });
     });
 
+    it('lets a workspace release through on an owner message (PM-935)', async () => {
+      // No cleanup exists for the scope, so the command itself fails: the call was not refused.
+      const { operation } = await execute('release-owner', {
+        kind: 'workspace_release',
+        scopeId: 'scp_0123456789abcdef',
+        reason: 'Checked',
+      });
+      expect(operation).toMatchObject({ state: 'failed' });
+    });
+
     it('is refused to a member who is not the Operator and in a guest conversation', async () => {
       await expect(execute('dev', TASK, { ...ctx, member: 'dev-1' })).rejects.toMatchObject({
         code: 'forbidden',

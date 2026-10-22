@@ -126,11 +126,28 @@ export class ProviderLimits {
           ? reported
           : new Date(now.getTime() + GEMINI_QUOTA_FALLBACK_MS);
       const started = this.providerHolds.until('gemini', until, now);
-      // Persist each later reset before deferring or releasing any work. The latest alert
-      // restores the hold even after its original card has been reassigned or closed.
-      const previous = ctx.repos.inbox.latestProviderQuota('gemini')?.payload.until;
-      if (started || previous !== this.providerHolds.check('gemini', now)?.until?.toISOString())
+      // Small reset differences between concurrent failures update the durable hold without
+      // creating another owner alert. A material extension starts a new alert.
+      const previous = ctx.repos.inbox.latestProviderQuota('gemini');
+      const heldUntil = this.providerHolds.check('gemini', now)!.until!.toISOString();
+      const previousReset =
+        typeof previous?.payload.until === 'string' ? Date.parse(previous.payload.until) : NaN;
+      if (
+        started ||
+        !previous ||
+        !Number.isFinite(previousReset) ||
+        Date.parse(heldUntil) - previousReset >= 60_000
+      )
         this.quotaAlert(session, 'gemini', event.message, null);
+      else if (previous.payload.until !== heldUntil) {
+        const updated = ctx.repos.inbox.updatePayload(
+          previous.id,
+          { ...previous.payload, until: heldUntil },
+          now.toISOString(),
+        );
+        if (updated)
+          ctx.bus.publish({ type: 'inbox_upserted', projectKey: updated.projectKey, item: updated });
+      }
       const stageId =
         session.workItem.type === 'task' ? ctx.repos.tasks.get(session.workItem.taskKey)?.stageId : undefined;
       if (stageId)

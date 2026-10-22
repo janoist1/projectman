@@ -8,6 +8,7 @@ import {
   aiLabelSetters,
   canAutomaticallyStartTask,
   coordinationActorRefusal,
+  DEFAULT_AGENT_PROVIDER,
   developerLevelOf,
   evaluateStart,
   isOnLeave,
@@ -588,7 +589,7 @@ export class TaskStarts {
           c.m.kind === 'ai' &&
           eligible.includes(c.m.handle) &&
           !isOnLeave(c.m) &&
-          this.admission.providerAvailable(c.m.provider ?? 'claude'),
+          this.admission.providerAvailable(c.m.provider ?? DEFAULT_AGENT_PROVIDER),
       )
       .map((c) => ({ ...c, load: this.admission.memberLoad(config, c.m.handle) }))
       .filter(

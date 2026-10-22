@@ -154,6 +154,7 @@ export class AgentSession {
   private authFailure: string | null = null;
   private rateLimitFailure: string | null = null;
   private quotaScreenPending = false;
+  private quotaScreenBeforePrompt = new Map<string, number>();
 
   /** The compaction the server asked for, until PostCompact or until it is given up (PM-213). */
   private compaction: Compaction | null = null;
@@ -318,8 +319,14 @@ export class AgentSession {
         this.clock.once(100, () => {
           this.quotaScreenPending = false;
           if (this.hasExited || this.rateLimitFailure) return;
-          const failure = this.adapter.detectRateLimitScreen?.(this.screen.screenText());
+          const text = this.screen.screenText();
+          const failure = this.adapter.detectRateLimitScreen?.(text);
           if (!failure) return;
+          // A resumed TUI may redraw the previous failure while generating a healthy turn.
+          // Ignore occurrences already visible at submission, even when later output changes.
+          const header = failure.message.split('\n')[0]!.trim();
+          const count = text.split('\n').filter((line) => line.trim() === header).length;
+          if (count <= (this.quotaScreenBeforePrompt.get(header) ?? 0)) return;
           const at = new Date();
           const until = failure.resetsInMs === null ? NaN : at.getTime() + failure.resetsInMs;
           this.rateLimited({
@@ -808,6 +815,7 @@ export class AgentSession {
           this.current.state !== 'waiting_permission' &&
           this.current.state !== 'waiting_input'
         ) {
+          if (this.adapter.detectRateLimitScreen) await this.rememberQuotaScreen();
           this.markReady();
           this.promptSeen = true;
           this.lastPromptAt = Date.now();
@@ -816,6 +824,7 @@ export class AgentSession {
         }
         return this.adapter.turnStartOutput?.(this.spec) ?? null;
       case 'UserPromptSubmit':
+        if (this.adapter.detectRateLimitScreen) await this.rememberQuotaScreen();
         this.markReady();
         this.promptSeen = true;
         this.lastPromptAt = Date.now();
@@ -1254,6 +1263,17 @@ export class AgentSession {
   }
 
   // ---------------------------------------------------------------- login failures
+
+  private async rememberQuotaScreen(): Promise<void> {
+    if (!this.adapter.detectRateLimitScreen) return;
+    // PTY writes are parsed asynchronously; include every row received before the prompt hook.
+    await this.screen.flush();
+    this.quotaScreenBeforePrompt.clear();
+    for (const line of this.screen.screenText().split('\n')) {
+      const key = line.trim();
+      this.quotaScreenBeforePrompt.set(key, (this.quotaScreenBeforePrompt.get(key) ?? 0) + 1);
+    }
+  }
 
   private rateLimited(failure: { message: string; at: string; resetsAt?: string }): void {
     if (this.rateLimitFailure) return;

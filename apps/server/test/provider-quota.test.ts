@@ -328,4 +328,23 @@ describe('Gemini provider quota recovery', () => {
     now = new Date('2026-10-22T12:30:00.000Z');
     expect(() => h.domain.sessions.assertProviderCooldown('gemini')).not.toThrow();
   });
+  it.each([
+    [1, 1],
+    [60_000, 2],
+  ])('extends the hold by %i ms with %i owner alerts', async (difference, expectedAlerts) => {
+    const { session } = await setup(true);
+    const other = await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'general' });
+    await fail(session);
+    const later = new Date(Date.parse(reset) + difference).toISOString();
+    await fail(other.session, later);
+    expect(
+      h.repos.inbox
+        .list('AR', { kind: 'alert' })
+        .filter((item) => item.payload.alert === 'provider_rate_limited'),
+    ).toHaveLength(expectedAlerts);
+    expect(h.repos.inbox.latestProviderQuota('gemini')?.payload.until).toBe(later);
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini')).toThrow(
+      expect.objectContaining({ details: expect.objectContaining({ until: later }) }),
+    );
+  });
 });

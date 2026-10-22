@@ -144,12 +144,31 @@ const ENDING = [{ type: 'text', text: 'Done.' }];
 const lateTool = { hook_event_name: 'PreToolUse', tool_name: 'ToolSearch', tool_use_id: 'late' };
 
 describe('a turn the transcript ended (PM-343)', () => {
-  it('ignores a restored Gemini quota screen before this process submits its first prompt', async () => {
-    const { session, output, events } = await start(GRACE_MS, true, false, false);
-    output('RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 65h10m58s.\r\n');
+  it('ignores a restored Gemini quota screen before and during a healthy resumed turn', async () => {
+    const { session, output, events, hook, assistant } = await start(GRACE_MS, true, false, false);
+    const old = 'RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 65h10m58s.\r\n';
+    output(old);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(events.some((event) => event.type === 'rate_limited')).toBe(false);
     expect(session.state.state).not.toBe('failed');
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'continue' });
+    output(`\x1b[2J\x1b[H${old}> continue\r\nGenerating...\r\n`);
+    await assistant('healthy-resume', 'end_turn', ENDING);
+    await hook({ hook_event_name: 'Stop' });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(events.some((event) => event.type === 'rate_limited')).toBe(false);
+    expect(session.state.state).toBe('idle');
+  });
+  it('detects a new identical quota header after a historical quota error and uses the new reset', async () => {
+    const { output, events, hook } = await start(GRACE_MS, true, false, false);
+    output('RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 65h10m58s.\r\n');
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'continue' });
+    const before = Date.now();
+    output('\r\nRESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 10m.\r\n');
+    expect(await waitFor(() => events.some((event) => event.type === 'exit'))).toBe(true);
+    const failure = events.find((event) => event.type === 'rate_limited')!;
+    expect(Date.parse(failure.resetsAt!) - before).toBeGreaterThanOrEqual(10 * 60_000);
+    expect(Date.parse(failure.resetsAt!) - Date.now()).toBeLessThanOrEqual(10 * 60_000);
   });
   it('fails a Gemini quota shown in split terminal chunks without a Stop hook or transcript error', async () => {
     const { session, output, events } = await start(GRACE_MS, true);

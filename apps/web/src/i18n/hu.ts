@@ -3748,6 +3748,7 @@ export const hu = {
       fix_limit_reassign: 'javítási korlát: másik fejlesztő',
       member_removed: 'a tagot eltávolították',
       auto_assign: 'automatikus kiosztás',
+      provider_quota: 'elfogyott a szolgáltatói keret',
     },
     toast: {
       live: 'A felelős mentve. {from} most leadja a munkát.',

@@ -99,6 +99,7 @@ export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_d
       provider: AgentProvider,
       message: text,
       at: text,
+      resetsAt: z.string().datetime().optional(),
     }),
     z.strictObject({
       type: z.literal('state'),

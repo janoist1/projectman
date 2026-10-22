@@ -153,6 +153,7 @@ export class AgentSession {
   private providerSessionId: string | null = null;
   private authFailure: string | null = null;
   private rateLimitFailure: string | null = null;
+  private quotaScreenPending = false;
 
   /** The compaction the server asked for, until PostCompact or until it is given up (PM-213). */
   private compaction: Compaction | null = null;
@@ -305,6 +306,26 @@ export class AgentSession {
     proc.onData((data) => {
       this.screen.write(data);
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
+      // PTY chunks may split the error from its reset duration. Read the rendered screen
+      // after the burst, including for providers whose startup watcher has already stopped.
+      if (this.adapter.detectRateLimitScreen && !this.rateLimitFailure && !this.quotaScreenPending) {
+        this.quotaScreenPending = true;
+        this.clock.once(100, () => {
+          this.quotaScreenPending = false;
+          if (this.hasExited || this.rateLimitFailure) return;
+          const failure = this.adapter.detectRateLimitScreen?.(this.screen.screenText());
+          if (!failure) return;
+          const at = new Date();
+          const until = failure.resetsInMs === null ? NaN : at.getTime() + failure.resetsInMs;
+          this.rateLimited({
+            message: failure.message,
+            at: at.toISOString(),
+            ...(Number.isFinite(until) && until <= 8.64e15
+              ? { resetsAt: new Date(until).toISOString() }
+              : {}),
+          });
+        });
+      }
     });
     proc.onExit(({ exitCode, signal }) => void this.onExit(exitCode, signal ?? null));
     if (this.initialMessageSent) {
@@ -1123,17 +1144,7 @@ export class AgentSession {
       return;
     }
     if (rateLimit && Date.parse(rateLimit.at) >= this.lastPromptAt) {
-      if (!this.rateLimitFailure) {
-        this.rateLimitFailure = rateLimit.message;
-        this.deps.emit({
-          type: 'rate_limited',
-          sessionId: this.id,
-          provider: this.adapter.provider,
-          ...rateLimit,
-        });
-        this.apply({ kind: 'rate_limited', message: rateLimit.message });
-        void this.stop(false);
-      }
+      this.rateLimited(rateLimit);
       return;
     }
     // Esc during a turn ends it without a Stop hook; the transcript records the interruption.
@@ -1238,6 +1249,14 @@ export class AgentSession {
   }
 
   // ---------------------------------------------------------------- login failures
+
+  private rateLimited(failure: { message: string; at: string; resetsAt?: string }): void {
+    if (this.rateLimitFailure) return;
+    this.rateLimitFailure = failure.message;
+    this.deps.emit({ type: 'rate_limited', sessionId: this.id, provider: this.adapter.provider, ...failure });
+    this.apply({ kind: 'rate_limited', message: failure.message });
+    void this.stop(false);
+  }
 
   /**
    * The CLI lost its login mid-session: it can only sit idle now. The session is reported,

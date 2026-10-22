@@ -22,6 +22,7 @@ import {
 } from '@projectman/shared';
 import type {
   AiMemberConfig,
+  AgentProvider,
   CapacityHolder,
   DeveloperCandidate,
   EngineId,
@@ -35,7 +36,7 @@ import type { EngineDirectory } from '../../contracts';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { DiskGuard } from '../watchers';
-import { conflict } from '../../kernel';
+import { conflict, DomainError } from '../../kernel';
 import { highestUsagePercent } from '../usage';
 import type { PlanUsageCache } from '../usage';
 import type { ProjectService } from '../../core/projects';
@@ -313,11 +314,23 @@ export class Admission {
     config.team.members.forEach((member, index) => {
       if (member.kind !== 'ai' || member.temp || !owners.has(member.handle)) return;
       if (isHandleOnLeave(config, member.handle) || waitedFor.has(member.handle)) return;
+      if (!this.providerAvailable(member.provider ?? DEFAULT_AGENT_PROVIDER)) return;
       const load = this.memberLoad(config, member.handle);
       if (load >= member.capacity) return;
       free.push({ handle: member.handle, senior: isSenior(member), temp: false, load, index });
     });
     return free;
+  }
+
+  /** Automatic choices skip providers on hold; explicit choices still receive the refusal. */
+  providerAvailable(provider: AgentProvider): boolean {
+    try {
+      this.sessions.assertProviderCooldown(provider);
+      return true;
+    } catch (err) {
+      if (err instanceof DomainError && err.code === 'provider_rate_limited') return false;
+      throw err;
+    }
   }
 
   /**

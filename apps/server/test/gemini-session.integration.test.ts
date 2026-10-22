@@ -131,3 +131,44 @@ it('refuses a logged-out Gemini member before spawning a conversation', { timeou
     code: 'provider_not_logged_in',
   });
 });
+
+it(
+  'stops a Gemini quota failure reported only in the terminal and holds new starts',
+  { timeout: 30000 },
+  async () => {
+    h = await createAppHarness({ runner: 'fake-cli' });
+    const cookie = await setupOwner(h.app);
+    await createProject(h, cookie);
+    const { domain, runnerModule } = h.app.projectman;
+    await domain.projects.update(
+      'AR',
+      { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
+      (config) => {
+        for (const member of config.team.members)
+          if (member.kind === 'ai' && ['dev-1', 'dev-2'].includes(member.handle)) member.provider = 'gemini';
+        return 'Run developers with Gemini';
+      },
+    );
+    const { session } = await domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+    await waitFor(() => domain.sessions.get('AR', session.id).state === 'idle');
+    const before = Date.now();
+    await runnerModule.runner.sendUserMessage(session.id, 'quota');
+    await waitFor(() => domain.sessions.get('AR', session.id).state === 'failed');
+    await waitFor(() => !runnerModule.runner.isRunning(session.id));
+    expect(() => domain.sessions.assertProviderCooldown('gemini')).toThrow(
+      expect.objectContaining({
+        code: 'provider_rate_limited',
+        details: expect.objectContaining({ provider: 'gemini', kind: 'quota', until: expect.any(String) }),
+      }),
+    );
+    await expect(domain.sessions.ensureSession('AR', 'dev-2', { type: 'general' })).rejects.toMatchObject({
+      code: 'provider_rate_limited',
+    });
+    const alert = domain.inbox
+      .list('AR', { kind: 'alert' })
+      .find((item) => item.payload.alert === 'provider_rate_limited');
+    expect(alert?.payload).toMatchObject({ provider: 'gemini', until: expect.any(String) });
+    const until = Date.parse(String(alert?.payload.until));
+    expect(until - before).toBeGreaterThanOrEqual((65 * 3600 + 10 * 60 + 58) * 1000);
+  },
+);

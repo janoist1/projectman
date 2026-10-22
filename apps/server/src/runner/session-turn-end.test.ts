@@ -46,12 +46,15 @@ async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false) {
   const events: RunnerEvent[] = [];
   const writes: string[] = [];
   let exit: ((event: { exitCode: number }) => void) | null = null;
+  let output: ((data: string) => void) | undefined;
   const pty: PtyProcess = {
     pid: process.pid,
     write: (data) => writes.push(data),
     resize: () => undefined,
     kill: () => exit?.({ exitCode: 0 }),
-    onData: () => undefined,
+    onData: (listener) => {
+      output = listener;
+    },
     onExit: (listener) => {
       exit = listener;
     },
@@ -118,7 +121,17 @@ async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false) {
       transcript,
       `${JSON.stringify({ timestamp: at.toISOString(), type: 'event_msg', payload: { type: 'task_complete', error: { message: '429 Too Many Requests' } } })}\n`,
     );
-  return { session, hook, assistant, quota, pty, writes, events, states };
+  return {
+    session,
+    hook,
+    assistant,
+    quota,
+    pty,
+    writes,
+    events,
+    states,
+    output: (data: string) => output?.(data),
+  };
 }
 
 const waitFor = async (check: () => boolean, ms = 3_000) => {
@@ -131,6 +144,20 @@ const ENDING = [{ type: 'text', text: 'Done.' }];
 const lateTool = { hook_event_name: 'PreToolUse', tool_name: 'ToolSearch', tool_use_id: 'late' };
 
 describe('a turn the transcript ended (PM-343)', () => {
+  it('fails a Gemini quota shown in split terminal chunks without a Stop hook or transcript error', async () => {
+    const { session, output, events } = await start(GRACE_MS, true);
+    const before = Date.now();
+    output('RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\n');
+    output('Resets in 65h10m58s.\r\n');
+    expect(await waitFor(() => events.some((event) => event.type === 'exit'))).toBe(true);
+    const failures = events.filter((event) => event.type === 'rate_limited');
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ provider: 'gemini', resetsAt: expect.any(String) });
+    const until = Date.parse(failures[0]!.resetsAt!);
+    expect(until - before).toBeGreaterThanOrEqual((65 * 3600 + 10 * 60 + 58) * 1000);
+    expect(until - Date.now()).toBeLessThanOrEqual((65 * 3600 + 10 * 60 + 58) * 1000);
+    expect(session.state.state).toBe('failed');
+  });
   it('ignores a stale NanoGPT quota failure from before the latest prompt', async () => {
     const { session, quota, events } = await start(GRACE_MS, false, true);
     await quota(new Date(Date.now() - 60_000));

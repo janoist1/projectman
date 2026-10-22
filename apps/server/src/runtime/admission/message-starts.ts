@@ -1,5 +1,5 @@
-import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
-import { isOperator, memberOf, operatorConversationOf, sessionWorkItemOf } from '@projectman/shared';
+import { assertIntegratorAccess, assertSuperMutation, SYSTEM_ACTOR } from '../../kernel';
+import { isOperator, memberOf, operatorConversationOf, sessionWorkItemOf, stageOf } from '@projectman/shared';
 import type { Actor, Session, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
 import { requireAiMember } from '../../core/members';
 import { DomainError } from '../../kernel';
@@ -8,6 +8,7 @@ import { LIVE_SESSION_STATES } from '../sessions';
 import type { TaskService } from '../../core/tasks';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
+import type { WorkStarts } from './work-starts';
 
 /**
  * Sessions that people and providers need: a member's general chat a person opens, the admission preview of
@@ -19,17 +20,37 @@ export class MessageStarts {
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly admission: Admission;
+  private readonly workStarts: WorkStarts;
 
   constructor(deps: {
     ctx: import('../../core/base').DomainContext;
     projects: ProjectService;
     tasks: TaskService;
     admission: Admission;
+    workStarts: WorkStarts;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.admission = deps.admission;
+    this.workStarts = deps.workStarts;
+  }
+
+  /** Release the interrupted implementer's card through the existing handoff and work-start paths. */
+  async reassignAfterQuota(session: Session, stageId: string): Promise<void> {
+    if (session.workItem.type !== 'task') return;
+    const config = await this.projects.config(session.projectKey);
+    if (stageOf(config, stageId)?.kind !== 'work') return;
+    const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
+    if (!task || task.status !== 'active' || task.stageId !== stageId || task.assignee !== session.member)
+      return;
+    const unassigned = this.tasks.assign(session.projectKey, task.key, null, SYSTEM_ACTOR, {
+      reason: 'handover',
+      handoff: 'provider_quota',
+    });
+    // Automatic selection excludes the held provider, including the previous implementer.
+    // WorkStarts also persists the wait when nobody else can take it or the handoff is still open.
+    await this.workStarts.begin({ task: unassigned, from: stageId, to: stageId, actor: SYSTEM_ACTOR });
   }
 
   /** The member's general chat: the running one, else one admission allows now. */

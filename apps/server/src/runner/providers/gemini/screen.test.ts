@@ -31,6 +31,19 @@ describe('Gemini screens', () => {
       { resetsInMs: 10 * 60_000 },
     );
   });
+  it('recognizes a quota error after TUI framing and an error icon', () => {
+    expect(
+      detectGeminiQuota(
+        '  │ ✕ Error: RESOURCE_EXHAUSTED (code 429): Individual quota reached.\n  │ Resets in 10m.',
+      ),
+    ).toMatchObject({ resetsInMs: 10 * 60_000 });
+  });
+  it.each([
+    'The error was RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 10m.',
+    'const message = "Error: 429 RESOURCE_EXHAUSTED: Quota exhausted. Resets in 10m.";',
+  ])('ignores a quota error quoted inside a sentence or source line: %s', (text) => {
+    expect(detectGeminiQuota(text)).toBeNull();
+  });
   it('leaves transient resource exhaustion to the CLI retry loop', () => {
     expect(
       detectGeminiQuota('RESOURCE_EXHAUSTED (code 429): Server overloaded. Please retry shortly.'),

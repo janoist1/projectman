@@ -15,7 +15,7 @@ import type { TaskService } from '../../core/tasks';
  */
 export const COMPACT_MIN_CONTEXT_TOKENS = 100_000;
 
-export interface RoundCompactionDeps {
+interface RoundCompactionDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'config'>;
   tasks: Pick<TaskService, 'get'>;

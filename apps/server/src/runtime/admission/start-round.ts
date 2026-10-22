@@ -46,7 +46,7 @@ interface ProjectRound {
 }
 
 /** The part of the obligation tracking the round needs (the assembly adapts `ObligationsService.open`). */
-export interface StartOfferObligations {
+interface StartOfferObligations {
   open(input: {
     projectKey: string;
     taskKey: string;

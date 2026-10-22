@@ -35,16 +35,7 @@ export { OperatorQueueTools } from './operator-queue';
 export { SessionTools } from './sessions';
 export { ExternalTools } from './super-operator/handler';
 
-export {
-  TEAM_TOOLS,
-  TEAM_TOOL_GROUPS,
-  TEAM_TOOL_NAMES,
-  toolOutputText,
-  type TeamToolName,
-  type TeamToolGroup,
-  type ToolImage,
-  type ToolOutput,
-} from './tools';
+export { TEAM_TOOLS, TEAM_TOOL_NAMES, toolOutputText } from './tools';
 
 /**
  * Team tools MCP endpoint (`/mcp/:token`) for AI members' Claude Code sessions.
@@ -55,7 +46,7 @@ export {
  * the spec allows and Claude Code's MCP client handles. See README.md.
  */
 
-export interface CreateMcpModuleOptions extends McpModuleOptions {
+interface CreateMcpModuleOptions extends McpModuleOptions {
   /** A tool call is answered with a `timeout` error after this long. Default 60 s. */
   toolTimeoutMs?: number;
 }

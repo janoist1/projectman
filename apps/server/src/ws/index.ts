@@ -15,7 +15,7 @@ import { DomainError, forbidden, notFound } from '../kernel';
 import { hasAccess } from '@projectman/shared';
 import { canSeeProjectEvent, visibleProjectEvent } from '../core/projects';
 
-export interface WsDomain {
+interface WsDomain {
   readonly runnerModule: RunnerModule;
   readonly bus: EventBus;
   readonly tasks: TaskService;

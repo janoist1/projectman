@@ -38,7 +38,7 @@ interface MessageRow {
 }
 
 /** A message without its body: who it is between and who read it. */
-export type MessageSummary = Pick<TeamMessage, 'id' | 'from' | 'to' | 'receipts'>;
+type MessageSummary = Pick<TeamMessage, 'id' | 'from' | 'to' | 'receipts'>;
 
 type SummaryRow = Pick<MessageRow, 'id' | 'from_handle' | 'to_handles' | 'receipts'>;
 

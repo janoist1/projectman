@@ -1,4 +1,4 @@
-export interface WaitOptions {
+interface WaitOptions {
   /** How long to keep asking before giving up. */
   timeoutMs?: number;
   /** The pause between two asks. */

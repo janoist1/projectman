@@ -23,18 +23,18 @@ import type { ScreenshotCoreEffects } from './screenshot-core';
 import { newId } from '../../kernel';
 
 /** How long `take_screenshots` and `get_screenshot_run` wait for the end of a run (under Codex's 60 s tool limit). */
-export const SCREENSHOT_POLL_MS = 40_000;
+const SCREENSHOT_POLL_MS = 40_000;
 /** The longest a run takes once it is started (the wait in the machine's queue is not counted). */
-export const SCREENSHOT_RUN_TIMEOUT_MS = 15 * 60_000;
+const SCREENSHOT_RUN_TIMEOUT_MS = 15 * 60_000;
 /** An ended run is kept this long, and at most `KEPT_PER_SESSION` per session. */
 const KEEP_MS = 60 * 60_000;
 const KEPT_PER_SESSION = 5;
 const OUTPUT_TAIL_CHARS = 4_000;
 
 /** The folder of the images below the session folder: `shots`'s default output. */
-export const SHOTS_DIRECTORY = 'shots';
+const SHOTS_DIRECTORY = 'shots';
 
-export interface ScreenshotRunsDeps {
+interface ScreenshotRunsDeps {
   /** The executor of every session; `executorFor` takes precedence. */
   executor?: ScreenshotExecutor;
   /** The executor of the session's engine (PM-311); undefined: its engine has none. */

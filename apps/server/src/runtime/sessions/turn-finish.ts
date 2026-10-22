@@ -2,7 +2,7 @@ import type { Session } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import type { SessionTimers } from './session-timers';
 
-export interface TurnFinishesDeps {
+interface TurnFinishesDeps {
   logger: DomainContext['logger'];
   timers: Pick<SessionTimers, 'arm' | 'disarm'>;
   /** How long the session that moved a task to done may take to finish its turn. */

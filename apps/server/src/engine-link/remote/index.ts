@@ -49,7 +49,7 @@ export interface CloudDomain {
   providerKeys?: { onChange(listener: () => void): () => void } | null;
 }
 
-export interface CloudRemoteOptions {
+interface CloudRemoteOptions {
   links: EngineLinks;
   registry: {
     isOnline(id: EngineId): boolean;

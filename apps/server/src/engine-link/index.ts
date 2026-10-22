@@ -21,9 +21,7 @@ export * from './methods';
 export * from './rpc';
 export { createEngineEventBuffer } from './event-buffer';
 export { createCloudRemote } from './remote';
-export type { CloudRemote } from './remote';
-export { createAppTagReader, resolveAppTag, resolveAppVersion } from './version';
-export { EngineStartSpec } from './session-schemas';
+export { createAppTagReader, resolveAppVersion } from './version';
 export { createEngineAudit } from './engine-audit';
 export { createEngineClient } from './engine-client';
 export type { LinkSocketFactory } from './engine-client';
@@ -61,7 +59,7 @@ export interface EngineLinks {
 type LinkStopCause = 'heartbeat' | 'closed' | 'socket_error' | 'invalid_frame' | 'hello_timeout' | 'refused';
 
 /** What the link needs from the engine registry; the assembly passes `EngineRegistry`. */
-export interface EngineLinkRegistry {
+interface EngineLinkRegistry {
   resolve(key: string): EngineId | null;
   onRevoke(listener: (id: EngineId) => void): () => void;
   seen(id: EngineId, ip: string, hello?: Hello): void;

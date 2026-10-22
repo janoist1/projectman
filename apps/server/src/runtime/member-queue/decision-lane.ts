@@ -5,7 +5,7 @@ import type { SessionStartCause } from '../sessions';
 import type { MemberQueueLane } from './lane';
 
 /** What one kind of decision (a permission request, a boundary request, a held fix limit) tells the lane. */
-export interface DecisionSource {
+interface DecisionSource {
   /** The text the decider is given; null when the request is gone. */
   prompt(item: StoredMemberQueueItem): string | null;
   /** Whether the decider still has it to decide. */
@@ -18,7 +18,7 @@ export interface DecisionSource {
   exhausted(item: StoredMemberQueueItem): Promise<void>;
 }
 
-export interface DecisionLaneDeps {
+interface DecisionLaneDeps {
   ctx: DomainContext;
   permission: DecisionSource;
   boundary: DecisionSource;

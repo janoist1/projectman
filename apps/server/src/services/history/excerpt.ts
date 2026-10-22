@@ -52,7 +52,7 @@ export function lineAt(chars: readonly string[], position: number): number {
   return line;
 }
 
-export interface Excerpt {
+interface Excerpt {
   excerpt: string;
   /** The line of the first match in the body, when the match is in the body (1 when it is not found there). */
   line: number;

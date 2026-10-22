@@ -29,7 +29,7 @@ export const AUTH_DENIED = {
 };
 
 /** A scripted failure of one SSH connection. `execute` lets the machine run the command first (a lost answer). */
-export interface SshFault {
+interface SshFault {
   kind: string;
   result: { code: number; stdout: string; stderr: string };
   execute?: boolean;

@@ -2,10 +2,10 @@ import net from 'node:net';
 import { ControlResponse } from '@projectman/shared';
 import type { ControlRequest } from '@projectman/shared';
 
-export const DEFAULT_CONTROL_TIMEOUT_MS = 30_000;
-export const DEFAULT_MAX_RESPONSE_BYTES = 65_536;
+const DEFAULT_CONTROL_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_RESPONSE_BYTES = 65_536;
 
-export type ControlTransportFailure =
+type ControlTransportFailure =
   /** Nobody answers on the socket path: the server does not run, or it has no control socket. */
   | 'unreachable'
   | 'timeout'
@@ -24,7 +24,7 @@ export class ControlTransportError extends Error {
   }
 }
 
-export interface SendControlOptions {
+interface SendControlOptions {
   timeoutMs?: number;
   maxResponseBytes?: number;
 }

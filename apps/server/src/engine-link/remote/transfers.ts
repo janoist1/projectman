@@ -50,7 +50,7 @@ class Meter extends Transform {
   }
 }
 
-export interface ReceivedFile {
+interface ReceivedFile {
   path: string;
   sha256: string;
   size: number;

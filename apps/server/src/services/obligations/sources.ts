@@ -73,7 +73,7 @@ export interface ObligationSource {
   ): { question: string; todo: QuestionTodo };
 }
 
-export interface SourceDeps {
+interface SourceDeps {
   sessions: ObligationSessions;
   refinement: ObligationRefinement;
   fixLimit: ObligationFixLimit;

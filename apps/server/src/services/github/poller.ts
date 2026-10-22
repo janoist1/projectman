@@ -25,7 +25,7 @@ export interface PullRequestPollerOptions {
   logger: FastifyBaseLogger;
 }
 
-export interface PullRequestPoller {
+interface PullRequestPoller {
   close(): Promise<void>;
   /** Same semantics as GithubService.watch. */
   watch(targets: readonly PullRequestTarget[], onChange: (pr: PullRequestInfo) => void): () => void;

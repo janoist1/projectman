@@ -31,7 +31,7 @@ import { testTemplate } from './test-template';
  * pseudo-terminal), so nothing of the live installation, a real `claude`, `codex` or `gh` is touched.
  */
 
-export const CLOUD_VERSION = 'integration-version';
+const CLOUD_VERSION = 'integration-version';
 /** The core count the engine's fake machine probe reports: it proves a machine display came from the engine. */
 export const ENGINE_CORES = 42;
 const AT = new Date('2026-10-09T10:00:00.000Z');
@@ -82,7 +82,7 @@ function forbiddenWorktrees(calls: string[]): WorktreeManager {
   });
 }
 
-export interface CloudEngineOptions {
+interface CloudEngineOptions {
   /** What the cloud reports as its own version (the engine reports the same unless it is changed). */
   version?: string;
 }
@@ -276,7 +276,7 @@ export function rawHello(over: Partial<Hello> = {}): Hello {
   };
 }
 
-export interface RawEngine {
+interface RawEngine {
   /** Sends a request to the cloud over this link and waits for its reply frame. */
   call(method: string, params: unknown): Promise<Extract<EngineFrame, { t: 'res' }>>;
   /** The close code once the cloud closed the link. */

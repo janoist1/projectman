@@ -40,7 +40,7 @@ const VERSION = /^[A-Za-z0-9._+-]{1,64}$/;
 // The scalar validators of the command live in packages/shared (PM-762): one source, no second copy.
 export const OperationId = AdministrationOperationId;
 export const AdministrationRequestId = AdministrationOperationId;
-export const BootId = AdministrationBootId;
+const BootId = AdministrationBootId;
 const Version = z.string().regex(VERSION);
 const Commit = AdministrationCommitSchema;
 const Capability = z.enum(ADMINISTRATION_CAPABILITIES);
@@ -53,9 +53,9 @@ const iso = z
   .regex(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
 
 // The command and target schemas are shared with the super-mode handoff (PM-762).
-export { AdministrationCommandSchema, AdministrationTargetSchema };
+export { AdministrationCommandSchema };
 
-export const AdministrationStatusSchema: z.ZodType<AdministrationStatus> = z.strictObject({
+const AdministrationStatusSchema: z.ZodType<AdministrationStatus> = z.strictObject({
   target: AdministrationTargetSchema,
   online: z.boolean(),
   version: Version.nullable(),
@@ -67,18 +67,18 @@ export const AdministrationStatusSchema: z.ZodType<AdministrationStatus> = z.str
   activeOperationId: OperationId.nullable(),
 });
 
-export const DiagnosticLogEntrySchema: z.ZodType<DiagnosticLogEntry> = z.strictObject({
+const DiagnosticLogEntrySchema: z.ZodType<DiagnosticLogEntry> = z.strictObject({
   at: iso,
   level: z.enum(['info', 'warn', 'error']),
   code: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
   message: z.string().max(MAX_DIAGNOSTIC_MESSAGE),
 });
 
-export const DiagnosticLogsSchema = z.strictObject({
+const DiagnosticLogsSchema = z.strictObject({
   entries: z.array(DiagnosticLogEntrySchema).max(MAX_DIAGNOSTIC_ENTRIES),
 });
 
-export const LogsLimit = z.number().int().min(1).max(MAX_DIAGNOSTIC_ENTRIES);
+const LogsLimit = z.number().int().min(1).max(MAX_DIAGNOSTIC_ENTRIES);
 
 const ImageArtifactSchema: z.ZodType<ImageArtifact> = z.strictObject({
   artifactId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
@@ -111,7 +111,7 @@ export const AdministrationResultSchema: z.ZodType<AdministrationResult> = z.dis
 
 const byteCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
-export const AdministrationMachineSnapshotSchema: z.ZodType<AdministrationMachineSnapshot> = z.strictObject({
+const AdministrationMachineSnapshotSchema: z.ZodType<AdministrationMachineSnapshot> = z.strictObject({
   at: iso,
   loadAvg: z.tuple([z.number().nonnegative(), z.number().nonnegative(), z.number().nonnegative()]),
   memory: z.strictObject({ totalBytes: byteCount, availableBytes: byteCount }),
@@ -136,13 +136,13 @@ export const AdministrationJobSchema: z.ZodType<AdministrationJob> = z.strictObj
   updatedAt: iso,
 });
 
-export const AdministrationSubmitSchema: z.ZodType<AdministrationSubmit> = z.strictObject({
+const AdministrationSubmitSchema: z.ZodType<AdministrationSubmit> = z.strictObject({
   operationId: OperationId,
   requestId: AdministrationRequestId,
   command: AdministrationCommandSchema,
 });
 
-export const AdministrationAccepted = z.strictObject({ accepted: z.boolean() });
+const AdministrationAccepted = z.strictObject({ accepted: z.boolean() });
 
 /** The parameters of each socket method (the port's parameters, as one object). */
 export const SocketParams = {

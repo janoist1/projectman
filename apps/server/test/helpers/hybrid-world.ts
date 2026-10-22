@@ -44,8 +44,8 @@ export const PREVIOUS = sha(1);
 export const NEW = sha(2);
 export const ENGINE_ID = 'eng_abcdefghijkl';
 export const TARGET_HASH = 'a'.repeat(64);
-export const CONFIG_SHA = 'e'.repeat(64);
-export const RECEIPT_SHA = 'f'.repeat(64);
+const CONFIG_SHA = 'e'.repeat(64);
+const RECEIPT_SHA = 'f'.repeat(64);
 export const SCHEMA = 7;
 const TARGET = { projectKey: 'AR', repo: 'web' };
 const OWNER = { handle: 'owner', access: 'owner' as const };
@@ -65,7 +65,7 @@ export class Crash extends Error {
 }
 
 /** The journal on disk with a crash that can be set to happen before or after its n-th write. */
-export class CrashingJournal implements JournalPort {
+class CrashingJournal implements JournalPort {
   readonly inner: JournalStore;
   writes = 0;
   private crash: { at: number; when: 'before' | 'after' } | null = null;

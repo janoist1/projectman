@@ -7,9 +7,7 @@ import {
   sensitivePaths,
 } from '../../contracts';
 export {
-  OPEN_OUTBOUND_DOMAINS,
   SANDBOX_DENIED_ENV_VARS,
-  READER_UNSANDBOXED_COMMANDS,
   HYBRID_ARCHIVE_DIR,
   HYBRID_STAGING_DIR,
   sensitivePaths,
@@ -168,15 +166,6 @@ function portableShared(
 }
 
 /**
- * What a developer's sandboxed commands read below the user's home besides their own directories
- * (PM-153): git's own configuration and the shell snapshot Claude Code sources before every command
- * (its own `blockReadsOutsideWorkingDirectories` re-opens that directory for the same reason).
- * Never the credentials, the app home or another `.claude` path; not the user's npm cache and
- * development data either, which the host uses outside any sandbox (PM-193).
- */
-export { SANDBOX_HOME_READS } from '../../contracts';
-
-/**
  * Git settings of a developer's sandboxed commands (PM-216): a system-level git configuration
  * file in the member's sandbox directory (`GIT_CONFIG_SYSTEM`; written by the host at every start,
  * readable but not writable for the commands). Not `GIT_CONFIG_COUNT`/`KEY_n`: a session's
@@ -228,7 +217,7 @@ export function guestSessionDir(appHome: string, projectKey: string, guestHandle
  * also stay read-only (PM-794). Everything else stays writable (the task's own
  * branch, objects, other worktrees' metadata); Claude Code itself keeps `hooks` and `config` out.
  */
-export function sharedGitDenials(gitDir: string, defaultBranch: string): string[] {
+function sharedGitDenials(gitDir: string, defaultBranch: string): string[] {
   return [
     ...[path.join('refs', 'heads', defaultBranch), 'HEAD', 'index', 'packed-refs'].flatMap((file) => [
       path.join(gitDir, file),
@@ -241,7 +230,7 @@ export function sharedGitDenials(gitDir: string, defaultBranch: string): string[
 }
 
 /** The actual paths a session's sandbox is computed from, besides its policy. */
-export interface SandboxPaths {
+interface SandboxPaths {
   /** The user's home directory (`os.homedir()`). */
   userHome: string;
   /** projectman's own data directory (`PROJECTMAN_HOME`). */
@@ -525,7 +514,7 @@ export function fullTestSandbox(input: {
 /** Hosts the web fetch tool never reaches: the live instance and anything else on this machine. */
 export const HARD_DENIED_HOSTS = ['localhost', '127.0.0.1'];
 
-export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message: string };
+type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message: string };
 
 /**
  * Whether the session works in the task's own worktree, inside the worktrees root, or in the
@@ -708,7 +697,7 @@ export function commandVerdict(input: {
   return null;
 }
 
-export interface RoleSessionPolicy {
+interface RoleSessionPolicy {
   /** Review and research roles: the read-only tools are pre-approved. */
   readOnlyTools: boolean;
   /**

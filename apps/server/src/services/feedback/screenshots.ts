@@ -30,7 +30,7 @@ const invalidScreenshot = (message: string) =>
   new DomainError('feedback_screenshot_invalid', message, { status: 422 });
 
 /** A screenshot checked and ready to store: the original bytes, its thumbnail and what the views show. */
-export interface PreparedScreenshot {
+interface PreparedScreenshot {
   original: Buffer;
   thumbnail: Buffer;
   extension: 'jpg' | 'png' | 'webp';

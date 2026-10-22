@@ -13,11 +13,11 @@ import { code } from './format';
  * through the session's rules, sandbox and hooks; it has no edit tools, no team tools and cannot
  * start subagents.
  */
-export const CHEAP_SUBAGENT_TOOLS = ['Read', 'Bash'] as const;
+const CHEAP_SUBAGENT_TOOLS = ['Read', 'Bash'] as const;
 
 const MODEL_NAMES: Record<CheapSubagentModel, string> = { sonnet: 'Sonnet', haiku: 'Haiku' };
 
-export function cheapSubagentName(model: CheapSubagentModel): string {
+function cheapSubagentName(model: CheapSubagentModel): string {
   return `reader-${model}`;
 }
 

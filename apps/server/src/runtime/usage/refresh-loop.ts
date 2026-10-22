@@ -2,7 +2,7 @@ import { Effect, FiberHandle, Scope } from 'effect';
 import type { FastifyBaseLogger } from 'fastify';
 import { runFork } from '../../kernel';
 
-export interface RefreshLoopDeps {
+interface RefreshLoopDeps {
   /** Milliseconds between two ticks. */
   readonly intervalMs: number;
   /** Starts one refresh and returns at once. */

@@ -35,7 +35,7 @@ export interface OperatorQueueRequests {
 }
 
 /** What the Operator lane needs of the rest of the server. */
-export interface OperatorLaneDeps {
+interface OperatorLaneDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'cachedConfig'>;
   messages: Pick<MessageService, 'markRecipientDelivered'>;

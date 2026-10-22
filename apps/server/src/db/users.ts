@@ -9,7 +9,7 @@ export interface UserRecord {
   createdAt: string;
 }
 
-export interface AuthSessionRecord {
+interface AuthSessionRecord {
   /** SHA-256 of the cookie token. */
   id: string;
   userId: string;

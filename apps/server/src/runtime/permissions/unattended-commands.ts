@@ -35,7 +35,7 @@ import {
  * (`test/unattended-commands.test.ts`) runs the examples below through `commandVerdict`.
  */
 
-export interface UnattendedCommandsInput {
+interface UnattendedCommandsInput {
   /** The member's role works in the task's own worktree: it may use the routine steps. */
   worktree: boolean;
   /** The task has a repository, so its worktree exists and may be read. */

@@ -44,7 +44,7 @@ interface User {
 }
 
 /** A stateful SES/IAM CLI fake of one AWS account (profile); no network and no SendEmail implementation. */
-export class FakeSes {
+class FakeSes {
   readonly profile: string;
   readonly accountId: string;
 

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { modelForProvider } from '@projectman/shared';
 import type { StartSessionSpec } from '../../../contracts';
 
-export const GEMINI_FAMILY_EFFORTS: Record<string, readonly string[]> = {
+const GEMINI_FAMILY_EFFORTS: Record<string, readonly string[]> = {
   'gemini-3.8-flash': ['low', 'medium', 'high'],
   'gemini-3.7-flash': ['low', 'medium', 'high'],
   'gemini-3.6-flash': ['low', 'medium', 'high'],

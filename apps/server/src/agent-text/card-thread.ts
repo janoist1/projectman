@@ -5,7 +5,7 @@ const QUESTION_TEXT_LIMIT = 160;
 const ANSWER_TEXT_LIMIT = 240;
 
 /** What the lines need of a member working on a card (`CardWorker` of the context contract). */
-export interface CardWorkerText {
+interface CardWorkerText {
   waitingPermission?: { deciders: string[] };
   handle: string;
   role: string;
@@ -14,7 +14,7 @@ export interface CardWorkerText {
 }
 
 /** What the lines need of a question on a card (`CardQuestion` of the context contract). */
-export interface CardQuestionText {
+interface CardQuestionText {
   asker: string;
   question: string;
   askedAt: string;

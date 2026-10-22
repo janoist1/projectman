@@ -4,7 +4,7 @@ import { createDomainHarness, OWNER_ACTOR } from './domain-harness';
 import type { DomainHarness } from './domain-harness';
 
 /** Fictional humans added to the test project next to its owner: one of each access level, two clients. */
-export const HUMANS = [
+const HUMANS = [
   { handle: 'admin', access: 'admin' },
   { handle: 'dev', access: 'developer' },
   { handle: 'reader', access: 'viewer' },
@@ -15,7 +15,7 @@ export const HUMANS = [
 /** A viewer by handle; the service recomputes the access from the roster, so the access here is a placeholder. */
 export const as = (handle: string): HistoryViewer => ({ handle, access: 'viewer' });
 
-export function addHumans(config: ProjectConfig): void {
+function addHumans(config: ProjectConfig): void {
   for (const human of HUMANS)
     config.team.members.push({
       kind: 'human',
@@ -39,8 +39,3 @@ export const historyHarness = (
   });
 
 export { OWNER_ACTOR };
-
-/** The titles of the hits, in order: the quickest way to compare what a viewer finds. */
-export function sourceIds(result: { matches: { sourceId: string }[] }): string[] {
-  return result.matches.map((match) => match.sourceId);
-}

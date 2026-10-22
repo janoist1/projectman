@@ -21,7 +21,7 @@ import { rec, type Json } from '../../transcript/json';
  * with the same billing-safe environment as member sessions.
  */
 
-export interface PlanUsageOptions {
+interface PlanUsageOptions {
   claudeBin: string;
   logger: FastifyBaseLogger;
   /** Results are reused for this long (default two minutes). */
@@ -81,11 +81,7 @@ export function toPlanUsage(answer: unknown, now: Date = new Date()): PlanUsage 
 }
 
 /** Runs one probe; resolves to Claude Code's answer, or null when it gave none. */
-export function probeUsage(
-  claudeBin: string,
-  env: Record<string, string>,
-  timeoutMs: number,
-): Promise<unknown> {
+function probeUsage(claudeBin: string, env: Record<string, string>, timeoutMs: number): Promise<unknown> {
   try {
     const { file, args } = resolveCommand(claudeBin, PROBE_ARGS);
     let buffer = '';

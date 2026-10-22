@@ -16,7 +16,7 @@ import { failureReport } from './output';
  */
 
 /** The step of the workflow that runs `npm run merge-test`. */
-export const MERGE_TEST_STEP = 'merge-test';
+const MERGE_TEST_STEP = 'merge-test';
 /** The most characters of an `outputTail` (the merge failure's own limit). */
 export const GITHUB_OUTPUT_TAIL_CHARS = 8000;
 /** The least characters a failed job keeps of its report, however many jobs failed. */
@@ -32,7 +32,7 @@ export function stripGithubTimestamps(log: string): string {
     .join('\n');
 }
 
-export type Judgement =
+type Judgement =
   | { kind: 'passed' }
   | { kind: 'failed'; failed: WorkflowJobInfo[] }
   | { kind: 'timeout' }
@@ -76,7 +76,7 @@ export function judge(run: WorkflowRunInfo, commit: string, jobs: readonly Workf
 }
 
 /** The longest time of the jobs' `merge-test` steps; null when none has both times. */
-export function mergeTestCommandMs(jobs: readonly WorkflowJobInfo[]): number | null {
+function mergeTestCommandMs(jobs: readonly WorkflowJobInfo[]): number | null {
   const times = jobs.flatMap((job) => {
     const step = mergeStepOf(job);
     const started = step?.startedAt ? Date.parse(step.startedAt) : Number.NaN;
@@ -94,7 +94,7 @@ export interface FinishedRun {
 }
 
 /** The first line of every output of a run that has a page. */
-export const runHeader = (run: WorkflowRunInfo): string => `GitHub Actions: ${run.htmlUrl}`;
+const runHeader = (run: WorkflowRunInfo): string => `GitHub Actions: ${run.htmlUrl}`;
 
 /** The text under the run's header, the header always kept: the end is cut when the text is too long. */
 export function withHeader(run: WorkflowRunInfo | null, text: string): string {

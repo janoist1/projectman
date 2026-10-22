@@ -24,12 +24,12 @@ import { forbidden, newId } from '../../kernel';
 /** An owner's request to the Operator stays open this long at most; the end of its turn closes it sooner. */
 export const OPERATOR_REQUEST_TTL_MS = 30 * 60_000;
 /** The part of the owner's text a request quotes. */
-export const OPERATOR_QUOTE_LENGTH = 280;
+const OPERATOR_QUOTE_LENGTH = 280;
 /** How many requests the Operator's channel lists. */
-export const OPERATOR_CHANNEL_REQUESTS = 50;
+const OPERATOR_CHANNEL_REQUESTS = 50;
 
 /** The first `OPERATOR_QUOTE_LENGTH` characters of the text, its line breaks as spaces. */
-export function operatorQuoteOf(text: string): string {
+function operatorQuoteOf(text: string): string {
   return Array.from(text.replace(/\s*[\r\n]+\s*/g, ' ').trim())
     .slice(0, OPERATOR_QUOTE_LENGTH)
     .join('');
@@ -137,7 +137,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   record_system_feedback: 'system_feedback',
 };
 
-export interface OpenOperatorRequest {
+interface OpenOperatorRequest {
   projectKey: string;
   sessionId: string;
   source: 'message' | 'answer' | 'approval' | 'queue';
@@ -302,7 +302,7 @@ export class OperatorRequests {
 }
 
 /** The PM's requests use separate session rows and never inherit an Operator request or signal round. */
-export interface OpenCoordinationRequest extends OpenOperatorRequest {}
+interface OpenCoordinationRequest extends OpenOperatorRequest {}
 
 export class CoordinationRequests extends OperatorRequests {
   private readonly coordinationCtx: DomainContext;
@@ -386,7 +386,7 @@ function stepView(step: OperatorStepRecord): OperatorStep {
   };
 }
 
-export interface OperatorStepInput {
+interface OperatorStepInput {
   agreementVersion?: number | null;
   approvalMode?: 'click' | 'waived' | null;
   id?: string;

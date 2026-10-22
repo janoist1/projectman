@@ -24,7 +24,7 @@ import { takeConfigLock } from './trust-lock';
  * untouched. No backup files are created.
  */
 
-export type TrustOutcome =
+type TrustOutcome =
   | { result: 'already_trusted'; key: string }
   | { result: 'trusted'; key: string }
   | { result: 'skipped'; key: string | null; reason: string };

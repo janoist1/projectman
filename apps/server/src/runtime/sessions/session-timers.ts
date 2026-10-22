@@ -9,11 +9,11 @@ import { runFork } from '../../kernel';
  * `DoneCleanup`) use.
  */
 
-export type SessionTimerGroup = 'turn' | 'input' | 'cleanup';
+type SessionTimerGroup = 'turn' | 'input' | 'cleanup';
 
 const GROUPS: readonly SessionTimerGroup[] = ['turn', 'input', 'cleanup'];
 
-export interface SessionTimersEffects {
+interface SessionTimersEffects {
   /**
    * Calls `fire` once `delayMs` has passed (at least 1 ms). A key that is waiting already keeps its
    * first deadline: the second call does nothing.
@@ -28,27 +28,25 @@ export interface SessionTimersEffects {
   readonly disarm: (group: SessionTimerGroup, key: string) => Effect.Effect<void>;
 }
 
-export const makeSessionTimers: Effect.Effect<SessionTimersEffects, never, Scope.Scope> = Effect.gen(
-  function* () {
-    const maps = new Map<SessionTimerGroup, FiberMap.FiberMap<string>>();
-    for (const group of GROUPS) maps.set(group, yield* FiberMap.make<string>());
-    const mapOf = (group: SessionTimerGroup) => maps.get(group)!;
-    return {
-      arm: (group, key, delayMs, fire) =>
-        Effect.gen(function* () {
-          // A zero delay is `yieldNow` in Effect: the call would run on the arming call's stack.
-          const fiber = yield* FiberMap.run(mapOf(group), key, Effect.sleep(Math.max(1, delayMs)), {
-            onlyIfMissing: true,
-          });
-          // The map releases the key first, so a call may arm the same key again or disarm it.
-          fiber.addObserver((exit) => {
-            if (Exit.isSuccess(exit)) fire();
-          });
-        }),
-      disarm: (group, key) => FiberMap.remove(mapOf(group), key),
-    };
-  },
-);
+const makeSessionTimers: Effect.Effect<SessionTimersEffects, never, Scope.Scope> = Effect.gen(function* () {
+  const maps = new Map<SessionTimerGroup, FiberMap.FiberMap<string>>();
+  for (const group of GROUPS) maps.set(group, yield* FiberMap.make<string>());
+  const mapOf = (group: SessionTimerGroup) => maps.get(group)!;
+  return {
+    arm: (group, key, delayMs, fire) =>
+      Effect.gen(function* () {
+        // A zero delay is `yieldNow` in Effect: the call would run on the arming call's stack.
+        const fiber = yield* FiberMap.run(mapOf(group), key, Effect.sleep(Math.max(1, delayMs)), {
+          onlyIfMissing: true,
+        });
+        // The map releases the key first, so a call may arm the same key again or disarm it.
+        fiber.addObserver((exit) => {
+          if (Exit.isSuccess(exit)) fire();
+        });
+      }),
+    disarm: (group, key) => FiberMap.remove(mapOf(group), key),
+  };
+});
 
 /**
  * Facade: the timers of the session manager. `close()` drops every pending call; a closed set

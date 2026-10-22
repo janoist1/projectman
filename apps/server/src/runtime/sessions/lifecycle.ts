@@ -11,14 +11,14 @@ import { runFork, runPromise } from '../../kernel';
  * synchronous `onClose` (the timers of the sessions) runs last.
  */
 
-export interface SessionLifecycleDeps {
+interface SessionLifecycleDeps {
   /** Subscribes to the runner's events; returns the unsubscribe. */
   readonly subscribe: () => () => void;
   /** The synchronous shutdown of the sessions' own state (timers), run last. */
   readonly onClose: () => void;
 }
 
-export interface SessionLifecycleEffects {
+interface SessionLifecycleEffects {
   /** Tracks a job that was started, until it settles. A closed lifecycle starts no tracking. */
   readonly track: (settled: Promise<unknown>) => Effect.Effect<void>;
   /** How many tracked jobs have not settled. */
@@ -28,7 +28,7 @@ export interface SessionLifecycleEffects {
 const noop = () => {};
 
 /** Builds the lifecycle in the scope it runs in; closing the scope is the shutdown. */
-export const makeSessionLifecycle = (
+const makeSessionLifecycle = (
   deps: SessionLifecycleDeps,
 ): Effect.Effect<SessionLifecycleEffects, never, Scope.Scope> =>
   Effect.gen(function* () {

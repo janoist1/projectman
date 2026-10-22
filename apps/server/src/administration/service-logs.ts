@@ -13,7 +13,7 @@ import type { SupervisorConfig } from './schemas';
  * and time the line itself shows. Nothing a caller sends can name the file, the unit or any argument.
  */
 
-export const SERVICE_LOG_CODE = 'service_log';
+const SERVICE_LOG_CODE = 'service_log';
 
 /** How much of the file's end is looked at, and how many lines the filters may scan. */
 const TAIL_BYTES = 512 * 1024;
@@ -60,7 +60,7 @@ const LEADING_TIME = /^\s*\[?(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(\.\d+)?(
 const JSON_TIME = /"(?:time|timestamp|ts)"\s*:\s*(?:"([^"]{10,40})"|(\d{12,16}))/;
 
 /** The time a log line states (a leading ISO-like time, or a JSON `time` field), or null. */
-export function timeOfText(line: string): Date | null {
+function timeOfText(line: string): Date | null {
   const lead = LEADING_TIME.exec(line);
   if (lead) {
     const zone = lead[4]
@@ -81,7 +81,7 @@ export function timeOfText(line: string): Date | null {
 }
 
 /** A printable, redacted, size-limited message; control characters (including line breaks) become spaces. */
-export function cleanMessage(raw: string): string {
+function cleanMessage(raw: string): string {
   const plain = raw
     .slice(0, MAX_RAW_LINE)
     .replace(/[\u0000-\u001f\u007f]+/g, ' ')
@@ -172,7 +172,7 @@ export interface ServiceLogReader {
   read(query: AdministrationLogsOptions): Promise<DiagnosticLogEntry[]>;
 }
 
-export interface ServiceLogReaderOptions {
+interface ServiceLogReaderOptions {
   host: HostSystem;
   service: SupervisorConfig['service'];
 }

@@ -99,14 +99,13 @@ import { engineIdOf, engineOption } from './engines';
 
 export { LIVE_SESSION_STATES } from '@projectman/shared';
 /** A turn is in progress: these count against `maxConcurrentAi`. */
-export const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission'];
+const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission'];
 const ENDED = new Set<SessionState>(['exited', 'failed']);
 
 export { MESSAGE_SEPARATOR } from './launch';
 export { COMPACT_MIN_CONTEXT_TOKENS } from './compaction';
-export { INPUT_STALL_MS } from './input-waits';
 
-export type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
+export type { EnsureSessionResult } from '../../contracts';
 
 export type { SessionStartCause } from '@projectman/shared';
 import type { SessionStartCause } from '@projectman/shared';

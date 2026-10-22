@@ -6,7 +6,7 @@ import { isStrictlyWithin } from '../kernel';
  * The engine's own record of the member clones it prepared (PM-743): the runner's dependency gate
  * finds a session's clone by its working directory without asking the manager or crossing a link.
  */
-export interface MemberWorkspaceRegistry {
+interface MemberWorkspaceRegistry {
   /** Records a clone after a successful `ensure`; `repoPath` is its real path. */
   register(key: MemberWorkspaceKey, repoPath: string): void;
   /** The key of the registered clone holding `path` (its realpath is the clone or below it); null otherwise or when realpath fails. */

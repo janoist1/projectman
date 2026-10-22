@@ -7,12 +7,12 @@ import type { DomainContext } from '../base';
 import { DomainError, invalid, newId } from '../../kernel';
 
 /** What one audited operation is aimed at. */
-export interface SuperAuditOptions {
+interface SuperAuditOptions {
   taskKey?: string | null;
 }
 
 /** How a lost response is settled: whether the effect with this audit entry's id landed. */
-export type CommittedCheck = (auditId: string, operation?: string) => Promise<boolean>;
+type CommittedCheck = (auditId: string, operation?: string) => Promise<boolean>;
 
 /**
  * The audit of the Operator's super mode (PM-757): one entry per step made with a super credential. It

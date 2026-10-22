@@ -42,7 +42,7 @@ export const GhCheckContext = z.object({
 });
 export type GhCheckContext = z.infer<typeof GhCheckContext>;
 
-export const GhPullRequest = z.object({
+const GhPullRequest = z.object({
   author: z.object({ login: z.string() }).nullish(),
   number: z.number().int().positive(),
   title: z.string(),
@@ -61,10 +61,10 @@ export const GhPullRequest = z.object({
   updatedAt: z.string(),
   mergedAt: z.string().nullish(),
 });
-export type GhPullRequest = z.infer<typeof GhPullRequest>;
+type GhPullRequest = z.infer<typeof GhPullRequest>;
 
 /** `repo` is echoed back as given, so callers can match results against their own links. */
-export function toPullRequestInfo(repo: string, pr: GhPullRequest): PullRequestInfo {
+function toPullRequestInfo(repo: string, pr: GhPullRequest): PullRequestInfo {
   return {
     repo,
     number: pr.number,
@@ -147,7 +147,7 @@ export function summarizeChecks(contexts: readonly GhCheckContext[]): PullReques
   return 'success';
 }
 
-export function checkOutcome(ctx: GhCheckContext): CheckOutcome {
+function checkOutcome(ctx: GhCheckContext): CheckOutcome {
   const state = (isStatusContext(ctx) ? ctx.state : checkRunState(ctx))?.toUpperCase() ?? '';
   if (PASSING.has(state)) return 'pass';
   if (FAILING.has(state)) return 'fail';

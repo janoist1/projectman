@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -22,7 +21,7 @@ import { readInstanceMarker } from '../instance';
 export const ENGINE_CONFIG_FILE = 'engine.json';
 export const ENGINE_KEY_FILE = 'engine.key';
 export const ENGINE_STATUS_FILE = 'engine-status.json';
-export const ENGINE_AUDIT_FILE = 'engine-audit.jsonl';
+const ENGINE_AUDIT_FILE = 'engine-audit.jsonl';
 
 const ProjectKey = z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/);
 const RepoName = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/);
@@ -77,7 +76,7 @@ export class EngineConfigError extends Error {
   }
 }
 
-export interface EngineFiles {
+interface EngineFiles {
   config: string;
   key: string;
   status: string;
@@ -372,8 +371,4 @@ export function assertHomeNotInUse(home: string): void {
       'home_in_use',
       `${home} holds a projectman server database. Give the engine its own home, for example PROJECTMAN_HOME=~/.projectman-engine.`,
     );
-}
-
-export function configExists(home: string): boolean {
-  return existsSync(engineFiles(home).config);
 }

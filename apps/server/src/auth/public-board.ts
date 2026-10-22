@@ -9,7 +9,7 @@ export const PUBLIC_BOARD_REQUIRES_CLOUD = 'public_board_requires_cloud';
 export const PUBLIC_BOARD_REQUIRES_SETUP = 'public_board_requires_setup';
 export const PUBLIC_BOARD_REQUIRES_EMAIL_LOGIN = 'public_board_requires_email_login';
 
-export type PublicBoardProblem =
+type PublicBoardProblem =
   | typeof PUBLIC_BOARD_REQUIRES_CLOUD
   | typeof PUBLIC_BOARD_REQUIRES_SETUP
   | typeof PUBLIC_BOARD_REQUIRES_EMAIL_LOGIN;

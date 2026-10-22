@@ -84,11 +84,11 @@ function tomlKey(key: string): string {
 }
 
 /** One `-c` override. */
-export function override(key: string, value: unknown): string {
+function override(key: string, value: unknown): string {
   return `${key}=${tomlValue(value)}`;
 }
 
-export interface CodexPermissions {
+interface CodexPermissions {
   sandbox: 'read-only' | 'workspace-write' | 'danger-full-access';
   approval: 'on-request' | 'never';
 }
@@ -116,13 +116,13 @@ export function codexPermissions(mode: string | undefined): CodexPermissions {
 }
 
 /** Default reasoning effort for Codex members (overrides the owner's interactive default). */
-export const DEFAULT_CODEX_EFFORT = 'medium';
+const DEFAULT_CODEX_EFFORT = 'medium';
 
 export function codexModel(model: string | undefined): string {
   return modelForProvider('codex', model?.trim());
 }
 
-export interface CodexArgsInput {
+interface CodexArgsInput {
   cliPath?: string;
   codexHome?: string;
   disabledMcpServers?: readonly string[];
@@ -137,7 +137,7 @@ export interface CodexArgsInput {
   nodePath?: string;
 }
 
-export interface CodexModelProvider {
+interface CodexModelProvider {
   id: 'nanogpt';
   name: string;
   baseUrl: string;
@@ -154,19 +154,19 @@ export const NANOGPT_CODEX_PROVIDER: CodexModelProvider = {
 };
 
 /** The `hooks` value of one event. */
-export function hookGroups(command: string, timeoutS: number): unknown {
+function hookGroups(command: string, timeoutS: number): unknown {
   return [{ hooks: [{ type: 'command', command, timeout: timeoutS }] }];
 }
 
-export interface CodexCommandLine {
+interface CodexCommandLine {
   args: string[];
   /** A non-empty kick-off brief went on the command line (new and resumed sessions). */
   initialMessageSent: boolean;
 }
 
-export const CODEX_PERMISSION_PROFILE = 'projectman';
-export type CodexAccess = 'read' | 'write' | 'deny';
-export interface CodexPermissionProfile {
+const CODEX_PERMISSION_PROFILE = 'projectman';
+type CodexAccess = 'read' | 'write' | 'deny';
+interface CodexPermissionProfile {
   extends: ':read-only' | ':workspace';
   filesystem: Record<string, CodexAccess | Record<string, CodexAccess>>;
 }
@@ -180,7 +180,7 @@ function insidePath(candidate: string, parent: string): boolean {
 }
 
 /** The official standalone installation is the only read exception beneath denied homes. */
-export type CodexCliReadRoot = { kind: 'none' } | { kind: 'root'; path: string } | { kind: 'misplaced' };
+type CodexCliReadRoot = { kind: 'none' } | { kind: 'root'; path: string } | { kind: 'misplaced' };
 
 export function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): string[] {
   return [
@@ -221,7 +221,7 @@ export function codexCliReadRoot(cliPath: string, denied: readonly string[]): Co
  * `sharedGitDenials`), including `packed-refs` itself, except its lock above. Nothing without both directories
  * (an independent clone has its own `.git`).
  */
-export function codexSharedGitAccess(
+function codexSharedGitAccess(
   policy: CodexArgsInput['spec']['policy'],
   denyWrite: readonly string[] = [],
 ): { writable: string[]; readOnly: string[] } {

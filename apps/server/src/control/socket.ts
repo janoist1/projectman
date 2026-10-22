@@ -40,7 +40,7 @@ export interface ControlRelease {
 }
 
 /** What a `release_deploy_*` operation answers with. */
-export interface ControlDeployView {
+interface ControlDeployView {
   deployment: HybridDeployment | null;
   release: Release;
   drain: ReleaseDrainStatus;

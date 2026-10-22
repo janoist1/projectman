@@ -14,14 +14,14 @@ import { runEffects } from './store';
 import type { Effect, TaskStore } from './store';
 
 /** A planned label change: the task's labels after it, and what it adds, removes and notifies. */
-export interface PlannedLabels {
+interface PlannedLabels {
   labels: string[];
   added: string[];
   removed: string[];
   notify: string[];
 }
 
-export interface LabelChangeOptions {
+interface LabelChangeOptions {
   /** Why the labels need to change, recorded as a task comment (mentions notify). */
   comment?: string;
   sessionId?: string | null;

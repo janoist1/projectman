@@ -14,7 +14,7 @@ import { HostWorld } from './fake-host';
 
 type Obj = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-export interface CfCall {
+interface CfCall {
   method: string;
   path: string;
   query: Record<string, string>;

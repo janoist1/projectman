@@ -84,7 +84,7 @@ export function buildChildEnv(
 }
 
 /** Hosts that must never go through an HTTP(S) proxy: hooks and the team MCP server live there. */
-export const LOCAL_NO_PROXY = ['127.0.0.1', 'localhost', '::1'] as const;
+const LOCAL_NO_PROXY = ['127.0.0.1', 'localhost', '::1'] as const;
 
 /**
  * Adds the loopback hosts to NO_PROXY and no_proxy, keeping existing entries. Claude Code
@@ -110,7 +110,7 @@ export function withLocalNoProxy(env: Record<string, string>): Record<string, st
  * member could not stop it (PM-428). `true` accepts the file as it is. Set last, for every
  * provider, so neither the service's environment nor a parent session can bring an editor back.
  */
-export const NON_INTERACTIVE_EDITOR_ENV = {
+const NON_INTERACTIVE_EDITOR_ENV = {
   GIT_EDITOR: 'true',
   GIT_SEQUENCE_EDITOR: 'true',
   EDITOR: 'true',

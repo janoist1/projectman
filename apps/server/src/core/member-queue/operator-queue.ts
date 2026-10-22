@@ -16,7 +16,7 @@ import type { ProjectService } from '../projects';
 import type { MemberQueue, PlannedClose } from './member-queue';
 
 /** What the finisher asks of the inbox: the three ways the Operator ends an inbox item (PM-885). */
-export interface OperatorQueueInbox {
+interface OperatorQueueInbox {
   resolveForOperatorQueue(
     projectKey: string,
     id: string,
@@ -40,7 +40,7 @@ export interface OperatorQueueInbox {
   }): Promise<InboxItem>;
 }
 
-export interface FinishQueueItemInput {
+interface FinishQueueItemInput {
   projectKey: string;
   /** The Operator member that calls. */
   member: string;

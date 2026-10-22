@@ -10,7 +10,7 @@ import type { DomainContext } from '../base';
  * comes back to the member as a team message.
  */
 
-export interface AgentQuestion {
+interface AgentQuestion {
   question: string;
   options: QuestionOptionInput[];
   details: string;

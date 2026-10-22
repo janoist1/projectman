@@ -20,7 +20,7 @@ const FixtureProcess = z.object({
 });
 type FixtureProcess = z.infer<typeof FixtureProcess>;
 
-export const MachineFixture = z.object({
+const MachineFixture = z.object({
   machine: z.object({
     /** Of the whole machine; null: unknown. */
     cpuPercent: z.number().min(0).max(100).nullable(),
@@ -50,7 +50,7 @@ export const MachineFixture = z.object({
     )
     .default([]),
 });
-export type MachineFixture = z.infer<typeof MachineFixture>;
+type MachineFixture = z.infer<typeof MachineFixture>;
 
 export function parseMachineFixture(text: string): MachineFixture {
   let json: unknown;
@@ -65,7 +65,7 @@ export function parseMachineFixture(text: string): MachineFixture {
   return parsed.data;
 }
 
-export interface FixtureProbeOptions {
+interface FixtureProbeOptions {
   /** The pids of the running sessions' CLIs, in the runner's order. */
   runningPids: () => number[];
   /** The instance's tag: the orphans carry it. */

@@ -95,7 +95,7 @@ const PROJECT_CODEX_ALLOWED_ROOTS: ReadonlySet<string> = new Set([
   'project_doc_fallback_filenames',
 ]);
 
-export type ProjectCodexRule = 'config' | 'member' | 'any';
+type ProjectCodexRule = 'config' | 'member' | 'any';
 
 /** Inspect every project layer from the closest git root to the canonical session directory. */
 export async function inspectProjectCodex(input: {
@@ -163,7 +163,7 @@ export async function inspectProjectCodex(input: {
 }
 
 /** A refusal containing only paths and key names, never configuration values. */
-export class WorkspaceCodexConfigError extends Error {
+class WorkspaceCodexConfigError extends Error {
   readonly code = WORKSPACE_CODEX_CONFIG;
   readonly details: { provider: 'codex'; issues: AmbientIssue[] };
 
@@ -233,7 +233,7 @@ export async function inspectCodexSandboxConfig(input: {
   return issues.filter((issue): issue is AmbientIssue => issue !== null);
 }
 
-export interface CodexUserMcpServers {
+interface CodexUserMcpServers {
   names: string[];
   unresolved: AmbientIssue[];
 }

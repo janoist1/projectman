@@ -102,7 +102,7 @@ export interface Author {
   email: string;
 }
 
-export interface ConfigChangeMeta {
+interface ConfigChangeMeta {
   actor: Actor;
   author: Author;
   message: string;
@@ -113,7 +113,7 @@ export interface ConfigChangeMeta {
 }
 
 /** A human's edit of the configuration (settings: replace, patch or revert). */
-export interface ConfigEditMeta {
+interface ConfigEditMeta {
   actor: Actor;
   author: Author;
   /** Commit message; a default describes the change. */

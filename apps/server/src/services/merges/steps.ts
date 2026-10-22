@@ -32,7 +32,7 @@ import { notifyMerge } from './notify';
 import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
 
 /** What the steps need from the facade: the queue's wake-up and whether the server is stopping. */
-export type MergeStepsHooks = { pump: () => void; stopped: () => boolean };
+type MergeStepsHooks = { pump: () => void; stopped: () => boolean };
 
 /** The merge's step program: the checks, the git work, the full test, the push, and every state change. */
 export class MergeSteps {

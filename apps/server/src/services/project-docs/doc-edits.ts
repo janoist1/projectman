@@ -9,7 +9,7 @@ export function docLines(text: string): string[] {
 }
 
 /** The most lines `read_project_doc` returns in one call. */
-export const MAX_DOC_LINES = 2000;
+const MAX_DOC_LINES = 2000;
 
 /** What `read_project_doc` answers: the window of lines asked for of a document read at one commit. */
 export function docWindow(

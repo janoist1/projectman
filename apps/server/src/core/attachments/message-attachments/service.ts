@@ -41,10 +41,10 @@ import { MessageImageRenderer } from './image';
 import { messageFileOwner } from './storage';
 
 /** A text file this small (bytes) is handed to an AI member as text. */
-export const MESSAGE_TEXT_MAX_BYTES = 100_000;
+const MESSAGE_TEXT_MAX_BYTES = 100_000;
 
 /** An upload no message took within this long is deleted by the sweep. */
-export const UNSENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const UNSENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 

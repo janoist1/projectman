@@ -8,7 +8,7 @@ import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates'
  *   -> merge (gate: labels code-review-ok + merge-ok, an owner approval)
  *   -> release (gate: labels pr-merged + release-ok, a release approval the owner may give) -> done
  */
-export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
+function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
   return {
     schemaVersion: 1,
     project: {

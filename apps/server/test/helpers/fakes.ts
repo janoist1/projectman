@@ -493,7 +493,7 @@ export function createFakeMcp(): FakeMcp {
   };
 }
 
-export interface CapturingLogger {
+interface CapturingLogger {
   logger: FastifyBaseLogger;
   errors: unknown[];
   warnings: unknown[];

@@ -31,13 +31,13 @@ import type { ReleaseService } from './releases';
 const COMMIT_SHA = /^[0-9a-f]{40}$/;
 
 /** The part of the pause service the deployments use: the fence's pause is owned by the deployment. */
-export interface DeploymentPause {
+interface DeploymentPause {
   acquireOwnedInstancePause(reason: string, atomic: (pauseId: string) => void): Promise<string>;
   resumeOwnedInstancePause(pauseId: string, atomic: () => void): Promise<void>;
   unstoppedSessions(): number;
 }
 
-export interface ReleaseDeploymentsDeps {
+interface ReleaseDeploymentsDeps {
   ctx: DomainContext;
   releases: ReleaseService;
   pause: DeploymentPause;
@@ -51,7 +51,7 @@ export interface ReleaseDeploymentsDeps {
 }
 
 /** What the control socket answers with: the deployment, the release, the drain state and the database's schema. */
-export interface DeploymentView {
+interface DeploymentView {
   deployment: HybridDeployment | null;
   release: Release;
   drain: ReleaseDrainStatus;

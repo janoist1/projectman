@@ -3,9 +3,9 @@ import { execCommand, ExecCommandError } from '../../exec';
 import { GithubError, classifyGhFailure } from './errors';
 
 /** Runs gh with the given arguments and resolves with its stdout. Rejects with a GithubError. */
-export type GhRunner = (args: readonly string[], options?: { signal?: AbortSignal }) => Promise<string>;
+type GhRunner = (args: readonly string[], options?: { signal?: AbortSignal }) => Promise<string>;
 
-export interface GhRunnerOptions {
+interface GhRunnerOptions {
   /** Path or name of the GitHub CLI. */
   ghBin: string;
   /** gh is killed when a call takes longer than this. */

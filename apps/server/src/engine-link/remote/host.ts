@@ -53,7 +53,7 @@ export interface RemoteEngineDirectory extends EngineDirectory {
   host(id: EngineId): EngineHost | null;
 }
 
-export interface RemoteDirectoryOptions {
+interface RemoteDirectoryOptions {
   hub: RemoteHub;
   transfers: FileTransfers;
   logger: FastifyBaseLogger;

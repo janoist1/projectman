@@ -20,10 +20,7 @@ function membersHolding(config: ProjectConfig, roleId: string): MemberConfig[] {
 }
 
 /** Who holds a role, and whether temp workers are hired for it. */
-export function roleUsage(
-  config: ProjectConfig,
-  roleId: string,
-): { members: string[]; tempWorkers: boolean } {
+function roleUsage(config: ProjectConfig, roleId: string): { members: string[]; tempWorkers: boolean } {
   return {
     members: membersHolding(config, roleId).map((m) => m.handle),
     tempWorkers: config.team.limits.tempWorkers.role === roleId,

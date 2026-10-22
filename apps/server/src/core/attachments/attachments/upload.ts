@@ -9,7 +9,7 @@ export const storageFailed = (message: string) =>
   new DomainError('attachment_storage_failed', message, { status: 500 });
 
 /** Counts the bytes that pass, refuses the one that crosses the limit and keeps the first few for the content check. */
-export class UploadMeter extends Transform {
+class UploadMeter extends Transform {
   size = 0;
   exceeded = false;
   head = Buffer.alloc(0);

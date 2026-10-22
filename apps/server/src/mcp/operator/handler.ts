@@ -50,7 +50,7 @@ import type { OperatorAppOperations, SuperAdministration } from '../../services/
 import { isOwner, toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 /** What the Operator's super-operation tools stand on (PM-888). */
-export interface SuperPath {
+interface SuperPath {
   operations: OperatorAppOperations;
   administration: Pick<SuperAdministration, 'status' | 'logs' | 'machine' | 'operation'>;
 }

@@ -19,7 +19,7 @@ export function historyContentHash(title: string, body: string, commitSha: strin
 }
 
 /** The source row the embedder reads. */
-export interface HistorySemanticDocument {
+interface HistorySemanticDocument {
   sourceId: string;
   projectKey: string;
   sourceType: HistorySourceType;
@@ -28,13 +28,13 @@ export interface HistorySemanticDocument {
   commitSha: string | null;
 }
 
-export interface HistorySemanticDirtyRow {
+interface HistorySemanticDirtyRow {
   sourceId: string;
   revision: number;
   attempts: number;
 }
 
-export interface HistorySemanticSourceState {
+interface HistorySemanticSourceState {
   sourceId: string;
   indexKey: string;
   contentHash: string;
@@ -43,14 +43,14 @@ export interface HistorySemanticSourceState {
   chunks: number;
 }
 
-export interface HistorySemanticBackfillState {
+interface HistorySemanticBackfillState {
   projectKey: string;
   indexKey: string;
   lastSourceId: string;
   complete: boolean;
 }
 
-export interface HistorySemanticChunkWrite {
+interface HistorySemanticChunkWrite {
   sourceId: string;
   indexKey: string;
   contentHash: string;
@@ -66,7 +66,7 @@ export interface HistorySemanticChunkWrite {
 }
 
 /** One best chunk per source (a row of the scan). */
-export interface HistorySemanticScanRow {
+interface HistorySemanticScanRow {
   sourceId: string;
   indexKey: string;
   contentHash: string;
@@ -79,7 +79,7 @@ export interface HistorySemanticScanRow {
   at: string;
 }
 
-export interface HistorySemanticScanQuery {
+interface HistorySemanticScanQuery {
   projectKey: string;
   indexKey: string;
   vector: Float32Array;
@@ -443,5 +443,3 @@ export function createHistorySemanticRepository(db: Db) {
     },
   };
 }
-
-export type HistorySemanticRepository = ReturnType<typeof createHistorySemanticRepository>;

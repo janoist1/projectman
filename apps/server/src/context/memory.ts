@@ -8,7 +8,7 @@ export const MEMORY_LIMIT_BYTES = 8 * 1024;
 
 const ProjectKey = ProjectConfig.shape.project.shape.key;
 
-export interface MemberMemoryStoreOptions {
+interface MemberMemoryStoreOptions {
   /** Directory holding `<projectKey>/<handle>.md`, e.g. ~/.projectman/memory. */
   rootDir: string;
   /** Upper bound for read(); older entries are left out. Default MEMORY_LIMIT_BYTES. */

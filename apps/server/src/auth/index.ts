@@ -21,12 +21,10 @@ import type { EmailLoginService } from '../services/email-login';
 import { registerEmailLoginRoutes } from './email-login-routes';
 
 export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
-export type { AttemptLimiter } from '../kernel';
 export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
 export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
-export { createSetupCode, generateSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
-export type { SetupCode } from './setup-code';
+export { createSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
 export { deriveEmailLoginKey, loadOrCreateSecret } from './secret';
 export {
   assertPublicBoardReady,

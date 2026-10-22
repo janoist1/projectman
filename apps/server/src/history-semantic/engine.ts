@@ -5,7 +5,7 @@ import { createHistorySemanticRepository, historyContentHash, historyFullText } 
 import { lineIndex, planChunk } from './chunker';
 import type { Embedder } from './embedder';
 
-export interface SemanticEngineDeps {
+interface SemanticEngineDeps {
   /** The worker's own connection, with the vector extension loaded. */
   db: Db;
   embedder: Embedder;

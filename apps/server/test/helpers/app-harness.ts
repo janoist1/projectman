@@ -78,7 +78,7 @@ export interface AppHarnessOptions {
  * free loopback port, which their hooks and MCP calls reach; HOME, CODEX_HOME and the fake
  * CLIs' config and transcript locations point into the temp directory.
  */
-export interface FakeCliOptions {
+interface FakeCliOptions {
   runner: 'fake-cli';
   /**
    * Pre-accepts Claude Code's trust dialog for the whole temp directory. Real worktrees need it:

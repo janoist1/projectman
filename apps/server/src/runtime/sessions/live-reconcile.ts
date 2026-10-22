@@ -4,7 +4,7 @@ import { engineIdOf } from './engines';
 
 export const LIVE_SESSION_SWEEP_GRACE_MS = 2 * 60_000;
 
-export interface LiveSessionSweepDeps {
+interface LiveSessionSweepDeps {
   /** repos.sessions.listInStates(LIVE_SESSION_STATES) */
   listLive(): Session[];
   /** SessionOrchestrator.isRunning: local runner, or the engine mirror in hybrid mode. */

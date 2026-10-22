@@ -51,7 +51,7 @@ const toRecord = (r: MessageAttachmentRow): MessageAttachmentRecord => ({
 });
 
 /** The metadata that is known only once the file is stored. */
-export interface StoredMessageAttachment {
+interface StoredMessageAttachment {
   size: number;
   mediaType: string;
   preview: AttachmentPreview;

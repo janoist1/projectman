@@ -21,7 +21,7 @@ import { listWorktrees, must } from './merge-repo';
 export { MERGE_CHECK_DIR } from '../contracts';
 export const DEPENDENCIES_NOT_INSTALLED =
   "No checkout of the repository has the dependencies of the merge result installed (its package-lock.json matches no installed checkout). Install them with npm ci in a checkout whose package-lock.json is the merge result's: the repository's own checkout of the default branch when the card does not change the dependencies, otherwise the card's worktree after merging the default branch into it. Then retry merge_task.";
-export interface MergeCheckOptions {
+interface MergeCheckOptions {
   args: MergeArgs;
   /** The engine's worktrees root; the checks live in `<worktreesRoot>/_merge/<mergeId>`. null: no check checkouts. */
   worktreesRoot: string | null;

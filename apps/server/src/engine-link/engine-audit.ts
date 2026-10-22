@@ -15,8 +15,8 @@ export interface EngineAudit {
   record(entry: Omit<EngineAuditEntry, 'at'>): void;
 }
 
-export const AUDIT_MAX_BYTES = 10 * 1024 * 1024;
-export const AUDIT_KEEP_FILES = 5;
+const AUDIT_MAX_BYTES = 10 * 1024 * 1024;
+const AUDIT_KEEP_FILES = 5;
 
 /**
  * Appends JSON lines to `file` and rotates it at `maxBytes`: `file` becomes `file.1`, `file.1`

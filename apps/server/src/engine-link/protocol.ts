@@ -45,8 +45,8 @@ export const SessionCleanupWire: z.ZodType<SessionCleanup> = z.strictObject({
   survivors: int,
   durationMs: z.number().nonnegative(),
 });
-export const RequestId = text.regex(/^[A-Za-z0-9_-]{1,64}$/);
-export const Paths: z.ZodType<EnginePaths> = z.strictObject({
+const RequestId = text.regex(/^[A-Za-z0-9_-]{1,64}$/);
+const Paths: z.ZodType<EnginePaths> = z.strictObject({
   userHome: text,
   home: text.nullable(),
   worktreesRoot: text.nullable(),
@@ -85,14 +85,15 @@ export const PullRequest: z.ZodType<PullRequestInfo> = z.strictObject({
   authorLogin: text.optional(),
   headSha: text.optional(),
 });
-export const RefusedInfo: z.ZodType<PermissionRefusedInfo> = z.strictObject({
+const RefusedInfo: z.ZodType<PermissionRefusedInfo> = z.strictObject({
   sessionId: text,
   toolName: text,
   toolInput: z.unknown(),
   reason: text.optional(),
 });
-export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_data' }>> =
-  z.discriminatedUnion('type', [
+const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_data' }>> = z.discriminatedUnion(
+  'type',
+  [
     z.strictObject({
       type: z.literal('rate_limited'),
       sessionId: text,
@@ -145,7 +146,8 @@ export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_d
       point: PausePoint,
       tool: text.nullable(),
     }),
-  ]);
+  ],
+);
 export const EngineEvent = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('runner'), event: WireRunnerEvent }),
   z.strictObject({ kind: z.literal('pending_input'), sessionId: text, pending: z.boolean() }),
@@ -213,7 +215,7 @@ export const EngineWireError = z
     message: 'Module metadata requires module_error',
   });
 export type EngineWireError = z.infer<typeof EngineWireError>;
-export const RequestFrame = z.strictObject({
+const RequestFrame = z.strictObject({
   t: z.literal('req'),
   id: RequestId,
   method: text,

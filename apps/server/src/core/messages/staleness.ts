@@ -6,7 +6,6 @@ import {
   labelDefinition,
   memberOf,
   messageStaleReason,
-  messageWakeBlock,
   messageWakes,
   operatorQueueAvailable,
   permissionDelegationOf,
@@ -14,15 +13,7 @@ import {
   stageOf,
   stageOwners,
 } from '@projectman/shared';
-import type {
-  InboxItem,
-  ProjectConfig,
-  StaleReason,
-  Task,
-  TeamMessage,
-  WakeBlock,
-  WakeFacts,
-} from '@projectman/shared';
+import type { InboxItem, ProjectConfig, StaleReason, Task, TeamMessage, WakeFacts } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 
 /** Server facts for the shared message validity rule; no git lookup is needed at delivery. */
@@ -75,7 +66,7 @@ function subjectClosed(
 }
 
 /** An obligation row is live while its step is open or handed over to the integrator (PM-813). */
-export function obligationIsLive(ctx: DomainContext, obligationId: string): boolean {
+function obligationIsLive(ctx: DomainContext, obligationId: string): boolean {
   const state = ctx.repos.obligations.get(obligationId)?.state;
   return state === 'open' || state === 'handed_over';
 }
@@ -153,20 +144,6 @@ export function wakesFor(
   recipient: string,
 ): boolean {
   return messageWakes(
-    message,
-    wakeFactsFor(ctx, config, message, recipient),
-    staleReasonFor(ctx, config, message, recipient),
-  );
-}
-
-/** Why a valid action message starts no session for the recipient, or null (PM-426). */
-export function wakeBlockFor(
-  ctx: DomainContext,
-  config: ProjectConfig,
-  message: TeamMessage,
-  recipient: string,
-): WakeBlock | null {
-  return messageWakeBlock(
     message,
     wakeFactsFor(ctx, config, message, recipient),
     staleReasonFor(ctx, config, message, recipient),

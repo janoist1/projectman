@@ -7,7 +7,7 @@ export const OUTPUT_LIMIT_BYTES = 2 * 1024 * 1024;
 /** The most characters of output shown for a failed or errored run. */
 export const OUTPUT_TAIL_CHARS = 6000;
 /** The most failed files named. */
-export const FAILED_FILES_LIMIT = 20;
+const FAILED_FILES_LIMIT = 20;
 
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
 

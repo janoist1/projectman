@@ -2,7 +2,7 @@
  * The one reminder a member gets when parts of a card they broke down are still left in the first stage
  * (PM-480). It names what to do, never does it: the member moves and labels the parts (decision 48).
  */
-export interface PartsLeftText {
+interface PartsLeftText {
   parentKey: string;
   parts: { key: string; title: string }[];
   /** The stage the parts are left in, as the member sees it. */

@@ -20,7 +20,7 @@ import type { SessionOrchestrator } from '../sessions';
 import type { MemberQueueDriver, MemberQueueLane } from './lane';
 
 /** What the driver needs of the rest of the server. */
-export interface MemberQueueDriverDeps {
+interface MemberQueueDriverDeps {
   ctx: DomainContext;
   projects: {
     config(projectKey: string): Promise<ProjectConfig>;

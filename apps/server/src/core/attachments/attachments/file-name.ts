@@ -1,6 +1,6 @@
 import { MAX_ATTACHMENT_FILE_NAME_BYTES } from '@projectman/shared';
 
-export const FALLBACK_FILE_NAME = 'file';
+const FALLBACK_FILE_NAME = 'file';
 
 // Control characters, line and paragraph separators, bidirectional overrides and isolates (they
 // make a name read differently from how it ends), the byte order mark and the replacement char.

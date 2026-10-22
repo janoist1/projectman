@@ -41,7 +41,7 @@ const STATUS_TTL_OK_MS = 60_000;
 const STATUS_TTL_OTHER_MS = 5_000;
 
 /** A session start refused because the provider's CLI is not logged in with a subscription. */
-export class ProviderNotLoggedInError extends Error {
+class ProviderNotLoggedInError extends Error {
   readonly code = PROVIDER_NOT_LOGGED_IN;
   readonly provider: AgentProvider;
   readonly status: ProviderStatus;

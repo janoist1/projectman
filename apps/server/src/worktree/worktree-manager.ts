@@ -20,7 +20,7 @@ const FETCH_TIMEOUT_MS = 60_000;
 const CHECKOUT_TIMEOUT_MS = 10 * 60_000;
 const DEPENDENCY_RETRY_MS = 60_000;
 
-export type WorktreeErrorCode =
+type WorktreeErrorCode =
   | 'invalid_task_key'
   | 'unknown_repo'
   | 'not_a_repository'
@@ -32,7 +32,7 @@ export type WorktreeErrorCode =
   | 'outside_root'
   | 'dirty';
 
-export class WorktreeError extends Error {
+class WorktreeError extends Error {
   readonly code: WorktreeErrorCode;
 
   constructor(code: WorktreeErrorCode, message: string) {

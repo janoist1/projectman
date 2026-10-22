@@ -39,15 +39,15 @@ import type { SystemFeedbackItemRecord } from '../../../db';
 import { DomainError, KeyedMutex, SYSTEM_ACTOR, conflict, invalid, newId, notFound } from '../../../kernel';
 
 /** The most items one list returns. */
-export const MAX_SYSTEM_FEEDBACK_LIST = 200;
+const MAX_SYSTEM_FEEDBACK_LIST = 200;
 /** How many changes of the forwarding setting the view lists. */
 const FORWARDING_HISTORY = 20;
 /** The most items the Operator's own list returns. */
-export const MAX_SYSTEM_FEEDBACK_OPERATOR_LIST = 50;
+const MAX_SYSTEM_FEEDBACK_OPERATOR_LIST = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** A row of the Operator's own list: it never carries what the owner decided or why. */
-export interface SystemFeedbackOperatorRow {
+interface SystemFeedbackOperatorRow {
   id: string;
   state: SystemFeedbackState;
   title: string;

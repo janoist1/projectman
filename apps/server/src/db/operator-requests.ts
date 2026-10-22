@@ -58,7 +58,7 @@ const stepColumns = `id, request_id AS requestId, at, action, status, task_key A
   agreement_version AS agreementVersion, approval_mode AS approvalMode, operation_id AS operationId,
   system_feedback AS systemFeedback`;
 
-export interface OperatorExecutionIntent {
+interface OperatorExecutionIntent {
   id: string;
   projectKey: string;
   requestId: string;

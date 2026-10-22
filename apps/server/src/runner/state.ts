@@ -52,11 +52,11 @@ export interface StateSnapshot {
 }
 
 /** The activity of a session whose conversation is being compacted. */
-export const COMPACTING_ACTIVITY = 'Compacting the conversation';
+const COMPACTING_ACTIVITY = 'Compacting the conversation';
 
 const TERMINAL_STATES: ReadonlySet<SessionState> = new Set(['exited', 'failed']);
 
-export function isLive(state: SessionState): boolean {
+function isLive(state: SessionState): boolean {
   return !TERMINAL_STATES.has(state);
 }
 

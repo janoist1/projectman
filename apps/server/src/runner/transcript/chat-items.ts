@@ -18,7 +18,7 @@ import { rec, str, type Json } from './json';
 /** Sender used for outgoing team messages when the session's member is unknown. */
 export const UNKNOWN_MEMBER = 'unknown';
 
-export function isHandle(value: unknown): value is string {
+function isHandle(value: unknown): value is string {
   return MemberHandle.safeParse(value).success;
 }
 

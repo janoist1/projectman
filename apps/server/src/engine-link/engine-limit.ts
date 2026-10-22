@@ -35,7 +35,7 @@ import type { EngineErrorCode } from './protocol';
  * the engine was configured with. The checks run after `realpath`, so a symbolic link cannot widen a root.
  */
 
-export interface EngineLimitOptions {
+interface EngineLimitOptions {
   config: ResolvedEngineConfig;
   home: string;
   userHome: string;
@@ -87,7 +87,7 @@ function refuse(code: EngineErrorCode, message: string): never {
 }
 
 /** The real path of the nearest existing ancestor, plus the not yet existing rest (a path to be made). */
-export function resolveReal(target: string): string {
+function resolveReal(target: string): string {
   const absolute = path.resolve(target);
   let head = absolute;
   const rest: string[] = [];

@@ -65,7 +65,7 @@ import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './
 /** How long a send that asks for the start's result (`awaitWake`) waits for it before it answers "starting" (PM-543). */
 export const WAKE_REPLY_WAIT_MS = 5000;
 
-export interface SendOptions {
+interface SendOptions {
   /** Checks same-role card workers before any send effects (PM-662). External entry points opt in. */
   workerCheck?: boolean;
   origin?: TeamMessage['origin'];
@@ -115,13 +115,13 @@ export interface SendOptions {
  * What the send needs to wake a recipient and learn the result, and what the end of a hold calls (the member
  * queue's driver, PM-925): the member's queue is worked through, whatever the reason it is looked at again.
  */
-export interface MessageWaker {
+interface MessageWaker {
   wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<WakeStart>;
   ensure(projectKey: string, handle: string): Promise<void>;
 }
 
 /** What presenting or accepting Operator signals records with the message (PM-593). */
-export interface MessageSignals {
+interface MessageSignals {
   presentation(projectKey: string, signalId: string, by?: string): void;
   decision(projectKey: string, signalId: string, by: string, accepted: boolean): void;
   present(projectKey: string, signalId: string, messageId: string, actionable: boolean): void;
@@ -135,8 +135,8 @@ interface PreparedSend {
 }
 
 /** A card-level hold another module answers; who is held stays messaging's rule. */
-export type CardHoldReason = Extract<SentMessageHold, 'fix_limit' | 'full_test'>;
-export interface CardHold {
+type CardHoldReason = Extract<SentMessageHold, 'fix_limit' | 'full_test'>;
+interface CardHold {
   holds(task: Task, config: ProjectConfig): boolean;
 }
 

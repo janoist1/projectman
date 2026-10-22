@@ -12,7 +12,7 @@ const REPOSITORY_OVERRIDES = [
   'GIT_PREFIX',
 ];
 
-export const GIT_TIMEOUT_MS = 120_000;
+const GIT_TIMEOUT_MS = 120_000;
 
 export class GitCommandError extends Error {
   readonly args: string[];

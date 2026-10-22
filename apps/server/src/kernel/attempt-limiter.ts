@@ -11,7 +11,7 @@ import { DomainError } from './errors';
  */
 export const MAX_FAILED_ATTEMPTS_ALL_CLIENTS = 50;
 
-export interface AttemptLimiterOptions {
+interface AttemptLimiterOptions {
   /** Attempts a key may use up per window. */
   max: number;
   /** Attempts all keys together may use up per window (default: no shared cap). */

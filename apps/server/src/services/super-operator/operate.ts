@@ -18,7 +18,7 @@ interface OperatePauseRequester {
  * (Messaging in core/messages, PauseService in runtime/sessions, the session orchestrator), seen through the
  * calls this executor makes; the composition supplies them.
  */
-export interface OperateExecutorDeps extends Pick<SuperCommandDeps, 'projects' | 'members' | 'user'> {
+interface OperateExecutorDeps extends Pick<SuperCommandDeps, 'projects' | 'members' | 'user'> {
   messaging: {
     send(
       projectKey: string,

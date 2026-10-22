@@ -4,7 +4,7 @@ import { ControlTransportError, sendControlRequest } from './client';
 /** Exit status of the relay: done, the transport failed, the input was refused, bad usage. */
 export const RELAY_EXIT = { done: 0, transport: 1, refused: 2, usage: 64 } as const;
 
-export interface RelayIo {
+interface RelayIo {
   /** The standard input, in chunks, until EOF. */
   stdin: AsyncIterable<Uint8Array>;
   stdout: (text: string) => void;

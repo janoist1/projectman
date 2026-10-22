@@ -22,7 +22,7 @@ import { isXargsFeed } from './xargs-feed';
  * is why this rule is a convenience and not a sandbox.
  */
 
-export interface ReadOnlyContext {
+interface ReadOnlyContext {
   /** The session's working directory, where the command starts. */
   cwd: string;
   /** The directories the command may read and change into. */
@@ -332,7 +332,7 @@ function hasPatternOption(args: readonly string[]): boolean {
  * A `git -C <dir>` counts as plain `git` when `<dir>` is each of `dirs` itself, the directories
  * the command runs in; any other `-C` is an option the rule does not know.
  */
-export function isReadOnlyStage(
+function isReadOnlyStage(
   words: readonly string[],
   dirs: readonly string[],
   roots: readonly string[],

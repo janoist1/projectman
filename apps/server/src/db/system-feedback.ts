@@ -30,13 +30,13 @@ export interface SystemFeedbackItemRecord {
   cardError: { code: string; message: string; at: string } | null;
 }
 
-export interface SystemFeedbackOccurrenceRecord {
+interface SystemFeedbackOccurrenceRecord {
   at: string;
   version: string;
   sessionId: string | null;
 }
 
-export interface SystemFeedbackForwardingRecord {
+interface SystemFeedbackForwardingRecord {
   id: string;
   mode: SystemFeedbackForwardingMode;
   projectKey: string | null;

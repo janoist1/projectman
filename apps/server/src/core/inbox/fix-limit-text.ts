@@ -15,7 +15,7 @@ type FixLimitItemText = TemplateLocale['fixLimitItem'];
 const OPTION_ORDER: readonly FixLimitOptionId[] = ['replan', 'reassign', 'another_round'];
 
 /** What the server writes into a fix round limit decision item (PM-714). */
-export interface FixLimitItemContent {
+interface FixLimitItemContent {
   title: string;
   body: string;
   /** Only the options that can be carried out, with a real label and consequence in the project's language. */

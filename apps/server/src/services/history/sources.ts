@@ -14,7 +14,7 @@ export function normalizeAt(value: string): string {
 }
 
 /** A source as it is now, with the time its stored copy keeps when it has none of its own; null when it is gone. */
-export interface LoadedHistorySource {
+interface LoadedHistorySource {
   source: HistorySourceState;
   storedAt: string;
 }

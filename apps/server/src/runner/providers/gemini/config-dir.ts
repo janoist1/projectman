@@ -10,7 +10,7 @@ import {
 } from '../../hook-forwarder';
 import { writeHookConfig } from '../../session-config';
 
-export const GEMINI_DENY_FALLBACK = JSON.stringify({
+const GEMINI_DENY_FALLBACK = JSON.stringify({
   decision: 'deny',
   reason: 'projectman did not answer; the tool call was blocked.',
 });
@@ -28,7 +28,7 @@ async function exists(file: string): Promise<boolean> {
 }
 
 /** Workspace config would run hooks or MCP programs outside projectman's gate. */
-export async function assertNoWorkspaceConfig(cwd: string, extra: readonly string[]): Promise<void> {
+async function assertNoWorkspaceConfig(cwd: string, extra: readonly string[]): Promise<void> {
   const check = async (dir: string) => {
     for (const name of ['hooks.json', 'mcp_config.json'])
       if (await exists(path.join(dir, '.agents', name)))

@@ -15,7 +15,7 @@ export const ClaudeHookPayload = HookPayload.extend({
 });
 
 /** One entry of `updatedPermissions` / `permission_suggestions`. */
-export type PermissionUpdate =
+type PermissionUpdate =
   | {
       type: 'addRules';
       rules: Array<{ toolName: string; ruleContent?: string }>;
@@ -25,7 +25,7 @@ export type PermissionUpdate =
   | { type: 'setMode'; mode: string; destination: 'session' };
 
 /** Output of a PermissionRequest hook. */
-export interface PermissionHookOutput {
+interface PermissionHookOutput {
   hookSpecificOutput: {
     hookEventName: 'PermissionRequest';
     decision:
@@ -93,7 +93,7 @@ export function denyOutput(message: string): PermissionHookOutput {
 }
 
 /** Output of a PreToolUse hook that refuses the call. */
-export interface PreToolUseDenyOutput {
+interface PreToolUseDenyOutput {
   hookSpecificOutput: {
     hookEventName: 'PreToolUse';
     permissionDecision: 'deny';

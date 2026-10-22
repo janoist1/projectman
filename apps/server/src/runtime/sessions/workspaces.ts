@@ -52,7 +52,7 @@ export interface WorkspacePlacement {
   newGeneration: boolean;
 }
 
-export interface MemberWorkspacesDeps {
+interface MemberWorkspacesDeps {
   ctx: DomainContext;
   manager: MemberWorkspaceManager;
   /** Whether the runner has the session's process. */

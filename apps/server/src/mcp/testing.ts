@@ -60,7 +60,7 @@ export const pmContext: ToolContext = {
 /** Stage ids as in the built-in templates (the internal-tool pipeline without its merge stage). */
 const STAGES = ['ready', 'dev', 'code_review', 'qa', 'done'];
 
-export function sampleMembers(): MemberView[] {
+function sampleMembers(): MemberView[] {
   const base = { specialty: null, activity: null, currentTaskKeys: [], sponsor: 'owner', temp: false };
   return [
     {
@@ -865,7 +865,7 @@ function requireFeedbackProcessor(ctx: ToolContext): void {
 }
 
 /** A mark a client made on the shop's cart page. */
-export function sampleFeedbackMark(): FeedbackMarkDetail {
+function sampleFeedbackMark(): FeedbackMarkDetail {
   return {
     id: 'fbm_fake0000000001',
     projectKey: 'AR',
@@ -921,7 +921,7 @@ export function sampleFeedbackMark(): FeedbackMarkDetail {
 }
 
 /** A screenshot the owner attached to AR-21. */
-export function sampleAttachment(): Attachment {
+function sampleAttachment(): Attachment {
   return {
     id: 'att_screenshot01',
     projectKey: 'AR',

@@ -36,16 +36,16 @@ import type { AppendTimelineInput, TimelineService } from '../../core/timeline';
 import { attributedActor, conflict, newId, SYSTEM_ACTOR } from '../../kernel';
 
 /** Catches up the scheduled runs a pause skipped; services/schedules supplies it, the assembly passes it. */
-export interface MissedRunCatchUp {
+interface MissedRunCatchUp {
   catchUp(projectKey: string, since: Date, until: Date): Promise<void>;
 }
 
 /** How long a shutdown waits for the answers of sessions the runner cut at its deadline. */
-export const SHUTDOWN_CUT_GRACE_MS = 10_000;
+const SHUTDOWN_CUT_GRACE_MS = 10_000;
 const SHUTDOWN_POLL_MS = 50;
 
 /** What a pause covers: the whole instance, or one project. */
-export type PauseTarget = { scope: 'instance' } | { scope: 'project'; projectKey: string };
+type PauseTarget = { scope: 'instance' } | { scope: 'project'; projectKey: string };
 
 /** Who asks: a person (the app), the control command or the system; a person has a user id. */
 export interface PauseRequester {
@@ -61,7 +61,7 @@ export interface PauseRequester {
   credential?: ActorCredential;
 }
 
-export interface PauseOptions {
+interface PauseOptions {
   kind?: PauseKind;
   /** How long a session may take to stop before it is cut with one Esc (default `DEFAULT_PAUSE_FORCE_AFTER_MS`). */
   forceAfterMs?: number;

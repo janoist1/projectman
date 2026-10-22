@@ -1,9 +1,9 @@
 import type { Db } from './database';
 
-export type DecisionVerdict = 'recorded' | 'declined' | 'skipped';
+type DecisionVerdict = 'recorded' | 'declined' | 'skipped';
 
 /** What the owner said about one answered question the Operator offered as a decision (PM-496). */
-export interface DecisionOfferRecord {
+interface DecisionOfferRecord {
   projectKey: string;
   itemId: string;
   verdict: DecisionVerdict;
@@ -14,7 +14,7 @@ export interface DecisionOfferRecord {
 }
 
 /** Where the candidate search of a project starts and when the Operator last looked. */
-export interface DecisionCandidateState {
+interface DecisionCandidateState {
   /** Answers at or before this are no candidates. */
   since: string;
   listedAt: string | null;

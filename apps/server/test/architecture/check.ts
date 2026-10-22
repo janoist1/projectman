@@ -5,7 +5,7 @@ export interface SourceFile {
   readonly path: string;
   readonly source: string;
 }
-export type ViolationKind =
+type ViolationKind =
   | 'unmapped-file'
   | 'stale-path'
   | 'duplicate-path'
@@ -13,7 +13,7 @@ export type ViolationKind =
   | 'layer'
   | 'sealed'
   | 'stale-exception';
-export interface Violation {
+interface Violation {
   readonly kind: ViolationKind;
   readonly from?: string;
   readonly to?: string;

@@ -36,7 +36,7 @@ export interface SessionPauseRecord {
   resumedAt: string | null;
 }
 
-export type SessionPausePatch = Partial<
+type SessionPausePatch = Partial<
   Pick<SessionPauseRecord, 'since' | 'point' | 'tool' | 'waitingFor' | 'pausedAt' | 'needsRestart'>
 >;
 

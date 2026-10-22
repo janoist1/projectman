@@ -55,7 +55,7 @@ interface Dependencies {
   knowledge: OperatorKnowledgeStore;
 }
 
-export const OPERATOR_CRITICAL_TTL_MS = 24 * 60 * 60_000;
+const OPERATOR_CRITICAL_TTL_MS = 24 * 60 * 60_000;
 
 const actionOf = (operation: OperatorOperation): OperatorAction =>
   operation.op === 'message_send'

@@ -68,7 +68,7 @@ export interface NewMemberQueueItem {
   payload?: unknown;
 }
 
-export interface MemberQueueClose {
+interface MemberQueueClose {
   state: Extract<MemberQueueState, 'done' | 'handed_off' | 'cancelled'>;
   reason: MemberQueueCloseReason;
   at: string;

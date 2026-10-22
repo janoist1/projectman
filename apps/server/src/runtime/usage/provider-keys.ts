@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { ProviderKeyValue } from '@projectman/shared';
 import { invalid } from '../../kernel';
 
-export interface ProviderKeyStatus {
+interface ProviderKeyStatus {
   set: boolean;
   setAt: string | null;
 }

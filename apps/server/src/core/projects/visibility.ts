@@ -68,7 +68,6 @@ export { canSeeTask };
 export { canSeeInboxItem };
 
 /** Team messages: an owner and an admin see all of them, everyone else only their own (the rule lives in `packages/shared`). */
-export { canSeeTeamMessage };
 
 /**
  * The member a message listing is narrowed to (sent or received) whatever else it filters by:

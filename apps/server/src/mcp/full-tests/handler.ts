@@ -8,7 +8,7 @@ import type {
 import type { ScreenshotRuns } from '../../services/full-tests';
 import type { ToolCaller } from '../caller';
 
-export interface ScreenshotToolsDeps {
+interface ScreenshotToolsDeps {
   calls: ToolCaller;
   screenshots: Pick<ScreenshotRuns, 'take' | 'get'> | undefined;
 }

@@ -25,7 +25,7 @@ import { conflict, DomainError, invalid, notFound, unavailable } from '../../ker
 import { loadOrCreateVapidKey, vapidKeyId } from './secret';
 import { createPushTransport } from './transport';
 
-export interface WebPushOptions {
+interface WebPushOptions {
   home?: string;
   enabled?: boolean;
   standby?: boolean;

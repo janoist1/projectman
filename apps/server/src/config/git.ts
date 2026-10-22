@@ -7,7 +7,7 @@ export interface GitResult {
   code: number;
 }
 
-export class GitError extends Error {
+class GitError extends Error {
   readonly args: string[];
   readonly exitCode: number;
   readonly stderr: string;
@@ -41,7 +41,7 @@ function gitEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 }
 
 /** A git call on the customization repository that takes longer is killed (it would block every save). */
-export const GIT_TIMEOUT_MS = 120_000;
+const GIT_TIMEOUT_MS = 120_000;
 
 /**
  * Runs git without a shell. Exit codes listed in `okCodes` resolve instead of rejecting; a call

@@ -23,7 +23,7 @@ import type { AdministrationExecutors } from '../contracts';
  * image build, deploy) are provided by the installation that has them (PM-764), none by default.
  */
 
-export interface StartSupervisorOptions {
+interface StartSupervisorOptions {
   configFile: string;
   platform?: NodeJS.Platform;
   /** The service manager runner; the real `execFile` one when omitted. */
@@ -40,7 +40,7 @@ export interface StartSupervisorOptions {
   pollMs?: number;
 }
 
-export interface RunningSupervisor {
+interface RunningSupervisor {
   readonly config: SupervisorConfig;
   readonly supervisor: Supervisor;
   /** Stops listening, lets the running operation come to an end and closes. */

@@ -25,7 +25,7 @@ import {
   projectManagerMember,
 } from '@projectman/templates';
 
-export interface MigrationContext {
+interface MigrationContext {
   projectKey: string;
   logger: Pick<FastifyBaseLogger, 'warn'>;
 }
@@ -228,7 +228,7 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
 }
 
 /** Existing projects retain worker-driven handovers (PM-457). */
-export function addCardMover(raw: unknown): unknown {
+function addCardMover(raw: unknown): unknown {
   const team = asRecord(asRecord(raw)?.team);
   if (team && team.cardMover === undefined) team.cardMover = { kind: 'worker' };
   return raw;
@@ -309,7 +309,7 @@ function fixOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
  * review stage comes before the merge target, else the developer. A configuration that does not parse is
  * left alone: at run time the same rule (`mergerOf`) applies to the missing value.
  */
-export function addMerger(raw: unknown): unknown {
+function addMerger(raw: unknown): unknown {
   const team = asRecord(asRecord(raw)?.team);
   if (!team || team.merger !== undefined) return raw;
   const parsed = ProjectConfig.safeParse(raw);
@@ -322,7 +322,7 @@ export function addMerger(raw: unknown): unknown {
  * override gets it from the defaults; an override replaces the whole bundle, so the duty is appended
  * to the override's list when it is missing. Idempotent.
  */
-export function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
   const override = asRecord(asRecord(asRecord(asRecord(raw)?.team)?.roleOverrides)?.project_manager);
   if (!override || !Array.isArray(override.duties) || override.duties.includes('feedback_processing'))
     return raw;

@@ -11,7 +11,7 @@ import type { RemoteRunner } from './runner';
  * engine's own sessions: an engine can ask about, and be given something for, only a session it runs.
  */
 
-export interface CloudHandlerOptions {
+interface CloudHandlerOptions {
   hub: RemoteHub;
   runner: RemoteRunner;
   broker: PermissionBroker;

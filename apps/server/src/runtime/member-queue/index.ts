@@ -1,16 +1,10 @@
 export { MemberQueueWorker } from './driver';
-export type { MemberQueueDriverDeps } from './driver';
-export type { MemberQueueCompletion, MemberQueueDriver, MemberQueueLane } from './lane';
+export type { MemberQueueLane } from './lane';
 export { decisionLane } from './decision-lane';
-export type { DecisionLaneDeps, DecisionSource } from './decision-lane';
 export { messageLane } from './message-lane';
-export type { MessageLaneDeps } from './message-lane';
 export { operatorLane } from './operator-lane';
-export type { OperatorLaneDeps, OperatorQueueRequests } from './operator-lane';
 export { screeningLane } from './screening-lane';
 export { signalLane } from './signal-lane';
-export type { SignalLaneSignals } from './signal-lane';
 export { OperatorQueueReminder } from './operator-reminder';
-export type { OperatorQueueReminderDeps } from './operator-reminder';
 export { startLane } from './start-lane';
 export { wireMemberQueue } from './events';

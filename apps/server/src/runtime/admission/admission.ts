@@ -54,9 +54,9 @@ import {
 } from './rules';
 
 /** What an `attempt` came to (PM-543): the start ran or no longer applies, or admission put it off. */
-export type AttemptOutcome = { kind: 'done' } | { kind: 'deferred'; waiting: TaskStartWaiting };
+type AttemptOutcome = { kind: 'done' } | { kind: 'deferred'; waiting: TaskStartWaiting };
 
-export interface AdmissionRequest {
+interface AdmissionRequest {
   config: ProjectConfig;
   /** The AI member that would work; none for a temp worker yet to be hired (the default provider runs it). */
   member?: AiMemberConfig;

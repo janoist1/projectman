@@ -16,7 +16,7 @@ const KIB = 1024;
 const SWAP_UNITS: Record<string, number> = { K: KIB, M: KIB ** 2, G: KIB ** 3, T: KIB ** 4 };
 
 /** `{ 1.23 2.34 3.45 }` (macOS `vm.loadavg`) or `1.23 2.34 3.45 1/234 5678` (`/proc/loadavg`). */
-export function parseLoadAvg(text: string): [number, number, number] | null {
+function parseLoadAvg(text: string): [number, number, number] | null {
   const numbers = text
     .match(/\d+(?:\.\d+)?/g)
     ?.slice(0, 3)
@@ -25,7 +25,7 @@ export function parseLoadAvg(text: string): [number, number, number] | null {
 }
 
 /** `total = 2048.00M  used = 1024.50M  free = 1023.50M  (encrypted)`. */
-export function parseSwapUsage(text: string): { totalBytes: number; usedBytes: number } | null {
+function parseSwapUsage(text: string): { totalBytes: number; usedBytes: number } | null {
   const read = (name: string) => {
     const match = new RegExp(`${name} = (\\d+(?:\\.\\d+)?)([KMGT])`).exec(text);
     return match ? Math.round(Number(match[1]) * SWAP_UNITS[match[2]!]!) : null;
@@ -36,7 +36,7 @@ export function parseSwapUsage(text: string): { totalBytes: number; usedBytes: n
 }
 
 /** The memory that can be given to a program without paging: free, inactive and speculative pages. */
-export function parseVmStatAvailable(text: string): number | null {
+function parseVmStatAvailable(text: string): number | null {
   const pageSize = /page size of (\d+) bytes/.exec(text)?.[1];
   if (!pageSize) return null;
   const pages = (label: string) => {
@@ -50,7 +50,7 @@ export function parseVmStatAvailable(text: string): number | null {
 }
 
 /** `/proc/meminfo`, in bytes. */
-export function parseMeminfo(text: string): {
+function parseMeminfo(text: string): {
   totalBytes: number;
   availableBytes: number;
   swapTotalBytes: number | null;

@@ -38,14 +38,10 @@ export const CLOUD_METHODS = [
   'mcp.relay',
   'secret.nanogpt_key',
 ] as const;
-export type EngineSideMethod = Exclude<EngineMethod, (typeof CLOUD_METHODS)[number]>;
+type EngineSideMethod = Exclude<EngineMethod, (typeof CLOUD_METHODS)[number]>;
 
 /** The only variables `machine.env_values` returns: the marks of a session and of this instance. */
-export const ENV_VALUE_NAMES = [
-  'PROJECTMAN_SESSION_ID',
-  'PROJECTMAN_INSTANCE',
-  'PROJECTMAN_SCOPE_ID',
-] as const;
+const ENV_VALUE_NAMES = ['PROJECTMAN_SESSION_ID', 'PROJECTMAN_INSTANCE', 'PROJECTMAN_SCOPE_ID'] as const;
 const MAX_ENV_PIDS = 5000;
 const MAX_WATCH_TARGETS = 500;
 const MAX_WATCHES = 50;
@@ -73,7 +69,7 @@ const REFUSAL_CODES: ReadonlySet<EngineErrorCode> = new Set([
   'merge_not_allowed',
 ]);
 
-export interface EngineHandlerDeps {
+interface EngineHandlerDeps {
   limit: EngineLimit;
   audit: EngineAudit;
   runner: SessionRunner;

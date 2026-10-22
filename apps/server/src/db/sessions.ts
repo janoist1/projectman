@@ -92,7 +92,7 @@ function startCauseOf(raw: string | null): SessionStartCause | undefined {
 }
 
 /** What a session's conversation owes and measures for the end-of-round compaction (PM-213). */
-export interface SessionCompaction {
+interface SessionCompaction {
   /** Its round ended and no compaction ran or was given up since. */
   pending: boolean;
   /** The context of the conversation's last step (input + cache read + cache write); null: unknown. */
@@ -187,7 +187,7 @@ export function tokenUsageOf(r: UsageRow): TokenUsage {
   };
 }
 
-export type SessionPatch = Partial<
+type SessionPatch = Partial<
   Pick<
     Session,
     | 'claudeSessionId'

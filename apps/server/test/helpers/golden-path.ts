@@ -44,7 +44,7 @@ const system: Actor = { kind: 'system', handle: null };
 const REVIEW_TEMPLATES = new Set(['web-client-project', 'internal-tool', 'small-team']);
 
 /** The factory templates the golden-path files cover, one file each. */
-export const GOLDEN_PATH_TEMPLATES = ['web-client-project', 'internal-tool', 'small-team', 'daily-routine'];
+const GOLDEN_PATH_TEMPLATES = ['web-client-project', 'internal-tool', 'small-team', 'daily-routine'];
 
 async function setup(templateId: string) {
   const harness = await createAppHarness({

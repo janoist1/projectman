@@ -18,20 +18,20 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
 /** A tool session ends after this long unused (sliding), and in any case this long after it started. */
-export const FEEDBACK_SESSION_IDLE_MS = 30 * DAY_MS;
-export const FEEDBACK_SESSION_MAX_MS = 90 * DAY_MS;
+const FEEDBACK_SESSION_IDLE_MS = 30 * DAY_MS;
+const FEEDBACK_SESSION_MAX_MS = 90 * DAY_MS;
 /** `last_used_at` is written at most this often. */
 const TOUCH_INTERVAL_MS = 60 * 1000;
 
 /** What one tool session, and one project, may do (PM-506 2.5). */
-export const FEEDBACK_LIMITS = {
+const FEEDBACK_LIMITS = {
   marksPerSessionHour: 30,
   commentsPerSessionHour: 120,
   marksPerProjectDay: 500,
 } as const;
 
 /** The token of a session: 32 random bytes, base64url. */
-export const FEEDBACK_SESSION_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+const FEEDBACK_SESSION_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 

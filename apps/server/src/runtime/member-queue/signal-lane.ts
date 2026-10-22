@@ -3,7 +3,7 @@ import type { StoredMemberQueueItem } from '../../db';
 import type { MemberQueueLane } from './lane';
 
 /** What the lane asks of the system signals (the services' `OperatorSignals`). */
-export interface SignalLaneSignals {
+interface SignalLaneSignals {
   owed(projectKey: string, member: string, signalId: string, followUpAt: string | null): boolean;
   holdsBack(projectKey: string, signalId: string): boolean;
   noticeText(projectKey: string, signalIds: string[]): string;

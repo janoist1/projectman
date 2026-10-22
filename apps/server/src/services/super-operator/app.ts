@@ -71,7 +71,7 @@ export function createOperatorAppSessions(deps: {
   };
 }
 
-export interface OperatorAppCredentials {
+interface OperatorAppCredentials {
   /** What every consumer of the shared path asks: keys go to the stored-key authority, app principals to the sessions. */
   authority: IntegratorCredentialAuthority;
   /** The principal of a live Operator session; null when the project has no owner with an account. */
@@ -151,7 +151,7 @@ export function createOperatorAppCredentials(deps: {
 }
 
 /** What the Operator starts, as the shared path takes it. */
-export interface AppOperationInput {
+interface AppOperationInput {
   requestId: string;
   taskKey?: string | undefined;
   command: SuperCommand;

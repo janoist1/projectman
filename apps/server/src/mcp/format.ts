@@ -287,7 +287,7 @@ export function formatMembers(members: MemberView[], self: string): string {
 /* ---------- tasks ---------- */
 
 /** One line with where the task stands. */
-export function taskStatusLine(task: Task): string {
+function taskStatusLine(task: Task): string {
   return [
     `Stage: ${task.stageId}`,
     `Status: ${task.status}`,

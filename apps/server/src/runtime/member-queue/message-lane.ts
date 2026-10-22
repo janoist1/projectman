@@ -22,7 +22,7 @@ import type { MemberQueueLane } from './lane';
 const STAYS_WITH_FORMER_ASSIGNEE = 'hold_fix_limit_reassigned';
 
 /** What the message lane needs of the rest of the server. */
-export interface MessageLaneDeps {
+interface MessageLaneDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'cachedConfig'>;
   tasks: Pick<TaskService, 'find'>;

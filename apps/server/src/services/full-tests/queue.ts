@@ -6,7 +6,7 @@ import type { ReleaseWorkAdmission } from '../../contracts';
 import type { FullTestRunRecord } from '../../db';
 import { abortable } from '../../kernel';
 
-export interface FullTestQueueDeps {
+interface FullTestQueueDeps {
   /** The next queued run, or undefined when stopped or empty. */
   next(): FullTestRunRecord | undefined;
   step(run: FullTestRunRecord, signal: AbortSignal): Promise<void>;

@@ -7,17 +7,17 @@ import { MergeError, type MergeRepoRef } from '../contracts';
  * caller) and by the engine's limit (which never trusts the cloud).
  */
 
-export const MERGE_MESSAGE_MAX = 2000;
+const MERGE_MESSAGE_MAX = 2000;
 /** The largest file `readFile` returns and `commitFiles` writes (PM-494). */
 export const DOC_FILE_MAX_BYTES = 1024 * 1024;
 /** How many files one `commitFiles` call sets (the decision log and the roadmap). */
-export const COMMIT_FILES_MAX = 2;
+const COMMIT_FILES_MAX = 2;
 
 export { isRepoFilePath };
 export { isCommitId, isMergeId } from '@projectman/shared';
 
 /** Whether one file of `commitFiles` is acceptable: a path inside the repository, text under 1 MiB (UTF-8 bytes) without NUL. */
-export function isCommitFile(file: { path: string; text: string }): boolean {
+function isCommitFile(file: { path: string; text: string }): boolean {
   return (
     isRepoFilePath(file.path) &&
     !file.text.includes('\0') &&

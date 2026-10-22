@@ -27,7 +27,10 @@ import {
   approvalRefusal,
   canSeeInboxItem,
   DELEGATED_INPUT_LIMIT,
+  DELEGATION_DELIVERY_TIMEOUT_MS,
+  PERMISSION_LEAD_CAP_MS,
   canDecidePermission,
+  deliveredLeadDeadline,
   effectiveSessionPermissions,
   externalQuestionAnswerRefusal,
   superDecisionRefusal,
@@ -1584,13 +1587,89 @@ export class InboxService {
       permissionDelegationState(config, item.source, delegation, this.ctx.now().getTime()) === 'pending_lead'
     )
       return item;
-    return this.escalateDelegated(item, config, { actor: SYSTEM_ACTOR, cause: 'timeout' });
+    // Before the deadline no decider is at work any more; after it, a question no decider ever got ran out of
+    // delivery time and one a decider had ran out of its own.
+    const overdue = this.ctx.now().getTime() >= Date.parse(delegation.leadDeadline);
+    return this.escalateDelegated(item, config, {
+      actor: SYSTEM_ACTOR,
+      cause: !overdue ? 'unavailable' : delegation.deliveredAt ? 'timeout' : 'undelivered',
+    });
+  }
+
+  /**
+   * The first time the question reached a decider's session (PM-926): from now on the decider has its own
+   * time (`leadTimeoutSeconds`), at most until `PERMISSION_LEAD_CAP_MS` after the question came, so a person
+   * still has time before the requester's hook gives up. Runs in the delivering transaction; later
+   * deliveries change nothing.
+   */
+  recordDelegationDelivered(id: string, at: string): void {
+    const item = this.ctx.repos.inbox.get(id);
+    const delegation = item ? permissionDelegationOf(item) : null;
+    if (!item || item.state !== 'open' || delegation?.state !== 'pending_lead' || delegation.deliveredAt)
+      return;
+    const updated = this.ctx.repos.inbox.updateOpen(
+      id,
+      {
+        ...item.payload,
+        delegation: {
+          ...delegation,
+          deliveredAt: at,
+          leadDeadline: this.deliveredDeadline(item, at),
+        },
+      },
+      item.assignees,
+      at,
+    );
+    if (updated) this.publish(updated);
+  }
+
+  private deliveredDeadline(item: InboxItem, deliveredAt: string): string {
+    return deliveredLeadDeadline({
+      deliveredAt,
+      leadTimeoutSeconds:
+        this.projects.cachedConfig(item.projectKey)?.team.boundary?.leadTimeoutSeconds ?? 120,
+      capAt: new Date(Date.parse(item.createdAt) + PERMISSION_LEAD_CAP_MS).toISOString(),
+    });
+  }
+
+  /** Whether the delegated question still waits for `handle` to decide it (the member queue's item is owed). */
+  delegationWaitsFor(id: string, handle: string): boolean {
+    const item = this.ctx.repos.inbox.get(id);
+    const delegation = item ? permissionDelegationOf(item) : null;
+    return (
+      item?.state === 'open' && delegation?.state === 'pending_lead' && delegation.leads.includes(handle)
+    );
+  }
+
+  /**
+   * The text that wakes an AI decider of the question. The deadline in it is the one the decider will have
+   * once it has the text, not the delivery limit that holds until then.
+   */
+  delegatedPromptOf(id: string): string | null {
+    const item = this.ctx.repos.inbox.get(id);
+    const delegation = item ? permissionDelegationOf(item) : null;
+    if (!item || item.kind !== 'permission' || !delegation) return null;
+    return delegatedPermissionPrompt(
+      item,
+      delegation.deliveredAt ? delegation.leadDeadline : this.deliveredDeadline(item, isoNow(this.ctx)),
+    );
+  }
+
+  /**
+   * Hands a question to a person because its decider cannot be reached (`unavailable`: it can never be
+   * started) or never answered (`timeout`: it was started in vain). No-op when it is not waiting for one.
+   */
+  async escalateUnreached(projectKey: string, id: string, cause: 'unavailable' | 'timeout'): Promise<void> {
+    const item = this.ctx.repos.inbox.get(id);
+    if (!item || item.projectKey !== projectKey || item.state !== 'open') return;
+    if (permissionDelegationOf(item)?.state !== 'pending_lead') return;
+    this.escalateDelegated(item, await this.projects.config(projectKey), { actor: SYSTEM_ACTOR, cause });
   }
 
   private escalateDelegated(
     item: InboxItem,
     config: ProjectConfig,
-    by: { actor: Actor; cause: 'lead' | 'timeout'; reason?: string },
+    by: { actor: Actor; cause: 'lead' | 'timeout' | 'undelivered' | 'unavailable'; reason?: string },
   ): InboxItem {
     const delegation = permissionDelegationOf(item)!;
     const assignees = sponsorOrOwners(config, item.source);
@@ -2214,9 +2293,8 @@ export class InboxService {
         ? {
             state: 'pending_lead' as const,
             leads: route.leads,
-            leadDeadline: new Date(
-              this.ctx.now().getTime() + (config.team.boundary?.leadTimeoutSeconds ?? 120) * 1000,
-            ).toISOString(),
+            // The decider's own time counts from the first delivery (`recordDelegationDelivered`).
+            leadDeadline: new Date(this.ctx.now().getTime() + DELEGATION_DELIVERY_TIMEOUT_MS).toISOString(),
           }
         : null;
     const item = this.create({
@@ -2271,9 +2349,8 @@ export class InboxService {
       return verdict;
     }
 
-    // Wakes the AI decider; the hook below waits for its answer like for a person's.
-    if (delegation) await this.ctx.events.emit('permission_delegated', item);
-
+    // The AI decider's queue item came with the inbox item (the member queue); the hook below waits for its
+    // answer like for a person's.
     return new Promise<PermissionDecision>((resolve) => {
       const onAbort = () => {
         this.waiters.delete(item.id);
@@ -2298,7 +2375,7 @@ const MAX_DELEGATED_INPUT_CHARS = DELEGATED_INPUT_LIMIT;
  * The agent prompt that wakes an AI decider (PM-169): who asks, the exact input of the tool call and how
  * to answer. English, like every prompt for AI members; the decider writes to people in their language.
  */
-export function delegatedPermissionPrompt(item: InboxItem): string {
+export function delegatedPermissionPrompt(item: InboxItem, deadline?: string): string {
   const delegation = permissionDelegationOf(item);
   const toolName = typeof item.payload.toolName === 'string' ? item.payload.toolName : 'unknown';
   let input: string;
@@ -2312,7 +2389,7 @@ export function delegatedPermissionPrompt(item: InboxItem): string {
     `Permission request ${item.id}: ${item.source}'s CLI asks to use the tool ${toolName}${item.taskKey ? ` (task ${item.taskKey})` : ''}.`,
     `Exact input: ${cutOff ? input.slice(0, MAX_DELEGATED_INPUT_CHARS) : input}`,
     cutOff ? 'The input is cut off here: you cannot see all of it, so never allow it; escalate.' : '',
-    `Decide it with decide_permission_request (request_id ${item.id}; allow, deny or escalate, always with a reason)${delegation ? ` before ${delegation.leadDeadline}` : ''}; later a person decides it and the answer is refused. Follow your boundary_authorization duty: always escalate what belongs to the owner or what you doubt.`,
+    `Decide it with decide_permission_request (request_id ${item.id}; allow, deny or escalate, always with a reason)${delegation ? ` before ${deadline ?? delegation.leadDeadline}` : ''}; later a person decides it and the answer is refused. Follow your boundary_authorization duty: always escalate what belongs to the owner or what you doubt.`,
   ]
     .filter(Boolean)
     .join('\n');

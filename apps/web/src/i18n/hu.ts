@@ -1736,6 +1736,7 @@ export const hu = {
       no_free_member: 'Szabad fejlesztőre vár',
       senior_busy: 'A Seniorra vár',
       label_missing: '{name} munkájára vár: {labels}',
+      waiting_answer: 'Válaszra vár',
       full_test_pending: 'Az átnézés a teljes tesztre vár',
       handoff_open: 'Átadásra vár: {name} leadására',
       provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
@@ -1804,6 +1805,7 @@ export const hu = {
         'Úgy döntöttél, hogy a kártya megvárja a Seniort. Erről többet nem kérdezünk; kézzel bármikor kioszthatod.',
       label_missing:
         'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
+      waiting_answer: 'Az indítás a kártyán nyitott kérdés megválaszolása után folytatódik.',
       full_test_pending:
         'A szerver lefuttatja az átadott commit teljes tesztjét (a PTY-tesztekkel együtt). Zöld eredménynél az átnéző magától indul; bukásnál a kártya visszamegy a fejlesztőhöz.',
       handoff_open:
@@ -1861,6 +1863,7 @@ export const hu = {
         no_free_member: 'mindenki mással foglalkozik',
         senior_busy: 'mással foglalkozik, utána sorra kerül',
         label_missing: 'előbb ő dolgozik rajta: {labels}',
+        waiting_answer: 'válaszra vár',
         full_test_pending: 'fut, utána indul az átnézés',
         handoff_open: 'leadja a munkát',
         provider_not_logged_in: 'a {provider} nincs bejelentkezve',
@@ -4805,6 +4808,7 @@ export const hu = {
       permission_refused_classifier: 'A Claude Code elutasította: {summary}',
       permission_escalated_lead: 'Továbbküldve emberi döntésre',
       permission_escalated_timeout: 'A döntnök nem döntött időben, emberi döntésre vár',
+      permission_escalated_unreached: 'A döntnököt nem sikerült elérni, emberi döntésre vár',
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
       question_asked_screening: 'Kérdés: {question} · az Operátornál',
@@ -4832,6 +4836,8 @@ export const hu = {
         'Az integrátor a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
       obligation_woken:
         'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
+      member_queue_item_closed:
+        'A várakozó indítás lezárult: az indítás oka megszűnt vagy az indítás nem teljesíthető.',
       obligation_handed_over:
         'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért teendő lett belőle ({minutes} perc).',
       obligation_handed_over_refused:

@@ -869,7 +869,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         text: t(
           d.cause === 'timeout'
             ? 'timeline.events.permission_escalated_timeout'
-            : 'timeline.events.permission_escalated_lead',
+            : d.cause === 'undelivered' || d.cause === 'unavailable'
+              ? 'timeline.events.permission_escalated_unreached'
+              : 'timeline.events.permission_escalated_lead',
         ),
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
         ...(str(d.reason) ? { detail: str(d.reason) } : {}),
@@ -908,6 +910,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             }),
           )
         : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
+    case 'member_queue_item_closed':
+      return normal(t('timeline.events.member_queue_item_closed'));
     case 'obligation_woken':
     case 'obligation_handed_over': {
       const kind = ObligationKind.safeParse(d.kind);

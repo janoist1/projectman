@@ -5,6 +5,7 @@ import { aiActor, SYSTEM_AUTHOR } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { obligationReminders } from './helpers/deferred-starts';
 
 /**
  * PM-804 (PM-795 part 2): the start round offers a startable card to the card mover (the pm) in one action
@@ -90,7 +91,7 @@ describe('the start offer to the project manager', () => {
     h.repos.obligations.listLive('AR', key).filter((r) => r.kind === 'start');
   /** How a row ended, by the id it had while it was open. */
   const stateOf = (id: string) => h.repos.obligations.get(id)?.state;
-  const reminders = () => h.repos.messages.list('AR').filter((m) => m.body.startsWith('projectman reminder'));
+  const reminders = () => obligationReminders(h.repos, 'AR');
   const todos = () =>
     h.domain.inbox.list('AR', {}).filter((i) => questionPayloadOf(i)?.obligation !== undefined);
 
@@ -398,8 +399,8 @@ describe('the start offer to the project manager', () => {
       minutes(2);
       await sweep();
       expect(reminders()).toHaveLength(1);
-      expect(reminders()[0]).toMatchObject({ from: 'system', to: ['pm'], kind: 'action' });
-      expect(reminders()[0]!.body).toContain(key);
+      expect(reminders()[0]).toMatchObject({ from: null, member: 'pm', kind: 'start', wake: true });
+      expect(reminders()[0]!.text).toContain(key);
       expect(todos()).toEqual([]);
       minutes(10);
       await sweep();

@@ -797,7 +797,7 @@ export class OperatorSignals {
   /** A start for the item failed for good: the item stays queued and is tried again, and says so (`startRefused`). */
   markStartRefused(itemId: string): void {
     const repo = this.deps.ctx.repos.memberQueue;
-    const payload = repo.payloadOf<Record<string, unknown>>(itemId) ?? {};
+    const payload = repo.payload<Record<string, unknown>>(itemId) ?? {};
     if (payload.startRefused !== true) repo.setPayload(itemId, { ...payload, startRefused: true });
   }
 

@@ -208,7 +208,7 @@ describe('the Operator queue', () => {
       endTurn(ctx.sessionId);
       await settle();
       expect(item(queueItem.id).state).toBe('processing');
-      expect(h.repos.memberQueue.payloadOf<{ reminded?: boolean }>(queueItem.id)).toMatchObject({
+      expect(h.repos.memberQueue.payload<{ reminded?: boolean }>(queueItem.id)).toMatchObject({
         reminded: true,
       });
 

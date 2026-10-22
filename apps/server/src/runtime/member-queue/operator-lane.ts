@@ -81,7 +81,7 @@ export function operatorLane(deps: OperatorLaneDeps): MemberQueueLane {
       };
     },
     render: (item) => {
-      const reminded = ctx.repos.memberQueue.payloadOf<{ reminded?: boolean }>(item.id)?.reminded === true;
+      const reminded = ctx.repos.memberQueue.payload<{ reminded?: boolean }>(item.id)?.reminded === true;
       const frame = {
         itemId: item.id,
         kind: item.kind as 'todo' | 'fix_limit' | 'message',

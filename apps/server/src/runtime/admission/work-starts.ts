@@ -197,7 +197,7 @@ export class WorkStarts implements LabelWait, SeniorWait {
     const { projectKey, taskKey, to, actor } = spec;
     const key = keyOf(projectKey, taskKey);
     let assigned = spec.assignee;
-    let waitsFor: string | undefined;
+    let waitsFor: string | undefined = spec.developer ?? spec.assignee;
     const workItem = { type: 'task', taskKey } as const;
     const stillValid = (task: Task | null): boolean =>
       task !== null &&

@@ -61,7 +61,6 @@ import {
   operatorOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationMessageId,
-  permissionDelegationOf,
   pullSourceStage,
   routeFor,
   seniorWaitMinutesOf,
@@ -115,6 +114,7 @@ import type { ProjectAccess } from './core/members';
 import {
   Admission,
   DeferredStarts,
+  StartQueue,
   FocusPull,
   StartRound,
   MessageStarts,
@@ -142,13 +142,13 @@ import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
 import { ProjectState } from './services/operator';
 import { PmReplyRelay } from './services/operator';
-import { BoundaryService } from './services/boundary';
+import { BoundaryService, boundaryNotice } from './services/boundary';
 import { CardQuestions } from './core/inbox';
 import { createDomainContext, defaultTemplateRegistry, isoNow } from './core/base';
 import type { DomainContext, TemplateRegistry } from './core/base';
 import { createEventBus } from './core/base';
 import { GithubSync } from './services/github';
-import { InboxService, delegatedPermissionPrompt } from './core/inbox';
+import { InboxService } from './core/inbox';
 import { OperatorActions, OperatorApprovals } from './services/operator';
 import { FixLimitWatch } from './runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from './services/full-tests';
@@ -175,10 +175,12 @@ import { MemberQueue, OperatorQueueFinisher } from './core/member-queue';
 import { MessageDelivery } from './runtime/delivery';
 import {
   MemberQueueWorker,
+  decisionLane,
   messageLane,
   operatorLane,
   screeningLane,
   signalLane,
+  startLane,
   OperatorQueueReminder,
 } from './runtime/member-queue';
 import { PlanUsageMonitor } from './runtime/usage';
@@ -602,7 +604,7 @@ export function createDomain(opts: DomainOptions) {
       ),
     );
   // Registers itself with the message and inbox repositories: every write of a source reaches it (PM-894).
-  const memberQueue = new MemberQueue({ ctx, projects });
+  const memberQueue = new MemberQueue({ ctx, projects, timeline });
   const inbox = createInboxService({
     ctx,
     timeline,
@@ -645,7 +647,8 @@ export function createDomain(opts: DomainOptions) {
       );
     });
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
-  const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
+  const startQueue = new StartQueue({ ctx, projects, queue: memberQueue });
+  const deferredStarts = new DeferredStarts(opts.repos.deferredStarts, startQueue);
   const operatorRequests = new OperatorRequests({ ctx });
   const coordinationRequests = new CoordinationRequests({ ctx, projects });
   const operatorPreferences = new OperatorPreferences({
@@ -916,7 +919,7 @@ export function createDomain(opts: DomainOptions) {
               {
                 to: agents,
                 taskKey: request.taskKey,
-                text: `Boundary request ${request.id}: ${request.state}. Operation: ${request.target.operation}; resource: ${request.target.resource}. Inspect with get_boundary_request. Delegated approvers use decide_boundary_request; owner exceptions require the owner's inbox decision.`,
+                text: boundaryNotice(request),
               },
               { actor: SYSTEM_ACTOR },
             )
@@ -924,24 +927,6 @@ export function createDomain(opts: DomainOptions) {
         () => opts.logger.warn({ requestId: request.id }, 'boundary notification failed'),
       );
     },
-  });
-  // A member's tool question went to its AI decider: wake it like a boundary request's lead. The
-  // sponsor and owners are not told; they hear of it only if it comes to them.
-  events.on('permission_delegated', (item) => {
-    const leads = permissionDelegationOf(item)?.leads ?? [];
-    if (!leads.length) return;
-    background.run(
-      () =>
-        messaging
-          .send(
-            item.projectKey,
-            'system',
-            { to: leads, taskKey: item.taskKey, text: delegatedPermissionPrompt(item) },
-            { actor: SYSTEM_ACTOR, kind: 'action', subject: { type: 'permission', inboxItemId: item.id } },
-          )
-          .then(() => undefined),
-      () => opts.logger.warn({ itemId: item.id }, 'permission decider notification failed'),
-    );
   });
   // The wait of a card recommended for the Senior (PM-348); an answer tries the deferred starts again.
   const seniorWaits = new SeniorWaits({
@@ -997,6 +982,7 @@ export function createDomain(opts: DomainOptions) {
     admission,
     delivery,
     starts: taskStarts,
+    queue: memberQueue,
   });
   messaging.registerCardHold('fix_limit', { holds: (task, config) => fixLimit.heldFor(task, config) });
   taskStarts.useFixLimit(fixLimit);
@@ -1028,7 +1014,52 @@ export function createDomain(opts: DomainOptions) {
       finisher: operatorQueueFinisher,
     }),
   );
+  // What an AI member decides at its desk (PM-926): the lane never waits for a workspace, and the time to decide
+  // counts from the delivery. Each source tells what its request needs of the lane. It owns the lead's fix
+  // limit decisions only; the Operator's fix limit items (an inbox source) are the Operator lane's above.
+  const heldAtOf = (item: { source: { id: string } }): string =>
+    item.source.id.slice(item.source.id.lastIndexOf('@') + 1);
+  memberQueueDriver.register(
+    decisionLane({
+      ctx,
+      permission: {
+        prompt: (item) => inbox.delegatedPromptOf(item.source.id),
+        owed: (item) => inbox.delegationWaitsFor(item.source.id, item.member),
+        delivered: (item, at) => inbox.recordDelegationDelivered(item.source.id, at),
+        unreachable: (item) => inbox.escalateUnreached(item.projectKey, item.source.id, 'unavailable'),
+        exhausted: (item) => inbox.escalateUnreached(item.projectKey, item.source.id, 'timeout'),
+      },
+      boundary: {
+        prompt: (item) => boundary.decisionPromptOf(item.source.id),
+        owed: (item) => boundary.waitsFor(item.source.id, item.member),
+        delivered: (item, at) => boundary.recordDelivered(item.source.id, at),
+        unreachable: (item) => boundary.escalateUnreached(item.projectKey, item.source.id),
+        exhausted: (item) => boundary.escalateUnreached(item.projectKey, item.source.id),
+      },
+      fixLimit: {
+        prompt: (item) => fixLimit.leadPromptOf(item.taskKey ?? '', heldAtOf(item), item.member),
+        owed: (item) => fixLimit.leadWaitsFor(item.taskKey ?? '', heldAtOf(item), item.member),
+        delivered: () => undefined,
+        unreachable: async (item) => {
+          await fixLimit.timeOut(item.projectKey, item.taskKey ?? '', item.member, 'no_ai_decider');
+        },
+        exhausted: async (item) => {
+          await fixLimit.timeOut(item.projectKey, item.taskKey ?? '', item.member);
+        },
+      },
+    }),
+  );
   memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messaging, delivery }));
+  memberQueueDriver.register(
+    startLane({
+      ctx,
+      projects,
+      queue: startQueue,
+      deferred: deferredStarts,
+      admission,
+      rebuild: (spec) => rebuildDeferredStart(spec),
+    }),
+  );
   // An Operator turn that ends with its item open is reminded once, then the item goes to the owner.
   const operatorQueueReminder = new OperatorQueueReminder({
     ctx,
@@ -1314,10 +1345,23 @@ export function createDomain(opts: DomainOptions) {
     messaging,
     messages,
     timeline,
+    memberQueue,
     refinement,
     fixLimit,
     startOffers: { stateOf: (projectKey, taskKey) => startRound.offerState(projectKey, taskKey) },
     sessions: {
+      atWork: (sessionId) => {
+        const session = sessions.find(sessionId);
+        return (
+          !!session &&
+          sessions.isRunning(sessionId) &&
+          isSessionAtWork(session, {
+            awaitsFirstTurn: false,
+            pendingInput: false,
+            messageOnItsWay: false,
+          })
+        );
+      },
       ofMember: (projectKey, taskKey, member) =>
         sessions.list(projectKey, { member, taskKey }).map((session) => {
           const running = sessions.isRunning(session.id);
@@ -2216,6 +2260,7 @@ export function createDomain(opts: DomainOptions) {
   // Later stages owned by AI members (review, QA, release, …) get their owner started, in the
   // background so a session start does not hold up the move.
   events.on('task_stage_changed', (change) => {
+    if (taskStarts.ownsMove(change)) return;
     background.run(
       () => handOver.handOff(change),
       (err) => opts.logger.warn({ err }, 'stage hand-over failed'),
@@ -2365,7 +2410,19 @@ export function createDomain(opts: DomainOptions) {
   };
   const ensureMembersOfCard = (projectKey: string, taskKey: string): void => {
     const members = new Set(
-      ctx.repos.memberQueue.listOpenMessagesOfTask(projectKey, taskKey).map((item) => item.member),
+      ctx.repos.memberQueue
+        .listOpenMembers()
+        .filter(
+          (open) =>
+            open.projectKey === projectKey &&
+            ctx.repos.memberQueue
+              .listOpen(projectKey, open.member)
+              .some(
+                (item) =>
+                  item.taskKey === taskKey || (item.place.type === 'task' && item.place.taskKey === taskKey),
+              ),
+        )
+        .map((open) => open.member),
     );
     for (const member of members) ensureMember(projectKey, member);
   };

@@ -237,6 +237,14 @@ export function createMemberQueueRepository(db: Db) {
       const row = statements.get.get(id) as ItemRow | undefined;
       return row ? toItem(row) : null;
     },
+    /** Internal lane data (written on insert, changed by `setPayload`), deliberately absent from the queue view; null: nothing. */
+    payload<T = unknown>(id: string): T | null {
+      const row = statements.payload.get(id) as { payload: string | null } | undefined;
+      return row?.payload ? parseJson<T | null>(row.payload, null) : null;
+    },
+    setPayload(id: string, payload: unknown): boolean {
+      return statements.setPayload.run({ id, payload: toJson(payload) }).changes > 0;
+    },
     /** The member's item of this source, open or closed. */
     findBySource(
       projectKey: string,
@@ -357,14 +365,6 @@ export function createMemberQueueRepository(db: Db) {
     },
     setWake(id: string, wake: boolean): boolean {
       return statements.wake.run({ id, wake: wake ? 1 : 0 }).changes > 0;
-    },
-    /** What the item's lane keeps with it (written on insert, changed by `setPayload`); null: nothing. */
-    payloadOf<T = unknown>(id: string): T | null {
-      const row = statements.payload.get(id) as { payload: string | null } | undefined;
-      return parseJson<T | null>(row?.payload ?? null, null);
-    },
-    setPayload(id: string, payload: unknown): boolean {
-      return statements.setPayload.run({ id, payload: toJson(payload) }).changes > 0;
     },
   };
 }

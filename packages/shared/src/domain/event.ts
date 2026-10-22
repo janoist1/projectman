@@ -13,6 +13,7 @@ import type {
   QuestionRecipientRefusal,
 } from './inbox';
 import type { ObligationKind } from './obligation';
+import type { MemberQueueCloseReason, MemberQueueItemKind } from './member-queue';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -123,6 +124,7 @@ export const TimelineEventType = z.enum([
   'super_handoff_changed',
   'super_operation_changed',
   'obligation_woken',
+  'member_queue_item_closed',
   'obligation_handed_over',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
@@ -406,11 +408,12 @@ export interface TimelineEventData {
   };
   /**
    * An AI decider passed a request to a person (PM-169): it chose to (`cause: 'lead'`, with its
-   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system).
+   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system). A decider that was never
+   * started in time (`undelivered`) or cannot be started at all (`unavailable`) is the system's too (PM-926).
    */
   permission_escalated: {
     inboxItemId: string;
-    cause: 'lead' | 'timeout';
+    cause: 'lead' | 'timeout' | 'undelivered' | 'unavailable';
     assignees: string[];
     reason?: string;
   };
@@ -478,6 +481,12 @@ export interface TimelineEventData {
     subject: string;
     openedAt: string;
     minutes: number;
+  };
+  /** An automatic start no longer applies, or failed for a reason retrying cannot clear (PM-927). */
+  member_queue_item_closed: {
+    itemId: string;
+    kind: MemberQueueItemKind;
+    reason: MemberQueueCloseReason;
   };
   /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
   obligation_handed_over: {

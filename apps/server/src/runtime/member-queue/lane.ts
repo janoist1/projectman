@@ -15,11 +15,13 @@ export interface MemberQueueLane {
   readonly completion: MemberQueueCompletion;
   /** True: a session works one item of the lane at a time; the others wait in the queue. */
   readonly oneAtATime: boolean;
+  /** Absent: the lane takes every item of its kinds. Present: only the items it says are its own (lanes may then share a kind). */
+  owns?(item: StoredMemberQueueItem): boolean;
   /** Why the session that the item wakes starts. */
   cause(item: StoredMemberQueueItem): SessionStartCause;
   /**
-   * Several lanes may serve one kind: the first whose `appliesTo` does not say false takes the item. Absent:
-   * the lane takes every item of its kinds.
+   * Several lanes may serve one kind: the first whose `owns` and `appliesTo` do not say no takes the item.
+   * `appliesTo` also reads the project's configuration (who the Operator is). Absent: no say on that.
    */
   appliesTo?(item: StoredMemberQueueItem, config: ProjectConfig): boolean;
   /** The text the member is given; null: the lane delivers its items itself (`deliverLive`, `start`). */
@@ -46,6 +48,10 @@ export interface MemberQueueLane {
     items: StoredMemberQueueItem[];
     run(messages: string[]): Promise<EnsureSessionResult>;
   }): Promise<void>;
+  /** Starts a null-rendering item through admission.attempt, outside the driver's admission lock (PM-927). */
+  attemptStart?(
+    item: StoredMemberQueueItem,
+  ): Promise<{ kind: 'started' } | { kind: 'deferred'; code: string } | { kind: 'closed' }>;
   /** The item reached the session: runs in the transaction that closes it (or claims it). */
   delivered?(item: StoredMemberQueueItem, sessionId: string, at: string): void;
   /** The start was refused for good: wait for the next attempt (default), or close the item. */

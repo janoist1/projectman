@@ -44,7 +44,7 @@ export class OperatorQueueReminder {
         !OPERATOR_KINDS.includes(item.kind as (typeof OPERATOR_KINDS)[number])
       )
         continue;
-      const payload = repo.payloadOf<Record<string, unknown>>(item.id) ?? {};
+      const payload = repo.payload<Record<string, unknown>>(item.id) ?? {};
       if (payload.reminded === true) {
         await this.deps.finisher.handOffUnfinished(item);
         continue;

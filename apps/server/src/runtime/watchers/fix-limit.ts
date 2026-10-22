@@ -43,6 +43,7 @@ import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { conflict, forbidden, invalid } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
+import type { MemberQueue } from '../../core/member-queue';
 import type { Messaging } from '../../core/messages';
 import type { MessageDelivery } from '../delivery';
 import type { ProjectService } from '../../core/projects';
@@ -87,6 +88,7 @@ export class FixLimitWatch {
   private readonly admission: Admission;
   private readonly delivery: MessageDelivery;
   private readonly starts: Pick<TaskStarts, 'start'>;
+  private readonly queue: Pick<MemberQueue, 'openFixLimit' | 'closeFixLimit'>;
   /** One decision about a card at a time. */
   private readonly cards = new KeyedMutex();
 
@@ -101,6 +103,7 @@ export class FixLimitWatch {
     admission: Admission;
     delivery: MessageDelivery;
     starts: Pick<TaskStarts, 'start'>;
+    queue: Pick<MemberQueue, 'openFixLimit' | 'closeFixLimit'>;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -112,6 +115,58 @@ export class FixLimitWatch {
     this.admission = deps.admission;
     this.delivery = deps.delivery;
     this.starts = deps.starts;
+    this.queue = deps.queue;
+  }
+
+  /** Whether `member` still has the lead decision of the hold that began at `heldAt` to make. */
+  leadWaitsFor(taskKey: string, heldAt: string, member: string): boolean {
+    const record = this.ctx.repos.taskFixLimits.get(taskKey);
+    return record?.holdPhase === 'lead' && record.decider === member && record.heldAt === heldAt;
+  }
+
+  /** What the lead of the hold is told, as it stands now; null when the hold is not (or no longer) the lead's. */
+  leadPromptOf(taskKey: string, heldAt: string, member: string): string | null {
+    if (!this.leadWaitsFor(taskKey, heldAt, member)) return null;
+    const record = this.ctx.repos.taskFixLimits.get(taskKey)!;
+    const task = this.tasks.find(record.projectKey, taskKey);
+    const config = this.projects.cachedConfig(record.projectKey);
+    if (!task || !config) return null;
+    return this.leadNoticeOf(config, task, record, this.roundsOf(task, config, record));
+  }
+
+  /** The notice of the lead decision: the card's rounds, the limit, and what the lead can decide. */
+  private leadNoticeOf(
+    config: ProjectConfig,
+    task: Task,
+    record: TaskFixLimitRecord,
+    rounds: FixRounds,
+  ): string {
+    const lead = record.decider ?? '';
+    const canReplan = fixLimitPlanner(config, [lead, ...(task.assignee ? [task.assignee] : [])]) !== null;
+    return leadNotice(
+      task,
+      rounds,
+      this.limitOf(config, record),
+      { replan: canReplan, reassign: this.otherDevelopers(config, task).length > 0 },
+      record.extraRounds,
+      this.historyOf(task, config, record),
+    );
+  }
+
+  /** The lead's item of the hold ends with the hold's own end: `actor` decided it, a person took it, or it lapsed. */
+  private closeLeadItem(
+    record: TaskFixLimitRecord,
+    outcome: 'decided' | 'handed_off' | 'ended',
+    actor?: Actor,
+  ): void {
+    if (record.holdPhase !== 'lead' || !record.heldAt) return;
+    const decided = outcome === 'decided' && !!actor?.handle && actor.handle === record.decider;
+    this.queue.closeFixLimit(
+      record.projectKey,
+      record.taskKey,
+      record.heldAt,
+      outcome === 'decided' && !decided ? 'ended' : outcome,
+    );
   }
 
   /**
@@ -391,40 +446,39 @@ export class FixLimitWatch {
       this.toOwner(config, task, base, rounds, 'no_ai_decider', null, null, null);
       return;
     }
+    // The lead decides at its desk (PM-926): the decision is queued with the hold, in one write.
+    const held: TaskFixLimitRecord = {
+      ...base,
+      holdPhase: 'lead',
+      heldAt: isoNow(this.ctx),
+      decider: lead,
+      deciders: [],
+      reason: null,
+      inboxItemId: null,
+    };
     this.ctx.unitOfWork(() => {
-      this.ctx.repos.taskFixLimits.save({
-        ...base,
-        holdPhase: 'lead',
-        heldAt: isoNow(this.ctx),
-        decider: lead,
-        deciders: [],
-        reason: null,
-        inboxItemId: null,
-      });
+      this.ctx.repos.taskFixLimits.save(held);
       this.event(task, SYSTEM_ACTOR, config, rounds, { phase: 'reached', decider: lead });
+      this.queue.openFixLimit({
+        projectKey: task.projectKey,
+        taskKey: task.key,
+        heldAt: held.heldAt!,
+        member: lead,
+        title: this.leadNoticeOf(config, task, held, rounds),
+      });
     });
     this.tasks.publish(this.tasks.get(task.projectKey, task.key));
-    const canReplan = fixLimitPlanner(config, [lead, ...(task.assignee ? [task.assignee] : [])]) !== null;
-    const history = this.historyOf(task, config, base);
-    this.tell(
-      task,
-      lead,
-      leadNotice(
-        task,
-        rounds,
-        this.limitOf(config, base),
-        { replan: canReplan, reassign: this.otherDevelopers(config, task).length > 0 },
-        base.extraRounds,
-        history,
-      ),
-    );
   }
 
-  /** The AI decider let the obligation lapse: hand it over through the existing decision routing. */
+  /**
+   * The AI decider let the obligation lapse (or, with `no_ai_decider`, cannot be reached at all): hand it
+   * over through the existing decision routing.
+   */
   async timeOut(
     projectKey: string,
     taskKey: string,
     decider: string,
+    reason: 'decider_timeout' | 'no_ai_decider' = 'decider_timeout',
   ): Promise<{ decisionItemId: string } | null> {
     const config = await this.projects.config(projectKey);
     return this.cards.run(taskKey, async () => {
@@ -438,16 +492,7 @@ export class FixLimitWatch {
         record.decider !== decider
       )
         return null;
-      this.toOwner(
-        config,
-        task,
-        record,
-        this.roundsOf(task, config, record),
-        'decider_timeout',
-        decider,
-        null,
-        null,
-      );
+      this.toOwner(config, task, record, this.roundsOf(task, config, record), reason, decider, null, null);
       const decisionItemId = this.ctx.repos.taskFixLimits.get(taskKey)?.inboxItemId;
       return decisionItemId ? { decisionItemId } : null;
     });
@@ -531,6 +576,7 @@ export class FixLimitWatch {
       note,
     };
     this.ctx.unitOfWork(() => {
+      this.closeLeadItem(base, 'handed_off');
       const item =
         deciders.length > 0
           ? this.inbox.createFixLimitDecision(config, {
@@ -617,6 +663,7 @@ export class FixLimitWatch {
     if (!config) return;
     const rounds = this.roundsOf(task, config, record);
     this.ctx.unitOfWork(() => {
+      this.closeLeadItem(record, 'decided', actor);
       if (record.inboxItemId) this.inbox.resolveByRule(record.inboxItemId, 'ended', 'fix_limit_ended');
       this.ctx.repos.taskFixLimits.save({
         ...record,
@@ -679,6 +726,7 @@ export class FixLimitWatch {
     const config = this.projects.cachedConfig(task.projectKey);
     const rounds = config ? this.roundsOf(task, config, record) : null;
     this.ctx.unitOfWork(() => {
+      this.closeLeadItem(record, 'decided', actor);
       if (record.inboxItemId) this.inbox.resolveByRule(record.inboxItemId, 'ended', 'fix_limit_ended');
       this.ctx.repos.taskFixLimits.save(next);
       if (config && rounds)
@@ -701,6 +749,7 @@ export class FixLimitWatch {
   ): void {
     const config = this.projects.cachedConfig(task.projectKey);
     this.ctx.unitOfWork(() => {
+      this.closeLeadItem(record, 'ended');
       if (record.inboxItemId) this.inbox.resolveByRule(record.inboxItemId, 'ended', 'fix_limit_ended');
       this.ctx.repos.taskFixLimits.save(this.cleared(record));
       if (config)

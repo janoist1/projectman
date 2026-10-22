@@ -51,7 +51,7 @@ export class LoopTriages {
         type: 'signal',
         id: memberQueueSourceId({ type: 'signal', signalId: signal.id, followUpAt: null }),
       });
-      const refused = !!item && repo.payloadOf<{ startRefused?: boolean }>(item.id)?.startRefused === true;
+      const refused = !!item && repo.payload<{ startRefused?: boolean }>(item.id)?.startRefused === true;
       return { state: refused ? 'failed' : 'queued', signalId };
     } catch (err) {
       this.deps.ctx.logger.warn({ err, taskKey: input.taskKey }, 'could not report a suspected loop');

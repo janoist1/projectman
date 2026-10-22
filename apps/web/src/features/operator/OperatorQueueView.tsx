@@ -35,12 +35,16 @@ function GrantLine({ grant, failed }: { grant: OperatorGrantState | undefined; f
       {grant.active ? (
         <>
           <span className={styles.superChip}>{t('operator.queue.superChip')}</span>
-          <span>{t('operator.queue.grant.on', { expiry: operatorGrantExpiryText(grant) })}</span>
+          <span className={styles.grantText}>
+            {t('operator.queue.grant.on', { expiry: operatorGrantExpiryText(grant) })}
+          </span>
         </>
       ) : (
         <>
           <span className={styles.offDot} aria-hidden="true" />
-          <span>{t(grant.canManage ? 'operator.queue.grant.off' : 'operator.queue.grant.offOther')}</span>
+          <span className={styles.grantText}>
+            {t(grant.canManage ? 'operator.queue.grant.off' : 'operator.queue.grant.offOther')}
+          </span>
         </>
       )}
       {grant.canManage ? (
@@ -100,26 +104,29 @@ export function OperatorQueueStrip({
         ? t('operator.queue.strip.starting')
         : t('operator.queue.strip.waiting', { status: strip.status, count: strip.open });
   return (
-    <button
-      type="button"
-      className={styles.strip}
-      aria-describedby={hintId}
-      data-testid="operator-queue-strip"
-      onClick={onOpen}
-    >
+    <>
+      <button
+        type="button"
+        className={styles.strip}
+        aria-describedby={hintId}
+        data-testid="operator-queue-strip"
+        onClick={onOpen}
+      >
+        <span
+          className={clsx(styles.stripDot, strip.kind === 'now' && styles.stripDotLive)}
+          aria-hidden="true"
+        />
+        <span className={styles.stripText}>{text}</span>
+        {strip.kind === 'now' && strip.more > 0 ? (
+          <span className={styles.stripMore}>{t('operator.queue.strip.more', { count: strip.more })}</span>
+        ) : null}
+        <Icon name="chevronRight" size={14} />
+      </button>
+      {/* The purpose of the button: a description, outside the button so it is not part of its name. */}
       <span id={hintId} className={styles.hidden}>
         {t('operator.queue.strip.label')}
       </span>
-      <span
-        className={clsx(styles.stripDot, strip.kind === 'now' && styles.stripDotLive)}
-        aria-hidden="true"
-      />
-      <span className={styles.stripText}>{text}</span>
-      {strip.kind === 'now' && strip.more > 0 ? (
-        <span className={styles.stripMore}>{t('operator.queue.strip.more', { count: strip.more })}</span>
-      ) : null}
-      <Icon name="chevronRight" size={14} />
-    </button>
+    </>
   );
 }
 

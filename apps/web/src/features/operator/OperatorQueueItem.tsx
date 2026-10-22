@@ -93,7 +93,9 @@ function Outcome({ item }: { item: MemberQueueItem }) {
   if (item.state === 'cancelled') {
     return (
       <div className={clsx(styles.did, styles.didQuiet)}>
-        {t('operator.queue.outcome.cancelled')} {summary}
+        <span>
+          {t('operator.queue.outcome.cancelled')} {summary}
+        </span>
       </div>
     );
   }

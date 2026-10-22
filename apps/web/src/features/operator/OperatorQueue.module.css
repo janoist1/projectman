@@ -146,6 +146,12 @@
   font-size: var(--text-sm);
 }
 
+/* The text takes the line beside the dot or the chip; a long text wraps inside itself, not under them. */
+.grantText {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .grantLine a {
   margin-left: auto;
   font-weight: 700;

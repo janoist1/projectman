@@ -55,7 +55,15 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'list_decision_candidates',
   'search_history',
   'read_history_source',
+  'list_system_feedback',
 ]);
+
+/**
+ * The writes the Operator may make without an open request (PM-479): a finding about projectman itself is
+ * recorded when it is found, not only while an owner is waiting. Under an approval continuation they stay
+ * refused, and a guest conversation never reaches them (`OPERATOR_GUEST_TOOLS`).
+ */
+export const OPERATOR_NO_REQUEST_WRITE_TOOLS: ReadonlySet<string> = new Set(['record_system_feedback']);
 
 /**
  * The PM's standing screening tools (legacy constant name), with no owner request or step logged:
@@ -126,6 +134,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   write_project_docs: 'docs_write',
   mark_decision_candidates: 'decision_offer',
   prioritize_merge: 'task_update',
+  record_system_feedback: 'system_feedback',
 };
 
 export interface OpenOperatorRequest {
@@ -372,6 +381,7 @@ function stepView(step: OperatorStepRecord): OperatorStep {
     agreementVersion: step.agreementVersion ?? null,
     approvalMode: step.approvalMode ?? null,
     operationId: step.operationId ?? null,
+    systemFeedback: step.systemFeedback ?? null,
     refusal: step.refusal ? { code: step.refusal.code as ErrorCode, message: step.refusal.message } : null,
   };
 }
@@ -392,6 +402,8 @@ export interface OperatorStepInput {
   signalId?: string | null;
   /** The super operation the step started (PM-888). */
   operationId?: string | null;
+  /** The system feedback a `system_feedback` step recorded (PM-479). */
+  systemFeedback?: { id: string; title: string; occurrence: number } | null;
   refusal?: { code: ErrorCode; message: string } | null;
 }
 
@@ -419,6 +431,7 @@ export class OperatorSteps {
       inboxItemId: input.inboxItemId ?? null,
       signalId: input.signalId ?? null,
       operationId: input.operationId ?? null,
+      systemFeedback: input.systemFeedback ?? null,
       refusal: input.refusal ?? null,
     };
     this.ctx.repos.operatorRequests.insertStep(step);

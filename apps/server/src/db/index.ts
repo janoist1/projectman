@@ -23,6 +23,13 @@ export type {
 } from './super-handoffs';
 import { createBoundaryRepository } from './boundary';
 import { createFeedbackRepository } from './feedback';
+import { createSystemFeedbackRepository } from './system-feedback';
+export type {
+  SystemFeedbackForwardedRecord,
+  SystemFeedbackForwardingRecord,
+  SystemFeedbackItemRecord,
+  SystemFeedbackOccurrenceRecord,
+} from './system-feedback';
 export type {
   FeedbackEventRecord,
   FeedbackLaunchCodeRecord,
@@ -197,6 +204,7 @@ export function createRepositories(db: Db) {
     boundary: createBoundaryRepository(db),
     memberState: createMemberStateRepository(db),
     feedback: createFeedbackRepository(db),
+    systemFeedback: createSystemFeedbackRepository(db),
     history: createHistoryRepository(db),
     historySearches: createHistorySearchRepository(db),
     /** Runs `fn` in a single SQLite transaction. */

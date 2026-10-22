@@ -169,6 +169,11 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   feedback_marks: 'the feedback tool has its own read model',
   feedback_reads: 'the feedback tool has its own read model',
   feedback_sessions: 'the feedback tool has its own read model',
+  system_feedback_items:
+    'the system feedback page has its own live event (PM-479), not a project reader view',
+  system_feedback_occurrences:
+    'the system feedback page has its own live event (PM-479), not a project reader view',
+  system_feedback_forwarding: 'an instance setting with its own live event (PM-479), not project state',
   history_doc_state: 'derived history index state (PM-786), not project state',
   history_dirty: 'derived history index queue (PM-786), not project state',
   history_documents: 'derived history index (PM-786), not project state',

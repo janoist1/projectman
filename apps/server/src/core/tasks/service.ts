@@ -269,12 +269,16 @@ export class TaskService implements TaskSchedulingReader {
     };
   }
 
-  /** `sessionId`: the AI session the task was created from (recorded in the timeline). */
+  /**
+   * `sessionId`: the AI session the task was created from (recorded in the timeline). `onCreated`: runs
+   * synchronously in the creation's own unit of work, after the card is stored and before anything is
+   * published; one that throws rolls the card back with whatever it wrote (PM-479).
+   */
   async create(
     projectKey: string,
     req: CreateTaskRequest,
     actor: Actor,
-    opts: { sessionId?: string | null } = {},
+    opts: { sessionId?: string | null; onCreated?: (task: Task) => void } = {},
   ): Promise<Task> {
     const config = await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', actor);
@@ -370,6 +374,7 @@ export class TaskService implements TaskSchedulingReader {
         data: { title, ...(req.importedAt !== undefined ? { imported: true } : {}) },
         createdAt: at,
       });
+      opts.onCreated?.(task);
       if (level) this.recordDeveloperLevel(task, level, actor, opts.sessionId ?? null, effects);
       const added: AddedRelation[] = [];
       if (task.parentKey) {

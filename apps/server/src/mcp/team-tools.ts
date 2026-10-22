@@ -18,6 +18,7 @@ import type {
   ReleaseToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
+  SystemFeedbackToolsHandler,
   HistoryToolsHandler,
   AttachmentPage,
   ListMergeChecksInput,
@@ -107,6 +108,7 @@ export class TeamToolsService implements TeamToolsHandler {
     releases: ReleaseToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
+    systemFeedback: SystemFeedbackToolsHandler;
     history: HistoryToolsHandler;
     inbox: InboxToolsHandler;
     messages: MessageToolsHandler;
@@ -181,6 +183,7 @@ export class TeamToolsService implements TeamToolsHandler {
       releases: ReleaseToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
+      systemFeedback: SystemFeedbackToolsHandler;
       history: HistoryToolsHandler;
       inbox: InboxToolsHandler;
       messages: MessageToolsHandler;
@@ -492,6 +495,17 @@ export class TeamToolsService implements TeamToolsHandler {
     },
   ): Promise<ProjectDocWrite> {
     return this.tools.projectDocs.writeProjectDocs(ctx, args);
+  }
+
+  async listSystemFeedback(ctx: ToolContext) {
+    return this.tools.systemFeedback.listSystemFeedback(ctx);
+  }
+
+  async recordSystemFeedback(
+    ctx: ToolContext,
+    args: Parameters<SystemFeedbackToolsHandler['recordSystemFeedback']>[1],
+  ) {
+    return this.tools.systemFeedback.recordSystemFeedback(ctx, args);
   }
 
   async listDecisionCandidates(ctx: ToolContext, args: { limit?: number }) {

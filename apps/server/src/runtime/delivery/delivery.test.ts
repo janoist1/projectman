@@ -135,6 +135,23 @@ describe('message delivery under the TestClock', () => {
       }),
     );
   });
+  it('frames the text of an e-mail reply as outside data, in a batch and in direct delivery', async () => {
+    const { deps, typeInto, control, waiting } = setup();
+    control.typeInto = 'ok';
+    const message = { ...messageOf('mail'), from: 'owner', email: { emailId: 'eml_1', subject: 'Re: Plan' } };
+    waiting.set(message.id, message);
+    await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.deliverWaiting(session);
+        yield* settled;
+        yield* delivery.deliver(session, message);
+        yield* settled;
+      }),
+    );
+    for (const call of typeInto.mock.calls)
+      expect(call[1]).toContain('[E-mail reply from owner to your e-mail "Re: Plan"');
+    expect(typeInto).toHaveBeenCalledTimes(2);
+  });
   it('retries after 10, 40, 100, 220 and 520 seconds, then logs once and stops', async () => {
     const { deps, typeInto, logger, add } = setup();
     add('m1');

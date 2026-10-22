@@ -154,6 +154,7 @@ export class MessageService {
           excerpt: excerpt(message.body || (message.attachments ?? []).map((a) => a.fileName).join(', ')),
           kind: message.kind,
           version: message.version,
+          ...(message.email ? { email: true } : {}),
         },
       });
       return message;

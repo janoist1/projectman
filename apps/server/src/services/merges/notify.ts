@@ -51,14 +51,23 @@ export async function notifyMerge(
         : row.state === 'merged'
           ? 'task_merged'
           : 'task_merge_requested';
-  const event = deps.ctx.repos.timeline.latestOfType(row.projectKey, row.taskKey, type);
-  if (
-    event &&
-    deps.ctx.repos.messages
-      .list(row.projectKey, { taskKey: row.taskKey })
-      .some((message) => message.origin?.kind === 'note' && message.origin.eventId === event.id)
-  )
-    return;
+  let event = deps.ctx.repos.timeline.latestOfType(row.projectKey, row.taskKey, type);
+  if (row.state === 'requested') {
+    // A later approval gives the merger new work even if the original request was delivered already.
+    // Use timeline order rather than timestamps: a label and the request can share a millisecond.
+    const latest = deps.ctx.repos.timeline.listOfTypes(
+      row.projectKey,
+      row.taskKey,
+      [type, 'task_labels_changed'],
+      1,
+    )[0];
+    if (
+      latest?.type === 'task_labels_changed' &&
+      Array.isArray(latest.data.added) &&
+      latest.data.added.length
+    )
+      event = latest;
+  }
   const failureDetail = [row.failure?.files?.join('\n'), row.failure?.outputTail].filter(Boolean).join('\n');
   const text =
     row.state === 'merged'
@@ -72,6 +81,20 @@ export async function notifyMerge(
             : row.state === 'blocked'
               ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}.${row.block!.reason === 'check_error' && row.block!.detail ? `\n${row.block!.detail}\n` : ''} Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
               : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
+  if (
+    event &&
+    deps.ctx.repos.messages
+      .list(row.projectKey, { taskKey: row.taskKey })
+      .some(
+        (message) =>
+          message.from === 'system' &&
+          message.to.includes(row.merger) &&
+          message.body === text &&
+          message.origin?.kind === 'note' &&
+          message.origin.eventId === event.id,
+      )
+  )
+    return;
   await deps.messaging.send(
     row.projectKey,
     'system',

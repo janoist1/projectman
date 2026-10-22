@@ -12,14 +12,14 @@ const POLICY = 'ses-send';
 const KEY_ID = 'PROJECTMAN_SES_ACCESS_KEY_ID';
 const KEY_SECRET = 'PROJECTMAN_SES_SECRET_ACCESS_KEY';
 const SESSION_TOKEN = 'PROJECTMAN_SES_SESSION_TOKEN';
-const TAG = { Key: 'projectman', Value: 'cloud' };
+export const TAG = { Key: 'projectman', Value: 'cloud' };
 const USE_CASE =
   'Projectman sends transactional, short-lived one-time login codes only to customers invited by ' +
   'the project owner who explicitly request sign-in. There is no public registration, marketing ' +
   'mail or purchased mailing list. Codes expire after ten minutes. Sending is rate limited.';
 
-const callerSchema = z.looseObject({ Account: z.string().regex(/^\d{12}$/) });
-const dkimSchema = z.looseObject({
+export const callerSchema = z.looseObject({ Account: z.string().regex(/^\d{12}$/) });
+export const dkimSchema = z.looseObject({
   SigningEnabled: z.boolean(),
   Status: z.enum(['PENDING', 'SUCCESS', 'FAILED', 'TEMPORARY_FAILURE', 'NOT_STARTED']),
   Tokens: z.array(z.string().regex(/^[a-z0-9]{32}$/)).optional(),
@@ -29,7 +29,7 @@ const dkimSchema = z.looseObject({
     .regex(/^(?:[a-z0-9-]+\.)*dkim\.(?:[a-z0-9-]+\.)?amazonses\.com$/)
     .optional(),
 });
-const identitySchema = z.looseObject({
+export const identitySchema = z.looseObject({
   IdentityType: z.literal('DOMAIN'),
   VerifiedForSendingStatus: z.boolean(),
   DkimAttributes: dkimSchema,
@@ -67,23 +67,23 @@ const newKeySchema = z.looseObject({
   }),
 });
 const zoneSchema = z.looseObject({ id: z.string().min(1), name: z.string(), status: z.string() });
-const recordSchema = z.looseObject({
+export const recordSchema = z.looseObject({
   id: z.string().min(1),
   type: z.string(),
   name: z.string(),
   content: z.string(),
   proxied: z.boolean().optional(),
 });
-type Identity = z.output<typeof identitySchema>;
+export type Identity = z.output<typeof identitySchema>;
 type RecordRow = z.output<typeof recordSchema>;
-type SesConfig = NonNullable<CloudConfig['ses']>;
+export type SesConfig = NonNullable<CloudConfig['ses']>;
 
-function requiredConfig(context: CloudContext): SesConfig {
+export function requiredConfig(context: CloudContext): SesConfig {
   if (!context.config.ses) throw refused('ses is missing from config.json; SES is not enabled automatically');
   return context.config.ses;
 }
 
-function localEnv(context: CloudContext): Map<string, string> {
+export function localEnv(context: CloudContext): Map<string, string> {
   checkSecretsDir(context.secretsDir);
   const env = readEnvFile(context.envFile);
   // Protect every stored value as a final guard against downstream errors echoing existing secrets.
@@ -108,8 +108,22 @@ async function awsState(context: CloudContext) {
   return { cli, ses, account, identity, status };
 }
 
-/** No SendRawEmail, wildcard resource, sender authorization or other permissions. */
-export function sesPolicy(ses: Pick<SesConfig, 'region' | 'domain' | 'from'>, account: string) {
+/** The names of the e-mail channel's receiving resources the sender's policy refers to (PM-945). */
+export interface SesInboundNames {
+  configurationSet: string;
+  queue: string;
+}
+
+/**
+ * No SendRawEmail, wildcard resource, sender authorization or other permissions. With `inbound` the
+ * channel's configuration set may be named in a send, and the one mail queue may be read and emptied.
+ */
+export function sesPolicy(
+  ses: Pick<SesConfig, 'region' | 'domain' | 'from'>,
+  account: string,
+  inbound?: SesInboundNames,
+) {
+  const fromAddress = { StringEquals: { 'ses:FromAddress': ses.from } };
   return {
     Version: '2012-10-17',
     Statement: [
@@ -117,13 +131,46 @@ export function sesPolicy(ses: Pick<SesConfig, 'region' | 'domain' | 'from'>, ac
         Effect: 'Allow',
         Action: 'ses:SendEmail',
         Resource: `arn:aws:ses:${ses.region}:${account}:identity/${ses.domain}`,
-        Condition: { StringEquals: { 'ses:FromAddress': ses.from } },
+        Condition: fromAddress,
       },
+      ...(inbound
+        ? [
+            {
+              Effect: 'Allow',
+              Action: 'ses:SendEmail',
+              Resource: `arn:aws:ses:${ses.region}:${account}:configuration-set/${inbound.configurationSet}`,
+              Condition: fromAddress,
+            },
+            {
+              Effect: 'Allow',
+              Action: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:ChangeMessageVisibility'],
+              Resource: `arn:aws:sqs:${ses.region}:${account}:${inbound.queue}`,
+            },
+          ]
+        : []),
     ],
   };
 }
 
-function policyMatches(document: unknown, wanted: unknown): boolean {
+/**
+ * The policy `ses configure` and `ses check` hold the user to: the one with the receiving statements when
+ * it already carries them (`ses receive-configure` put them there), else the sender-only one.
+ */
+export function wantedSesPolicy(
+  context: CloudContext,
+  ses: Pick<SesConfig, 'region' | 'domain' | 'from'>,
+  account: string,
+  document: unknown,
+) {
+  const inbound = {
+    configurationSet: `${context.config.aws.instanceName}-email`,
+    queue: `${context.config.aws.instanceName}-email-in`,
+  };
+  const withInbound = sesPolicy(ses, account, inbound);
+  return policyMatches(document, withInbound) ? withInbound : sesPolicy(ses, account);
+}
+
+export function policyMatches(document: unknown, wanted: unknown): boolean {
   let decoded = document;
   if (typeof document === 'string') {
     try {
@@ -195,13 +242,18 @@ function dnsSpecs(identity: Identity, ses: SesConfig) {
   }));
 }
 
-function parseShape<S extends z.ZodType>(schema: S, value: unknown, what: string): z.output<S> {
+export function parseShape<S extends z.ZodType>(schema: S, value: unknown, what: string): z.output<S> {
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw new CloudError(`Cloudflare ${what} answered in an unexpected shape`);
   return parsed.data;
 }
 
-async function dnsState(context: CloudContext, identity: Identity | null, ses: SesConfig, readOnly: boolean) {
+export async function dnsState(
+  context: CloudContext,
+  identity: Identity | null,
+  ses: SesConfig,
+  readOnly: boolean,
+) {
   const api = CloudflareApi.fromTokenFile(context, context.config.cloudflare.tokenFile, readOnly);
   const zones = (
     await api.list('/zones', {
@@ -250,7 +302,12 @@ async function dnsState(context: CloudContext, identity: Identity | null, ses: S
   return { api, base, changes };
 }
 
-async function iamState(context: CloudContext, cli: AwsCli, account: string, env: Map<string, string>) {
+export async function iamState(
+  context: CloudContext,
+  cli: AwsCli,
+  account: string,
+  env: Map<string, string>,
+) {
   const name = `${context.config.aws.instanceName}-ses`;
   const user = await cli.callAsOrNull(['iam', 'get-user', '--user-name', name], ['NoSuchEntity'], userSchema);
   let document: unknown = null;
@@ -344,7 +401,7 @@ export async function runSesConfigure(context: CloudContext, dryRun: boolean): P
     // Read all existing ownership/key/DNS state before changing any resource.
     const iam = await iamState(context, cli, account, env);
     let dns = await dnsState(context, identity, ses, dryRun);
-    const wantedPolicy = sesPolicy(ses, account);
+    const wantedPolicy = wantedSesPolicy(context, ses, account, iam.document);
     if (dryRun) {
       context.report.line(
         `dry-run: identity=${identity ? 'keep' : 'create'}, user=${iam.user ? 'keep' : 'create'}, policy=${policyMatches(iam.document, wantedPolicy) ? 'keep' : 'set'}, key=${iam.hasKey ? 'keep' : 'create'}; would set PROJECTMAN_SES_* and PROJECTMAN_EMAIL_LOGIN_ENABLED=1 in protected cloud.env`,
@@ -515,7 +572,11 @@ export async function runSesCheck(context: CloudContext): Promise<void> {
     if (dns.changes.some((change) => !change.matches))
       throw new CloudError('Cloudflare DKIM tokens are not all present as DNS-only CNAMEs');
     const iam = await iamState(context, cli, account, env);
-    if (!iam.user || !iam.hasKey || !policyMatches(iam.document, sesPolicy(ses, account)))
+    if (
+      !iam.user ||
+      !iam.hasKey ||
+      !policyMatches(iam.document, wantedSesPolicy(context, ses, account, iam.document))
+    )
       throw new CloudError(
         'SES sender IAM scope or protected active key does not match the configured identity/from',
       );

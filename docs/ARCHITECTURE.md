@@ -2339,7 +2339,9 @@ workers follow the machine's size.
   `ses request-production [--dry-run]` is a separately approved transactional invited-customer OTP
   request, not configure/up side effect; acceptance of the request is not production approval.
   `ses check` reads verification/DKIM, production/sending, exact DNS/IAM and local sender config;
-  no command sends mail. Cloudflare list responses are shape-checked so malformed reads cannot
+  no command sends mail. With the optional `ses.inbound.replyDomain` (PM-945) the same `ses-send` policy
+  also carries `ses:SendEmail` on the configuration set and the SQS read on one queue; `ses configure` and
+  `ses check` keep that extended policy when it is already in place. Cloudflare list responses are shape-checked so malformed reads cannot
   be mistaken for missing records. **Machine assumptions:** AWS CLI v2/profiles on the owner's
   POSIX administration machine; every AWS call explicitly targets `ses.profile` and the SES region,
   and the key is handed over only through the protected `cloud.env` (no profile env, the backend sends
@@ -2401,6 +2403,24 @@ workers follow the machine's size.
   child process, and makes the outgoing HTTPS call to the region's SES v2 endpoint with explicit keys.
   **Does this work on a remote engine?** Yes: sending, filtering, approval and token generation all run on
   the hub; an engine receives no AWS credentials, no SES request and no protocol change.
+
+- **E-mail channel inbound (SES receiving → SNS → SQS) (PM-945)** —
+  `apps/server/src/services/email-channel/sqs-source.ts` (reader, `createAwsSqsClient`), its wiring in
+  `apps/server/src/assembly.ts`, `scripts/cloud/{ses-receive,ses,config,commands}.ts`,
+  `deploy/aws/config.example.json`, `apps/server/test/cloud-ses-receive.test.ts`,
+  `apps/server/test/helpers/fake-ses.ts`, `docs/AWS.md` ("Receiving e-mail replies"). **What it does:** SES
+  receives the replies on the reply subdomain and publishes them (and the bounce, complaint and delivery
+  events of the configuration set) to an SNS topic; an SQS queue with a dead-letter queue holds them; the
+  hub's reader long-polls the queue and hands each mail or event to the e-mail channel (PM-943), deleting
+  the message only when it was handled. `ses receive-plan|receive-configure [--dry-run]|receive-check` of the
+  provisioning CLI create and verify the MX record, the reply identity, the topic, queues, subscription,
+  configuration set, receipt rule set and the extension of the sender's IAM policy (the SQS read on one queue
+  and `ses:SendEmail` on the configuration set). **Machine assumptions:** the hub makes outgoing HTTPS calls
+  to the region's SQS endpoint with the existing `PROJECTMAN_SES_*` key and reads
+  `PROJECTMAN_EMAIL_QUEUE_URL`, `PROJECTMAN_EMAIL_REPLY_DOMAIN`, `PROJECTMAN_EMAIL_CONFIGURATION_SET` from
+  `cloud.env` (read in `index.ts` only); the CLI runs on the owner's POSIX administration machine with AWS CLI
+  v2 profiles and the Cloudflare DNS token, like the SES provisioning entry. **Does this work on a remote
+  engine?** Yes: the reader runs on the hub only; an engine gets no queue, no key and no protocol change.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,

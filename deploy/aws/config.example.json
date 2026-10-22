@@ -37,6 +37,7 @@
     "profile": "i",
     "region": "eu-west-1",
     "domain": "istvan.io",
-    "from": "CHOOSE-SENDER@istvan.io"
+    "from": "CHOOSE-SENDER@istvan.io",
+    "inbound": { "replyDomain": "reply.istvan.io" }
   }
 }

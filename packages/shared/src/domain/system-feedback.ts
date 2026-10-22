@@ -149,7 +149,7 @@ function looksLikeToken(run: string): boolean {
   return separators * 10 <= run.length;
 }
 
-function redactSecrets(text: string, ctx: RedactionContext, count: Counter): string {
+function redactSecrets(text: string, ctx: Pick<RedactionContext, 'secrets'>, count: Counter): string {
   let out = text;
   const known = unique(ctx.secrets)
     .filter((value) => lengthOf(value) >= SECRET_MIN_LENGTH)
@@ -180,7 +180,7 @@ function redactSecrets(text: string, ctx: RedactionContext, count: Counter): str
   );
 }
 
-function redactPaths(text: string, ctx: RedactionContext, count: Counter): string {
+function redactPaths(text: string, ctx: Pick<RedactionContext, 'paths'>, count: Counter): string {
   let out = text;
   const known = unique(ctx.paths.map((path) => path.replace(/[/\\]+$/, '')))
     .filter(Boolean)
@@ -204,6 +204,28 @@ function redactPaths(text: string, ctx: RedactionContext, count: Counter): strin
 }
 
 const EMAIL_RE = /[\p{L}\p{N}._%+-]+@(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+\p{L}{2,}/gu;
+
+/** Detect without returning secret values to a caller's diagnostics. */
+export function findSecrets(text: string, secrets: readonly string[]): boolean {
+  let found = false;
+  redactSecrets(text, { secrets }, () => {
+    found = true;
+  });
+  return found;
+}
+
+/** Uses the same installation path patterns as system feedback. */
+export function findPaths(text: string, paths: readonly string[]): boolean {
+  let found = false;
+  redactPaths(text, { paths }, () => {
+    found = true;
+  });
+  return found;
+}
+
+export function findEmailAddresses(text: string): string[] {
+  return [...new Set(text.match(EMAIL_RE) ?? [])];
+}
 
 function redactEmails(text: string, ctx: RedactionContext, count: Counter): string {
   const lowered = (values: readonly string[]) => new Set(values.map((v) => v.trim().toLowerCase()));

@@ -1164,6 +1164,15 @@ export const hu = {
     /** Stable error codes from the server (ApiError.code and websocket error events). */
     codes: {
       web_push_unavailable: 'A böngészőértesítések most nem érhetők el.',
+      email_not_configured: 'Az e-mail küldés nincs beállítva.',
+      email_channel_off: 'A projekt levelezése ki van kapcsolva.',
+      email_sender_not_enabled: 'Ez a tag nem küldhet e-mailt.',
+      email_recipient_refused: 'A címzettnek nem küldhető e-mail.',
+      email_content_refused: 'A levél tiltott tartalmat tartalmaz.',
+      email_rate_limited: 'Elérted az e-mail küldési korlátot.',
+      email_contact_refused: 'A címzett beállítása nem módosítható.',
+      email_unknown: 'A levél nem található.',
+      email_send_failed: 'Az e-mail küldése sikertelen.',
       web_push_endpoint_invalid:
         'Ez az értesítési eszköz nem használható. Kapcsold be újra az értesítéseket.',
       web_push_device_limit: 'Legfeljebb 20 eszközön kérhetsz értesítést. Előbb törölj egy eszközt.',
@@ -4279,6 +4288,7 @@ export const hu = {
       senior_wait_ended: 'Magától lezárult: a kártya másként folytatódott',
       dismiss: 'Tudomásul véve',
       approval_given: 'Lezárva: a jóváhagyás megtörtént',
+      email_not_allowed: 'Lezárva: a levél küldése nem engedélyezett',
       feedback_handled: 'Lezárva: a jelölés el van intézve',
       // A question closed without an answer (PM-556).
       task_done: 'Tárgytalan: a kártya Kész',
@@ -4301,6 +4311,7 @@ export const hu = {
       senior_took: 'Automatikus',
       senior_wait_ended: 'Automatikus',
       approval_given: 'Automatikus',
+      email_not_allowed: 'Automatikus',
       feedback_handled: 'Automatikus',
       operator_answered: 'Az Operátor megválaszolta',
       operator_forwarded: 'Az Operátor továbbadta',

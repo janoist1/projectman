@@ -569,6 +569,8 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 /* ---------- members ---------- */
 
 export const MemberView = z.object({
+  /** AI members: the server always supplies the effective email settings. */
+  email: z.object({ enabled: z.boolean(), sendWithoutApproval: z.boolean() }).optional(),
   outage: WorkOutage.optional(),
   githubLogin: GithubLogin.optional(),
   handle: MemberHandle,
@@ -651,6 +653,10 @@ export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 
 /** PATCH of a member; omitted fields stay as they are. */
 export const UpdateMemberRequest = z.object({
+  /** AI only; omitted values retain their settings. */
+  email: z
+    .strictObject({ enabled: z.boolean().optional(), sendWithoutApproval: z.boolean().optional() })
+    .optional(),
   access: HumanAccess.optional(),
   provider: AgentProvider.optional(),
   /** AI only; null restores the provider default. */

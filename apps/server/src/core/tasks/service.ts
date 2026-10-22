@@ -1041,7 +1041,10 @@ export class TaskService implements TaskSchedulingReader {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed'>,
+    opts?: Pick<
+      MoveOptions,
+      'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed' | 'partsClosedTrigger'
+    >,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);
   }

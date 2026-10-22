@@ -204,6 +204,21 @@ describe('describeEvent', () => {
     );
   });
 
+  it('names the subtask that triggered an automatic collecting close, when there is one (PM-373)', () => {
+    const closed = { done: ['AR-2', 'AR-3'], cancelled: [] };
+    const without = describeEvent(
+      event('task_stage_changed', { from: 'a', to: 'b', partsClosed: closed }),
+      100,
+    );
+    const triggered = describeEvent(
+      event('task_stage_changed', { from: 'a', to: 'b', partsClosed: { ...closed, trigger: 'AR-3' } }),
+      100,
+    );
+    expect(without).not.toContain('triggered');
+    expect(triggered).toContain('triggered by');
+    expect(triggered).toContain('AR-3');
+  });
+
   it('words task changes with stage names and quoted handles in the given style', () => {
     const moved = event('task_stage_changed', { from: 'dev', to: 'qa' });
     expect(describeEvent(moved, 100)).toBe('moved it from dev to qa');

@@ -66,7 +66,7 @@ describe('collecting card closes with its parts (PM-647)', () => {
     expect(event?.data).toMatchObject({
       from: 'backlog',
       to: 'done',
-      partsClosed: { done: ['AR-2', 'AR-3'], cancelled: [] },
+      partsClosed: { done: ['AR-2', 'AR-3'], cancelled: [], trigger: 'AR-3' },
     });
   });
 
@@ -77,7 +77,9 @@ describe('collecting card closes with its parts (PM-647)', () => {
     await moveToDone('AR-2');
     await cancel('AR-3');
     await waitFor(() => expect(card().status).toBe('done'));
-    expect(stageEvents()[0]?.data).toMatchObject({ partsClosed: { done: ['AR-2'], cancelled: ['AR-3'] } });
+    expect(stageEvents()[0]?.data).toMatchObject({
+      partsClosed: { done: ['AR-2'], cancelled: ['AR-3'], trigger: 'AR-3' },
+    });
   });
 
   it('leaves the card open when every part was cancelled', async () => {
@@ -113,7 +115,9 @@ describe('collecting card closes with its parts (PM-647)', () => {
     expect(card().status).not.toBe('done');
     await h!.domain.tasks.update('AR', 'AR-1', { removeLabels: ['waiting'] }, OWNER_ACTOR);
     await waitFor(() => expect(card().status).toBe('done'));
-    expect(stageEvents()[0]?.data).toMatchObject({ partsClosed: { done: ['AR-2'] } });
+    const closed = (stageEvents()[0]?.data as { partsClosed: object }).partsClosed;
+    expect(closed).toMatchObject({ done: ['AR-2'] });
+    expect(closed).not.toHaveProperty('trigger');
   });
 
   it('does not close again a card a person reopened', async () => {

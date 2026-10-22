@@ -451,6 +451,20 @@ describe('review pins on the timeline (PM-183)', () => {
     );
   });
 
+  it('names the subtask that triggered the automatic close, when there is one (PM-373)', () => {
+    const closed = { done: ['AC-2', 'AC-4'], cancelled: [] };
+    const triggered = describeEvent(move({ partsClosed: { ...closed, trigger: 'AC-4' } }), context).text;
+    expect(triggered).toBe(
+      t('timeline.events.task_stage_changed_parts_closed_by', {
+        from: 'dev',
+        to: 'review',
+        parts: 'AC-2, AC-4',
+        trigger: 'AC-4',
+      }),
+    );
+    expect(describeEvent(move({ partsClosed: closed }), context).text).not.toBe(triggered);
+  });
+
   it('describes a send-back after a failed full test and the full test results (PM-217)', () => {
     expect(
       describeEvent(move({ testsFailed: { runId: 'ftr_1', branch: 'b', commit: commitA } }), context).text,

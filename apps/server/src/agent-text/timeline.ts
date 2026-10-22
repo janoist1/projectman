@@ -52,10 +52,12 @@ export function describeEvent(
     case 'task_updated':
       return describeTaskUpdate(data, text, list, style);
     case 'task_stage_changed': {
-      const closed = data.partsClosed as { done?: string[]; cancelled?: string[] } | undefined;
+      const closed = data.partsClosed as
+        { done?: string[]; cancelled?: string[]; trigger?: string } | undefined;
       if (closed) {
         const keys = [...(closed.done ?? []), ...(closed.cancelled ?? [])];
-        return `moved it from ${stage('from')} to ${stage('to')} without the gates: every subtask is closed (${keys.join(', ')})`;
+        const trigger = closed.trigger ? `, triggered by the close of ${closed.trigger}` : '';
+        return `moved it from ${stage('from')} to ${stage('to')} without the gates: every subtask is closed (${keys.join(', ')})${trigger}`;
       }
       return `moved it from ${stage('from')} to ${stage('to')}${data.testsFailed ? ' (the full test failed)' : ''}`;
     }

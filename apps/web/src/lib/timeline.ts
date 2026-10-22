@@ -530,15 +530,23 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'task_stage_changed': {
       const names = { from: stageName(ctx, str(d.from)), to: stageName(ctx, str(d.to)) };
       const partsClosed = record(d.partsClosed);
-      if (partsClosed)
+      if (partsClosed) {
+        const trigger = str(partsClosed.trigger);
         return normal(
-          t('timeline.events.task_stage_changed_parts_closed', {
-            ...names,
-            parts: [...strings(partsClosed.done), ...strings(partsClosed.cancelled)].join(
-              t('common.listSeparator'),
-            ),
-          }),
+          t(
+            trigger
+              ? 'timeline.events.task_stage_changed_parts_closed_by'
+              : 'timeline.events.task_stage_changed_parts_closed',
+            {
+              ...names,
+              parts: [...strings(partsClosed.done), ...strings(partsClosed.cancelled)].join(
+                t('common.listSeparator'),
+              ),
+              trigger,
+            },
+          ),
         );
+      }
       const moved = record(d.branchMoved);
       if (moved)
         return normal(

@@ -113,9 +113,7 @@ export function SuperTimelineDetail({
             })}
             {result.signal ? ` · ${result.signal}` : ''}
           </span>
-          {result.exitCode !== 0 ? (
-            <ErrorBanner>{result.signal ?? t('superMode.states.failed')}</ErrorBanner>
-          ) : null}
+          {result.exitCode !== 0 && result.signal ? <ErrorBanner>{result.signal}</ErrorBanner> : null}
           <Fold summary={t('ownerCommand.stdout')}>
             <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{result.stdout}</pre>
           </Fold>

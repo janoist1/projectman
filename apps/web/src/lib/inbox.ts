@@ -37,6 +37,12 @@ import type { PipelineIndex } from './pipeline';
 import { releaseFailedWords } from './release';
 import { relationKindLabel } from './timeline';
 
+/** Operator-origin requests use the same sender in the inbox and in task status lines. */
+export function isOperatorInboxRequest(item: Pick<InboxItem, 'payload'>): boolean {
+  const payload = questionPayloadOf(item);
+  return !!payload?.operatorHandoff || !!payload?.superOperation;
+}
+
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
 export const FREE_ANSWER_OPTION_ID = 'answer';
 

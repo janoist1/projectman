@@ -39,6 +39,7 @@ import {
   inboxHeading,
   inboxItemDomId,
   isTodo,
+  isOperatorInboxRequest,
   loopDecisionText,
   operatorFallbackOf,
   operatorNoteOf,
@@ -221,7 +222,7 @@ export function InboxCard({
   const ownerCommand = ownerCommandOf(operation.data?.operation);
   const handoffResult = OperatorHandoffSchema.safeParse(item.payload.operatorHandoff);
   const handoff = handoffResult.success ? handoffResult.data : null;
-  const fromOperator = !!handoff || !!operationPayload;
+  const fromOperator = isOperatorInboxRequest(item);
   const repeatedCardLink = handoff?.reason === 'processing_failed' && cardHref === detailsHref;
   const handoffGrant = useOperatorGrant(!!handoff);
   const handoffPrimary =

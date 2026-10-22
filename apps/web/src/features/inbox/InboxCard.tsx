@@ -221,6 +221,8 @@ export function InboxCard({
   const ownerCommand = ownerCommandOf(operation.data?.operation);
   const handoffResult = OperatorHandoffSchema.safeParse(item.payload.operatorHandoff);
   const handoff = handoffResult.success ? handoffResult.data : null;
+  const fromOperator = !!handoff || !!operationPayload;
+  const repeatedCardLink = handoff?.reason === 'processing_failed' && cardHref === detailsHref;
   const handoffGrant = useOperatorGrant(!!handoff);
   const handoffPrimary =
     handoff &&
@@ -439,6 +441,10 @@ export function InboxCard({
             ))}
             {groupAskers.length > 3 ? <span>+{groupAskers.length - 3}</span> : null}
           </span>
+        ) : fromOperator ? (
+          <span className={styles.operatorIcon} aria-hidden="true">
+            <Icon name="sparkle" size={13} strokeWidth={2} />
+          </span>
         ) : fromSystem ? (
           <span className={styles.systemIcon} aria-hidden="true">
             <Icon name="layers" size={13} strokeWidth={2} />
@@ -449,9 +455,11 @@ export function InboxCard({
         <span className={styles.source}>
           {grouped
             ? joinNames(namesOf(groupAskers, members, myHandle))
-            : fromSystem
-              ? t('common.system')
-              : nameOf(item.source, members, myHandle)}
+            : fromOperator
+              ? t('superMode.name')
+              : fromSystem
+                ? t('common.system')
+                : nameOf(item.source, members, myHandle)}
         </span>
       </span>
       <span className={styles.spacer} />
@@ -1024,7 +1032,7 @@ export function InboxCard({
               {answerOption ? optionLabel(answerOption) : t('inbox.answerOwn')}
             </Button>
           ) : null}
-          {detailsHref && !mobile ? (
+          {detailsHref && !mobile && !repeatedCardLink ? (
             <>
               <span className={styles.spacer} />
               <Link to={detailsHref} className={styles.details}>
@@ -1040,7 +1048,7 @@ export function InboxCard({
           {error}
         </p>
       ) : null}
-      {detailsHref && mobile && !handOn && !mergeItem ? (
+      {detailsHref && mobile && !handOn && !mergeItem && !repeatedCardLink ? (
         <Link to={detailsHref} className={styles.details}>
           <span>{t('inbox.details')}</span>
           <Icon name="arrowRight" size={14} strokeWidth={2.2} />

@@ -1,5 +1,6 @@
 /** PM-891: deterministic grant, handoff and command DTOs; no real machine command runs. */
-export default async ({ open, shoot, step }) => {
+export default async ({ open, shoot: capture, step }) => {
+  const shoot = (page, name, options) => capture(page, `review2-${name}`, options);
   const page = await open({ path: '/p/AC/settings/integrator' });
   const hu = await page.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
   const at = new Date().toISOString();
@@ -75,6 +76,9 @@ export default async ({ open, shoot, step }) => {
       grantedBy: 'Owner',
       expiresAt: new Date(new Date().setHours(23, 59, 59, 999)).toISOString(),
     };
+    audits = [
+      { grantId: grant.grantId, action: 'granted', at, expiresAt: grant.expiresAt, by: grant.grantedBy },
+    ];
     await page.reload();
     await page.getByRole('button', { name: hu.operatorGrant.extend }).waitFor();
     await shoot(page, 'grant-expiring', options);
@@ -272,6 +276,6 @@ export default async ({ open, shoot, step }) => {
     await page.getByText(hu.ownerCommand.truncated).waitFor();
     await page.getByText(hu.ownerCommand.stdout, { exact: true }).click();
     await page.getByText(hu.ownerCommand.stderr, { exact: true }).click();
-    await shoot(page, 'command-result', options);
+    await shoot(page, 'command-result', { ...options, highlight: '#timeline-command-event' });
   });
 };

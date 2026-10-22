@@ -95,7 +95,7 @@ export function OwnerCommandBody({
       ) : null}
       {grant.data?.grant.active === false ? (
         <div className={styles.warning}>
-          {t('ownerCommand.noGrant')}
+          <span>{t('ownerCommand.noGrant')}</span>
           {grant.data.grant.canManage ? (
             <ButtonLink variant="secondary" to={`/p/${projectKey}/settings/integrator#operator-grant`}>
               {t('operatorGrant.grant')}

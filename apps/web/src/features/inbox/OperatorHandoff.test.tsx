@@ -18,6 +18,7 @@ it.each<OperatorHandoff['reason']>(['owner_reserved', 'no_typed_operation', 'no_
   async (reason) => {
     const project = mockProject();
     const entry = plainLanguageQuestion({
+      source: 'system',
       title: 'Old title',
       payload: {
         question: 'Old title',
@@ -42,9 +43,11 @@ it.each<OperatorHandoff['reason']>(['owner_reserved', 'no_typed_operation', 'no_
         myHandle="owner"
         onResolve={onResolve}
         cardHref="/p/AC/tasks/AC-21"
+        detailsHref="/p/AC/tasks/AC-21"
       />,
     );
     expect(screen.getByRole('heading', { name: 'Complete the remaining work' })).toBeTruthy();
+    expect(screen.getByText(t('superMode.name'))).toBeTruthy();
     expect(screen.getByText(t(`inbox.handedOff.reasons.${reason}`))).toBeTruthy();
     expect(screen.getByText('Already checked the state').closest('details')?.open).toBe(false);
     fireEvent.click(screen.getByText(t('inbox.handedOff.detail')));
@@ -54,7 +57,9 @@ it.each<OperatorHandoff['reason']>(['owner_reserved', 'no_typed_operation', 'no_
         (await screen.findByRole('link', { name: t('inbox.handedOff.grant') })).getAttribute('href'),
       ).toBe('/p/AC/settings/integrator#operator-grant');
     if (reason === 'processing_failed')
-      expect(screen.getByRole('link', { name: t('inbox.handedOff.openCard') })).toBeTruthy();
+      expect(
+        screen.getAllByRole('link').filter((link) => link.getAttribute('href') === '/p/AC/tasks/AC-21'),
+      ).toHaveLength(1);
   },
 );
 

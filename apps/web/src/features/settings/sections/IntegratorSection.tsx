@@ -216,7 +216,7 @@ export function IntegratorSection() {
           <h3>{t('operatorGrant.clientTitle')}</h3>
           <p>{t('integratorKey.intro')}</p>
           {grant.data?.grant.active === false && active.some((info) => info.mode === 'super') ? (
-            <p className={styles.warning}>{t('operatorGrant.clientInactive')}</p>
+            <p className={styles.info}>{t('operatorGrant.clientInactive')}</p>
           ) : null}
           {!ownLogin ? <p role="status">{t('integratorKey.ownerOnly')}</p> : null}
           {ownLogin && query.isPending ? <LoadingState /> : null}
@@ -281,13 +281,13 @@ export function IntegratorSection() {
             <p>{t('operatorGrant.auditEmpty')}</p>
           ) : null}
           {log.length ? (
-            <ol>
+            <ul className={styles.audit}>
               {log.map((entry) => (
                 <li key={entry.id}>
                   <time dateTime={entry.at}>{formatStamp(entry.at)}</time> · {entry.text}
                 </li>
               ))}
-            </ol>
+            </ul>
           ) : null}
           {ownLogin ? (
             <div>

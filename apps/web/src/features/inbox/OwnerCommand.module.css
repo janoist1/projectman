@@ -34,10 +34,20 @@
   white-space: pre-wrap;
 }
 .warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   padding: 12px;
   background: var(--c-needs-bg);
   color: var(--c-needs-text);
   border-radius: var(--radius-lg);
+}
+.warning > span {
+  flex: 1 1 220px;
+}
+.warning > a {
+  flex-shrink: 0;
 }
 .skeleton {
   height: 90px;

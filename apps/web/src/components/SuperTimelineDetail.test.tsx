@@ -56,6 +56,7 @@ it('shows separate command output streams, failure and truncation in the operati
   };
   project.render(<SuperTimelineDetail event={event} events={[event]} fallback="Changed" />);
   expect(await screen.findByText(t('ownerCommand.truncated'))).toBeTruthy();
+  expect(screen.getByText(/1,3/)).toBeTruthy();
   expect(screen.getByRole('alert').textContent).toBe('SIGTERM');
   fireEvent.click(screen.getByText(t('ownerCommand.stdout')));
   fireEvent.click(screen.getByText(t('ownerCommand.stderr')));

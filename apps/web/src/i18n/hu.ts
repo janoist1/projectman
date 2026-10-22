@@ -132,6 +132,7 @@ export const hu = {
     revokeTitle: 'Visszavonod a super jogosítványt?',
     grantBody:
       'A gépeden kiadást, újraindítást, tesztet, állapotlekérdezést és folyamat-takarítást végezhet, típusosan és naplózva. Parancsot a gépeden csak parancsonként, a te igeneddel futtat.',
+    grantReserved: 'Törlés, biztonság, fizetős költség és engedélydöntés a tiéd marad.',
     reserved:
       'Tag, kulcs, projekt és repó törlése; belépés és biztonsági beállítások; fizetős költség; külső műveletek és parancs-engedélyek.',
     reservedTitle: 'Ami a tiéd marad',
@@ -172,6 +173,7 @@ export const hu = {
     auditExpired: 'Super jogosítvány lejárt',
   },
   ownerCommand: {
+    operation: 'Parancs a gépeden',
     hub: 'Központi gép (hub)',
     chip: 'Parancs · a te igeneddel',
     title: 'Lefuttathatja ezt a parancsot a gépeden?',
@@ -212,8 +214,8 @@ export const hu = {
     details: 'Részletesen',
     emptyHint: 'Kulcs nélkül a Claude Code nem csatlakozhat. Az Operátor nélküle is dolgozik.',
     past: 'Korábbi kulcsok ({n})',
-    legacy: 'Ezzel a kulccsal a műveletek még a te neveden látszanak. Cserélj super kulcsra.',
-    upgrade: 'Csere super kulcsra',
+    legacy: 'Ezzel a kulccsal a műveletek még a te neveden látszanak. Cserélj Claude Code-kulcsra.',
+    upgrade: 'Csere Claude Code-kulcsra',
     ownerOnly: 'A kulcsokat csak a tulajdonos kezelheti, a saját bejelentkezésével.',
     today:
       'A Claude Code-kulcs ma lejár. Adj újat időben, különben a Claude Code hívásai elutasítást kapnak.',

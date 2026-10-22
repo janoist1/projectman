@@ -6,6 +6,7 @@ import { SuperState } from '@projectman/shared';
 import { api } from '../api/endpoints';
 import { ProjectContext } from '../app/contexts';
 import { t } from '../i18n/t';
+import { LOCALE } from '../i18n/format';
 import { Button } from './Button';
 import { SuperStateChip } from './SuperStateChip';
 import { Fold } from './Fold';
@@ -39,6 +40,7 @@ export function SuperTimelineDetail({
   const handoff = handoffs.data?.handoff;
   const op = operation.data?.operation;
   const result = operation.data?.result;
+  const ownerCommand = op?.command.kind === 'administration' && op.command.request.kind === 'owner_command';
   const state = SuperState.safeParse(event.data.state);
   const source = op?.handoffId
     ? events.find((item) => item.type === 'super_handoff_changed' && item.data.handoffId === op.handoffId)
@@ -56,12 +58,14 @@ export function SuperTimelineDetail({
       ) : null}
       {op ? (
         <span>
-          {t(
-            op.handoffId && state.success && state.data === 'succeeded'
-              ? 'superMode.executed'
-              : 'superMode.operation',
-            { operation: t(`superMode.commands.${op.command.kind}`) },
-          )}{' '}
+          {ownerCommand
+            ? t('ownerCommand.operation')
+            : t(
+                op.handoffId && state.success && state.data === 'succeeded'
+                  ? 'superMode.executed'
+                  : 'superMode.operation',
+                { operation: t(`superMode.commands.${op.command.kind}`) },
+              )}{' '}
         </span>
       ) : null}
       {state.success ? (
@@ -101,7 +105,11 @@ export function SuperTimelineDetail({
           <span>
             {t('ownerCommand.exit', {
               n: result.exitCode ?? '—',
-              time: t('ownerCommand.seconds', { n: result.durationMs / 1000 }),
+              time: t('ownerCommand.seconds', {
+                n: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }).format(
+                  result.durationMs / 1000,
+                ),
+              }),
             })}
             {result.signal ? ` · ${result.signal}` : ''}
           </span>

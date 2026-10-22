@@ -34,7 +34,9 @@ export function OperatorGrantCard() {
     ? new Date(grant.expiresAt).toLocaleTimeString('hu', { hour: '2-digit', minute: '2-digit' })
     : '';
   const expiry = grant?.expiresAt
-    ? t('operatorGrant.until', { time: formatStamp(grant.expiresAt) })
+    ? today
+      ? t('operatorGrant.todayChip', { time })
+      : t('operatorGrant.until', { time: formatStamp(grant.expiresAt) })
     : t('operatorGrant.untilRevoked');
   const mutation = useMutation({
     mutationFn: () => (dialog === 'revoke' ? api.revokeOperatorGrant() : api.createOperatorGrant(duration)),
@@ -119,9 +121,9 @@ export function OperatorGrantCard() {
           )}
           {today ? (
             <div className={styles.warning} role="status">
-              {t('operatorGrant.today', { time })}
+              <span>{t('operatorGrant.today', { time })}</span>
               {grant.canManage ? (
-                <Button variant="ghost" onClick={() => open('extend')}>
+                <Button variant="secondary" onClick={() => open('extend')}>
                   {t('operatorGrant.extend')}
                 </Button>
               ) : null}
@@ -186,25 +188,27 @@ export function OperatorGrantCard() {
           </>
         }
       >
-        <p>{t(dialog === 'revoke' ? 'operatorGrant.revokeBody' : 'operatorGrant.grantBody')}</p>
-        {dialog !== 'revoke' ? (
-          <>
-            <p>{t('operatorGrant.reserved')}</p>
-            <SelectField
-              label={t('operatorGrant.duration')}
-              value={duration}
-              disabled={mutation.isPending}
-              onChange={(event) => setDuration(event.target.value as OperatorGrantDuration)}
-            >
-              {OPERATOR_GRANT_DURATIONS.map((value) => (
-                <option key={value} value={value}>
-                  {t(`operatorGrant.durations.${value}`)}
-                </option>
-              ))}
-            </SelectField>
-          </>
-        ) : null}
-        {mutation.isError ? <ErrorBanner>{errorMessage(mutation.error)}</ErrorBanner> : null}
+        <div className={styles.grantDialog}>
+          <p>{t(dialog === 'revoke' ? 'operatorGrant.revokeBody' : 'operatorGrant.grantBody')}</p>
+          {dialog !== 'revoke' ? (
+            <>
+              <p>{t('operatorGrant.grantReserved')}</p>
+              <SelectField
+                label={t('operatorGrant.duration')}
+                value={duration}
+                disabled={mutation.isPending}
+                onChange={(event) => setDuration(event.target.value as OperatorGrantDuration)}
+              >
+                {OPERATOR_GRANT_DURATIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {t(`operatorGrant.durations.${value}`)}
+                  </option>
+                ))}
+              </SelectField>
+            </>
+          ) : null}
+          {mutation.isError ? <ErrorBanner>{errorMessage(mutation.error)}</ErrorBanner> : null}
+        </div>
       </Dialog>
     </div>
   );

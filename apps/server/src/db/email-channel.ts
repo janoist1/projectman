@@ -145,6 +145,10 @@ export function createEmailChannelRepository(db: Db) {
         ).run({ ...record, attachmentNames: toJson(record.attachmentNames) });
         return record;
       },
+      /** Drops a row whose work failed, so the same provider id can be tried again. */
+      remove(id: string): void {
+        db.prepare('DELETE FROM email_messages WHERE id = ?').run(id);
+      },
       get: (id: string) => getMessage('id', id),
       byTokenHash: (hash: string) => getMessage('reply_token_hash', hash),
       byProviderId: (id: string) => getMessage('provider_id', id),

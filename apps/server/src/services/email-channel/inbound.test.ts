@@ -1,5 +1,5 @@
 import { EMAIL_PARKED_ALERTS_PER_DAY, alertPayloadOf } from '@projectman/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createDomainHarness,
   OWNER,
@@ -242,6 +242,31 @@ describe('EmailInbound', () => {
       expect(harness.repos.emailChannel.messages.byProviderId('in-1')!.messageId).toBeNull();
     });
 
+    it('delivers a mail received twice at the same time once', async () => {
+      const { harness, emailChannel, reply, inboundRows } = await setup();
+      const mail = reply();
+      const results = await Promise.all([
+        emailChannel.inbound.receive(mail),
+        emailChannel.inbound.receive(mail),
+      ]);
+      expect([...results].sort()).toEqual(['delivered', 'duplicate']);
+      expect(inboundRows()).toHaveLength(1);
+      expect(harness.repos.messages.list('AR').filter((message) => message.email)).toHaveLength(1);
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)!.messageId).not.toBeNull();
+    });
+
+    it('frees the provider id when the message cannot be sent, so the mail can be received again', async () => {
+      const { harness, emailChannel, reply } = await setup();
+      const mail = reply();
+      const record = vi.spyOn(harness.domain.messages, 'record').mockImplementationOnce(() => {
+        throw new Error('no');
+      });
+      await expect(emailChannel.inbound.receive(mail)).rejects.toThrow('no');
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toBeNull();
+      record.mockRestore();
+      expect(await emailChannel.inbound.receive(mail)).toBe('delivered');
+    });
+
     it('stops the alerts at the daily limit but keeps every parked mail', async () => {
       const { harness, emailChannel, reply, alerts } = await setup();
       for (let count = 0; count <= EMAIL_PARKED_ALERTS_PER_DAY; count += 1)
@@ -283,6 +308,16 @@ describe('EmailInbound', () => {
         source: 'complaint',
         changedBy: 'system',
       });
+    });
+
+    it.each(['bounce', 'complaint'] as const)('handles a repeated %s once', async (kind) => {
+      const { harness, emailChannel } = await setup();
+      await emailChannel.inbound.deliveryEvent(event(kind));
+      const count = () =>
+        harness.repos.messages.list('AR').filter((message) => message.to.includes('dev-1')).length;
+      const before = count();
+      await emailChannel.inbound.deliveryEvent(event(kind));
+      expect(count()).toBe(before);
     });
 
     it.each([

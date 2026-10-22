@@ -181,18 +181,9 @@ export function createEmailInbound(deps: {
       return fail('unknown_sender');
     if (!emailChannelOn(config) || !emailSenderOf(config, known.member ?? '')) return fail('channel_off');
 
+    // The row comes first: its unique provider id claims the mail, so a second delivery of it (the queue
+    // delivers at least once) stops here and the member gets the message once.
     const emailId = `eml_${randomUUID()}`;
-    const task = known.taskKey ? tasks.find(projectKey, known.taskKey) : null;
-    const message = await messaging.send(
-      projectKey,
-      contact.handle,
-      {
-        to: [known.member!],
-        taskKey: task && isOpenTask(task) ? task.key : null,
-        text: parsed.text,
-      },
-      { kind: 'action', email: { emailId, subject: parsed.subject } },
-    );
     const at = now().toISOString();
     try {
       repo.messages.insert({
@@ -214,7 +205,7 @@ export function createEmailInbound(deps: {
         inReplyTo: known.id,
         providerId: mail.providerId,
         inboxItemId: null,
-        messageId: message.id,
+        messageId: null,
         decidedBy: null,
         decidedAt: null,
         createdAt: at,
@@ -224,6 +215,25 @@ export function createEmailInbound(deps: {
       if (isUniqueViolation(error)) return 'duplicate';
       throw error;
     }
+    const task = known.taskKey ? tasks.find(projectKey, known.taskKey) : null;
+    let message: Awaited<ReturnType<Messaging['send']>>;
+    try {
+      message = await messaging.send(
+        projectKey,
+        contact.handle,
+        {
+          to: [known.member!],
+          taskKey: task && isOpenTask(task) ? task.key : null,
+          text: parsed.text,
+        },
+        { kind: 'action', email: { emailId, subject: parsed.subject } },
+      );
+    } catch (error) {
+      // Nothing was sent: free the provider id, so the redelivery of the mail can try again.
+      repo.messages.remove(emailId);
+      throw error;
+    }
+    repo.messages.update(emailId, { messageId: message.id, updatedAt: now().toISOString() });
     changed(projectKey);
     return 'delivered';
   }
@@ -237,6 +247,11 @@ export function createEmailInbound(deps: {
     const { projectKey } = record;
     const at = now().toISOString();
     if (event.kind === 'delivery') return;
+    // The notification service repeats events: an outcome already recorded is not handled again.
+    if (record.status === 'bounced' || record.status === 'complained') {
+      logger.debug({ providerId: event.providerId, kind: event.kind }, 'a repeated delivery event');
+      return;
+    }
     if (event.kind === 'bounce' && !event.permanent) {
       logger.info({ projectKey, emailId: record.id }, 'a mail bounced for now');
       return;

@@ -129,6 +129,8 @@ export interface MoveOptions {
   despitePrerequisites?: boolean;
   /** The system closes a collecting card with its parts (PM-647): the move is valid only while the waiver holds, and never falls back to the gates. */
   partsClosed?: true;
+  /** The subtask whose close triggered the system's automatic close (PM-373); recorded in the event's `partsClosed`. */
+  partsClosedTrigger?: string;
   /**
    * Where the card goes in the target column when it is dropped on the board (PM-118). Without it a card
    * that enters another column takes the top of that column; one that stays in its column keeps its place.
@@ -237,7 +239,10 @@ export class TaskMoves {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed'> = {},
+    opts: Pick<
+      MoveOptions,
+      'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed' | 'partsClosedTrigger'
+    > = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
     const prepared = await this.prepareMove(config, this.store.get(projectKey, taskKey), stageId);
@@ -445,7 +450,9 @@ export class TaskMoves {
       ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
       ...(opts.noteExcerpt ? { noteExcerpt: opts.noteExcerpt } : {}),
       ...(opts.pulled ? { pulled: opts.pulled } : {}),
-      ...(waiver ? { partsClosed: waiver } : {}),
+      ...(waiver
+        ? { partsClosed: opts.partsClosedTrigger ? { ...waiver, trigger: opts.partsClosedTrigger } : waiver }
+        : {}),
     };
     const board: BoardPlace = { placement: opts.placement, reranked: [] };
     return {

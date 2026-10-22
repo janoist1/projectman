@@ -36,7 +36,7 @@ export class CollectingCloser {
   /** A subtask closed (entered the done stage or was cancelled): closes its parent when `collectingAutoClose` holds. */
   async partClosed(part: Task): Promise<void> {
     if (!part.parentKey) return;
-    await this.close(part.projectKey, part.parentKey);
+    await this.close(part.projectKey, part.parentKey, part.key);
   }
 
   /** A collecting card lost its last blocking label: closes it when `collectingAutoClose` holds. */
@@ -48,7 +48,8 @@ export class CollectingCloser {
     await this.close(task.projectKey, task.key);
   }
 
-  private async close(projectKey: string, cardKey: string): Promise<void> {
+  /** `trigger`: the subtask whose close started this, recorded on the timeline (PM-373). */
+  private async close(projectKey: string, cardKey: string, trigger?: string): Promise<void> {
     await this.mutex.run(`${projectKey}:${cardKey}`, async () => {
       const config = await this.projects.config(projectKey);
       const task = this.ctx.repos.tasks.get(cardKey);
@@ -59,6 +60,7 @@ export class CollectingCloser {
         await this.tasks.moveToStage(projectKey, cardKey, close.to.id, SYSTEM_ACTOR, {
           expectedFrom: { stageId: task.stageId, stageEnteredAt: task.stageEnteredAt },
           partsClosed: true,
+          ...(trigger ? { partsClosedTrigger: trigger } : {}),
         });
       } catch (err) {
         if (!(err instanceof DomainError) || !REFUSALS.has(err.code)) throw err;

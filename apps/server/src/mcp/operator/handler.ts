@@ -47,7 +47,7 @@ import type {
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super-operator';
 import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';
-import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
+import { isOwner, toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 /** What the Operator's super-operation tools stand on (PM-888). */
 export interface SuperPath {
@@ -361,6 +361,19 @@ export class OperatorTools implements OperatorToolsHandler {
           'invalid',
           `super_operation_unsupported: a ${args.command.kind} command is not run here; use operate.`,
         );
+      // Releasing a workspace carries no owner approval step, so the request itself must be the owner's own
+      // message or answer: a queue item opened by a member's message or an integrator todo is not enough (PM-935).
+      if (args.command.kind === 'workspace_release') {
+        const request = caller.request!;
+        if (
+          (request.source !== 'message' && request.source !== 'answer') ||
+          !isOwner(caller.config, request.fromHandle)
+        )
+          throw new TeamToolError(
+            'forbidden',
+            'operator_owner_only: a workspace release needs a direct message or answer of an owner.',
+          );
+      }
       const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : undefined;
       const requestId = appRequestId(caller.request!.id, args.requestKey);
       return await this.calls.recorded(

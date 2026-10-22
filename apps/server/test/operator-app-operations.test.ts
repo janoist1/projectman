@@ -22,7 +22,8 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
   const openRequest = (
     sessionId: string,
     id = REQUEST,
-    source: 'message' | 'answer' | 'approval' = 'message',
+    source: 'message' | 'answer' | 'approval' | 'queue' = 'message',
+    fromHandle = 'owner',
   ) =>
     h.repos.operatorRequests.insert({
       id,
@@ -31,7 +32,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       source,
       messageId: null,
       inboxItemId: null,
-      fromHandle: 'owner',
+      fromHandle,
       quote: 'Do it.',
       openedAt: new Date().toISOString(),
     });
@@ -106,6 +107,25 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       openRequest(ctx.sessionId, 'opr_app_approval', 'approval');
       await expect(execute('approval')).rejects.toMatchObject({ code: 'forbidden' });
       expect(h.repos.tasks.get('AR-1')).toBeNull();
+    });
+
+    it('releases no workspace on a queue item, only on a direct message or answer of an owner (PM-935)', async () => {
+      const release: SuperCommand = {
+        kind: 'workspace_release',
+        scopeId: 'scp_0123456789abcdef',
+        reason: 'Checked',
+      };
+      h.repos.operatorRequests.close(REQUEST, NOW);
+      openRequest(ctx.sessionId, 'opr_app_release', 'queue');
+      await expect(execute('release', release)).rejects.toMatchObject({
+        code: 'forbidden',
+        message: expect.stringContaining('operator_owner_only'),
+      });
+      expect(h.repos.operatorRequests.steps('opr_app_release')).toEqual([]);
+      // A member's request is a guest request: refused before the command is looked at.
+      h.repos.operatorRequests.close('opr_app_release', NOW);
+      openRequest(ctx.sessionId, 'opr_app_member', 'message', 'dev-1');
+      await expect(execute('release-member', release)).rejects.toMatchObject({ code: 'forbidden' });
     });
 
     it('is refused to a member who is not the Operator and in a guest conversation', async () => {
